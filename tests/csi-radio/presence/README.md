@@ -634,3 +634,24 @@ The motion recording acknowledgement is now `record=csi_lab_v7
 model_owner=control_v1 motion=temporal_motion_v1`. It retains the same frozen
 policy while adding the [sampling interruption records](../../csi-lab/README.md#sampling-interruption-diagnostics).
 The historical `PRESENCE_RECORD` mode remains version 4 without sampling taps.
+
+## Native receive stability controls
+
+`stability.py` checks two existing modes of the same pinned image:
+`Case.VENDOR` uses `PRESENCE 120 linear` without recording; `Case.RECORDED`
+uses the version-7 motion recorder for 120 seconds without training or human
+phase commands. The host owner resets the image between cases and restores the
+original camera on every outcome. Stop the comparison on either case's failure.
+
+Both cases require a complete timed END, consistent reports and advancing native
+numerical work (10-second startup allowance, then a two-second progress deadline).
+The recorded case additionally requires successful full-archive verification,
+zero recorder loss, matched final model accounting and qualified stack margins.
+The helper opens no hardware and receives events already validated by `run.py`.
+Use the existing maintenance owner for identity, backup, credentials and recovery.
+
+The modes differ in tracing, preprocessing ownership, Rust policy and USB load;
+they are workload controls, not a single-variable intervention. A completed run
+qualifies only that interval. Numerical activity is not RF freshness, callback
+retirement, calibrated detection, long-term reliability or proof of the crash's
+cause. No driver binary, ping setting or detection acceptance rule changes.
