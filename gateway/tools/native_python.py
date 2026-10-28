@@ -43,7 +43,8 @@ audit-output-limit audit-tool-module native-http-parser-required
 same-installed-environment native-h264-capability actual-decoded-frame
 advancing-decoded-frames actual-http-response candidate-group
 native-runtime-changed candidate-loopback qualification-source-change
-public-report-budget new-native-admission
+public-report-budget new-native-admission joined-media-cleanup
+duplicate-json-key regular-public-input public-input-size
 '''.split())
 QUALIFICATION_EXCEPTIONS = {
     'AssertionError':'assertion-error', 'TimeoutError':'timeout-error',
