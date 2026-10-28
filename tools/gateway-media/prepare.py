@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Build the minimized gateway media runtime only on disposable hosted Ubuntu."""
 import argparse
+import errno
 import hashlib
+import http.client
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import socket
+import ssl
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -80,9 +86,37 @@ def resolved(build):
     return dict(selected=observed,implementation_features=dict(frame_thread_encoder=values.get('CONFIG_FRAME_THREAD_ENCODER')=='1'),configuration_sha256={n:digest(build/n) for n in ['config.h','config_components.h','ffbuild/config.mak']})
 
 
+def source_failure(error):
+    if isinstance(error,urllib.error.HTTPError):
+        return ('http-transient',True) if error.code in (429,502,503,504) else ('http-terminal',False)
+    reason=error.reason if isinstance(error,urllib.error.URLError) else error
+    if isinstance(reason,ssl.SSLCertVerificationError):return 'certificate',False
+    if isinstance(reason,ssl.SSLError):return 'tls',False
+    if isinstance(reason,TimeoutError):return 'timeout',True
+    if isinstance(reason,socket.gaierror):
+        return ('dns-transient',True) if reason.errno==socket.EAI_AGAIN else ('dns-terminal',False)
+    if isinstance(reason,http.client.IncompleteRead):return 'truncated-response',True
+    if isinstance(reason,ConnectionError) or (isinstance(reason,OSError) and reason.errno in (
+            errno.ETIMEDOUT,errno.ECONNRESET,errno.ECONNABORTED,errno.ECONNREFUSED,errno.EHOSTUNREACH,errno.ENETUNREACH)):
+        return 'connection',True
+    return 'unclassified',False
+
+
 def fetch(pin,work,name):
     require(pin['url'].startswith('https://'),'https-source')
-    with urllib.request.urlopen(pin['url'],timeout=45) as source:raw=source.read(32*1024*1024+1)
+    for attempt in range(1,4):
+        try:
+            with urllib.request.urlopen(pin['url'],timeout=45) as source:raw=source.read(32*1024*1024+1)
+            break
+        except (urllib.error.URLError,OSError,http.client.HTTPException) as error:
+            category,transient=source_failure(error)
+            if isinstance(error,urllib.error.HTTPError):error.close()
+            if not transient or attempt==3:
+                raise native.Refusal('gateway-source-download-'+category) from None
+            # Only fixed categories and the bounded attempt number leave the
+            # failure boundary; exception text, URLs and response bytes do not.
+            print('GATEWAY_MEDIA_SOURCE_RETRY '+category+' attempt='+str(attempt),flush=True)
+            time.sleep(attempt)
     require(len(raw)<=32*1024*1024 and hashlib.sha256(raw).hexdigest()==pin['sha256'],'pinned-source-archive')
     path=work/(name+'.tar');path.write_bytes(raw)
     return extractor.extract(path,work,pin['root'])

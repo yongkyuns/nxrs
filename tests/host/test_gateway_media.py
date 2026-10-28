@@ -1,7 +1,15 @@
 import importlib.util
+import hashlib
+import http.client
+import io
 from pathlib import Path
+import socket
+import ssl
+import tarfile
 import tempfile
 import unittest
+import urllib.error
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -10,6 +18,93 @@ media=importlib.util.module_from_spec(spec);spec.loader.exec_module(media)
 
 
 class GatewayMedia(unittest.TestCase):
+    def archive(self):
+        output=io.BytesIO()
+        with tarfile.open(fileobj=output,mode='w') as archive:
+            item=tarfile.TarInfo('source/README');body=b'PRIVATE SOURCE CONTENT';item.size=len(body)
+            archive.addfile(item,io.BytesIO(body))
+        raw=output.getvalue()
+        return raw,dict(url='https://example.invalid/PRIVATE-URL',sha256=hashlib.sha256(raw).hexdigest(),root='source')
+
+    def test_transient_timeout_and_dns_retry_same_pinned_url_then_extract_real_archive(self):
+        raw,pin=self.archive();output=io.StringIO();response=io.BytesIO(raw)
+        errors=[urllib.error.URLError(TimeoutError('PRIVATE REASON')),
+                urllib.error.URLError(socket.gaierror(socket.EAI_AGAIN,'PRIVATE DNS')),response]
+        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=errors) as opening, \
+             patch.object(media.time,'sleep') as sleeping,redirect_stdout(output):
+            result=media.fetch(pin,Path(d),'source')
+            self.assertEqual((result/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
+        self.assertEqual(opening.call_count,3)
+        self.assertTrue(all(call.args==(pin['url'],) and call.kwargs==dict(timeout=45) for call in opening.call_args_list))
+        self.assertEqual([call.args for call in sleeping.call_args_list],[(1,),(2,)])
+        self.assertTrue(response.closed)
+        self.assertEqual(output.getvalue().splitlines(),['GATEWAY_MEDIA_SOURCE_RETRY timeout attempt=1',
+            'GATEWAY_MEDIA_SOURCE_RETRY dns-transient attempt=2'])
+        self.assertNotIn('PRIVATE',output.getvalue())
+
+    def test_transient_http_retries_close_error_responses(self):
+        raw,pin=self.archive();bodies=[io.BytesIO(b'PRIVATE SERVER BODY') for _ in range(2)]
+        errors=[urllib.error.HTTPError(pin['url'],code,'PRIVATE REASON',{},body) for code,body in zip((429,503),bodies)]
+        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[*errors,io.BytesIO(raw)]) as opening, \
+             patch.object(media.time,'sleep'),redirect_stdout(io.StringIO()):
+            self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
+        self.assertEqual(opening.call_count,3)
+        self.assertTrue(all(body.closed for body in bodies))
+
+    def test_interrupted_body_closes_before_retry_and_never_stages_partial_bytes(self):
+        raw,pin=self.archive()
+        class Interrupted(io.BytesIO):
+            def read(self,limit):raise http.client.IncompleteRead(b'PRIVATE PARTIAL RESPONSE',10)
+        failed=Interrupted(raw);complete=io.BytesIO(raw)
+        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[failed,complete]) as opening, \
+             patch.object(media.time,'sleep') as sleeping,redirect_stdout(io.StringIO()) as output:
+            def before_retry(_):
+                self.assertTrue(failed.closed)
+                self.assertEqual(list(Path(d).iterdir()),[])
+            sleeping.side_effect=before_retry
+            self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
+        self.assertEqual(opening.call_count,2);self.assertTrue(complete.closed)
+        self.assertEqual(output.getvalue(),'GATEWAY_MEDIA_SOURCE_RETRY truncated-response attempt=1\n')
+
+    def test_certificate_tls_permanent_dns_http_and_unknown_fail_without_retry_or_output(self):
+        _,pin=self.archive()
+        errors=[urllib.error.URLError(ssl.SSLCertVerificationError(1,'PRIVATE CERTIFICATE')),
+                urllib.error.URLError(ssl.SSLError(1,'PRIVATE TLS')),
+                urllib.error.URLError(socket.gaierror(socket.EAI_NONAME,'PRIVATE DNS')),
+                urllib.error.URLError('PRIVATE UNKNOWN'),
+                *(urllib.error.HTTPError(pin['url'],code,'PRIVATE SERVER',{},io.BytesIO(b'PRIVATE BODY')) for code in (400,401,403,404))]
+        for error in errors:
+            with self.subTest(kind=type(error).__name__),tempfile.TemporaryDirectory() as d, \
+                 patch.object(media.urllib.request,'urlopen',side_effect=error) as opening, \
+                 patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()) as output:
+                with self.assertRaisesRegex(media.native.Refusal,'gateway-source-download-') as caught:media.fetch(pin,Path(d),'source')
+                self.assertNotIn('PRIVATE',str(caught.exception));self.assertEqual(output.getvalue(),'')
+                self.assertEqual(opening.call_count,1);sleeping.assert_not_called();extract.assert_not_called()
+                self.assertEqual(list(Path(d).iterdir()),[])
+                if isinstance(error,urllib.error.HTTPError):self.assertTrue(error.fp.closed)
+
+    def test_retry_exhaustion_is_bounded_and_never_stages_partial_source(self):
+        _,pin=self.archive()
+        for error in [urllib.error.URLError(TimeoutError('PRIVATE')),ConnectionResetError('PRIVATE'),
+                      http.client.IncompleteRead(b'PRIVATE PARTIAL',100)]:
+            with self.subTest(kind=type(error).__name__),tempfile.TemporaryDirectory() as d, \
+                 patch.object(media.urllib.request,'urlopen',side_effect=error) as opening, \
+                 patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(media.native.Refusal):media.fetch(pin,Path(d),'source')
+                self.assertEqual(opening.call_count,3);self.assertEqual(sleeping.call_count,2)
+                extract.assert_not_called();self.assertEqual(list(Path(d).iterdir()),[])
+                self.assertNotIn('PRIVATE',output.getvalue())
+
+    def test_hash_or_size_refusal_never_retries_or_extracts(self):
+        raw,pin=self.archive()
+        for body in [b'changed source',b'x'*(32*1024*1024+1)]:
+            with self.subTest(size=len(body)),tempfile.TemporaryDirectory() as d, \
+                 patch.object(media.urllib.request,'urlopen',return_value=io.BytesIO(body)) as opening, \
+                 patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract:
+                with self.assertRaisesRegex(media.native.Refusal,'pinned-source-archive'):media.fetch(pin,Path(d),'source')
+                self.assertEqual(opening.call_count,1);sleeping.assert_not_called();extract.assert_not_called()
+                self.assertEqual(list(Path(d).iterdir()),[])
+
     def test_personal_host_refuses_before_commands_network_or_files(self):
         with tempfile.TemporaryDirectory() as d:
             work=Path(d)/'absent'

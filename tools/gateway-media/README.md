@@ -21,6 +21,14 @@ The publisher/reader retain shared-library linkage so their independent actual
 native-decoder-open witness continues to work. Rust keeps all media lifecycle,
 credential handling, retry, resource ownership and cancellation behavior.
 
+Source downloads make at most three attempts to the same pinned HTTPS URL,
+with the existing 45-second I/O timeout and one/two-second backoff. Only timeout,
+temporary DNS/connection, incomplete-response and HTTP 429/502/503/504 failures
+retry. Certificate/TLS errors, permanent/unknown failures, oversized archives and
+hash mismatches still refuse. Diagnostics contain fixed categories/attempt
+numbers, never URLs, server exception text or response bytes. No archive is
+staged or extracted before its original size/hash checks pass.
+
 The bounded public build receipt records archive digests, exact source inputs,
 resolved configuration, actual compiler/tool images and package revisions,
 runtime file hashes and actual loader graphs. A build
