@@ -53,7 +53,20 @@ class ManagedIngest:
         shutil.copyfile(binary, self.root/'bin/ingest')
         (self.root/'bin/ingest').chmod(0o755)
         config = json.loads((self.root/'ingest.json').read_text())
-        self.expected_processes = 3 if config.get('detections') else 2
+        shutil.copyfile(config['publisher'],self.root/'bin/publisher')
+        (self.root/'bin/publisher').chmod(0o755)
+        config['publisher'] = str(self.root/'bin/publisher')
+        sandbox=Path(config.get('media_sandbox') or binary.parent/'nxrs-media-sandbox')
+        shutil.copyfile(sandbox,self.root/'bin/media-sandbox')
+        (self.root/'bin/media-sandbox').chmod(0o755)
+        config['media_sandbox']=str(self.root/'bin/media-sandbox')
+        self.camera_tls = config.get('camera_tls') is not None
+        if self.camera_tls:
+            for field in ['ca_certificate_file','camera_certificate_file','client_certificate_file','client_key_file','crl_file']:
+                source=Path(config['camera_tls'][field])
+                shutil.copyfile(source,self.root/source.name)
+                (self.root/source.name).chmod(0o600)
+                config['camera_tls'][field]=f'/run/{self.name}/{source.name}'
         config['publisher_token_file'] = f'/run/{self.name}/publisher.token'
         (self.root/'ingest.json').write_text(json.dumps(config))
 
@@ -74,10 +87,14 @@ class ManagedIngest:
         if not self.installed:
             # Rename template-owned paths before inserting fixture paths, whose
             # random directory prefix may itself contain the original service name.
-            text = ingest_service.service().replace('nxrs-ingest', self.name)
+            text = ingest_service.service(camera_tls=self.camera_tls).replace('nxrs-ingest', self.name)
             text = text.replace('/etc/nxrs-monitor/ingest.json', str(self.root/'ingest.json'))
             text = text.replace('/etc/nxrs-monitor/publisher.token', str(self.root/'publisher.token'))
+            if self.camera_tls:
+                for name in ['camera-ca.pem','camera-peer.pem','camera-client.pem','camera-client.key','camera-crl.pem']:
+                    text=text.replace('/etc/nxrs-monitor/'+name,str(self.root/name))
             text = text.replace('/usr/local/libexec/nxrs-camera-ingest', str(self.root/'bin/ingest'))
+            text = text.replace('/usr/local/libexec/nxrs-media-sandbox',str(self.root/'bin/media-sandbox'))
             for unit in ['nxrs-control.service', 'nxrs-media.service', 'wg-quick@wg-nxrs.service',
                          'nxrs-firewall.service', 'nxrs-monitor.target']:
                 text = text.replace(unit, self.dependency+'.service')
@@ -105,12 +122,12 @@ class ManagedIngest:
 
     def assert_sandbox(self):
         pids = self.group_pids()
-        require(self.pid in pids and len(pids) == self.expected_processes, 'configured adapter/encoder/publisher share one cgroup')
+        require(self.pid in pids and len(pids) == 3, 'adapter, encoder and publisher share exactly one cgroup')
         for pid in pids:
             values = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
             require(int(values['Uid'].split()[0]) != 0 and int(values['CapEff'].strip(), 16) == 0
                     and values['NoNewPrivs'].strip() == '1', 'adapter and encoder are unprivileged')
-        for name in ['config.json', 'publisher.token']:
+        for name in ['config.json', 'publisher.token']+(['camera-ca.pem','camera-peer.pem','camera-client.pem','camera-client.key','camera-crl.pem'] if self.camera_tls else []):
             metadata = (Path('/run')/self.name/name).stat()
             require(metadata.st_mode & 0o777 == 0o600 and metadata.st_nlink == 1,
                     'staged ingest credentials remain private regular files')

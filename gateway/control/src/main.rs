@@ -12,20 +12,26 @@ async fn signal() {
 }
 async fn run() -> Result<(), &'static str> {
     let mut args = std::env::args().skip(1);
-    let usage = "usage: nxrs-gateway-control CONFIG.json [--security SECURITY.json]";
+    let usage = "usage: nxrs-gateway-control CONFIG.json [--security SECURITY.json] [--require-encrypted-storage]";
     let path = args.next().ok_or(usage)?;
-    let settings = match args.next() {
-        None => None,
-        Some(flag) if flag == "--security" => Some(Settings::read(Path::new(&args.next().ok_or(usage)?))?),
-        _ => return Err(usage),
-    };
-    if args.next().is_some() { return Err(usage); }
+    let mut settings = None;
+    let mut require_encrypted = false;
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            "--security" if settings.is_none() => settings = Some(Settings::read(Path::new(&args.next().ok_or(usage)?))?),
+            "--require-encrypted-storage" if !require_encrypted => require_encrypted = true,
+            _ => return Err(usage),
+        }
+    }
     let mut bytes = Vec::new();
     File::open(path).map_err(|_| "cannot open configuration")?.take(65_537).read_to_end(&mut bytes)
         .map_err(|_| "cannot read configuration")?;
     if bytes.len() > 65_536 { return Err("configuration too large"); }
     let config: Config = serde_json::from_slice(&bytes).map_err(|_| "invalid configuration JSON")?;
     config.validate()?;
+    if require_encrypted && config.activity.as_ref().is_none_or(|v| v.protection.is_none()) {
+        return Err("encrypted activity storage required");
+    }
     let (control, internal, maintenance) = managed_routers(config.clone(), settings)?;
     let detection_shutdown = maintenance.stop_detection_streams();
     let a = TcpListener::bind(config.listen).await.map_err(|_| "control listener bind failed")?;
@@ -42,7 +48,7 @@ async fn run() -> Result<(), &'static str> {
     eprintln!("nxrs-gateway ready (loopback listeners; media readiness is separate)");
     tokio::select! {
         result = &mut servers => { result?; },
-        _ = maintenance.run() => { return Err("media supervision stopped unexpectedly"); },
+        failure = maintenance.run() => { return Err(failure.message()); },
         _ = signal() => {
             detection_shutdown.await;
             let _ = stop.send(true);

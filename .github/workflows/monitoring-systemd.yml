@@ -7,6 +7,19 @@ on:
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
       - '.github/workflows/monitoring-systemd.yml'
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
+      - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
+      - 'tools/**'
+      - 'tests/host/**'
+      - 'security/**'
+      - 'tests/device-identity/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,7 +29,7 @@ concurrency:
 jobs:
   services:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -26,25 +39,50 @@ jobs:
       - name: Build locked independent gateway
         working-directory: gateway
         run: cargo build --locked
+      - name: Require proxy admission and staging controls
+        run: |
+          cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-proxy
+          cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-control --test security
+          python3 -m unittest discover -s tests/host -p test_stage_proxy.py -v
+          python3 -m unittest discover -s gateway/tests -p test_proxy_runtime_paths.py -v
+          python3 -m unittest discover -s gateway/tests -p test_proxy_diagnostics.py -v
+          python3 -m unittest discover -s gateway/tests -p test_service_lifetime.py -v
       - name: Install hosted-only service reference tools
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh nginx wireguard-tools ffmpeg
-          python3 -m venv /tmp/nxrs-systemd-test
-          /tmp/nxrs-systemd-test/bin/pip install -r gateway/tests/media-requirements.txt
+          python3 tools/ci-apt.py build-essential libssl-dev gpg gpgv cryptsetup-bin nginx openssl wireguard-tools nftables ffmpeg
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-systemd-test-native --runtime /tmp/nxrs-systemd-test --qualify
+          /tmp/nxrs-systemd-test/bin/python -m pip check
+          /tmp/nxrs-systemd-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-systemd.json"
           systemctl --version | head -n 1
           nginx -v
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-systemd-mediamtx.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-systemd-mediamtx
-          tar -xzf /tmp/nxrs-systemd-mediamtx.tar.gz -C /tmp/nxrs-systemd-mediamtx mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-systemd-mediamtx/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-systemd-mediamtx/mediamtx
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
+      - name: Qualify exact signed proxy and prepare a private review bundle
+        run: |
+          timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/systemd-proxy-build"
+          python3 gateway/tools/stage_proxy.py --output "$RUNNER_TEMP/systemd-proxy-review"
       - name: Real systemd sandbox, selective revocation, crash fail-stop and durable recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-systemd-test/bin/python gateway/tests/systemd_reference.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
-            --mediamtx /tmp/nxrs-systemd-mediamtx/mediamtx
+            --mediamtx /tmp/nxrs-systemd-mediamtx/mediamtx \
+            --proxy-launcher gateway/target/debug/nxrs-gateway-proxy \
+            --proxy-review "$RUNNER_TEMP/systemd-proxy-review" \
+            --report "$RUNNER_TEMP/proxy-service.json"
+      - name: Retain bounded public proxy service qualification
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: approved-proxy-service
+          path: |
+            ${{ runner.temp }}/proxy-service.json
+            ${{ runner.temp }}/proxy-service-review.json
+            ${{ runner.temp }}/proxy-service-qualification.json
+          if-no-files-found: warn
+          retention-days: 7

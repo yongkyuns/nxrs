@@ -1,0 +1,57 @@
+{
+  "schema": 2,
+  "scope": "hosted-system-python-expat-candidate",
+  "source": {
+    "version": "2.9.0",
+    "root": "expat-2.9.0",
+    "url": "https://github.com/libexpat/libexpat/releases/download/R_2_9_0/expat-2.9.0.tar.bz2",
+    "sha256": "775e8a68f81a748a401dc3168318d4a39484eb4f954726f21517c8f42c0ba984",
+    "signature": {
+      "url": "https://github.com/libexpat/libexpat/releases/download/R_2_9_0/expat-2.9.0.tar.bz2.asc",
+      "sha256": "45eb7509146a3dc3707ac4eeb2084cb39272df5a802ea4b000e28b3a649f8632"
+    },
+    "key": {
+      "url": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3176ef7db2367f1fca4f306b1f9b0e909af37285",
+      "sha256": "48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba",
+      "fingerprint": "3176EF7DB2367F1FCA4F306B1F9B0E909AF37285",
+      "reference": "https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835"
+    }
+  },
+  "vendor_baseline": {
+    "binary_package": "libexpat1",
+    "source_package": "expat",
+    "version": "2.6.1-2ubuntu0.6",
+    "library": "libexpat.so.1.9.1",
+    "sha256": "286682ecbc5e59a638963b1a4e6351e65eb32fcf4bdcb9cb7569b6a61fe06a8d",
+    "authenticated_source_reference": "https://github.com/yongkyuns/nxrs/actions/runs/40317275553"
+  },
+  "matched_distribution_advisories": [
+    "CVE-2025-66382",
+    "CVE-2026-102633",
+    "CVE-2026-77214",
+    "CVE-2026-93990"
+  ],
+  "additional_source_advisories": {
+    "CVE-2026-113351": {
+      "reference": "https://github.com/libexpat/libexpat/pull/1431",
+      "fix_commit": "d8f31e647a4d1eda088e89354f4769b0dad303d3"
+    },
+    "CVE-2026-115506": {
+      "reference": "https://github.com/libexpat/libexpat/pull/1433",
+      "fix_commit": "c30145b28632b31f805d57f9838ba36b8db99367"
+    }
+  },
+  "documented_fix_releases": {
+    "CVE-2026-102633": "2.9.0",
+    "CVE-2026-77214": "2.9.0",
+    "CVE-2026-93990": "2.8.5"
+  },
+  "unresolved_published_advisories": ["CVE-2025-66382", "CVE-2026-113351", "CVE-2026-115506"],
+  "upstream_issue": {
+    "url": "https://api.github.com/repos/libexpat/libexpat/issues/1160",
+    "reference": "https://github.com/libexpat/libexpat/issues/1160"
+  },
+  "upstream_advisory_closure": false,
+  "full_native_advisory_closure": false,
+  "deployment_permitted": false
+}

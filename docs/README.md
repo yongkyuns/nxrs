@@ -19,3 +19,10 @@ individual fixture guides and evidence documents linked from the README.
 The [security design and release requirements](security.md) records the trust
 boundaries, explicit non-FIPS deployment decision and evidence needed for
 authenticated transport, firmware integrity, key lifecycle and protected storage.
+
+Report vulnerabilities using [SECURITY.md](../SECURITY.md). The
+[device entropy trace](entropy.md) records source selection, failure behavior
+and remaining physical/provisioning qualification gates. The
+[integration evidence guide](security-integration.md) preserves dated source
+cohorts and their limits; current implementation status remains linked from
+the security tracker in the design guide.

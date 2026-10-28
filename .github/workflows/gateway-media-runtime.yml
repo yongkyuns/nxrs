@@ -1,0 +1,78 @@
+name: Minimized gateway media runtime
+on:
+  pull_request:
+    paths:
+      - 'tools/gateway-media/**'
+      - 'security/native-media-dependencies.json'
+      - 'tools/native-media/qualify.py'
+      - 'tools/native-packages/ubuntu.py'
+      - 'tools/ci-apt.py'
+      - '.github/workflows/monitoring-ingest.yml'
+      - '.github/workflows/encrypted-activity.yml'
+      - 'tests/host/test_gateway_media.py'
+      - 'tests/host/test_x264_cleanup.py'
+      - 'tests/host/native/x264_open_cleanup.c'
+      - 'gateway/**'
+      - 'service/detection-wire/**'
+      - '.github/workflows/gateway-media-runtime.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-media-runtime-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify personal-host refusal and resolved component admission controls
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_media.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_x264_cleanup.py -v
+          /usr/bin/python3 -m unittest discover -s gateway/tests -p test_gateway_media_evidence.py -v
+      - name: Install disposable build and independent fixture tools
+        run: /usr/bin/python3 tools/ci-apt.py build-essential clang nasm pkg-config libclang-dev ffmpeg
+      - name: Require actual x264 initialization leak control and patched sanitizer recovery
+        run: /usr/bin/python3 tools/gateway-media/x264_cleanup.py --work "$RUNNER_TEMP/x264-cleanup" --report "$RUNNER_TEMP/x264-cleanup.json"
+      - name: Build exact pinned minimized gateway distribution
+        run: /usr/bin/python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/gateway-media-build"
+      - name: Build and qualify actual Rust publisher and reader against minimized SDK
+        env:
+          PKG_CONFIG_PATH: /usr/lib/nxrs-gateway-media-qualification/lib/pkgconfig
+          RUSTFLAGS: -C link-arg=-Wl,-rpath,/usr/lib/nxrs-gateway-media-qualification/lib
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component clippy
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets
+          cargo +1.90.0 clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets -- -D warnings
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest -p nxrs-media-sandbox --features publisher-sdk --bins
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-minimal-media-server
+          python3 gateway/tests/build_publisher_witness.py --output /tmp/nxrs-minimal-decoder-witness
+          python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-minimal-media-server --decoder-guard /tmp/nxrs-minimal-decoder-witness/no-decoder.so
+          python3 gateway/tests/reader_reference.py --reader gateway/target/debug/nxrs-rtsp-reader --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-minimal-media-server --decoder-guard /tmp/nxrs-minimal-decoder-witness/no-decoder.so --report "$RUNNER_TEMP/minimal-reader.json"
+      - name: Require actual encoder success inside the existing unchanged isolation grants
+        run: |
+          export PATH="/usr/lib/nxrs-gateway-media-qualification/bin:$PATH"
+          python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/minimal-media-isolation"
+      - name: Bind the exact SDK/isolation receipts and fully decode a finalized clip
+        run: |
+          /usr/bin/python3 tools/gateway-media/qualify.py --work "$RUNNER_TEMP/minimal-clip-controls" \
+            --reader-report "$RUNNER_TEMP/minimal-reader.json" \
+            --isolation-report "$RUNNER_TEMP/minimal-media-isolation/qualification.json" \
+            --report "$RUNNER_TEMP/minimal-runtime.json"
+      - name: Retain only bounded public build and executed qualification receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: minimized-gateway-media
+          path: |
+            /usr/lib/nxrs-gateway-media-qualification/build.json
+            ${{ runner.temp }}/x264-cleanup.json
+            ${{ runner.temp }}/minimal-runtime.json
+            ${{ runner.temp }}/minimal-reader.json
+            ${{ runner.temp }}/minimal-media-isolation/qualification.json
+          if-no-files-found: warn
+          retention-days: 7

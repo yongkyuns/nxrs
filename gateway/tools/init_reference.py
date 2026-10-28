@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import time
 from urllib.parse import urlsplit
 
 
@@ -23,6 +24,7 @@ def initialize(directory: Path, media_origin: str):
             stream.write(text)
     config = {
         'listen': '127.0.0.1:18080', 'auth_listen': '127.0.0.1:18081',
+        'credential_window': {'not_before': int(time.time())-1, 'expires_at': int(time.time())+30*86400},
         'grant_ttl_seconds': 60, 'max_grants': 128, 'media_origins': [media_origin.rstrip('/')],
         'cameras': [{'camera_id': 'cam_reference', 'gateway_id': 'gw_reference', 'site_id': 'site_reference',
                      'name': 'SYNTHETIC reference - not a physical camera', 'source': 'synthetic',

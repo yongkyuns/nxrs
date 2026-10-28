@@ -6,9 +6,19 @@ on:
       - 'gateway/**'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
+      - 'tools/**'
+      - 'tests/host/**'
+      - 'tests/device-identity/**'
+      - 'security/**'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
-      - '.github/workflows/monitoring-combined.yml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,38 +28,58 @@ concurrency:
 jobs:
   combined:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - name: Unprivileged fixture policy and HTTPS readiness regressions
-        run: python3 -m unittest discover -s gateway/tests -p 'test_combined_*.py' -v
+        run: |
+          python3 -m unittest discover -s gateway/tests -p 'test_combined_*.py' -v
+          python3 -m unittest discover -s gateway/tests -p test_service_lifetime.py -v
       - name: Build locked gateway and actual camera-stream source
         run: |
-          (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest)
+          (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox -p nxrs-gateway-proxy -p nxrs-vpn-admission)
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh ffmpeg nginx wireguard-tools nftables iproute2
-          python3 -m venv /tmp/nxrs-combined-test
-          /tmp/nxrs-combined-test/bin/pip install -r gateway/tests/media-requirements.txt
+          python3 tools/ci-apt.py build-essential libssl-dev gpg gpgv cryptsetup-bin openssl ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-combined-test-native --runtime /tmp/nxrs-combined-test --qualify
+          /tmp/nxrs-combined-test/bin/python -m pip check
+          /tmp/nxrs-combined-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-combined.json"
           systemctl --version | head -n 1
           ffmpeg -version | head -n 3
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-combined-media.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-combined-media
-          tar -xzf /tmp/nxrs-combined-media.tar.gz -C /tmp/nxrs-combined-media mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-combined-media/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-combined-media/mediamtx
+      - name: Build the separate publisher against the installed native SDK
+        run: |
+          pkg-config --modversion libavformat libavcodec libavutil
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
+      - name: Qualify exact signed proxy and prepare its private review bundle
+        run: |
+          timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/combined-proxy-build"
+          python3 gateway/tools/stage_proxy.py --output "$RUNNER_TEMP/combined-proxy-review"
       - name: Full generated service group, actual source, VPN, revocation and crash recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-combined-test/bin/python gateway/tests/combined_reference.py \
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
+              --publisher gateway/target/debug/nxrs-rtsp-publisher \
               --mediamtx /tmp/nxrs-combined-media/mediamtx \
-              --camera-source gateway/target/camera-reference/nxrs_camera_source
+              --camera-source gateway/target/camera-reference/nxrs_camera_source \
+              --proxy-launcher gateway/target/debug/nxrs-gateway-proxy \
+              --proxy-review "$RUNNER_TEMP/combined-proxy-review"
+      - name: Retain only the bounded public proxy receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: combined-proxy-qualification
+          path: /usr/lib/nxrs-gateway-proxy-qualification/qualification.json
+          if-no-files-found: warn
+          retention-days: 7

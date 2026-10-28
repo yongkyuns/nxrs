@@ -1,0 +1,51 @@
+name: Gateway package virtual cold boots
+on:
+  pull_request:
+    paths:
+      - 'tools/native-packages/**'
+      - 'tools/gateway-proxy/**'
+      - 'gateway/tools/system_regex_evidence.py'
+      - 'gateway/fuzz/run.py'
+      - 'gateway/tests/package_boot_guest.py'
+      - 'gateway/tests/failure_location.py'
+      - 'tests/host/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tools/ci-apt.py'
+      - '.github/workflows/gateway-pcre-package.yml'
+      - '.github/workflows/gateway-package-boot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-package-boot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  virtual-boots:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require virtual boot source, scope and refusal controls
+        run: |
+          python3 -m unittest discover -s tests/host -p test_package_boot.py -v
+          python3 -m unittest discover -s tests/host -p test_pcre_package.py -v
+      - name: Install disposable build and emulator tools
+        run: python3 tools/ci-apt.py build-essential binutils gpg gpgv cryptsetup-bin debootstrap ubuntu-keyring xz-utils ca-certificates qemu-system-x86 seabios e2fsprogs
+      - name: Require the exact signed shared source
+        run: timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/package-source-build"
+      - name: Require actual isolated package installation and recovery
+        run: timeout --signal=KILL 2160 python3 tools/native-packages/pcre_package.py --source-work "$RUNNER_TEMP/package-source-build" --work "$RUNNER_TEMP/package-install-recovery"
+      - name: Require five fresh virtual kernels and persistent startup recovery
+        run: timeout --signal=KILL 2460 python3 tools/native-packages/package_boot.py --package-work "$RUNNER_TEMP/package-install-recovery" --work "$RUNNER_TEMP/package-virtual-boots"
+      - name: Retain only bounded public boot, package and signed-source receipts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gateway-package-virtual-boot-qualification
+          path: |
+            ${{ runner.temp }}/package-virtual-boots/qualification.json
+            ${{ runner.temp }}/package-virtual-boots/package-qualification.json
+            ${{ runner.temp }}/package-virtual-boots/source-qualification.json
+          if-no-files-found: error
+          retention-days: 7

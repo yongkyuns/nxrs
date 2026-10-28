@@ -1,0 +1,61 @@
+name: Gateway proxy atomic pair recovery
+on:
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
+      - 'tests/host/**'
+      - 'tests/device-identity/**'
+      - 'security/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-proxy-pair-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pair-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build locked launcher and installer with publication controls
+        run: |
+          cargo build --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-proxy
+          cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-proxy
+          python3 -m unittest discover -s gateway/tests -p test_proxy_pair.py -v
+          python3 -m unittest discover -s tests/host -p test_proxy_pair_reference.py -v
+          python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
+      - name: Install disposable qualification tools
+        run: python3 tools/ci-apt.py build-essential libssl-dev gpg nginx openssl gdb
+      - name: Qualify exact signed proxy and prepare an explicitly fixture-only review
+        run: |
+          timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/pair-proxy-build"
+          python3 gateway/tools/stage_proxy.py --output "$RUNNER_TEMP/pair-proxy-review"
+      - name: Real root publication, owned process interruption, competing writers and selected HTTPS
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /usr/bin/python3 -B gateway/tests/proxy_pair_reference.py \
+            --launcher "$GITHUB_WORKSPACE/gateway/target/debug/nxrs-gateway-proxy" \
+            --installer "$GITHUB_WORKSPACE/gateway/target/debug/nxrs-gateway-proxy-install" \
+            --review "$RUNNER_TEMP/pair-proxy-review" \
+            --report "$RUNNER_TEMP/proxy-pair.json"
+      - name: Retain only complete bounded public pair evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gateway-proxy-pair-recovery
+          path: |
+            ${{ runner.temp }}/proxy-pair.json
+            ${{ runner.temp }}/proxy-pair-original-review.json
+            ${{ runner.temp }}/proxy-pair-original-qualification.json
+            ${{ runner.temp }}/proxy-pair-fixture-variant-review.json
+            ${{ runner.temp }}/proxy-pair-fixture-variant-qualification.json
+          if-no-files-found: error
+          retention-days: 7

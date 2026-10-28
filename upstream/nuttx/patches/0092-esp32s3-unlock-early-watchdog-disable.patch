@@ -1,0 +1,23 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_wdt.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_wdt.c
+@@ -1075,11 +1075,15 @@
+ 
+ void esp32s3_wdt_early_deinit(void)
+ {
+-  uint32_t regval;
+-  regval  = getreg32(RTC_CNTL_WDTCONFIG0_REG);
+-  regval &= ~RTC_CNTL_WDT_EN;
+-  putreg32(regval, RTC_CNTL_WDTCONFIG0_REG);
+-  putreg32(0, RTC_CNTL_WDTWPROTECT_REG);
++  rwdt_dev_t *rwdt = RWDT_DEV_GET();
++
++  /* The bootloader leaves RWDT write protection enabled.  Unlock before
++   * clearing enable, then restore protection through the actual SDK API.
++   */
++
++  rwdt_ll_write_protect_disable(rwdt);
++  rwdt_ll_disable(rwdt);
++  rwdt_ll_write_protect_enable(rwdt);
+ }
+ 
+ /****************************************************************************

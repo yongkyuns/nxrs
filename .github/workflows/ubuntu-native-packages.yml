@@ -1,0 +1,66 @@
+name: Ubuntu gateway native package audit
+on:
+  pull_request:
+    paths:
+      - 'tools/native-packages/**'
+      - 'tests/host/test_ubuntu_native_packages.py'
+      - 'tools/ci-apt.py'
+      - '.github/workflows/ubuntu-native-packages.yml'
+      - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'rust-toolchain.toml'
+  schedule:
+    - cron: '13 7 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ubuntu-native-packages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify collector failure and Debian version controls
+        run: /usr/bin/python3 -m unittest discover -s tests/host -p test_ubuntu_native_packages.py -v
+      - name: Install exact deployment capability families from signed Ubuntu archives
+        run: /usr/bin/python3 tools/ci-apt.py ffmpeg libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev nginx openssl cryptsetup-bin
+      - name: Build actual locked gateway and native publisher/reader
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked --workspace
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
+      - name: Record baseline and require a completed advisory assessment
+        run: |
+          native_baseline_status=0
+          timeout --signal=KILL 600 /usr/bin/python3 tools/native-packages/ubuntu.py --report "$RUNNER_TEMP/ubuntu-native-baseline.json" || native_baseline_status=$?
+          /usr/bin/python3 - "$RUNNER_TEMP/ubuntu-native-baseline.json" "$native_baseline_status" <<'PYBASELINE'
+          import json,pathlib,sys
+          value=json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+          assert value['advisory_status']=='complete' and type(value['qualified']) is bool
+          assert int(sys.argv[2])==(0 if value['qualified'] else 1)
+          PYBASELINE
+      - name: Refresh only the actual audited native package set on this disposable image
+        run: /usr/bin/python3 tools/native-packages/refresh.py --baseline "$RUNNER_TEMP/ubuntu-native-baseline.json" --report "$RUNNER_TEMP/ubuntu-native-refresh.json"
+      - name: Rebuild native bindings against refreshed headers and libraries
+        run: |
+          cargo +1.90.0 clean --manifest-path gateway/Cargo.toml -p ffmpeg-sys-next
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
+      - name: Gate the actual refreshed native graph and current Ubuntu advisories
+        run: timeout --signal=KILL 600 /usr/bin/python3 tools/native-packages/ubuntu.py --report "$RUNNER_TEMP/ubuntu-native-packages.json"
+      - name: Retain bounded public inventory and findings even when admission fails
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ubuntu-native-packages
+          path: |
+            ${{ runner.temp }}/ubuntu-native-baseline.json
+            ${{ runner.temp }}/ubuntu-native-refresh.json
+            ${{ runner.temp }}/ubuntu-native-packages.json
+          if-no-files-found: warn
+          retention-days: 7

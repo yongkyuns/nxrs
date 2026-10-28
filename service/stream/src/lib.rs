@@ -1,7 +1,11 @@
 //! Bounded, portable multipart MJPEG session writing.
 #![forbid(unsafe_code)]
 mod server;
+mod worker;
 pub use server::{Failure, Options, Progress, Server, ServerStats};
+pub use worker::{
+    FramePublish, StreamWorker, WorkerAction, WorkerOptions, WorkerReceiver, WorkerStop,
+};
 
 use camera::{Frame, PixelFormat};
 use core::fmt;
@@ -22,6 +26,16 @@ pub struct Metadata<'a> {
     pub revision: u64,
     pub content_type: &'static str,
     pub bytes: &'a [u8],
+}
+
+fn reject_metadata(metadata: Metadata<'_>, capacity: usize) -> bool {
+    metadata.bytes.len() > capacity.min(MAX_METADATA_BYTES)
+        || metadata.content_type.len() > 80
+        || metadata.content_type.is_empty()
+        || !metadata
+            .content_type
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/.-+".contains(&b))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -164,31 +178,10 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
             return OfferResult::Busy;
         }
-        let reason = if metadata.is_some_and(|m| {
-            m.bytes.len() > MAX_METADATA_BYTES
-                || m.content_type.len() > 80
-                || m.content_type.is_empty()
-                || !m
-                    .content_type
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"/.-+".contains(&b))
-        }) {
+        let reason = if metadata.is_some_and(|m| reject_metadata(m, MAX_METADATA_BYTES)) {
             Some(RejectReason::InvalidMetadata)
-        } else if frame.capture.format.pixels != PixelFormat::Jpeg {
-            Some(RejectReason::NotJpeg)
-        } else if frame.capture.format.width == 0 || frame.capture.format.height == 0 {
-            Some(RejectReason::InvalidDimensions)
-        } else if frame.capture.len != frame.bytes.len() {
-            Some(RejectReason::LengthMismatch)
-        } else if frame.bytes.len() > self.buffer.as_ref().len() {
-            Some(RejectReason::TooLarge)
-        } else if frame.bytes.len() < 4
-            || frame.bytes[0..2] != [0xff, 0xd8]
-            || frame.bytes[frame.bytes.len() - 2..] != [0xff, 0xd9]
-        {
-            Some(RejectReason::InvalidMarkers)
         } else {
-            None
+            reject_frame(&frame, self.buffer.as_ref().len())
         };
         if let Some(reason) = reason {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
@@ -277,8 +270,8 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         (self.writer, self.buffer, self.part_header, self.stats)
     }
 
-    pub(crate) fn writer(&self) -> &W {
-        &self.writer
+    pub(crate) fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
     }
 
     fn segment(&self, state: State) -> Option<(&[u8], usize)> {
@@ -400,4 +393,25 @@ fn append_number(output: &mut [u8], cursor: &mut usize, mut value: u64) {
         *cursor += 1;
     }
     debug_assert!(*cursor - start <= 20);
+}
+
+// Both the outgoing session and the capture/worker exchange intentionally use
+// this same bounded JPEG frame contract.
+fn reject_frame(frame: &Frame<'_>, capacity: usize) -> Option<RejectReason> {
+    if frame.capture.format.pixels != PixelFormat::Jpeg {
+        Some(RejectReason::NotJpeg)
+    } else if frame.capture.format.width == 0 || frame.capture.format.height == 0 {
+        Some(RejectReason::InvalidDimensions)
+    } else if frame.capture.len != frame.bytes.len() {
+        Some(RejectReason::LengthMismatch)
+    } else if frame.bytes.len() > capacity {
+        Some(RejectReason::TooLarge)
+    } else if frame.bytes.len() < 4
+        || frame.bytes[0..2] != [0xff, 0xd8]
+        || frame.bytes[frame.bytes.len() - 2..] != [0xff, 0xd9]
+    {
+        Some(RejectReason::InvalidMarkers)
+    } else {
+        None
+    }
 }

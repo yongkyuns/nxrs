@@ -1,0 +1,14 @@
+[package]
+name = "nxrs-vpn-admission"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+nxrs-gateway-private-file = { path = "../private-file" }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+zeroize = "=1.9.1"

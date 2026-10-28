@@ -22,6 +22,7 @@ data class RenderedSample(
     val blue: Int,
     val metadata: VideoDetectionFrame?,
     val boxesDrawn: Int,
+    val annotationCurrent: Boolean,
     val freshImage: Boolean = true,
 )
 
@@ -187,7 +188,13 @@ class AnnotatedVideoView(
                 ) {
                     guardedDraw()
                     lastSample?.let {
-                        witness?.invoke(it.copy(boxesDrawn = boxesDrawn.get(), freshImage = false))
+                        witness?.invoke(
+                            it.copy(
+                                boxesDrawn = boxesDrawn.get(),
+                                annotationCurrent = false,
+                                freshImage = false,
+                            )
+                        )
                     }
                 }
                 handler.postDelayed(this, 100)
@@ -211,6 +218,7 @@ class AnnotatedVideoView(
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         var count = 0
+        var annotationCurrent = false
         val frame = image
         if (frame != null) {
             val scale =
@@ -229,12 +237,13 @@ class AnnotatedVideoView(
                 width,
                 height,
             )
-            val annotation = metadata
-            if (
-                annotation != null &&
-                    peer.owner.accepts(annotation) &&
-                    SystemClock.elapsedRealtime() - renderedAt < annotation.remainingLifetimeMs
-            ) {
+            val annotation =
+                metadata?.takeIf {
+                    peer.owner.accepts(it) &&
+                        SystemClock.elapsedRealtime() - renderedAt < it.remainingLifetimeMs
+                }
+            annotationCurrent = annotation != null
+            if (annotation != null) {
                 GLES20.glViewport(0, 0, viewWidth, viewHeight)
                 val program = shader!!
                 program.useProgram()
@@ -292,6 +301,7 @@ class AnnotatedVideoView(
                     pixel[2].toInt() and 255,
                     metadata,
                     count,
+                    annotationCurrent,
                 )
             lastSample = sample
             observer?.invoke(sample)

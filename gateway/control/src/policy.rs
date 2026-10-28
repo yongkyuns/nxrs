@@ -74,6 +74,14 @@ impl Policy {
         Ok(viewer)
     }
 
+    pub fn activity_scope(&self, token: &str, camera: &str, manage: bool) -> Result<bool> {
+        let viewer = self.viewer(token)?;
+        if !self.config.cameras.iter().any(|c| c.camera_id == camera && c.site_id == viewer.site_id)
+            || !viewer.camera_ids.iter().any(|id| id == camera) { return Err(StatusCode::NOT_FOUND); }
+        if manage && !viewer.manage_recordings { return Err(StatusCode::FORBIDDEN); }
+        Ok(viewer.manage_recordings)
+    }
+
     pub fn catalog(&self, token: &str) -> Result<Value> {
         let viewer = self.viewer(token)?;
         let cameras: Vec<Value> = self.config.cameras.iter()
@@ -171,6 +179,11 @@ impl Policy {
                     && self.config.cameras.iter().any(|camera|
                         camera.camera_id == publisher.camera_id && camera.stream_path == auth.path)
             });
+        }
+        if auth.action == "read" && auth.protocol == "rtsp" && auth.token == auth.password {
+            return self.config.recorders.iter().any(|r| r.username == auth.user
+                && matches(&auth.password, &r.token_sha256)
+                && self.config.cameras.iter().any(|c| c.camera_id == r.camera_id && c.stream_path == auth.path));
         }
         false
     }

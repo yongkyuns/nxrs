@@ -1,7 +1,27 @@
-use crate::{config::Config, protocol::{line, Reader, Frame}, Error, Result};
+use crate::{tls::Prepared, config::{Config, EncodedMedia}, protocol::{line, Reader, Frame}, Error, Result};
 use std::{process::Stdio, time::Duration};
-use tokio::{io::{AsyncWriteExt, BufReader}, net::TcpStream, process::{Command, Child},
+use tokio::{io::{AsyncReadExt, AsyncWriteExt, BufReader}, net::TcpStream, process::{Command, Child},
     sync::watch, time::{Instant, timeout, timeout_at, sleep}};
+
+const STARTUP_OUTPUT:Duration = Duration::from_secs(10);
+/// Probe the same installed helper before loading source/encoder resources.
+/// This owns a disposable child; failed enforcement never falls back.
+pub async fn check_encoder_isolation(launcher: &std::path::Path) -> Result<()> {
+    nxrs_media_process::probe(launcher).await.map_err(|error| match error {
+        nxrs_media_process::Error::Cleanup => Error::Cleanup,
+        nxrs_media_process::Error::Unavailable => Error::Configuration,
+    })
+}
+
+
+/// Fixed local operation names only; never log transport errors, paths or peer bytes.
+#[derive(Clone, Copy, Debug)]
+enum Stage { CameraSetup, CameraFrames, EncodedRelay, EncoderProgress, PublisherProgress }
+async fn observed<T>(stage:Stage, operation:impl std::future::Future<Output=Result<T>>) -> Result<T> {
+    operation.await.inspect_err(|error| {
+        eprintln!("nxrs-camera-ingest: stage-failure ({stage:?}: {error})");
+    })
+}
 
 /// Detect *additional* backlog relative to the best observed offset this connection.
 /// No clock synchronization or first-frame/exposure-age claim follows from this measurement.
@@ -23,34 +43,31 @@ impl Lag {
     }
 }
 
-pub(crate) fn encoder(config: &Config, token: &str, elementary: bool) -> Command {
-    let mut command=Command::new(&config.ffmpeg);
+pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
+    let mut command = match &config.media_sandbox {
+        Some(launcher) => Command::from(nxrs_media_sandbox::command(launcher, &config.ffmpeg, None)),
+        None => Command::new(&config.ffmpeg),
+    };
     // No shell, environment-proxy fallback, image looping, or constant-rate frame duplication.
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
-        .args(["-nostdin","-hide_banner","-loglevel","error","-nostats","-stats_period","0.5",
-            "-xerror","-err_detect","explode","-progress",if elementary { "pipe:2" } else { "pipe:1" },
-            "-threads","2","-f","image2pipe","-c:v","mjpeg",
-            "-framerate","30","-probesize",if elementary { "32" } else { "153600" },"-analyzeduration",if elementary { "1" } else { "0" }]);
-    if !elementary { command.args(["-use_wallclock_as_timestamps","1"]); }
-    command.args(["-i","pipe:0","-an","-c:v","libx264",
+        .args(["-nostdin","-hide_banner","-loglevel","quiet","-nostats","-stats_period","0.5",
+            "-xerror","-err_detect","explode","-progress","pipe:2","-threads","2","-f","image2pipe","-c:v","mjpeg",
+            "-framerate","30","-probesize",if format == EncodedMedia::AnnexB {"32"} else {"153600"},
+            "-analyzeduration",if format == EncodedMedia::AnnexB {"1"} else {"0"},
+            "-use_wallclock_as_timestamps","1","-i","pipe:0","-an","-c:v","libx264",
             "-threads","2","-preset","ultrafast","-tune","zerolatency","-profile:v","baseline",
             "-pix_fmt","yuv420p","-bf","0","-g","30","-fps_mode","passthrough",
             "-b:v","1500k","-maxrate","1500k","-bufsize","1500k"]);
-    if elementary {
-        command.args(["-x264-params","aud=1","-flush_packets","1","-f","h264","pipe:1"])
-            .stderr(Stdio::piped());
-    } else {
-        command.args(["-f","rtsp","-rtsp_transport","tcp","-rw_timeout","5000000"])
-            .arg(format!("rtsp://{}:{}@{}/{}",config.publisher_user,token,config.rtsp,config.stream_path))
-            .stderr(Stdio::null());
+    match format {
+        EncodedMedia::MpegTs => { command.args(["-f","mpegts","-muxdelay","0"]); }
+        EncodedMedia::AnnexB => { command.args(["-x264-params","aud=1","-f","h264"]); }
     }
-    command.stdin(Stdio::piped()).stdout(Stdio::piped()).kill_on_drop(true);
+    command.args(["-flush_packets","1","pipe:1"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     command
 }
-async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdin,
-              budget: Duration,
-    metadata: &watch::Sender<Option<crate::detections::Sample>>,
-) -> Result<()> {
+async fn pump<R: tokio::io::AsyncRead + Unpin>(mut source: Reader<R>, mut sink: tokio::process::ChildStdin,
+              budget: Duration) -> Result<()> {
     let mut lag=Lag::default();
     loop {
         // One deadline spans the entire next header, JPEG, metadata check and encoder write.
@@ -59,145 +76,149 @@ async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdi
             let frame=source.next_frame().await?;
             lag.observe(frame,Instant::now())?;
             sink.write_all(source.payload(frame)).await?;
-            if let Some(s) = source.metadata.as_ref() {
-                metadata.send_replace(Some(crate::detections::Sample {
-                    frame,
-                    source: s.clone(),
-                    received: Instant::now(),
-                }));
-            }
             Ok::<(),Error>(())
         }).await.map_err(|_|Error::Timeout)??;
     }
 }
-enum ProgressCounter {
-    Encoded(u64),
-    Published(Option<i64>),
-}
-impl ProgressCounter {
-    fn observe(&mut self, text: &str) -> Result<bool> {
-        match self {
-            Self::Encoded(count) => {
-                let Some(value)=text.strip_prefix("frame=") else { return Ok(false); };
-                let next:u64=value.trim().parse().map_err(|_|Error::Encoder)?;
-                if next<*count { return Err(Error::Encoder); }
-                let advanced=next>*count;
-                *count=next;
-                Ok(advanced)
-            }
-            Self::Published(previous) => {
-                // FFmpeg 6 emits no frame counter for stream-copy output.
-                // A finite muxed output time advances only after packet output;
-                // it is a health signal, never an annotation/frame identity.
-                let Some(value)=text.strip_prefix("out_time_us=") else { return Ok(false); };
-                if value.trim()=="N/A" { return Ok(false); }
-                let next:i64=value.trim().parse().map_err(|_|Error::Encoder)?;
-                if previous.is_some_and(|last|next<last) { return Err(Error::Encoder); }
-                let advanced=previous.map_or(next>0,|last|next>last);
-                *previous=Some(next);
-                Ok(advanced)
-            }
-        }
-    }
-}
-async fn media_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration,
-    mut counter: ProgressCounter) -> Result<()> {
+async fn publication_progress<R: tokio::io::AsyncRead+Unpin>(stdout: R, prefix: &str, budget: Duration) -> Result<()> {
     let mut input=BufReader::with_capacity(4096,stdout);
-    let mut deadline=Instant::now()+Duration::from_secs(10);
+    let mut deadline=Instant::now()+STARTUP_OUTPUT;
+    let mut count=0u64;
     loop {
         let bytes=timeout_at(deadline,line(&mut input,512)).await.map_err(|_|Error::Encoder)??;
         let text=std::str::from_utf8(&bytes).map_err(|_|Error::Encoder)?;
-        if counter.observe(text.trim())? { deadline=Instant::now()+budget; }
+        if let Some(value)=text.trim().strip_prefix(prefix) {
+            let next:u64=value.trim().parse().map_err(|_|Error::Encoder)?;
+            if next<count { return Err(Error::Encoder); }
+            if next>count { count=next; deadline=Instant::now()+budget; }
+        }
     }
 }
-pub(crate) async fn encoder_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
-    media_progress(stdout,budget,ProgressCounter::Encoded(0)).await
+pub(crate) async fn encoder_progress<R: tokio::io::AsyncRead + Unpin>(output: R, budget: Duration) -> Result<()> {
+    publication_progress(output, "frame=", budget).await
 }
-pub(crate) async fn publisher_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
-    media_progress(stdout,budget,ProgressCounter::Published(None)).await
+pub(crate) async fn publisher_progress<R: tokio::io::AsyncRead + Unpin>(output: R, budget: Duration) -> Result<()> {
+    publication_progress(output, "packet=", budget).await
+}
+pub(crate) fn publisher(config: &Config, format: EncodedMedia) -> Command {
+    let mut command=Command::new(&config.publisher);
+    command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
+        .args([config.rtsp.to_string(),config.publisher_user.clone(),config.stream_path.clone()]);
+    if format == EncodedMedia::AnnexB { command.arg("annexb"); }
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    command
+}
+async fn relay(mut input:tokio::process::ChildStdout, mut output:tokio::process::ChildStdin,
+               token:&str, budget:Duration) -> Result<()> {
+    // Only the publisher receives the fixed-size credential preamble. The image
+    // encoder receives JPEGs and emits MPEG-TS; its argv/environment contain no token.
+    timeout(budget,output.write_all(token.as_bytes())).await.map_err(|_|Error::Timeout)??;
+    let mut bytes=[0u8;4096];
+    let mut first=true;
+    loop {
+        // Match both existing progress watchdogs while the encoder probes its
+        // initial input. Every later transfer keeps the strict steady budget.
+        let limit=if first {STARTUP_OUTPUT} else {budget};
+        timeout(limit,async {
+            let count=input.read(&mut bytes).await?;
+            if count==0 { return Err(Error::Encoder); }
+            output.write_all(&bytes[..count]).await?;
+            Ok::<(),Error>(())
+        }).await.map_err(|_|Error::Timeout)??;
+        first=false;
+    }
 }
 pub(crate) async fn retire(child: &mut Child) -> Result<()> {
-    if child.try_wait().map_err(|_|Error::Cleanup)?.is_some() { return Ok(()); }
-    child.start_kill().map_err(|_|Error::Cleanup)?;
-    timeout(Duration::from_secs(3),child.wait()).await.map_err(|_|Error::Cleanup)?
-        .map_err(|_|Error::Cleanup)?;
-    Ok(())
+    nxrs_media_process::retire(child).await.map_err(|_| Error::Cleanup)
 }
-async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) -> Result<()> {
+pub(crate) async fn camera_source(config:&Config, policy:&Prepared, stop:&mut watch::Receiver<bool>) -> Result<Reader<crate::tls::Socket>> {
     if *stop.borrow() { return Err(Error::Stopped); }
-    if config.detections.is_some() { return crate::video::attempt(config, token, stop).await; }
-    let source=tokio::select! {
+    tokio::select! {
         biased;
-        _=stop.changed()=>return Err(Error::Stopped),
-        result=timeout(Duration::from_secs(5),async {
-            let mut socket=TcpStream::connect(config.camera).await?;
+        _=stop.changed()=>Err(Error::Stopped),
+        error=policy.guard()=>Err(error),
+        result=observed(Stage::CameraSetup,async {timeout(Duration::from_secs(5),async {
+            let socket=TcpStream::connect(config.camera).await?;
             socket.set_nodelay(true)?;
+            let mut socket=policy.connect(socket).await?;
             let path=if config.detections.is_some() { "/stream?metadata=1" } else { "/stream" };
             let request=format!("GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
             socket.write_all(request.as_bytes()).await?;
             Reader::start(socket,config.width,config.height).await
-        })=> result.map_err(|_|Error::Timeout)??,
+        }).await.map_err(|_|Error::Timeout)?})=> result,
+    }
+}
+async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::Receiver<bool>) -> Result<()> {
+    if *stop.borrow() { return Err(Error::Stopped); }
+    if config.detections.is_some() { return crate::video::attempt(config, token, policy, stop).await; }
+    let source=camera_source(config,policy,stop).await?;
+    let mut publication=publisher(config,EncodedMedia::MpegTs).spawn().map_err(|_|Error::Encoder)?;
+    let mut child=match encoder(config,EncodedMedia::MpegTs).spawn() {
+        Ok(child)=>child,
+        Err(_)=>{ retire(&mut publication).await?; return Err(Error::Encoder); },
     };
-    let mut child=encoder(config,token,false).spawn().map_err(|_|Error::Encoder)?;
-    let (metadata, rx) = watch::channel(None);
-    let (end, ended) = watch::channel(false);
-    let publisher = config.detections.clone().map(|c| {
-        tokio::spawn(crate::detections::run(
-            c,
-            config.publisher_user.clone(),
-            token.to_owned(),
-            rx,
-            ended,
-        ))
-    });
-    // These handles exist by construction; every post-spawn path still reaps the process.
-    let outcome=match (child.stdin.take(),child.stdout.take()) {
-        (Some(stdin),Some(stdout))=>{
+    // Every post-spawn path retires BOTH processes, including partial setup and
+    // a failed reap. Admission never overlaps the previous encoder/publication.
+    let outcome=match (child.stdin.take(),child.stdout.take(),child.stderr.take(),
+                       publication.stdin.take(),publication.stdout.take()) {
+        (Some(stdin),Some(encoded),Some(progress),Some(publish),Some(published))=>{
             let budget=Duration::from_millis(config.frame_timeout_ms);
             tokio::select! {
                 biased;
                 _=stop.changed()=>Err(Error::Stopped),
                 _=child.wait()=>Err(Error::Encoder),
-                result=pump(source,stdin,budget,&metadata)=>result,
-                result=encoder_progress(stdout,budget.max(Duration::from_secs(3)))=>result,
+                _=publication.wait()=>Err(Error::Encoder),
+                error=policy.guard()=>Err(error),
+                result=observed(Stage::CameraFrames,pump(source,stdin,budget))=>result,
+                result=observed(Stage::EncodedRelay,relay(encoded,publish,token,budget))=>result,
+                result=observed(Stage::EncoderProgress,encoder_progress(progress,budget.max(Duration::from_secs(3))))=>result,
+                result=observed(Stage::PublisherProgress,publisher_progress(published,budget.max(Duration::from_secs(3))))=>result,
             }
-        }
+        },
         _=>Err(Error::Encoder),
     };
-    // Source socket and pending JPEG/pipe futures have been dropped before reconnect.
-    // Never create another encoder if the previous one cannot be reaped.
-    let _ = end.send(true);
-    let publisher_failed = if let Some(publisher) = publisher {
-        publisher.await.is_err()
-    } else {
-        false
-    };
-    retire(&mut child).await?;
-    if publisher_failed {
-        return Err(Error::Cleanup);
-    }
+    let (encoder_retired,publisher_retired)=tokio::join!(retire(&mut child),retire(&mut publication));
+    encoder_retired?;
+    publisher_retired?;
     outcome
+}
+/// The source and children are retired, but the loaded enrollment is still a
+/// lease. Expiry and clock failure must stop supervision during backoff too.
+async fn wait_to_retry(
+    delay: Duration,
+    stop: &mut watch::Receiver<bool>,
+    lease: impl std::future::Future<Output = Error>,
+) -> Result<()> {
+    if *stop.borrow() { return Err(Error::Stopped); }
+    tokio::select! {
+        biased;
+        _=stop.changed()=>Err(Error::Stopped),
+        error=lease=>Err(error),
+        _=sleep(delay)=>Ok(()),
+    }
 }
 /// One source connection and encoder at a time. Retry delay caps at eight seconds.
 pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
     config.validate()?;
-    let token=config.token()?;
+    let token=zeroize::Zeroizing::new(config.token()?);
+    let policy=Prepared::load(&config)?;
     let mut delay=1;
     loop {
         let start=Instant::now();
-        match attempt(&config,&token,&mut stop).await {
+        match attempt(&config,&token,&policy,&mut stop).await {
             Err(Error::Stopped)=>return Ok(()),
             Err(Error::Cleanup)=>return Err(Error::Cleanup),
+            Err(Error::Authentication)=>return Err(Error::Authentication),
             result=>{
                 let category=result.err().unwrap_or(Error::Encoder);
                 eprintln!("nxrs-camera-ingest: retired source/encoder ({category}); retrying");
             }
         }
         if start.elapsed()>=Duration::from_secs(30) { delay=1; }
-        tokio::select! {
-            biased;
-            _=stop.changed()=>return Ok(()),
-            _=sleep(Duration::from_secs(delay))=>{},
+        match wait_to_retry(Duration::from_secs(delay),&mut stop,policy.guard()).await {
+            Ok(())=>{},
+            Err(Error::Stopped)=>return Ok(()),
+            Err(error)=>return Err(error),
         }
         delay=(delay*2).min(8);
     }
@@ -205,52 +226,74 @@ pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn progress_matches_encoded_and_copy_output_contracts() {
-        let mut encoded=ProgressCounter::Encoded(0);
-        assert_eq!(encoded.observe("out_time_us=40000"),Ok(false));
-        assert_eq!(encoded.observe("frame=0"),Ok(false));
-        assert_eq!(encoded.observe("frame=2"),Ok(true));
-        assert_eq!(encoded.observe("frame=2"),Ok(false));
-        assert_eq!(encoded.observe("frame=1"),Err(Error::Encoder));
-        let mut copy=ProgressCounter::Published(None);
-        assert_eq!(copy.observe("out_time_us=N/A"),Ok(false));
-        assert_eq!(copy.observe("out_time_us=-40000"),Ok(false));
-        assert_eq!(copy.observe("out_time_us=0"),Ok(true));
-        assert_eq!(copy.observe("out_time_us=40000"),Ok(true));
-        assert_eq!(copy.observe("frame=1000"),Ok(false));
-        assert_eq!(copy.observe("out_time_us=40000"),Ok(false));
-        assert_eq!(copy.observe("out_time_us=39999"),Err(Error::Encoder));
-        assert_eq!(copy.observe("out_time_us=invalid"),Err(Error::Encoder));
+    #[tokio::test]
+    async fn credential_failure_interrupts_the_maximum_reconnect_backoff() {
+        let (_stop,mut rx)=watch::channel(false);
+        let (expire,expired)=tokio::sync::oneshot::channel();
+        let waiting=tokio::spawn(async move {
+            wait_to_retry(Duration::from_secs(8),&mut rx,async {
+                expired.await.unwrap();
+                Error::Authentication
+            }).await
+        });
+        expire.send(()).unwrap();
+        assert_eq!(timeout(Duration::from_millis(250),waiting).await.unwrap().unwrap(),
+                   Err(Error::Authentication));
     }
-    #[tokio::test] async fn copy_progress_renews_without_an_encoded_frame_counter() {
+    #[tokio::test]
+    async fn reconnect_wait_keeps_stop_priority_and_development_retry_behavior() {
+        let (stop,mut rx)=watch::channel(true);
+        assert_eq!(wait_to_retry(Duration::from_secs(8),&mut rx,async { panic!("cancelled lease polled") }).await,
+                   Err(Error::Stopped));
+        stop.send(false).unwrap();
+        rx.borrow_and_update();
+        let waiting=tokio::spawn(async move {
+            wait_to_retry(Duration::from_secs(8),&mut rx,std::future::pending()).await
+        });
+        stop.send(true).unwrap();
+        assert_eq!(timeout(Duration::from_millis(250),waiting).await.unwrap().unwrap(),Err(Error::Stopped));
+        let (_stop,mut rx)=watch::channel(false);
+        assert_eq!(wait_to_retry(Duration::from_millis(1),&mut rx,std::future::pending()).await,Ok(()));
+    }
+    #[tokio::test]
+    async fn sdk_packet_progress_renews_without_encoder_frame_or_output_time_fields() {
         let (mut output,input)=tokio::io::duplex(4096);
         let producer=tokio::spawn(async move {
-            for timestamp in [0,40000,80000,120000] {
-                output.write_all(format!("out_time_us={timestamp}\nprogress=continue\n").as_bytes()).await.unwrap();
+            for packet in [1,2,3,4] {
+                output.write_all(format!("packet={packet}\n").as_bytes()).await.unwrap();
                 sleep(Duration::from_millis(100)).await;
             }
             std::future::pending::<()>().await;
         });
         let start=Instant::now();
         let outcome=timeout(Duration::from_secs(3),publisher_progress(input,Duration::from_millis(500))).await;
-        producer.abort(); let _=producer.await;
+        producer.abort();let _=producer.await;
         assert_eq!(outcome.unwrap(),Err(Error::Encoder));
         assert!(start.elapsed()>=Duration::from_millis(600));
     }
-    #[tokio::test] async fn repeated_copy_time_and_unrelated_fields_do_not_renew_deadline() {
+    #[tokio::test]
+    async fn duplicate_packets_encoder_frames_and_mux_times_cannot_renew_publication() {
         let (mut output,input)=tokio::io::duplex(4096);
         let producer=tokio::spawn(async move {
-            let mut frames=1;
+            let mut unrelated=1;
             loop {
-                if output.write_all(format!("frame={frames}\nout_time_us=40000\nprogress=continue\n").as_bytes()).await.is_err() { return; }
-                frames+=1;
-                sleep(Duration::from_millis(25)).await;
+                if output.write_all(format!("frame={unrelated}\nout_time_us={unrelated}\npacket=1\n").as_bytes()).await.is_err(){return;}
+                unrelated+=1;sleep(Duration::from_millis(25)).await;
             }
         });
         let outcome=timeout(Duration::from_secs(2),publisher_progress(input,Duration::from_millis(250))).await;
-        producer.abort(); let _=producer.await;
+        producer.abort();let _=producer.await;
         assert_eq!(outcome.unwrap(),Err(Error::Encoder));
     }
+    #[tokio::test]
+    async fn invalid_and_regressing_sdk_packet_counters_refuse() {
+        for data in ["packet=1\npacket=0\n","packet=-1\n","packet=18446744073709551616\n","packet=invalid\n"] {
+            let (mut writer,input)=tokio::io::duplex(128);
+            writer.write_all(data.as_bytes()).await.unwrap();
+            assert_eq!(timeout(Duration::from_millis(250),publisher_progress(input,Duration::from_secs(3))).await.unwrap(),Err(Error::Encoder));
+        }
+    }
+
     #[test] fn arrival_clock_is_relative_not_device_epoch() {
         let mut lag=Lag::default(); let t=Instant::now();
         let f=Frame{length:4,sequence:1,capture_ms:9_000_000};
@@ -262,9 +305,9 @@ mod tests {
         let c:Config=serde_json::from_value(serde_json::json!({
             "camera":"127.0.0.1:1","allow_insecure_camera_http":true,"rtsp":"127.0.0.1:2",
             "stream_path":"reference","publisher_user":"publisher_reference","publisher_token_file":"/private/token",
-            "ffmpeg":"/does/not/exist","width":320,"height":240,"frame_timeout_ms":3000
+            "ffmpeg":"/does/not/exist","publisher":"/does/not/exist-either","width":320,"height":240,"frame_timeout_ms":3000
         })).unwrap();
         let (_tx,mut rx)=watch::channel(true);
-        assert_eq!(attempt(&c,"not-used",&mut rx).await,Err(Error::Stopped));
+        assert_eq!(attempt(&c,"not-used",&Prepared::load(&c).unwrap(),&mut rx).await,Err(Error::Stopped));
     }
 }

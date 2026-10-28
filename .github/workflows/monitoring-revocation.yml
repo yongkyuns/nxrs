@@ -6,6 +6,8 @@ on:
       - 'gateway/**'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
+      - 'tools/ci-apt.py'
+      - 'tests/host/test_ci_apt.py'
       - '.github/workflows/monitoring-revocation.yml'
   workflow_dispatch:
 permissions:
@@ -16,7 +18,7 @@ concurrency:
 jobs:
   revocation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -30,24 +32,17 @@ jobs:
       - name: Install headless media tools
         timeout-minutes: 3
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh ffmpeg
-      - name: Install pinned media-test dependencies
-        timeout-minutes: 3
+          python3 tools/ci-apt.py ffmpeg
+      - name: Build and qualify pinned media-test environment
+        timeout-minutes: 20
         run: |
-          python3 -m venv /tmp/nxrs-revocation
-          /tmp/nxrs-revocation/bin/pip install --timeout 30 --retries 2 -r gateway/tests/media-requirements.txt
-      - name: Fetch and verify pinned MediaMTX
-        timeout-minutes: 2
-        run: |
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-revocation-mediamtx.tar.gz').write_bytes(data)
-          PY
+          python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-revocation-native --runtime /tmp/nxrs-revocation --qualify
+          /tmp/nxrs-revocation/bin/python -m pip check
+          /tmp/nxrs-revocation/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-revocation.json"
           mkdir /tmp/nxrs-revocation-mediamtx
-          tar -xzf /tmp/nxrs-revocation-mediamtx.tar.gz -C /tmp/nxrs-revocation-mediamtx mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-revocation-mediamtx/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-revocation-mediamtx/mediamtx
       - name: Terminate live media, retain unrelated viewers, recover and restore durable denials
         run: |
           /tmp/nxrs-revocation/bin/python gateway/tests/revocation_reference.py \

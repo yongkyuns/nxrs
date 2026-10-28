@@ -4,6 +4,11 @@ Tracks #20 / draft PR #21. This is **not yet a complete home-camera product**.
 The independent host workspace has no MCU dependencies and does not alter camera
 acquisition, HALs, drivers or the root Cargo workspace.
 
+Optional [automatic activity recording](activity/README.md) adds a private motion
+clip store, camera-scoped history/media endpoints and an iPhone Activity timeline.
+It subscribes to the existing loopback media stream rather than acquiring the
+physical camera. Existing deployments remain supported without enabling it.
+
 For an integrated opt-in Linux deployment with durable denial and fail-stop
 supervision, use [strict HTTPS/WireGuard services](deploy/strict-services.md).
 It reuses the [base network/proxy profile](deploy/README.md) and explicitly enables
@@ -101,16 +106,19 @@ The dedicated workflows separate different kinds of evidence:
 | `monitoring-systemd.yml` | Strict deployment generation and one-time state; real service-manager permissions, active video, selective revocation, controller-crash fail-stop and persistent recovery |
 | `monitoring-ios.yml` | Native Swift/WebRTC application playback/build qualification, with its separately scoped test transport |
 
-MediaMTX 1.21.2 archives are checksum-pinned in `deploy/dependencies.json`.
+MediaMTX 1.21.2-nxrs.1 is reproducibly built with patched Go dependencies and
+fresh source/binary advisory gates. Follow [the media build procedure](deploy/media-engine.md);
+one recipe supplies the Linux and macOS reference runtimes.
+Use [the frozen Python environment](tests/python-environment.md) with CPython 3.12.
 Run the non-privileged Linux references with an already verified binary:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r tests/requirements.txt -r tests/media-requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python tests/reference_integration.py \
+python3 tools/native_python.py prepare --work /tmp/nxrs-media-build \
+  --runtime /tmp/nxrs-media-runtime --qualify
+/tmp/nxrs-media-runtime/bin/python -m unittest discover -s tests -v
+/tmp/nxrs-media-runtime/bin/python tests/reference_integration.py \
   --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx
-.venv/bin/python tests/revocation_reference.py \
+/tmp/nxrs-media-runtime/bin/python tests/revocation_reference.py \
   --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx
 ```
 
@@ -126,7 +134,7 @@ RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher token
 appears in its arguments; run these harnesses on trusted test hosts. Raw logs,
 keys and credentials are private and removed, not uploaded as artifacts. Runner
 FFmpeg versions are recorded, not represented as pinned distributable encoder
-images. Python transitive test packages are not yet a fully hash-locked deployment.
+images. The complete Python fixture graph and explicit native rebuilds are hash-bound; full transitive native/OS advisory coverage and a product distribution remain separate release gates.
 
 ## Camera coordination and remaining qualification
 
@@ -146,3 +154,8 @@ full account provisioning; dependency/encoder/SDK licensing and security review;
 secure physical ingest and future hosted/CGNAT deployment. See the
 [architecture and handoff](../docs/remote-monitoring.md). Stable identities and
 client contracts remain independent of WireGuard.
+
+Strict gateway configuration requires a finite application credential activation
+window. See [credential expiry and controlled rotation](deploy/strict-services.md).
+Generated reference tokens have 30-day cohort validity; this is separate from
+short-lived playback grants and WireGuard peer identity.

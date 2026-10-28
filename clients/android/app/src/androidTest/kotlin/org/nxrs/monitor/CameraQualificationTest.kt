@@ -133,6 +133,7 @@ class CameraQualificationTest {
         val visibleCameras = java.util.concurrent.atomic.AtomicReference<Set<CameraId>>(emptySet())
         val pauseTrace = ArrayDeque<String>()
         var readPixels by mutableStateOf(true)
+        var reportVisibility = true
         onMain {
             controller = HomeController(store, network, MediaRuntime(context), library, scope)
             QualificationActivity.content = {
@@ -142,7 +143,7 @@ class CameraQualificationTest {
                         home,
                         { ids ->
                             visibleCameras.set(ids)
-                            controller.visible(ids)
+                            if (reportVisibility) controller.visible(ids)
                         },
                         controller::toggle,
                         controller::fullscreen,
@@ -159,7 +160,8 @@ class CameraQualificationTest {
                                             sample.red > 150 && sample.blue < 100 -> {
                                                 if (
                                                     metadata.presence() != Presence.Person ||
-                                                        sample.boxesDrawn != 1
+                                                        sample.boxesDrawn !=
+                                                            if (sample.annotationCurrent) 1 else 0
                                                 )
                                                     mismatches.incrementAndGet()
                                                 red.computeIfAbsent(id) { AtomicInteger() }
@@ -185,6 +187,11 @@ class CameraQualificationTest {
             }
         }
         val device = UiDevice.getInstance(instrumentation)
+        // Trust-negative network setup may outlast the emulator's idle timeout.
+        // KEEP_SCREEN_ON protects a visible window but does not wake a sleeping
+        // display. Restore the owned test display immediately before launch.
+        device.wakeUp()
+        device.executeShellCommand("wm dismiss-keyguard")
         val scenario = ActivityScenario.launch(QualificationActivity::class.java)
         val a = CameraId("cam_a")
         val b = CameraId("cam_b")
@@ -441,6 +448,9 @@ class CameraQualificationTest {
             // resources before slots can be reused by the newly bound sessions.
             val old = controller.state.value.sessions.values.toList()
             withContext(Dispatchers.Main) {
+                // An unchanged catalog need not produce another layout report.
+                // Existing viewport intent must survive resource replacement.
+                reportVisibility = false
                 controller.enroll(fixture.gateway, fixture.mediaOrigin, fixture.token)
             }
             waitFor("replaced enrollment has joined obsolete callbacks") {

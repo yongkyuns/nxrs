@@ -26,6 +26,9 @@ playing. Catalog identity/capability changes and home replacement retire the old
 sessions, even when the new home reuses the same camera IDs.
 Removing a selected camera chooses an available replacement; removing the
 full-screen camera closes its presentation. Unchanged cameras keep their sessions.
+Replacing an enrollment preserves the current viewport request, even if an equal
+camera catalog produces no new layout callback. The replacement still creates
+new sessions and waits for obsolete owners to retire before reusing their slots.
 With automatic playback disabled, new cameras remain paused until explicitly
 resumed. Selection for display does not itself override that preference.
 Watch/Pause updates selection and admission in one action. Selecting and then
@@ -134,17 +137,27 @@ exercise two cameras, pause/retry, full-screen reuse, JPEG/clip capture, source
 replacement and background cleanup. Android additionally checks exact rendered
 pixels, frozen expiry without new input and source-fault isolation. Every runner
 must emit its success marker; a skipped integration test cannot pass the fixture.
+Android's pixel witness checks image/metadata identity independently of whether
+that draw admitted boxes. Retiring an epoch after its tag is read must suppress
+its overlay while preserving the image's identity. A deterministic native control
+exercises this interleaving; fresh and frozen draws report their admission decision.
 
 Native CI uses the gateway/ingest release binaries with the same source cadence,
 freshness deadlines and assertions. Debug-build CPU overhead belongs in separate
 build-cost measurements rather than the native client's throughput budget.
 
-The ingest watchdog measures encoded output with advancing frame counts and the
-copy-only publisher with strictly advancing muxed output time. FFmpeg 6's
-[output reporter](https://github.com/FFmpeg/FFmpeg/blob/n6.1.1/fftools/ffmpeg.c)
-omits the frame counter for stream-copy output. Repeated timestamps, unknown progress
-fields and partial lines do not renew deadlines. This output clock is only a
-publisher-health signal; decoded-image identity still comes from the access unit.
+The ingest watchdog measures encoded output with advancing encoder frame counts
+and publication with strictly advancing SDK publisher packet counters. Encoder
+frames, muxed timestamps, repeated packet counts, unknown progress fields and
+partial lines do not renew the publication deadline. These progress counters
+measure health; decoded-image identity still comes from the access unit.
+
+The native client fixture selects its encoder and optional isolation launcher
+explicitly. Its independent system FFmpeg generates synthetic source images.
+The SDK publisher must be built before camera acquisition, and the fixture's
+TLS issuer requires its pinned CPython environment. Android CI supplies the
+minimized media runtime, its linked release SDK binaries and the existing
+encoder sandbox. These resources do not change the pixel or lifetime assertions.
 
 Record codec-input FPS, codec-output FPS, delivered FPS, actual rendered FPS and
 process CPU separately. Synchronous pixel readback is enabled for the identity

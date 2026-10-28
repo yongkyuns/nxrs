@@ -1,0 +1,23 @@
+[package]
+name = "nxrs-camera-activity"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+nxrs-media-sandbox = { path = "../media-sandbox" }
+nxrs-media-process = { path = "../media-process" }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+getrandom = "=0.3.4"
+libc = "=0.2.191"
+tokio = { version = "=1.51.6", features = ["macros", "rt", "process", "io-util", "sync", "signal", "time"] }
+zeroize = "=1.9.1"
+sha2 = "=0.10.9"
+rustix = { version = "=1.1.4", features = ["fs"] }
+
+[features]
+# Test-only entry points call the production parsers without opening storage.
+probe = []

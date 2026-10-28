@@ -8,7 +8,6 @@ URLSessions. Requires the pinned media tools and actual Rust camera fixture.
 import argparse
 import asyncio
 import hashlib
-from http.server import ThreadingHTTPServer
 import importlib.util
 import json
 import os
@@ -16,31 +15,20 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
-from socketserver import TCPServer
 import ssl
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.request
 from rust_camera import RustCamera
+from loopback_https import LoopbackServer
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('native_fixture', ROOT/'clients/ios/ci/native_reference.py')
 native = importlib.util.module_from_spec(spec); spec.loader.exec_module(native)
 spec = importlib.util.spec_from_file_location('fixture_proxy', ROOT/'gateway/tools/local_https_proxy.py')
 proxy = importlib.util.module_from_spec(spec); spec.loader.exec_module(proxy)
-
-
-class LoopbackServer(ThreadingHTTPServer):
-    daemon_threads = True
-
-    def server_bind(self):
-        # HTTPServer normally reverse-resolves its listening address. This
-        # private loopback fixture needs no DNS or host-network discovery.
-        TCPServer.server_bind(self)
-        self.server_name = 'localhost'
-        self.server_port = self.server_address[1]
-
 
 
 def require(value, stage):
@@ -68,6 +56,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
         write('revocations.json', {'version':1,'revoked':[]})
         write('security.json', {'revocations_file':str(root/'revocations.json'), 'media_api':f'127.0.0.1:{management}', 'media_api_token':tokens['management']})
         write('control.json', {'listen':f'127.0.0.1:{control}','auth_listen':f'127.0.0.1:{auth}',
+            'credential_window':{'not_before':int(time.time())-1,'expires_at':int(time.time())+3600},
             'grant_ttl_seconds':60,'max_grants':64,'media_origins':[origins[1]],
             'cameras':[{'camera_id':'cam_reference','gateway_id':'gateway','site_id':'site','name':'SYNTHETIC red/blue codec witness',
                 'source':'synthetic','stream_path':'reference','whep_endpoint':origins[1]+'/reference/whep'}],
@@ -79,7 +68,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             'webrtc':True,'webrtcAddress':f'127.0.0.1:{media}','webrtcEncryption':True,'webrtcServerKey':str(root/'key.pem'),'webrtcServerCert':str(root/'cert.pem'),
             'webrtcLocalUDPAddress':f'127.0.0.1:{ice}','webrtcIPsFromInterfaces':False,'webrtcAdditionalHosts':['127.0.0.1'],'webrtcICEServers2':[],
             'paths':{'reference':{'source':'publisher','overridePublisher':False,'maxReaders':4}}})
-        processes=[]; handles=[]; labels=[]; source=None; https=None; https_thread=None
+        processes=[]; handles=[]; labels=[]; source=None; bridge=None; https=None; https_thread=None
         readiness={'media_ready':False,'media_status':None,'api_ready':False,'api_status':None}
         def launch(args, label):
             handle=(root/(label+'.log')).open('wb');handles.append(handle)
@@ -115,17 +104,23 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             source=await RustCamera.start(camera_source,root,detections=True,colors=True)
             write('ingest.json',{'camera':f'127.0.0.1:{source.port}','allow_insecure_camera_http':True,'rtsp':f'127.0.0.1:{rtsp}',
                 'stream_path':'reference','publisher_user':'publisher','publisher_token_file':str(root/'publisher.token'),'ffmpeg':shutil.which('ffmpeg'),
+                'publisher':str(ingest.parent/'nxrs-rtsp-publisher'),
                 'width':320,'height':240,'frame_timeout_ms':2000,'detections':{'control':f'127.0.0.1:{auth}','camera_id':'cam_reference'}})
+            from tls_camera import TlsCameraBridge
+            bridge=await TlsCameraBridge.start(root,source,root/'control.json')
+            config=json.loads((root/'ingest.json').read_text());config['camera']=f'127.0.0.1:{bridge.port}'
+            (root/'ingest.json').write_text(json.dumps(config))
+            staged=bridge.stage(root/'ingest.json');(root/'ingest.json').write_bytes(staged.read_bytes())
             launch([gateway,root/'control.json','--security',root/'security.json'],'control')
             launch([mediamtx,root/'media.json'],'media')
             https=LoopbackServer(('127.0.0.1',tls_api),proxy.handler(('127.0.0.1',control)))
             context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.minimum_version=ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(root/'cert.pem',root/'key.pem')
-            https.socket=context.wrap_socket(https.socket,server_side=True)
+            https.use_tls(context)
             https_thread=threading.Thread(target=https.serve_forever,daemon=True)
             https_thread.start()
-            launch([ingest,root/'ingest.json'],'ingest')
+            launch([ingest,root/'ingest.json','--require-camera-tls'],'ingest')
             deadline=asyncio.get_running_loop().time()+30
             while not (await ready() and await api_ready()):
                 require(asyncio.get_running_loop().time()<deadline,'annotation publication readiness')
@@ -156,7 +151,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
                     deadline=asyncio.get_running_loop().time()+30
                     while not await ready():
                         require(asyncio.get_running_loop().time()<deadline,'annotated publication recovery');await asyncio.sleep(.1)
-            print(json.dumps({'result':'PASS','qualification':'synthetic pixels with actual Rust stream, H264 publisher and native SDK','runs':reports},sort_keys=True))
+            print(json.dumps({'result':'PASS','qualification':'synthetic pixels with actual Rust stream, mutual TLS, H264 publisher and native SDK','camera_tls_fixture':True,'device_tls_qualified':False,'runs':reports},sort_keys=True))
         except BaseException:
             # Report only structural facts and fixed error categories. Private
             # child logs/configs contain credentials and are never printed.
@@ -189,6 +184,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
                         except subprocess.TimeoutExpired:child.kill();await asyncio.to_thread(child.wait,timeout=5)
                     require(child.poll() is not None,'child not retired')
                 except Exception:failures.append('owned child')
+            if bridge:
+                try:await bridge.close()
+                except Exception:failures.append('TLS bridge')
             if source:
                 try:await source.close()
                 except Exception:failures.append('source')

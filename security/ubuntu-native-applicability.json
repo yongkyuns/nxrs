@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "scope": "hosted-authenticated-ubuntu-native-advisory-applicability",
+  "review": {
+    "id": "glibc-power8-strncasecmp-amd64-20261027",
+    "advisory": "UBUNTU-CVE-2026-97399",
+    "canonical_record_sha256": "5bbff9ba4d7538934f7a020bcf2d11dde3917f75544403b01cf21e26510921ee",
+    "modified": "2026-10-01T19:11:28.548573898Z",
+    "source_package": "glibc",
+    "source_version": "2.39-0ubuntu8.9",
+    "binary_package": "libc6:amd64",
+    "package_sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+    "reviewed_at": "2026-10-27T00:00:00Z",
+    "valid_until": "2026-11-24T00:00:00Z",
+    "references": [
+      "https://ubuntu.com/security/CVE-2026-97399",
+      "https://www.openwall.com/lists/oss-security/2026/09/28/7"
+    ],
+    "images": {
+      "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2": {
+        "sha256": "c20a2dc8917c755f02b94049356320fe1f62ac7d9f8994731f807d9df39302da",
+        "size": 236616,
+        "elf": {
+          "abi_version": 0,
+          "bits": 64,
+          "byte_order": "little",
+          "flags": 0,
+          "machine": 62,
+          "osabi": 3,
+          "type": 3
+        }
+      },
+      "/usr/lib/x86_64-linux-gnu/libc.so.6": {
+        "sha256": "3a15d66867d83762c7f2f1e37359cb8f6c5743edb369c65285cb0b1c4f7498bf",
+        "size": 2129424,
+        "elf": {
+          "abi_version": 0,
+          "bits": 64,
+          "byte_order": "little",
+          "flags": 0,
+          "machine": 62,
+          "osabi": 3,
+          "type": 3
+        }
+      },
+      "/usr/lib/x86_64-linux-gnu/libm.so.6": {
+        "sha256": "fce00b6f25f459cf4ae0b7fae4257909a1a8a86f9149e7c029a5d617baf1ccd0",
+        "size": 952616,
+        "elf": {
+          "abi_version": 0,
+          "bits": 64,
+          "byte_order": "little",
+          "flags": 0,
+          "machine": 62,
+          "osabi": 3,
+          "type": 3
+        }
+      }
+    }
+  }
+}

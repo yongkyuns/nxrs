@@ -25,18 +25,24 @@ FIRMWARE_APPS = {
 }
 PLATFORM_NAMES = {
     "pico2-mock",
+    "pico2-entropy",
     "pico2w-wifi",
     "pico2w-ble",
     "mps2-an521-mock",
     "esp32s3-qemu-mock",
     "esp32s3-service-footprint",
+    "esp32s3-identity-sdk",
+    "esp32s3-identity-tls",
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
     "esp32s3-camera",
+    "esp32s3-camera-mcuboot",
     "esp32s3-camera-stream",
     "esp32s3-camera-stream-vww",
     "esp32s3-camera-stream-video",
+    "esp32s3-camera-update",
+    "esp32s3-update-qemu",
     "pico2w-radio",
 }
 
@@ -53,6 +59,55 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
+    def test_identity_sdk_selection_requires_its_explicit_qualification_target(self):
+        profile = PLATFORM_CONFIG.resolve("esp32s3-identity-sdk")
+        self.assertTrue(PLATFORM_CONFIG.identity_crypto(profile))
+        tls_profile = PLATFORM_CONFIG.resolve("esp32s3-identity-tls")
+        self.assertTrue(PLATFORM_CONFIG.identity_crypto(tls_profile))
+        self.assertEqual(tls_profile["identity-crypto"]["trust-fixture"], "fresh-host-utc")
+        for kind in ("production", "unverified", "ambient-clock"):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.identity_crypto({**tls_profile, "identity-crypto": {
+                    **tls_profile["identity-crypto"], "trust-fixture": kind}})
+        self.assertFalse(PLATFORM_CONFIG.identity_crypto(PLATFORM_CONFIG.resolve("esp32s3-camera")))
+        for altered in ({**profile, "target": "thumbv8m.main-nuttx-eabi"},
+                        {**profile, "identity-crypto": {"sdk": "mbedtls-4.1.1", "scope": "production"}},
+                        {**profile, "identity-crypto": {}},
+                        {**profile, "identity-crypto": "mbedtls"}):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.identity_crypto(altered)
+
+    def test_update_resource_layout_is_bound_to_boot_and_has_no_fixture_override(self):
+        camera = PLATFORM_CONFIG.resolve("esp32s3-camera-update")
+        emulator = PLATFORM_CONFIG.resolve("esp32s3-update-qemu")
+        self.assertEqual(PLATFORM_CONFIG.update_layout(camera), camera["boot"]["layout"])
+        self.assertEqual(PLATFORM_CONFIG.update_layout(emulator), camera["boot"]["layout"])
+        for altered in ({**camera, "update": emulator["update"]}, {**emulator, "update": {}},
+                        {**emulator, "update": {**emulator["update"], "scope": "production"}},
+                        {**camera, "boot": "untyped"}, {**emulator, "update": []}):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.update_layout(altered)
+        invalid = dict(emulator["update"]["layout"], secondary_offset="incoming-image-value")
+        with self.assertRaises(ValueError):
+            PLATFORM_CONFIG.update_layout({**emulator, "update": {"scope": "qualification-only", "layout": invalid}})
+
+    def test_general_storage_cannot_cover_boot_primary_secondary_scratch_or_unbounded_tail(self):
+        original = PLATFORM_CONFIG.resolve("esp32s3-update-qemu")
+        for key, value in (("ESP32S3_STORAGE_MTD_OFFSET", "0x0"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x1000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x20000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x120000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x180000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x220000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x260001"),
+                           ("ESP32S3_STORAGE_MTD_SIZE", "0"),
+                           ("ESP32S3_STORAGE_MTD_SIZE", "0x1000000")):
+            config = dict(original["kconfig"])
+            config["set"] = [item if not item.startswith(key + "=") else key + "=" + value
+                             for item in config["set"]]
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.update_layout({**original, "kconfig": config})
+
     def test_provider_headers_are_staged_checked_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         begin = script.index('  for header in "$(dirname "$source_path")"/*.h')
@@ -81,11 +136,17 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_final_native_configuration_is_recorded_after_build_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         final_build = script.index('make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS"')
-        final_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        measured_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        context = script.index('make -C "$OUT/nuttx" context')
+        abi = script.index('python3 tests/nuttx-std/check-abi.py --self-test')
+        self.assertLess(context, measured_config)
+        self.assertLess(measured_config, abi)
+        final_config = script.rindex('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
         hashes = script.index('HASH_INPUTS=(')
         self.assertLess(final_build, final_config)
         self.assertLess(final_config, hashes)
         self.assertIn('"$OUT/resolved.config"', script[hashes:].splitlines()[0])
+        self.assertIn("report['config_sha256'] != hashlib.sha256", script[final_config:hashes])
 
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
         for symbol in ("", "lowercase", "FOO BAR", "FOO=1", "-FOO"):
@@ -164,10 +225,15 @@ class FirmwareFrontendTests(unittest.TestCase):
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
+                            "esp32s3-identity-sdk": {"imu": "none", "gnss": "none"},
+                            "esp32s3-identity-tls": {"imu": "none", "gnss": "none"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
+                            "esp32s3-camera-mcuboot": {"camera": "nuttx"},
+                            "esp32s3-camera-update": {"camera": "nuttx", "update": "nuttx"},
+                            "esp32s3-update-qemu": {"imu": "mock", "gnss": "mock", "update": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
                             "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},

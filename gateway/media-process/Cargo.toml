@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-media-process"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+tokio = { version = "=1.51.6", features = ["macros", "rt", "process", "io-util", "time"] }

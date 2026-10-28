@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-mcuboot-policy"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-firmware-image = { path = "../firmware-image" }
+
+[lib]
+name = "mcuboot_policy"

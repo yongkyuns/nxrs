@@ -2,8 +2,9 @@
 
 A native home monitoring client with a camera-first dashboard, rooms and
 favorites, full-screen live video, digital zoom, snapshots, short video clips and
-a private local Recordings view. The original home/lens identity, light and dark
-themes, guided setup and native Home / Recordings / Settings navigation are described in the
+a private local Recordings view. Optional gateway motion recording adds an
+Activity timeline with authenticated playback and kept clips. The original home/lens identity, light and dark
+themes, guided setup and native Home / Activity / Recordings / Settings navigation are described in the
 [product brief](../../docs/ios-home-experience.md).
 
 The authenticated receive-only player and Keychain enrollment from
@@ -88,8 +89,26 @@ Forgetting a home removes its viewer key and leaves saved footage accessible.
 
 Camera names, rooms, favorites and playback/appearance preferences stay on this
 iPhone. Pause stops viewing here; it does not power off the camera. Audio, talk,
-pan/tilt, motion notifications and continuous recording history require additional
+pan/tilt, push notifications and continuous recording history require additional
 camera/gateway capabilities and are not offered as working controls.
+
+## Automatic activity
+
+Activity shows motion clips captured by an enabled gateway while the phone is
+away or the app is closed. Select a camera, browse activity by day, tap to play,
+and use Keep clip to exempt a recording from automatic retention. Management
+requires explicit owner permission; read-only viewers can play but cannot change
+retention. Default automatic history is three days, bounded by gateway storage;
+kept clips are never evicted for quota pressure. Recordings remains the separate
+private library of clips and snapshots you save on this iPhone.
+
+The client downloads authenticated 512 KiB pieces from its enrolled origin,
+checks the exact declared length and reconstructs the bounded clip in protected,
+backup-excluded temporary storage before AVPlayer playback. No credential enters
+a playback URL or AVPlayer headers. A camera/enrollment/background change cancels
+the old work. Activity refreshes while foreground and expires a stale monitoring
+confirmation. Homes without this optional API show an explicit setup-needed state.
+See [recording behavior, deployment and limits](../../gateway/activity/README.md).
 
 ## Import an invitation
 

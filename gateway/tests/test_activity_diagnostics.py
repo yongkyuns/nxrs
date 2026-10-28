@@ -1,0 +1,115 @@
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from activity_diagnostics import public_failure, worker_stages, snapshot
+
+
+class ActivityDiagnosticsTests(unittest.TestCase):
+    def test_only_fixed_failure_phase_and_bounded_health_leave_observer(self):
+        secret='synthetic-private-value'
+        raw=('PASS: real RTSP authorization rejects wrong and cross-role recorder credentials\n'
+             'ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=25,reconnects=5,clips_created=0,clips_dropped=1,
+                                                state=secret,token=secret))+'\n'
+             'ACTIVITY_WORKER_STAGES '+json.dumps(['reader exited',secret,'relay stopped'])+'\n'
+             'AssertionError: confirmed movement produces an automatic clip\n').encode()
+        value=public_failure(raw)
+        self.assertEqual(value['phase'],'recorder-roles');self.assertEqual(value['reason'],'motion-clip')
+        self.assertEqual(value['health'],dict(frames_observed=25,reconnects=5,clips_created=0,clips_dropped=1))
+        self.assertEqual(value['worker_stages'],['reader exited','relay stopped'])
+        self.assertTrue(secret not in json.dumps(value),'private value must remain withheld')
+
+    def test_unknown_failure_and_injected_fields_cannot_export_private_text(self):
+        secret='synthetic-private-value'
+        for raw in [('AssertionError: '+secret).encode(),('PASS: '+secret).encode(),
+                    ('ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=secret))).encode(),
+                    ('ACTIVITY_WORKER_STAGES '+json.dumps([secret])).encode(),b'ACTIVITY_HEALTH null',
+                    b'ACTIVITY_WORKER_STAGES {}',b'ACTIVITY_HEALTH {invalid']:
+            value=public_failure(raw)
+            self.assertEqual(value['phase'],'unknown');self.assertEqual(value['reason'],'unknown')
+            self.assertTrue(secret not in json.dumps(value),'private exception or metadata must remain withheld')
+
+    def test_counter_types_and_magnitude_are_bounded(self):
+        for counter in [True,-1,2**63,'private-value',None,1.5]:
+            raw=('ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=counter))).encode()
+            self.assertEqual(public_failure(raw)['health'],{})
+
+    def test_worker_lines_must_exactly_match_public_categories(self):
+        raw=b'nxrs-camera-activity: reader exited\nnxrs-camera-activity: private-value\nreader exited\n'
+        self.assertEqual(worker_stages(raw),['reader exited'])
+        self.assertEqual(len(worker_stages(b'nxrs-camera-activity: reader exited\n'*30)),8)
+
+    def test_snapshot_projects_only_bounded_health_and_known_terminal_worker_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);health=root/'health';log=root/'worker'
+            health.write_text(json.dumps(dict(frames_observed=27,reconnects=5,token='private-value')))
+            log.write_text('private-value\nnxrs-camera-activity: activity storage busy\n')
+            value=snapshot(health,[log,root/'missing'])
+            self.assertEqual(value,dict(health=dict(frames_observed=27,reconnects=5),
+                                        worker_stages=['activity storage busy']))
+            self.assertNotIn('private-value',json.dumps(value))
+            health.write_bytes(b'x'*2049)
+            self.assertEqual(snapshot(health,[log])['health'],{})
+            health.write_bytes(b'null')
+            self.assertEqual(snapshot(health,[log])['health'],{})
+
+    def test_recovery_failures_export_only_fixed_reasons_and_bounded_progress(self):
+        for reason,category in [('source loss is observed and recovery begins','source-retirement'),
+                                ('monotonic source recovery duration reaches authenticated health','recovery-timing'),
+                                ('rotation owner identities are unique and known','rotation-owner-identity'),
+                                ('rotation owner must be live before retirement','rotation-owner-exit'),
+                                ('rotation owner joined successfully','rotation-owner-status'),
+                                ('restarted fixture publisher remains running','restarted-publisher-exit'),
+                                ('controller restart restores authenticated decoded progress','controller-source-progress')]:
+            raw=('ACTIVITY_PROGRESS '+json.dumps(dict(observer_run=2,recoveries=1,last_recovery_ms=14,
+                  max_recovery_ms=14,max_frame_gap_ms=14,token='private-value',private=25,frame_gaps_over_30s=True))+
+                  '\nAssertionError: '+reason+'\n').encode()
+            value=public_failure(raw)
+            self.assertEqual(value['reason'],category)
+            self.assertEqual(value['progress'],dict(observer_run=2,recoveries=1,last_recovery_ms=14,max_recovery_ms=14,max_frame_gap_ms=14))
+            self.assertNotIn('private-value',json.dumps(value))
+        for value in [None,{},dict(observer_run=-1,recoveries=2**64)]:
+            result=public_failure(('ACTIVITY_PROGRESS '+json.dumps(value)).encode())
+            self.assertFalse(result.get('progress'))
+
+    def test_real_activity_failure_projects_known_source_location_without_private_values(self):
+        import activity_reference
+        from activity_diagnostics import failure_locations
+        try:activity_reference.require(False,'private-value /private/custody')
+        except AssertionError as error:locations=failure_locations(error)
+        self.assertTrue(locations)
+        self.assertTrue(all(v['source']=='gateway/tests/activity_reference.py' for v in locations))
+        value=public_failure(('ACTIVITY_FAILURE_LOCATION '+json.dumps(locations)+'\n').encode())
+        self.assertEqual(value['source_locations'],locations)
+        self.assertNotIn('private-value',json.dumps(value));self.assertNotIn('/private/custody',json.dumps(value))
+        bad=[dict(source='gateway/tests/activity_reference.py',line=True,error='AssertionError'),
+             dict(source='/private/custody',line=1,error='AssertionError')]
+        self.assertNotIn('source_locations',public_failure(('ACTIVITY_FAILURE_LOCATION '+json.dumps(bad)+'\n').encode()))
+
+    def test_unprivileged_sibling_staging_preserves_public_locations(self):
+        import shutil,subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            for name in ['activity_reference.py','activity_diagnostics.py','credential_process.py','failure_location.py']:
+                shutil.copyfile(Path(__file__).with_name(name),root/name)
+            code="""import activity_reference,json
+from activity_diagnostics import failure_locations
+try:activity_reference.require(False,'synthetic-private-value')
+except AssertionError as error:print(json.dumps(failure_locations(error)))
+"""
+            result=subprocess.run([sys.executable,'-c',code],cwd=root,capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,'ordinary staged fixture must import every declared helper')
+            locations=json.loads(result.stdout);self.assertTrue(locations)
+            self.assertTrue(all(value['source']=='gateway/tests/activity_reference.py' for value in locations))
+            self.assertNotIn(str(root),result.stdout);self.assertNotIn('synthetic-private-value',result.stdout)
+
+    def test_oversized_observations_and_raw_payload_are_not_exported(self):
+        raw=b'ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=1,payload='x'*4096)).encode()
+        self.assertEqual(public_failure(raw)['health'],{})
+        self.assertEqual(public_failure(b'private-frame'*10000)['reason'],'unknown')
+
+
+if __name__=='__main__':unittest.main()

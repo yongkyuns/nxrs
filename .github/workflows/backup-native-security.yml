@@ -1,0 +1,61 @@
+name: Backup native security and provenance
+on:
+  pull_request:
+    paths:
+      - 'gateway/activity/**'
+      - 'gateway/deploy/backup-dependencies.json'
+      - 'gateway/deploy/restic/**'
+      - 'gateway/tools/backup_engine.py'
+      - 'gateway/tools/verify_backup_evidence.py'
+      - 'gateway/tests/test_backup_engine.py'
+      - 'gateway/tests/test_backup_evidence.py'
+      - 'gateway/tests/fetch_restic.py'
+      - '.github/workflows/backup-native-security.yml'
+  schedule:
+    - cron: '17 7 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: backup-native-security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            artifact: linux_amd64
+          - runner: macos-15
+            artifact: darwin_arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify fail-closed native build and reporting controls
+        run: python3 -m unittest discover -s gateway/tests -p test_backup_engine.py -v
+      - name: Reproduce native artifact, audit real source/binary and reject affected control
+        run: |
+          python3 gateway/tools/backup_engine.py --artifact ${{ matrix.artifact }} --output /tmp/nxrs-qualified-restic --qualify
+          /tmp/nxrs-qualified-restic version
+          python3 gateway/tools/verify_backup_evidence.py /tmp/nxrs-qualified-restic --require-qualification
+          NXRS_TEST_BACKUP_EVIDENCE=/tmp/nxrs-qualified-restic python3 -m unittest discover -s gateway/tests -p test_backup_evidence.py -v
+      - name: Exercise actual Rust backup caller with rebuilt engine
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          NXRS_TEST_RESTIC=/tmp/nxrs-qualified-restic cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked \
+            -p nxrs-camera-activity --lib backup::tests::actual_restic_authenticates_encrypts_verifies_and_restores_a_frozen_store -- --ignored --exact
+      - name: Retain only the public qualified engine and bound evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backup-native-${{ matrix.artifact }}
+          path: |
+            /tmp/nxrs-qualified-restic
+            /tmp/nxrs-qualified-restic.cdx.json
+            /tmp/nxrs-qualified-restic.provenance.json
+            /tmp/nxrs-qualified-restic.advisories.json
+          if-no-files-found: error
+          retention-days: 7

@@ -20,7 +20,9 @@ final class HomeExperienceUITests: XCTestCase {
         add(attachment)
     }
 
-    private func selectTab(_ name: String, in app: XCUIApplication) {
+    private enum TabHitPoint { case accessibility, visibleCenter }
+
+    private func selectTab(_ name: String, in app: XCUIApplication, hitPoint: TabHitPoint = .accessibility) {
         let tab = app.tabBars.buttons[name]
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             let window = app.windows.firstMatch.frame
@@ -28,11 +30,37 @@ final class HomeExperienceUITests: XCTestCase {
             return tab.isHittable && window.contains(frame) && frame.midY > window.midY
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 3), .completed)
-        // After rotation, XCTest can report an obsolete accessibility hit point
-        // in a neighboring tab. Tap the center of the visible native control.
-        tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        switch hitPoint {
+        case .accessibility:
+            tab.tap()
+        case .visibleCenter:
+            // After rotation, XCTest can report an obsolete accessibility hit
+            // point in a neighboring tab. This case uses the visible control.
+            tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: tab)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
+    }
+
+    func testActivityTimelineAndKeptFilter() {
+        let app = launch(["--design-preview"])
+        selectTab("Activity", in: app)
+        XCTAssertTrue(app.staticTexts["What happened at home."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Design preview · sample activity"].exists)
+        XCTAssertTrue(app.staticTexts["Motion detected"].firstMatch.waitForExistence(timeout: 5))
+        screenshot("Activity timeline light")
+        app.buttons["Kept"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Kept"].firstMatch.isSelected)
+        screenshot("Activity kept clips")
+    }
+
+    func testActivityAtLargestTextSize() {
+        let app = launch(["--design-preview", "--preview-dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        selectTab("Activity", in: app)
+        XCTAssertTrue(app.staticTexts["What happened at home."].waitForExistence(timeout: 10))
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["Motion detected"].firstMatch.waitForExistence(timeout: 5))
+        screenshot("Activity accessibility text dark")
     }
 
     func testOnboardingAndInsecureAddressValidation() {
@@ -86,7 +114,7 @@ final class HomeExperienceUITests: XCTestCase {
             return frame.width < frame.height
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [portrait], timeout: 3), .completed)
-        selectTab("Recordings", in: app)
+        selectTab("Recordings", in: app, hitPoint: .visibleCenter)
         XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
         screenshot("Recordings empty state")
         selectTab("Settings", in: app)

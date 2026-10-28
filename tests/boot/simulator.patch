@@ -1,0 +1,40 @@
+--- a/sim/Cargo.toml
++++ b/sim/Cargo.toml
+@@ -48 +48 @@
+-env_logger = "0.9"
++env_logger = "=0.11.8"
+@@ -51 +51 @@
+-ring = "0.16.11"
++ring = "=0.17.14"
+--- a/sim/src/tlv.rs
++++ b/sim/src/tlv.rs
+@@ -564 +564 @@
+-            let mut signature = vec![0; key_pair.public_modulus_len()];
++            let mut signature = vec![0; key_pair.public().modulus_len()];
+@@ -594 +594 @@
+-                key_pair = EcdsaKeyPair::from_pkcs8(sign_algo, &key_bytes.contents).unwrap();
++                key_pair = EcdsaKeyPair::from_pkcs8(sign_algo, &key_bytes.contents, &rand::SystemRandom::new()).unwrap();
+@@ -601 +601 @@
+-                key_pair = EcdsaKeyPair::from_pkcs8(sign_algo, &key_bytes.contents).unwrap();
++                key_pair = EcdsaKeyPair::from_pkcs8(sign_algo, &key_bytes.contents, &rand::SystemRandom::new()).unwrap();
+@@ -760 +760 @@
+-                pk, &peer_pubk, ring::error::Unspecified, |shared| {
++                pk, &peer_pubk, |shared| {
+@@ -770 +770 @@
+-                        Ok(_) => Ok(buf),
++                        Ok(_) => buf,
+--- a/sim/src/caps.rs
++++ b/sim/src/caps.rs
+@@ -39 +39 @@
+-        (caps as u32) & (self as u32) != 0
++        caps & (self as u32) != 0
+@@ -61 +61 @@
+-    fn bootutil_get_caps() -> Caps;
++    fn bootutil_get_caps() -> u32;
+--- a/sim/src/image.rs
++++ b/sim/src/image.rs
+@@ -5,0 +6,4 @@
++
++#[cfg(all(test, feature = "sig-rsa3072", feature = "validate-primary-slot", feature = "hw-rollback-protection"))]
++#[path = "../tests/nxrs/policy.rs"]
++mod nxrs_policy;

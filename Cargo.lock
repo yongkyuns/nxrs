@@ -214,6 +214,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-boot-policy"
+version = "0.1.0"
+dependencies = [
+ "nxrs-mcuboot-policy",
+]
+
+[[package]]
 name = "nxrs-browser-threads"
 version = "0.1.0"
 
@@ -273,6 +280,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-device-identity"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-dual-imu-demo"
 version = "0.1.0"
 dependencies = [
@@ -291,6 +302,10 @@ name = "nxrs-firmware"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-firmware-image"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-footprint-demo"
 version = "0.1.0"
 dependencies = [
@@ -306,12 +321,37 @@ name = "nxrs-hal-common"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-identity-sdk-target"
+version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
+ "nxrs-camera-stream",
+ "nxrs-device-identity",
+ "nxrs-stream-service",
+]
+
+[[package]]
+name = "nxrs-image-admission-qualification"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+ "nxrs-update",
+]
+
+[[package]]
 name = "nxrs-imu"
 version = "0.1.0"
 
 [[package]]
 name = "nxrs-led"
 version = "0.1.0"
+
+[[package]]
+name = "nxrs-mcuboot-policy"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+]
 
 [[package]]
 name = "nxrs-native-integration"
@@ -480,6 +520,13 @@ dependencies = [
 [[package]]
 name = "nxrs-transport"
 version = "0.1.0"
+
+[[package]]
+name = "nxrs-update"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+]
 
 [[package]]
 name = "nxrs-wifi"

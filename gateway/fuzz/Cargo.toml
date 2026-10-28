@@ -1,0 +1,58 @@
+[package]
+name = "nxrs-gateway-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[features]
+# Resolve the exact optional SDK graph for lock parity; ordinary fuzz runs do not enable it.
+publisher-sdk = ["nxrs-camera-ingest/publisher-sdk"]
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+nxrs-camera-activity = { path = "../activity", features = ["probe"] }
+nxrs-camera-ingest = { path = "../ingest" }
+nxrs-gateway-control = { path = "../control" }
+serde_json = "=1.0.145"
+tokio = { version = "=1.51.6", features = ["rt", "io-util"] }
+
+[[bin]]
+name = "mjpeg"
+path = "fuzz_targets/mjpeg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "enrollment"
+path = "fuzz_targets/enrollment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "recording_csv"
+path = "fuzz_targets/recording_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "recording_event"
+path = "fuzz_targets/recording_event.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "asan_probe"
+path = "fuzz_targets/asan_probe.rs"
+test = false
+doc = false
+bench = false

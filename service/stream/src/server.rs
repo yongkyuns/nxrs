@@ -74,22 +74,22 @@ pub struct Progress {
     pub frames_completed: u64,
 }
 
-struct Request {
-    socket: TcpStream,
+struct Request<S> {
+    socket: S,
     length: usize,
     deadline: u64,
 }
 
-struct Reply {
-    socket: TcpStream,
+struct Reply<S> {
+    socket: S,
     bytes: [u8; 256],
     length: usize,
     position: usize,
     deadline: u64,
 }
 
-struct Streaming<B> {
-    session: MjpegSession<TcpStream, B>,
+struct Streaming<B, S> {
+    session: MjpegSession<S, B>,
     read_closed: bool,
     last_offered: u64,
     last_write_ms: u64,
@@ -98,10 +98,10 @@ struct Streaming<B> {
     metadata_revision: u64,
 }
 
-enum Client<B> {
-    Request(Request),
-    Reply(Reply),
-    Streaming(Streaming<B>),
+enum Client<B, S> {
+    Request(Request<S>),
+    Reply(Reply<S>),
+    Streaming(Streaming<B, S>),
 }
 #[derive(Clone, Copy)]
 enum ReplyKind {
@@ -114,11 +114,12 @@ enum ReplyKind {
 /// bytes for requests, one byte for stream EOF detection), and one bounded
 /// output step. The owner supplies the latest frame on every poll; no borrow
 /// survives the call. Only listener errors escape through the poll result.
-pub struct Server<B> {
+pub struct Server<B, S = TcpStream, F = fn(TcpStream) -> io::Result<S>> {
     listener: TcpListener,
+    transport: F,
     buffer: Option<B>,
     header: Option<Box<[u8]>>,
-    client: Option<Client<B>>,
+    client: Option<Client<B, S>>,
     options: Options,
     stats: ServerStats,
     last_now_ms: Option<u64>,
@@ -128,7 +129,31 @@ pub struct Server<B> {
 }
 
 impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
-    pub fn new(listener: TcpListener, mut buffer: B, options: Options) -> io::Result<Self> {
+    /// Explicit cleartext listener, intended for development or a separately
+    /// protected deployment boundary. Authenticated transports use with_transport.
+    pub fn new(listener: TcpListener, buffer: B, options: Options) -> io::Result<Self> {
+        Self::with_transport(listener, buffer, options, Ok)
+    }
+}
+
+impl<B, S, F> Server<B, S, F>
+where
+    B: AsRef<[u8]> + AsMut<[u8]>,
+    S: Read + Write,
+    F: FnMut(TcpStream) -> io::Result<S>,
+{
+    /// Wrap each admitted nonblocking TCP socket in the caller's owned transport.
+    /// Busy connections are dropped before this factory runs. The transport
+    /// must make bounded progress on Read/Write, returning WouldBlock while its
+    /// handshake is pending, and admit no application bytes before peer policy
+    /// succeeds. The request deadline includes transport setup and handshake.
+    /// Run expensive providers on the owner's worker, outside camera capture.
+    pub fn with_transport(
+        listener: TcpListener,
+        mut buffer: B,
+        options: Options,
+        transport: F,
+    ) -> io::Result<Self> {
         if buffer.as_ref().is_empty()
             || buffer.as_ref().len() != buffer.as_mut().len()
             || options.request_timeout_ms == 0
@@ -147,6 +172,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
         header.resize(crate::HEADER_CAPACITY, 0);
         Ok(Self {
             listener,
+            transport,
             buffer: Some(buffer),
             header: Some(header.into_boxed_slice()),
             client: None,
@@ -202,19 +228,23 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
             }
             Ok((socket, _)) => {
                 self.stats.accepted = self.stats.accepted.saturating_add(1);
-                if let Err(error) = socket
+                let configured = socket
                     .set_nonblocking(true)
                     .and_then(|()| socket.set_nodelay(true))
-                {
-                    self.stats.errors = self.stats.errors.saturating_add(1);
-                    self.stats.last_failure = Some(Failure::Configure(error.kind()));
-                    self.stats.disconnected = self.stats.disconnected.saturating_add(1);
-                } else {
-                    self.client = Some(Client::Request(Request {
-                        socket,
-                        length: 0,
-                        deadline: now_ms.saturating_add(self.options.request_timeout_ms),
-                    }));
+                    .and_then(|()| (self.transport)(socket));
+                match configured {
+                    Err(error) => {
+                        self.stats.errors = self.stats.errors.saturating_add(1);
+                        self.stats.last_failure = Some(Failure::Configure(error.kind()));
+                        self.stats.disconnected = self.stats.disconnected.saturating_add(1);
+                    }
+                    Ok(socket) => {
+                        self.client = Some(Client::Request(Request {
+                            socket,
+                            length: 0,
+                            deadline: now_ms.saturating_add(self.options.request_timeout_ms),
+                        }));
+                    }
                 }
             }
             Err(error) if retryable(&error) => {}
@@ -229,12 +259,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
 
     fn step(
         &mut self,
-        client: Client<B>,
+        client: Client<B, S>,
         now: u64,
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
         progress: &mut Progress,
-    ) -> Option<Client<B>> {
+    ) -> Option<Client<B, S>> {
         match client {
             Client::Request(mut request) => {
                 if now >= request.deadline {
@@ -336,7 +366,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
                     return self.fail(Client::Streaming(stream), Failure::IdleDeadline);
                 }
                 if !stream.read_closed {
-                    match stream.session.writer().peek(&mut [0; 1]) {
+                    match stream.session.writer_mut().read(&mut [0; 1]) {
                         // A TCP FIN closes only the request direction. The
                         // viewer may still read; writes/deadlines detect loss
                         // of the other direction without another descriptor.
@@ -402,12 +432,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
         }
     }
 
-    fn fail(&mut self, client: Client<B>, reason: Failure) -> Option<Client<B>> {
+    fn fail(&mut self, client: Client<B, S>, reason: Failure) -> Option<Client<B, S>> {
         self.stats.last_failure = Some(reason);
         self.close(client, true)
     }
 
-    fn close(&mut self, client: Client<B>, failed: bool) -> Option<Client<B>> {
+    fn close(&mut self, client: Client<B, S>, failed: bool) -> Option<Client<B, S>> {
         if let Client::Streaming(stream) = client {
             let (socket, buffer, header, _) = stream.session.into_parts_with_header();
             drop(socket);
@@ -420,8 +450,8 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
     }
 }
 
-impl Reply {
-    fn new(socket: TcpStream, kind: ReplyKind, now: u64, timeout: u64) -> Self {
+impl<S> Reply<S> {
+    fn new(socket: S, kind: ReplyKind, now: u64, timeout: u64) -> Self {
         let mut reply = Self {
             socket,
             bytes: [0; 256],

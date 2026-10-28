@@ -284,6 +284,7 @@ int main(int argc, char *argv[])
       return 1;
     }
   printf("RC_NUTTX_SIM BEGIN\n");
+  puts("RC_NUTTX_STAGE initialize");
   if (!initialized)
     {
       if (mkdir("/rcam", 0700) < 0 && errno != EEXIST) goto fail;
@@ -291,6 +292,7 @@ int main(int argc, char *argv[])
       if (register_driver("/dev/nxrs-frame", &g_sensor_ops, 0444, NULL) < 0) goto fail;
       initialized = 1;
     }
+  puts("RC_NUTTX_STAGE receiver-socket");
   memset(&receiver, 0, sizeof(receiver));
   receiver.fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (receiver.fd < 0) goto fail;
@@ -303,6 +305,7 @@ int main(int argc, char *argv[])
       getsockname(receiver.fd, (struct sockaddr *)&address, &address_len) < 0)
     goto close_socket;
 
+  puts("RC_NUTTX_STAGE receiver-configured");
   pthread_mutex_lock(&g_stats_lock);
   opened = g_opened;
   closed = g_closed;
@@ -310,8 +313,10 @@ int main(int argc, char *argv[])
   app.path = "/rcam/session.rcam";
   app.port = ntohs(address.sin_port);
   app.result = -1;
+  puts("RC_NUTTX_STAGE receiver-thread");
   rc = pthread_create(&receiver_thread, NULL, receive_packets, &receiver);
   if (rc != 0) goto close_socket;
+  puts("RC_NUTTX_STAGE application-entry");
 #ifdef NXRS_STD_ENTRY
   /* Run rustc's generated std main on the NuttX command thread. The C code
    * remains only the synthetic-device/independent-verifier harness. */
@@ -321,8 +326,11 @@ int main(int argc, char *argv[])
   if (rc != 0) { pthread_join(receiver_thread, NULL); goto close_socket; }
   if (pthread_join(app_thread, NULL) != 0) abort();
 #endif
+  puts("RC_NUTTX_STAGE application-joined");
   if (pthread_join(receiver_thread, NULL) != 0) abort();
+  puts("RC_NUTTX_STAGE receiver-joined");
   if (app.result != 0 || receiver.error || receiver.count != 4) goto close_socket;
+  puts("RC_NUTTX_STAGE independent-record-check");
   if (verify_records(app.path) < 0) goto close_socket;
   for (int i = 0; i < receiver.count; i++)
     print_hex("RC_PACKET", receiver.packets[i], sizeof(receiver.packets[i]));

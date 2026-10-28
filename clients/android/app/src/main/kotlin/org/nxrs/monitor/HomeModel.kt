@@ -110,9 +110,13 @@ class HomeController(
                 )
             GatewayClient(candidate.policy, network).cameras(candidate.credential)
             withContext(Dispatchers.IO) { store.save(candidate) }
+            val viewport = visible
             retireAll()
             home = candidate
             mutable.value = HomePresentation(enrolled = true)
+            // Layout may remain identical when the new enrollment reuses IDs.
+            // Preserve viewing intent only after the old catalog is retired.
+            visible = viewport
             refresh()
         } catch (error: CancellationException) {
             throw error

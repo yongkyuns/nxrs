@@ -6,6 +6,7 @@ are uniquely owned and removed. No sensor, home network or iPhone is accessed.
 """
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,8 @@ import subprocess
 import sys
 
 from combined_viewer import HEALTH_TIMEOUT
+import service_lifetime as lifetime
+import proxy_pair
 
 ROLES = ('control', 'media', 'proxy', 'ingest')
 HERE = Path(__file__).resolve().parent
@@ -34,6 +37,49 @@ async def internal_request(http, method, path, body=None):
                             allow_redirects=False) as response:
         payload = await response.read()
         return response.status, json.loads(payload) if payload else None
+
+
+async def publication_ready(http, token, observation):
+    observation['attempts']+=1
+    observation.update(status=None,ready=None)
+    async with http.get('http://127.0.0.1:9997/v3/paths/get/reference',
+            headers={'Authorization':'Bearer '+token}) as response:
+        observation['status']=response.status
+        if response.status!=200:return False
+        value=(await response.json()).get('ready')
+        observation['ready']=value if type(value) is bool else None
+        return value is True
+
+
+def publication_diagnostics(value):
+    if not isinstance(value,dict):return dict(available=False)
+    attempts,status,ready=(value.get(key) for key in ('attempts','status','ready'))
+    if (type(attempts) is not int or not 0<=attempts<=1000000
+            or status is not None and (type(status) is not int or not 100<=status<=599)
+            or ready is not None and type(ready) is not bool):return dict(available=False)
+    return dict(available=True,attempts=attempts,status=status,ready=ready)
+
+
+def source_diagnostics(value):
+    keys=('active','peak','connections','disconnected','frames','busy')
+    if not isinstance(value,dict) or any(type(value.get(k)) is not int or not 0<=value[k]<=2**53-1 for k in keys):
+        return dict(available=False)
+    if not (value['active']<=value['peak']<=1 and value['connections']-value['disconnected']==value['active']):
+        return dict(available=False)
+    return dict(available=True,**{k:value[k] for k in keys})
+
+
+async def failure_diagnostics(error, camera, publication):
+    import failure_location
+    names=('combined_reference.py','combined_viewer.py','rust_camera.py','service_lifetime.py','proxy_pair.py')
+    locations=failure_location.trace_locations(error,{str(HERE/name):'gateway/tests/'+name for name in names})
+    print('COMBINED FAILURE LOCATIONS:',json.dumps(locations,sort_keys=True),flush=True)
+    print('COMBINED PUBLICATION:',json.dumps(publication_diagnostics(publication),sort_keys=True),flush=True)
+    snapshot=None
+    if camera is not None:
+        try:snapshot=await camera.command('status')
+        except Exception:pass
+    print('COMBINED SOURCE:',json.dumps(source_diagnostics(snapshot),sort_keys=True),flush=True)
 
 
 def command(args, data=None, check=True):
@@ -57,8 +103,11 @@ def prerequisites():
 def adapt_unit(text, original, prefix, root, server):
     """Only paths/names and namespace placement change; do not remove restrictions."""
     text = text.replace('/etc/nxrs-monitor', str(root / 'conf'))
+    text = text.replace('/etc/wireguard', str(root / 'conf'))
+    text = text.replace('/usr/local/lib/nxrs-proxy',str(root/'proxy-artifact'))
     for binary, installed in [('gateway', 'nxrs-gateway-control'), ('media', 'nxrs-mediamtx'),
-                              ('ingest', 'nxrs-camera-ingest')]:
+                              ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox'),
+                              ('proxy-launcher','nxrs-gateway-proxy'), ('vpn-admission','nxrs-vpn-admission')]:
         text = text.replace('/usr/local/libexec/' + installed, str(root / 'bin' / binary))
     mapping = {'wg-quick@wg-nxrs': prefix + '-network', 'nxrs-firewall': prefix + '-firewall',
                'nxrs-monitor': prefix + '-monitor', **{'nxrs-' + r: prefix + '-' + r for r in ROLES}}
@@ -165,6 +214,10 @@ class Phone:
 
 
 async def exercise(args, prefix, nets):
+    regex_root=Path(__file__).resolve().parents[2]
+    sys.path.insert(0,str(regex_root/'gateway/tools'))
+    import system_regex_evidence
+    regex_runtime=system_regex_evidence.current(regex_root)
     import aiohttp
     from revocation_reference import digest, private_write
     from rust_camera import RustCamera, validate_viewer_sharing
@@ -179,6 +232,7 @@ async def exercise(args, prefix, nets):
     unit_files, names = [], []
     account_created = False
     camera = phone = None
+    publication=dict(attempts=0,status=None,ready=None)
     stage = 'setup'
     roles = {r: prefix + '-' + r for r in ROLES}
     target, network = prefix + '-monitor.target', prefix + '-network.service'
@@ -187,12 +241,26 @@ async def exercise(args, prefix, nets):
     def prop(role, key):
         return command(['systemctl', 'show', roles[role] + '.service', '-p', key, '--value']).decode().strip()
 
-    def start():
+    stopper=prefix+'-monitor-stop.service'
+    def handler_epoch():
+        return int(command(['systemctl','show',stopper,'-p','ExecMainStartTimestampMonotonic','--value']).decode().strip() or '0')
+    def service_state(unit):
+        return lifetime.parse(command(['systemctl','show',unit,'--all',*lifetime.PROPERTY_ARGS]))
+    async def handler_finished(previous):
+        return lifetime.handler_finished(service_state(stopper),stopper,previous)
+
+    async def start():
+        command(['systemctl','stop',*(roles[r]+'.service' for r in ROLES),target])
+        await until(stopped,'join all application/pre-start/control/cgroup jobs before rearming failure cleanup')
+        command(['systemctl','stop',stopper])
+        await until(stopped,'join failure latch release before activation')
+        require(service_state(stopper)['ActiveState'] in ('inactive','failed'),'failure latch cleared')
         command(['systemctl', 'reset-failed', *names], check=False)
         command(['systemctl', 'start', target])
 
     async def stopped():
-        return all(prop(role, 'MainPID') == '0' for role in ROLES)
+        return (all(lifetime.quiescent(service_state(roles[r]+'.service'),roles[r]+'.service') for r in ROLES)
+            and lifetime.quiescent(service_state(stopper),stopper,allow_latch=True))
 
     def cgroup_pids(path):
         if not path.exists():
@@ -201,9 +269,13 @@ async def exercise(args, prefix, nets):
 
     try:
         (root / 'bin').mkdir(mode=0o755)
-        for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest')]:
+        for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
+                           (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox'),
+                           (args.proxy_launcher,'proxy-launcher'),(args.gateway.parent/'nxrs-vpn-admission','vpn-admission')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
+        artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
+        command(proxy_pair.install_arguments(args.proxy_launcher.with_name('nxrs-gateway-proxy-install'),args.proxy_review,artifact))
         images = root / 'images'
         images.mkdir(mode=0o700)
         camera = await RustCamera.start(args.camera_source, images)
@@ -223,6 +295,8 @@ async def exercise(args, prefix, nets):
         (conf / 'security.json').write_text(json.dumps(security))
         ingest_config = json.loads((conf / 'ingest.json').read_text())
         ingest_config['publisher_token_file'] = '/run/' + roles['ingest'] + '/publisher.token'
+        ingest_config['publisher'] = str(root / 'bin' / 'publisher')
+        ingest_config['media_sandbox'] = str(root/'bin'/'media-sandbox')
         (conf / 'ingest.json').write_text(json.dumps(ingest_config))
         try:
             pwd.getpwnam(roles['control'])
@@ -249,6 +323,13 @@ async def exercise(args, prefix, nets):
             key=f'/run/credentials/{roles["proxy"]}.service/server.key', runtime='/run/' + roles['proxy']))
         wireguard = (conf / 'wg-nxrs.conf').read_text().replace('/etc/nxrs-monitor/firewall.nft', str(conf / 'firewall.nft'))
         (conf / 'wg-nxrs.conf').write_text(wireguard)
+        # Explicit first-enrollment fixture resource relocation, never recovery or
+        # history initialization. Keep the generated gateway/peer keys unchanged.
+        vpn_history=json.loads((conf/'vpn-peers.json').read_bytes())
+        require(vpn_history['version']==1 and vpn_history['generation']==1 and not vpn_history['retired_peers'],
+            'only new fixture enrollment can relocate its resource')
+        vpn_history['config_sha256']=hashlib.sha256(wireguard.encode()).hexdigest()
+        (conf/'vpn-peers.json').write_text(json.dumps(vpn_history))
         secret = re.search(r'^PrivateKey = (.+)$', wireguard, re.M).group(1)
         server_public = command(['wg', 'pubkey'], (secret + '\n').encode()).decode().strip()
         private_write(conf / 'wg-phone.conf', '[Interface]\nAddress = 10.77.0.2/32\nMTU = 1380\n'
@@ -260,7 +341,8 @@ async def exercise(args, prefix, nets):
             '[Unit]\nRequires=nxrs-firewall.service\nAfter=nxrs-firewall.service\n'
             '[Service]\nType=oneshot\nRemainAfterExit=yes\n'
             f'ExecStart=/usr/bin/wg-quick up {conf}/wg-nxrs.conf\n'
-            f'ExecStop=/usr/bin/wg-quick down {conf}/wg-nxrs.conf\n')
+            f'ExecStop=/usr/bin/wg-quick down {conf}/wg-nxrs.conf\n'
+            +(conf/'wg-nxrs-admission.conf').read_text())
         for original, text in units.items():
             name, text = adapt_unit(text, original, prefix, root, nets.server)
             if original in [f'nxrs-{r}.service' for r in ROLES]:
@@ -277,7 +359,7 @@ async def exercise(args, prefix, nets):
             'ca': str(conf / 'tls/fullchain.pem'), 'viewers': {
                 'a': (conf / 'viewer.token').read_text().strip(), 'b': second}}))
         stage = 'startup'
-        start()
+        await start()
         nets.inside(nets.phone, 'wg-quick', 'up', conf / 'wg-phone.conf')
         phone = await Phone.start(nets.phone, conf / 'phone.json')
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
@@ -298,9 +380,7 @@ async def exercise(args, prefix, nets):
                 await until(ready, 'complete group ready')
                 # Separately wait for actual publication, never infer readiness from active units.
                 async def publishing():
-                    async with http.get('http://127.0.0.1:9997/v3/paths/get/reference',
-                        headers={'Authorization': 'Bearer ' + security['media_api_token']}) as response:
-                        return response.status == 200 and (await response.json()).get('ready') is True
+                    return await publication_ready(http,security['media_api_token'],publication)
                 stage = recovery + ': source publication'
                 await until(publishing, 'actual source publication ready')
                 stage = recovery + ': verified HTTPS over VPN'
@@ -333,7 +413,13 @@ async def exercise(args, prefix, nets):
             validate_viewer_sharing(source_before_viewers, counters)
             stage = 'startup: encoder cgroup and VPN handshake'
             group = Path('/sys/fs/cgroup') / prop('ingest', 'ControlGroup').lstrip('/')
-            require(len(cgroup_pids(group)) == 2, 'one ingest and encoder in shared cgroup')
+            require(len(cgroup_pids(group)) == 3, 'ingest, encoder and publisher in shared cgroup')
+            publisher_token = (conf / 'publisher.token').read_bytes().strip()
+            for pid in cgroup_pids(group):
+                for field in ['cmdline', 'environ']:
+                    require(publisher_token not in Path(f'/proc/{pid}/{field}').read_bytes(),
+                            'no publisher credential in actual process arguments/environment')
+            print('PASS: ingest, encoder and SDK publisher share the bounded cgroup without credential argv/environment',flush=True)
             handshakes = command(['wg', 'show', 'wg-nxrs', 'latest-handshakes']).split()
             require(handshakes and int(handshakes[-1]) > 0, 'authenticated kernel WireGuard handshake')
             print('PASS: full strict group delivers two advancing 320x240 H264 streams over kernel WireGuard from one actual Rust source', flush=True)
@@ -347,7 +433,9 @@ async def exercise(args, prefix, nets):
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'revoked account denied through VPN')
             print('PASS: application revocation stops only its viewer while camera, encoder, VPN and authorized viewer continue', flush=True)
             stage = 'controller crash'
+            previous=handler_epoch()
             os.kill(int(prop('control', 'MainPID')), signal.SIGKILL)
+            await until(lambda: handler_finished(previous),'controller crash joins the owned failure handler')
             await until(stopped, 'controller crash stops all four real services')
             require(not cgroup_pids(group), 'controller loss empties ingest cgroup')
             await until(source_released, 'controller loss releases actual camera')
@@ -356,7 +444,7 @@ async def exercise(args, prefix, nets):
                     'video stopped by service supervision, not VPN teardown')
             print('PASS: controller SIGKILL stops media/proxy/ingest, reaps encoder and releases source while VPN remains up', flush=True)
             stage = 'durable recovery'
-            start()
+            await start()
             await fresh()
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'denial survives full group restart')
             c = await phone.ask('connect', viewer='b')
@@ -372,8 +460,30 @@ async def exercise(args, prefix, nets):
             # Rules persist after shutdown instead of exposing the tunnel-address services.
             command(['nft', 'list', 'table', 'inet', 'nxrs_monitor'])
             print('PASS: actual WireGuard-service stop removes the tunnel and stops every video service and camera reader', flush=True)
+            stage = 'VPN startup admission failures'
+            history_path=conf/'vpn-peers.json';saved_history=history_path.read_bytes()
+            retained_denials=(state/'revocations.json').read_bytes()
+            for fault in ['missing','corrupt','mismatched','foreign-owner']:
+                if fault=='missing':history_path.unlink()
+                elif fault=='corrupt':history_path.write_bytes(b'{')
+                elif fault=='mismatched':
+                    altered=json.loads(saved_history);altered['config_sha256']='0'*64
+                    history_path.write_text(json.dumps(altered))
+                else:os.chown(history_path,65534,65534)
+                command(['systemctl','start',network],check=False)
+                result=command(['systemctl','show',network,'-p','Result','--value']).decode().strip()
+                pre=command(['systemctl','show',network,'-p','ExecStartPre','--value']).decode()
+                require(result=='exit-code' and 'vpn-admission' in pre and re.search(r'\bstatus=1\b',pre),
+                    'owned network unit must fail its actual admission pre-start')
+                require('wg-nxrs' not in command(['ip','-o','link','show']).decode(),'rejected startup must not create interface')
+                await until(stopped,'rejected network startup keeps all applications joined')
+                require((state/'revocations.json').read_bytes()==retained_denials,'startup failure preserves application denials')
+                if fault=='missing':require(not history_path.exists(),'missing VPN history must not be reseeded')
+                history_path.write_bytes(saved_history);os.chown(history_path,0,0);history_path.chmod(0o600)
+                command(['systemctl','reset-failed',network])
+            print('PASS: actual WireGuard pre-start rejects missing/corrupt/mismatched/foreign-owned history without interface creation or denial reset',flush=True)
             stage = 'VPN recovery'
-            start()
+            await start()
             await fresh()
             d = await phone.ask('connect', viewer='b')
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'VPN restart cannot restore revoked account')
@@ -382,6 +492,7 @@ async def exercise(args, prefix, nets):
     except Exception as error:
         print('COMBINED CHECKPOINT:', stage, flush=True)
         print('COMBINED FAILURE CATEGORY:', type(error).__name__, flush=True)
+        await failure_diagnostics(error,camera,publication)
         # Fixed fields only; never print raw service logs, argv, response bodies or key material.
         for role in ROLES:
             fields = {}
@@ -415,16 +526,17 @@ async def exercise(args, prefix, nets):
         if account_created:
             failures += cleanup_all([('account', lambda: command(['userdel', roles['control']]))])
         require(not failures, 'owned combined fixture cleanup incomplete')
+    if system_regex_evidence.current(regex_root)!=regex_runtime:raise RuntimeError('system regex changed during owned qualification')
     print('COMBINED REFERENCE PASS: actual Rust stream service with generated images; no physical camera/iPhone/cellular qualification', flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ['gateway', 'ingest', 'mediamtx', 'camera-source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera-source','proxy-launcher','proxy-review']:
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
     prerequisites()  # Before any privileged mutation.
-    for name in ['gateway', 'ingest', 'mediamtx', 'camera_source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera_source','proxy_launcher','proxy_review']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
     prefix = 'nxrs-full-' + secrets.token_hex(4)
     nets = Networks(prefix)

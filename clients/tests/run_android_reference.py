@@ -79,6 +79,9 @@ def main(path):
                 call(['shell', 'run-as', 'org.nxrs.monitor', 'sh', '-c',
                       "'umask 077; mkdir -p cache; cat > cache/qualification.json'"],
                      input=json.dumps(payload).encode(), stdout=log, stderr=log)
+                # The native window must establish its own display readiness
+                # after trust-negative network setup, even from an idle screen.
+                call(['shell', 'input', 'keyevent', 'KEYCODE_SLEEP'], stdout=log, stderr=log)
                 result = subprocess.run(adb + ['shell', 'am', 'instrument', '-w', '-r',
                     '-e', 'class', 'org.nxrs.monitor.CameraQualificationTest,org.nxrs.monitor.RenderLifetimeTest,org.nxrs.monitor.CatalogLifetimeTest',
                     'org.nxrs.monitor.test/androidx.test.runner.AndroidJUnitRunner'],
@@ -92,7 +95,7 @@ def main(path):
                 measurements = [line for line in output.splitlines()
                                 if line.startswith('MULTICAMERA METRICS:')]
                 if (result.returncode or 'FAILURES!!!' in output
-                        or not re.search(r'OK \(4 tests\)', output)
+                        or not re.search(r'OK \(5 tests\)', output)
                         or len(markers) != 1 or len(measurements) != 1):
                     # Fixed assertion/transport categories only; never dump
                     # credentials, server responses or native SDK diagnostics.

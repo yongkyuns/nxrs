@@ -2,12 +2,79 @@
 """Run the already-built hosted XCTest target in an explicitly test-owned iOS
 simulator. Fixture trust is installed only in that disposable simulator."""
 import json
+import importlib.util
 import os
 from pathlib import Path
 import plistlib
+import re
+import signal
 import subprocess
 import sys
 import tempfile
+
+ROOT=Path(__file__).resolve().parents[2]
+spec=importlib.util.spec_from_file_location('ios_fixture_process',ROOT/'gateway/fuzz/run.py')
+process=importlib.util.module_from_spec(spec);spec.loader.exec_module(process)
+SUCCESS='MULTICAMERA IOS PASS: two native decoders; independent epochs/pause; full-screen reuse; JPEG/clip capture; third-camera admission; background retirement; removed-camera cleanup (two consecutive cycles)'
+CASES=frozenset(('testCatalogRemovalSelectsRemainingCameraAndClosesObsoleteFullscreen',
+    'testCatalogAdditionKeepsSelectedCameraSession',
+    'testManualPlaybackPreferenceStartsOnlyExplicitlyResumedCameras',
+    'testIndependentNativeCamerasAndCaptureRetirement'))
+URL_ADMISSION_CODES=frozenset((-999,*range(-1022,-999),*range(-1103,-1099),*range(-1206,-1199),-2000))
+
+
+def diagnostics(raw,execution):
+    """Project fixed test identities/coordinates and allowlisted NSError pairs."""
+    if execution not in ('failed','refused'):raise ValueError('fixed execution category')
+    if not isinstance(raw,bytes) or len(raw)>1024*1024:raise ValueError('bounded private test output')
+    tests=[];locations=[];retirement=[];admission=[]
+    for line in raw.decode(errors='replace').splitlines():
+        case=re.fullmatch(r"Test Case '-\[(?:[A-Za-z0-9_]+\.)?CameraSessionTests (test[A-Za-z0-9_]+)\]' (started|passed|failed)(?:[ .(].*)?",line)
+        if case and case[1] in CASES:
+            row=dict(case=case[1],event=case[2])
+            if row not in tests:tests.append(row)
+        location=re.search(r'CameraSessionTests\.swift:([0-9]{1,5})(?::[0-9]{1,5})?: error:',line)
+        if location and 1<=int(location[1])<=10000:
+            row=dict(source='clients/ios/NxrsMonitorSessionTests/CameraSessionTests.swift',line=int(location[1]))
+            if row not in locations and len(locations)<8:locations.append(row)
+        # The owned XCTest gate prints this pair. Keep only fixed domains and
+        # admitted integer codes; no private message, URL, response or SDK text.
+        failure=re.search(r'Fixture HTTPS admission failed: (NSURLErrorDomain|NxrsMonitorCore\.MonitorError) (-?[0-9]{1,5})(?![0-9])',line)
+        if failure:
+            domain,code=failure[1],int(failure[2])
+            allowed=(domain=='NSURLErrorDomain' and code in URL_ADMISSION_CODES
+                     or domain=='NxrsMonitorCore.MonitorError' and 0<=code<=31)
+            row=dict(domain=domain,code=code)
+            if allowed and row not in admission and len(admission)<2:admission.append(row)
+        if re.fullmatch(r'CAMERA DIAGNOSTIC: IOS RETIREMENT STATE: sessions=[0-9]{1,2} a=[01],[01],[01],[01],[01],[0-9]{1,20} b=[01],[01],[01],[01],[01],[0-9]{1,20}',line):
+            if line not in retirement and len(retirement)<2:retirement.append(line)
+    return dict(execution=execution,tests=tests,locations=locations,retirement=retirement,https_admission=admission)
+
+
+def run_tests(command,root,seconds=180):
+    # The outer fixture cancels this runner with TERM before escalating. Raise
+    # through execute() so its reserved process-group owner can retire children.
+    # selectors treats InterruptedError as a retryable system-call interruption.
+    # Use a distinct exception so cancellation reaches the owner's finally block.
+    def interrupted(*_):raise RuntimeError('owned iOS runner interrupted')
+    previous=signal.signal(signal.SIGTERM,interrupted)
+    try:
+        try:
+            status,_=process.execute(command,root,'ios-session-tests',dict(os.environ),seconds,cwd=ROOT)
+            execution='failed'
+        except Exception:
+            status=None;execution='refused'
+    finally:signal.signal(signal.SIGTERM,previous)
+    log=root/'ios-session-tests.log'
+    raw=b''
+    if log.exists():
+        with log.open('rb') as stream:raw=stream.read(1024*1024+1)
+    if len(raw)>1024*1024:raise AssertionError('iOS hosted test output limit')
+    markers=[line for line in raw.decode(errors='replace').splitlines() if line.startswith('MULTICAMERA IOS PASS:')]
+    if status!=0 or markers!=[SUCCESS]:
+        print('IOS QUALIFICATION DIAGNOSTICS: '+json.dumps(diagnostics(raw,execution),sort_keys=True),flush=True)
+        raise AssertionError('iOS hosted multi-camera execution refused' if status is None else 'iOS hosted multi-camera test failed')
+    return SUCCESS
 
 
 def main(path):
@@ -49,16 +116,9 @@ def main(path):
         root=Path(directory);root.chmod(0o700)
         run=root/'CameraSessionTests.xctestrun';run.write_bytes(plistlib.dumps(expand(value)))
         print('IOS QUALIFICATION: execute hosted camera-session tests',flush=True)
-        with (root/'private.log').open('wb') as log:
-            result=subprocess.run(['xcodebuild','test-without-building','-xctestrun',str(run),'-destination',f'platform=iOS Simulator,id={device}',
-                '-resultBundlePath',str(root/'results.xcresult'),'-parallel-testing-enabled','NO','-maximum-test-execution-time-allowance','120','-collect-test-diagnostics','never'],stdout=log,stderr=subprocess.STDOUT,timeout=180)
-        text=(root/'private.log').read_text(errors='replace')
-        markers=[line for line in text.splitlines() if line.startswith('MULTICAMERA IOS PASS:')]
-        if result.returncode or len(markers)!=1:
-            for line in text.splitlines():
-                if line.startswith('CAMERA DIAGNOSTIC:') or 'CameraSessionTests.swift:' in line or 'error:' in line or 'TEST FAILED' in line:print(line.replace(config['token'],'<redacted>'),flush=True)
-            raise AssertionError('iOS hosted multi-camera test failed')
-        print(markers[0],flush=True)
+        marker=run_tests(['xcodebuild','test-without-building','-xctestrun',str(run),'-destination',f'platform=iOS Simulator,id={device}',
+            '-resultBundlePath',str(root/'results.xcresult'),'-parallel-testing-enabled','NO','-maximum-test-execution-time-allowance','120','-collect-test-diagnostics','never'],root)
+        print(marker,flush=True)
 
 if __name__=='__main__':
     try:main(Path(sys.argv[1]))

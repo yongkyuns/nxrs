@@ -22,6 +22,7 @@ class IngestServiceTests(unittest.TestCase):
         for rule in ['DynamicUser=yes', 'User=nxrs-ingest', 'KillMode=control-group', 'SendSIGKILL=yes',
                      'Restart=no', 'LimitCORE=0', 'MemoryMax=256M', 'TasksMax=128',
                      'NoNewPrivileges=yes', 'CapabilityBoundingSet=\n', 'ReadOnlyPaths=/run',
+                     '--require-media-isolation', 'ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check',
                      'RuntimeDirectoryMode=0700', 'BindsTo=nxrs-control.service nxrs-media.service']:
             self.assertIn(rule, text)
         self.assertEqual(text.count('ExecStartPre=/usr/bin/install -m 0600'), 2)
@@ -68,6 +69,26 @@ class IngestServiceTests(unittest.TestCase):
             self.assertTrue((directory/'nxrs-ingest.service').is_file())
             self.assertEqual((directory/'ingest.json').stat().st_mode & 0o777, 0o600)
             self.assertFalse((directory/'revocations.json').exists())
+
+    def test_selected_media_executable_survives_rendering_and_invalid_resources_create_no_bundle(self):
+        selected=Path('/usr/lib/selected-media/bin/ffmpeg')
+        config=ingest_service.configuration('192.168.1.2:8080',acknowledge_http=True,detections=True,ffmpeg=selected)
+        self.assertEqual(config['ffmpeg'],str(selected))
+        self.assertEqual(config['detections'],dict(control='127.0.0.1:18081',camera_id='cam_reference'))
+        for value in ['relative/ffmpeg','',None]:
+            with self.assertRaises(ValueError):ingest_service.configuration('192.168.1.2:8080',acknowledge_http=True,ffmpeg=value)
+        with mock.patch.object(strict_vpn.vpn,'generate') as base:
+            with self.assertRaises(ValueError):strict_vpn.generate(Path('/not-created'),'name','a','b','e','k',ffmpeg=selected)
+            with self.assertRaises(ValueError):strict_vpn.generate(Path('/not-created'),'name','a','b','e','k',camera='192.168.1.2:8080',allow_insecure_camera_http=True,ffmpeg=Path('relative'))
+            base.assert_not_called()
+        def base(directory,*args):
+            directory.mkdir(mode=0o700)
+            (directory/'config.json').write_text(json.dumps(dict(cameras=[dict(source='synthetic',name='fixture')])))
+        with tempfile.TemporaryDirectory() as temp,mock.patch.object(strict_vpn.vpn,'generate',side_effect=base):
+            directory=Path(temp)/'new'
+            strict_vpn.generate(directory,'name','a','b','e','k',camera='192.168.1.2:8080',allow_insecure_camera_http=True,camera_detections=True,ffmpeg=selected)
+            self.assertEqual(json.loads((directory/'ingest.json').read_text())['ffmpeg'],str(selected))
+            self.assertEqual(json.loads((directory/'ingest.json').read_text())['detections'],config['detections'])
 
     def test_template_drift_is_not_silently_accepted(self):
         with mock.patch.object(ingest_service.vpn, 'services', return_value={'nxrs-control.service':'changed'}):

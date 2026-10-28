@@ -72,7 +72,9 @@ reference enrollment generator, preserving stable camera IDs and synthetic label
 Every output is mode 0600 under a 0700 directory. `viewer.token` goes only to app
 enrollment; `publisher.token` goes only to the trusted local ingest process.
 `wg-nxrs.conf` contains the GATEWAY private key. `phone-settings.txt` contains the
-server public key and the narrow `/32` phone route; no phone private key is created
+server public key and the narrow `/32` phone route. `vpn-peers.json` binds the
+configuration digest, gateway public key, active peer and retired peer history;
+it is created only with a new enrollment. No phone private key is created
 or collected. Never paste these private files into issues or CI artifacts.
 A failed/partial generation must not be deployed; start again in a new directory.
 
@@ -81,22 +83,46 @@ A failed/partial generation must not be deployed; start again in a new directory
 Review generated configuration and route conflicts first. These are manual,
 privileged deployment actions on a host you administer, not performed by the
 generator or chat. Build the Rust binary with `cargo build --release --locked`
-inside `gateway/`. Verify the MediaMTX archive against
-[`dependencies.json`](dependencies.json) before extraction/installation. Install
+inside `gateway/`. Reproduce MediaMTX with the frozen patched Go graph and pass
+the source/binary advisory gates using the [media build procedure](media-engine.md).
+Verify the executable and all three public sidecars before installation. Install
 those binaries at `/usr/local/libexec/nxrs-gateway-control` and
-`/usr/local/libexec/nxrs-mediamtx`, root-owned and executable.
+`/usr/local/libexec/nxrs-mediamtx`, root-owned and executable. Install the locked
+Rust `nxrs-vpn-admission` binary from the same gateway build at
+`/usr/local/libexec/nxrs-vpn-admission`, root-owned and executable.
 
 Place the reviewed `config.json`, `mediamtx.json`, `nginx.conf`, and `firewall.nft`
 under `/etc/nxrs-monitor` (0700 directory / 0600 files), and the certificate chain
 and private key at `/etc/nxrs-monitor/tls/fullchain.pem` and `privkey.pem` (0600).
-Place `wg-nxrs.conf` at `/etc/wireguard/wg-nxrs.conf` (0600), and the four generated
+Place `wg-nxrs.conf` and `vpn-peers.json` together under `/etc/wireguard`
+(root-owned 0700 directory / 0600 files), and the four generated
 `.service` files under `/etc/systemd/system` (0644). Keep token files out of
 service configuration directories unless explicitly needed by the ingest owner.
 Do not copy the generated output directory wholesale to a public web directory.
 
+Install the generated `wg-nxrs-admission.conf` as the root-owned drop-in
+`/etc/systemd/system/wg-quick@wg-nxrs.service.d/10-nxrs-admission.conf` (0644;
+root-owned directory). Review `systemctl cat wg-quick@wg-nxrs` after reloading:
+the required `ExecStartPre` invokes `nxrs-vpn-admission` against the actual private
+configuration/history pair before the distribution's `wg-quick` command. Missing
+helper, missing/corrupt/mismatched history, invalid retired keys/generation, unsafe
+file permissions/links or foreign ownership fail startup. The helper accepts the
+explicit version2 empty-peer retired state and performs no initialization,
+configuration repair, process execution or network changes. It emits fixed
+success/refusal text, never configuration contents or keys.
+
+This gate requires root-owned private regular files in protected private parents
+on a local filesystem. It checks opened-descriptor ownership and rechecks both
+files after validation. Privileged writers must still serialize maintenance;
+the check does not pin paths through the subsequent `wg-quick` operation. Restoring
+an older matching pair still requires independent protected rollback prevention.
+Installing this drop-in is a required part of this generated profile; direct
+manual `wg-quick` execution or an older deployment without it bypasses the gate.
+
 ```sh
 sudo nft -c -f /etc/nxrs-monitor/firewall.nft
 sudo systemctl daemon-reload
+sudo systemctl cat wg-quick@wg-nxrs.service
 sudo systemctl enable --now nxrs-firewall.service
 sudo systemctl enable --now wg-quick@wg-nxrs.service
 sudo systemctl enable --now nxrs-control.service nxrs-media.service nxrs-proxy.service
@@ -135,10 +161,128 @@ credential from the control config and restart control/MediaMTX as documented in
 [the gateway README](../README.md). Deleting the app's local Keychain record alone
 is not server-side revocation. Keep application identity separate from VPN keys.
 
+### Stage a replacement VPN peer
+
+Generate a fresh private key on the replacement phone and export only its public
+key. `vpn_peer.py` prepares files for this single-peer reference profile; it never
+runs WireGuard, networking commands, installers or services. From a private copy
+of the current paired enrollment, stage into a NEW private directory:
+
+```sh
+python3 gateway/deploy/vpn_peer.py stage \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/replacement \
+  --expected-peer 'CURRENT_PHONE_PUBLIC_KEY' \
+  --replacement-peer 'NEW_PHONE_PUBLIC_KEY'
+python3 gateway/deploy/vpn_peer.py check \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/replacement
+```
+
+All paths must be absolute; input files must be private regular files owned by the
+invoking user under a private directory. Root-owned deployed files therefore need
+a root-run review. `stage` preserves the gateway private key, addresses, firewall
+hook and the exact reference profile. It advances the generation and retains the
+old public key permanently in the bounded retirement history. Missing/malformed
+history, mismatched file pairs, a stale expected key, retired/reused keys, foreign
+hooks or extra peers are refused. At 4096 retired keys it refuses further rotation;
+it never drops old entries. Failed staging can leave private partial files with
+no completion marker; never install them. The marker grants no deployment approval.
+
+For an approved installation, serialize maintenance with any other configuration
+writer. Stop the WireGuard unit and all dependent gateway/ingest services and join
+their processes before modifying either file. Re-run `check` against the actual
+current deployed pair immediately before installation. Install BOTH reviewed
+configuration and history, retaining private ownership/modes, while services are
+stopped. Do not restart with a partial pair. After interruption, keep services
+stopped until the pair and reviewed plan agree; never regenerate history or
+restore a known retired peer to recover availability. Preserve all application
+credentials, enrollment IDs and durable revocation state. Start the interface from
+the persisted replacement configuration and qualify old-key rejection and new-key
+HTTPS/video recovery before declaring maintenance complete. File staging/checking
+is not an installer. The separate installed Rust/systemd startup check above
+refuses an incoherent pair; it does not make paired file installation crash-atomic.
+
+For an older enrollment without history, stop and review a migration from its
+known active key and retirement records; this tool deliberately provides no empty
+history fallback or automatic migration. Losing both state files, or restoring an
+older matching pair, cannot be detected without an independently protected
+anti-rollback anchor. Protect backups and maintain an independent retirement
+record. This work does not implement automatic peer expiry, trusted rollback
+prevention, ownership transfer or physical device qualification. Application
+viewer/publisher revocation remains a separate operation; a VPN key replacement
+does not erase those denials.
+
+### Lost phone: retire without a replacement
+
+If no replacement phone is ready, stage a saved configuration with **no active
+WireGuard peer**. Do not invent a dummy peer or regenerate the enrollment:
+
+```sh
+python3 gateway/deploy/vpn_peer.py stage-retirement \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/retired \
+  --expected-peer 'LOST_PHONE_PUBLIC_KEY'
+python3 gateway/deploy/vpn_peer.py check \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/retired
+```
+
+Use the same approved, serialized stopped-service procedure above to install BOTH
+files and recreate the interface from its saved configuration. Verify that the
+old phone cannot establish fresh connections and its active media stops. VPN
+retirement remains independent of application viewer/device identity denial:
+revoke the lost phone's application identity and active sessions through the
+strict gateway's administrative procedure too. Keep the durable denial snapshot.
+Changing or deleting only a local phone enrollment is insufficient.
+
+Retirement upgrades this private ledger to version2, retains the peer's narrow
+address and every retired public key, and records a null active peer. Older
+version1 tools refuse this state. Every subsequent retire/replace/recover operation
+advances its generation. A full version1 history reserves one final slot for its
+current key's emergency retirement; when all4097 known-key slots are retired,
+new enrollment refuses rather than discarding any denial. Capacity does not
+prevent this final removal. An operator must review a future protected migration;
+clearing or reseeding history is not recovery.
+
+When a replacement is available, generate its fresh key **on that phone**. Review
+the current retired generation (2 after the first retirement of a new enrollment)
+and stage explicit recovery, without changing any application credentials:
+
+```sh
+python3 gateway/deploy/vpn_peer.py stage-recovery \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/recovered \
+  --expected-generation 2 \
+  --replacement-peer 'FRESH_PHONE_PUBLIC_KEY'
+python3 gateway/deploy/vpn_peer.py check \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/recovered
+```
+
+Recovery requires a coherent version2 retired pair, that exact generation and a
+fresh key distinct from the gateway and all retired keys. It cannot initialize
+missing/corrupt state or recover while a peer remains active. The reviewed output
+preserves gateway private key/address, peer route, retirement history, unrelated
+configuration and application denials. Install only through the approved paired
+maintenance procedure; recheck actual deployed sources immediately beforehand.
+After interruption keep services stopped until the reviewed pair agrees. This
+uses the separate Rust/systemd startup gate described above. It does not make
+installation crash-atomic or implement protected anti-rollback or automatic expiry.
+
 ## Evidence and reproduction
 
 ```sh
 python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
+python3 -m unittest discover -s gateway/tests -p test_vpn_rotation.py -v
+python3 -m unittest discover -s gateway/tests -p test_vpn_retirement.py -v
+python3 -m unittest discover -s gateway/tests -p test_vpn_progress.py -v
 ```
 
 The unit suite launches real nginx with private temporary TLS and an instrumented
@@ -154,7 +298,18 @@ inside the peer namespace must decode five advancing synthetic H.264 frames and
 DELETE its session through the tunnel. It also checks denied unencrypted access,
 denied private ports (including a deliberately listening test service), rejection
 of VPN-only unauthenticated API access, preserved unrelated firewall tables, and
-loss of reachability after removing the VPN peer. It changes no host routes or
+loss of reachability after removing the VPN peer. It stages and persists a fresh
+peer with retained retirement history, deletes/recreates the server interface
+from those files, rejects the still-old phone key, then authenticates the new key
+and decodes five more frames with the same application credentials. Private port
+and underlay denial and the unrelated firewall table are checked again. A second
+owned receiver remains active while the peer is retired with no replacement.
+After saved-interface recreation its delivery must stop while the independent
+loopback publisher continues advancing. Explicit fresh-key recovery retains both
+prior denials, joins the old receiver and requires five freshly decoded frames
+on a new session. A bounded receive task remains owned through silence or actual
+stream end and is joined before cleanup. Only fixed result markers leave the
+fixture; private progress files and media/session logs are deleted. It changes no host routes or
 system certificate trust. Namespace processes, keys and private logs are removed;
 no raw artifacts are uploaded. Test FFmpeg credentials are visible to local root
 in process arguments, so the harness refuses personal/non-hosted machines.
@@ -171,3 +326,5 @@ Primary references: [WireGuard](https://www.wireguard.com/quickstart/),
 [nftables](https://netfilter.org/projects/nftables/manpage.html),
 [systemd credentials](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),
 [MediaMTX 1.21.2 WHEP session locations](https://github.com/bluenviron/mediamtx/blob/v1.21.2/internal/servers/webrtc/http_server.go).
+
+Generated HTTPS services require the reviewed artifact and synchronous launcher described in [proxy admission](../proxy/README.md). There is no system-nginx fallback. Complete that manual approval/installation before starting the generated services.

@@ -27,6 +27,93 @@ class RenderLifetimeTest {
     }
 
     @Test
+    fun epochReplacementBetweenTagReadAndDrawPreservesPixelIdentityWithoutOldBoxes() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val peer = NativePeer(MediaRuntime(instrumentation.targetContext))
+        val latest = AtomicReference<RenderedSample?>(null)
+        var view: AnnotatedVideoView? = null
+        val scenario = ActivityScenario.launch(QualificationActivity::class.java)
+        val source =
+            DetectionSource(
+                "1",
+                1,
+                1000,
+                0,
+                Presence.Person,
+                true,
+                Observation(
+                    1,
+                    1000,
+                    0,
+                    900,
+                    listOf(DetectedObject("person", 900, Bounds(100, 100, 900, 900))),
+                    false,
+                ),
+                emptyList(),
+            )
+        val metadata = VideoDetectionFrame("1", "1".repeat(32), 1, 1000, source)
+        peer.owner.selectEpoch(metadata.epoch)
+        val buffer = JavaI420Buffer.allocate(320, 240)
+        for ((plane, value) in
+            listOf(buffer.dataY to 76, buffer.dataU to 85, buffer.dataV to 255)) {
+            while (plane.hasRemaining()) plane.put(value.toByte())
+            plane.rewind()
+        }
+        val replacement = "2".repeat(32)
+        val tagged =
+            object : VideoFrame.Buffer by buffer, TaggedBuffer {
+                override val owner = peer.owner
+                override val annotation: VideoDetectionFrame
+                    get() {
+                        // Force the legal interleaving after the original tag's
+                        // acceptance read and before the renderer admits boxes.
+                        owner.selectEpoch(replacement)
+                        return metadata
+                    }
+            }
+        val frame = VideoFrame(tagged, 0, 1000000)
+        try {
+            scenario.onActivity { activity ->
+                view = AnnotatedVideoView(activity, peer) { latest.set(it) }
+                activity.setContentView(view)
+            }
+            val end = SystemClock.elapsedRealtime() + 5000
+            while (latest.get() == null && SystemClock.elapsedRealtime() < end) {
+                view!!.onFrame(frame)
+                Thread.sleep(50)
+            }
+            val sample = latest.get()
+            assertNotNull("The actual renderer must produce the controlled image", sample)
+            sample!!
+            assertTrue(
+                "The image remains the red source frame",
+                sample.red > 150 && sample.blue < 100,
+            )
+            assertEquals(Presence.Person, sample.metadata?.presence())
+            assertEquals("Retired-source boxes must be omitted", 0, sample.boxesDrawn)
+            assertFalse(peer.owner.accepts(metadata))
+            assertFalse(
+                "The draw must record that the old annotation was not admitted",
+                sample.annotationCurrent,
+            )
+            assertEquals(
+                "A correctly fenced overlay is not an image identity failure",
+                0,
+                if (
+                    sample.metadata?.presence() != Presence.Person ||
+                        sample.boxesDrawn != if (sample.annotationCurrent) 1 else 0
+                )
+                    1
+                else 0,
+            )
+        } finally {
+            frame.release()
+            peer.closeAndJoin()
+            scenario.close()
+        }
+    }
+
+    @Test
     fun frozenImageExpiresWithoutNewInputAndOwnerClosureFencesLateFrames() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val peer = NativePeer(MediaRuntime(instrumentation.targetContext))
@@ -76,9 +163,11 @@ class RenderLifetimeTest {
                 Thread.sleep(50)
             }
             assertEquals(1, latest.get()?.boxesDrawn)
+            assertEquals(true, latest.get()?.annotationCurrent)
             until("Boxes must expire on the frozen actual rendered image", 2500) {
                 latest.get()?.let { !it.freshImage && it.boxesDrawn == 0 } == true
             }
+            assertEquals(false, latest.get()?.annotationCurrent)
             val expired = samples.get()
             Thread.sleep(350)
             assertEquals("Idle expiry must stop submitting GPU redraws", expired, samples.get())
