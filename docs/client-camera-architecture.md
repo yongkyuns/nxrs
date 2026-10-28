@@ -26,6 +26,9 @@ playing. Catalog identity/capability changes and home replacement retire the old
 sessions, even when the new home reuses the same camera IDs.
 Removing a selected camera chooses an available replacement; removing the
 full-screen camera closes its presentation. Unchanged cameras keep their sessions.
+Replacing an enrollment preserves the current viewport request, even if an equal
+camera catalog produces no new layout callback. The replacement still creates
+new sessions and waits for obsolete owners to retire before reusing their slots.
 With automatic playback disabled, new cameras remain paused until explicitly
 resumed. Selection for display does not itself override that preference.
 Watch/Pause updates selection and admission in one action. Selecting and then
