@@ -195,7 +195,10 @@ class Sessions(unittest.TestCase):
         address = self.load(root, process, credentials)
         with socket.create_connection(address, timeout=5) as client:
             client.sendall(b'GET / HTTP/1.1\r\nHost: fixture\r\n\r\n')
-            data = client.recv(256)
+            try:
+                data = client.recv(256)
+            except ConnectionError:
+                data = b''
             self.assertFalse(data.startswith(b'HTTP/'))
             self.assertNotIn(b'pong', data)
         self.result(root, process, credentials, error, accepted=False)
