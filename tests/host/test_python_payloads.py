@@ -56,7 +56,129 @@ class PythonPayloadTests(unittest.TestCase):
             link = root / 'link'; link.symlink_to('../secret')
             with self.assertRaisesRegex(payloads.u.Refusal, 'python-payload-link-escape'):self.scan([root])
             link.unlink(); link.symlink_to('missing')
-            with self.assertRaises(FileNotFoundError):self.scan([root])
+            with self.assertRaisesRegex(payloads.UnreviewedLinks, 'python-payload-link-target-unavailable'):
+                self.scan([root])
+
+    def test_reviewed_external_directory_is_scanned_once_without_adjacent_access(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve(); root=outer/'startup';root.mkdir()
+            data=outer/'data';data.mkdir();(data/'module.py').write_bytes(b'public')
+            (outer/'PRIVATE-ADJACENT').write_bytes(b'must not read')
+            first=root/'a';second=root/'b';first.symlink_to(data);second.symlink_to(data)
+            (data/'self').symlink_to(data)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{first:data,second:data}), \
+                 mock.patch.object(payloads.components,'protected') as protected:
+                value=self.scan([root])
+            self.assertEqual(value['external_directories'],[str(data)])
+            self.assertEqual(value['payload_bytes'],6)
+            self.assertEqual(set(value['entries']),{str(root),str(first),str(second),str(data),str(data/'module.py'),str(data/'self')})
+            self.assertEqual(protected.call_args_list,[mock.call(data),mock.call(data)])
+            self.assertNotIn('PRIVATE',json.dumps(value))
+
+    def test_reviewed_external_directory_cannot_grant_adjacent_or_unreviewed_targets(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();data=outer/'data';data.mkdir()
+            private=outer/'PRIVATE';private.write_bytes(b'must not read');(data/'escape').symlink_to(private)
+            link=root/'data';link.symlink_to(data)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{link:data}), \
+                 mock.patch.object(payloads.components,'protected'), \
+                 mock.patch.object(payloads.os,'read',side_effect=AssertionError('must not read external bytes')):
+                with self.assertRaises(payloads.UnreviewedLinks) as caught:self.scan([root])
+            self.assertEqual(len(caught.exception.observations),1)
+            self.assertNotIn('PRIVATE',json.dumps(caught.exception.observations))
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{link:outer}):
+                with self.assertRaisesRegex(payloads.UnreviewedLinks,'python-payload-link-escape'):self.scan([root])
+
+    def test_nested_reviewed_directories_do_not_duplicate_files(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();data=outer/'data';data.mkdir()
+            nested=data/'nested';nested.mkdir();(nested/'m.py').write_bytes(b'one')
+            first=root/'a';second=root/'b';first.symlink_to(nested);second.symlink_to(data)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{first:nested,second:data}), \
+                 mock.patch.object(payloads.components,'protected'):
+                value=self.scan([root])
+            self.assertEqual(value['payload_bytes'],3)
+            self.assertEqual(value['external_directories'],[str(data),str(nested)])
+
+    def test_reviewed_directory_requires_protection_and_directory_type(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();data=outer/'data';data.mkdir()
+            link=root/'data';link.symlink_to(data)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{link:data}), \
+                 mock.patch.object(payloads.components,'protected'):
+                data.chmod(0o777)
+                with self.assertRaisesRegex(payloads.u.Refusal,'protected-python-payload-owner-mode'):self.scan([root])
+                data.chmod(0o755);data.rmdir();data.write_bytes(b'not a directory')
+                with self.assertRaises(NotADirectoryError):self.scan([root])
+
+    def test_reviewed_directory_ancestor_guard_precedes_external_walk(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();data=outer/'data';data.mkdir()
+            link=root/'data';link.symlink_to(data);original=os.scandir;walked=[]
+            def scanning(fd):walked.append(os.fstat(fd).st_ino);return original(fd)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{link:data}), \
+                 mock.patch.object(payloads.components,'protected',side_effect=payloads.u.Refusal('protected-ancestor')), \
+                 mock.patch.object(payloads.os,'scandir',side_effect=scanning):
+                with self.assertRaisesRegex(payloads.u.Refusal,'protected-ancestor'):self.scan([root])
+            self.assertNotIn(data.stat().st_ino,walked)
+
+    def test_replaced_external_directory_cannot_publish_old_contents(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();data=outer/'data';data.mkdir()
+            (data/'m.py').write_bytes(b'old');link=root/'data';link.symlink_to(data)
+            original=os.scandir;changed=False;inode=data.stat().st_ino
+            class Children:
+                def __init__(self,fd):self.value=original(fd);self.target=os.fstat(fd).st_ino==inode
+                def __enter__(self):return self.value.__enter__()
+                def __exit__(self,*args):
+                    nonlocal changed
+                    value=self.value.__exit__(*args)
+                    if self.target and not changed:
+                        changed=True;data.rename(outer/'retired');data.mkdir();(data/'m.py').write_bytes(b'new')
+                    return value
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_DIRECTORIES',{link:data}), \
+                 mock.patch.object(payloads.components,'protected'),mock.patch.object(payloads.os,'scandir',side_effect=Children):
+                with self.assertRaisesRegex(payloads.u.Refusal,'stable-python-payload-directory'):self.scan([root])
+            self.assertTrue(changed)
+
+    def test_large_file_limit_is_specific_to_reviewed_external_file_and_total_budget(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();target=outer/'large';target.write_bytes(b'abc')
+            link=root/'large';link.symlink_to(target)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_LINKS',{link:target}), \
+                 mock.patch.object(payloads.components,'protected'),mock.patch.object(payloads,'MAX_FILE',1):
+                with mock.patch.object(payloads,'REVIEWED_FILE_LIMITS',{target:3}):
+                    self.assertEqual(self.scan([root])['payload_bytes'],3)
+                    with mock.patch.object(payloads,'MAX_TOTAL',2):
+                        with self.assertRaisesRegex(payloads.u.Refusal,'python-payload-total-budget'):self.scan([root])
+                for limits in ({},{outer/'other':3}):
+                    with mock.patch.object(payloads,'REVIEWED_FILE_LIMITS',limits):
+                        with self.assertRaisesRegex(payloads.u.Refusal,'bounded-regular-python-payload'):self.scan([root])
+                (root/'ordinary').write_bytes(b'abc')
+                with mock.patch.object(payloads,'REVIEWED_FILE_LIMITS',{root/'ordinary':3,target:3}):
+                    with self.assertRaisesRegex(payloads.u.Refusal,'bounded-regular-python-payload'):self.scan([root])
+
+    def test_missing_reviewed_target_still_refuses_and_has_no_resolved_path_claim(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer=Path(name).resolve();root=outer/'startup';root.mkdir();missing=outer/'PRIVATE-MISSING'
+            link=root/'link';link.symlink_to(missing)
+            with mock.patch.object(payloads,'REVIEWED_EXTERNAL_LINKS',{link:missing}):
+                with self.assertRaisesRegex(payloads.UnreviewedLinks,'python-payload-link-target-unavailable') as caught:
+                    self.scan([root])
+            row=caught.exception.observations[0]
+            self.assertEqual(row['resolution'],'missing');self.assertNotIn('resolved_sha256',row)
+            self.assertNotIn('PRIVATE',json.dumps(row))
+
+    def test_cli_missing_link_diagnostic_does_not_export_target_or_invent_resolution(self):
+        row=payloads.link_observation(Path('/usr/lib/python3/dist-packages/lldb/missing.so'),b'/private/PRIVATE-TARGET')
+        error=io.StringIO()
+        with mock.patch.object(sys,'argv',['payloads','--candidate','c','--metadata','m','--report','r']), \
+             mock.patch.object(payloads,'run',side_effect=payloads.UnreviewedLinks([row])),mock.patch('sys.stderr',error):
+            with self.assertRaises(SystemExit) as status:payloads.main()
+        text=error.getvalue();self.assertEqual(status.exception.code,1)
+        self.assertIn('python-payload-link-target-unavailable',text)
+        self.assertIn('"resolution":"missing"',text);self.assertNotIn('resolved_sha256',text)
+        self.assertNotIn('PRIVATE',text);self.assertNotIn('/private/',text)
 
     def test_all_bounded_unreviewed_links_are_observed_without_reading_external_bytes(self):
         with tempfile.TemporaryDirectory() as name:
