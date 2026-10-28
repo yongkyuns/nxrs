@@ -25,7 +25,8 @@ def qualify(platform, archive):
             result = subprocess.run([str(binary), *arguments], env=environment, capture_output=True, timeout=10)
             if result.returncode == 0 or diagnostic not in result.stderr:
                 raise ValueError('Native sanitizer positive control failed')
-        environment['CFLAGS'] = shlex.join([*shlex.split(environment.get('CFLAGS', '')), *FLAGS])
+        # Exercise the short SDK enum representation used by ARM GCC too.
+        environment['CFLAGS'] = shlex.join([*shlex.split(environment.get('CFLAGS', '')), '-fshort-enums', *FLAGS])
         # Rust normally suppresses the compiler driver's default libraries.
         # Let that driver select its matching sanitizer runtimes for this test.
         environment['RUSTFLAGS'] = environment.get('RUSTFLAGS', '')+' -C default-linker-libraries=yes -C link-arg=-fsanitize=address,undefined'

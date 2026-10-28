@@ -23,7 +23,6 @@
 #endif
 _Static_assert(sizeof(psa_driver_get_entropy_flags_t) == sizeof(uint32_t), "entropy flags ABI");
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
-_Static_assert(sizeof(mbedtls_md_type_t) == sizeof(int), "SDK hash enum ABI");
 _Static_assert(sizeof(mbedtls_svc_key_id_t) == sizeof(uint32_t), "PSA key identifier ABI");
 _Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 8, "bounded identity key slots");
 _Static_assert(MBEDTLS_PSA_RNG_RESEED_INTERVAL == 1024, "identity reseed policy");
@@ -41,6 +40,11 @@ uint32_t tls_sign_hash_usage(void) { return PSA_KEY_USAGE_SIGN_HASH; }
 uint32_t tls_ecdsa_sha256(void) { return PSA_ALG_ECDSA(PSA_ALG_SHA_256); }
 uint32_t tls_volatile_lifetime(void) { return PSA_KEY_LIFETIME_VOLATILE; }
 int tls_sha256(void) { return MBEDTLS_MD_SHA256; }
+/* SDK enum width is compiler-specific (ARM GCC uses short enums). */
+void tls_csr_set_md_alg(void *p, int algorithm)
+{
+  mbedtls_x509write_csr_set_md_alg(p, (mbedtls_md_type_t)algorithm);
+}
 int tls_entropy_error(void) { return PSA_ERROR_INSUFFICIENT_ENTROPY; }
 size_t tls_pk_size(void) { return sizeof(mbedtls_pk_context); }
 size_t tls_pk_align(void) { return _Alignof(mbedtls_pk_context); }

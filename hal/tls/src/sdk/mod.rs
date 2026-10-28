@@ -69,7 +69,7 @@ unsafe extern "C" {
     fn mbedtls_x509write_csr_init(p: *mut c_void);
     fn mbedtls_x509write_csr_free(p: *mut c_void);
     fn mbedtls_x509write_csr_set_key(p: *mut c_void, key: *mut c_void);
-    fn mbedtls_x509write_csr_set_md_alg(p: *mut c_void, algorithm: c_int);
+    fn tls_csr_set_md_alg(p: *mut c_void, algorithm: c_int);
     fn mbedtls_x509write_csr_set_subject_name(p: *mut c_void, subject: *const c_char) -> c_int;
     fn mbedtls_x509write_csr_pem(p: *mut c_void, output: *mut u8, size: usize) -> c_int;
 }
@@ -328,7 +328,7 @@ impl Identity {
         let pk = self.pk.as_ref().ok_or(Error::Poisoned)?;
         unsafe {
             mbedtls_x509write_csr_set_key(csr.pointer(), pk.pointer());
-            mbedtls_x509write_csr_set_md_alg(csr.pointer(), tls_sha256());
+            tls_csr_set_md_alg(csr.pointer(), tls_sha256());
         }
         self.sdk(|| unsafe {
             mbedtls_x509write_csr_set_subject_name(csr.pointer(), subject.as_ptr().cast())
