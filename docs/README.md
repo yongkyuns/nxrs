@@ -15,3 +15,7 @@ that exist; it does not imply that every radio or board is supported.
 
 Hardware qualification scope, limitations and measured results remain in the
 individual fixture guides and evidence documents linked from the README.
+
+The [security design and release requirements](security.md) records the trust
+boundaries, explicit non-FIPS deployment decision and evidence needed for
+authenticated transport, firmware integrity, key lifecycle and protected storage.
