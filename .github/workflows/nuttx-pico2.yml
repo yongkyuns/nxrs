@@ -62,8 +62,11 @@ jobs:
             --app-manifest tests/nuttx-std/tls-identity/Cargo.toml \
             --app-package nxrs-std-tls-identity --bin nxrs-std-tls-identity \
             --command tls_identity --priority 100 --stack-size 65536 \
-            --platform pico2-tls --out target/nuttx-pico2 \
+            --platform pico2-tls --out target/nuttx-pico2 --abi-profile minimal \
             2>&1 | tee target/nuttx-pico2/build.log
+          for symbol in psa_generate_key mbedtls_x509write_csr_pem mbedtls_platform_get_entropy rp23xx_rng_read; do
+            grep -Eq " [TtWw] $symbol$" target/nuttx-pico2/symbols.txt
+          done
       - name: Retain build evidence, not a hardware execution claim
         if: always()
         uses: actions/upload-artifact@v4
