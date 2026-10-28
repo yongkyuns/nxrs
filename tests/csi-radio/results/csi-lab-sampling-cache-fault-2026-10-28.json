@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "sampling_provenance_v7_fresh_empty_trial",
+  "source_commit": "fad1399e9b3139b102302c478914a008393d5558",
+  "firmware_sha256": "cdf333bdd16d8289410d72da450cc78605c83bf9d0f55bcf70243989134b99c6",
+  "elf_sha256": "a0e557239922791413063d6edca3a9240055ac12e083f7154d326f51d25c1fd5",
+  "configuration_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+  "sdk_revision": "662a3be354759d9487bf4b1a629fadb766cb1800",
+  "result": "wifi_receive_cache_fault_before_calibration",
+  "fix_qualified": false,
+  "physical_detector_admitted": false,
+  "espectre_performance_parity_qualified": false,
+  "gpl_or_espectre_implementation_added": false,
+  "ground_truth": {
+    "fresh_explicit_empty_confirmation": true,
+    "phone_taken_outside_room": true,
+    "walking_or_seated_cues_issued": false,
+    "user_released_after_failure": true,
+    "accuracy_or_false_alarm_conclusion_valid": false
+  },
+  "capture": {
+    "complete": false,
+    "valid_as_detector_or_timing_dataset": false,
+    "end_footer_present": false,
+    "crc_valid_contiguous_prefix_records": 4920,
+    "prefix_record_kinds": {
+      "1": 1,
+      "9": 2,
+      "3": 894,
+      "4": 1788,
+      "11": 1396,
+      "2": 177,
+      "7": 1,
+      "10": 154,
+      "5": 507
+    },
+    "prefix_feature_events": 153,
+    "prefix_time_span_us": 6240570,
+    "capture_sha256": "958900838df354b77d36dea0280276673152ac356696fc497feb45db336523b1",
+    "raw_console_sha256": "d02fd10ea21b9b6c4aee8ea046a1c6203d7055ec7ace31bfafbeb0d8ef3a4b98",
+    "latest_status_before_fault": {
+      "losses": 0,
+      "rf_min_free_stack_bytes": 4444,
+      "gain_min_free_stack_bytes": 4444,
+      "compute_min_free_stack_bytes": 1360,
+      "model_received": 143,
+      "model_applied": 143,
+      "model_pending": 0
+    },
+    "latest_status_is_final_accounting": false
+  },
+  "firmware_fault": {
+    "message": "Cache disabled but cached memory region accessed",
+    "task_path": [
+      "wDev_SnifferRxData",
+      "wDev_ProcessRxSucData",
+      "ppTask",
+      "vPortTaskWrapper"
+    ],
+    "backtrace_addresses": [
+      "0x40056f5b",
+      "0x420aed35",
+      "0x40384b2d",
+      "0x40041502",
+      "0x40381ff6",
+      "0x420d0de9"
+    ],
+    "fault_pc": "0x40056f5e",
+    "exception_cause": 7,
+    "sniffer_call_site": "0x420aed35",
+    "call_target_symbol": "memcpy",
+    "saved_copy_argument_registers": {
+      "A2": "0x3c13a3c4",
+      "A3": "0x4036fffc",
+      "A4": "0xffffff58"
+    },
+    "saved_length_u32": 4294967128,
+    "saved_length_interpreted_i32": -168,
+    "interpretation": "The exact ELF resolves the sniffer frame to an indirect ROM memcpy call after descriptor length minus 44 minus aligned CSI length. The saved length is consistent with an invalid unsigned copy size. Register values are a fault-time snapshot, not a pre-call witness; the original descriptor and buffer ownership history were not captured. Driver length underflow, earlier corruption and instrumentation interaction remain hypotheses, not established causes.",
+    "root_cause_proven": false,
+    "fault_caused_by_sampling_taps_proven": false
+  },
+  "fail_closed_offline_verification": [
+    {
+      "command": "replay",
+      "twice_identical": true,
+      "exit": 1,
+      "stdout_bytes": 0,
+      "stderr": "CSI lab failed: missing END; truncated capture"
+    },
+    {
+      "command": "sampling",
+      "twice_identical": true,
+      "exit": 1,
+      "stdout_bytes": 0,
+      "stderr": "CSI lab failed: missing END; truncated capture"
+    },
+    {
+      "command": "preview-motion",
+      "twice_identical": true,
+      "exit": 1,
+      "stdout_bytes": 0,
+      "stderr": "CSI lab failed: missing END; truncated capture"
+    }
+  ],
+  "restoration": {
+    "full_original_16mb_firmware_restored_and_hash_verified": true,
+    "physical_iphone_native_https_whep_advancing_frames_at_least": 3,
+    "native_session_retirement_joined": true,
+    "normal_app_relaunch_exit": 0,
+    "original_enrollment_unchanged": true,
+    "original_supervisor_running": true
+  },
+  "unchanged_policy": {
+    "model_and_calibration_changed": false,
+    "thresholds_retuned": false,
+    "freshness_or_acceptance_relaxed": false,
+    "ping_receive_timeout_changed": false
+  },
+  "limitations": [
+    "No complete footer or final loss/accounting proof exists; valid prefix checks and a zero-loss status snapshot do not qualify the dataset.",
+    "No ping-timeout, window-cause, calibration, presence, stationary occupancy, transition latency, CPU cost or ESPectre parity conclusion follows from this capture.",
+    "This IDF reference fault is separate from the earlier source-expiry capture and occupancy-confounded holdout; no NuttX kernel failure is established.",
+    "Before another labelled room trial, isolate the native Wi-Fi sniffer path with a bounded unlabelled stability witness and exact driver/source provenance. Preserve the original pin and use any altered configuration or SDK only as a separate named comparison."
+  ]
+}

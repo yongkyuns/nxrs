@@ -334,8 +334,8 @@ All 160 Rust, 154 CSI Python and 23 architecture/HAL-boundary regressions pass.
 The dependency archive hashes are unchanged. Official registry downloads varied
 only in per-download ZIP member times; restoring those metadata bytes recovered
 the exact original whole-archive hashes, with every member byte unchanged. The
-new image has not touched hardware. Collect its timing/window evidence under a
-fresh explicit empty label before drawing causal conclusions or changing traffic.
+first physical version-7 attempt is recorded below. Its truncated capture does
+not qualify the diagnostic overhead, timing evidence or candidate behavior.
 
 ## Exact SDK window replay of the source-expiry recording
 
@@ -365,6 +365,45 @@ the independent journal event clock remains microseconds. The trigger row at
 row. No physical version-7 recording used the earlier labels, and no model,
 threshold, freshness deadline or native window rule changed.
 
+## Version-7 physical attempt: native Wi-Fi receive fault
+
+The [fresh empty-room attempt](../csi-radio/results/csi-lab-sampling-cache-fault-2026-10-28.json)
+ended in the initial settling phase, about 6.24 seconds into the recorded prefix,
+before calibration or any walking/seated cue. Firmware reported a cache-access
+panic in `wDev_SnifferRxData`, through `wDev_ProcessRxSucData` and `ppTask`.
+This is an external IDF reference failure, not evidence of a NuttX kernel fault
+or of presence accuracy. The user was released from the empty-room hold as soon
+as the failure was observed.
+
+Offline symbolization uses the exact image's hash-verified ELF. The sniffer
+frame resolves to its ROM `memcpy` call after subtracting header and aligned CSI
+lengths from a descriptor length. The saved copy-length register is
+`0xffffff58` (signed -168), consistent with an invalid unsigned copy size.
+These are fault-time registers, not a pre-call argument/descriptor witness.
+The original descriptor and buffer ownership history are absent. Native length
+underflow, earlier corruption and interaction with instrumentation remain
+hypotheses; the symbolized call stack alone proves none of them. No vendor
+binary, model, threshold, freshness rule or ping timeout was changed afterward.
+
+There are 4,920 contiguous CRC-valid prefix records, including 1,396 sampling
+records and 153 model feature events. The latest status had zero reported
+losses and free-stack margins of 4,444/4,444/1,360 bytes, but those snapshots
+precede the fault and do not establish final accounting. There is **no END
+footer**. Replay, sampling output and full-policy preview each reject the
+original capture twice identically, with no stdout results. Do not append a
+footer, admit the prefix as a dataset, or infer ping/window causes from it.
+
+The controller restored and hash-verified all 16 MB of original firmware,
+restarted the original continuous camera supervisor and passed the physical
+iPhone native test: at least three advancing 320x240 HTTPS/WHEP frames, joined
+session retirement and normal app relaunch using unchanged enrollment.
+
+The next experiment must first isolate native Wi-Fi receive stability, with a
+bounded standalone witness and explicit driver/buffer provenance, before another
+long labelled calibration sequence. Keep the pinned baseline and any changed
+SDK or receive configuration in separate named cases. Do not replace the older
+source-expiry or occupancy-confounded evidence with this different failure.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
@@ -388,8 +427,9 @@ threshold, freshness deadline or native window rule changed.
    controller are now prepared and checked in software. The first physical
    recording has uncertain occupancy; its fresh repeat stopped during training
    with stale reference support. Preserve both. Instrument the sampling
-   interruption with the prepared version-7 diagnostics before changing traffic
-   or requesting a new positive-performance qualification sequence.
+   interruption with version-7 diagnostics only after isolating the newly
+   observed native Wi-Fi receive fault. Its first attempt has no complete
+   footer and supplies no qualified timing or positive-performance evidence.
 5. Commit evidence normally to draft PR #31. Mark the goal complete only after
    the cause/fix is substantiated and comparable observations establish the
    required performance; never equate a passing empty phase with detection.
