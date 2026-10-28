@@ -233,6 +233,25 @@ output. A numerical replay mismatch fails; it is never hidden behind a float
 tolerance or a host reference implementation. The emulator cannot qualify
 radio behavior or device timing.
 
+`csi-lab audit-gain CAPTURE.csilab` verifies the whole original archive, then
+joins every filtered-IQ record to its exact before/after native gain call using
+address, metadata and input bytes. It reports only aggregate AP/other counts,
+including successful nonzero-to-zero buffer transitions. It rejects incomplete
+or ambiguous pairs and emits no useful prefix from a corrupt archive. This is
+filtered IQ, not the original driver buffer or a measured RF-to-window join.
+
+The separate `temporal-motion-ap-v1` device case uses `PRESENCE_MOTION_AP` and
+requires the exact v8 acknowledgement with `source_admission=associated_ap_v1`.
+Its immutable AP gate stays closed until channel startup completes, then rejects
+foreign source MACs before peer dispatch and gain collection/compensation.
+Admission counters use one bounded CAS; overflow, contention or missing metadata
+is terminal. The gate and SDK callback context remain alive until whole-chip
+reset, as required by this experimental reference's existing retirement rule.
+The journal declares `[4,2,16,1]`; replay rejects foreign raw frames in that scope.
+The original v7 case bypasses this gate. All numerical guards, policy thresholds,
+freshness and independent phase requirements remain in force. This source
+admission candidate still requires a fresh labelled physical trial.
+
 ## Record format and ownership
 
 Container version 1 starts with one JSON manifest line. Records then use the

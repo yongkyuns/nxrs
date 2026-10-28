@@ -15,6 +15,8 @@ def radar(source):
         raise ValueError("trace hooks require exact pinned radar source")
     text = source.decode()
     edits = [
+        ("    /* Select peer to dispatch this packet */",
+         "    if (!presence_source_admit(info->mac)) return;\n    /* Select peer to dispatch this packet */"),
         (
             '#include "esp_radar_motion_dec.h"',
             '#include "esp_radar_motion_dec.h"\n#include "../../../main/trace.h"',
@@ -111,7 +113,12 @@ def require_compensation_observer(disassembly):
         disassembly,
     ):
         raise ValueError("RX path does not call the actual compensation observer")
+    if not re.search(r"\bcall8\s+[0-9a-f]+ <presence_source_admit>", disassembly):
+        raise ValueError("RX path bypasses source admission")
+    if disassembly.index("<presence_source_admit>") > disassembly.index("<__wrap_esp_csi_gain_ctrl_compensate_rx_gain>"):
+        raise ValueError("source admission follows compensation")
     return {
+        "source_admission_precedes_compensation": True,
         "rx_calls_compensation_wrapper": True,
         "rx_disassembly_sha256": hashlib.sha256(disassembly.encode()).hexdigest(),
     }

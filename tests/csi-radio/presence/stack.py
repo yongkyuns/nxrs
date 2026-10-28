@@ -6,6 +6,7 @@ import re
 
 FRAME_LIMIT = 512
 REQUIRED = (
+    "presence_source_admit",
     "presence_lab_rf",
     "presence_sampling_ping",
     "presence_sampling_ping_sdk",

@@ -1,5 +1,6 @@
 //! CSI-only laboratory application. No serial/network/hardware is opened here;
 //! a separately owned console supplies the firmware's versioned transport.
+mod gain_audit;
 mod inputs;
 mod motion_preview;
 mod probe_input;
@@ -115,6 +116,8 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
     let mut source_seen = false;
     let mut motion_checkpoints = 0u64;
     let mut motion_declared = false;
+    let mut ap_only = false;
+    let mut source_mac = [0u8;6];
     while let Some(line) = line(&mut reader)? {
         let r = Record::parse(&line)?;
         integrity.accept(&r)?;
@@ -163,7 +166,15 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
                 }
                 label = r.words[0] as usize;
             }
-            journal::RAW => raw += 1,
+            journal::RAW => {
+                if ap_only {
+                    let macs:Vec<u8>=r.words[8..11].iter().flat_map(|w| w.to_le_bytes()).collect();
+                    if macs[..6]!=source_mac || macs[6..12]!=source_mac {
+                        return Err("AP-only source admission violated".into());
+                    }
+                }
+                raw += 1;
+            },
             journal::MATRIX => matrices += 1,
             journal::CONTROL => {
                 if r.len != 4 || !(1..=4).contains(&r.words[0]) {
@@ -178,16 +189,19 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
                     {
                         return Err("source identity schema".into());
                     }
+                    source_mac = r.words[2..4].iter().flat_map(|w|w.to_le_bytes()).take(6).collect::<Vec<_>>().try_into().unwrap();
                     source_seen = true;
                 }
                 if r.words[0] == 4 {
                     if motion_declared
                         || motion_checkpoints != 0
                         || features != 0
-                        || r.data() != [4, 1, 16, 0]
+                        || (r.data() != [4, 1, 16, 0] && r.data() != [4, 2, 16, 1])
+                        || (r.words[1] == 2 && (!source_seen || raw != 0))
                     {
                         return Err("motion case declaration".into());
                     }
+                    ap_only = r.words[1] == 2;
                     motion_declared = true;
                 }
             }
@@ -314,12 +328,13 @@ fn run() -> Result<()> {
         ["fixture"]=>fixture(),
         ["export-kernels",path,output]=>export(path,output),
         ["sampling",path]=>sampling::run(path),
+        ["audit-gain",path]=>gain_audit::run(path),
         ["signals",path,"--case","recent-three-v1"]=>signals::run(path),
         ["verify-distance",path]=>signals::verify_distance(path),
         ["preview-motion",path,"--case","temporal-motion-v1"]=>motion_preview::run(path),
         ["export-motion-probe",path,output]=>probe_input::export(path,output),
         ["run-motion-probe",path]=>{if std::fs::metadata(path)?.len()>target_probe::MAX_BYTES as u64 {return Err("probe input byte bound".into());}let bytes=std::fs::read(path)?;target_probe::run(&bytes,&mut io::stdout().lock())?;Ok(())},
-        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | export-motion-probe FILE OUTPUT | run-motion-probe FILE | verify-distance FILE | sampling FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
+        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | export-motion-probe FILE OUTPUT | run-motion-probe FILE | verify-distance FILE | sampling FILE | audit-gain FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
     }
 }
 fn main() {

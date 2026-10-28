@@ -210,6 +210,7 @@ class Client:
         self.motion_case = "historical"
         self.motion_training_closed = False
         self.last_motion_us = None
+        self.source_counts = None
 
     def line(self, deadline):
         while True:
@@ -239,7 +240,7 @@ class Client:
         motion_case="historical",
     ):
         recording = record_sink is not None
-        if motion_case not in ("historical", "temporal-motion-v1") or (
+        if motion_case not in ("historical", "temporal-motion-v1", "temporal-motion-ap-v1") or (
             motion_case != "historical" and not recording
         ):
             raise ValueError("motion experiment requires declared recording case")
@@ -288,6 +289,7 @@ class Client:
         self.numeric_failures = numeric_failures
         self.diagnostic_pairs = diagnostic_pairs
         command = (
+            "PRESENCE_MOTION_AP" if motion_case == "temporal-motion-ap-v1" else
             "PRESENCE_MOTION"
             if motion_case == "temporal-motion-v1"
             else (
@@ -335,6 +337,8 @@ class Client:
             )
             + (
                 (
+                    " record=csi_lab_v8 model_owner=control_v1 motion=temporal_motion_v1 source_admission=associated_ap_v1"
+                    if motion_case == "temporal-motion-ap-v1" else
                     " record=csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1"
                     if motion_case == "temporal-motion-v1"
                     else " record=csi_lab_v4 model_owner=control_v1"
@@ -406,7 +410,7 @@ class Client:
     def read(self, deadline):
         line = self.line(deadline)
         if line.startswith((b"PRESENCE_MOTION ", b"PRESENCE_MOTION_UNAVAILABLE ")):
-            if self.motion_case != "temporal-motion-v1" or self.record_sink is None:
+            if self.motion_case not in ("temporal-motion-v1", "temporal-motion-ap-v1") or self.record_sink is None:
                 raise ValueError("unexpected motion trial report")
             result = motion_status(line)
             now = result["time_us"]
@@ -435,6 +439,17 @@ class Client:
                 applied=applied,
                 pending=pending,
             )
+        if line.startswith(b"PRESENCE_SOURCE "):
+            m = re.fullmatch(rb"PRESENCE_SOURCE v=1 state=2 admitted=(\d+) rejected=(\d+) startup=(\d+)", line)
+            if self.motion_case != "temporal-motion-ap-v1" or not m:
+                raise ValueError("source admission status/case")
+            counts = tuple(map(int, m.groups()))
+            if any(v > 0xFFFFFFFF for v in counts) or (
+                self.source_counts is not None and any(a < b for a, b in zip(counts, self.source_counts))
+            ):
+                raise ValueError("source admission counter reversal/overflow")
+            self.source_counts = counts
+            return dict(kind="source_admission_status", admitted=counts[0], rejected=counts[1], startup=counts[2])
         if line.startswith(b"PRESENCE_LAB_STATUS "):
             m = re.fullmatch(
                 rb"PRESENCE_LAB_STATUS v=1 losses=(\d+) slots=128 rf_stack=(\d+) gain_stack=(\d+) compute_stack=(\d+)",
@@ -689,6 +704,9 @@ class Client:
                 raise ValueError("duplicate or reversed report clock")
             self.last_ms = value["ms"]
             return value
+        if line.startswith(b"PRESENCE_END ") and self.motion_case == "temporal-motion-ap-v1":
+            if self.source_counts is None or self.source_counts[0] == 0:
+                raise ValueError("missing admitted AP source evidence")
         if line.startswith(
             (b"PRESENCE_TRAIN_START ", b"PRESENCE_TRAIN_STOP ", b"PRESENCE_END ")
         ):

@@ -12,6 +12,7 @@ struct presence_trace_radio {
     float factor;
     uint32_t observed_lo, observed_hi;
 };
+bool presence_source_admit(const uint8_t *);
 bool presence_trace_active(void);
 bool presence_trace_matches(const uint8_t *);
 void presence_trace_other_rf(void);

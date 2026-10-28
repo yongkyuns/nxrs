@@ -339,8 +339,10 @@ impl Failures {
 pub static FAILURES: Failures = Failures::new();
 #[cfg(target_os = "espidf")]
 #[no_mangle]
-pub static presence_failure_static_bytes: u32 =
-    (std::mem::size_of::<Failures>() + std::mem::size_of::<crate::failure_queue::Queue>()) as u32;
+pub static presence_failure_static_bytes: u32 = (std::mem::size_of::<Failures>()
+    + std::mem::size_of::<crate::failure_queue::Queue>()
+    + std::mem::size_of::<crate::source_gate::Gate>())
+    as u32;
 #[cfg(test)]
 mod tests {
     use super::*;

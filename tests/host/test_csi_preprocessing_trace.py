@@ -198,9 +198,16 @@ class TraceTests(unittest.TestCase):
             )
         self.assertTrue(
             INSTRUMENT.require_compensation_observer(
-                "4200: call8 4201 <__wrap_esp_csi_gain_ctrl_compensate_rx_gain>"
+                "41f0: call8 41f1 <presence_source_admit>\n4200: call8 4201 <__wrap_esp_csi_gain_ctrl_compensate_rx_gain>"
             )["rx_calls_compensation_wrapper"]
         )
+
+    def test_source_gate_must_precede_gain_in_actual_rx_path(self):
+        gain = "4200: call8 4201 <__wrap_esp_csi_gain_ctrl_compensate_rx_gain>"
+        gate = "4210: call8 4211 <presence_source_admit>"
+        for bad in (gain, gain + "\n" + gate):
+            with self.assertRaises(ValueError):
+                INSTRUMENT.require_compensation_observer(bad)
 
     def test_trace_status_contends_or_exceeds_budget_instead_of_claiming_valid(self):
         for line in (

@@ -13,12 +13,15 @@ static MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::ne
 pub enum Case {
     Historical,
     TemporalMotionV1,
+    TemporalMotionApV1,
 }
 pub fn motion_enabled() -> bool {
     MOTION.load(Ordering::Acquire)
 }
 static INGRESS: std::sync::OnceLock<ownership::Ingress> = std::sync::OnceLock::new();
-struct Environment;
+struct Environment {
+    ap_only: bool,
+}
 impl ownership::Environment for Environment {
     fn now_us(&self) -> u64 {
         crate::calibration::now_us()
@@ -33,7 +36,12 @@ impl ownership::Environment for Environment {
         match evidence {
             Evidence::MotionCase => {
                 LAB.push_words(journal::CONTROL, crate::calibration::now_us(), 4, |words| {
-                    words.copy_from_slice(&[4, 1, 16, 0])
+                    words.copy_from_slice(&[
+                        4,
+                        if self.ap_only { 2 } else { 1 },
+                        16,
+                        u32::from(self.ap_only),
+                    ])
                 })
             }
             Evidence::Model(event) => LAB.push_model(event),
@@ -77,18 +85,22 @@ impl Control {
         let owner = if recording {
             let make = match case {
                 Case::Historical => ownership::Control::new,
-                Case::TemporalMotionV1 => ownership::Control::new_motion_trial,
+                Case::TemporalMotionV1 | Case::TemporalMotionApV1 => {
+                    ownership::Control::new_motion_trial
+                }
             };
             let (owner, ingress) = make(
                 crate::calibration::Config::EMPTY_HOLDOUT,
                 MODEL_SLOTS,
                 std::time::Duration::from_secs(1),
-                Environment,
+                Environment {
+                    ap_only: matches!(case, Case::TemporalMotionApV1),
+                },
             )?;
             INGRESS
                 .set(ingress)
                 .map_err(|_| ownership::Error::Configuration)?;
-            MOTION.store(matches!(case, Case::TemporalMotionV1), Ordering::Release);
+            MOTION.store(!matches!(case, Case::Historical), Ordering::Release);
             Some(owner)
         } else {
             None

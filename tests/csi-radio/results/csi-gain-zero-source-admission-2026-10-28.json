@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "gain_zero_boundary_and_prospective_AP_source_admission",
+  "capture_sha256": "7a2708ef9282b9887a4a94028f4020dac4509a073d376ebb623b505928aaaeff",
+  "hardware_accessed_for_new_candidate": false,
+  "physical_fix_qualified": false,
+  "presence_qualified": false,
+  "espectre_parity_qualified": false,
+  "observed_gain_boundary": {
+    "command": "csi-lab audit-gain CAPTURE.csilab",
+    "twice_byte_identical": true,
+    "pairs_joined_by_exact_address_metadata_and_input_bytes": 6933,
+    "selected": {
+      "pairs": 6315,
+      "successful_nonzero_to_zero": 0,
+      "zero_input_buffers": 0,
+      "zero_output_buffers": 0
+    },
+    "other": {
+      "pairs": 618,
+      "successful_nonzero_to_zero": 46,
+      "zero_input_buffers": 0,
+      "zero_output_buffers": 46
+    },
+    "all_other_dispatches_were_default_wildcard": true
+  },
+  "conditional_window_reconstruction": {
+    "original_and_instrumented_window_bodies_verified_exact": true,
+    "pinned_radar_source_sha256": "4d414bf23abbb53574fd6f753e83a371a8ac668a377d8af6748e322be4fe3715",
+    "witness_source_sha256": "f9cba5b4e29392fe57693cdc12445a78d62bacd60ce56e98f03943a968f3470b",
+    "matched_numerical_matrices": 1270,
+    "failed_call_id": 1263,
+    "failed_support_sequences": [
+      605,
+      614
+    ],
+    "all_ten_rows_nonzero_before_gain": true,
+    "all_ten_rows_zero_after_gain": true,
+    "inference_conditional_on_preprocessing_admission": true,
+    "matched_selected_windows": 1261,
+    "matched_other_windows": 9,
+    "unmatched_windows": 0,
+    "zero_windows": 1,
+    "scope": "Exact original/instrumented SDK state and return agreement, then whole shape/vector comparison. Assumes all recorded callbacks reached preprocessing in their per-dispatch order; original other-row identities were not recorded."
+  },
+  "candidate": {
+    "case": "temporal-motion-ap-v1",
+    "command": "PRESENCE_MOTION_AP",
+    "acknowledgement": "csi_lab_v8 model_owner=control_v1 motion=temporal_motion_v1 source_admission=associated_ap_v1",
+    "case_declaration": [
+      4,
+      2,
+      16,
+      1
+    ],
+    "image_sha256": "8a486485d859ea0752d270e7a711dc6af471378edaffd15861f9eeac7873feea",
+    "source_hashes_verified": 60,
+    "native_abi_checks": 75,
+    "source_admission_precedes_compensation": true,
+    "failure_and_source_gate_static_bytes": 54480,
+    "unchanged_failure_static_budget_bytes": 65536,
+    "maximum_qualified_individual_producer_frame_bytes": 320,
+    "unchanged_individual_frame_limit_bytes": 512,
+    "added_workers": 0,
+    "added_dependencies": 0,
+    "callback_allocations": false,
+    "counter_updates": "single_CAS_failure_or_overflow_is_terminal",
+    "legacy_case_preserved": true,
+    "historical_four_analysis_output_hashes_unchanged": true,
+    "all_numerical_guards_and_phase_acceptance_preserved": true,
+    "radio_hardware_qualified": false
+  },
+  "validation": {
+    "provider_Rust_tests": 63,
+    "host_Rust_unit_tests": 7,
+    "standalone_integration_tests": 20,
+    "target_probe_host_tests": 2,
+    "CSI_Python_tests": 166,
+    "architecture_audit": "passed_41_packages",
+    "architecture_and_HAL_boundary_tests": 23
+  },
+  "limits": [
+    "Successful gain calls demonstrably zero these filtered byte buffers; the recorder does not observe the original driver IQ before vendor filtering.",
+    "Conditional full-window reconstruction is strong supporting evidence, not a recorded nonselected RF-row identity join.",
+    "Filtering before shared gain collection changes admitted traffic and may change its learned baseline; a prospective physical trial is required.",
+    "This candidate addresses the newly observed training abort. Earlier IQ profile drift, native receive panic and source-expiry failures are not fixed by this evidence.",
+    "Stationary occupancy, false positives, walking sensitivity, latency and CPU/resource performance remain unqualified."
+  ]
+}

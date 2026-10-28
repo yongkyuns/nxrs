@@ -652,6 +652,7 @@ enum MotionFixture {
     Silence,
     HoldoutMotion,
     Device,
+    DeviceAp,
     DeviceFault,
     DeviceSilence,
     DeviceHoldout,
@@ -669,13 +670,18 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
     if !matches!(
         case,
         MotionFixture::Device
+            | MotionFixture::DeviceAp
             | MotionFixture::DeviceFault
             | MotionFixture::DeviceSilence
             | MotionFixture::DeviceHoldout
     ) {
         recorder.push(Record::new(journal::LABEL, 0, &[1]).unwrap());
     }
+    if matches!(case, MotionFixture::DeviceAp) {
+        recorder.push(Record::new(journal::CONTROL,0,&[3,6,0x05040302,0x0706]).unwrap());
+    }
     struct MotionHooks<'a> {
+        ap_only: bool,
         clock: &'a std::sync::atomic::AtomicU64,
         runtime: &'a Runtime,
         recorder: &'a Recorder,
@@ -695,7 +701,7 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
             match e {
                 Evidence::MotionCase => self
                     .recorder
-                    .push(Record::new(journal::CONTROL, self.now_us(), &[4, 1, 16, 0]).unwrap()),
+                    .push(Record::new(journal::CONTROL, self.now_us(), &[4, if self.ap_only {2} else {1}, 16, u32::from(self.ap_only)]).unwrap()),
                 Evidence::Model(e) => self.recorder.push_model(e),
                 Evidence::Motion(e) => {
                     let c = csi_lab_core::motion_wire::Checkpoint::from(e);
@@ -724,6 +730,7 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
     let device = matches!(
         case,
         MotionFixture::Device
+            | MotionFixture::DeviceAp
             | MotionFixture::DeviceFault
             | MotionFixture::DeviceSilence
             | MotionFixture::DeviceHoldout
@@ -739,6 +746,7 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
         64,
         std::time::Duration::from_secs(1),
         MotionHooks {
+            ap_only: matches!(case, MotionFixture::DeviceAp),
             clock: &clock,
             runtime: &runtime,
             recorder: &recorder,
@@ -986,6 +994,7 @@ fn device_owner_motion_checkpoints_replay_exactly_and_tampering_is_rejected() {
     use csi_lab_core::journal;
     for case in [
         MotionFixture::Device,
+        MotionFixture::DeviceAp,
         MotionFixture::DeviceFault,
         MotionFixture::DeviceSilence,
         MotionFixture::DeviceHoldout,
@@ -1007,7 +1016,7 @@ fn device_owner_motion_checkpoints_replay_exactly_and_tampering_is_rejected() {
         );
         let summary: Value = serde_json::from_slice(&preview.stderr).unwrap();
         let expected = match case {
-            MotionFixture::Device => "idle",
+            MotionFixture::Device | MotionFixture::DeviceAp => "idle",
             _ => "unknown",
         };
         assert_eq!(summary["final"]["state"], expected);
@@ -1197,4 +1206,45 @@ fn sampling_taps_replay_without_detector_admission_and_missing_is_unknown() {
     let result = run(&["sampling", &path]);
     assert!(!result.status.success());
     assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn gain_audit_reports_exact_boundaries_and_rejects_a_truncated_archive_without_output() {
+    use csi_lab_core::{calibration::Config, journal::{self, Record}, recorder::Recorder};
+    let recorder = Recorder::new();
+    assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 8));
+    for (kind, words) in [
+        (journal::CONTROL, vec![3,6,0x05040302,0x0706]),
+        (journal::RAW, vec![7,0,100,0,33,0,0,4,0x05040302,0x03020706,0x07060504,0x04030201]),
+        (journal::GAIN, vec![1,7,0,0,0,1,33,0,0,4,0x04030201]),
+        (journal::GAIN, vec![1,7,1,0,0.03f32.to_bits(),1,33,0,0,4,0]),
+    ] {
+        recorder.push(Record::new(kind,1,&words).unwrap());
+    }
+    let mut wire=Vec::new();recorder.finish(2,&mut wire).unwrap();
+    let temp=Temp::new();let (path,result)=capture(&temp,&wire);
+    assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
+    let a=run(&["audit-gain",&path]);let b=run(&["audit-gain",&path]);
+    assert!(a.status.success(),"{}",String::from_utf8_lossy(&a.stderr));
+    assert_eq!(a.stdout,b.stdout);
+    let value:Value=serde_json::from_slice(&a.stdout).unwrap();
+    assert_eq!(value["selected"]["successful_nonzero_to_zero"],1);
+    assert_eq!(value["other"]["pairs"],0);
+    let mut bytes=fs::read(&path).unwrap();bytes.truncate(bytes.len()-30);fs::write(&path,bytes).unwrap();
+    let bad=run(&["audit-gain",&path]);assert!(!bad.status.success());assert!(bad.stdout.is_empty());
+}
+
+#[test]
+fn ap_source_declaration_rejects_a_foreign_raw_frame_before_any_replay_output() {
+    use csi_lab_core::{calibration::Config, journal::{self,Record}, recorder::Recorder};
+    let recorder=Recorder::new();assert!(recorder.prepare(Config::EMPTY_HOLDOUT,8));
+    for (kind,w) in [
+        (journal::CONTROL,vec![3,6,0x05040302,0x0706]),
+        (journal::CONTROL,vec![4,2,16,1]),
+        (journal::RAW,vec![7,0,100,0,33,0,0,4,0x05040302,0x03080706,0x07060504,0x04030201]),
+    ] {recorder.push(Record::new(kind,1,&w).unwrap());}
+    let mut wire=Vec::new();recorder.finish(2,&mut wire).unwrap();
+    let temp=Temp::new();let (_,result)=capture(&temp,&wire);
+    assert!(!result.status.success());assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("AP-only source admission"));
 }

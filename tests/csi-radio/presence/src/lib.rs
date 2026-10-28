@@ -12,6 +12,7 @@ mod lab;
 mod numerical;
 #[cfg(target_os = "espidf")]
 mod sampling;
+mod source_gate;
 mod trace;
 use std::ffi::c_void;
 use std::io::Write;
@@ -105,15 +106,20 @@ fn run() -> Result<()> {
                 | "PRESENCE_FAILURES"
                 | "PRESENCE_RECORD"
                 | "PRESENCE_MOTION"
+                | "PRESENCE_MOTION_AP"
         )
     {
         return Err("command");
     }
-    let motion_trial = args[0] == "PRESENCE_MOTION";
-    let recording = matches!(args[0], "PRESENCE_RECORD" | "PRESENCE_MOTION");
+    let ap_only = args[0] == "PRESENCE_MOTION_AP";
+    let motion_trial = matches!(args[0], "PRESENCE_MOTION" | "PRESENCE_MOTION_AP");
+    let recording = matches!(
+        args[0],
+        "PRESENCE_RECORD" | "PRESENCE_MOTION" | "PRESENCE_MOTION_AP"
+    );
     let numeric_failures = matches!(
         args[0],
-        "PRESENCE_FAILURES" | "PRESENCE_RECORD" | "PRESENCE_MOTION"
+        "PRESENCE_FAILURES" | "PRESENCE_RECORD" | "PRESENCE_MOTION" | "PRESENCE_MOTION_AP"
     );
     let diagnostic_pairs = matches!(args[0], "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES");
     let corrected = matches!(
@@ -123,6 +129,7 @@ fn run() -> Result<()> {
             | "PRESENCE_FAILURES"
             | "PRESENCE_RECORD"
             | "PRESENCE_MOTION"
+            | "PRESENCE_MOTION_AP"
     );
     let rf_trace = matches!(
         args[0],
@@ -132,6 +139,7 @@ fn run() -> Result<()> {
             | "PRESENCE_FAILURES"
             | "PRESENCE_RECORD"
             | "PRESENCE_MOTION"
+            | "PRESENCE_MOTION_AP"
     );
     let snapshots = args[0] != "PRESENCE" && !recording;
     let amplitude = match args[2] {
@@ -174,7 +182,9 @@ fn run() -> Result<()> {
         } else {
             ""
         },
-        if motion_trial {
+        if ap_only {
+            " record=csi_lab_v8 model_owner=control_v1 motion=temporal_motion_v1 source_admission=associated_ap_v1"
+        } else if motion_trial {
             " record=csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1"
         } else if recording {
             " record=csi_lab_v4 model_owner=control_v1"
@@ -233,6 +243,9 @@ fn run() -> Result<()> {
     trace::TRACE
         .enabled
         .store(rf_trace, std::sync::atomic::Ordering::Release);
+    if ap_only && !source_gate::GATE.configure(peer) {
+        return Err("source_gate_prepare");
+    }
     if recording && !lab::LAB.prepare(calibration::Config::EMPTY_HOLDOUT, 128) {
         return Err("lab_prepare");
     }
@@ -241,7 +254,9 @@ fn run() -> Result<()> {
     }
     let mut control = lab::Control::prepare(
         recording,
-        if motion_trial {
+        if ap_only {
+            lab::Case::TemporalMotionApV1
+        } else if motion_trial {
             lab::Case::TemporalMotionV1
         } else {
             lab::Case::Historical
@@ -267,6 +282,9 @@ fn run() -> Result<()> {
             0,
             std::ptr::null_mut(),
         ))?;
+        if ap_only && !source_gate::GATE.open() {
+            return Err("source_gate_open");
+        }
         sdk::checked(esp_wifi_sensing_fsm_ping_router_start(engine))?;
     }
     if recording {
@@ -281,6 +299,11 @@ fn run() -> Result<()> {
     let mut vendor_training_closed = false;
     let mut reports = 0;
     while started.elapsed() < Duration::from_secs(seconds) {
+        if source_gate::GATE.faulted() {
+            calibration::RUNTIME.fail(calibration::Rejection::TraceFault);
+            lab::LAB.invalidate();
+            return Err("source_admission");
+        }
         control.drain().map_err(|_| "model_owner_source")?;
         if recording {
             lab::LAB.drain(&mut lab::Output).map_err(|_| "lab_output")?;
@@ -412,6 +435,10 @@ fn run() -> Result<()> {
             }
         }
         if Instant::now() >= report_at {
+            if ap_only {
+                let [state, admitted, rejected, startup] = source_gate::GATE.snapshot();
+                println!("PRESENCE_SOURCE v=1 state={state} admitted={admitted} rejected={rejected} startup={startup}");
+            }
             if numeric_failures {
                 failures::FAILURES
                     .dump(&mut std::io::stdout().lock())

@@ -248,6 +248,7 @@ def main(project=HERE, extend_parser=None, prepare=None):
                 "src/diagnostics.rs",
                 "src/failures.rs",
                 "src/failure_queue.rs",
+                "src/source_gate.rs",
                 "replay.py",
                 "failures.py",
                 "calibration_pairs.py",

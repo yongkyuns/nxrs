@@ -123,6 +123,29 @@ class LabTests(unittest.TestCase):
                     self.assertEqual(len(console.writes), writes)
             self.assertEqual(console.writes[0], b"PRESENCE_MOTION 180 linear\n")
 
+    def test_ap_motion_case_withholds_credentials_for_legacy_ack_and_checks_counters(self):
+        legacy = ACK.replace(b"csi_lab_v4 model_owner=control_v1", b"csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1")
+        ap = legacy.replace(b"csi_lab_v7", b"csi_lab_v8") + b" source_admission=associated_ap_v1"
+        for actual in (legacy, ap):
+            client, console = self.client(actual)
+            with patch.object(RUN.IDF.RADIO, "write_console", side_effect=lambda c,d:c.write(d)):
+                kwargs=dict(trace=True,calibrated=True,numeric_failures=True,record_sink=lambda _:None,motion_case="temporal-motion-ap-v1")
+                if actual == legacy:
+                    with self.assertRaisesRegex(RuntimeError, "credentials withheld"):
+                        client.start(b"fixture-network",b"fixture-password",180,"linear",**kwargs)
+                    self.assertEqual(len(console.writes),1)
+                else:
+                    client.start(b"fixture-network",b"fixture-password",180,"linear",**kwargs)
+            self.assertEqual(console.writes[0],b"PRESENCE_MOTION_AP 180 linear\n")
+        console.data=bytearray(b"PRESENCE_SOURCE v=1 state=2 admitted=10 rejected=3 startup=1\nPRESENCE_SOURCE v=1 state=2 admitted=9 rejected=3 startup=1\n")
+        self.assertEqual(client.read(__import__('time').monotonic()+1)["admitted"],10)
+        with self.assertRaisesRegex(ValueError,"reversal"):
+            client.read(__import__('time').monotonic()+1)
+        client.source_counts = None
+        console.data=bytearray(b"PRESENCE_END seconds=180\n")
+        with self.assertRaisesRegex(ValueError,"missing admitted"):
+            client.read(__import__('time').monotonic()+1)
+
     def test_motion_case_without_recording_is_refused_before_console_access(self):
         for case in ("temporal-motion-v1", "undeclared"):
             client, console = self.client()

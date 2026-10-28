@@ -389,6 +389,23 @@ if __name__ == "__main__":
         "hardware_qualified": False,
         "cpu_cost_qualified": False,
     }
+    receipt["ap_source_trial"] = {
+        **receipt["temporal_motion_trial"],
+        "opt_in_command": "PRESENCE_MOTION_AP",
+        "acknowledgement": "csi_lab_v8 model_owner=control_v1 motion=temporal_motion_v1 source_admission=associated_ap_v1",
+        "case": "temporal-motion-ap-v1",
+        "case_declaration": [4, 2, 16, 1],
+        "source_admission": {
+            "immutable_associated_ap": True,
+            "closed_until_channel_ready": True,
+            "foreign_frames_rejected_before_gain_and_peer_dispatch": True,
+            "native_linkage_verified": linkage["source_admission_precedes_compensation"],
+            "counter_fault_is_terminal": True,
+            "legacy_case_bypasses_gate": True,
+            "all_native_numerical_failure_guards_preserved": True,
+            "hardware_qualified": False,
+        },
+    }
     receipt["calibration_runtime"] = {
         "acknowledgement": "post_training_v2",
         "static_bytes": runtime_bytes,

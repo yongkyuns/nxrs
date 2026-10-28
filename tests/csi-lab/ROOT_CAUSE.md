@@ -62,16 +62,27 @@ post-training comparison bank contains ten distinct vectors; the SDK collected
 sample counter (25) is separate from its ten-comparison cap.
 
 The [latest instrumented empty trial](../csi-radio/results/csi-training-zero-matrix-2026-10-28.json)
-stopped during training on an all-zero 10×13 native input: the unchanged SDK
-returned success with 13 nonfinite output values. The complete 45,121-record
-capture has no losses; all 6,289 recorded Pearson comparisons match on the host.
-All 7,559 native calls also reproduce their exact status/output bits in QEMU.
-The failed matrix is in the aggregate nonselected call scope, without RF-row
-identity. Its zero-energy behavior was already reproduced synthetically; this
-physical instance does not establish why those zero rows were formed. Trace
-that source boundary before claiming a calibration remedy. No independent empty
-control or occupied phase passed; the original camera and physical iPhone video
-were restored and verified.
+stopped during training: an all-zero 10×13 native input returned success with 13
+nonfinite values. The complete 45,121-record capture has no losses; all 7,559
+native calls reproduce status/output bits in QEMU and 6,289 Pearson comparisons
+match on the host.
+
+The [gain-boundary audit and AP-only candidate](../csi-radio/results/csi-gain-zero-source-admission-2026-10-28.json)
+narrow that failure further. Exact RAW/gain joins find 46 non-AP buffers becoming
+entirely zero during successful compensation, versus none of 6,315 AP buffers.
+Conditional replay of the exact SDK window routine and LLTF preprocessing matches
+all 1,270 recorded motion matrices. Its only zero window matches failing call
+1263 using non-AP sequences 605–614, each nonzero before gain and zero afterward.
+This reconstruction assumes those callbacks reached preprocessing in order; the
+original nonselected row-to-window identity was not recorded. The observed byte
+transitions themselves require no such assumption.
+
+The SDK's default wildcard peer remains present alongside the registered AP
+channel. A distinct AP-only case now filters actual sender identity in Rust
+before that dispatch path and shared gain processing. The legacy case remains
+available; historical failures are preserved. This is a candidate for the new
+training abort, not a qualified remedy for earlier profile drift, receive panic,
+source expiry or presence accuracy. No new physical trial has run yet.
 
 ## Current offline experiments
 
