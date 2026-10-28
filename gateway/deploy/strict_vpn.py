@@ -20,7 +20,7 @@ def replace_once(text, old, new):
     return text.replace(old, new, 1)
 
 
-def services(include_ingest=False):
+def services(include_ingest=False, camera_tls=False):
     """Reuse base hardening. Ingest failure leaves control available for diagnosis."""
     units = vpn.services()
     for name in ['nxrs-control', 'nxrs-media', 'nxrs-proxy']:
@@ -52,7 +52,7 @@ def services(include_ingest=False):
         '[Install]\nWantedBy=multi-user.target\n')
     if include_ingest:
         import ingest_service
-        units['nxrs-ingest.service'] = ingest_service.service()
+        units['nxrs-ingest.service'] = ingest_service.service(require_tls=camera_tls)
         units['nxrs-monitor.target'] += '\n[Unit]\nWants=nxrs-ingest.service\n'
     return units
 
@@ -64,19 +64,21 @@ def media_config(address, ports=vpn.PORTS, management_port=MANAGEMENT_PORT):
 
 
 def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
-             width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic', camera_detections=False):
+             width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic',
+             camera_detections=False, camera_tls=None):
     ingest = None
     if camera is not None:
         import ingest_service
-        ingest = ingest_service.configuration(camera, width, height, allow_insecure_camera_http, camera_detections)
-    elif allow_insecure_camera_http or camera_detections:
-        raise ValueError('camera endpoint required with HTTP acknowledgement')
+        ingest = ingest_service.configuration(camera, width, height, allow_insecure_camera_http, camera_detections,
+                                              camera_tls=camera_tls)
+    elif allow_insecure_camera_http or camera_detections or camera_tls is not None:
+        raise ValueError('camera endpoint required with transport or metadata options')
     if source_kind not in ['synthetic', 'physical'] or (source_kind == 'physical' and camera is None):
         raise ValueError('source classification requires an explicit camera')
     # Validate before creating keys/files. Base refuses an existing destination.
     vpn.generate(directory, host, gateway, peer, endpoint, peer_key)
     files = {
-        **services(include_ingest=ingest is not None),
+        **services(include_ingest=ingest is not None, camera_tls=camera_tls is not None),
         'mediamtx.json': json.dumps(media_config(gateway), indent=2) + '\n',
         'security.json': json.dumps({'revocations_file': STATE,
             'media_api': f'127.0.0.1:{MANAGEMENT_PORT}',
@@ -141,7 +143,10 @@ def main():
     render.add_argument('--camera', help='optional literal private IPv4:port; one existing /stream reader')
     render.add_argument('--width', type=int, default=640)
     render.add_argument('--height', type=int, default=480)
-    render.add_argument('--allow-insecure-camera-http', action='store_true')
+    transport = render.add_mutually_exclusive_group()
+    transport.add_argument('--allow-insecure-camera-http', action='store_true')
+    transport.add_argument('--camera-tls-enrollment', type=Path,
+                           help='approved site/camera/gateway/CA fingerprint/generation JSON; no keys')
     render.add_argument('--camera-detections', action='store_true', help='opt in to the versioned camera metadata stream')
     render.add_argument('--source-kind', choices=['synthetic', 'physical'], default='synthetic')
     seed = commands.add_parser('init-state', help='FIRST enrollment only; never reset deployed state')
@@ -149,10 +154,19 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == 'render':
+            camera_tls = None
+            if args.camera_tls_enrollment is not None:
+                with args.camera_tls_enrollment.open() as enrollment:
+                    encoded = enrollment.read(8193)
+                if len(encoded) > 8192:
+                    raise ValueError('TLS enrollment exceeds bound')
+                camera_tls = json.loads(encoded)
+                if camera_tls is None:
+                    raise ValueError('TLS enrollment object required')
             generate(args.directory, args.host, args.gateway, args.peer, args.endpoint, args.peer_public_key,
                      camera=args.camera, width=args.width, height=args.height,
                      allow_insecure_camera_http=args.allow_insecure_camera_http, source_kind=args.source_kind,
-                     camera_detections=args.camera_detections)
+                     camera_detections=args.camera_detections, camera_tls=camera_tls)
         else:
             initialize_state(args.directory)
     except (ValueError, OSError, subprocess.SubprocessError):

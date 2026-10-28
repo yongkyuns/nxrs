@@ -14,7 +14,7 @@ python3 gateway/deploy/strict_vpn.py render /private/new-nxrs-bundle \
   --host YOUR_GATEWAY_TLS_NAME --endpoint YOUR_PUBLIC_WIREGUARD_HOST \
   --peer-public-key YOUR_PHONE_PUBLIC_KEY \
   --camera 192.168.1.50:8080 --width 640 --height 480 \
-  --source-kind physical --allow-insecure-camera-http
+  --source-kind physical --camera-tls-enrollment /private/camera-enrollment.json
 ```
 
 Replace the example source with the address/port and format of the already
@@ -22,7 +22,35 @@ running, qualified camera. The example is not discovery or a claim that this
 hardware address exists. The source supports one reader: close direct browser
 viewing before starting ingest. MediaMTX, not the device, fans out to viewers.
 
-HTTP acknowledgement is mandatory. This link is unauthenticated and unencrypted;
+For a camera with compatible mutual TLS, the enrollment JSON contains only the
+approved identity and trust metadata:
+
+```json
+{
+  "site_id": "site",
+  "camera_id": "cam_reference",
+  "gateway_id": "gateway",
+  "issuer_sha256": "REPLACE_WITH_APPROVED_CA_DER_SHA256",
+  "enrollment_generation": 1
+}
+```
+
+`cam_reference` is the current generator's single catalog camera. The renderer
+does not issue credentials or contact the camera. Follow the
+[ingest credential profile](../ingest/README.md#authenticated-camera-transport)
+for certificate roles, CRL, trusted UTC and rotation requirements. Install the
+approved `camera-ca.pem`, `camera-peer.pem`, `camera-client.pem`,
+`camera-client.key` and `camera-crl.pem` under `/etc/nxrs-monitor/`, root-owned
+with mode 0600. Never install the CA signing key. The unit stages these loaded
+credentials into its private runtime directory and validates the complete Rust
+configuration before connecting or starting FFmpeg. Missing, expired, mismatched
+or revoked credentials refuse startup. Its `--require-camera-tls` option also
+rejects an HTTP replacement configuration. Refresh credentials with an operator
+controlled service restart; automatic enrollment/rotation is not implemented.
+
+For development against an HTTP-only camera, replace `--camera-tls-enrollment`
+and its argument with `--allow-insecure-camera-http`. These choices are mutually
+exclusive and a camera requires one. HTTP is unauthenticated and unencrypted;
 use only an isolated trusted LAN. Phone-to-gateway WireGuard does not protect it.
 `physical` is the operator's source classification, not proof of fresh video or
 physical-camera qualification. The default classification remains `synthetic`.
@@ -31,6 +59,9 @@ The new private files are `ingest.json` and `nxrs-ingest.service`; the generated
 monitoring target adds a Wants dependency. No service is installed or started by
 the generator. Existing destinations are refused, and no persistent denials are
 initialized/reset by this optional feature.
+
+Device-side TLS, qualified entropy/time, credential custody and physical resource
+measurements remain open in #33/#35; a rendered service is not system qualification.
 
 ## Install with the strict profile
 

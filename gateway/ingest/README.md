@@ -104,10 +104,10 @@ during reconnect backoff. Rotation requires a controlled restart with the new
 approved files and generation; externally protected generation state is still
 required to resist configuration rollback.
 
-This increment supplies gateway transport. The service generator above still
-stages its explicit HTTP development profile; device TLS, provisioning/custody
-and physical resource qualification remain in #33/#35. Publisher-secret isolation
-remains in #37. It does not make the full system production-qualified.
+The [service generator](../deploy/ingest-services.md) can stage these gateway
+credentials and enforce TLS at startup. Device TLS, provisioning/custody and
+physical resource qualification remain in #33/#35. Publisher-secret isolation
+remains in #37. This does not make the full system production-qualified.
 
 ## Bounds, freshness and lifecycle
 
