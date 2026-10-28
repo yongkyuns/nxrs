@@ -150,6 +150,63 @@ The sole upload is bounded public JSON: stock baseline, refresh, runtime build,
 executed native qualification/reader/isolation receipts and candidate assessment.
 No binaries, native logs, source archives, generated keys or footage are uploaded.
 
+### System Python distribution metadata
+
+The minimized audit also runs `python_components.py` with `/usr/bin/python3 -I`
+after the completed candidate and authenticated-payload assessments. It joins
+the interpreter's stable ELF/hash/size identity to that candidate's actual Python
+root and retains one bounded `system-python-components.json`, even when the
+unchanged advisory gate is red. The candidate receipt and exact clean source
+inputs are rechecked before publication.
+
+This collector observes distribution names/versions and stable metadata/RECORD
+file hashes in the isolated interpreter's admitted system startup directories.
+Schema 3 retains each distinct metadata path as a distribution instance with its
+normalized name, version and observed hashes. Multiple installed copies, including
+different versions of one normalized name, remain separate sorted entries;
+`duplicate_names` explicitly identifies their ambiguity. Import precedence remains
+unqualified. Repeated paths, duplicate identity headers, malformed identities,
+links/special files, unprotected paths, mutation and resource-budget violations
+refuse collection. The unchanged limit of 512 instances applies across all names,
+so repeated names cannot bypass the count budget.
+
+Parsing uses the [PyPA metadata format's `compat32` policy](https://packaging.python.org/en/latest/specifications/core-metadata/).
+Some legacy packages have an unfolded continuation after the optional Keywords
+header. Observe only this specific separator defect when Name and Version are
+already unique, valid headers and the unparsed tail contains no further identity
+header. Each instance explicitly retains `metadata_defects`, including the
+separator defect when present. Other parser defects and ambiguous identities
+still refuse. Raw metadata hashes remain unchanged; complete collection describes
+the bounded observations, with package contents, format compliance, import
+resolution and every qualification gate still unqualified.
+Only fixed system paths, identities and hashes are public; package descriptions
+and arbitrary metadata text are not exported. Collection does not import the
+observed distributions, install software, change trust or alter an advisory
+disposition. System Python startup hooks remain outside its coverage.
+
+A header/identity refusal may emit one `PYTHON_METADATA_REFUSAL` JSON diagnostic,
+bounded to 2 KiB. Its fixed schema contains only the protected public system path,
+unchanged file hash/size, a fixed reason, identity-header counts and fixed defect
+categories. Header values, descriptions and exception messages are withheld.
+The diagnostic parser does not admit metadata: the original strict refusal still
+terminates collection and no success receipt is written. Private, unprotected or
+changed files produce no diagnostic.
+
+The result has `collection_status=complete` and `qualified=false`. It is not an
+authenticated inventory of package contents or proof of module absence: local
+files without distribution metadata, import hooks, zip imports, application
+environments and a complete deployed Python graph need separate evidence.
+`RECORD` is observed metadata, not an independently authenticated wheel or a
+verification of every installed file. All component-absence, full-environment,
+native-advisory, physical, FIPS and deployment flags remain false. A missing
+distribution entry must never automatically waive a package-level finding.
+
+Read-only collection tests:
+
+```sh
+python3 -m unittest discover -s tests/host -p test_python_components.py -v
+```
+
 
 ## Authenticated mapped distribution payloads
 
@@ -190,6 +247,15 @@ directory. The eighth bounded public JSON receipt joins the exact candidate/sour
 hashes, signed releases, indexes, packages and matched images. Each live release
 must reject an actual altered signature; each actual package must reject a
 changed byte through the same digest admission predicate.
+
+Each read-only archive GET permits at most three attempts for a remote disconnect,
+connection reset/abort or timeout. Attempts restart the same URL and hash from an
+empty owned file; discarded bytes still consume the shared byte budget. The
+existing deadline covers the short retry delays. HTTP status/redirect refusals,
+TLS certificate failures, digest/size mismatches, signature/parser failures,
+resource limits and changed file identity remain terminal. An existing or
+replaced download path is never overwritten. This transport recovery does not
+clear an advisory or establish a successful hosted payload assessment.
 
 `qualified=true` in this receipt means only `distribution_payloads_authenticated`
 for the inventoried mapped Ubuntu images. The overall `package_payload_authenticated`
