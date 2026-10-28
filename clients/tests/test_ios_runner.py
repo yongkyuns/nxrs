@@ -15,6 +15,41 @@ import run_ios_reference as runner
 
 
 class IosRunnerTests(unittest.TestCase):
+    def test_wait_failure_projects_exact_fixture_stage_without_private_assertion_context(self):
+        for label,stage in runner.WAIT_LABELS.items():
+            with self.subTest(stage=stage):
+                raw=("/private/secret/CameraSessionTests.swift:15:8: error: "
+                     "-[NxrsMonitorSessionTests.CameraSessionTests testIndependentNativeCamerasAndCaptureRetirement] : "
+                     "XCTAssertTrue failed - "+label+"\n").encode()
+                result=runner.diagnostics(raw,'failed')
+                self.assertEqual(result['wait_failures'],[stage])
+                encoded=json.dumps(result)
+                self.assertNotIn('private/secret',encoded)
+                self.assertNotIn(label,encoded)
+
+    def test_wait_failure_requires_known_source_assertion_and_exact_complete_label(self):
+        label='Other camera recording'
+        rows=[
+            'XCTAssertTrue failed - '+label,
+            '/private/Other.swift:15: error: XCTAssertTrue failed - '+label,
+            '/private/CameraSessionTests.swift:0: error: XCTAssertTrue failed - '+label,
+            '/private/CameraSessionTests.swift:10001: error: XCTAssertTrue failed - '+label,
+            '/private/CameraSessionTests.swift:15: error: XCTAssertFalse failed - '+label,
+            '/private/CameraSessionTests.swift:15: error: XCTAssertTrue failed - PRIVATE-TOKEN',
+            '/private/CameraSessionTests.swift:15: error: XCTAssertTrue failed - '+label+' PRIVATE-TOKEN',
+            '/private/CameraSessionTests.swift:15: error: XCTAssertTrue failed - PRIVATE-TOKEN '+label,
+        ]
+        result=runner.diagnostics(('\n'.join(rows)+'\n').encode(),'failed')
+        self.assertEqual(result['wait_failures'],[])
+        self.assertNotIn('PRIVATE-TOKEN',json.dumps(result))
+
+    def test_wait_failure_stages_are_unique_and_bounded(self):
+        rows=['/private/CameraSessionTests.swift:15: error: XCTAssertTrue failed - '+label+'\n'
+              for label in runner.WAIT_LABELS]
+        result=runner.diagnostics(''.join(row*100 for row in rows).encode(),'refused')
+        self.assertEqual(result['wait_failures'],list(runner.WAIT_LABELS.values())[:8])
+        self.assertLessEqual(len(json.dumps(result)),8192)
+
     def test_https_admission_projects_only_fixed_domains_and_codes(self):
         raw=(b'/private/secret/CameraSessionTests.swift:99: error: Fixture HTTPS admission failed: NSURLErrorDomain -1202 PRIVATE RESPONSE\n'
              b'Fixture HTTPS admission failed: NxrsMonitorCore.MonitorError 9 PRIVATE TOKEN\n')
