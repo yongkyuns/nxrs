@@ -1,4 +1,4 @@
-# nxrs camera MJPEG ingest (trusted-LAN development profile)
+# nxrs camera MJPEG ingest
 
 This separate Rust process consumes the **existing** `service/stream` one-viewer
 `GET /stream` feed, validates its bounded frame envelope, and sends JPEGs to a
@@ -58,6 +58,56 @@ phone viewers subscribe to MediaMTX, not independent camera connections.
 Keep source classification honest: synthetic fixtures stay synthetic; physical
 is an operator configuration, not proof of freshness. Availability remains unknown
 until measured source health is integrated with the API.
+
+## Authenticated camera transport
+
+For a compatible camera TLS server, set `allow_insecure_camera_http: false` and
+add `camera_tls` to the existing config:
+
+```json
+{
+  "site_id": "site",
+  "camera_id": "cam",
+  "gateway_id": "gateway",
+  "issuer_sha256": "REPLACE_WITH_APPROVED_CA_DER_SHA256",
+  "enrollment_generation": 1,
+  "ca_certificate_file": "/etc/nxrs-monitor/camera-ca.pem",
+  "camera_certificate_file": "/etc/nxrs-monitor/camera-peer.pem",
+  "client_certificate_file": "/etc/nxrs-monitor/camera-client.pem",
+  "client_key_file": "/etc/nxrs-monitor/camera-client.key",
+  "crl_file": "/etc/nxrs-monitor/camera-crl.pem"
+}
+```
+
+Use approved P-256/SHA-256 credentials from a CA with critical CA/pathlen=0 and
+certificate/CRL-signing usages. Leaves require critical CA=false and only digital
+signature usage. The camera has serverAuth, its IPv4 SAN and exactly
+`urn:nxrs:camera:SITE:CAMERA`; the client has clientAuth and exactly
+`urn:nxrs:ingest:SITE:GATEWAY:CAMERA`. The client key is unencrypted PKCS#8 under
+the private-file boundary. Provision a current signed CRL with the approved
+generation, at most 512 revoked entries and at most a one-day validity window.
+Keep every input owner-private in trusted directories; never install the CA key
+on the gateway. The gateway requires trustworthy UTC before credential loading.
+
+```sh
+nxrs-camera-ingest /absolute/private/ingest.json --require-camera-tls --check-config
+nxrs-camera-ingest /absolute/private/ingest.json --require-camera-tls
+```
+
+The first command checks configuration and credentials without connecting or
+starting an encoder. Rustls verifies chains, IP, validity, revocation and handshake
+signatures; the gateway also requires the exact approved camera leaf and scoped
+identities. TLS 1.2/1.3 have no HTTP, system-trust or anonymous-client fallback.
+Connect/handshake/initial HTTP share one five-second deadline. Credential/CRL
+expiry and observed clock rollback stop the source and reap its encoder, including
+during reconnect backoff. Rotation requires a controlled restart with the new
+approved files and generation; externally protected generation state is still
+required to resist configuration rollback.
+
+This increment supplies gateway transport. The service generator above still
+stages its explicit HTTP development profile; device TLS, provisioning/custody
+and physical resource qualification remain in #33/#35. Publisher-secret isolation
+remains in #37. It does not make the full system production-qualified.
 
 ## Bounds, freshness and lifecycle
 
@@ -123,9 +173,9 @@ commit/run evidence in PR #21, not the existence of test assertions.
 
 ## Trust and remaining work
 
-Camera HTTP is unauthenticated/unencrypted and is allowed only on an explicitly
+The optional camera HTTP profile is unauthenticated/unencrypted and allowed only on an explicitly
 trusted isolated LAN. The phone VPN does not protect this distinct link. Secure
-device ingestion remains a production requirement. Config/token files reject
+device ingestion requires qualified device-side TLS. Config/token files reject
 public modes, final symlinks/hardlinks and oversized input; parent directories
 must remain trusted. No shell is invoked and child logs never expose secrets.
 FFmpeg still has the loopback publisher credential in argv, visible to trusted

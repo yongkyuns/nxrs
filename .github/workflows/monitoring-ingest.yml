@@ -34,9 +34,10 @@ jobs:
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
           python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
-      - name: Install synthetic-media reference tools
+      - name: TLS process controls and synthetic-media reference tools
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg
+          python3 gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest
           python3 -m venv /tmp/nxrs-ingest-test
           /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
           ffmpeg -version | head -n 3

@@ -10,6 +10,8 @@ pub struct Config {
     pub camera: SocketAddrV4,
     /// Required acknowledgement: WireGuard on the PHONE does not encrypt this link.
     pub allow_insecure_camera_http: bool,
+    #[serde(default)]
+    pub camera_tls: Option<CameraTls>,
     pub rtsp: SocketAddrV4,
     pub stream_path: String,
     pub publisher_user: String,
@@ -24,6 +26,30 @@ pub struct Config {
 pub struct DetectionConfig {
     pub control: SocketAddrV4,
     pub camera_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CameraTls {
+    pub site_id: String,
+    pub camera_id: String,
+    pub gateway_id: String,
+    pub issuer_sha256: String,
+    pub enrollment_generation: u64,
+    pub ca_certificate_file: PathBuf,
+    pub camera_certificate_file: PathBuf,
+    pub client_certificate_file: PathBuf,
+    pub client_key_file: PathBuf,
+    pub crl_file: PathBuf,
+}
+impl CameraTls {
+    fn validate(&self) -> bool {
+        identifier(&self.site_id) && identifier(&self.camera_id) && identifier(&self.gateway_id)
+            && (1..=1_000_000_000).contains(&self.enrollment_generation)
+            && self.issuer_sha256.len() == 64
+            && self.issuer_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && [&self.ca_certificate_file, &self.camera_certificate_file, &self.client_certificate_file,
+                &self.client_key_file, &self.crl_file].iter().all(|p| absolute(p))
+    }
 }
 fn identifier(s: &str) -> bool {
     (1..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
@@ -42,7 +68,10 @@ impl Config {
         }) {
             return Err(Error::Configuration);
         }
-        if !self.allow_insecure_camera_http
+        if self.allow_insecure_camera_http == self.camera_tls.is_some()
+            || self.camera_tls.as_ref().is_some_and(|c| !c.validate())
+            || self.detections.as_ref().zip(self.camera_tls.as_ref())
+                .is_some_and(|(metadata, tls)| metadata.camera_id != tls.camera_id)
             || !(self.camera.ip().is_private() || self.camera.ip().is_loopback())
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0
             || self.camera == self.rtsp || !identifier(&self.stream_path) || !identifier(&self.publisher_user)
@@ -54,12 +83,12 @@ impl Config {
         Ok(())
     }
     pub fn load(path: &Path) -> Result<Self> {
-        let config: Self = serde_json::from_slice(&private_read(path)?).map_err(|_| Error::Configuration)?;
+        let config: Self = serde_json::from_slice(&private_read(path, 8192)?).map_err(|_| Error::Configuration)?;
         config.validate()?;
         Ok(config)
     }
     pub fn token(&self) -> Result<String> {
-        let bytes = private_read(&self.publisher_token_file)?;
+        let bytes = private_read(&self.publisher_token_file, 8192)?;
         let value = std::str::from_utf8(&bytes).map_err(|_| Error::Configuration)?.trim_end_matches('\n');
         if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
             return Err(Error::Configuration);
@@ -69,21 +98,24 @@ impl Config {
 }
 /// Trusted-parent-directory Unix profile. No symlink/hardlink, public file, or unbounded config.
 #[cfg(unix)]
-fn private_read(path: &Path) -> Result<Vec<u8>> {
+pub(crate) fn private_read(path: &Path, limit: u64) -> Result<Vec<u8>> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     if !absolute(path) { return Err(Error::Configuration); }
-    let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)?;
+    let bound = limit.checked_add(1).ok_or(Error::Configuration)?;
+    let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 || metadata.len() > 8192 {
+    if !metadata.is_file() || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 || metadata.len() > limit {
         return Err(Error::Configuration);
     }
     let mut bytes = Vec::new();
-    file.take(8193).read_to_end(&mut bytes)?;
-    if bytes.len() > 8192 { return Err(Error::Configuration); }
+    (&file).take(bound).read_to_end(&mut bytes)?;
+    let after = file.metadata()?;
+    if !after.is_file() || after.mode() & 0o077 != 0 || after.nlink() != 1 || after.len() > limit
+        || bytes.len() as u64 > limit { return Err(Error::Configuration); }
     Ok(bytes)
 }
 #[cfg(not(unix))]
-fn private_read(_: &Path) -> Result<Vec<u8>> { Err(Error::Configuration) }
+pub(crate) fn private_read(_: &Path, _: u64) -> Result<Vec<u8>> { Err(Error::Configuration) }
 
 #[cfg(test)]
 mod tests {
