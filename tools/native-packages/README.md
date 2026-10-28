@@ -591,3 +591,33 @@ Primary references: [the pinned release and changelog](https://github.com/libexp
 [the maintainer's signing-key publication](https://github.com/libexpat/libexpat/issues/397#issuecomment-2496098377),
 [upstream unresolved reports](https://github.com/libexpat/libexpat/issues/1160),
 and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-2025-66382).
+
+## System Python startup payload observations
+
+`python_payloads.py` supplements the separate distribution-metadata receipt with
+the actual files below the isolated system interpreter's admitted startup
+directories. Run it with `/usr/bin/python3 -I` on the guarded disposable hosted
+image, after `python_components.py`, using the same candidate receipt. It reads
+regular files without importing them and publishes paths, sizes, modes and
+SHA-256 values. It records internal symlinks only when their resolved targets
+are also inventoried; escaping, dangling, changing or special-file entries
+refuse collection. Nested startup roots are covered once.
+
+The collector requires protected root ownership, repeats the filesystem scan,
+joins every observed distribution metadata/RECORD hash to the payload inventory,
+and rechecks the interpreter, source and both parent receipts. Limits are
+65,536 entries, 64 MiB per regular file, 1 GiB of observed payload bytes, depth
+32 and a shared 120-second scan deadline. The JSON receipt is at most 16 MiB;
+no payload contents, exception text or private build/runtime paths are exported.
+
+This is a filesystem observation of those startup directories. Authenticating
+all package contents, reviewing dynamic/frozen/extension importers and proving
+component absence remain separate requirements. Every qualification, absence,
+import-closure, advisory-clearance and release flag stays false. The minimized
+native workflow preserves the original advisory exit status and retains both
+metadata and payload receipts; collecting more evidence cannot admit a known
+finding. A passing local fixture suite does not establish hosted collection.
+
+```sh
+python3 -m unittest discover -s tests/host -p test_python_payloads.py -v
+```
