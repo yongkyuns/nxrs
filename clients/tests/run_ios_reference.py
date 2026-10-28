@@ -21,13 +21,31 @@ CASES=frozenset(('testCatalogRemovalSelectsRemainingCameraAndClosesObsoleteFulls
     'testManualPlaybackPreferenceStartsOnlyExplicitlyResumedCameras',
     'testIndependentNativeCamerasAndCaptureRetirement'))
 URL_ADMISSION_CODES=frozenset((-999,*range(-1022,-999),*range(-1103,-1099),*range(-1206,-1199),-2000))
+WAIT_LABELS={
+    'Manual enrollment completes':'manual-enrollment',
+    'Explicit Watch starts the chosen camera':'manual-watch',
+    'Manual playback retires cleanly':'manual-retirement',
+    'Invitation verification completes':'invitation',
+    'Two real camera decoders advance concurrently':'two-cameras',
+    'Pausing one camera leaves its neighbor advancing':'pause-neighbor',
+    'Resume selected camera':'resume',
+    'Snapshot saved independently':'snapshot',
+    'Other camera recording':'recording',
+    'Clip finalization joined':'clip-finalization',
+    'Third camera replaces the least-priority session':'third-camera',
+    'Background joins all retiring resources':'background-retirement',
+    'Foreground restores bounded viewing':'foreground',
+    'Reinserted camera advances before removal':'reinserted-camera',
+    'Remaining cameras recover after removed camera retirement (1/2)':'remaining-after-removal-1',
+    'Remaining cameras recover after removed camera retirement (2/2)':'remaining-after-removal-2',
+}
 
 
 def diagnostics(raw,execution):
     """Project fixed test identities/coordinates and allowlisted NSError pairs."""
     if execution not in ('failed','refused'):raise ValueError('fixed execution category')
     if not isinstance(raw,bytes) or len(raw)>1024*1024:raise ValueError('bounded private test output')
-    tests=[];locations=[];retirement=[];admission=[]
+    tests=[];locations=[];retirement=[];admission=[];waits=[]
     for line in raw.decode(errors='replace').splitlines():
         case=re.fullmatch(r"Test Case '-\[(?:[A-Za-z0-9_]+\.)?CameraSessionTests (test[A-Za-z0-9_]+)\]' (started|passed|failed)(?:[ .(].*)?",line)
         if case and case[1] in CASES:
@@ -37,6 +55,12 @@ def diagnostics(raw,execution):
         if location and 1<=int(location[1])<=10000:
             row=dict(source='clients/ios/NxrsMonitorSessionTests/CameraSessionTests.swift',line=int(location[1]))
             if row not in locations and len(locations)<8:locations.append(row)
+            # XCTest reports every predicate timeout at the shared helper's
+            # source line. Project only exact fixture assertion labels; never
+            # print an arbitrary assertion, surrounding text or private path.
+            wait=re.search(r'XCTAssertTrue failed - ([^\r\n]+)$',line)
+            stage=WAIT_LABELS.get(wait[1]) if wait else None
+            if stage and stage not in waits and len(waits)<8:waits.append(stage)
         # The owned XCTest gate prints this pair. Keep only fixed domains and
         # admitted integer codes; no private message, URL, response or SDK text.
         failure=re.search(r'Fixture HTTPS admission failed: (NSURLErrorDomain|NxrsMonitorCore\.MonitorError) (-?[0-9]{1,5})(?![0-9])',line)
@@ -48,7 +72,8 @@ def diagnostics(raw,execution):
             if allowed and row not in admission and len(admission)<2:admission.append(row)
         if re.fullmatch(r'CAMERA DIAGNOSTIC: IOS RETIREMENT STATE: sessions=[0-9]{1,2} a=[01],[01],[01],[01],[01],[0-9]{1,20} b=[01],[01],[01],[01],[01],[0-9]{1,20}',line):
             if line not in retirement and len(retirement)<2:retirement.append(line)
-    return dict(execution=execution,tests=tests,locations=locations,retirement=retirement,https_admission=admission)
+    return dict(execution=execution,tests=tests,locations=locations,retirement=retirement,
+                https_admission=admission,wait_failures=waits)
 
 
 def run_tests(command,root,seconds=180):
