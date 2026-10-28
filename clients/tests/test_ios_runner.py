@@ -15,6 +15,34 @@ import run_ios_reference as runner
 
 
 class IosRunnerTests(unittest.TestCase):
+    def test_https_admission_projects_only_fixed_domains_and_codes(self):
+        raw=(b'/private/secret/CameraSessionTests.swift:99: error: Fixture HTTPS admission failed: NSURLErrorDomain -1202 PRIVATE RESPONSE\n'
+             b'Fixture HTTPS admission failed: NxrsMonitorCore.MonitorError 9 PRIVATE TOKEN\n')
+        result=runner.diagnostics(raw,'failed')
+        self.assertEqual(result['https_admission'],[dict(domain='NSURLErrorDomain',code=-1202),
+            dict(domain='NxrsMonitorCore.MonitorError',code=9)])
+        encoded=json.dumps(result)
+        for secret in ('private/secret','PRIVATE RESPONSE','PRIVATE TOKEN'):
+            self.assertNotIn(secret,encoded)
+
+    def test_https_admission_ignores_unknown_domains_codes_and_long_numbers(self):
+        raw=(b'Fixture HTTPS admission failed: private-domain 9 PRIVATE TOKEN\n'
+             b'Fixture HTTPS admission failed: NSURLErrorDomain -99999 PRIVATE TOKEN\n'
+             b'Fixture HTTPS admission failed: NSURLErrorDomain -120200000 PRIVATE TOKEN\n'
+             b'Fixture HTTPS admission failed: NxrsMonitorCore.MonitorError 32 PRIVATE TOKEN\n')
+        result=runner.diagnostics(raw,'failed')
+        self.assertEqual(result['https_admission'],[])
+        self.assertNotIn('PRIVATE TOKEN',json.dumps(result))
+
+    def test_https_admission_retains_at_most_two_unique_fixed_pairs(self):
+        rows=[b'Fixture HTTPS admission failed: NSURLErrorDomain -1202\n',
+              b'Fixture HTTPS admission failed: NxrsMonitorCore.MonitorError 9\n',
+              b'Fixture HTTPS admission failed: NSURLErrorDomain -1001\n']
+        result=runner.diagnostics(b''.join(row*100 for row in rows),'refused')
+        self.assertEqual(result['https_admission'],[dict(domain='NSURLErrorDomain',code=-1202),
+            dict(domain='NxrsMonitorCore.MonitorError',code=9)])
+        self.assertLessEqual(len(json.dumps(result)),8192)
+
     def test_diagnostics_project_known_cases_and_source_coordinates_without_private_text(self):
         raw=(b"Test Case '-[NxrsMonitorSessionTests.CameraSessionTests testManualPlaybackPreferenceStartsOnlyExplicitlyResumedCameras]' started.\n"
              b"/private/secret/CameraSessionTests.swift:76: error: credential private-token and response body\n"
