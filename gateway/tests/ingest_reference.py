@@ -40,7 +40,6 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         require_hosted()  # Before creating files or modifying any runtime units.
     if sdk_camera:
         require(secure and not managed, 'SDK endpoint requires the unprivileged authenticated fixture')
-        require(not detections, 'SDK source fixture does not yet supply annotated access units')
     if recording:
         require(secure and not managed, 'encrypted recording requires the authenticated unprivileged fixture')
     ffmpeg=Path(ffmpeg or shutil.which('ffmpeg')).resolve()
@@ -120,7 +119,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         try:
             if sdk_camera:
                 from device_tls_camera import SdkCamera
-                source = await SdkCamera.start(camera_source, root, root/'control.json', camera_id=camera_id, motion=bool(recording))
+                source = await SdkCamera.start(camera_source, root, root/'control.json', camera_id=camera_id, motion=bool(recording),
+                    case='detection-metadata' if detections else 'video')
             else:
                 source = await RustCamera.start(camera_source, root, detections=detections, motion=bool(recording))
             private_write(root/'ingest.json', json.dumps({
@@ -188,6 +188,14 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     await until(advancing, 'five advancing decoded H264 frames per reader')
                     return reader
                 a, b = await connect(), await connect()
+                confirmed_detection=[];unavailable_detection=[]
+                async def detection_presence(presence,previous=None):
+                    from detection_observer import observe
+                    value=await observe(http,base+f'/v1/cameras/{camera_id}/detections',tokens['viewer'],camera_id,
+                        presence,different_from=previous)
+                    (confirmed_detection if presence=='person' else unavailable_detection).append(value)
+                    return value
+                if sdk_camera and detections:await detection_presence('person')
                 counters = await source.command('status')
                 validate_viewer_sharing(source_before_viewers, counters)
                 child_before = children(adapter); require(len(child_before) == 2, 'one encoder and one publisher owned')
@@ -226,6 +234,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     await until(policy_recovered,'signed SDK trust update retires old publication and reconnects')
                     await a.close();await b.close()
                     a,b=await connect(),await connect()
+                    if detections:await detection_presence('person',confirmed_detection[-1]['session'])
                     generation=status['control_generation']
                     status=await source.apply_crl(source.initial_crl)
                     require(status['control_result']=='refused' and status['control_generation']==generation,'live SDK rollback refused')
@@ -244,6 +253,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 await asyncio.sleep(1.5); counts = (a.count, b.count); await asyncio.sleep(1)
                 require((a.count, b.count) == counts, 'stalled source must not manufacture live frames')
                 print('PASS: actual server source stall removes encoder/publication and stops video', flush=True)
+                if sdk_camera and detections:await detection_presence('unavailable')
                 await source.command('resume')
                 await until(publishing, 'publication recovers after source reconnect')
                 c = await connect()
@@ -257,6 +267,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                         'new capture sequence epoch restored with one admitted source')
                 require(len(children(adapter)) == 2, 'recovery owns exactly one encoder and publisher')
                 print('PASS: new source sequence epoch restores decoded video without overlapping source admissions', flush=True)
+                if sdk_camera and detections:await detection_presence('person',confirmed_detection[-1]['session'])
                 child_before = children(adapter)
                 adapter.terminate(); await asyncio.to_thread(adapter.wait, timeout=12)
                 require(adapter.returncode == 0, 'graceful adapter termination')
@@ -276,6 +287,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     await until(publication_gone,'revoked SDK ingest peer loses publication')
                     await asyncio.sleep(1.5);count=d.count;await asyncio.sleep(1)
                     require(d.count==count,'revoked SDK peer cannot continue decoded video')
+                    if detections:await detection_presence('unavailable')
                     baseline=await source.command('status');frozen=baseline['frames'];connections=baseline['connections']
                     async def denied_again():
                         current=await source.command('status')
@@ -304,6 +316,11 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                         protected_device_key_storage_qualified=False, trusted_time_acquisition_qualified=False,
                         protected_generation_qualified=False, physical_qualified=False,
                         fips_validated=False, deployment_permitted=False)
+                    if detections:
+                        from detection_observer import evidence,validate
+                        metadata=evidence(confirmed_detection,unavailable_detection);validate(metadata)
+                        media_receipt['detection_api']=metadata
+                        print('PASS: actual SDK TLS detection reaches authenticated API; trust/stall change source namespaces; stall/revocation expire detection',flush=True)
                     if recording:
                         require(receipt is not None, 'authenticated encoded recording receipt required')
                         receipt.update(sdk_media=media_receipt, sdk_endpoint_used=True, camera_tls_front_end_test_only=False)

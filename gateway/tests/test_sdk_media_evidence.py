@@ -92,6 +92,15 @@ class SdkMediaEvidenceTests(unittest.TestCase):
             live_controls=dict(malformed_forged_rollback_refusals=3,entropy_refreshes=1,
                 signed_update_reconnect_executed=True,signed_peer_revocation_stops_media=True,revoked_peer_media_frames=0,revocation_viewer_frames=5))
         validate_media(valid)
+        from detection_observer import evidence
+        confirmed=[dict(presence='person',publications=2,session=c*32,response_closed=True) for c in 'abc']
+        unavailable=[dict(presence='unavailable',response_closed=True) for _ in range(2)]
+        valid['detection_api']=evidence(confirmed,unavailable);validate_media(valid)
+        for change in [None,{},dict(valid['detection_api'],qualified=False),
+                       dict(valid['detection_api'],peer_revocation_expired=False)]:
+            bad=copy.deepcopy(valid);bad['detection_api']=change
+            with self.assertRaises(AssertionError):validate_media(bad)
+        del valid['detection_api']
         changes=[('encoder_publisher_children_reaped',False),('initial_viewer_frames',[5,0]),
                  ('source_peak',2),('stopped_source_active',1),('recovered_viewer_frames',True),
                  ('source_connections',1),('physical_qualified',True),('source_frames',2**64),('live_controls',{})]

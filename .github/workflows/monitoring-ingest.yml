@@ -73,6 +73,7 @@ jobs:
         run: |
           python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
           python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
+          python3 -m unittest discover -s gateway/tests -p test_detection_observer.py -v
       - name: Build the pinned minimized native runtime for actual gateway media
         run: python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/ingest-native-runtime"
       - name: Qualify the exact isolation helper used by this media run
@@ -149,15 +150,22 @@ jobs:
         run: |
           "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" gateway/tests/ingest_retry_lease.py \
             --ingest gateway/target/debug/nxrs-camera-ingest --report "$RUNNER_TEMP/ingest-retry-lease.json"
-      - name: Actual SDK camera TLS worker through encoder and two decoded viewers
+      - name: Actual SDK camera TLS and detection through encoder, API and two decoded viewers
         run: |
-          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --sdk-camera --media-runtime /usr/lib/nxrs-gateway-media-qualification \
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --sdk-camera --detections --media-runtime /usr/lib/nxrs-gateway-media-qualification \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --ingest gateway/target/debug/nxrs-camera-ingest \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
             --camera-source "$RUNNER_TEMP/sdk-camera/sdk-camera-source" \
             --sdk-qualification "$RUNNER_TEMP/sdk-camera/qualification.json" \
             --sdk-report "$RUNNER_TEMP/sdk-camera-media.json"
+          python3 - "$RUNNER_TEMP/sdk-camera-media.json" <<'PYDETECTION'
+          import json,sys
+          from pathlib import Path
+          sys.path.insert(0,'gateway/tests')
+          from detection_observer import validate
+          validate(json.loads(Path(sys.argv[1]).read_bytes())['detection_api'])
+          PYDETECTION
       - name: Retain bounded public SDK and media evidence only
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
