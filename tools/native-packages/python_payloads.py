@@ -30,6 +30,12 @@ MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 1024 * 1024 * 1024
 MAX_DEPTH = 32
 MAX_REPORT = 16 * 1024 * 1024
+# libpython3.12-minimal installs this startup hook as a conffile outside
+# sys.path. Admit only this reviewed source/target pair, never an arbitrary
+# external tree. Its bytes remain observations, not package authentication.
+REVIEWED_EXTERNAL_LINKS = {
+    Path('/usr/lib/python3.12/sitecustomize.py'): Path('/etc/python3.12/sitecustomize.py'),
+}
 FALSE_FLAGS = components.FALSE_FLAGS + ('dynamic_importer_closure_qualified',)
 require = u.require
 
@@ -65,7 +71,7 @@ def scan(paths, *, owner=0, deadline=None):
     """Read owned fixture trees in tests; production supplies only admitted roots."""
     roots = roots_for(paths)
     deadline = time.monotonic() + 120 if deadline is None else deadline
-    entries = {}; total = 0
+    entries = {}; total = 0; external_files = set()
 
     def budget():
         require(time.monotonic() < deadline, 'python-payload-deadline')
@@ -132,7 +138,10 @@ def scan(paths, *, owner=0, deadline=None):
                 require(0 < len(target_bytes) <= 512 and not any(c in target for c in '\0\r\n'),
                         'bounded-python-payload-link')
                 resolved = child_path.resolve(strict=True)
-                require(inside(resolved, roots), 'python-payload-link-escape')
+                if not inside(resolved, roots):
+                    require(REVIEWED_EXTERNAL_LINKS.get(child_path) == resolved,
+                            'python-payload-link-escape')
+                    external_files.add(resolved)
                 require(components.identity(info) == components.identity(
                     os.stat(name, dir_fd=fd, follow_symlinks=False)), 'stable-python-payload-link')
                 # Link text can contain a private intermediate path even when
@@ -150,11 +159,29 @@ def scan(paths, *, owner=0, deadline=None):
         fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:directory(fd, path, expected, 0)
         finally:os.close(fd)
+    for path in sorted(external_files):
+        # Recheck all ancestors without following aliases. Reading a reviewed
+        # target does not grant permission to traverse its containing tree.
+        components.protected(path)
+        parent_before = path.parent.lstat()
+        normal(parent_before, owner, 'directory')
+        parent = os.open(path.parent, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            require(components.identity(parent_before) == components.identity(os.fstat(parent)),
+                    'stable-external-python-payload-parent')
+            expected = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            regular(parent, path.name, path, expected)
+            require(components.identity(parent_before) == components.identity(os.fstat(parent))
+                    == components.identity(path.parent.lstat()), 'stable-external-python-payload-parent')
+            components.protected(path)
+        finally:
+            os.close(parent)
     for value in entries.values():
         if value['kind'] == 'link':
             require(value['resolved'] in entries and entries[value['resolved']]['kind'] in ('file', 'directory'),
                     'inventoried-python-payload-link-target')
-    return dict(entries=entries, payload_bytes=total, roots=[str(path) for path in roots])
+    return dict(entries=entries, payload_bytes=total, roots=[str(path) for path in roots],
+                external_files=[str(path) for path in sorted(external_files)])
 
 
 def source_inputs():
@@ -213,7 +240,7 @@ def run(candidate_path, metadata_path, report):
             and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
             and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
             'unchanged-system-python-payload-inputs')
-    result = dict(schema=1, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
+    result = dict(schema=2, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
                   inputs=before, candidate_report_sha256=u.digest(raw), metadata_report_sha256=u.digest(metadata_raw),
                   python_image=image, startup_search_paths=admitted, isolated=True, protected_owner_uid=0,
                   **value, advisory_findings_cleared=0, checked_on=datetime.now(timezone.utc).isoformat(),

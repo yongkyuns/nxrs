@@ -601,7 +601,13 @@ image, after `python_components.py`, using the same candidate receipt. It reads
 regular files without importing them and publishes paths, sizes, modes and
 SHA-256 values. It records internal symlinks only when their resolved targets
 are also inventoried; escaping, dangling, changing or special-file entries
-refuse collection. Raw link text is represented only by its digest and byte
+refuse collection. Schema 2 also observes the one reviewed Ubuntu startup-hook
+link, `/usr/lib/python3.12/sitecustomize.py` to
+`/etc/python3.12/sitecustomize.py`. Require protected ancestors and a stable
+regular target; hash that file without traversing the rest of `/etc`. Other
+external targets still refuse collection. This explicit pair comes from the
+authenticated `libpython3.12-minimal` archive; observing the installed conffile
+does not authenticate its current contents. Raw link text is represented only by its digest and byte
 count: an intermediate private path must not leak even when final resolution
 returns to an admitted directory. Nested startup roots are covered once.
 

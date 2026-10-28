@@ -71,6 +71,88 @@ class PythonPayloadTests(unittest.TestCase):
             self.assertEqual(link['target_bytes'], len(os.fsencode(target)))
             self.assertEqual(link['resolved'], str(root / 'payload.py'))
 
+    def test_exact_reviewed_external_startup_hook_is_hashed_without_traversing_its_directory(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'startup'; root.mkdir()
+            config = outer / 'config'; config.mkdir(); hook = config / 'sitecustomize.py'
+            secret = b'PRIVATE STARTUP HOOK\n'; hook.write_bytes(secret)
+            (config / 'unrelated-private-file').write_bytes(b'must not read')
+            link = root / 'sitecustomize.py'; link.symlink_to(hook)
+            with mock.patch.object(payloads, 'REVIEWED_EXTERNAL_LINKS', {link:hook}), \
+                 mock.patch.object(payloads.components, 'protected') as protected:
+                value = self.scan([root])
+            self.assertEqual(value['external_files'], [str(hook)])
+            self.assertEqual(value['entries'][str(hook)]['sha256'], hashlib.sha256(secret).hexdigest())
+            self.assertEqual(value['payload_bytes'], len(secret))
+            self.assertEqual(set(value['entries']), {str(root),str(link),str(hook)})
+            self.assertNotIn('PRIVATE', json.dumps(value))
+            self.assertEqual(protected.call_args_list, [mock.call(hook),mock.call(hook)])
+
+    def test_external_review_is_specific_to_both_link_and_canonical_target(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'startup'; root.mkdir()
+            hook = outer / 'sitecustomize.py'; hook.write_bytes(b'x')
+            link = root / 'sitecustomize.py'; link.symlink_to(hook)
+            for review in ({root/'other.py':hook}, {link:outer/'other.py'}):
+                with self.subTest(review=review), mock.patch.object(payloads, 'REVIEWED_EXTERNAL_LINKS', review):
+                    with self.assertRaisesRegex(payloads.u.Refusal, 'python-payload-link-escape'):
+                        self.scan([root])
+            alias = outer / 'alias.py'; alias.symlink_to(hook)
+            link.unlink(); link.symlink_to(alias)
+            with mock.patch.object(payloads, 'REVIEWED_EXTERNAL_LINKS', {link:alias}):
+                with self.assertRaisesRegex(payloads.u.Refusal, 'python-payload-link-escape'):
+                    self.scan([root])
+
+    def test_reviewed_external_file_and_parent_still_require_protection_and_regular_file(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'startup'; root.mkdir()
+            config = outer / 'config'; config.mkdir(); hook = config / 'sitecustomize.py'; hook.write_bytes(b'x')
+            link = root / 'sitecustomize.py'; link.symlink_to(hook)
+            with mock.patch.object(payloads, 'REVIEWED_EXTERNAL_LINKS', {link:hook}), \
+                 mock.patch.object(payloads.components, 'protected'):
+                for selected in (hook, config):
+                    previous = selected.stat().st_mode & 0o777; selected.chmod(0o777)
+                    try:
+                        with self.assertRaisesRegex(payloads.u.Refusal, 'protected-python-payload-owner-mode'):
+                            self.scan([root])
+                    finally:selected.chmod(previous)
+                hook.unlink(); os.mkfifo(hook)
+                with self.assertRaisesRegex(payloads.u.Refusal, 'bounded-regular-python-payload'):
+                    self.scan([root])
+
+    def test_external_ancestor_guard_refuses_before_opening_the_external_parent(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'startup'; root.mkdir()
+            config = outer / 'config'; config.mkdir(); hook = config / 'sitecustomize.py'; hook.write_bytes(b'x')
+            link = root / 'sitecustomize.py'; link.symlink_to(hook)
+            original = os.open; opened = []
+            def opening(path, *args, **kw):
+                opened.append(path); return original(path, *args, **kw)
+            with mock.patch.object(payloads, 'REVIEWED_EXTERNAL_LINKS', {link:hook}), \
+                 mock.patch.object(payloads.components, 'protected', side_effect=payloads.u.Refusal('protected-ancestor')), \
+                 mock.patch.object(payloads.os, 'open', side_effect=opening):
+                with self.assertRaisesRegex(payloads.u.Refusal, 'protected-ancestor'):self.scan([root])
+            self.assertNotIn(config, opened)
+
+    def test_replaced_external_parent_cannot_publish_the_old_file_observation(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'startup'; root.mkdir()
+            config = outer / 'config'; config.mkdir(); hook = config / 'sitecustomize.py'; hook.write_bytes(b'x')
+            link = root / 'sitecustomize.py'; link.symlink_to(hook)
+            original = os.read; changed = False
+            def reading(fd, count):
+                nonlocal changed
+                raw = original(fd, count)
+                if not raw and not changed:
+                    changed = True; config.rename(outer/'retired'); config.mkdir(); hook.write_bytes(b'x')
+                return raw
+            with mock.patch.object(payloads, 'REVIEWED_EXTERNAL_LINKS', {link:hook}), \
+                 mock.patch.object(payloads.components, 'protected'), \
+                 mock.patch.object(payloads.os, 'read', side_effect=reading):
+                with self.assertRaisesRegex(payloads.u.Refusal, 'stable-external-python-payload-parent'):
+                    self.scan([root])
+            self.assertTrue(changed)
+
     def test_root_alias_duplicate_relative_and_empty_roots_refuse(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name).resolve(); alias = root / 'alias'; alias.symlink_to(root)
