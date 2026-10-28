@@ -260,6 +260,14 @@ Two complete replays and two policy previews agree byte for byte; all 35,061
 recorded SDK distance comparisons match Rust exactly. These numerical and
 ownership observations do not resolve the missing occupancy timing.
 
+Device-recorded feature delivery averaged 24.317 Hz. Newest-RF-to-policy age
+had median 13.911 ms, p99 38.630 ms and maximum 91.879 ms across all 3,777
+features. Completed policy bins retained about 409 ms median RF support and
+had at most 137.092 ms age from their newest contributing RF sample. These
+measurements include scheduling and recording overhead; they are not CPU time,
+admitted detector cadence, physical entry/exit latency or ESPectre cost parity.
+Occupancy uncertainty does not alter these recorded clock differences.
+
 The original firmware was restored and verified. The physical iPhone then
 verified three advancing native 320×240 frames over HTTPS/WHEP and joined session
 cleanup with unchanged enrollment. Repeat the frozen candidate with fresh,

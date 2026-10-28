@@ -81,5 +81,53 @@
     "The recorded empty label is retained as an observation of the control protocol, not substituted for actual occupancy.",
     "No complete independent empty/occupied/empty sequence, stationary presence, physical transition latency or execution-cost comparison was obtained.",
     "Repeat the unchanged frozen candidate with fresh explicit labels; do not tune against this confounded recording."
-  ]
+  ],
+  "recorded_execution_observations": {
+    "feature_newest_RF_to_policy_transaction_age_us": {
+      "samples": 3777,
+      "min": 3712,
+      "median": 13911,
+      "p95": 24715,
+      "p99": 38630,
+      "max": 91879
+    },
+    "source_window_support_span_us": {
+      "samples": 3777,
+      "min": 34762,
+      "median": 71253,
+      "p95": 89760,
+      "p99": 98178,
+      "max": 131993
+    },
+    "feature_transaction_interval_us": {
+      "samples": 3776,
+      "min": 63,
+      "median": 41605.0,
+      "p95": 55885,
+      "p99": 70179,
+      "max": 124728
+    },
+    "features_per_second_over_first_to_last_observation": 24.31713385895694,
+    "completed_bin_newest_RF_to_policy_age_us": {
+      "samples": 334,
+      "min": 35245,
+      "median": 60626.5,
+      "p95": 72993,
+      "p99": 88698,
+      "max": 137092
+    },
+    "completed_bin_RF_support_span_us": {
+      "samples": 334,
+      "min": 320238,
+      "median": 408897.5,
+      "p95": 440395,
+      "p99": 456927,
+      "max": 461902
+    },
+    "scope": "Device wall-clock source freshness and feature-delivery cadence during recording; includes scheduling and trace overhead. Not CPU time, admitted detector cadence, physical entry/exit latency or ESPectre parity.",
+    "percentile_method": "floor(q*(n-1)) order statistic; median averages the middle pair when applicable",
+    "admitted_observations": 0,
+    "CPU_time_qualified": false,
+    "physical_detection_latency_qualified": false
+  }
 }
