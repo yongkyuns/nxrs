@@ -9,7 +9,7 @@ reason = "Linux GRND_NONBLOCK and scalar getrandom ABI checks. Rust calls the OS
 [[bridge]]
 path = "hal/tls/src/sdk/ffi/sdk.c"
 kind = "abi"
-reason = "Pinned PSA/X.509 SDK sizes, constants and inline attribute setters. Rust owns entropy, keys, CSR validation and lifetime."
+reason = "Pinned PSA/X.509/TLS SDK layouts, field access, constants and enum translation. Rust owns entropy, keys, peer/time admission, socket budgets and lifetime."
 
 [[bridge]]
 path = "hal/tls/src/sdk/ffi/crypto_config.h"

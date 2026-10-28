@@ -1,4 +1,4 @@
-# Compile qualification only; physical entropy and TLS transport remain gates.
+# TLS endpoint compile qualification; loopback only, no physical network claim.
 board = "raspberrypi-pico-2:nsh"
 target = "thumbv8m.main-nuttx-eabi"
 crossdev = "arm-none-eabi-"
@@ -10,8 +10,8 @@ requires-qemu = false
 tls = "nuttx"
 
 [kconfig]
-enable = ["RAW_BINARY", "RP23XX_RNG", "DEV_RANDOM", "DEV_URANDOM", "DEV_URANDOM_ARCH"]
-disable = ["RP23XX_UF2_BINARY", "ARCH_FPU", "SMP", "NET", "DISABLE_PTHREAD"]
+enable = ["RAW_BINARY", "RP23XX_RNG", "DEV_RANDOM", "DEV_URANDOM", "DEV_URANDOM_ARCH", "NET", "NET_IPv4", "NET_TCP", "NET_LOOPBACK", "NET_SOCKOPTS", "SCHED_HPWORK", "NETDEV_LATEINIT"]
+disable = ["RP23XX_UF2_BINARY", "ARCH_FPU", "SMP", "DISABLE_PTHREAD"]
 set = ["PTHREAD_STACK_DEFAULT=65536", "RP23XX_RNG_POLL_TIMEOUT=100000"]
 require = [
   "CONFIG_ARCH_ARM=y",
@@ -24,5 +24,13 @@ require = [
   "CONFIG_DEV_RANDOM=y",
   "CONFIG_DEV_URANDOM_ARCH=y",
   "CONFIG_RP23XX_RNG_POLL_TIMEOUT=100000",
+  "CONFIG_NET=y",
+  "CONFIG_NET_IPv4=y",
+  "CONFIG_NET_TCP=y",
+  "CONFIG_NET_LOOPBACK=y",
+  "CONFIG_NET_SOCKOPTS=y",
+  "CONFIG_SCHED_WORKQUEUE=y",
+  "CONFIG_SCHED_HPWORK=y",
+  "CONFIG_NETDEV_LATEINIT=y",
 ]
-forbid-regex = "^CONFIG_(ARCH_FPU|SMP|NET|DISABLE_PTHREAD|DEV_URANDOM_XORSHIFT128|DEV_URANDOM_CONGRUENTIAL|DEV_URANDOM_RANDOM_POOL)=y$"
+forbid-regex = "^CONFIG_(ARCH_FPU|SMP|DISABLE_PTHREAD|DEV_URANDOM_XORSHIFT128|DEV_URANDOM_CONGRUENTIAL|DEV_URANDOM_RANDOM_POOL)=y$"

@@ -3,12 +3,18 @@
 use crate::Error;
 use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
 use std::cell::{Cell, RefCell};
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_int, c_void};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{boxed::Box, thread_local};
+
+mod ffi;
+use ffi::*;
+
+mod connection;
+pub use connection::{Certificates, Connection, TimeLease};
 
 /// A successful fill must supply the full buffer with cryptographic entropy.
 /// Hardware providers must own the documented entropy source, bound acquisition
@@ -37,41 +43,6 @@ fn try_boxed<T>(value: T) -> Result<Box<T>, Error> {
         pointer.as_ptr().write(value);
         Ok(Box::from_raw(pointer.as_ptr()))
     }
-}
-unsafe extern "C" {
-    fn tls_attributes_size() -> usize;
-    fn tls_attributes_align() -> usize;
-    fn tls_attributes_init(p: *mut c_void);
-    fn tls_set_type(p: *mut c_void, value: u16);
-    fn tls_set_bits(p: *mut c_void, value: usize);
-    fn tls_set_usage(p: *mut c_void, value: u32);
-    fn tls_set_algorithm(p: *mut c_void, value: u32);
-    fn tls_set_lifetime(p: *mut c_void, value: u32);
-    fn tls_p256_type() -> u16;
-    fn tls_sign_hash_usage() -> u32;
-    fn tls_ecdsa_sha256() -> u32;
-    fn tls_volatile_lifetime() -> u32;
-    fn tls_sha256() -> c_int;
-    fn tls_entropy_error() -> c_int;
-    fn tls_pk_size() -> usize;
-    fn tls_pk_align() -> usize;
-    fn tls_csr_size() -> usize;
-    fn tls_csr_align() -> usize;
-    fn psa_crypto_init() -> c_int;
-    fn mbedtls_psa_crypto_free();
-    fn psa_generate_key(attributes: *const c_void, key: *mut u32) -> c_int;
-    fn psa_destroy_key(key: u32) -> c_int;
-    fn psa_random_reseed(personalization: *const u8, size: usize) -> c_int;
-    fn psa_reset_key_attributes(attributes: *mut c_void);
-    fn mbedtls_pk_init(p: *mut c_void);
-    fn mbedtls_pk_free(p: *mut c_void);
-    fn mbedtls_pk_wrap_psa(p: *mut c_void, key: u32) -> c_int;
-    fn mbedtls_x509write_csr_init(p: *mut c_void);
-    fn mbedtls_x509write_csr_free(p: *mut c_void);
-    fn mbedtls_x509write_csr_set_key(p: *mut c_void, key: *mut c_void);
-    fn tls_csr_set_md_alg(p: *mut c_void, algorithm: c_int);
-    fn mbedtls_x509write_csr_set_subject_name(p: *mut c_void, subject: *const c_char) -> c_int;
-    fn mbedtls_x509write_csr_pem(p: *mut c_void, output: *mut u8, size: usize) -> c_int;
 }
 
 struct Opaque {
@@ -265,6 +236,14 @@ impl Identity {
     }
 
     fn sdk(&self, operation: impl FnOnce() -> c_int) -> Result<(), Error> {
+        if self.sdk_status(operation)? == 0 {
+            Ok(())
+        } else {
+            Err(Error::Crypto)
+        }
+    }
+
+    fn sdk_status(&self, operation: impl FnOnce() -> c_int) -> Result<c_int, Error> {
         if self.failed() {
             return Err(Error::Poisoned);
         }
@@ -286,10 +265,7 @@ impl Identity {
         if self.failed() {
             return Err(Error::Entropy);
         }
-        if status != 0 {
-            return Err(Error::Crypto);
-        }
-        Ok(())
+        Ok(status)
     }
 
     /// Create a public PEM CSR with an advisory CN only. The issuer must assign

@@ -9,3 +9,7 @@ nxrs-tls = { path = "../../../hal/tls" }
 
 [package.metadata.nxrs]
 required-capabilities = ["tls"]
+
+[[bin]]
+name = "tls-endpoint"
+path = "../../tls/endpoint.rs"
