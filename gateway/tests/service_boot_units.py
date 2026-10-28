@@ -46,13 +46,21 @@ ACTIVE_STATES=frozenset(('active','reloading','inactive','failed','activating','
 PREREQUISITE_SUBSTATES=frozenset(('dead','tentative','plugged','mounting','mounting-done','mounted',
     'remounting','unmounting','failed','cleaning','other'))
 TIMEOUT_KINDS=frozenset(('ninety-seconds','infinity','zero','other'))
+MAX_GUEST_MILLISECONDS=24*60*60*1000
 
 def public_prerequisites(value):
-    require(isinstance(value,dict) and set(value)=={'mapping_present','units','device_job_timeout','device_running_timeout'}
+    require(isinstance(value,dict) and set(value)=={'mapping_present','units','device_job_timeout','device_running_timeout','timing'}
         and type(value['mapping_present']) is bool,'fixed-public-prerequisite-fields')
     require(all(type(value[key]) is str and value[key] in TIMEOUT_KINDS
         for key in ('device_job_timeout','device_running_timeout')),
         'fixed-public-device-timeouts')
+    timing=value['timing']
+    require(isinstance(timing,dict) and set(timing)=={'observation_ms','provider_start_ms','provider_ready_ms'}
+        and all(type(v) is int and 0<=v<=MAX_GUEST_MILLISECONDS for v in timing.values()),
+        'fixed-public-prerequisite-timing')
+    require(timing['observation_ms']>=max(timing['provider_start_ms'],timing['provider_ready_ms'])
+        and (timing['provider_ready_ms']==0 or 0<timing['provider_start_ms']<=timing['provider_ready_ms']),
+        'ordered-public-prerequisite-timing')
     rows=value['units'];require(isinstance(rows,list) and len(rows)==2,'complete-public-prerequisites')
     for role,row in zip(('device','mount'),rows):
         require(isinstance(row,dict) and set(row)=={'role','load','state','substate','job_pending','result'}

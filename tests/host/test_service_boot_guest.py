@@ -18,20 +18,42 @@ class ServiceBootGuestTests(unittest.TestCase):
         device=(b'LoadState=loaded\nActiveState=active\nSubState=plugged\nJob=0\n'
                 b'JobTimeoutUSec=infinity\nJobRunningTimeoutUSec=1min 30s\n')
         mount=b'LoadState=loaded\nActiveState=inactive\nSubState=PRIVATE-STATE\nJob=42\nResult=PRIVATE-RESULT\n'
-        with patch.object(guest,'admitted',True),patch.object(guest,'command',side_effect=[device,mount]) as command,\
+        provider=b'ExecMainStartTimestampMonotonic=2000000\nActiveEnterTimestampMonotonic=97000000\n'
+        with patch.object(guest,'admitted',True),patch.object(guest,'command',side_effect=[device,mount,provider]) as command,\
+             patch.object(guest.time,'monotonic_ns',return_value=100000000000),\
              patch.object(Path,'exists',return_value=True):
             value=guest.prerequisite_snapshot()
         self.assertTrue(value['mapping_present'])
         self.assertEqual(value['device_job_timeout'],'infinity')
         self.assertEqual(value['device_running_timeout'],'ninety-seconds')
+        self.assertEqual(value['timing'],dict(observation_ms=100000,provider_start_ms=2000,provider_ready_ms=97000))
         self.assertEqual(value['units'][0],dict(role='device',load='loaded',state='active',
             substate='plugged',job_pending=False,result=None))
         self.assertEqual(value['units'][1],dict(role='mount',load='loaded',state='inactive',
             substate='other',job_pending=True,result='other'))
         self.assertNotIn('PRIVATE',json.dumps(value))
-        for call,unit in zip(command.call_args_list,('dev-mapper-'+guest.b.MAPPING+'.device',guest.b.MOUNT)):
+        for call,unit in zip(command.call_args_list,('dev-mapper-'+guest.b.MAPPING+'.device',guest.b.MOUNT,guest.b.PROVIDER)):
             self.assertEqual(call.args[0][:4],['systemctl','show',unit,'--all'])
             self.assertEqual(call.kwargs['seconds'],5)
+
+    def test_provider_timing_requires_bounded_same_boot_ordered_values(self):
+        device=(b'LoadState=loaded\nActiveState=active\nSubState=plugged\nJob=0\n'
+                b'JobTimeoutUSec=infinity\nJobRunningTimeoutUSec=90s\n')
+        mount=b'LoadState=loaded\nActiveState=inactive\nSubState=dead\nJob=0\nResult=success\n'
+        for started,ready,observed,valid in [(0,0,100000,True),(2000,0,100000,True),
+                (2000,97000,100000,True),(0,97000,100000,False),(97000,2000,100000,False),
+                (2000,97000,90000,False),(2000,0,86400001,False)]:
+            raw=f'ExecMainStartTimestampMonotonic={started*1000}\nActiveEnterTimestampMonotonic={ready*1000}\n'.encode()
+            with self.subTest(started=started,ready=ready,observed=observed),patch.object(guest,'admitted',True),\
+                 patch.object(guest,'command',side_effect=[device,mount,raw]),\
+                 patch.object(guest.time,'monotonic_ns',return_value=observed*1000000),patch.object(Path,'exists',return_value=True):
+                if valid:self.assertEqual(guest.prerequisite_snapshot()['timing']['provider_ready_ms'],ready)
+                else:
+                    with self.assertRaises(ValueError):guest.prerequisite_snapshot()
+        for raw in (b'ExecMainStartTimestampMonotonic=PRIVATE\nActiveEnterTimestampMonotonic=0\n',
+                    b'ExecMainStartTimestampMonotonic=0\nActiveEnterTimestampMonotonic=86400000001\n'):
+            with patch.object(guest,'admitted',True),patch.object(guest,'command',side_effect=[device,mount,raw]),\
+                 self.assertRaises(ValueError):guest.prerequisite_snapshot()
 
     def test_ambiguous_unbounded_or_invalid_prerequisite_properties_refuse(self):
         valid=(b'LoadState=loaded\nActiveState=active\nSubState=plugged\nJob=0\n'

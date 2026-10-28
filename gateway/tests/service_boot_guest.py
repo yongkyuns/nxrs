@@ -206,18 +206,22 @@ def prerequisite_snapshot():
     def timeout(value):
         return {'1min 30s':'ninety-seconds','90s':'ninety-seconds',
                 'infinity':'infinity','0':'zero'}.get(value,'other')
-    for role,unit in (('device','dev-mapper-'+b.MAPPING+'.device'),('mount',b.MOUNT)):
-        properties=['LoadState','ActiveState','SubState','Job']
-        properties+=['JobTimeoutUSec','JobRunningTimeoutUSec'] if role=='device' else ['Result']
-        raw=command(['systemctl','show',unit,'--all',*(item for name in properties for item in ('-p',name))],
+    def properties(unit,names):
+        raw=command(['systemctl','show',unit,'--all',*(item for name in names for item in ('-p',name))],
                     'prerequisite-unit-state',seconds=5)
         require(len(raw)<=4096,'bounded-private-prerequisite-properties')
         fields={}
         for line in raw.decode('ascii').splitlines():
             name,separator,value=line.partition('=')
-            require(separator and name in properties and name not in fields,'unique-private-prerequisite-property')
+            require(separator and name in names and name not in fields,'unique-private-prerequisite-property')
             fields[name]=value
-        require(set(fields)==set(properties) and re.fullmatch('[0-9]{1,10}',fields['Job'])
+        require(set(fields)==set(names),'complete-private-prerequisite-properties')
+        return fields
+    for role,unit in (('device','dev-mapper-'+b.MAPPING+'.device'),('mount',b.MOUNT)):
+        names=['LoadState','ActiveState','SubState','Job']
+        names+=['JobTimeoutUSec','JobRunningTimeoutUSec'] if role=='device' else ['Result']
+        fields=properties(unit,names)
+        require(re.fullmatch('[0-9]{1,10}',fields['Job'])
             and int(fields['Job'])<=4294967295,'complete-private-prerequisite-properties')
         rows.append(dict(role=role,load=selected(fields['LoadState'],b.LOAD_STATES),
             state=selected(fields['ActiveState'],b.ACTIVE_STATES),
@@ -225,7 +229,17 @@ def prerequisite_snapshot():
             result=None if role=='device' else selected(fields['Result'] or 'none',b.ACTIVATION_RESULTS)))
         if role=='device':timeouts=dict(device_job_timeout=timeout(fields['JobTimeoutUSec']),
                                        device_running_timeout=timeout(fields['JobRunningTimeoutUSec']))
-    return b.public_prerequisites(dict(mapping_present=DEVICE.exists(),units=rows,**timeouts))
+    # Linux's service timestamps and Python's monotonic clock are relative to
+    # this same guest boot. Export bounded milliseconds, never wall-clock time
+    # or invocation identifiers. Zero means the provider has not reached it.
+    provider=properties(b.PROVIDER,['ExecMainStartTimestampMonotonic','ActiveEnterTimestampMonotonic'])
+    for value in provider.values():
+        require(re.fullmatch('[0-9]{1,14}',value) and int(value)<=b.MAX_GUEST_MILLISECONDS*1000,
+                'bounded-private-provider-timing')
+    timing=dict(observation_ms=time.monotonic_ns()//1000000,
+        provider_start_ms=int(provider['ExecMainStartTimestampMonotonic'])//1000,
+        provider_ready_ms=int(provider['ActiveEnterTimestampMonotonic'])//1000)
+    return b.public_prerequisites(dict(mapping_present=DEVICE.exists(),units=rows,timing=timing,**timeouts))
 
 
 def configuration(user):

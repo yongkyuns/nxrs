@@ -172,6 +172,7 @@ class ServiceBootTests(unittest.TestCase):
 
     def test_prerequisite_diagnostics_are_bounded_and_can_never_admit_a_failed_boot(self):
         value=dict(mapping_present=True,device_job_timeout='infinity',device_running_timeout='ninety-seconds',
+            timing=dict(observation_ms=100000,provider_start_ms=2000,provider_ready_ms=97000),
             units=[dict(role=role,load='loaded',state='active' if role=='device' else 'inactive',
                 substate='plugged' if role=='device' else 'dead',job_pending=False,
                 result=None if role=='device' else 'success') for role in ('device','mount')])
@@ -189,6 +190,10 @@ class ServiceBootTests(unittest.TestCase):
             changed=copy.deepcopy(value);changed['units'][0][field]=replacement;invalid.append(changed)
         changed=copy.deepcopy(value);changed['message']='PRIVATE';invalid.append(changed)
         changed=copy.deepcopy(value);changed['units'][0]['name']='/private/device';invalid.append(changed)
+        for field,replacement in [('observation_ms',True),('observation_ms',86400001),
+                ('observation_ms',90000),('provider_start_ms',0),('provider_ready_ms',1000)]:
+            changed=copy.deepcopy(value);changed['timing'][field]=replacement;invalid.append(changed)
+        changed=copy.deepcopy(value);changed['timing']['identifier']='PRIVATE';invalid.append(changed)
         for item in invalid:
             output=io.StringIO()
             with self.subTest(item=item),contextlib.redirect_stdout(output),self.assertRaises(ValueError):
