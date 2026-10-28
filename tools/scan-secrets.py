@@ -6,7 +6,6 @@ import io
 import json
 from pathlib import Path
 import platform
-import secrets
 import subprocess
 import sys
 import tarfile
@@ -85,7 +84,10 @@ def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
     with tempfile.TemporaryDirectory(prefix="nxrs-secret-control-") as directory:
         source = Path(directory)
-        token = "gh" + "p_" + secrets.token_hex(18)
+        # Positive controls must deterministically exceed the pinned rules'
+        # entropy filters. Random hex strings can be legitimate nonmatches.
+        alphabet = "0123456789abcdef"
+        token = "gh" + "p_" + (alphabet * 3)[:36]
         # Synthetic: never provisioned with a service or persisted in the repository.
         path = source / "synthetic.txt"
         path.write_text('access_token = "' + token + '"\n')
@@ -100,7 +102,7 @@ def self_test(scanner):
             path = source / relative
             path.parent.mkdir(parents=True,exist_ok=True)
             for field, value, rule in [('access_token', token, 'github-pat'),
-                                       ('api_key', secrets.token_hex(32), 'generic-api-key')]:
+                                       ('api_key', alphabet * 4, 'generic-api-key')]:
                 path.write_text(field + ' = "' + value + '"\n')
                 findings, output = execute(scanner, "dir", source, config)
                 if not any(item.get("RuleID") == rule for item in findings) or value in output:
