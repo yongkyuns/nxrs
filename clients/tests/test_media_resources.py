@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import multicamera_reference as reference
 
@@ -34,6 +34,16 @@ class MediaResourcesTests(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError,'SDK publisher resource required'):
                     asyncio.run(reference.exercise(args))
                 camera.assert_not_called();allocate.assert_not_called()
+
+    def test_tls_runtime_preflight_uses_its_owner_and_refuses_before_fixture_acquisition(self):
+        runtime=Mock(side_effect=ValueError('private fixture runtime details'))
+        with patch.object(reference,'media_resources',return_value=(Path('/encoder'),Path('/publisher'),None)), \
+                patch.dict('sys.modules',{'issuer':SimpleNamespace(qualified_runtime=runtime)}), \
+                patch.object(reference.tempfile,'TemporaryDirectory') as allocate, \
+                patch.object(reference.RustCamera,'start',new_callable=AsyncMock) as camera:
+            with self.assertRaisesRegex(AssertionError,'^qualified TLS fixture runtime required$'):
+                asyncio.run(reference.exercise(SimpleNamespace()))
+            runtime.assert_called_once_with();allocate.assert_not_called();camera.assert_not_called()
 
     def test_unavailable_or_nonexecutable_encoder_and_sandbox_are_refused(self):
         with tempfile.TemporaryDirectory() as temp:

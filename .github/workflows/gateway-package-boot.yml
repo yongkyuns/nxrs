@@ -7,6 +7,7 @@ on:
       - 'gateway/tools/system_regex_evidence.py'
       - 'gateway/fuzz/run.py'
       - 'gateway/tests/package_boot_guest.py'
+      - 'gateway/tests/failure_location.py'
       - 'tests/host/**'
       - 'security/gateway-proxy-dependencies.json'
       - 'tools/ci-apt.py'

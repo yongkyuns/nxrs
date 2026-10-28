@@ -10,13 +10,7 @@ from pathlib import Path
 import ssl
 import sys
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools/enrollment'))
-import issuer
-import prepare_ingest
 
 
 def private(path,data):
@@ -28,6 +22,12 @@ def private(path,data):
 class TlsCameraBridge:
     @classmethod
     async def start(cls,root,source,catalog_path,camera_id='cam_reference'):
+        # Only certificate setup needs the separately locked enrollment graph.
+        # Socket-retirement controls also run in the smaller core environment.
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        import issuer
         issuer.qualified_runtime()
         self=cls();self.root=Path(root);self.source=source;self.catalog_path=Path(catalog_path)
         self.camera_id=camera_id;self.tasks=set();self.retiring=set();self.active=False;self.peak=0
@@ -60,6 +60,7 @@ class TlsCameraBridge:
         return self
 
     def stage(self,baseline):
+        import prepare_ingest
         return prepare_ingest.prepare(self.root/'camera-tls-stage',self.bundle/'bundle.json',self.pin,1,
             self.catalog_path,baseline,self.camera_id,self.serials['camera'],self.serials['ingest'],self.keys['ingest'])
 
