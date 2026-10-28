@@ -1,5 +1,9 @@
 # Compile qualification only; physical entropy and TLS transport remain gates.
-extends = "pico2-mock"
+board = "raspberrypi-pico-2:nsh"
+target = "thumbv8m.main-nuttx-eabi"
+crossdev = "arm-none-eabi-"
+machine = "ARM"
+image = "nuttx.bin"
 requires-qemu = false
 
 [hal]

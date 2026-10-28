@@ -25,6 +25,7 @@ FIRMWARE_APPS = {
 }
 PLATFORM_NAMES = {
     "pico2-mock",
+    "pico2-tls",
     "pico2w-wifi",
     "pico2w-ble",
     "mps2-an521-mock",
@@ -164,6 +165,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
+                            "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
