@@ -197,6 +197,36 @@ def activation_snapshot():
                 result=result if result in b.ACTIVATION_RESULTS else 'other'))
     return b.public_activation(rows)
 
+def prerequisite_snapshot():
+    # Failure-only observations of this guest's two fixed owned units. Never
+    # export unit names, messages, device aliases, paths or raw property values.
+    require(admitted,'guest-context-before-prerequisite-inspection')
+    rows=[];timeouts={}
+    def selected(value,known):return value if value in known else 'other'
+    def timeout(value):
+        return {'1min 30s':'ninety-seconds','90s':'ninety-seconds',
+                'infinity':'infinity','0':'zero'}.get(value,'other')
+    for role,unit in (('device','dev-mapper-'+b.MAPPING+'.device'),('mount',b.MOUNT)):
+        properties=['LoadState','ActiveState','SubState','Job']
+        properties+=['JobTimeoutUSec','JobRunningTimeoutUSec'] if role=='device' else ['Result']
+        raw=command(['systemctl','show',unit,'--all',*(item for name in properties for item in ('-p',name))],
+                    'prerequisite-unit-state',seconds=5)
+        require(len(raw)<=4096,'bounded-private-prerequisite-properties')
+        fields={}
+        for line in raw.decode('ascii').splitlines():
+            name,separator,value=line.partition('=')
+            require(separator and name in properties and name not in fields,'unique-private-prerequisite-property')
+            fields[name]=value
+        require(set(fields)==set(properties) and re.fullmatch('[0-9]{1,10}',fields['Job'])
+            and int(fields['Job'])<=4294967295,'complete-private-prerequisite-properties')
+        rows.append(dict(role=role,load=selected(fields['LoadState'],b.LOAD_STATES),
+            state=selected(fields['ActiveState'],b.ACTIVE_STATES),
+            substate=selected(fields['SubState'],b.PREREQUISITE_SUBSTATES),job_pending=int(fields['Job'])!=0,
+            result=None if role=='device' else selected(fields['Result'] or 'none',b.ACTIVATION_RESULTS)))
+        if role=='device':timeouts=dict(device_job_timeout=timeout(fields['JobTimeoutUSec']),
+                                       device_running_timeout=timeout(fields['JobRunningTimeoutUSec']))
+    return b.public_prerequisites(dict(mapping_present=DEVICE.exists(),units=rows,**timeouts))
+
 
 def configuration(user):
     """New enrollment exactly once, followed by durable copies at every boot."""
@@ -630,10 +660,13 @@ def main():
         # arguments or private path values. Raw output stays in the image.
         public=stage if re.fullmatch('[a-z][a-z-]{0,63}',stage) else 'unclassified'
         locations,activation_rows,job_rows=failure_diagnostics(error)
+        try:prerequisites=prerequisite_snapshot()
+        except Exception:prerequisites=None  # Preserve the original failure.
         with open('/dev/console','w') as output:
             if locations:output.write('SERVICE_BOOT_LOCATIONS '+b.encoded(locations).decode()+'\n')
             if activation_rows:output.write('SERVICE_BOOT_ACTIVATION '+b.encoded(activation_rows).decode()+'\n')
             if job_rows:output.write('SERVICE_BOOT_JOBS '+b.encoded(job_rows).decode()+'\n')
+            if prerequisites:output.write('SERVICE_BOOT_PREREQUISITES '+b.encoded(prerequisites).decode()+'\n')
             output.write('SERVICE_BOOT_FAILURE '+public+'\n');output.flush()
     finally:os.sync();os.execv('/usr/bin/systemctl',['systemctl','poweroff'])
 

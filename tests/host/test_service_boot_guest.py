@@ -8,6 +8,55 @@ sys.path.insert(0,str(ROOT/'gateway/tests'))
 import service_boot_guest as guest
 
 class ServiceBootGuestTests(unittest.TestCase):
+    def test_prerequisites_refuse_before_native_queries_without_guest_admission(self):
+        with patch.object(guest,'admitted',False),patch.object(guest,'command') as command:
+            with self.assertRaisesRegex(ValueError,'guest-context-before-prerequisite-inspection'):
+                guest.prerequisite_snapshot()
+            command.assert_not_called()
+
+    def test_prerequisites_project_fixed_owned_properties_and_hide_unknown_values(self):
+        device=(b'LoadState=loaded\nActiveState=active\nSubState=plugged\nJob=0\n'
+                b'JobTimeoutUSec=infinity\nJobRunningTimeoutUSec=1min 30s\n')
+        mount=b'LoadState=loaded\nActiveState=inactive\nSubState=PRIVATE-STATE\nJob=42\nResult=PRIVATE-RESULT\n'
+        with patch.object(guest,'admitted',True),patch.object(guest,'command',side_effect=[device,mount]) as command,\
+             patch.object(Path,'exists',return_value=True):
+            value=guest.prerequisite_snapshot()
+        self.assertTrue(value['mapping_present'])
+        self.assertEqual(value['device_job_timeout'],'infinity')
+        self.assertEqual(value['device_running_timeout'],'ninety-seconds')
+        self.assertEqual(value['units'][0],dict(role='device',load='loaded',state='active',
+            substate='plugged',job_pending=False,result=None))
+        self.assertEqual(value['units'][1],dict(role='mount',load='loaded',state='inactive',
+            substate='other',job_pending=True,result='other'))
+        self.assertNotIn('PRIVATE',json.dumps(value))
+        for call,unit in zip(command.call_args_list,('dev-mapper-'+guest.b.MAPPING+'.device',guest.b.MOUNT)):
+            self.assertEqual(call.args[0][:4],['systemctl','show',unit,'--all'])
+            self.assertEqual(call.kwargs['seconds'],5)
+
+    def test_ambiguous_unbounded_or_invalid_prerequisite_properties_refuse(self):
+        valid=(b'LoadState=loaded\nActiveState=active\nSubState=plugged\nJob=0\n'
+               b'JobTimeoutUSec=infinity\nJobRunningTimeoutUSec=90s\n')
+        invalid=[valid+b'Job=1\n',valid.replace(b'Job=0',b'Job=4294967296'),
+                 valid.replace(b'Job=0',b'Job=PRIVATE'),valid.replace(b'Job=0\n',b''),
+                 valid+b'Unknown=PRIVATE\n',b'x'*4097]
+        for raw in invalid:
+            with self.subTest(raw=raw),patch.object(guest,'admitted',True),\
+                 patch.object(guest,'command',return_value=raw),self.assertRaises(ValueError):
+                guest.prerequisite_snapshot()
+
+    def test_unavailable_prerequisite_query_preserves_the_original_failure(self):
+        from unittest.mock import mock_open
+        output=mock_open()
+        with patch.object(guest,'context',return_value=('provisioned',{})),\
+             patch.object(guest.sys,'argv',['guest','check']),patch.object(guest,'stage','request-credentials'),\
+             patch.object(guest,'check',side_effect=ValueError('PRIVATE-ORIGINAL')),\
+             patch.object(guest,'failure_diagnostics',return_value=([],[],[])),\
+             patch.object(guest,'prerequisite_snapshot',side_effect=RuntimeError('PRIVATE-DIAGNOSTIC')),\
+             patch('builtins.open',output),patch.object(guest.os,'sync'),patch.object(guest.os,'execv'):
+            guest.main()
+        emitted=''.join(call.args[0] for call in output().write.call_args_list)
+        self.assertEqual(emitted,'SERVICE_BOOT_FAILURE request-credentials\n')
+
     def test_initialization_refuses_before_mutation_without_guest_admission(self):
         with patch.object(guest,'admitted',False),patch.object(Path,'mkdir') as mkdir,patch.object(guest,'command') as command:
             with self.assertRaisesRegex(ValueError,'guest-context-before-initialization'):guest.initialize_storage(SimpleNamespace())

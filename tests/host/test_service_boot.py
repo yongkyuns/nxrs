@@ -170,6 +170,37 @@ class ServiceBootTests(unittest.TestCase):
             with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
             self.assertEqual(output.getvalue(),'')
 
+    def test_prerequisite_diagnostics_are_bounded_and_can_never_admit_a_failed_boot(self):
+        value=dict(mapping_present=True,device_job_timeout='infinity',device_running_timeout='ninety-seconds',
+            units=[dict(role=role,load='loaded',state='active' if role=='device' else 'inactive',
+                substate='plugged' if role=='device' else 'dead',job_pending=False,
+                result=None if role=='device' else 'success') for role in ('device','mount')])
+        line=b'SERVICE_BOOT_PREREQUISITES '+boot.units.encoded(value)+b'\n'
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(ValueError,'service-guest-request-credentials'):
+            boot.serial_report(line+b'SERVICE_BOOT_FAILURE request-credentials\n',{},'provisioned')
+        self.assertEqual(output.getvalue(),'SERVICE_BOOT_PREREQUISITES '+boot.units.encoded(value).decode()+'\n')
+        invalid=[]
+        for field,replacement in [('mapping_present',1),('device_running_timeout','PRIVATE'),('device_job_timeout',[]),
+                ('units',value['units'][::-1]),('units',[])]:
+            changed=copy.deepcopy(value);changed[field]=replacement;invalid.append(changed)
+        for field,replacement in [('state','PRIVATE'),('state',[]),('load','PRIVATE'),('substate','PRIVATE'),
+                ('job_pending',0),('result','PRIVATE')]:
+            changed=copy.deepcopy(value);changed['units'][0][field]=replacement;invalid.append(changed)
+        changed=copy.deepcopy(value);changed['message']='PRIVATE';invalid.append(changed)
+        changed=copy.deepcopy(value);changed['units'][0]['name']='/private/device';invalid.append(changed)
+        for item in invalid:
+            output=io.StringIO()
+            with self.subTest(item=item),contextlib.redirect_stdout(output),self.assertRaises(ValueError):
+                boot.serial_report(b'SERVICE_BOOT_PREREQUISITES '+boot.units.encoded(item)+b'\nSERVICE_BOOT_FAILURE request-credentials\n',{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+        for raw in (line+line+b'SERVICE_BOOT_FAILURE request-credentials\n',
+                    b'SERVICE_BOOT_PREREQUISITES malformed\nSERVICE_BOOT_FAILURE request-credentials\n',
+                    line+b'SERVICE_BOOT_REPORT {}\n'):
+            output=io.StringIO()
+            with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+
     def test_early_pid1_timeouts_preserve_exact_owned_identity_without_exporting_console(self):
         device='dev-mapper-'+boot.units.MAPPING+'.device'
         mount=boot.units.MOUNT

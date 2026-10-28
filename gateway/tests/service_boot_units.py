@@ -41,6 +41,29 @@ JOB_OPERATIONS=frozenset(('start','stop','reload','restart','other'))
 JOB_RESULTS=frozenset(('done','canceled','timeout','failed','dependency','skipped','invalid','assert',
     'unsupported','collected','once','frozen','other'))
 
+LOAD_STATES=frozenset(('loaded','stub','not-found','bad-setting','error','merged','masked','other'))
+ACTIVE_STATES=frozenset(('active','reloading','inactive','failed','activating','deactivating','maintenance','refreshing','other'))
+PREREQUISITE_SUBSTATES=frozenset(('dead','tentative','plugged','mounting','mounting-done','mounted',
+    'remounting','unmounting','failed','cleaning','other'))
+TIMEOUT_KINDS=frozenset(('ninety-seconds','infinity','zero','other'))
+
+def public_prerequisites(value):
+    require(isinstance(value,dict) and set(value)=={'mapping_present','units','device_job_timeout','device_running_timeout'}
+        and type(value['mapping_present']) is bool,'fixed-public-prerequisite-fields')
+    require(all(type(value[key]) is str and value[key] in TIMEOUT_KINDS
+        for key in ('device_job_timeout','device_running_timeout')),
+        'fixed-public-device-timeouts')
+    rows=value['units'];require(isinstance(rows,list) and len(rows)==2,'complete-public-prerequisites')
+    for role,row in zip(('device','mount'),rows):
+        require(isinstance(row,dict) and set(row)=={'role','load','state','substate','job_pending','result'}
+            and row['role']==role and type(row['job_pending']) is bool,'fixed-public-prerequisite-unit')
+        require(all(type(row[key]) is str and row[key] in known for key,known in
+            (('load',LOAD_STATES),('state',ACTIVE_STATES),('substate',PREREQUISITE_SUBSTATES))),
+            'fixed-public-prerequisite-states')
+        require(row['result'] is None if role=='device' else type(row['result']) is str and row['result'] in ACTIVATION_RESULTS,
+            'fixed-public-mount-result')
+    return value
+
 def public_job_results(value):
     require(isinstance(value,list) and len(value)<=16,'bounded-public-job-results')
     for item in value:
