@@ -19,6 +19,9 @@ import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'deploy'))
+import ingest_service
+
 
 def private(path, data):
     path.write_bytes(data if isinstance(data, bytes) else data.encode())
@@ -211,6 +214,46 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(process.returncode, expected)
         self.assertFalse(self.marker.exists())
         return output
+
+    async def test_rendered_tls_credentials_stage_and_preflight_without_network(self):
+        # Execute the rendered unit's staging/check commands in a disposable root;
+        # this checks host file admission, not systemd sandbox behavior.
+        import shlex
+        self.credentials.issue('server', camera='cam_reference')
+        self.credentials.issue('client', camera='cam_reference')
+        enrollment = {k: v for k, v in self.credentials.config().items() if k not in ingest_service.TLS_FILES}
+        enrollment['camera_id'] = 'cam_reference'
+        self.config = ingest_service.configuration('127.0.0.1:1', camera_tls=enrollment)
+        runtime, loaded = self.root/'runtime', self.root/'loaded'
+        runtime.mkdir(mode=0o700)
+        loaded.mkdir(mode=0o700)
+        self.config['camera_tls'] = {k: v.replace('/run/nxrs-ingest/', str(runtime)+'/')
+                                    if isinstance(v, str) else v for k, v in self.config['camera_tls'].items()}
+        self.config['publisher_token_file'] = str(runtime/'publisher.token')
+        private(loaded/'config', json.dumps(self.config))
+        private(loaded/'publisher', '1'*64+'\n')
+        for field, name in ingest_service.TLS_FILES.items():
+            private(loaded/name, Path(self.credentials.config()[field]).read_bytes())
+        unit = ingest_service.service(require_tls=True)
+        commands = [line.split('=', 1)[1] for line in unit.splitlines() if line.startswith('ExecStartPre=')]
+        for command in commands:
+            command = command.replace('%d/', str(loaded)+'/').replace('/run/nxrs-ingest/', str(runtime)+'/')
+            command = command.replace('/usr/local/libexec/nxrs-camera-ingest', str(INGEST))
+            process = await asyncio.create_subprocess_exec(*shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            _, error = await asyncio.wait_for(process.communicate(), 3)
+            self.assertEqual(process.returncode, 0, error.decode())
+        self.assertEqual(self.requests, 0)
+        self.assertFalse(self.encoder_pid.exists())
+        for path in runtime.iterdir(): self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        (runtime/'camera-client.key').unlink()
+        process = await asyncio.create_subprocess_exec(*shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        await asyncio.wait_for(process.communicate(), 3)
+        self.assertEqual(process.returncode, 1)
+        self.assertFalse(self.encoder_pid.exists())
+        # A modified config cannot turn the TLS unit into an HTTP unit.
+        del self.config['camera_tls']
+        self.config['allow_insecure_camera_http'] = True
+        await self.checked(1)
 
     async def until(self, test, seconds=4):
         deadline = asyncio.get_running_loop().time()+seconds
