@@ -134,6 +134,10 @@ exercise two cameras, pause/retry, full-screen reuse, JPEG/clip capture, source
 replacement and background cleanup. Android additionally checks exact rendered
 pixels, frozen expiry without new input and source-fault isolation. Every runner
 must emit its success marker; a skipped integration test cannot pass the fixture.
+Android's pixel witness checks image/metadata identity independently of whether
+that draw admitted boxes. Retiring an epoch after its tag is read must suppress
+its overlay while preserving the image's identity. A deterministic native control
+exercises this interleaving; fresh and frozen draws report their admission decision.
 
 Native CI uses the gateway/ingest release binaries with the same source cadence,
 freshness deadlines and assertions. Debug-build CPU overhead belongs in separate

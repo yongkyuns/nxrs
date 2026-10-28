@@ -159,7 +159,8 @@ class CameraQualificationTest {
                                             sample.red > 150 && sample.blue < 100 -> {
                                                 if (
                                                     metadata.presence() != Presence.Person ||
-                                                        sample.boxesDrawn != 1
+                                                        sample.boxesDrawn !=
+                                                            if (sample.annotationCurrent) 1 else 0
                                                 )
                                                     mismatches.incrementAndGet()
                                                 red.computeIfAbsent(id) { AtomicInteger() }

@@ -92,7 +92,7 @@ def main(path):
                 measurements = [line for line in output.splitlines()
                                 if line.startswith('MULTICAMERA METRICS:')]
                 if (result.returncode or 'FAILURES!!!' in output
-                        or not re.search(r'OK \(4 tests\)', output)
+                        or not re.search(r'OK \(5 tests\)', output)
                         or len(markers) != 1 or len(measurements) != 1):
                     # Fixed assertion/transport categories only; never dump
                     # credentials, server responses or native SDK diagnostics.
