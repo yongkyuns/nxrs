@@ -9,4 +9,5 @@ pub mod motion_wire;
 pub mod ownership;
 pub mod progress;
 pub mod recorder;
+pub mod sampling;
 pub mod temporal;

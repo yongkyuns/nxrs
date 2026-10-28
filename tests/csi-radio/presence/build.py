@@ -86,6 +86,9 @@ def prepare(args, out):
     radar = components / "esp-radar/src/esp_radar.c"
     original_radar_sha = hashlib.sha256(radar.read_bytes()).hexdigest()
     radar.write_bytes(INSTRUMENT.radar(radar.read_bytes()))
+    sensing = components / "esp_wifi_sensing/src/esp_wifi_sensing.c"
+    original_sensing_sha = hashlib.sha256(sensing.read_bytes()).hexdigest()
+    sensing.write_bytes(INSTRUMENT.sensing(sensing.read_bytes()))
     provenance = {
         "reference_only": True,
         "source_packages_sha256": PACKAGES,
@@ -94,6 +97,10 @@ def prepare(args, out):
         "source_instrumentation": {
             "original_radar_sha256": original_radar_sha,
             "instrumented_radar_sha256": hashlib.sha256(radar.read_bytes()).hexdigest(),
+            "original_sensing_sha256": original_sensing_sha,
+            "instrumented_sensing_sha256": hashlib.sha256(sensing.read_bytes()).hexdigest(),
+            "sampling_case": "PRESENCE_MOTION",
+            "sampling_ping_receive_timeout_changed": False,
             "trace_case": "PRESENCE_TRACE",
             "input_ownership": "preprocessing_owner_copies_at_enqueue",
             "disabled_in_other_modes": True,
@@ -268,6 +275,7 @@ if __name__ == "__main__":
         [objdump[0], "-d", "-C", str(out / "build/csi_reference.elf")], text=True
     )
     producer_stack = stack.qualify(producer_disassembly)
+    sampling_linkage = INSTRUMENT.require_sampling_observers(producer_disassembly)
     arithmetic = IDF.load(
         "presence_pearson_arithmetic", HERE.parent.parent / "csi-lab/arithmetic.py"
     )
@@ -348,8 +356,24 @@ if __name__ == "__main__":
     }
     receipt["temporal_motion_trial"] = {
         "opt_in_command": "PRESENCE_MOTION",
-        "acknowledgement": "csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1",
+        "acknowledgement": "csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1",
         "case": "temporal-motion-v1",
+        "sampling_provenance": {
+            "linkage": sampling_linkage,
+            "wire_kind": 11,
+            "version": 1,
+            "words": 12,
+            "ping_events": "original reply/timeout callback after counters update",
+            "window_events": "actual window update branch before state update",
+            "ping_receive_timeout_changed": False,
+            "diagnostic_loss_invalidates_capture": True,
+            "new_workers": 0,
+            "native_callback_allocations": False,
+            "ping_and_preprocessing_stack_high_water_bytes_recorded": True,
+            "minimum_free_native_callback_stack_bytes": 512,
+            "insufficient_stack_invalidates_capture": True,
+            "cpu_and_hardware_overhead_qualified": False,
+        },
         "wire_checkpoint_kind": 10,
         "wire_checkpoint_version": 1,
         "wire_checkpoint_words": 32,

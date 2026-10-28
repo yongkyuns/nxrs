@@ -3,6 +3,7 @@
 mod inputs;
 mod motion_preview;
 mod probe_input;
+mod sampling;
 mod signals;
 #[path = "../target_probe.rs"]
 mod target_probe;
@@ -190,6 +191,7 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
                     motion_declared = true;
                 }
             }
+            journal::SAMPLING => csi_lab_core::sampling::validate(&r)?,
             journal::GAIN | journal::WANDER | journal::END => {}
             journal::MOTION => {
                 csi_lab_core::motion_wire::validate(r.data())?;
@@ -311,12 +313,13 @@ fn run() -> Result<()> {
         ["evaluate",path,"--sensitivity",s]=> { let s:f32=s.parse()?; replay(path,None,false)?; let summary=replay(path,Some(s),true)?;eprintln!("{summary}");Ok(()) },
         ["fixture"]=>fixture(),
         ["export-kernels",path,output]=>export(path,output),
+        ["sampling",path]=>sampling::run(path),
         ["signals",path,"--case","recent-three-v1"]=>signals::run(path),
         ["verify-distance",path]=>signals::verify_distance(path),
         ["preview-motion",path,"--case","temporal-motion-v1"]=>motion_preview::run(path),
         ["export-motion-probe",path,output]=>probe_input::export(path,output),
         ["run-motion-probe",path]=>{if std::fs::metadata(path)?.len()>target_probe::MAX_BYTES as u64 {return Err("probe input byte bound".into());}let bytes=std::fs::read(path)?;target_probe::run(&bytes,&mut io::stdout().lock())?;Ok(())},
-        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | export-motion-probe FILE OUTPUT | run-motion-probe FILE | verify-distance FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
+        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | export-motion-probe FILE OUTPUT | run-motion-probe FILE | verify-distance FILE | sampling FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
     }
 }
 fn main() {

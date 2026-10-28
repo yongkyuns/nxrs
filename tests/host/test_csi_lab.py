@@ -79,10 +79,10 @@ class LabTests(unittest.TestCase):
     def test_motion_case_requires_exact_ack_and_refuses_historical_calibration(self):
         ack = ACK.replace(
             b"csi_lab_v4 model_owner=control_v1",
-            b"csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1",
+            b"csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1",
         )
-        old_motion = ack.replace(b"csi_lab_v6", b"csi_lab_v5")
-        for actual in (ACK, old_motion, ack):
+        old_motion = ack.replace(b"csi_lab_v7", b"csi_lab_v6")
+        for actual in (ACK, old_motion, ack.replace(b"csi_lab_v7", b"csi_lab_v5"), ack):
             client, console = self.client(actual)
             with patch.object(
                 RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)

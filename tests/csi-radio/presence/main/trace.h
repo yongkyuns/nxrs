@@ -30,3 +30,10 @@ uint32_t presence_failure_enqueue(uint32_t,uint32_t,uint32_t,uint32_t,const floa
 int presence_failure_compute(uint32_t,uint32_t,uint32_t,uint32_t,float *);
 
 void presence_lab_rf(const uint8_t *, const struct presence_trace_radio *, const uint8_t *, const uint8_t *);
+
+/* Actual native diagnostics only; scalar copies expire with the callback. */
+bool presence_sampling_active(void);
+void presence_sampling_ping_sdk(void *, uint32_t);
+void presence_sampling_ping(uint32_t, uint32_t, int32_t, uint32_t, uint32_t, uint32_t);
+void presence_sampling_window(const uint8_t *, uint32_t, uint32_t, uint32_t, uint32_t,
+                              int32_t, int32_t, uint32_t, uint32_t, uint32_t);

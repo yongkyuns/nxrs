@@ -102,8 +102,9 @@ original experiments.
 ### Recorded-bin motion trial
 
 The separate `temporal-motion-v1` case requires the exact
-`record=csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1`
-acknowledgement. Version 6 adds post-training vendor-readiness guards and
+`record=csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1`
+acknowledgement. Version 7 adds opt-in ping/window provenance; version 6 added
+post-training vendor-readiness guards and
 refuses retraining after a stop. The original historical case remains version 4.
 The periodic motion report is version 2, carrying device time and exact frozen
 threshold bits; it is advisory and never admits a physical detector.
@@ -582,3 +583,28 @@ the same boundary protects threshold fitting. `arithmetic.py` checks actual
 target code for separate products and rejects contracted accumulations. This
 does not explain the earlier vendor-only RF/profile drift. The historical
 feature outputs and all 70,396 recorded SDK comparison results remain unchanged.
+
+
+### Sampling interruption diagnostics
+
+`csi-lab sampling CAPTURE.csilab` validates the complete immutable archive and
+all model checkpoints before emitting any diagnostics. Motion version 7 adds
+kind-11, version-1, 12-word records from the original SDK ping reply/timeout
+callbacks and the actual window-update branches (timestamp reset, sparse flush,
+accepted, accumulating). The original ping receive timeout, feature calculation,
+freshness deadline and calibration rules are unchanged. A failed public-SDK
+profile query produces unavailable counters; absence of taps in an older capture
+does not establish zero loss. Signed window deltas are retained, including
+rollback observations. Callback completion timestamps are not ICMP send times.
+
+The selected-peer window records have source sequence and radio time; they do
+not retain an SDK pointer or publish a MAC address. These copies use the same
+bounded recorder admission and quiescence protocol. Any recorder loss invalidates
+the whole dataset. They add no worker or callback allocation. Compiled individual
+stack frames retain the 512-byte gate; physical high-water and recording overhead
+must be measured independently. These diagnostics cannot establish presence,
+causality of missing replies, complete PHY format or execution-cost parity.
+
+Ping and preprocessing records also retain their native task's minimum free
+stack bytes. A measured margin below 512 bytes invalidates recorder integrity;
+continuing packet arrivals cannot turn that dataset into a passing trial.

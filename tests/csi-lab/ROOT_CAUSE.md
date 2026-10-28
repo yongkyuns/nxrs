@@ -310,6 +310,33 @@ availability investigation fixes the original calibration drift. The full
 original camera firmware was restored and verified; the physical iPhone again
 decoded three advancing 320x240 HTTPS/WHEP frames and joined native cleanup.
 
+## Sampling-provenance candidate
+
+The [version-7 build receipt](../csi-radio/results/csi-lab-sampling-provenance-build-2026-10-28.json)
+adds exact-source taps to the original SDK ping reply/timeout callbacks and the
+actual window-update decision branches. It retains the same vendor ping timeout
+and all frozen model, freshness and admission rules. Kind-11 sampling records
+join the existing loss-fatal bounded journal; `csi-lab sampling` verifies the
+whole capture and all policy checkpoints before emitting observations. Missing
+or failed SDK profile reads remain unavailable. Callback completion times are
+not ICMP send times, and these taps do not supply complete raw PHY identity.
+
+The ESP32-S3 build passes the original 75 ABI checks and RX observer linkage
+plus disassembly checks for all four sampling call paths and four public ping
+profile reads. The new native bridge/Rust callback frames are 48/96/112 bytes,
+within the unchanged 512-byte individual-frame limit. Ping and preprocessing
+task minimum free-stack values are recorded; margins below 512 bytes invalidate
+the dataset. Source handoff and pipeline storage remain 8,208 and 1,840 Rust
+bytes, with no added worker or callback allocation. Physical call-chain margins,
+recording overhead, availability and performance remain unqualified.
+
+All 159 Rust, 154 CSI Python and 23 architecture/HAL-boundary regressions pass.
+The dependency archive hashes are unchanged. Official registry downloads varied
+only in per-download ZIP member times; restoring those metadata bytes recovered
+the exact original whole-archive hashes, with every member byte unchanged. The
+new image has not touched hardware. Collect its timing/window evidence under a
+fresh explicit empty label before drawing causal conclusions or changing traffic.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
@@ -333,7 +360,8 @@ decoded three advancing 320x240 HTTPS/WHEP frames and joined native cleanup.
    controller are now prepared and checked in software. The first physical
    recording has uncertain occupancy; its fresh repeat stopped during training
    with stale reference support. Preserve both. Instrument the sampling
-   interruption before requesting another complete labelled sequence.
+   interruption with the prepared version-7 diagnostics before changing traffic
+   or requesting a new positive-performance qualification sequence.
 5. Commit evidence normally to draft PR #31. Mark the goal complete only after
    the cause/fix is substantiated and comparable observations establish the
    required performance; never equate a passing empty phase with detection.

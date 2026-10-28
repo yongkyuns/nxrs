@@ -10,6 +10,8 @@ mod failure_queue;
 mod failures;
 mod lab;
 mod numerical;
+#[cfg(target_os = "espidf")]
+mod sampling;
 mod trace;
 use std::ffi::c_void;
 use std::io::Write;
@@ -173,7 +175,7 @@ fn run() -> Result<()> {
             ""
         },
         if motion_trial {
-            " record=csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1"
+            " record=csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1"
         } else if recording {
             " record=csi_lab_v4 model_owner=control_v1"
         } else {

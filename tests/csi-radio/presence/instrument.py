@@ -49,6 +49,34 @@ def radar(source):
             }""",
         ),
         (
+            "    esp_err_t ret = ESP_FAIL;\n\n    if (peer->window_ctx.ts_delta_relaxed",
+            "    esp_err_t ret = ESP_FAIL;\n    uint32_t sampling_reason = 4; /* Accumulating; diagnostic only. */\n\n    if (peer->window_ctx.ts_delta_relaxed",
+        ),
+        (
+            "    if (time_tamp < 0 || time_tamp > ts_limit) {",
+            "    if (time_tamp < 0 || time_tamp > ts_limit) {\n        sampling_reason = 1;",
+        ),
+        (
+            "        if (buff_index->window < peer->window_ctx.handle_window / 3) {",
+            "        if (buff_index->window < peer->window_ctx.handle_window / 3) {\n            sampling_reason = 2;",
+        ),
+        (
+            "        ret = ESP_OK;\n        peer->window_ctx.window_start_seq += buff_index->window / 2;",
+            "        ret = ESP_OK;\n        sampling_reason = 3;\n        peer->window_ctx.window_start_seq += buff_index->window / 2;",
+        ),
+        (
+            "UPDATE_STATE:\n    peer->window_ctx.last_timestamp",
+            """UPDATE_STATE:
+    if (presence_sampling_active()) {
+        presence_sampling_window(peer->mac, sampling_reason,
+            peer->csi_data_buff->seq_id[buff_index->end],
+            peer->csi_data_buff->timestamp[buff_index->end], buff_index->window,
+            spent_time, time_tamp, (uint32_t)ts_limit,
+            peer->window_ctx.handle_window, s_ctx.dec_config.csi_handle_time);
+    }
+    peer->window_ctx.last_timestamp""",
+        ),
+        (
             "    return esp_radar_motion_dec_compute(cols, csi_data_0_len, csi_data_0, csi_data_1_len, csi_data_1, motion_dec_buff_current);",
             """    if (presence_trace_active() && presence_trace_matches(peer->mac)) {
         return presence_trace_compute(buff_index->trace_token, cols, csi_data_0_len, csi_data_1_len, motion_dec_buff_current);
@@ -87,3 +115,55 @@ def require_compensation_observer(disassembly):
         "rx_calls_compensation_wrapper": True,
         "rx_disassembly_sha256": hashlib.sha256(disassembly.encode()).hexdigest(),
     }
+
+
+SENSING_SHA256 = "a51b5b183ec3cbd903d80b53748c0174ec039b76ac258c93110b49a06ad6c206"
+
+
+def sensing(source):
+    """Observe original reply/timeout callbacks; leave ping pacing unchanged."""
+    if hashlib.sha256(source).hexdigest() != SENSING_SHA256:
+        raise ValueError("sampling hooks require exact pinned sensing source")
+    text = source.decode()
+    edits = [
+        ('#include "ping/ping_sock.h"',
+         '#include "ping/ping_sock.h"\n#include "../../../main/trace.h"'),
+        ("        fsm->ping_success_count++;",
+         "        fsm->ping_success_count++;\n        presence_sampling_ping_sdk(hdl, 1);"),
+        ("        fsm->ping_timeout_count++;",
+         "        fsm->ping_timeout_count++;\n        presence_sampling_ping_sdk(hdl, 2);"),
+    ]
+    for before, after in edits:
+        if text.count(before) != 1:
+            raise ValueError("ambiguous sampling insertion")
+        text = text.replace(before, after)
+    return text.encode()
+
+
+def require_sampling_observers(disassembly):
+    """Require the actual callback/window paths, not just exported symbols."""
+    import re
+    functions = {}
+    for name, body in re.findall(
+        r"^[0-9a-f]+ <([^\n]+)>:\n(.*?)(?=^[0-9a-f]+ <|\Z)",
+        disassembly, re.M | re.S,
+    ):
+        functions.setdefault(name, []).append(body)
+    required = {
+        "hms_ping_on_success": "presence_sampling_ping_sdk",
+        "hms_ping_on_timeout": "presence_sampling_ping_sdk",
+        "presence_sampling_ping_sdk": "presence_sampling_ping",
+        "csi_window_update": "presence_sampling_window",
+    }
+    for caller, callee in required.items():
+        bodies = functions.get(caller, [])
+        if len(bodies) != 1 or not re.search(
+            r"\bcall8\s+[0-9a-f]+ <" + re.escape(callee) + r">", bodies[0]
+        ):
+            raise ValueError("missing actual sampling observer: " + caller)
+    if len(re.findall(r"\bcall8\s+[0-9a-f]+ <esp_ping_get_profile>",
+                      functions["presence_sampling_ping_sdk"][0])) != 4:
+        raise ValueError("missing public ping profile reads")
+    return {"all_four_native_sampling_call_paths_verified": True,
+            "public_ping_profile_reads": 4,
+            "native_disassembly_sha256": hashlib.sha256(disassembly.encode()).hexdigest()}

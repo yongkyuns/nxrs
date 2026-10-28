@@ -267,3 +267,30 @@ class TraceTests(unittest.TestCase):
         # mandatory hash/layout/linkage gate, not a machine-local host fixture.
         with self.assertRaisesRegex(ValueError, "exact pinned"):
             INSTRUMENT.radar(b"new or already instrumented source")
+        with self.assertRaisesRegex(ValueError, "exact pinned"):
+            INSTRUMENT.sensing(b"new or already instrumented source")
+
+
+    def test_sampling_requires_calls_on_each_real_native_path(self):
+        calls = {
+            "hms_ping_on_success": ["presence_sampling_ping_sdk"],
+            "hms_ping_on_timeout": ["presence_sampling_ping_sdk"],
+            "presence_sampling_ping_sdk": ["presence_sampling_ping"] + ["esp_ping_get_profile"] * 4,
+            "csi_window_update": ["presence_sampling_window"],
+        }
+        def assembly(calls):
+            return "".join("1000 <" + caller + ">:\n" + "".join(
+                "  1000: 000000 call8 2000 <" + callee + ">\n" for callee in targets
+            ) for caller, targets in calls.items())
+        good = assembly(calls)
+        self.assertTrue(INSTRUMENT.require_sampling_observers(good)[
+            "all_four_native_sampling_call_paths_verified"])
+        for missing in calls:
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, "sampling"):
+                INSTRUMENT.require_sampling_observers(assembly({k:v for k,v in calls.items() if k != missing}))
+        bad = {**calls, "presence_sampling_ping_sdk": ["presence_sampling_ping", "esp_ping_get_profile"]}
+        with self.assertRaisesRegex(ValueError, "profile reads"):
+            INSTRUMENT.require_sampling_observers(assembly(bad))
+        # Correct callee name elsewhere cannot stand in for a missing call.
+        with self.assertRaises(ValueError):
+            INSTRUMENT.require_sampling_observers(good.replace("call8", "literal"))

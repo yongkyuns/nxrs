@@ -8,8 +8,9 @@ features, template/background training, and the vendor presence/motion FSM.
 It is not the production NuttX implementation or a Rust port of the vendor FSM.
 No vendor source is copied into Nxrs. ZIP digests are checked before extracting
 allowlisted files into ignored build output. Current builds insert hash-locked
-trace taps into staged radar source; sensing source and numerical archives
-remain unchanged. Taps are inactive outside the explicit trace case. Local CMake
+trace taps into staged radar source and sampling taps into the existing sensing
+ping callbacks. Numerical archives and vendor algorithm/timeout rules remain
+unchanged. Sampling taps are active only in the version-7 motion recording case. Local CMake
 registration replaces component-manager packaging helpers. Earlier physical
 results retain their original, uninstrumented source/image receipts.
 
@@ -627,3 +628,9 @@ Complete host replay and 33 failure-centered native calls reproduce the result;
 the cause of the feature drift remains unresolved. Movement was not requested,
 and the original camera firmware and playback were restored. Keep detection
 unqualified and investigate the saved inputs before another manual trial.
+
+
+The motion recording acknowledgement is now `record=csi_lab_v7
+model_owner=control_v1 motion=temporal_motion_v1`. It retains the same frozen
+policy while adding the [sampling interruption records](../../csi-lab/README.md#sampling-interruption-diagnostics).
+The historical `PRESENCE_RECORD` mode remains version 4 without sampling taps.

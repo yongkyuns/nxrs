@@ -335,7 +335,7 @@ class Client:
             )
             + (
                 (
-                    " record=csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1"
+                    " record=csi_lab_v7 model_owner=control_v1 motion=temporal_motion_v1"
                     if motion_case == "temporal-motion-v1"
                     else " record=csi_lab_v4 model_owner=control_v1"
                 )

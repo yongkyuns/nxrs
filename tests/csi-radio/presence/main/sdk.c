@@ -112,3 +112,17 @@ const uint32_t presence_trace_c_abi[14] = {
     offsetof(struct presence_trace_radio,observed_lo), offsetof(struct presence_trace_radio,observed_hi),
     WIFI_CSI_DATA_TYPE_INT8, WIFI_CSI_DATA_TYPE_INT16
 };
+
+#include "ping/ping_sock.h"
+/* Mechanical public-SDK profile translation. Counters update in the original
+ * callback before this tap. No send, timeout or model decision is replaced. */
+void presence_sampling_ping_sdk(void *handle, uint32_t outcome) {
+    if (!presence_sampling_active()) return;
+    uint16_t sequence = 0;
+    uint32_t elapsed = 0, sent = 0, received = 0;
+    int status = esp_ping_get_profile(handle, ESP_PING_PROF_SEQNO, &sequence, sizeof(sequence));
+    status |= esp_ping_get_profile(handle, ESP_PING_PROF_TIMEGAP, &elapsed, sizeof(elapsed));
+    status |= esp_ping_get_profile(handle, ESP_PING_PROF_REQUEST, &sent, sizeof(sent));
+    status |= esp_ping_get_profile(handle, ESP_PING_PROF_REPLY, &received, sizeof(received));
+    presence_sampling_ping(outcome, sequence, status, elapsed, sent, received);
+}

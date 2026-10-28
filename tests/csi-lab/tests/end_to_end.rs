@@ -1098,3 +1098,98 @@ fn complete_capture_exports_original_probe_inputs_and_retains_positive_and_fault
         }
     }
 }
+
+#[test]
+fn sampling_taps_replay_without_detector_admission_and_missing_is_unknown() {
+    use csi_lab_core::{
+        calibration::Config,
+        journal::{Record, SAMPLING},
+        recorder::Recorder,
+    };
+    let temp = Temp::new();
+    let recorder = Recorder::new();
+    assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 16));
+    let mut wire = Vec::new();
+    for (time, payload) in [
+        (1, [1, 1, 1, 1, 0, 2, 1, 1, 0, 0, 0, 0]),
+        (1_000_000, [1, 1, 2, 2, 0, 1000, 2, 1, 0, 0, 0, 0]),
+        (1_000_001, [1, 1, 2, 3, 0x102, 0, 0, 0, 0, 0, 0, 0]),
+        (
+            1_000_002,
+            [1, 2, 1, 10, 100, 0, 0, u32::MAX, 25_000, 20, 50_000, 0],
+        ),
+        (
+            1_000_003,
+            [1, 2, 2, 11, 200, 1, 100_000, 10_000, 25_000, 20, 50_000, 0],
+        ),
+        (
+            1_000_004,
+            [1, 2, 3, 12, 300, 10, 40_000, 10_000, 25_000, 20, 50_000, 0],
+        ),
+        (
+            1_000_005,
+            [1, 2, 4, 13, 400, 5, 20_000, 10_000, 25_000, 20, 50_000, 0],
+        ),
+    ] {
+        recorder.push(Record::new(SAMPLING, time, &payload).unwrap());
+    }
+    recorder.finish(1_000_006, &mut wire).unwrap();
+    let (path, result) = capture(&temp, &wire);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let a = run(&["sampling", &path]);
+    let b = run(&["sampling", &path]);
+    assert!(a.status.success());
+    assert_eq!(a.stdout, b.stdout);
+    let rows: Vec<Value> = String::from_utf8(a.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(rows[2]["profile_available"], false);
+    assert_eq!(rows[2]["elapsed_ms"], Value::Null);
+    assert_eq!(rows[2]["sent"], Value::Null);
+    assert_eq!(rows[3]["delta_us"], -1);
+    let summary = rows.last().unwrap();
+    assert_eq!(summary["ping_timeout_callbacks"], 2);
+    assert_eq!(summary["ping_reply_callbacks"], 1);
+    assert_eq!(summary["ping_profile_query_failures"], 1);
+    assert_eq!(summary["max_ping_wait_ms"], 1000);
+    assert_eq!(
+        summary["window_counts_timestamp_reset_sparse_flush_accepted_accumulating"],
+        json!([1, 1, 1, 1])
+    );
+    assert_eq!(summary["physical_detector_admitted"], false);
+    // Old captures without these taps cannot establish zero ping loss.
+    let fixture = run(&["fixture"]);
+    let old = Temp::new();
+    let (old_path, result) = capture(&old, &fixture.stdout);
+    assert!(result.status.success());
+    let old_result = run(&["sampling", &old_path]);
+    assert!(old_result.status.success());
+    let summary: Value = serde_json::from_slice(&old_result.stdout).unwrap();
+    assert_eq!(summary["ping_observed"], false);
+    assert_eq!(summary["max_ping_wait_ms"], Value::Null);
+    // A complete file with malformed fields fails, even with fresh valid CRCs.
+    let bad = Recorder::new();
+    assert!(bad.prepare(Config::EMPTY_HOLDOUT, 4));
+    bad.push(Record::new(SAMPLING, 1, &[1, 1, 2, 1, 0, 1000, 1, 2, 0, 0, 0, 0]).unwrap());
+    let mut wire = Vec::new();
+    bad.finish(2, &mut wire).unwrap();
+    let invalid = Temp::new();
+    let (bad_path, result) = capture(&invalid, &wire);
+    assert!(!result.status.success());
+    let result = run(&["sampling", &bad_path]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    // No partial diagnostic prefix from a truncated otherwise-valid recording.
+    let mut bytes = fs::read(&path).unwrap();
+    bytes.truncate(bytes.len() - 30);
+    fs::write(&path, bytes).unwrap();
+    let result = run(&["sampling", &path]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+}

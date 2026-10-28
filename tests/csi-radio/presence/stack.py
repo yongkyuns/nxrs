@@ -7,6 +7,9 @@ import re
 FRAME_LIMIT = 512
 REQUIRED = (
     "presence_lab_rf",
+    "presence_sampling_ping",
+    "presence_sampling_ping_sdk",
+    "presence_sampling_window",
     "csi_idf60_reference::lab::bytes",
     "csi_idf60_reference::lab::floats",
     "csi_lab_core::recorder::Lease::wander",
