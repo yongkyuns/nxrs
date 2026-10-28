@@ -25,8 +25,15 @@ class CandidateNativeTests(unittest.TestCase):
 
     def test_source_origin_cannot_drop_an_unresolved_advisory_or_invent_a_fixed_version(self):
         xml=self.xml_evidence();rows=candidate.source_findings(xml,'b'*40)
-        self.assertEqual(rows,[dict(source_component='expat',source_version='2.9.0',advisory='CVE-2025-66382',
-            applicability='unresolved',library_sha256='a'*64,reference='https://ubuntu.com/security/CVE-2025-66382')])
+        references={'CVE-2025-66382':'https://ubuntu.com/security/CVE-2025-66382',
+            'CVE-2026-113351':'https://github.com/libexpat/libexpat/pull/1431',
+            'CVE-2026-115506':'https://github.com/libexpat/libexpat/pull/1433'}
+        self.assertEqual(rows,[dict(source_component='expat',source_version='2.9.0',advisory=identity,
+            applicability='unresolved',library_sha256='a'*64,reference=reference) for identity,reference in references.items()])
+        for identity in references:
+            changed=copy.deepcopy(xml)
+            changed['qualification']['unresolved_published_advisories'].remove(identity)
+            with self.subTest(missing=identity),self.assertRaises(ValueError):candidate.source_findings(changed,'b'*40)
         for change in (lambda v:v['qualification'].update(unresolved_published_advisories=[]),
                        lambda v:v['proof'].update(library_sha256='c'*64),
                        lambda v:v['proof'].update(qualification_sha256='c'*64),

@@ -12,8 +12,8 @@ INPUTS=evidence.INPUTS
 def require(value,category):ubuntu.require(value,category)
 
 def policy(value):
-    require(set(value)=={'schema','scope','source','vendor_baseline','matched_distribution_advisories','documented_fix_releases','unresolved_published_advisories','upstream_issue','upstream_advisory_closure','full_native_advisory_closure','deployment_permitted'} and
-            type(value['schema']) is int and value['schema']==1 and value['scope']=='hosted-system-python-expat-candidate','reviewed-system-xml-policy')
+    require(set(value)=={'schema','scope','source','vendor_baseline','matched_distribution_advisories','additional_source_advisories','documented_fix_releases','unresolved_published_advisories','upstream_issue','upstream_advisory_closure','full_native_advisory_closure','deployment_permitted'} and
+            type(value['schema']) is int and value['schema']==2 and value['scope']=='hosted-system-python-expat-candidate','reviewed-system-xml-policy')
     p=value['source']
     require(set(p)=={'version','root','url','sha256','signature','key'} and
             set(p['signature'])=={'url','sha256'} and set(p['key'])=={'url','sha256','fingerprint','reference'},'exact-system-xml-source-policy')
@@ -32,8 +32,13 @@ def policy(value):
             baseline['sha256']=='286682ecbc5e59a638963b1a4e6351e65eb32fcf4bdcb9cb7569b6a61fe06a8d' and
             baseline['authenticated_source_reference']=='https://github.com/yongkyuns/nxrs/actions/runs/40317275553','reviewed-authenticated-system-xml-baseline')
     require(value['matched_distribution_advisories']==['CVE-2025-66382','CVE-2026-102633','CVE-2026-77214','CVE-2026-93990'],'exact-system-xml-distribution-records')
+    # These fixes are merged after the signed 2.9.0 release, not present in it.
+    # Keep primary upstream references distinct from the frozen distro matches.
+    require(value['additional_source_advisories']=={
+        'CVE-2026-113351':dict(reference='https://github.com/libexpat/libexpat/pull/1431',fix_commit='d8f31e647a4d1eda088e89354f4769b0dad303d3'),
+        'CVE-2026-115506':dict(reference='https://github.com/libexpat/libexpat/pull/1433',fix_commit='c30145b28632b31f805d57f9838ba36b8db99367')},'reviewed-unreleased-system-xml-fixes')
     require(value['documented_fix_releases']=={'CVE-2026-102633':'2.9.0','CVE-2026-77214':'2.9.0','CVE-2026-93990':'2.8.5'} and
-            value['unresolved_published_advisories']==['CVE-2025-66382'],'unresolved-system-xml-record-retained')
+            value['unresolved_published_advisories']==['CVE-2025-66382','CVE-2026-113351','CVE-2026-115506'],'unresolved-system-xml-record-retained')
     require(value['upstream_issue']==dict(url='https://api.github.com/repos/libexpat/libexpat/issues/1160',reference='https://github.com/libexpat/libexpat/issues/1160'),'independent-system-xml-upstream-status')
     require(all(value[k] is False for k in ('upstream_advisory_closure','full_native_advisory_closure','deployment_permitted')),'no-system-xml-closure-override')
     return value

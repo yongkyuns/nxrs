@@ -34,7 +34,7 @@ class ServiceBootTests(unittest.TestCase):
                 clip_sha256='2'*64,clip_bytes=2000,decoded_frames=16,denial_sha256='3'*64,guest_proxy_abi=copy.deepcopy(abi),
                 guest_xml_abi=dict(schema=1,scope=boot.xml.SCOPE,proof=copy.deepcopy(plan['system_xml_runtime']),
                     probe_sha256='6'*64,current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
-                    unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False),
+                    unresolved_published_advisories=['CVE-2025-66382','CVE-2026-113351','CVE-2026-115506'],full_native_advisory_closure=False,deployment_permitted=False),
                 all_cgroups_joined=True,runtime_bind_readonly_same_images=True,runtime_bind_joined=True,proxy_store_exec_readonly=True,proxy_store_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,ledger_committed=True,
                 production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,power_loss_qualified=False,
                 physical_qualified=False,verified_boot_chain_qualified=False,protected_rollback_qualified=False,fips_validated=False,

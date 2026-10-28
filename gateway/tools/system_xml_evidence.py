@@ -77,7 +77,8 @@ def validate(value,root,head):
     require(value['published_fixes']==policy['documented_fix_releases'] and
             value['unresolved_published_advisories']==policy['unresolved_published_advisories'] and
             not set(value['published_fixes'])&set(value['unresolved_published_advisories']) and
-            set(value['published_fixes'])|set(value['unresolved_published_advisories'])==set(policy['matched_distribution_advisories']),'published-and-unresolved-system-xml-records')
+            set(value['published_fixes'])|set(value['unresolved_published_advisories'])==
+            set(policy['matched_distribution_advisories'])|set(policy['additional_source_advisories']),'published-and-unresolved-system-xml-records')
     review=value['upstream_reports']
     require(set(review)=={'reference','state','updated_at','body_sha256','unchecked_items','unchecked_items_are_not_vulnerability_count'} and
             review['reference']==policy['upstream_issue']['reference'] and review['state'] in ('open','closed') and

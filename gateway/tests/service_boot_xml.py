@@ -34,6 +34,6 @@ def validate(value,plan):
         value['scope']==SCOPE,'exact-guest-xml-report')
     require(value['proof']==validate_plan(plan) and value['probe_sha256']==plan['files'][str(PROBE)],'same-guest-xml-images')
     require(all(value[k] is True for k in ('current_python_exact_image','c_abi_qualified','wrong_image_refused')) and
-        value['unresolved_published_advisories']==['CVE-2025-66382'] and
+        value['unresolved_published_advisories']==['CVE-2025-66382','CVE-2026-113351','CVE-2026-115506'] and
         value['full_native_advisory_closure'] is value['deployment_permitted'] is False,'qualified-guest-xml-scope')
     return value

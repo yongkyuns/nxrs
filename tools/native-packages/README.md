@@ -538,8 +538,15 @@ is uploaded after successful component checks. Failure diagnostics expose only
 bounded public source coordinates and fixed error classes.
 
 The pinned release changelog documents fixes for CVE-2026-102633, CVE-2026-77214 and
-CVE-2026-93990. It does not establish a fix for CVE-2025-66382, which is retained
-explicitly as unresolved. The current upstream issue also records unresolved
+CVE-2026-93990. It does not establish a fix for CVE-2025-66382, CVE-2026-113351 or
+CVE-2026-115506, which are retained explicitly as unresolved. The latter two
+have merged upstream fixes in [#1431](https://github.com/libexpat/libexpat/pull/1431)
+and [#1433](https://github.com/libexpat/libexpat/pull/1433), after the pinned
+2.9.0 release. Policy schema 2 records those exact fix commits and primary
+references separately from the earlier matched distribution records. A merged
+fix is not evidence that the signed release contains it; the existing source,
+signature and key pins remain unchanged. A later release requires its own
+review and qualification. The current upstream issue also records unresolved
 reports; its checkbox count is not a confirmed vulnerability count. A passing
 source/ABI/Python receipt keeps its upstream advisory gate, whole-native closure,
 installed Ubuntu-package remediation, already-running processes, custom gateway
@@ -553,8 +560,9 @@ child's successful receipt alone cannot admit an old or mixed current mapping.
 The source-built image retains its source identity in the full native inventory.
 
 Candidate schema 2 keeps distribution advisory results separate from explicitly
-unresolved source findings. CVE-2025-66382 remains attached to the actual Expat
-source version and image hash; dropping the Ubuntu package from the executed
+unresolved source findings. All three reviewed unresolved advisories remain
+attached to the actual Expat source version and image hash; dropping the Ubuntu
+package from the executed
 graph cannot remove that finding. Even a clean distribution subset cannot admit
 this unresolved source image. Distribution payload schema 2 carries the same
 finding and component-receipt digest, verifies the current XML image before and

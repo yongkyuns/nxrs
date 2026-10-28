@@ -18,7 +18,7 @@ class ServiceBootXmlTests(unittest.TestCase):
     def receipt(self):
         return dict(schema=1,scope=xml.SCOPE,proof=self.plan()['system_xml_runtime'],probe_sha256='d'*64,
             current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
-            unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False)
+            unresolved_published_advisories=['CVE-2025-66382','CVE-2026-113351','CVE-2026-115506'],full_native_advisory_closure=False,deployment_permitted=False)
 
     def test_mixed_parent_library_and_probe_or_missing_execution_cannot_qualify(self):
         value=self.receipt();xml.validate(value,self.plan())

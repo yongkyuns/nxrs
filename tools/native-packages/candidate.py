@@ -108,9 +108,12 @@ def source_findings(value,head):
     q=validate_xml_runtime(value,head)
     # Ubuntu's package version ranges cannot adjudicate this custom source.
     # Preserve every explicitly unresolved record against the actual image.
+    policy=xml.parse((ROOT/xml.POLICY).read_bytes())
+    additional=policy['additional_source_advisories']
     return [dict(source_component='expat',source_version=q['source']['version'],advisory=identity,
         applicability='unresolved',library_sha256=q['library_sha256'],
-        reference='https://ubuntu.com/security/'+identity) for identity in q['unresolved_published_advisories']]
+        reference=additional[identity]['reference'] if identity in additional else 'https://ubuntu.com/security/'+identity)
+        for identity in q['unresolved_published_advisories']]
 
 
 def validate_advisory_result(value,head):

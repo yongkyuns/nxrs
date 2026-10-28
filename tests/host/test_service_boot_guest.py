@@ -218,7 +218,7 @@ class ServiceBootGuestTests(unittest.TestCase):
             str(guest.xml.LIBRARY):'5'*64,str(guest.xml.PROBE):'6'*64})
         xml_receipt=dict(schema=1,scope=guest.xml.SCOPE,proof=proof,probe_sha256='6'*64,
             current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
-            unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False)
+            unresolved_published_advisories=['CVE-2025-66382','CVE-2026-113351','CVE-2026-115506'],full_native_advisory_closure=False,deployment_permitted=False)
         (base/('xml-'+case+'.json')).write_bytes(guest.b.encoded(xml_receipt))
         prior=dict(nonce=plan['nonce'],sequence=guest.CASES.index(case),boot_id_sha256='e'*64,machine_id_sha256=guest.sha(machine),
             clip_sha256=guest.sha(clip),denial_sha256=guest.sha(denial))

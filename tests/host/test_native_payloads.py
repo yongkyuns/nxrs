@@ -56,7 +56,7 @@ class NativePayloadTests(unittest.TestCase):
                 with self.assertRaisesRegex(p.u.Refusal,'native-payload-bytes'):p.run(receipt,work,report)
             result=json.loads(report.read_bytes())
             self.assertFalse(result['qualified']);self.assertEqual(result['verification_status'],'failed')
-            self.assertEqual(result['failure_category'],'native-payload-bytes');self.assertEqual(result['advisory_findings'],2)
+            self.assertEqual(result['failure_category'],'native-payload-bytes');self.assertEqual(result['advisory_findings'],4)
             self.assertEqual(result['distribution_advisory_findings'],1);self.assertEqual(result['source_advisory_findings'],parent['source_advisory_findings'])
             for name in ['distribution_payloads_authenticated','package_payload_authenticated','advisory_gate_qualified','deployment_permitted']:
                 self.assertIs(result[name],False)
@@ -80,7 +80,7 @@ class NativePayloadTests(unittest.TestCase):
                 result=json.loads(report.read_bytes())
                 self.assertIs(result['qualified'],not changed);self.assertIs(result['distribution_payloads_authenticated'],not changed)
                 self.assertIs(result['advisory_gate_qualified'],False);self.assertIs(result['distribution_advisory_gate_qualified'],True)
-                self.assertEqual(result['source_advisory_findings'],parent['source_advisory_findings']);self.assertEqual(result['advisory_findings'],1)
+                self.assertEqual(result['source_advisory_findings'],parent['source_advisory_findings']);self.assertEqual(result['advisory_findings'],3)
                 if changed:self.assertEqual(result['failure_category'],'unchanged-payload-system-xml')
 
     def test_pending_candidate_cannot_start_a_payload_assessment(self):

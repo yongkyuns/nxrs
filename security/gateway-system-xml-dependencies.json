@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "scope": "hosted-system-python-expat-candidate",
   "source": {
     "version": "2.9.0",
@@ -31,12 +31,22 @@
     "CVE-2026-77214",
     "CVE-2026-93990"
   ],
+  "additional_source_advisories": {
+    "CVE-2026-113351": {
+      "reference": "https://github.com/libexpat/libexpat/pull/1431",
+      "fix_commit": "d8f31e647a4d1eda088e89354f4769b0dad303d3"
+    },
+    "CVE-2026-115506": {
+      "reference": "https://github.com/libexpat/libexpat/pull/1433",
+      "fix_commit": "c30145b28632b31f805d57f9838ba36b8db99367"
+    }
+  },
   "documented_fix_releases": {
     "CVE-2026-102633": "2.9.0",
     "CVE-2026-77214": "2.9.0",
     "CVE-2026-93990": "2.8.5"
   },
-  "unresolved_published_advisories": ["CVE-2025-66382"],
+  "unresolved_published_advisories": ["CVE-2025-66382", "CVE-2026-113351", "CVE-2026-115506"],
   "upstream_issue": {
     "url": "https://api.github.com/repos/libexpat/libexpat/issues/1160",
     "reference": "https://github.com/libexpat/libexpat/issues/1160"

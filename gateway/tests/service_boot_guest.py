@@ -378,7 +378,7 @@ def qualify_xml(plan):
     require(raw.strip()==b'EXPAT_2_9_0_ABI_AND_LOADER_OK' and current_xml(plan)==proof,'actual-guest-xml-abi')
     value=dict(schema=1,scope=xml.SCOPE,proof=proof,probe_sha256=digest(xml.PROBE),
         current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
-        unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False)
+        unresolved_published_advisories=['CVE-2025-66382','CVE-2026-113351','CVE-2026-115506'],full_native_advisory_closure=False,deployment_permitted=False)
     return xml.validate(value,plan)
 
 def prepare(case,plan):

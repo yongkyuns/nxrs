@@ -125,6 +125,26 @@ print('PASS: fresh reviewed signed-source imports only')
         for value in (raw.replace(b'Release 2.9.0',b'Release 2.9.1'),raw.replace(b'Security fixes:',b'Bug fixes:'),raw.replace(b'CVE-2026-93990',b'other')):
             with self.assertRaises(ValueError):build.published_fixes(value,self.pin()['documented_fix_releases'])
 
+    def test_merged_upstream_fixes_remain_unresolved_for_the_signed_release(self):
+        pin=self.pin();build.policy(pin)
+        additional={
+            'CVE-2026-113351':dict(reference='https://github.com/libexpat/libexpat/pull/1431',fix_commit='d8f31e647a4d1eda088e89354f4769b0dad303d3'),
+            'CVE-2026-115506':dict(reference='https://github.com/libexpat/libexpat/pull/1433',fix_commit='c30145b28632b31f805d57f9838ba36b8db99367')}
+        self.assertEqual(pin['additional_source_advisories'],additional)
+        self.assertEqual(pin['matched_distribution_advisories'],['CVE-2025-66382','CVE-2026-102633','CVE-2026-77214','CVE-2026-93990'])
+        self.assertEqual(pin['unresolved_published_advisories'],['CVE-2025-66382',*additional])
+        for identity in additional:
+            changes=[lambda v:v['additional_source_advisories'].pop(identity),
+                lambda v:v['additional_source_advisories'][identity].update(fix_commit='f'*40),
+                lambda v:v['additional_source_advisories'][identity].update(reference='https://unreviewed.invalid/fix'),
+                lambda v:v['unresolved_published_advisories'].remove(identity),
+                lambda v:v['documented_fix_releases'].update({identity:'2.9.0'})]
+            for change in changes:
+                changed=copy.deepcopy(pin);change(changed)
+                with self.subTest(advisory=identity),self.assertRaises(ValueError):build.policy(changed)
+            receipt=self.receipt();receipt['unresolved_published_advisories'].remove(identity)
+            with self.assertRaises(ValueError):evidence.validate(receipt,ROOT,'b'*40)
+
     def test_upstream_unresolved_items_are_recorded_without_becoming_clean_or_confirmed_counts(self):
         pin=self.pin()['upstream_issue'];v=dict(number=1160,html_url=pin['reference'],state='open',updated_at='2026-10-26T00:00:00Z',body='- [ ] non-public pending\n- [x] fixed\n')
         result=build.upstream_status(json.dumps(v).encode(),pin)
