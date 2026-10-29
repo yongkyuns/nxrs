@@ -110,6 +110,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': not bool(tls_camera_source),
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
                 'publisher_token_file': str(root/'publisher.token'), 'ffmpeg': shutil.which('ffmpeg'),
+                'publisher': str(ingest.with_name('nxrs-rtsp-publisher')),
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
             }
             if tls_camera_source:
@@ -161,7 +162,11 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                 a, b = await connect(), await connect()
                 counters = await source.command('status')
                 validate_viewer_sharing(source_before_viewers, counters)
-                child_before = children(adapter); require(len(child_before) == (2 if detections else 1), 'exactly one encoder plus optional copy publisher owned')
+                child_before = children(adapter); require(len(child_before) == 2, 'one encoder and credentialed publisher owned')
+                for pid in child_before:
+                    for field in ['cmdline', 'environ']:
+                        require(tokens['publisher'].encode() not in Path(f'/proc/{pid}/{field}').read_bytes(),
+                                'publisher secret absent from child arguments/environment')
                 if service:
                     service.assert_sandbox()
                     print('PASS: generated ingest and encoder share an unprivileged bounded service cgroup', flush=True)
@@ -183,7 +188,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                 require(c.count >= 5 and counters['connections'] >= 2
                         and counters['active'] == 1 and counters['peak'] == 1,
                         'new capture sequence epoch restored with one admitted source')
-                require(len(children(adapter)) == (2 if detections else 1), 'recovery owns one encoder plus optional copy publisher')
+                require(len(children(adapter)) == 2, 'recovery owns one encoder and publisher')
                 print('PASS: new source sequence epoch restores decoded video without overlapping source admissions', flush=True)
                 child_before = children(adapter)
                 adapter.terminate(); await asyncio.to_thread(adapter.wait, timeout=12)
@@ -208,7 +213,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                     service.start(); await until(publishing, 'manual recovery after ingest crash')
                     await connect()
                     old_pids = service.group_pids()
-                    require(len(old_pids) == (3 if detections else 2), 'recovered service owns exactly the configured process group')
+                    require(len(old_pids) == 3, 'recovered service owns exactly the configured process group')
                     service.stop_dependency()
                     await until(group_empty, 'dependency stop retires all ingest processes', seconds=15)
                     await until(disconnected, 'dependency stop releases source', seconds=5)

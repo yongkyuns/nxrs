@@ -52,7 +52,10 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
       - name: TLS process controls and synthetic-media reference tools
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh ffmpeg
+          bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
+          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
+          cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher --all-targets -- -D warnings
           python3 gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest \
             --camera-source target/device-tls/debug/tls-endpoint
           python3 -m venv /tmp/nxrs-ingest-test
@@ -67,6 +70,16 @@ jobs:
           PY
           mkdir /tmp/nxrs-ingest-mediamtx
           tar -xzf /tmp/nxrs-ingest-mediamtx.tar.gz -C /tmp/nxrs-ingest-mediamtx mediamtx
+          cc -shared -fPIC gateway/tests/native/publisher_no_decoder.c $(pkg-config --cflags --libs libavcodec) -ldl -o /tmp/nxrs-publisher-no-decoder.so
+          cc gateway/tests/native/publisher_decoder_control.c $(pkg-config --cflags --libs libavcodec) -o /tmp/nxrs-publisher-decoder-control
+          /tmp/nxrs-publisher-decoder-control
+          set +e
+          LD_PRELOAD=/tmp/nxrs-publisher-no-decoder.so /tmp/nxrs-publisher-decoder-control
+          result=$?
+          set -e
+          test "$result" = 91
+          python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher \
+            --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-no-decoder.so
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \

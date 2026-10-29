@@ -41,9 +41,10 @@ jobs:
             :app:assembleRelease :app:lintDebug
       - name: Prepare independent real camera and gateway publications
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh ffmpeg
+          bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
           rustup toolchain install 1.90.0 --profile minimal
           cargo build --manifest-path gateway/Cargo.toml --release --locked
+          cargo build --manifest-path gateway/Cargo.toml --release --locked -p nxrs-rtsp-publisher
           python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-client-camera
           python3 - <<'PY'
           import hashlib,json,pathlib,urllib.request

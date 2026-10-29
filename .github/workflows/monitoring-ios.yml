@@ -43,6 +43,7 @@ jobs:
           rustup toolchain install 1.90.0 --profile minimal
           (cd gateway && cargo build --release --locked)
           if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
+          FFMPEG_DIR="$(brew --prefix ffmpeg)" cargo build --manifest-path gateway/Cargo.toml --release --locked -p nxrs-rtsp-publisher
           ffmpeg -version | head -n 3
           python3 - <<'PY'
           import hashlib, json, pathlib, platform, urllib.request

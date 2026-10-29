@@ -31,7 +31,8 @@ jobs:
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh ffmpeg nginx wireguard-tools nftables iproute2
+          bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config nginx wireguard-tools nftables iproute2
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           python3 -m venv /tmp/nxrs-combined-test
           /tmp/nxrs-combined-test/bin/pip install -r gateway/tests/media-requirements.txt
           systemctl --version | head -n 1

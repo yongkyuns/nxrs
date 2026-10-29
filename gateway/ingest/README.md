@@ -2,7 +2,7 @@
 
 This separate Rust process consumes the **existing** `service/stream` one-viewer
 `GET /stream` feed, validates its bounded frame envelope, and sends JPEGs to a
-supervised FFmpeg H.264 encoder publishing to local MediaMTX. The control API
+supervised FFmpeg H.264 encoder and SDK publisher sending to local MediaMTX. The control API
 never carries pixels. No camera HAL, acquisition owner or frame ABI is changed.
 
 The device contract is HTTP/1.1 multipart boundary `nxrs-frame`, image/jpeg,
@@ -16,6 +16,7 @@ Build in the independent `gateway/` workspace:
 
 ```sh
 cargo build --locked -p nxrs-camera-ingest
+cargo build --locked -p nxrs-rtsp-publisher
 cargo test --locked -p nxrs-camera-ingest
 ```
 
@@ -32,6 +33,7 @@ matching gateway publisher enrollment; do not probe/flash a device to guess them
   "publisher_user": "publisher_reference",
   "publisher_token_file": "/etc/nxrs-monitor/publisher.token",
   "ffmpeg": "/usr/bin/ffmpeg",
+  "publisher": "/usr/local/libexec/nxrs-rtsp-publisher",
   "width": 640,
   "height": 480,
   "frame_timeout_ms": 3000
@@ -111,7 +113,7 @@ remains in #37. This does not make the full system production-qualified.
 
 ## Bounds, freshness and lifecycle
 
-One source socket and one encoder exist per attempt. The adapter holds a fixed
+One source socket, one encoder and one publisher exist per attempt. The adapter holds a fixed
 153,600-byte payload, 8 KiB input buffer, bounded HTTP/part headers (4/1 KiB), and
 bounded progress lines. A deadline covers the entire next frame and pipe write;
 partial progress cannot reset it. Relative arrival backlog over one second,
@@ -125,7 +127,7 @@ FFmpeg decodes images, and integration receivers separately verify actual output
 
 Encoder progress has a ten-second startup limit and a bounded later no-progress
 limit. Stalls, malformed frames, blocked pipes, encoder failure or publication
-failure close the source and kill/reap the encoder before reconnect. There is no
+failure close the source and kill/reap both children before reconnect. There is no
 image looping/constant-rate duplication. Retry backoff is one to eight seconds,
 reset after 30 healthy seconds. Reaping failure stops ingest rather than creating
 more children. SIGINT/SIGTERM close/reap cleanly; standalone SIGKILL cannot promise
@@ -194,8 +196,10 @@ trusted isolated LAN. The phone VPN does not protect this distinct link. Secure
 device ingestion requires qualified device-side TLS. Config/token files reject
 public modes, final symlinks/hardlinks and oversized input; parent directories
 must remain trusted. No shell is invoked and child logs never expose secrets.
-FFmpeg still has the loopback publisher credential in argv, visible to trusted
-host process observers. A credential-safe encoder interface is not delivered.
+The [Rust SDK publisher](../publisher/README.md) receives its token over a private
+pipe. The encoder receives no token in argv, environment or media input. Both
+children are joined before reconnect. Shared-UID credential-file access and
+native memory copies remain separate isolation/custody limitations.
 
 The runner's FFmpeg version is recorded, not a pinned commercial encoder image.
 Keep codec/license/security review, source-health observations, long-duration

@@ -53,12 +53,15 @@ class ManagedIngest:
         shutil.copyfile(binary, self.root/'bin/ingest')
         (self.root/'bin/ingest').chmod(0o755)
         config = json.loads((self.root/'ingest.json').read_text())
+        shutil.copyfile(config['publisher'], self.root/'bin/publisher')
+        (self.root/'bin/publisher').chmod(0o755)
+        config['publisher'] = str(self.root/'bin/publisher')
         self.tls_files = {}
         if config.get('camera_tls'):
             for field, name in ingest_service.TLS_FILES.items():
                 self.tls_files[name] = Path(config['camera_tls'][field])
                 config['camera_tls'][field] = f'/run/{self.name}/{name}'
-        self.expected_processes = 3 if config.get('detections') else 2
+        self.expected_processes = 3
         config['publisher_token_file'] = f'/run/{self.name}/publisher.token'
         (self.root/'ingest.json').write_text(json.dumps(config))
 

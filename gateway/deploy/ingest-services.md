@@ -71,6 +71,8 @@ nxrs-camera-ingest` from `gateway/`. Install that binary as
 users. Install a reviewed FFmpeg build with its `libx264` encoder at
 `/usr/bin/ffmpeg`; the hosted test's Ubuntu package is not a pinned commercial
 redistribution. Keep dependency/license review in the release checklist.
+Build and install the [SDK publisher](../publisher/README.md) at
+`/usr/local/libexec/nxrs-rtsp-publisher`, also root-owned and not service-writable.
 
 In addition to the strict-profile files, install `ingest.json` as
 `/etc/nxrs-monitor/ingest.json` with mode 0600/root ownership, and the unit as
@@ -86,13 +88,15 @@ implemented by this file renderer.
 
 ## Failure behavior
 
-Ingest and FFmpeg share one unprivileged systemd cgroup, including the inherited
+Ingest, encoder and native publisher share one unprivileged systemd cgroup, including the inherited
 256 MiB memory limit and 128-task ceiling. No capabilities, Netlink, persistent
 state access or management credential are added. Immutable loaded credentials
 are staged into 0600 files in its private runtime directory; this preserves the
-Rust ordinary-file permission checks. The publisher password still appears in
-FFmpeg's loopback RTSP argv; the trusted local administrator/process-observer
-boundary remains a production limitation, not a solved credential-isolation claim.
+Rust ordinary-file permission checks. Only the publisher pipe receives the token;
+neither child argv nor environment contains it. Install the reviewed
+`nxrs-rtsp-publisher` helper at the config's explicit absolute `publisher` path.
+These processes still share a UID: this change does not prevent a compromised
+encoder from reading that UID's credential files or process memory.
 
 Source/network/encoder faults normally use the adapter's bounded reconnect loop.
 If the adapter itself dies, `KillMode=control-group` and `SendSIGKILL=yes` retire
@@ -131,8 +135,8 @@ Python imitation when real source compilation fails.
 The normal test verifies real server framing, one admitted source connection for
 two decoded viewers, stall teardown, new sequence epoch and graceful cleanup.
 The optional `--systemd` test refuses non-GitHub-hosted machines, starts the
-rendered ingest sandbox, checks both process privileges/cgroup limits, kills only
-the ingest main process, and checks encoder disappearance, source disconnection,
+rendered ingest sandbox, checks all three process privileges/cgroup limits, kills only
+the ingest main process, and checks both children disappear, source disconnection,
 video cessation and explicit recovery. Its control/network dependency units are
 disposable stubs; actual controller lifetime/revocation is tested separately by
 `systemd_reference.py`. Neither component test is the combined full deployment
