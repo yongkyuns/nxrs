@@ -42,7 +42,7 @@ impl Camera for Source {
     }
 }
 pub fn run(directory: PathBuf, age: u64) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let root = directory.clone();
     let mut live = LiveCamera::<_, 16384, _>::new_tls(
