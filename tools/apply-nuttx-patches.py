@@ -89,6 +89,7 @@ SERIES = {
         "0090-rp23xx-rng-bounded-failure.patch",
         "0091-arc4random-fail-closed.patch",
         "0092-sim-host-random.patch",
+        "0093-esp32s3-guard-rf-entropy.patch",
     ),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
@@ -98,6 +99,7 @@ SERIES = {
     "esp-hal-3rdparty": (
         "0001-mbedtls-pair-configured-allocators.patch",
         "0002-intr-alloc-pair-capability-allocators.patch",
+        "0003-esp32s3-serialize-wifi-phy-state.patch",
     ),
     "rust-llvm": (
         "0001-Xtensa-custom-lower-i32-rotates.patch",

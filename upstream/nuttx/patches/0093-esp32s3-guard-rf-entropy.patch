@@ -1,0 +1,204 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: guard RF entropy and bound random-device reads
+
+Use the pinned SDK PHY mutex through sampling, refuse uninitialized, sleeping
+or busy Wi-Fi entropy, and leave unsupported PM/SMP configurations closed.
+Keep the raw urandom interface distinct and honor nonblocking lock acquisition.
+A read copies at most 32 bytes; the vendor sampling cadence is unchanged.
+This is not physical entropy, latency or health qualification.
+
+--- a/arch/xtensa/src/esp32s3/esp32s3_rng.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_rng.c
+@@ -45,8 +45,11 @@
+ #include "hardware/wdev_reg.h"
+ #include "esp_clk.h"
+ 
+ #include "esp_random.h"
++#ifdef CONFIG_ESPRESSIF_WIFI
++#  include "esp_private/phy.h"
++#endif
+ 
+ #if defined(CONFIG_ESP32S3_RNG)
+ #if defined(CONFIG_DEV_RANDOM) || defined(CONFIG_DEV_URANDOM_ARCH)
+ 
+@@ -62,9 +65,8 @@
+  ****************************************************************************/
+ 
+ struct rng_dev_s
+ {
+-  uint8_t *rd_buf;
+   mutex_t  rd_lock;        /* mutex for read RNG data */
+ };
+ 
+ /****************************************************************************
+@@ -74,8 +76,18 @@
+ static struct rng_dev_s g_rngdev =
+ {
+   .rd_lock = NXMUTEX_INITIALIZER,
+ };
++
++static ssize_t esp32s3_trng_read(struct file *filep, char *buffer,
++                                 size_t buflen);
++
++#ifdef CONFIG_DEV_RANDOM
++static const struct file_operations g_trngops =
++{
++  .read = esp32s3_trng_read,
++};
++#endif
+ 
+ static const struct file_operations g_rngops =
+ {
+   .read = esp32s3_rng_read,       /* read */
+@@ -104,34 +116,68 @@
+ static ssize_t esp32s3_rng_read(struct file *filep, char *buffer,
+                                 size_t buflen)
+ {
+   struct rng_dev_s *priv = (struct rng_dev_s *)&g_rngdev;
+-  ssize_t read_len;
+-  uint8_t *rd_buf = (uint8_t *)buffer;
+-
+-  if (nxmutex_lock(&priv->rd_lock) != OK)
+-    {
+-      return -EBUSY;
+-    }
+-
+-  read_len = buflen;
+-
+-  /* Wait until the buffer is filled */
+-
+-  while (buflen > 0)
+-    {
+-      uint32_t word = esp_random();
+-      uint32_t to_copy = MIN(sizeof(word), buflen);
+-
+-      memcpy(rd_buf, &word, to_copy);
+-      rd_buf += to_copy;
+-      buflen -= to_copy;
+-    }
+-
+-  /* Release rd_lock for next read */
+-
++  size_t count = MIN(buflen, 32);
++  int ret;
++
++  if (count == 0)
++    {
++      return 0;
++    }
++
++  ret = (filep->f_oflags & O_NONBLOCK) != 0 ?
++        nxmutex_trylock(&priv->rd_lock) : nxmutex_lock(&priv->rd_lock);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  esp_fill_random(buffer, count);
+   nxmutex_unlock(&priv->rd_lock);
+-  return read_len;
++  return count;
++}
++
++/* /dev/random requires active RF entropy.  /dev/urandom retains the legacy
++ * raw RNG interface, which is not a qualified cryptographic source at boot.
++ */
++
++static ssize_t esp32s3_trng_read(struct file *filep, char *buffer,
++                                 size_t buflen)
++{
++#if defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_SMP) && \
++    !defined(CONFIG_PM) && !defined(CONFIG_ESP32S3_AUTO_SLEEP)
++  _lock_t lock;
++  ssize_t ret = -EAGAIN;
++
++  if (buflen == 0)
++    {
++      return 0;
++    }
++
++  /* Do not lazily initialize/allocate the SDK lock before PHY startup. */
++
++  lock = phy_get_lock();
++  if (lock == NULL || _lock_try_acquire(&lock) != 0)
++    {
++      return -EAGAIN;
++    }
++
++  /* The same mutex covers esp_phy_enable/disable, including modem sleep.
++   * Keep it through the last sample; do not take ownership of a modem bit.
++   */
++
++  if ((phy_get_modem_flag() & PHY_MODEM_WIFI) != 0)
++    {
++      ret = MIN(buflen, 32);
++      esp_fill_random(buffer, ret);
++    }
++
++  _lock_release(&lock);
++  return ret;
++#else
++  return buflen == 0 ? 0 : -ENOTSUP;
++#endif
+ }
+ 
+ /****************************************************************************
+  * Public Functions
+@@ -154,9 +200,9 @@
+ 
+ #ifdef CONFIG_DEV_RANDOM
+ void devrandom_register(void)
+ {
+-  register_driver("/dev/random", &g_rngops, 0444, NULL);
++  register_driver("/dev/random", &g_trngops, 0444, NULL);
+ }
+ #endif
+ 
+ /****************************************************************************
+
+--- a/arch/xtensa/src/esp32s3/esp32s3_wifi_adapter.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_wifi_adapter.c
+@@ -1923,10 +1923,10 @@
+  * Name: esp_phy_enable_wrapper
+  *
+  * Description:
+  *   This is a wrapper for enabling the ESP PHY. It calls the esp_phy_enable
+- *   function with PHY_MODEM_WIFI as the argument, and then calls the
+- *   phy_wifi_enable_set function with 1 as the argument.
++ *   function with PHY_MODEM_WIFI as the argument. Wi-Fi hardware state is
++ *   changed inside the SDK PHY lock.
+  *
+  * Input Parameters:
+  *   None
+  *
+@@ -1937,18 +1937,16 @@
+ 
+ static void esp_phy_enable_wrapper(void)
+ {
+   esp_phy_enable(PHY_MODEM_WIFI);
+-  phy_wifi_enable_set(1);
+ }
+ 
+ /****************************************************************************
+  * Name: esp_phy_disable_wrapper
+  *
+  * Description:
+- *   This is a wrapper for disabling the ESP PHY. It first calls the
+- *   phy_wifi_enable_set function with 0 as the argument, and then calls the
+- *   esp_phy_disable function with PHY_MODEM_WIFI as the argument.
++ *   This calls esp_phy_disable with PHY_MODEM_WIFI. The SDK serializes
++ *   the Wi-Fi hardware bit and RF shutdown with entropy sampling.
+  *
+  * Input Parameters:
+  *   None
+  *
+@@ -1958,9 +1956,8 @@
+  ****************************************************************************/
+ 
+ static void esp_phy_disable_wrapper(void)
+ {
+-  phy_wifi_enable_set(0);
+   esp_phy_disable(PHY_MODEM_WIFI);
+ }
+ 
+ /****************************************************************************

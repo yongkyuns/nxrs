@@ -1,0 +1,127 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: serialize Wi-Fi hardware state with PHY power
+
+NuttX previously changed the Wi-Fi hardware bit outside the PHY mutex. Move
+that same operation into the existing SDK critical region so a random-device
+reader holding phy_get_lock() cannot race the first step of RF shutdown.
+The NuttX callback wrappers no longer issue these operations separately.
+
+--- a/components/esp_phy/src/phy_init.c
++++ b/components/esp_phy/src/phy_init.c
+@@ -317,106 +317,116 @@
+ void esp_phy_enable(esp_phy_modem_t modem)
+ {
+     _lock_acquire(&s_phy_access_lock);
+     if (phy_get_modem_flag() == 0) {
+ #if CONFIG_IDF_TARGET_ESP32
+         // Update time stamp
+         s_phy_rf_en_ts = esp_timer_get_time();
+         // Update WiFi MAC time before WiFi/BT common clock is enabled
+         phy_update_wifi_mac_time(false, s_phy_rf_en_ts);
+ #endif
+         esp_phy_common_clock_enable();
+         phy_module_enable();
+         assert(phy_module_has_clock_bits(PHY_INIT_MODEM_CLOCK_REQUIRED_BITS));
+         if (s_is_phy_calibrated == false) {
+             esp_phy_load_cal_and_init();
+             s_is_phy_calibrated = true;
+         } else {
+ #if SOC_PM_SUPPORT_PMU_MODEM_STATE && CONFIG_ESP_WIFI_ENHANCED_LIGHT_SLEEP
+             if (!pm_mac_modem_rf_already_enabled()) {
+                 if (sleep_modem_wifi_modem_state_enabled() && sleep_modem_wifi_modem_link_done()) {
+                     sleep_modem_wifi_do_phy_retention(true);
+                 } else {
+                     phy_wakeup_init();
+                 }
+             } else {
+                 phy_wakeup_from_modem_state_extra_init();
+             }
+ #else
+             phy_wakeup_init();
+ #endif /* SOC_PM_SUPPORT_PMU_MODEM_STATE && CONFIG_ESP_WIFI_ENHANCED_LIGHT_SLEEP */
+ 
+ #if SOC_PM_MODEM_RETENTION_BY_BACKUPDMA
+             phy_digital_regs_load();
+ #endif
+ 
+ #if CONFIG_ESP_PHY_IMPROVE_RX_11B
+             phy_improve_rx_special(true);
+ #endif
+         }
+ 
+ #if CONFIG_IDF_TARGET_ESP32
+         coex_bt_high_prio();
+ #endif
+ 
+ // ESP32 will track pll in the wifi/BT modem interrupt handler.
+ #if !CONFIG_IDF_TARGET_ESP32 && !CONFIG_ESP_PHY_DISABLE_PLL_TRACK
+         phy_track_pll_init();
+ #endif
+ 
+         if (phy_ant_need_update()) {
+             phy_ant_update();
+             phy_ant_clr_update_flag();
+         }
+         phy_module_disable();
+     }
+     phy_set_modem_flag(modem);
+ #if !CONFIG_IDF_TARGET_ESP32 && !CONFIG_ESP_PHY_DISABLE_PLL_TRACK
+     // Immediately track pll when phy enabled.
+     phy_track_pll();
+ #endif
+ 
+ #if CONFIG_ESP_PHY_RECORD_USED_TIME
+     phy_record_time(true, modem);
+ #endif
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3
++    if (modem == PHY_MODEM_WIFI) {
++        phy_wifi_enable_set(1);
++    }
++#endif
+     _lock_release(&s_phy_access_lock);
+ }
+ 
+ void esp_phy_disable(esp_phy_modem_t modem)
+ {
+     _lock_acquire(&s_phy_access_lock);
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3
++    if (modem == PHY_MODEM_WIFI) {
++        phy_wifi_enable_set(0);
++    }
++#endif
+ #if CONFIG_ESP_PHY_RECORD_USED_TIME
+     phy_record_time(false, modem);
+ #endif
+     esp_phy_modem_t saved_modem = phy_get_modem_flag();
+     phy_clr_modem_flag(modem);
+     if (saved_modem == modem) {
+ // ESP32 will track pll in the wifi/BT modem interrupt handler.
+ #if !CONFIG_IDF_TARGET_ESP32 && !CONFIG_ESP_PHY_DISABLE_PLL_TRACK
+         phy_track_pll_deinit();
+ #endif
+ #if SOC_PM_MODEM_RETENTION_BY_BACKUPDMA
+         phy_digital_regs_store();
+ #endif
+ #if SOC_PM_SUPPORT_PMU_MODEM_STATE && CONFIG_ESP_WIFI_ENHANCED_LIGHT_SLEEP
+         pm_mac_modem_clear_rf_power_state();
+         if (sleep_modem_wifi_modem_state_enabled()) {
+             sleep_modem_wifi_do_phy_retention(false);
+         } else
+ #endif /* SOC_PM_SUPPORT_PMU_MODEM_STATE && CONFIG_ESP_WIFI_ENHANCED_LIGHT_SLEEP */
+         {
+             // Disable PHY and RF.
+             phy_close_rf();
+ #if !CONFIG_IDF_TARGET_ESP32
+             // Disable PHY temperature sensor
+             phy_xpd_tsens();
+ #endif
+         }
+ #if CONFIG_IDF_TARGET_ESP32
+         // Update WiFi MAC time before disable WiFi/BT common peripheral clock
+         phy_update_wifi_mac_time(true, esp_timer_get_time());
+ #endif
+         // Disable WiFi/BT common peripheral clock. Do not disable clock for hardware RNG
+         esp_phy_common_clock_disable();
+     }
+     _lock_release(&s_phy_access_lock);
+ }

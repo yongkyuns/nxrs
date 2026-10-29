@@ -77,6 +77,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_esp_mbedtls_allocators.py -v
           python -m unittest discover -s tests/host -p test_arc4random_entropy.py -v
           python -m unittest discover -s tests/host -p test_rng_entropy.py -v
+          python -m unittest discover -s tests/host -p test_esp_rng_entropy.py -v
           python -m unittest discover -s tests/host -p test_sim_entropy.py -v
           python -m unittest discover -s tests/host -p test_tls_sdk.py -v
           python -m unittest discover -s tests/event-services-comparison -p test_setup.py -v
