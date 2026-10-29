@@ -237,6 +237,11 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                     'fatal': text.count(f'nxrs-camera-ingest: {category}')}
                     for category in ['Configuration', 'Authentication', 'Io', 'Protocol', 'Frame',
                                      'Stale', 'Timeout', 'Encoder', 'Stopped', 'Cleanup']}), flush=True)
+                print('INGEST PIPELINE:', json.dumps({stage: text.count('nxrs-camera-ingest: '+stage)
+                    for stage in ['encoder exit', 'publisher exit', 'encoded relay stopped',
+                                  'encoder progress stopped', 'publisher progress stopped']}), flush=True)
+                print('PUBLISHER ERRORS:', json.dumps({category: text.count('nxrs-rtsp-publisher: '+category)
+                    for category in ['Configuration', 'Credential', 'Media', 'Output']}), flush=True)
             except Exception as diagnostic:
                 print('INGEST ERRORS:', type(diagnostic).__name__, flush=True)
             raise

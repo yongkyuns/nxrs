@@ -38,20 +38,18 @@ pub struct Source {
 }
 impl Source {
     pub fn open(format: EncodedMedia) -> Result<Self> {
-        let mut values = vec![
-            (c"probesize", c"153600"),
-            (c"analyzeduration", c"0"),
+        // The supervisor supplies a known single H264 stream. Do not wait for
+        // scene-dependent probe bytes or EOF before admitting live publication.
+        let values = [
+            (c"probesize", c"32"),
+            (c"analyzeduration", c"1"),
             (c"max_streams", c"1"),
             (c"protocol_whitelist", c"pipe"),
             (c"codec_whitelist", c""),
         ];
         let name = match format {
             EncodedMedia::MpegTs => c"mpegts",
-            EncodedMedia::AnnexB => {
-                values[0] = (c"probesize", c"32");
-                values[1] = (c"analyzeduration", c"1");
-                c"h264"
-            }
+            EncodedMedia::AnnexB => c"h264",
         };
         Self::open_with(c"pipe:0", name, &values)
     }
