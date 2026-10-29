@@ -28,6 +28,12 @@ filtered API's sequence, timestamp, RSSI, AGC, FFT, data type and byte length;
 dispatch and source MACs are retained separately. It is not an opaque dump of
 SDK structs. Other peers are retained because they can affect global gain.
 Only the associated AP feeds the experimental calibrated candidate.
+The separate AP-only case rejects other senders before gain processing. Its
+[first physical attempt](../csi-radio/results/csi-ap-source-recorder-loss-2026-10-29.json)
+stopped on recorder loss during training and supplies no accuracy evidence.
+`PRESENCE_LAB_LOSS` now retains the first recorder failure reason and journal
+kind; later loss totals may include cascading generation failures. Loss still
+invalidates the entire capture, including when its END footer is present.
 
 Older walking trials did not retain this continuous input stream. Their sampled
 reports and selected snapshots cannot reconstruct it. The synthetic `fixture`

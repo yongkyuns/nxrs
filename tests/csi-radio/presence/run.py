@@ -450,6 +450,11 @@ class Client:
                 raise ValueError("source admission counter reversal/overflow")
             self.source_counts = counts
             return dict(kind="source_admission_status", admitted=counts[0], rejected=counts[1], startup=counts[2])
+        if line.startswith(b"PRESENCE_LAB_LOSS "):
+            m = re.fullmatch(rb"PRESENCE_LAB_LOSS v=1 reason=(external|invalid_record|unprepared|counter_exhausted|slot_not_free|slot_busy) kind=([0-9]{1,2})", line)
+            if self.record_sink is None or not m or int(m[2]) > 11:
+                raise ValueError("first recorder loss schema")
+            return dict(kind="lab_recorder_first_loss", reason=m[1].decode("ascii"), journal_kind=int(m[2]))
         if line.startswith(b"PRESENCE_LAB_STATUS "):
             m = re.fullmatch(
                 rb"PRESENCE_LAB_STATUS v=1 losses=(\d+) slots=128 rf_stack=(\d+) gain_stack=(\d+) compute_stack=(\d+)",

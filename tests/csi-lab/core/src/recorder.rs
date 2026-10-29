@@ -16,10 +16,40 @@ struct Consumer {
     next: u32,
     chain: u32,
 }
+/// The first rejected append, published as one atomic word. Counters can cascade
+/// after a missing queue generation, so their final total is not a root cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LossReason {
+    External = 1,
+    InvalidRecord,
+    Unprepared,
+    CounterExhausted,
+    SlotNotFree,
+    SlotBusy,
+}
+impl LossReason {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::External => "external",
+            Self::InvalidRecord => "invalid_record",
+            Self::Unprepared => "unprepared",
+            Self::CounterExhausted => "counter_exhausted",
+            Self::SlotNotFree => "slot_not_free",
+            Self::SlotBusy => "slot_busy",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FirstLoss {
+    pub reason: LossReason,
+    /// Journal kind, or zero for an external/invalid-kind event.
+    pub kind: u32,
+}
 pub struct Recorder {
     enabled: AtomicBool,
     accepting: AtomicBool,
     lost: AtomicU32,
+    first_loss: AtomicU32,
     active: AtomicU32,
     serial: AtomicU32,
     storage: std::sync::OnceLock<Box<[Slot]>>,
@@ -36,6 +66,7 @@ impl Recorder {
             enabled: AtomicBool::new(false),
             accepting: AtomicBool::new(false),
             lost: AtomicU32::new(0),
+            first_loss: AtomicU32::new(0),
             active: AtomicU32::new(0),
             serial: AtomicU32::new(0),
             storage: std::sync::OnceLock::new(),
@@ -109,27 +140,27 @@ impl Recorder {
     #[inline(never)]
     fn append_admitted(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
         if len > journal::WORDS || !(journal::SESSION..=journal::SAMPLING).contains(&kind) {
-            self.invalidate();
+            self.lose(LossReason::InvalidRecord, kind);
             return;
         }
         let Some(slots) = self.storage.get() else {
-            self.invalidate();
+            self.lose(LossReason::Unprepared, kind);
             return;
         };
         let serial = self.serial.fetch_add(1, Ordering::Relaxed);
         if serial > u32::MAX / 2 - 256 {
-            self.invalidate();
+            self.lose(LossReason::CounterExhausted, kind);
             return;
         }
         let slot = &slots[serial as usize % slots.len()];
         // Even tags are free; odd tags are published. Two phases also make
         // capacity one unambiguous. A failed reservation invalidates the epoch.
         if slot.generation.load(Ordering::Acquire) != 2 * serial {
-            self.invalidate();
+            self.lose(LossReason::SlotNotFree, kind);
             return;
         }
         let Ok(mut r) = slot.value.try_lock() else {
-            self.invalidate();
+            self.lose(LossReason::SlotBusy, kind);
             return;
         };
         r.sequence = serial;
@@ -144,9 +175,40 @@ impl Recorder {
         self.lost.load(Ordering::Acquire)
     }
     pub fn invalidate(&self) {
+        self.lose(LossReason::External, 0);
+    }
+    fn lose(&self, reason: LossReason, kind: u32) {
         if self.enabled() {
-            self.lost.fetch_add(1, Ordering::Relaxed);
+            let kind = if (journal::SESSION..=journal::SAMPLING).contains(&kind) {
+                kind
+            } else {
+                0
+            };
+            // Failure-only, single CAS: no callback wait, allocation or retry.
+            let _ = self.first_loss.compare_exchange(
+                0,
+                (kind << 8) | reason as u32,
+                Ordering::Release,
+                Ordering::Relaxed,
+            );
+            self.lost.fetch_add(1, Ordering::Release);
         }
+    }
+    pub fn first_loss(&self) -> Option<FirstLoss> {
+        let value = self.first_loss.load(Ordering::Acquire);
+        let reason = match value & 255 {
+            1 => LossReason::External,
+            2 => LossReason::InvalidRecord,
+            3 => LossReason::Unprepared,
+            4 => LossReason::CounterExhausted,
+            5 => LossReason::SlotNotFree,
+            6 => LossReason::SlotBusy,
+            _ => return None,
+        };
+        Some(FirstLoss {
+            reason,
+            kind: value >> 8,
+        })
     }
     /// One consumer owns output order and checksums. Producers never acquire
     /// this ownership mutex, and slot ownership is released before any I/O.
@@ -266,6 +328,13 @@ mod tests {
         let lock = r.consumer.lock().unwrap();
         r.push(Record::new(journal::LABEL, 1, &[1]).unwrap());
         assert_eq!(r.loss(), 2);
+        assert_eq!(
+            r.first_loss(),
+            Some(FirstLoss {
+                reason: LossReason::SlotNotFree,
+                kind: journal::LABEL
+            })
+        );
         drop(lock);
         let mut out = Vec::new();
         r.finish(2, &mut out).unwrap();
@@ -277,6 +346,51 @@ mod tests {
             }
         }
         assert!(failure);
+    }
+    #[test]
+    fn first_loss_distinguishes_contention_invalid_input_and_external_failure() {
+        let r = Recorder::new();
+        r.invalidate();
+        assert_eq!(r.first_loss(), None);
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 2));
+        let held = r.storage.get().unwrap()[1].value.lock().unwrap();
+        r.push_words(journal::RAW, 1, 1, |_| {
+            panic!("busy slot must not invoke fill")
+        });
+        r.invalidate();
+        assert_eq!(r.loss(), 2);
+        assert_eq!(
+            r.first_loss(),
+            Some(FirstLoss {
+                reason: LossReason::SlotBusy,
+                kind: journal::RAW
+            })
+        );
+        drop(held);
+
+        let invalid = Recorder::new();
+        assert!(invalid.prepare(Config::EMPTY_HOLDOUT, 2));
+        invalid.push_words(journal::RAW, 0, journal::WORDS + 1, |_| {
+            panic!("invalid size")
+        });
+        invalid.invalidate();
+        assert_eq!(
+            invalid.first_loss(),
+            Some(FirstLoss {
+                reason: LossReason::InvalidRecord,
+                kind: journal::RAW
+            })
+        );
+        let external = Recorder::new();
+        assert!(external.prepare(Config::EMPTY_HOLDOUT, 2));
+        external.invalidate();
+        assert_eq!(
+            external.first_loss(),
+            Some(FirstLoss {
+                reason: LossReason::External,
+                kind: 0
+            })
+        );
     }
     #[test]
     fn finish_waits_for_native_call_lease_and_rejects_late_admission() {

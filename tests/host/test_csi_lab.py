@@ -493,6 +493,22 @@ class RecorderStatusTests(unittest.TestCase):
         self.assertIsNone(value["gain_stack"])
         self.assertEqual(value["compute_stack"], 800)
 
+    def test_first_loss_is_typed_bounded_and_recording_only(self):
+        good = b"PRESENCE_LAB_LOSS v=1 reason=slot_not_free kind=3"
+        client = RUN.Client(Console([good]))
+        client.record_sink = lambda _: None
+        self.assertEqual(client.read(__import__("time").monotonic()+1),
+                         dict(kind="lab_recorder_first_loss", reason="slot_not_free", journal_kind=3))
+        for line in (good.replace(b"v=1", b"v=2"),
+                     good.replace(b"slot_not_free", b"unknown"),
+                     good.replace(b"kind=3", b"kind=12"), good+b" extra=1"):
+            client = RUN.Client(Console([line]))
+            client.record_sink = lambda _: None
+            with self.assertRaises(ValueError):
+                client.read(__import__("time").monotonic()+1)
+        with self.assertRaises(ValueError):
+            RUN.Client(Console([good])).read(__import__("time").monotonic()+1)
+
     def test_status_requires_opt_in_exact_schema_and_bounded_metrics(self):
         good = b"PRESENCE_LAB_STATUS v=1 losses=0 slots=128 rf_stack=2048 gain_stack=1000 compute_stack=800"
         for line in (

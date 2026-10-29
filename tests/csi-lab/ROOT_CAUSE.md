@@ -82,7 +82,25 @@ channel. A distinct AP-only case now filters actual sender identity in Rust
 before that dispatch path and shared gain processing. The legacy case remains
 available; historical failures are preserved. This is a candidate for the new
 training abort, not a qualified remedy for earlier profile drift, receive panic,
-source expiry or presence accuracy. No new physical trial has run yet.
+source expiry or presence accuracy.
+
+The [first AP-only physical attempt](../csi-radio/results/csi-ap-source-recorder-loss-2026-10-29.json)
+stopped during training after about 38 seconds because its footer reported 531
+loss events. Stack margins remained above 512 bytes, and no numerical fault
+was reported, but observation ended before the historical training failure.
+No calibration or occupied phase completed. All five analysis paths reject the
+lossy capture twice identically without emitting results. The original 16 MB
+firmware was restored and three advancing source JPEGs decoded on the Mac;
+gateway/WHEP forwarding was already failing and remains separately unverified.
+
+A lost reservation can cascade into later generation failures, so the counter
+alone does not identify the first cause or prove queue exhaustion. The next
+unflashed image retains that first cause and record kind with one failure-only
+atomic CAS. Its six cases distinguish explicit invalidation, invalid records,
+unprepared storage, exhausted counters, nonfree slots and slot contention.
+Queue capacity, callback admission, numerical guards and all phase acceptance
+remain unchanged. The 75 native ABI checks and individual producer-frame budget
+pass; recording overhead and radio behavior still require physical evidence.
 
 ## Current offline experiments
 

@@ -423,6 +423,9 @@ pub fn report() {
         read(&GAIN_STACK),
         read(&COMPUTE_STACK)
     );
+    if let Some(first) = LAB.first_loss() {
+        println!("PRESENCE_LAB_LOSS v=1 reason={} kind={}", first.reason.name(), first.kind);
+    }
 }
 
 /// Control-task transport. The IDF stdio adapter drops timed-out characters

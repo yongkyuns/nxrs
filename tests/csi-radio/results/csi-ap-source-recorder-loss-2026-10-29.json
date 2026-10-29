@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "experiment": "associated_AP_only_empty_training_recorder_loss",
+  "case": "temporal-motion-ap-v1",
+  "firmware_sha256": "8a486485d859ea0752d270e7a711dc6af471378edaffd15861f9eeac7873feea",
+  "capture_sha256": "fa9fdcda0e6c0c2182d46afceb545cd9f73f5e8e2af550de2c5d75eec59c3685",
+  "source_origin": "physical_ESP32S3",
+  "human_label": "explicit_empty_room",
+  "human_occupied_phases_requested": false,
+  "outcome": "stopped_during_training_on_recorder_loss",
+  "physical_fix_qualified": false,
+  "presence_qualified": false,
+  "espectre_parity_qualified": false,
+  "recording": {
+    "records": 34983,
+    "record_bytes": 13943527,
+    "kinds": {
+      "1": 1,
+      "9": 3,
+      "3": 5101,
+      "4": 10202,
+      "11": 8836,
+      "2": 1161,
+      "7": 1,
+      "10": 1019,
+      "5": 3057,
+      "6": 5601,
+      "8": 1
+    },
+    "feature_events": 1018,
+    "native_outputs": 6620,
+    "footer": {
+      "count": 34982,
+      "chain": 2025729331,
+      "losses": 531
+    },
+    "external_faults": {},
+    "model_rejections": {},
+    "recorded_time_span_us": 37896566
+  },
+  "last_recorder_status": {
+    "kind": "lab_recorder_status",
+    "losses": 522,
+    "slots": 128,
+    "rf_stack": 4444,
+    "gain_stack": 4444,
+    "compute_stack": 1304
+  },
+  "last_model_owner_status": {
+    "kind": "model_owner_status",
+    "slots": 64,
+    "received": 1034,
+    "applied": 1034,
+    "pending": 0
+  },
+  "last_numerical_probe": {
+    "kind": "numerical_probe",
+    "windows": 1034,
+    "bad_input": 0,
+    "bad_output": 0,
+    "kernel_errors": 0,
+    "uninspected": 0,
+    "wander_calls": 5756,
+    "bad_template": 0,
+    "bad_current": 0,
+    "constant_template": 0,
+    "constant_current": 0,
+    "last_error": 0,
+    "error_cols": 0,
+    "error_rows0": 0,
+    "error_rows1": 0
+  },
+  "source_admission": {
+    "last_state": 2,
+    "admitted": 5176,
+    "rejected": 709,
+    "startup": 0,
+    "recorded_other_peer_frames_in_last_trace_status": 0,
+    "direct_first_loss_reason_recorded": false
+  },
+  "phase_acceptance": {
+    "vendor_training_completed": false,
+    "background_completed": false,
+    "holdout_completed": false,
+    "independent_empty_control_completed": false,
+    "walking_measured": false,
+    "stationary_occupancy_measured": false,
+    "thresholds_changed": false
+  },
+  "strict_analysis": {
+    "commands": [
+      "replay",
+      "sampling",
+      "audit-gain",
+      "verify-distance",
+      "preview-motion"
+    ],
+    "each_run_twice": true,
+    "each_rejected_identically": true,
+    "stdout_bytes_each": 0,
+    "stderr_sha256": "0fe00c74a0aeb0db5acfb7ed814d3a26e12b137e118eeace01242f2d600c839d"
+  },
+  "recovery": {
+    "original_16MB_flash_hash_verified": true,
+    "decoded_source_frames": 3,
+    "width": 320,
+    "height": 240,
+    "receiver": "Mac_PyAV_libavcodec",
+    "protocol": "direct_HTTP_MJPEG",
+    "source_sequence_and_capture_time_advanced": true,
+    "receiver_socket_and_codec_contexts_closed": true,
+    "gateway_forwarding_already_failing_at_baseline": true,
+    "gateway_WHEP_verified": false,
+    "iPhone_playback_verified": false,
+    "gateway_enrollment_changed": false
+  },
+  "prepared_diagnostic": {
+    "image_sha256": "2305d6d196113ab4598773adb964aeab17536b90dcfdc59803b4f9725b3b9e19",
+    "source_hashes_verified": 60,
+    "native_ABI_checks": 75,
+    "queue_slots_unchanged": 128,
+    "queue_storage_bytes_unchanged": 136192,
+    "first_loss_storage_extra_bytes": 4,
+    "maximum_individual_producer_frame_bytes": 320,
+    "individual_frame_limit_unchanged": 512,
+    "mechanism": "one_failure_only_atomic_CAS_retains_first_reason_and_journal_kind",
+    "new_workers": 0,
+    "callback_allocations": false,
+    "hardware_tested": false
+  },
+  "limits": [
+    "The footer preserves a CRC-valid contiguous prefix but reports 531 loss events; this is not a complete or qualified dataset.",
+    "After a missing reservation, generation mismatch can cascade. The loss count alone does not establish 531 independent dropped packets or queue exhaustion.",
+    "The original loss cause is unobserved: slot-generation mismatch, contention, bounds/counter failure and explicit instrumentation invalidation remain distinct possibilities.",
+    "No numerical anomaly was reported before the stop; observation ended earlier than the historical training failure, so this does not qualify its remedy.",
+    "No detector threshold, freshness deadline, queue budget or acceptance gate was relaxed.",
+    "Decoder recovery proves original source frames only; the already-failing gateway path remains unresolved."
+  ]
+}
