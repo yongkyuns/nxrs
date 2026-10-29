@@ -172,9 +172,13 @@ def exercise(gateway, media, publisher):
             install_unit(adapt(name), adapt((config/name).read_text()))
         # Only network/controller dependencies and installed binary/config paths are adapted.
         ports = []
-        for _ in range(4):
-            with socket.socket() as sock:
-                sock.bind(('127.0.0.1', 0)); ports.append(sock.getsockname()[1])
+        for index in range(6):
+            while True:
+                kind = socket.SOCK_DGRAM if index == 5 else socket.SOCK_STREAM
+                with socket.socket(type=kind) as sock:
+                    sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+                if port not in ports:
+                    ports.append(port); break
         control = json.loads((config/'config.json').read_text())
         control.update(listen=f'127.0.0.1:{ports[0]}', auth_listen=f'127.0.0.1:{ports[1]}')
         (config/'config.json').write_text(json.dumps(control))
@@ -185,7 +189,10 @@ def exercise(gateway, media, publisher):
         (config/'security.json').write_text(json.dumps(security))
         media_config = json.loads(adapt((config/'mediamtx.json').read_text()))
         media_config.update(authHTTPAddress=f'http://127.0.0.1:{ports[1]}/internal/mediamtx/auth',
-            rtspAddress=f'127.0.0.1:{ports[2]}', apiAddress=f'127.0.0.1:{ports[3]}', webrtc=False)
+            rtspAddress=f'127.0.0.1:{ports[2]}', apiAddress=f'127.0.0.1:{ports[3]}',
+            webrtc=True, webrtcAddress=f'127.0.0.1:{ports[4]}',
+            webrtcLocalUDPAddress=f'127.0.0.1:{ports[5]}', webrtcIPsFromInterfaces=False,
+            webrtcAdditionalHosts=['127.0.0.1'])
         (config/'mediamtx.json').write_text(json.dumps(media_config))
         text = (config/'nxrs-media.service').read_text().replace(
             '/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
