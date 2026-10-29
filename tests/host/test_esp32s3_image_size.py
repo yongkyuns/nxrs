@@ -30,6 +30,19 @@ class ImageSizeTests(unittest.TestCase):
         self.assertEqual(sum(counts['Linker fill / unowned'].values()), 10)
         self.assertNotIn('libunused.a', counts)
 
+    def test_native_function_sections_follow_input_ownership(self):
+        native = image_size.sdk_sections('''.text.native_fn 0x0000 0x10
+ .text.native_fn 0x0000 0x10 /tmp/libtls-123.rlib(sdk.o)
+.rodata.shared 0x0000 0x08
+ .rodata.a 0x0000 0x04 /tmp/libtls-123.rlib(sdk.o)
+ .rodata.b 0x0004 0x04 rust.o
+.text.rust_fn 0x0000 0x04
+ .text.rust_fn 0x0000 0x04 rust.o
+''')
+        self.assertEqual(native, {'.text.native_fn'})
+        self.assertEqual(image_size.component('.text.native_fn', 'libapps.a(nxrs_app_1.o)',
+                                             set(), native), 'Application TLS native objects / ABI')
+
 
 if __name__ == '__main__':
     unittest.main()

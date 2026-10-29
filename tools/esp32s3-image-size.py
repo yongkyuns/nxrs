@@ -40,7 +40,18 @@ def read_map(text):
     return sections, entries
 
 
-def component(name, owner, vendor_crypto):
+def sdk_sections(text):
+    sections, entries = read_map(text)
+    contributors = defaultdict(set)
+    for output, _, address, size, owner in entries:
+        if output in sections and size:
+            start, length = sections[output]
+            if start <= address < start + length:
+                contributors[output].add('libtls-' in owner and '.rlib(' in owner)
+    return {name for name, owners in contributors.items() if owners == {True}}
+
+
+def component(name, owner, vendor_crypto, native_sections):
     if re.search(r'\.str\d+\.\d+', name):
         return 'Merged strings (shared; ownership unavailable)'
     archive = re.search(r'([^/]+\.a)\(([^)]+)\)', owner)
@@ -50,9 +61,9 @@ def component(name, owner, vendor_crypto):
     if library == 'libarch.a' and member in vendor_crypto:
         return 'Radio SDK crypto (libarch.a)'
     if library == 'libapps.a' and member == 'nxrs_app_1.o':
-        # The partial link preserves Rust section names, while the SDK's C
-        # objects are combined into these unsuffixed output sections.
-        if name in ('.text', '.rodata', '.data', '.bss'):
+        # Follow actual partial-link input ownership, including per-function C
+        # sections. Shared outputs remain unattributed rather than guessed.
+        if name in native_sections:
             return 'Application TLS native objects / ABI'
         root = re.search(r'_ZN\d+([A-Za-z_][A-Za-z_0-9]*?)\d', name)
         if root and root[1] in ('std', 'core', 'alloc'):
@@ -63,7 +74,7 @@ def component(name, owner, vendor_crypto):
     return library
 
 
-def account(sections, entries, selected, vendor_crypto=frozenset()):
+def account(sections, entries, selected, vendor_crypto=frozenset(), native_sections=frozenset()):
     totals = defaultdict(Counter)
     for section in selected:
         start, size = sections[section]
@@ -74,7 +85,7 @@ def account(sections, entries, selected, vendor_crypto=frozenset()):
                 continue
             low, high = max(start, address), min(end, address + length)
             if low < high:
-                key = component(name, owner, vendor_crypto)
+                key = component(name, owner, vendor_crypto, native_sections)
                 events[low].append((key, 1))
                 events[high].append((key, -1))
         active, previous = Counter(), start
@@ -95,6 +106,7 @@ def main():
     parser.add_argument('build', type=Path, help='build-nuttx-std-app.sh output directory')
     args = parser.parse_args()
     files = {name: args.build / name for name in ('nuttx/nuttx.map', 'nuttx/nuttx.bin')}
+    files['rust-partial.map'] = args.build / 'rust-partial.map'
     sections, entries = read_map(files['nuttx/nuttx.map'].read_text())
     dependency = args.build / 'nuttx/arch/xtensa/src/Make.dep'
     # Use actual configured source dependencies, not guessed object names.
@@ -102,7 +114,8 @@ def main():
     vendor_crypto = {member for member, source in sources if '/components/mbedtls/' in source}
     if not vendor_crypto:
         raise ValueError('configured vendor crypto dependencies are missing')
-    counts = account(sections, entries, FLASH + RAM, vendor_crypto)
+    native_sections = sdk_sections(files['rust-partial.map'].read_text())
+    counts = account(sections, entries, FLASH + RAM, vendor_crypto, native_sections)
     files['nuttx/arch/xtensa/src/Make.dep'] = dependency
     payload = sum(sections[name][1] for name in FLASH)
     binary = files['nuttx/nuttx.bin'].stat().st_size
