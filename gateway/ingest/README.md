@@ -163,8 +163,24 @@ python3 gateway/tests/ingest_reference.py \
 The test retains two advancing H.264 viewers sharing one admitted source, stall
 teardown, new-epoch recovery, and child cleanup. The fixture checks
 accepted-minus-disconnected equals active (at most one) on every server poll.
+For the actual Mbed TLS camera-to-Rustls path, build the existing SDK fixture
+(Python 3.12+, CMake and a C compiler required), then replace `--camera-source`
+above with `--tls-camera-source target/device-tls/debug/tls-endpoint`:
+
+```sh
+python3 upstream/mbedtls/fetch.py
+NXRS_PLATFORM=linux-tls cargo build --locked -p nxrs-std-tls-identity \
+  --bin tls-endpoint --target-dir target/device-tls
+```
+
+This uses `LiveCamera::new_tls`, worker-generated CSR/key ownership, synthetic
+320x240 JPEGs and a synthetic localized detector. Its temporary issuer and host
+UTC are fixture inputs, not provisioning, entropy or clock qualification.
 The hosted-only `--systemd` variant tests generated-unit privileges/limits,
 SIGKILL cgroup cleanup, video cessation, explicit recovery and dependency loss.
+TLS variants stage the actual five credential inputs and enforce TLS at both
+preflight and startup. The existing hosted ingest job covers this and annotated
+video without adding a job or an alternative media implementation.
 Its controller/network dependency units are stubs; actual strict controller
 failure is independently tested elsewhere. This is not the combined production
 service group over WireGuard, intended-host cold boot, physical sensor/NuttX app,

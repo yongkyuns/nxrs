@@ -53,6 +53,11 @@ class ManagedIngest:
         shutil.copyfile(binary, self.root/'bin/ingest')
         (self.root/'bin/ingest').chmod(0o755)
         config = json.loads((self.root/'ingest.json').read_text())
+        self.tls_files = {}
+        if config.get('camera_tls'):
+            for field, name in ingest_service.TLS_FILES.items():
+                self.tls_files[name] = Path(config['camera_tls'][field])
+                config['camera_tls'][field] = f'/run/{self.name}/{name}'
         self.expected_processes = 3 if config.get('detections') else 2
         config['publisher_token_file'] = f'/run/{self.name}/publisher.token'
         (self.root/'ingest.json').write_text(json.dumps(config))
@@ -74,9 +79,11 @@ class ManagedIngest:
         if not self.installed:
             # Rename template-owned paths before inserting fixture paths, whose
             # random directory prefix may itself contain the original service name.
-            text = ingest_service.service().replace('nxrs-ingest', self.name)
+            text = ingest_service.service(require_tls=bool(self.tls_files)).replace('nxrs-ingest', self.name)
             text = text.replace('/etc/nxrs-monitor/ingest.json', str(self.root/'ingest.json'))
             text = text.replace('/etc/nxrs-monitor/publisher.token', str(self.root/'publisher.token'))
+            for name, source in self.tls_files.items():
+                text = text.replace('/etc/nxrs-monitor/'+name, str(source))
             text = text.replace('/usr/local/libexec/nxrs-camera-ingest', str(self.root/'bin/ingest'))
             for unit in ['nxrs-control.service', 'nxrs-media.service', 'wg-quick@wg-nxrs.service',
                          'nxrs-firewall.service', 'nxrs-monitor.target']:
@@ -110,7 +117,7 @@ class ManagedIngest:
             values = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
             require(int(values['Uid'].split()[0]) != 0 and int(values['CapEff'].strip(), 16) == 0
                     and values['NoNewPrivs'].strip() == '1', 'adapter and encoder are unprivileged')
-        for name in ['config.json', 'publisher.token']:
+        for name in ['config.json', 'publisher.token', *self.tls_files]:
             metadata = (Path('/run')/self.name/name).stat()
             require(metadata.st_mode & 0o777 == 0o600 and metadata.st_nlink == 1,
                     'staged ingest credentials remain private regular files')

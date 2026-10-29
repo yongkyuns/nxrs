@@ -2,11 +2,15 @@
 use super::*;
 use camera::{Camera, Capture, DeviceError, Format};
 use camera_stream::{LiveCamera, TlsIdentity, TlsOptions};
+use std::{cell::Cell, rc::Rc};
 
 struct Source {
     sequence: u64,
     format: Option<Format>,
     root: PathBuf,
+    images: Option<[Vec<u8>; 2]>,
+    paused: Rc<Cell<bool>>,
+    next_ms: u64,
 }
 impl Drop for Source {
     fn drop(&mut self) {
@@ -19,8 +23,14 @@ impl Camera for Source {
         Ok(format)
     }
     fn poll_frame(&mut self, now: u64, bytes: &mut [u8]) -> Result<Option<Capture>, DeviceError> {
+        if self.paused.get() || now < self.next_ms {
+            return Ok(None);
+        }
+        self.next_ms = now + if self.images.is_some() { 100 } else { 0 };
         self.sequence += 1;
-        let jpeg: &[u8] = if self.sequence & 1 == 1 {
+        let jpeg: &[u8] = if let Some(images) = &self.images {
+            &images[((self.sequence - 1) % 2) as usize]
+        } else if self.sequence & 1 == 1 {
             include_bytes!("../nuttx-std/detection/background.jpg")
         } else {
             include_bytes!("../nuttx-std/detection/person.jpg")
@@ -41,15 +51,26 @@ impl Camera for Source {
         }
     }
 }
-pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
+pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) {
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let root = directory.clone();
+    let media = matches!(case, Case::Media);
+    let images = media.then(|| {
+        [
+            public(root.join("rust-frame-1.jpg")),
+            public(root.join("rust-frame-2.jpg")),
+        ]
+    });
+    let paused = Rc::new(Cell::new(false));
     let mut live = LiveCamera::<_, 16384, _>::new_tls(
         Source {
             sequence: 0,
             format: None,
             root: root.clone(),
+            images,
+            paused: paused.clone(),
+            next_ms: 0,
         },
         listener,
         std::array::from_fn(|_| vec![0; 16384]),
@@ -102,14 +123,60 @@ pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
         },
     )
     .expect("product TLS startup");
-    live.start(96, 96).unwrap();
+    if media {
+        // Exercise real publication/transport with a deliberately synthetic box.
+        // This is not model-quality or compute-performance evidence.
+        struct Synthetic;
+        impl detector::Detector for Synthetic {
+            fn capabilities(&self) -> detector::Capabilities {
+                detector::Capabilities::localized(96, 96)
+            }
+            fn detect(
+                &mut self,
+                _: detector::Image<'_>,
+            ) -> Result<detector::DetectionResult, detector::DeviceError> {
+                let score = detector::Score::new(900)?;
+                let mut objects = detector::Detections::default();
+                objects.boxes[0] = Some(detector::Detection {
+                    score,
+                    bounds: detector::Bounds {
+                        left: 100,
+                        top: 100,
+                        right: 900,
+                        bottom: 900,
+                    },
+                });
+                Ok(detector::DetectionResult {
+                    person_score: score,
+                    objects,
+                })
+            }
+        }
+        let worker = detection_service::Worker::spawn(
+            detection_service::WorkerOptions {
+                frame_capacity: 16384,
+                sample_interval_ms: 100,
+                stack_bytes: 65536,
+            },
+            || Ok(Synthetic),
+        )
+        .unwrap();
+        live.attach_detection(
+            camera_stream::SecurityDetection::new(worker, detection_service::Policy::default())
+                .unwrap(),
+        )
+        .unwrap();
+    }
+    let (width, height) = if media { (320, 240) } else { (96, 96) };
+    live.start(width, height).unwrap();
     println!("LISTEN {address}");
     std::io::stdout().flush().unwrap();
     let origin = Instant::now();
     let mut online = true;
     let mut report_at = 0;
     let mut drop_only = false;
-    while origin.elapsed() < Duration::from_secs(30) {
+    let mut peak = 0;
+    while origin.elapsed() < Duration::from_secs(if media { 120 } else { 30 }) {
         match std::fs::read_to_string(directory.join("control"))
             .unwrap_or_default()
             .trim()
@@ -125,6 +192,18 @@ pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
                 std::io::stdout().flush().unwrap();
             }
             "stop" => break,
+            "pause" => {
+                paused.set(true);
+                std::fs::write(directory.join("control"), "").unwrap();
+                println!("PAUSED");
+                std::io::stdout().flush().unwrap();
+            }
+            "resume" => {
+                paused.set(false);
+                std::fs::write(directory.join("control"), "").unwrap();
+                println!("RESUMED");
+                std::io::stdout().flush().unwrap();
+            }
             "drop" => {
                 drop_only = true;
                 break;
@@ -133,14 +212,16 @@ pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
         }
         let now = origin.elapsed().as_millis() as u64;
         live.poll(now, online).unwrap();
+        let stats = live.stats();
+        let active = stats
+            .stream
+            .accepted
+            .checked_sub(stats.stream.disconnected)
+            .unwrap();
+        assert!(active <= 1, "one admitted TLS camera consumer");
+        peak = peak.max(active);
         if now >= report_at {
-            let stats = live.stats();
-            let tls = stats.tls.unwrap();
-            let state = format!("{{\"captured\":{},\"accepted\":{},\"disconnected\":{},\"frames\":{},\"handshakes\":{},\"failures\":{},\"busy\":{}}}",
-                stats.captured, stats.stream.accepted, stats.stream.disconnected, stats.stream.frames_completed,
-                tls.handshakes, tls.failures, tls.skipped_busy);
-            std::fs::write(directory.join("state.next"), state).unwrap();
-            std::fs::rename(directory.join("state.next"), directory.join("state.json")).unwrap();
+            report(&directory, stats, peak);
             report_at = now + 50;
         }
         std::thread::sleep(Duration::from_millis(2));
@@ -148,6 +229,7 @@ pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
     if !drop_only {
         let result = live.stop();
         assert_eq!(result.is_err(), directory.join("fail-camera-stop").exists());
+        report(&directory, live.stats(), peak);
     }
     drop(live);
     // Even a failed camera stop must have joined TLS and released its SDK owner.
@@ -157,4 +239,18 @@ pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
     std::fs::write(directory.join("replacement.csr"), &csr[..count]).unwrap();
     println!("CAMERA_STOPPED");
     std::io::stdout().flush().unwrap();
+}
+
+fn report(directory: &Path, stats: camera_stream::Stats, peak: u64) {
+    let active = stats
+        .stream
+        .accepted
+        .checked_sub(stats.stream.disconnected)
+        .unwrap();
+    let tls = stats.tls.unwrap();
+    let state = format!("{{\"captured\":{},\"accepted\":{},\"disconnected\":{},\"frames\":{},\"handshakes\":{},\"failures\":{},\"busy\":{},\"active\":{},\"peak\":{},\"rejected_busy\":{}}}",
+                stats.captured, stats.stream.accepted, stats.stream.disconnected, stats.stream.frames_completed,
+                tls.handshakes, tls.failures, tls.skipped_busy, active, peak, stats.stream.rejected_busy);
+    std::fs::write(directory.join("state.next"), state).unwrap();
+    std::fs::rename(directory.join("state.next"), directory.join("state.json")).unwrap();
 }
