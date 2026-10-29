@@ -151,7 +151,10 @@ is additional. These are one-controller limits, not distributed fleet quotas.
 The deny snapshot is bounded to4096 IDs and1MiB, with private permissions,
 exclusive writer locking, temporary-file synchronization, atomic replacement and
 directory synchronization. Reopen/error tests are not power-cut hardware evidence
-or protection against root/same-user tampering. Backup policy, storage monitoring
+or protection against root/same-user tampering. Private settings/state/lock opens
+refuse final symlinks and do not wait for FIFO peers. Checks use the opened
+descriptor before/after reading or locking; ancestor directories remain trusted,
+and ordinary filesystem I/O can still wait. Backup policy, storage monitoring
 and authenticated multi-user administration remain productization work.
 
 Grant expiry is an admission deadline, not a maximum viewing duration; established
