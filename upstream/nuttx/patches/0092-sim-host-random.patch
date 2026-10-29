@@ -1,0 +1,149 @@
+From: nxrs contributors
+Subject: [PATCH] sim: source random devices from the Linux host kernel
+
+Keep the fail-closed libc contract when simulator networking selects random
+ports. The simulator owns no PRNG or seed: a narrow native host call uses
+getrandom with readiness/error propagation and a 256-byte bound. Capture
+errno before restoring simulator interrupts. This does not qualify a physical
+device source.
+
+diff --git a/arch/sim/Kconfig b/arch/sim/Kconfig
+--- a/arch/sim/Kconfig
++++ b/arch/sim/Kconfig
+@@ -192,6 +192,17 @@
+ 	---help---
+ 		The adjustment of stack size for sim. When the task is created,
+ 		the stack size is increased by this amount.
++
++config SIM_RANDOM
++	bool "Linux host kernel random source"
++	default n
++	depends on HOST_LINUX
++	select ARCH_HAVE_RNG
++	---help---
++		Provide random devices using the host getrandom() system call.
++		Requests are nonblocking and at most 256 bytes. An uninitialized
++		host generator or system-call error is returned without a fallback.
++		This is a simulator source, not physical-device qualification.
+ 
+ config SIM_HOSTFS
+ 	bool "Simulated HostFS"
+diff --git a/arch/sim/src/Makefile b/arch/sim/src/Makefile
+--- a/arch/sim/src/Makefile
++++ b/arch/sim/src/Makefile
+@@ -134,6 +134,11 @@
+ HOSTSRCS  = sim_hostirq.c sim_hostmemory.c sim_hostmisc.c sim_hosttime.c sim_hostuart.c
+ HOSTSRCS += sim_hostfs.c sim_errno.c
+ 
++ifeq ($(CONFIG_SIM_RANDOM),y)
++  CSRCS += sim_random.c
++  HOSTSRCS += sim_hostrandom.c
++endif
++
+ hostfs.h: $(TOPDIR)/include/nuttx/fs/hostfs.h
+ 	@echo "CP:  $<"
+ 	$(Q) cp $< $@
+diff --git a/arch/sim/src/nuttx-names.in b/arch/sim/src/nuttx-names.in
+--- a/arch/sim/src/nuttx-names.in
++++ b/arch/sim/src/nuttx-names.in
+@@ -74,5 +74,6 @@
+ NXSYMBOLS(getenv)
+ NXSYMBOLS(getpid)
++NXSYMBOLS(getrandom)
+ NXSYMBOLS(getsockopt)
+ NXSYMBOLS(if_nametoindex)
+ NXSYMBOLS(ioctl)
+diff --git a/arch/sim/src/sim/CMakeLists.txt b/arch/sim/src/sim/CMakeLists.txt
+--- a/arch/sim/src/sim/CMakeLists.txt
++++ b/arch/sim/src/sim/CMakeLists.txt
+@@ -28,6 +28,11 @@
+ 
+ set(HOST_INCLUDE_DIRS)
+ set(STDLIBS pthread)
++
++if(CONFIG_SIM_RANDOM)
++  list(APPEND SRCS sim_random.c)
++  list(APPEND HOSTSRCS sim_hostrandom.c)
++endif()
+ 
+ if(CONFIG_COVERAGE_TOOLCHAIN)
+   list(APPEND STDLIBS gcov)
+diff --git a/arch/sim/src/sim/sim_internal.h b/arch/sim/src/sim/sim_internal.h
+--- a/arch/sim/src/sim/sim_internal.h
++++ b/arch/sim/src/sim/sim_internal.h
+@@ -214,6 +214,10 @@
+ /* sim_hostmisc.c ***********************************************************/
+ 
+ void host_abort(int status);
++
++#ifdef CONFIG_SIM_RANDOM
++ssize_t host_random(void *buffer, size_t size);
++#endif
+ int  host_backtrace(void** array, int size);
+ int  host_system(char *buf, size_t len, const char *fmt, ...);
+ 
+diff --git a/arch/sim/src/sim/sim_random.c b/arch/sim/src/sim/sim_random.c
+new file mode 100644
+--- /dev/null
++++ b/arch/sim/src/sim/sim_random.c
+@@ -0,0 +1,32 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/* ARCH_SIM device binding; the host kernel owns the random generator. */
++#include <nuttx/config.h>
++#include <nuttx/fs/fs.h>
++#include "sim_internal.h"
++
++#if defined(CONFIG_DEV_RANDOM) || defined(CONFIG_DEV_URANDOM_ARCH)
++static ssize_t sim_random_read(struct file *filep, char *buffer, size_t size)
++{
++  (void)filep;
++  return host_random(buffer, size);
++}
++
++static const struct file_operations g_random_ops =
++{
++  .read = sim_random_read,
++};
++
++#ifdef CONFIG_DEV_RANDOM
++void devrandom_register(void)
++{
++  register_driver("/dev/random", &g_random_ops, 0444, NULL);
++}
++#endif
++
++#ifdef CONFIG_DEV_URANDOM_ARCH
++void devurandom_register(void)
++{
++  register_driver("/dev/urandom", &g_random_ops, 0444, NULL);
++}
++#endif
++#endif
+diff --git a/arch/sim/src/sim/posix/sim_hostrandom.c b/arch/sim/src/sim/posix/sim_hostrandom.c
+new file mode 100644
+--- /dev/null
++++ b/arch/sim/src/sim/posix/sim_hostrandom.c
+@@ -0,0 +1,23 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/* Native host ABI; no generator state, descriptors, retry or software seed. */
++#include <errno.h>
++#include <sys/random.h>
++#include "sim_internal.h"
++
++ssize_t host_random(void *buffer, size_t size)
++{
++  uint64_t flags;
++  ssize_t result;
++  int saved_errno;
++
++  if (size > 256)
++    {
++      size = 256;
++    }
++
++  flags = up_irq_save();
++  result = getrandom(buffer, size, GRND_NONBLOCK);
++  saved_errno = errno;
++  up_irq_restore(flags);
++  return result < 0 ? host_errno_convert(-saved_errno) : result;
++}

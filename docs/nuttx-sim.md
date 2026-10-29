@@ -30,6 +30,13 @@ read device. Each open owns a NuttX pthread producer, mutex and semaphore, and
 the producer is joined on close. Recording uses NuttX tmpfs. UDP traverses
 NuttX IPv4 loopback; TAP, host usrsock and host sockets are disabled.
 
+Linux simulator random devices use host
+[`getrandom(GRND_NONBLOCK)`](https://man7.org/linux/man-pages/man2/getrandom.2.html) through the
+named native `host_random` boundary. Each request admits at most 256 bytes;
+unready/error results propagate without a seed or software fallback. This lets
+NuttX select UDP ports while retaining fail-closed `arc4random_buf` behavior.
+Simulator qualification does not establish physical entropy or device keys.
+
 ## Validation
 
 The compatibility fixture checks:

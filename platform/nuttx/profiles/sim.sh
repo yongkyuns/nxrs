@@ -3,7 +3,7 @@
 for setting in EXAMPLES_NXRS_SIM HOST_X86_64 SIM_X8664_SYSTEMV \
   FS_TMPFS NET NET_IPv4 NET_UDP NET_LOOPBACK NET_SOCKOPTS \
   NET_UDP_WRITE_BUFFERS NET_UDP_READAHEAD SCHED_HPWORK SCHED_LPWORK \
-  SIM_WALLTIME_SLEEP DEBUG_SYMBOLS; do
+  SIM_WALLTIME_SLEEP DEBUG_SYMBOLS SIM_RANDOM DEV_RANDOM DEV_URANDOM DEV_URANDOM_ARCH; do
   kconfig-tweak --enable "CONFIG_$setting"
 done
 # Preserve loopback configuration. The sim sleep-clock profile is not an
@@ -15,10 +15,10 @@ for setting in SIM_M32 SIM_NETDEV SIM_NETUSRSOCK NET_USRSOCK NET_ETHERNET \
 done
 kconfig-tweak --set-val CONFIG_NET_RECV_BUFSIZE 4096
 make olddefconfig
-for setting in ARCH_SIM HOST_X86_64 EXAMPLES_NXRS_SIM FS_TMPFS NET_LOOPBACK NET_UDP SCHED_HPWORK; do
+for setting in ARCH_SIM HOST_X86_64 EXAMPLES_NXRS_SIM FS_TMPFS NET_LOOPBACK NET_UDP SCHED_HPWORK SIM_RANDOM DEV_RANDOM DEV_URANDOM_ARCH; do
   grep -qx "CONFIG_$setting=y" .config || { echo "Unresolved config: $setting" >&2; exit 1; }
 done
-if grep -Eq '^CONFIG_(SIM_NETDEV|SIM_NETUSRSOCK|NET_USRSOCK|SIM_M32|NSH_NETINIT|NETUTILS_NETINIT)=y$' .config; then
-  echo 'Unexpected host-network/architecture/network-init configuration' >&2
+if grep -Eq '^CONFIG_(SIM_NETDEV|SIM_NETUSRSOCK|NET_USRSOCK|SIM_M32|NSH_NETINIT|NETUTILS_NETINIT|DEV_URANDOM_XORSHIFT128|DEV_URANDOM_CONGRUENTIAL|DEV_URANDOM_RANDOM_POOL)=y$' .config; then
+  echo 'Unexpected simulator network, architecture or software random configuration' >&2
   exit 1
 fi

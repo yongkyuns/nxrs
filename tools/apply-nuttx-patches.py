@@ -88,6 +88,7 @@ SERIES = {
         "0089-esp32s3-camera-configurable-clock-drive.patch",
         "0090-rp23xx-rng-bounded-failure.patch",
         "0091-arc4random-fail-closed.patch",
+        "0092-sim-host-random.patch",
     ),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
