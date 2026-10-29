@@ -218,6 +218,28 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                     await until(group_empty, 'dependency stop retires all ingest processes', seconds=15)
                     await until(disconnected, 'dependency stop releases source', seconds=5)
                     print('PASS: explicit crash recovery restores video; dependency loss stops entire ingest cgroup', flush=True)
+        except BaseException:
+            # Fixed counters/categories only; never export raw credentialed logs.
+            if source:
+                try:
+                    print('INGEST SOURCE:', json.dumps(await source.command('status')), flush=True)
+                except Exception as diagnostic:
+                    print('INGEST SOURCE:', type(diagnostic).__name__, flush=True)
+            try:
+                if service:
+                    print('INGEST SERVICE:', json.dumps({key: service.property(key) for key in
+                        ['ActiveState', 'SubState', 'Result', 'ExecMainStatus']}), flush=True)
+                with (root/('managed-ingest.log' if service else 'ingest.log')).open('rb') as log:
+                    log.seek(0, 2); log.seek(max(0, log.tell()-65536))
+                    text = log.read(65536).decode(errors='replace')
+                print('INGEST ERRORS:', json.dumps({category: {
+                    'retired': text.count(f'retired source/encoder ({category})'),
+                    'fatal': text.count(f'nxrs-camera-ingest: {category}')}
+                    for category in ['Configuration', 'Authentication', 'Io', 'Protocol', 'Frame',
+                                     'Stale', 'Timeout', 'Encoder', 'Stopped', 'Cleanup']}), flush=True)
+            except Exception as diagnostic:
+                print('INGEST ERRORS:', type(diagnostic).__name__, flush=True)
+            raise
         finally:
             failures = []
             for reader in readers:
