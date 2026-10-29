@@ -2,62 +2,14 @@
 //! frame metadata into H.264; it does not implement RTSP/RTP or encode pixels.
 use crate::{tls::Prepared, config::Config, detections::Sample, protocol::Reader, runner, Error, Result};
 use detection_wire::{Version, VideoFrame};
-use std::{process::Stdio, time::Duration};
+use std::time::Duration;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    process::Command,
     sync::{mpsc, watch},
     time::{timeout, timeout_at, Instant},
 };
 const UNIT_CAP: usize = 1_048_576;
 
-fn publisher(c: &Config, token: &str) -> Command {
-    let mut p = Command::new(&c.ffmpeg);
-    p.env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("LANG", "C")
-        .args([
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostats",
-            "-stats_period",
-            "0.5",
-            "-progress",
-            "pipe:1",
-            "-f",
-            "h264",
-            "-probesize",
-            "32",
-            "-analyzeduration",
-            "1",
-            "-use_wallclock_as_timestamps",
-            "1",
-            "-i",
-            "pipe:0",
-            "-an",
-            "-c:v",
-            "copy",
-            "-fps_mode",
-            "passthrough",
-            "-f",
-            "rtsp",
-            "-rtsp_transport",
-            "tcp",
-            "-rw_timeout",
-            "5000000",
-        ])
-        .arg(format!(
-            "rtsp://{}:{}@{}/{}",
-            c.publisher_user, token, c.rtsp, c.stream_path
-        ))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    p
-}
 fn start_code(b: &[u8], from: usize) -> Option<(usize, usize)> {
     (from..b.len().saturating_sub(2)).find_map(|i| {
         if b.get(i..i + 4) == Some(&[0, 0, 0, 1]) {
@@ -193,10 +145,10 @@ pub(crate) async fn attempt(
     let mut bytes = [0; 16];
     getrandom::fill(&mut bytes).map_err(|_| Error::Configuration)?;
     let epoch: String = bytes.iter().map(|v| format!("{v:02x}")).collect();
-    let mut encoder = runner::encoder(c, token, true)
+    let mut encoder = runner::encoder(c, runner::EncodedMedia::AnnexB)
         .spawn()
         .map_err(|_| Error::Encoder)?;
-    let mut publisher = match publisher(c, token).spawn() {
+    let mut publisher = match runner::publisher(c, runner::EncodedMedia::AnnexB).spawn() {
         Ok(p) => p,
         Err(_) => {
             runner::retire(&mut encoder).await?;
@@ -224,11 +176,11 @@ pub(crate) async fn attempt(
         publisher.stdin.take(),
         publisher.stdout.take(),
     ) {
-        (Some(input), Some(encoded), Some(progress), Some(output), Some(published)) => {
+        (Some(input), Some(encoded), Some(progress), Some(mut output), Some(published)) => {
             let budget = Duration::from_millis(c.frame_timeout_ms);
             tokio::select! {biased;_=stop.changed()=>Err(Error::Stopped),error=policy.guard()=>Err(error),_=encoder.wait()=>Err(Error::Encoder),_=publisher.wait()=>Err(Error::Encoder),
             r=pump(source,input,tx,metadata,epoch,budget)=>r,
-            r=relay(encoded,output,rx,budget.max(Duration::from_secs(5)))=>r,
+            r=async { runner::preamble(&mut output,token).await?; relay(encoded,output,rx,budget.max(Duration::from_secs(5))).await }=>r,
             r=runner::encoder_progress(progress,budget.max(Duration::from_secs(3)))=>r,
             r=runner::publisher_progress(published,budget.max(Duration::from_secs(3)))=>r}
         }

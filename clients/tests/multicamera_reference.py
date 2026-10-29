@@ -94,6 +94,7 @@ async def exercise(args):
                 write(f'{key}.token',tokens[key])
                 write(f'{key}.json', {'camera':f'127.0.0.1:{source.port}','allow_insecure_camera_http':True,'rtsp':f'127.0.0.1:{rtsp}',
                     'stream_path':key,'publisher_user':f'publisher_{key}','publisher_token_file':str(root/f'{key}.token'),'ffmpeg':shutil.which('ffmpeg'),
+                    'publisher':str(args.ingest.resolve().with_name('nxrs-rtsp-publisher')),
                     'width':320,'height':240,'frame_timeout_ms':2000,'detections':{'control':f'127.0.0.1:{auth}','camera_id':f'cam_{key}'}})
             launch([args.gateway,root/'control.json','--security',root/'security.json'],'control')
             launch([args.mediamtx,root/'media.json'],'media')

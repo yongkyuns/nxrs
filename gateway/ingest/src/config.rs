@@ -17,6 +17,7 @@ pub struct Config {
     pub publisher_user: String,
     pub publisher_token_file: PathBuf,
     pub ffmpeg: PathBuf,
+    pub publisher: PathBuf,
     pub width: u16,
     pub height: u16,
     pub frame_timeout_ms: u64,
@@ -75,7 +76,7 @@ impl Config {
             || !(self.camera.ip().is_private() || self.camera.ip().is_loopback())
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0
             || self.camera == self.rtsp || !identifier(&self.stream_path) || !identifier(&self.publisher_user)
-            || !absolute(&self.publisher_token_file) || !absolute(&self.ffmpeg)
+            || !absolute(&self.publisher_token_file) || !absolute(&self.ffmpeg) || !absolute(&self.publisher)
             || !(2..=1920).contains(&self.width) || !(2..=1080).contains(&self.height)
             || !self.width.is_multiple_of(2) || !self.height.is_multiple_of(2)
             || !(250..=10_000).contains(&self.frame_timeout_ms)
@@ -124,7 +125,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "camera":"192.168.1.2:8080", "allow_insecure_camera_http":true,
             "rtsp":"127.0.0.1:8554", "stream_path":"reference", "publisher_user":"publisher_reference",
-            "publisher_token_file":"/private/publisher.token", "ffmpeg":"/usr/bin/ffmpeg",
+            "publisher_token_file":"/private/publisher.token", "ffmpeg":"/usr/bin/ffmpeg", "publisher":"/usr/local/libexec/nxrs-rtsp-publisher",
             "width":640,"height":480,"frame_timeout_ms":3000
         })).unwrap()
     }
@@ -139,6 +140,7 @@ mod tests {
             let mut c=config(); c.stream_path=bad.into(); assert!(c.validate().is_err());
         }
         let mut c=config(); c.ffmpeg="ffmpeg".into(); assert!(c.validate().is_err());
+        let mut c=config(); c.publisher="publisher".into(); assert!(c.validate().is_err());
         let mut c=config(); c.width=641; assert!(c.validate().is_err());
         let mut c=config(); c.frame_timeout_ms=0; assert!(c.validate().is_err());
     }

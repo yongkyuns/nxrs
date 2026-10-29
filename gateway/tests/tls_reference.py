@@ -136,13 +136,22 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
         self.negotiated = set()
         self.marker = self.root/'received.jpeg'
         self.encoder_pid = self.root/'encoder.pid'
+        self.publisher_pid = self.root/'publisher.pid'
         encoder = self.root/'encoder'
         private(encoder, f'#!{sys.executable}\nimport os,sys\n'
                 f'with open({str(self.encoder_pid)!r},"w") as pid: pid.write(str(os.getpid()))\n'
                 f'with open({str(self.marker)!r},"wb") as out:\n'
                 ' n=0\n while data:=sys.stdin.buffer.read(1):\n'
-                '  out.write(data);out.flush();n+=1;print("frame="+str(n),flush=True)\n')
+                '  out.write(data);out.flush();sys.stdout.buffer.write(data);sys.stdout.buffer.flush()\n'
+                '  n+=1;print("frame="+str(n),file=sys.stderr,flush=True)\n')
         encoder.chmod(0o700)
+        publisher = self.root/'publisher'
+        private(publisher, f'#!{sys.executable}\nimport os,sys\n'
+                f'with open({str(self.publisher_pid)!r},"w") as pid: pid.write(str(os.getpid()))\n'
+                'assert sys.stdin.buffer.read(64)==b"1"*64\n'
+                'n=0\nwhile data:=sys.stdin.buffer.read(1):\n'
+                ' n+=1;print("packet="+str(n),flush=True)\n')
+        publisher.chmod(0o700)
         private(self.root/'publisher.token', '1'*64+'\n')
         self.jpeg = subprocess.check_output([shutil.which('ffmpeg'), '-v', 'error', '-f', 'lavfi',
             '-i', 'color=c=blue:s=320x240', '-frames:v', '1', '-c:v', 'mjpeg', '-threads', '1',
@@ -150,7 +159,7 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
         self.config = dict(camera='127.0.0.1:1', allow_insecure_camera_http=False,
             camera_tls=self.credentials.config(), rtsp='127.0.0.1:8554', stream_path='reference',
             publisher_user='publisher', publisher_token_file=str(self.root/'publisher.token'),
-            ffmpeg=str(encoder), width=320, height=240, frame_timeout_ms=1000)
+            ffmpeg=str(encoder), publisher=str(publisher), width=320, height=240, frame_timeout_ms=1000)
 
     async def asyncTearDown(self):
         if self.process and self.process.returncode is None:
@@ -167,8 +176,9 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
         for task in tasks: task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self.assertEqual(self.loop_errors, [])
-        if self.encoder_pid.exists():
-            with self.assertRaises(ProcessLookupError): os.kill(int(self.encoder_pid.read_text()), 0)
+        for path in [self.encoder_pid, self.publisher_pid]:
+            if path.exists():
+                with self.assertRaises(ProcessLookupError): os.kill(int(path.read_text()), 0)
 
     async def serve(self, *, certificate='server', mode='tls', tls12=False):
         self.assertIn(mode, ['tls', 'silent', 'cleartext'])
@@ -383,6 +393,31 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.peak, 1)
         self.assertFalse(self.marker.exists())
         self.assertFalse(self.plaintext_http)
+
+    async def retire_after_child_exit(self, victim):
+        await self.serve()
+        process = await self.launch()
+        paths = [self.encoder_pid, self.publisher_pid]
+        def current():
+            try: return [int(p.read_text()) for p in paths]
+            except (FileNotFoundError, ValueError): return None
+        await self.until(lambda: current() is not None and self.marker.exists())
+        pids = current()
+        os.kill(pids[victim], signal.SIGKILL)
+        await self.until(lambda: (now := current()) is not None and all(a != b for a, b in zip(now, pids)))
+        for pid in pids:
+            with self.assertRaises(ProcessLookupError): os.kill(pid, 0)
+        self.assertEqual(self.peak, 1)
+        self.assertTrue(b'1'*64 not in self.marker.read_bytes(), 'credential reached image encoder input')
+        process.send_signal(signal.SIGTERM)
+        await asyncio.wait_for(process.communicate(), 6)
+        self.assertEqual(process.returncode, 0)
+
+    async def test_encoder_exit_reaps_publisher_before_reconnect(self):
+        await self.retire_after_child_exit(0)
+
+    async def test_publisher_exit_reaps_encoder_before_reconnect(self):
+        await self.retire_after_child_exit(1)
 
     async def test_plaintext_peer_is_terminal_without_http_fallback(self):
         await self.serve(mode='cleartext')

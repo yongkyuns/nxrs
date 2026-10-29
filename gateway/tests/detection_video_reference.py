@@ -115,6 +115,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             source=await RustCamera.start(camera_source,root,detections=True,colors=True)
             write('ingest.json',{'camera':f'127.0.0.1:{source.port}','allow_insecure_camera_http':True,'rtsp':f'127.0.0.1:{rtsp}',
                 'stream_path':'reference','publisher_user':'publisher','publisher_token_file':str(root/'publisher.token'),'ffmpeg':shutil.which('ffmpeg'),
+                'publisher':str(ingest.with_name('nxrs-rtsp-publisher')),
                 'width':320,'height':240,'frame_timeout_ms':2000,'detections':{'control':f'127.0.0.1:{auth}','camera_id':'cam_reference'}})
             launch([gateway,root/'control.json','--security',root/'security.json'],'control')
             launch([mediamtx,root/'media.json'],'media')

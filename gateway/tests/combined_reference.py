@@ -201,7 +201,8 @@ async def exercise(args, prefix, nets):
 
     try:
         (root / 'bin').mkdir(mode=0o755)
-        for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest')]:
+        for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
+                           (args.ingest.with_name('nxrs-rtsp-publisher'), 'publisher')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
         images = root / 'images'
@@ -223,6 +224,7 @@ async def exercise(args, prefix, nets):
         (conf / 'security.json').write_text(json.dumps(security))
         ingest_config = json.loads((conf / 'ingest.json').read_text())
         ingest_config['publisher_token_file'] = '/run/' + roles['ingest'] + '/publisher.token'
+        ingest_config['publisher'] = str(root/'bin/publisher')
         (conf / 'ingest.json').write_text(json.dumps(ingest_config))
         try:
             pwd.getpwnam(roles['control'])
@@ -333,7 +335,7 @@ async def exercise(args, prefix, nets):
             validate_viewer_sharing(source_before_viewers, counters)
             stage = 'startup: encoder cgroup and VPN handshake'
             group = Path('/sys/fs/cgroup') / prop('ingest', 'ControlGroup').lstrip('/')
-            require(len(cgroup_pids(group)) == 2, 'one ingest and encoder in shared cgroup')
+            require(len(cgroup_pids(group)) == 3, 'ingest, encoder and publisher in shared cgroup')
             handshakes = command(['wg', 'show', 'wg-nxrs', 'latest-handshakes']).split()
             require(handshakes and int(handshakes[-1]) > 0, 'authenticated kernel WireGuard handshake')
             print('PASS: full strict group delivers two advancing 320x240 H264 streams over kernel WireGuard from one actual Rust source', flush=True)
