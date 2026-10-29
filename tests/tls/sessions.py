@@ -1,6 +1,7 @@
 """Real SDK server against independent OpenSSL TLS; private synthetic PKI only."""
 import argparse
 import http.client
+import json
 import os
 from pathlib import Path
 import select
@@ -18,7 +19,7 @@ from tls_reference import Credentials, private
 
 
 class Sessions(unittest.TestCase):
-    binary = ROOT/'target/debug/tls-endpoint'
+    binary = Path(os.environ.get('NXRS_TLS_ENDPOINT', ROOT/'target/debug/tls-endpoint'))
 
     def start(self, *, age=30000, case='echo'):
         directory = tempfile.TemporaryDirectory(prefix='nxrs-sdk-session-')
@@ -27,7 +28,10 @@ class Sessions(unittest.TestCase):
         root.chmod(0o700)
         error = (root/'endpoint.log').open('w+')
         self.addCleanup(error.close)
-        process = subprocess.Popen([str(self.binary), str(root), str(age), case], stdin=subprocess.PIPE,
+        arguments = [str(self.binary), str(root), str(age), case]
+        if case == 'product':
+            arguments.append(os.environ.get('NXRS_TEST_TLS_STACK_BYTES', '65536'))
+        process = subprocess.Popen(arguments, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=error, text=True)
         def stop():
             if process.poll() is None:
@@ -130,6 +134,101 @@ class Sessions(unittest.TestCase):
                     if peer == 'client':
                         raise
                 self.result(root, process, credentials, error, accepted=peer == 'client')
+
+    def test_product_capture_tls_reconnect_cancellation_and_join(self):
+        root, process, credentials, error = self.start(case='product')
+        credentials.issue('other', client=True)
+        address = self.load(root, process, credentials)
+
+        def state_until(predicate):
+            deadline = time.monotonic() + 5
+            state = None
+            while time.monotonic() < deadline:
+                if (root/'state.json').exists():
+                    state = json.loads((root/'state.json').read_text())
+                    if predicate(state):
+                        return state
+                time.sleep(.02)
+            self.fail('product state deadline: '+repr(state))
+
+        def connect(version=ssl.TLSVersion.TLSv1_3, peer='client'):
+            client = self.context(root, version, peer=peer).wrap_socket(
+                socket.create_connection(address, timeout=5), server_hostname='127.0.0.1')
+            self.addCleanup(client.close)
+            client.sendall(b'GET /stream HTTP/1.1\r\nHost: fixture\r\n\r\n')
+            response = http.client.HTTPResponse(client)
+            self.addCleanup(response.close)
+            response.begin()
+            return client, response
+
+        def image(response):
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.fp.readline(128), b'--nxrs-frame\r\n')
+            headers = http.client.parse_headers(response.fp)
+            sequence = int(headers['X-Sequence'])
+            name = 'background.jpg' if sequence & 1 else 'person.jpg'
+            expected = (ROOT/'tests/nuttx-std/detection'/name).read_bytes()
+            self.assertEqual(int(headers['Content-Length']), len(expected))
+            self.assertEqual(response.read(len(expected)), expected)
+            self.assertEqual(response.read(2), b'\r\n')
+            return sequence
+
+        for peer in [None, 'other']:
+            with self.assertRaises((ssl.SSLError, ConnectionError, http.client.HTTPException)):
+                connect(peer=peer)
+        state_until(lambda s: s['failures'] >= 2)
+        self.assertEqual(state_until(lambda s: s['captured'] > 0)['accepted'], 0)
+
+        client, response = connect(ssl.TLSVersion.TLSv1_2)
+        first = image(response)
+        self.assertGreater(image(response), first)
+        response.close(); client.close()
+        state_until(lambda s: s['disconnected'] >= 1)
+
+        client, response = connect()
+        image(response)
+        (root/'block-time').touch()
+        self.assertEqual(self.line(process), 'TIME_BLOCKED')
+        before = state_until(lambda s: s['busy'] > 0)
+        state_until(lambda s: s['captured'] >= before['captured'] + 20)
+        # An entire offline/online cycle occurs while the worker cannot poll.
+        (root/'control').write_text('offline')
+        self.assertEqual(self.line(process), 'OFFLINE')
+        (root/'control').write_text('online')
+        self.assertEqual(self.line(process), 'ONLINE')
+        (root/'block-time').unlink()
+        state_until(lambda s: s['disconnected'] >= 2)
+        response.close(); client.close()
+
+        client, response = connect()
+        image(response)
+        (root/'time-error').touch()
+        state_until(lambda s: s['failures'] >= 3 and s['disconnected'] >= 3)
+        response.close(); client.close()
+        (root/'time-error').unlink()
+        client, response = connect()
+        image(response)
+        # Stop joins TLS even when stopping the camera itself fails.
+        (root/'fail-camera-stop').touch()
+        (root/'control').write_text('stop')
+        self.assertEqual(self.line(process), 'CAMERA_STOPPED')
+        process.wait(timeout=5)
+        error.seek(0)
+        self.assertEqual(process.returncode, 0, error.read()[-2000:])
+        keys = [subprocess.check_output([credentials.openssl, 'req', '-in', str(root/name),
+                                        '-noout', '-pubkey'], timeout=10)
+                for name in ['request.csr', 'replacement.csr']]
+        self.assertNotEqual(*keys, 'retired worker retained its native key owner')
+
+        root, process, credentials, error = self.start(case='product')
+        address = self.load(root, process, credentials)
+        client, response = connect()
+        image(response)
+        (root/'control').write_text('drop')
+        self.assertEqual(self.line(process), 'CAMERA_STOPPED')
+        process.wait(timeout=5)
+        error.seek(0)
+        self.assertEqual(process.returncode, 0, error.read()[-2000:])
 
     def test_missing_or_different_valid_peer_cannot_publish(self):
         for peer in [None, 'other']:
