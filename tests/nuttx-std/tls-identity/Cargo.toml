@@ -9,6 +9,8 @@ nxrs-tls = { path = "../../../hal/tls" }
 nxrs-camera = { path = "../../../hal/camera" }
 nxrs-stream-service = { path = "../../../service/stream" }
 nxrs-camera-stream = { path = "../../../app/camera-stream" }
+nxrs-detection-service = { path = "../../../service/detection" }
+nxrs-detector = { path = "../../../hal/detector" }
 
 [package.metadata.nxrs]
 required-capabilities = ["tls"]

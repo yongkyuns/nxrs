@@ -4,6 +4,20 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
+      - 'app/camera-stream/**'
+      - 'service/camera/**'
+      - 'service/detection/**'
+      - 'hal/detector/src/api.rs'
+      - 'hal/tls/**'
+      - 'tests/tls/**'
+      - 'tests/nuttx-std/tls-identity/**'
+      - 'upstream/mbedtls/**'
+      - 'platform/profiles/linux*.toml'
+      - 'platform/hal-build.rs'
+      - 'tools/platform_config.py'
+      - 'tools/hal_native.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
       - 'service/stream/**'
@@ -32,12 +46,15 @@ jobs:
       - name: Compile actual camera contract and stream server from the PR merge
         run: |
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
+          python3 upstream/mbedtls/fetch.py
+          NXRS_PLATFORM=linux-tls cargo build --locked -p nxrs-std-tls-identity --bin tls-endpoint --target-dir target/device-tls
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
           python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
       - name: TLS process controls and synthetic-media reference tools
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg
-          python3 gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest
+          python3 gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest \
+            --camera-source target/device-tls/debug/tls-endpoint
           python3 -m venv /tmp/nxrs-ingest-test
           /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
           ffmpeg -version | head -n 3
@@ -64,7 +81,7 @@ jobs:
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
-              --camera-source gateway/target/camera-reference/nxrs_camera_source
+              --tls-camera-source target/device-tls/debug/tls-endpoint
       - name: Annotated video preserves bounded children, shutdown and cgroup recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
@@ -72,4 +89,4 @@ jobs:
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
-              --camera-source gateway/target/camera-reference/nxrs_camera_source
+              --tls-camera-source target/device-tls/debug/tls-endpoint

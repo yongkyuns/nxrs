@@ -22,6 +22,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'deploy'))
 import ingest_service
 
+TLS_CAMERA = None
+
 
 def private(path, data):
     path.write_bytes(data if isinstance(data, bytes) else data.encode())
@@ -29,8 +31,9 @@ def private(path, data):
 
 
 class Credentials:
-    def __init__(self, root, *, server_csr=None):
+    def __init__(self, root, *, server_csr=None, site='site', camera='cam', gateway='gateway'):
         self.root = root
+        self.site, self.camera, self.gateway = site, camera, gateway
         self.openssl = os.environ.get('NXRS_TEST_OPENSSL', 'openssl')
         (root/'issued').mkdir()
         private(root/'index', '')
@@ -71,15 +74,16 @@ authorityKeyIdentifier=keyid:always
         subprocess.run([self.openssl, *map(str, args)], check=True, timeout=15,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def issue(self, name, *, client=False, camera='cam', expired=False, csr=None):
+    def issue(self, name, *, client=False, camera=None, expired=False, csr=None):
         client = client or name == 'client'
+        camera = self.camera if camera is None else camera
         root = self.root
         if csr is None:
             self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/(name+'.key'))
             self.call('req', '-new', '-config', root/'request.cnf', '-key', root/(name+'.key'),
                       '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
             csr = root/(name+'.csr')
-        uri = f'urn:nxrs:ingest:site:gateway:{camera}' if client else f'urn:nxrs:camera:site:{camera}'
+        uri = f'urn:nxrs:ingest:{self.site}:{self.gateway}:{camera}' if client else f'urn:nxrs:camera:{self.site}:{camera}'
         private(root/'leaf.cnf', '[leaf]\nbasicConstraints=critical,CA:FALSE\n'
                 'keyUsage=critical,digitalSignature\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n'
                 f'extendedKeyUsage={"clientAuth" if client else "serverAuth"}\n'
@@ -98,7 +102,7 @@ authorityKeyIdentifier=keyid:always
     def config(self):
         root = self.root
         der = ssl.PEM_cert_to_DER_cert((root/'ca.pem').read_text())
-        return dict(site_id='site', camera_id='cam', gateway_id='gateway',
+        return dict(site_id=self.site, camera_id=self.camera, gateway_id=self.gateway,
             issuer_sha256=hashlib.sha256(der).hexdigest(), enrollment_generation=1,
             **{field: str(root/name) for field, name in [
                 ('ca_certificate_file', 'ca.pem'), ('camera_certificate_file', 'server.pem'),
@@ -213,6 +217,29 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
             '--require-camera-tls', *(['--check-config'] if check else []),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return self.process
+
+    async def test_mbed_tls_product_camera_delivers_exact_jpegs_to_rustls_ingest(self):
+        if TLS_CAMERA is None:
+            self.skipTest('select --camera-source for actual Mbed TLS interoperability')
+        from tls_camera import TlsCamera
+        source = await TlsCamera.start(TLS_CAMERA, self.root/'device',
+            site='site_reference', camera='cam_reference', gateway='gw_reference')
+        self.addAsyncCleanup(source.close)
+        self.config.update(camera=f'127.0.0.1:{source.port}', camera_tls=source.credentials.config())
+        images = [(source.directory/f'rust-frame-{i}.jpg').read_bytes() for i in [1, 2]]
+        process = await self.launch()
+        await self.until(lambda: self.marker.exists() and self.marker.stat().st_size >= 2 * max(map(len, images)))
+        with self.marker.open('rb') as stream:
+            data = stream.read(32768)
+        end = data.index(b'\xff\xd9') + 2
+        self.assertIn(data[:end], images)
+        end2 = data.index(b'\xff\xd9', end) + 2
+        self.assertIn(data[end:end2], images)
+        counters = await source.command('status')
+        self.assertEqual((counters['active'], counters['peak'], counters['connections']), (1, 1, 1))
+        process.send_signal(signal.SIGTERM)
+        await asyncio.wait_for(process.communicate(), 6)
+        self.assertEqual(process.returncode, 0)
 
     async def checked(self, expected=1):
         process = await self.launch(check=True)
@@ -374,6 +401,8 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ingest', type=Path, required=True)
+    parser.add_argument('--camera-source', type=Path, help='actual TLS/LiveCamera fixture executable')
     args = parser.parse_args()
     INGEST = args.ingest.resolve()
+    TLS_CAMERA = args.camera_source.resolve() if args.camera_source else None
     unittest.main(argv=[sys.argv[0]], verbosity=2)

@@ -15,6 +15,7 @@ enum Case {
     Rollback,
     Http,
     Product,
+    Media,
 }
 
 fn public(path: PathBuf) -> Vec<u8> {
@@ -204,13 +205,14 @@ fn main() {
         Some("rollback") => Case::Rollback,
         Some("http") => Case::Http,
         Some("product") => Case::Product,
+        Some("media") => Case::Media,
         _ => panic!("unknown fixture case"),
     };
-    if matches!(case, Case::Product) {
+    if matches!(case, Case::Product | Case::Media) {
         let stack = std::env::args()
             .nth(4)
             .map_or(65536, |v| v.parse().unwrap());
-        product::run(directory, age, stack);
+        product::run(directory, age, stack, case);
         return;
     }
     let mut identity = tls::open().expect("SDK identity");

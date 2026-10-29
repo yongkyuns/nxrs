@@ -440,6 +440,8 @@ version = "0.1.0"
 dependencies = [
  "nxrs-camera",
  "nxrs-camera-stream",
+ "nxrs-detection-service",
+ "nxrs-detector",
  "nxrs-stream-service",
  "nxrs-tls",
 ]
