@@ -495,10 +495,14 @@ class RecorderStatusTests(unittest.TestCase):
 
     def test_first_loss_is_typed_bounded_and_recording_only(self):
         good = b"PRESENCE_LAB_LOSS v=1 reason=slot_not_free kind=3"
-        client = RUN.Client(Console([good]))
-        client.record_sink = lambda _: None
-        self.assertEqual(client.read(__import__("time").monotonic()+1),
-                         dict(kind="lab_recorder_first_loss", reason="slot_not_free", journal_kind=3))
+        for reason, kind in (("slot_not_free", 3), ("native_workspace_busy", 6)):
+            line = f"PRESENCE_LAB_LOSS v=1 reason={reason} kind={kind}".encode()
+            client = RUN.Client(Console([line]))
+            client.record_sink = lambda _: None
+            self.assertEqual(
+                client.read(__import__("time").monotonic() + 1),
+                dict(kind="lab_recorder_first_loss", reason=reason, journal_kind=kind),
+            )
         for line in (good.replace(b"v=1", b"v=2"),
                      good.replace(b"slot_not_free", b"unknown"),
                      good.replace(b"kind=3", b"kind=12"), good+b" extra=1"):

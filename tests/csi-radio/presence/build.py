@@ -206,6 +206,7 @@ if __name__ == "__main__":
             ("presence_model_queue_bytes", 16384),
             ("presence_model_control_bytes", 1024),
             ("presence_motion_pipeline_bytes", 4096),
+            ("presence_lab_native_workspace_bytes", 2048),
         ):
             symbols = table.get_symbol_by_name(resource)
             if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 4:
@@ -218,6 +219,8 @@ if __name__ == "__main__":
                 raise ValueError("model ownership resource budget exceeded")
             model_resources[resource] = value
 
+        if lab_bytes + model_resources["presence_lab_native_workspace_bytes"] > 150000:
+            raise ValueError("combined recorder allocation budget exceeded")
         if not 0 < runtime_bytes <= 1024:
             raise RuntimeError("calibration resource witness outside fixed budget")
         symbols = table.get_symbol_by_name("presence_failure_static_bytes")
@@ -348,6 +351,16 @@ if __name__ == "__main__":
         "legacy_snapshots_enabled": False,
         "preallocated_queue_bytes": lab_bytes,
         "queue_slots": 128,
+        "native_workspace": {
+            "slots": 1,
+            "rust_bytes": model_resources["presence_lab_native_workspace_bytes"],
+            "native_mutex_and_allocator_overhead_additional": True,
+            "inputs_copied_before_execution": True,
+            "journal_reservation_after_execution": True,
+            "contention_is_loss_with_one_unchanged_native_call": True,
+        },
+        "combined_preallocated_rust_bytes": lab_bytes + model_resources["presence_lab_native_workspace_bytes"],
+        "preallocated_rust_budget_bytes": 150000,
         "loss_is_fatal_to_dataset": True,
         "native_call_quiescence_before_end": True,
         "callback_allocations": False,

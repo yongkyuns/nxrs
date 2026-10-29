@@ -7,6 +7,7 @@ target_link_libraries(${COMPONENT_LIB} PUBLIC reference_rust)
 
 target_link_libraries(${COMPONENT_LIB} PUBLIC
     "-Wl,-u,presence_lab_queue_bytes"
+    "-Wl,-u,presence_lab_native_workspace_bytes"
     "-Wl,-u,presence_model_queue_bytes"
     "-Wl,-u,presence_model_control_bytes"
     "-Wl,-u,presence_motion_pipeline_bytes"

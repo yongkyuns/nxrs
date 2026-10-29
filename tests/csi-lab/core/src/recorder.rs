@@ -26,6 +26,7 @@ pub enum LossReason {
     CounterExhausted,
     SlotNotFree,
     SlotBusy,
+    NativeWorkspaceBusy,
 }
 impl LossReason {
     pub fn name(self) -> &'static str {
@@ -36,6 +37,7 @@ impl LossReason {
             Self::CounterExhausted => "counter_exhausted",
             Self::SlotNotFree => "slot_not_free",
             Self::SlotBusy => "slot_busy",
+            Self::NativeWorkspaceBusy => "native_workspace_busy",
         }
     }
 }
@@ -53,6 +55,7 @@ pub struct Recorder {
     active: AtomicU32,
     serial: AtomicU32,
     storage: std::sync::OnceLock<Box<[Slot]>>,
+    native_workspace: std::sync::OnceLock<Box<Mutex<[u32; journal::WORDS]>>>,
     consumer: Mutex<Consumer>,
 }
 impl Default for Recorder {
@@ -70,6 +73,7 @@ impl Recorder {
             active: AtomicU32::new(0),
             serial: AtomicU32::new(0),
             storage: std::sync::OnceLock::new(),
+            native_workspace: std::sync::OnceLock::new(),
             consumer: Mutex::new(Consumer { next: 0, chain: 0 }),
         }
     }
@@ -79,8 +83,15 @@ impl Recorder {
     pub const fn storage_bytes(capacity: usize) -> usize {
         capacity * std::mem::size_of::<Slot>()
     }
+    pub const fn native_workspace_bytes() -> usize {
+        std::mem::size_of::<Mutex<[u32; journal::WORDS]>>()
+    }
     pub fn prepare(&self, config: crate::calibration::Config, capacity: usize) -> bool {
-        if capacity == 0 || capacity > 256 || self.storage.get().is_some() {
+        if capacity == 0
+            || capacity > 256
+            || self.storage.get().is_some()
+            || self.native_workspace.get().is_some()
+        {
             return false;
         }
         let slots = (0..capacity)
@@ -96,7 +107,12 @@ impl Recorder {
                 return false;
             }
         }
-        if self.consumer.lock().is_err() || self.storage.set(slots).is_err() {
+        let workspace = Box::new(Mutex::new([0; journal::WORDS]));
+        if workspace.lock().is_err()
+            || self.native_workspace.set(workspace).is_err()
+            || self.consumer.lock().is_err()
+            || self.storage.set(slots).is_err()
+        {
             return false;
         }
         self.enabled.store(true, Ordering::Release);
@@ -203,6 +219,7 @@ impl Recorder {
             4 => LossReason::CounterExhausted,
             5 => LossReason::SlotNotFree,
             6 => LossReason::SlotBusy,
+            7 => LossReason::NativeWorkspaceBusy,
             _ => return None,
         };
         Some(FirstLoss {
@@ -285,22 +302,32 @@ impl Lease<'_> {
             self.0.invalidate();
             return compute();
         }
-        let mut compute = Some(compute);
-        let mut result = None;
-        self.push_words(journal::WANDER, now, 9 + 2 * n, |words| {
-            words[..8].copy_from_slice(&[id, 3, n as u32, 0, 0, (2 * n + 1) as u32, 0, 0]);
-            for (to, from) in words[8..8 + n].iter_mut().zip(a) {
-                *to = from.to_bits();
-            }
-            for (to, from) in words[8 + n..8 + 2 * n].iter_mut().zip(b) {
-                *to = from.to_bits();
-            }
-            let value = compute.take().unwrap()();
-            words[8 + 2 * n] = value.to_bits();
-            result = Some(value);
+        let Some(workspace) = self.0.native_workspace.get() else {
+            self.0.lose(LossReason::Unprepared, journal::WANDER);
+            return compute();
+        };
+        let Ok(mut words) = workspace.try_lock() else {
+            self.0
+                .lose(LossReason::NativeWorkspaceBusy, journal::WANDER);
+            return compute();
+        };
+        words[..8].copy_from_slice(&[id, 3, n as u32, 0, 0, (2 * n + 1) as u32, 0, 0]);
+        for (to, from) in words[8..8 + n].iter_mut().zip(a) {
+            *to = from.to_bits();
+        }
+        for (to, from) in words[8 + n..8 + 2 * n].iter_mut().zip(b) {
+            *to = from.to_bits();
+        }
+        // No journal sequence is reserved during native execution. A preempted
+        // numerical caller cannot hold up unrelated producers and the consumer.
+        let value = compute();
+        words[8 + 2 * n] = value.to_bits();
+        self.push_words(journal::WANDER, now, 9 + 2 * n, |record| {
+            record.copy_from_slice(&words[..9 + 2 * n]);
         });
-        result.unwrap_or_else(|| compute.take().unwrap()())
+        value
     }
+
     pub fn push_words(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
         self.0.append_admitted(kind, time_us, len, fill);
     }
@@ -677,6 +704,72 @@ mod packed_wander_tests {
         let records = records(&r);
         assert_eq!(records[1].len, 255);
         assert_eq!(records[1].words[254], bits);
+    }
+    #[test]
+    fn native_workspace_contention_preserves_one_call_without_waiting() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 4));
+        let held = r.native_workspace.get().unwrap().lock().unwrap();
+        let calls = std::cell::Cell::new(0);
+        let lease = r.lease().unwrap();
+        let result = lease.wander(1, 1, &[1.0], &[2.0], || {
+            calls.set(calls.get() + 1);
+            0.25
+        });
+        assert_eq!(result, 0.25);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(r.loss(), 1);
+        assert_eq!(
+            r.first_loss(),
+            Some(FirstLoss {
+                reason: LossReason::NativeWorkspaceBusy,
+                kind: journal::WANDER
+            })
+        );
+        drop(held);
+    }
+    #[test]
+    fn paused_native_execution_does_not_reserve_journal_head() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 128));
+        let mut out = Vec::new();
+        r.drain(&mut out).unwrap();
+        let admitted = std::sync::Barrier::new(2);
+        let resume = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let native = scope.spawn(|| {
+                let lease = r.lease().unwrap();
+                lease.wander(1, 1, &[1.0], &[2.0], || {
+                    admitted.wait();
+                    resume.wait();
+                    0.25
+                })
+            });
+            admitted.wait();
+            // A lower-priority numerical caller may be preempted while other
+            // producers and the consumer continue for several queue epochs.
+            for now in 2..514 {
+                r.push_words(journal::LABEL, now, 1, |w| w[0] = 1);
+                r.drain(&mut out).unwrap();
+            }
+            resume.wait();
+            assert_eq!(native.join().unwrap(), 0.25);
+        });
+        assert_eq!(r.loss(), 0);
+        r.finish(1000, &mut out).unwrap();
+        let rows = std::str::from_utf8(&out)
+            .unwrap()
+            .lines()
+            .map(|s| Record::parse(s).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 515);
+        assert_eq!(rows[513].kind, journal::WANDER);
+        assert_eq!(rows[513].words[10], 0.25f32.to_bits());
+        let mut integrity = journal::Integrity::default();
+        for row in rows {
+            integrity.accept(&row).unwrap();
+        }
+        integrity.finish().unwrap();
     }
     #[test]
     fn end_waits_for_packed_native_execution_before_publishing_complete_call() {

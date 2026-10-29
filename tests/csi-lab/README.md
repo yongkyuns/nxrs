@@ -35,6 +35,14 @@ stopped on recorder loss during training and supplies no accuracy evidence.
 kind; later loss totals may include cascading generation failures. Loss still
 invalidates the entire capture, including when its END footer is present.
 
+The [unlabelled training-load fixture](../csi-radio/presence/training_load.py)
+exercises native training without room cues or detector admission. It exposed a
+[recorder ordering defect](../csi-radio/results/csi-recorder-native-reservation-2026-10-29.json):
+reserving a journal sequence across native computation could block draining.
+One preallocated native workspace now preserves input bits and publishes after
+return. The bounded physical workload passes with zero loss; independent
+empty/occupied qualification remains required.
+
 Older walking trials did not retain this continuous input stream. Their sampled
 reports and selected snapshots cannot reconstruct it. The synthetic `fixture`
 command tests software and is explicitly labelled `synthetic_test`; it is not

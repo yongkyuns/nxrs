@@ -94,13 +94,40 @@ firmware was restored and three advancing source JPEGs decoded on the Mac;
 gateway/WHEP forwarding was already failing and remains separately unverified.
 
 A lost reservation can cascade into later generation failures, so the counter
-alone does not identify the first cause or prove queue exhaustion. The next
-unflashed image retains that first cause and record kind with one failure-only
+alone does not identify the first cause or prove queue exhaustion. A first
+diagnostic image retained that first cause and record kind with one failure-only
 atomic CAS. Its six cases distinguish explicit invalidation, invalid records,
 unprepared storage, exhausted counters, nonfree slots and slot contention.
 Queue capacity, callback admission, numerical guards and all phase acceptance
 remain unchanged. The 75 native ABI checks and individual producer-frame budget
 pass; recording overhead and radio behavior still require physical evidence.
+
+
+## Recorder publication-order defect
+
+The [unlabelled training-load comparison](../csi-radio/results/csi-recorder-native-reservation-2026-10-29.json)
+reproduced the first loss as a nonfree slot while appending a packed native
+comparison. The recorder reserved its sequence before running that comparison;
+a paused native caller could block publication order while other producers
+continued. A deterministic regression reproduces 385 losses across 512 other
+records despite an actively draining consumer.
+
+Native inputs now use one preallocated, try-locked workspace. The journal slot
+is reserved only after the unchanged native call returns. The regression has
+zero loss; workspace contention still invalidates recording and calls the SDK
+exactly once. The queue stays at 128 slots. Combined declared Rust allocation
+is 137,220 bytes within the existing 150,000-byte budget; native mutex/allocator
+overhead and execution cost are additional qualification work.
+
+The same unlabelled workload now completes 60 seconds of vendor training after
+settling: 71,413 records, a zero-loss footer and 1,914 exactly accounted model
+features. All five analysis commands pass twice with identical outputs; every
+one of 16,238 native Pearson comparison results matches host arithmetic bits.
+Both control and fixed trials restored the original firmware and verified three
+advancing camera source frames on the Mac. This supports the bounded recorder
+fix, not presence accuracy or exclusive attribution of every earlier loss.
+Occupancy stayed unknown, no detector calibration was admitted, and gateway
+forwarding remains a separate unresolved issue.
 
 ## Current offline experiments
 

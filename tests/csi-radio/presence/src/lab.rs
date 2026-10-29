@@ -378,6 +378,11 @@ pub fn wander_id() -> u32 {
 pub static presence_lab_queue_bytes: u32 =
     csi_lab_core::recorder::Recorder::storage_bytes(128) as u32;
 
+#[cfg(target_os = "espidf")]
+#[no_mangle]
+pub static presence_lab_native_workspace_bytes: u32 =
+    csi_lab_core::recorder::Recorder::native_workspace_bytes() as u32;
+
 pub fn source(peer: [u8; 6], channel: u8) {
     let mut bytes = [0u8; 8];
     bytes[..6].copy_from_slice(&peer);

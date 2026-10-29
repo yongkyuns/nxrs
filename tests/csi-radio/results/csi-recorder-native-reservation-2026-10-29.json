@@ -1,0 +1,228 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "experiment": "unlabelled_native_training_load_journal_reservation",
+  "presence_qualified": false,
+  "espectre_parity_qualified": false,
+  "bounded_recorder_workload_completed": true,
+  "occupancy": "unknown_not_evaluated",
+  "detector_calibration_admitted": false,
+  "workload": {
+    "settle_seconds": 10,
+    "native_training_seconds": 60,
+    "firmware_duration_upper_bound_seconds": 120,
+    "ends_after_successful_training_stop": true,
+    "human_cues": false,
+    "controller": "tests/csi-radio/presence/training_load.py",
+    "public_and_executed_private_Schedule_AST_identical": true
+  },
+  "before_fix": {
+    "firmware_sha256": "2305d6d196113ab4598773adb964aeab17536b90dcfdc59803b4f9725b3b9e19",
+    "capture_sha256": "3f1f40b7112ac1a7c7fdac2dbb99a54d66ee82c47413b9b64ce54144dc7eb5a9",
+    "recorded_span_us": 27202269,
+    "records": 23790,
+    "reported_loss_events": 604,
+    "first_loss": {
+      "kind": "lab_recorder_first_loss",
+      "reason": "slot_not_free",
+      "journal_kind": 6
+    },
+    "no_numerical_error_reported": true,
+    "all_five_analysis_paths_reject_twice_without_stdout": true
+  },
+  "deterministic_regression": {
+    "test": "paused_native_execution_does_not_reserve_journal_head",
+    "queue_slots": 128,
+    "independent_records_while_native_call_paused": 512,
+    "loss_events_before": 385,
+    "loss_events_after": 0,
+    "native_call_count": 1,
+    "returned_result_and_recorded_bits_preserved": true
+  },
+  "fix": {
+    "native_inputs_copied_before_execution": true,
+    "journal_sequence_reserved_after_native_return": true,
+    "native_workspace_slots": 1,
+    "native_workspace_rust_bytes": 1028,
+    "native_mutex_and_allocator_overhead_additional": true,
+    "queue_slots_unchanged": 128,
+    "queue_rust_bytes_unchanged": 136192,
+    "combined_preallocated_rust_bytes": 137220,
+    "unchanged_combined_budget_bytes": 150000,
+    "new_workers": 0,
+    "callback_allocations": false,
+    "native_workspace_contention": "sticky_loss_and_one_unchanged_native_call",
+    "shutdown_waits_for_native_call_lease": true
+  },
+  "after_fix": {
+    "firmware_sha256": "48f7421ce4535c8410e96b42fd97927bea12bc01584d9123db044402473f476c",
+    "capture_sha256": "56b6ebefc42f29a6eba1c6362983653985c50a74c463dd95ccef287b12614631",
+    "recording": {
+      "records": 71413,
+      "record_bytes": 28187157,
+      "kinds": {
+        "1": 1,
+        "9": 4,
+        "3": 9577,
+        "4": 19154,
+        "11": 16600,
+        "2": 2179,
+        "7": 1,
+        "10": 1916,
+        "5": 5742,
+        "6": 16238,
+        "8": 1
+      },
+      "feature_events": 1914,
+      "native_outputs": 18152,
+      "footer": {
+        "count": 71412,
+        "chain": 2725735197,
+        "losses": 0
+      },
+      "external_faults": {},
+      "model_rejections": {},
+      "recorded_time_span_us": 70236942
+    },
+    "model_owner": {
+      "kind": "model_owner_status",
+      "slots": 64,
+      "received": 1914,
+      "applied": 1914,
+      "pending": 0
+    },
+    "last_numerical_probe": {
+      "kind": "numerical_probe",
+      "windows": 1912,
+      "bad_input": 0,
+      "bad_output": 0,
+      "kernel_errors": 0,
+      "uninspected": 0,
+      "wander_calls": 16218,
+      "bad_template": 0,
+      "bad_current": 0,
+      "constant_template": 0,
+      "constant_current": 0,
+      "last_error": 0,
+      "error_cols": 0,
+      "error_rows0": 0,
+      "error_rows1": 0
+    },
+    "last_stack_status": {
+      "kind": "lab_recorder_status",
+      "losses": 0,
+      "slots": 128,
+      "rf_stack": 4444,
+      "gain_stack": 4444,
+      "compute_stack": 1296
+    },
+    "first_loss": null,
+    "gain_pairs": {
+      "selected": {
+        "pairs": 9577,
+        "successful_nonzero_to_zero": 0,
+        "zero_input_buffers": 0,
+        "zero_output_buffers": 0
+      },
+      "other": {
+        "pairs": 0,
+        "successful_nonzero_to_zero": 0,
+        "zero_input_buffers": 0,
+        "zero_output_buffers": 0
+      }
+    },
+    "native_comparisons": 16238,
+    "all_comparison_result_bits_exact_on_host": true,
+    "verified_model_features": 1914,
+    "label_feature_counts_unknown_clear_presence": [
+      [
+        1914,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "policy_phase": "uncalibrated",
+    "completed_policy_holdout": false
+  },
+  "offline_verification": {
+    "all_commands_run_twice": true,
+    "all_outputs_byte_identical": true,
+    "original_lossy_control_still_rejected": true,
+    "lossless_archive_commands": {
+      "replay": {
+        "twice_identical": true,
+        "exit": 0,
+        "stdout_bytes": 422104,
+        "stdout_sha256": "efc553c75c2c95e5ee5a103f5a116f6fc0f1788da9f0d925f9f0a9f09f5284e0",
+        "stderr_sha256": "e5c2d8aa15be1c3173a9b7974f24f3c714b50a6e2fa754e9426eaea6beda9f6a"
+      },
+      "sampling": {
+        "twice_identical": true,
+        "exit": 0,
+        "stdout_bytes": 3822466,
+        "stdout_sha256": "20a262b885762325c1cdb4b182308baa3983b37fc1329496870b5c87e5589f69",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit-gain": {
+        "twice_identical": true,
+        "exit": 0,
+        "stdout_bytes": 401,
+        "stdout_sha256": "2eb439e6528db6b376462f25cbe4ea3807be71feb4a0f536e12597175a67a0a5",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "verify-distance": {
+        "twice_identical": true,
+        "exit": 0,
+        "stdout_bytes": 220,
+        "stdout_sha256": "6ea8aa97e7382bf47e5a3eca2f64dc00765446be46858496867163e331c93140",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "preview-motion": {
+        "twice_identical": true,
+        "exit": 0,
+        "stdout_bytes": 658176,
+        "stdout_sha256": "401066786c848bc13a26b20e7d73a54947665fd5057b3cb15edc071b263b1516",
+        "stderr_sha256": "ac2ffb4fbbad479448b080154041774884d1b4c500fd1b8b21fce32f0db78d67"
+      }
+    }
+  },
+  "native_qualification": {
+    "source_hashes_verified": 60,
+    "ABI_checks": 75,
+    "individual_producer_frame_max_bytes": 320,
+    "unchanged_individual_frame_limit_bytes": 512,
+    "whole_native_call_chain_qualified": false
+  },
+  "recovery": {
+    "both_original_16MB_flash_restores_hash_verified": true,
+    "both_original_camera_source_restores_decoded_three_advancing_320x240_frames": true,
+    "receiver": "Mac_PyAV_libavcodec_direct_HTTP_MJPEG",
+    "source_receiver_resources_closed": true,
+    "gateway_forwarding_already_failing_at_baseline": true,
+    "gateway_WHEP_verified": false,
+    "iPhone_playback_verified": false,
+    "enrollment_changed": false
+  },
+  "limits": [
+    "This fixes a deterministic recorder publication-order defect and passes one bounded physical training workload. It does not prove that defect was the sole cause of every historical loss.",
+    "Workloads share a host schedule and board but RF inputs are independent; output counts are not paired observations.",
+    "All occupancy labels remain unknown. No empty-background, independent holdout, walking, seated or empty-return accuracy phase was evaluated.",
+    "No new full vendor numerical-engine QEMU replay was run for this capture. Host verification covers every recorded Pearson comparison, not PCA recomputation.",
+    "The new workspace uses additional preallocated memory; CPU cost, allocator/native-mutex overhead, long-run stability, NuttX admission and camera coexistence remain unqualified."
+  ]
+}
