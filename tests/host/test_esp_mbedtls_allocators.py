@@ -179,6 +179,12 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         intr_source.parent.mkdir(parents=True)
         intr_source.write_text(source_preimage(INTR_PATCH.read_text(), INTR_SOURCE,
                                               expected_lines=None))
+        phy_source = self.source_root / 'components/esp_phy/src/phy_init.c'
+        phy_source.parent.mkdir(parents=True, exist_ok=True)
+        phy_patch = ROOT/'upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch'
+        phy_source.write_text(source_preimage(phy_patch.read_text(),
+                                             'components/esp_phy/src/phy_init.c', expected_lines=None))
+        self.original_sources = {path: path.read_bytes() for path in (source, intr_source, phy_source)}
         for name, contents in STUBS.items():
             path = self.root / "include" / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,9 +248,8 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         self.compile_and_run("iram_lower_out_boundary", [*base, "EXPECT_IRAM_PREFER"], size=1024)
 
     def test_git_copy_requires_explicit_opt_in_and_exact_clean_revision(self):
-        self.patched_source.write_text(source_preimage(PATCH.read_text()))
-        self.patched_intr_source.write_text(source_preimage(INTR_PATCH.read_text(), INTR_SOURCE,
-                                                            expected_lines=None))
+        for path, contents in self.original_sources.items():
+            path.write_bytes(contents)
         def git(*args):
             return subprocess.check_output(["git", "-C", str(self.source_root), *args], text=True).strip()
         git("init", "-q")
@@ -254,8 +259,7 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         revision = git("rev-parse", "HEAD")
         command = [sys.executable, str(APPLICATOR), "--component", "esp-hal-3rdparty",
                    "--source", str(self.source_root), "--record", str(self.root / "git-applied.json")]
-        before = {path: path.read_bytes() for path in
-                  (self.patched_source, self.patched_intr_source)}
+        before = self.original_sources
         for args in (["--revision", revision],
                      ["--revision", "wrong", "--build-checkout"]):
             result = subprocess.run([*command, *args], capture_output=True, text=True)
@@ -271,8 +275,8 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         result = subprocess.run([*command, "--revision", revision, "--build-checkout"],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotEqual(self.patched_source.read_bytes(), before[self.patched_source])
-        self.assertNotEqual(self.patched_intr_source.read_bytes(), before[self.patched_intr_source])
+        for path, contents in before.items():
+            self.assertNotEqual(path.read_bytes(), contents)
         self.compile_and_run("git_default", ["EXPECT_LIBC"])
 
     def test_custom_allocator_configuration_compiles_out_port_functions(self):

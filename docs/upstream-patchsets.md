@@ -19,6 +19,7 @@ and retired investigation tools are not silently renumbered.
 | Area | Retained patch IDs | Purpose |
 | --- | --- | --- |
 | Random-source failure | 0090–0091 | Bound RP2350 hardware polling/health rejection and latch failures; stop `arc4random_buf` after clearing output when device reads cannot fill it |
+| ESP32-S3 RF entropy access | 0093 | Hold the existing SDK PHY mutex through `/dev/random` sampling; refuse unavailable RF and unsupported PM/SMP, cap reads at 32 bytes, and honor nonblocking raw-device locking |
 | Original platform support | 0001–0004, 0007–0008 | ESP32-S3 BLE, Wi-Fi, camera, PSRAM validation and Freenove LED |
 | POSIX/network integration | 0005–0006, 0022, 0042, 0077–0078, 0086–0087 | UDP empty datagrams, flat-build pthread cleanup, TCP connect/retransmission progress, safe link-layer dispatch, sequence validation before ACK/close progress, cumulative ACK acceptance after partial retransmission, and congestion-window recovery |
 | Pico board and radio assets | 0009, 0011–0012, 0021, 0028 | Pico 2 W wiring, firmware validation, CLM alignment, calibration and open-network setup |
@@ -109,6 +110,7 @@ the actual revision, patch hash and source pre/postimages in `esp-hal-patches.js
 | --- | --- |
 | [0001](../upstream/esp-hal-3rdparty/patches/0001-mbedtls-pair-configured-allocators.patch) | Pair mbedTLS's fallback libc `calloc` with `free`; keep capability allocations paired with `heap_caps_free` and preserve memory placement |
 | [0002](../upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch) | Pair interrupt handles, shared vectors and trace arguments with `heap_caps_free`, including error paths; avoid cross-heap teardown in split-heap builds |
+| [0003](../upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch) | Move NuttX's Wi-Fi hardware-bit operations inside the existing SDK PHY lock, completing the sampling/shutdown barrier used by NuttX patch 0093 |
 
 The mbedTLS pairing fixed by 0001 triggered the NuttX adapter's cross-heap warning and
 fallback on ESP SoftAP startup. The resulting log flood interrupted shell

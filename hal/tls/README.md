@@ -82,6 +82,14 @@ fixture uses synthetic capture and test PKI/time. It does not qualify physical
 capture, handshake execution or peak memory. ESP32-S3 `tls::open()` still returns
 `Unsupported`: its RNG requires an active RF or exclusive SAR-ADC entropy source.
 The pinned PHY power flags are per radio, not per caller, so TLS cannot borrow
-Wi-Fi's flag as an entropy lease. Source ownership through sampling, bounded
-driver reads and physical measurements are required before admission; see
+Wi-Fi's flag as an entropy lease. NuttX patch 0093 instead holds the existing
+PHY mutex through `/dev/random` sampling. SDK patch 0003 moves the adapter's
+Wi-Fi hardware-bit operations inside that lock, closing the first shutdown step.
+Cold/busy/inactive Wi-Fi returns
+`EAGAIN`; PM, auto-sleep, SMP and radio-free builds are unsupported. Both random
+devices copy at most 32 bytes per read, and the raw device honors `O_NONBLOCK`.
+`/dev/urandom` retains its legacy raw output, without a cryptographic guarantee
+at boot. The vendor's synchronous, cycle-paced sampling is unchanged. Native
+fault controls and target builds do not qualify physical source health or
+execution latency; those measurements remain required before TLS admission. See
 [Espressif's RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html).
