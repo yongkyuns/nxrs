@@ -14,7 +14,7 @@ use stream_service::{HttpSession, Metadata, Options, Progress, ServerStats};
 /// Product-owned, approved enrollment. Construct this on the TLS thread.
 /// `time` must be bounded and supply a currently authenticated observation,
 /// accounting for its original age; recreating a lease cannot renew stale UTC.
-/// It is called on admission and once per second while connected.
+/// It is called at startup, on admission and once per second while connected.
 pub struct TlsIdentity<T> {
     pub identity: ::tls::Identity,
     pub policy: ::tls::CertificatePolicy,
@@ -162,19 +162,21 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
             .name("camera-tls".into())
             .stack_size(resources.stack_bytes)
             .spawn(move || {
-                let context = initialize().and_then(|context| {
-                    if [
-                        &context.own,
-                        &context.issuer,
-                        &context.approved_peer,
-                        &context.revocations,
-                    ]
-                    .iter()
-                    .any(|v| v.is_empty() || v.len() > 16384)
-                    {
-                        return Err(Error::Tls(::tls::Error::InvalidInput));
-                    }
-                    context.policy.validate().map_err(Error::Tls)?;
+                let context = initialize().and_then(|mut context| {
+                    let time = (context.time)().map_err(Error::Tls)?;
+                    context
+                        .identity
+                        .validate_certificates(
+                            ::tls::Certificates {
+                                policy: &context.policy,
+                                own: &context.own,
+                                issuer: &context.issuer,
+                                approved_peer: &context.approved_peer,
+                                revocations: &context.revocations,
+                            },
+                            time,
+                        )
+                        .map_err(Error::Tls)?;
                     Ok(context)
                 });
                 let context = match context {

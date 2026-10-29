@@ -55,7 +55,7 @@ class Sessions(unittest.TestCase):
         self.assertTrue(select.select([process.stdout], [], [], 15)[0], 'endpoint output deadline')
         return process.stdout.readline().strip()
 
-    def load(self, root, process, credentials, *, corrupt_crl=False):
+    def load(self, root, process, credentials, *, corrupt_crl=False, expect_ready=True):
         for pem, der in [('server.pem', 'server.der'), ('ca.pem', 'issuer.der'), ('client.pem', 'peer.der')]:
             private(root/der, ssl.PEM_cert_to_DER_cert((root/pem).read_text()))
         credentials.call('crl', '-in', root/'crl.pem', '-outform', 'DER', '-out', root/'revocations.der')
@@ -64,6 +64,8 @@ class Sessions(unittest.TestCase):
             private(root/'revocations.der', bytes(data))
         process.stdin.write('load\n'); process.stdin.flush()
         line = self.line(process)
+        if not expect_ready:
+            return line
         self.assertTrue(line.startswith('LISTEN '), line)
         host, port = line.split()[1].rsplit(':', 1)
         return host, int(port)
@@ -219,6 +221,23 @@ class Sessions(unittest.TestCase):
                     if peer == 'client':
                         raise
                 self.result(root, process, credentials, error, accepted=peer == 'client')
+
+    def test_product_refuses_unusable_enrollment_before_capture(self):
+        for case, failures in [('issuer-pin', ['Authentication']),
+                               ('crl', ['Crypto', 'Authentication']), ('time', ['Time'])]:
+            with self.subTest(case=case):
+                root, process, credentials, error = self.start(case='product')
+                if case == 'issuer-pin':
+                    private(root/'issuer.sha256', bytes(32))
+                elif case == 'time':
+                    (root/'time-error').touch()
+                line = self.load(root, process, credentials, corrupt_crl=case == 'crl',
+                                 expect_ready=False)
+                self.assertIn(line, [f'STARTUP Err(Tls({failure}))' for failure in failures])
+                process.wait(timeout=5)
+                error.seek(0)
+                self.assertEqual(process.returncode, 0, error.read()[-2000:])
+                self.assertFalse((root/'capture-started').exists())
 
     def test_product_capture_tls_reconnect_cancellation_and_join(self):
         root, process, credentials, error = self.start(case='product')

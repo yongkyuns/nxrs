@@ -384,6 +384,18 @@ fn io_error(error: Error) -> io::Error {
     .into()
 }
 impl Identity {
+    /// Check approved enrollment, key binding and validity without a socket.
+    /// This does not retain trust or replace fresh validation on each connection.
+    pub fn validate_certificates(
+        &self,
+        certificates: Certificates<'_>,
+        time: TimeLease,
+    ) -> Result<(), Error> {
+        let (_, upper, _) = time.sample()?;
+        Roots::parse(self, certificates, upper)?.cutoff(self, &time)?;
+        Ok(())
+    }
+
     pub fn accept<'a>(
         &'a mut self,
         stream: TcpStream,
@@ -669,10 +681,9 @@ impl Drop for Connection<'_> {
     }
 }
 
-#[cfg(all(test, not(target_os = "nuttx")))]
+#[cfg(all(test, feature = "probe", not(target_os = "nuttx")))]
 mod tests {
     use super::*;
-    #[cfg(feature = "probe")]
     #[test]
     fn actual_native_clock_uses_only_call_scoped_signed64_observation() {
         unsafe extern "C" {

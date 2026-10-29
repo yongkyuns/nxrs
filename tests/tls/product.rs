@@ -19,6 +19,7 @@ impl Drop for Source {
 }
 impl Camera for Source {
     fn start(&mut self, format: Format) -> Result<Format, DeviceError> {
+        std::fs::write(self.root.join("capture-started"), b"").unwrap();
         self.format = Some(format);
         Ok(format)
     }
@@ -63,7 +64,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         ]
     });
     let paused = Rc::new(Cell::new(false));
-    let mut live = LiveCamera::<_, 16384, _>::new_tls(
+    let live = LiveCamera::<_, 16384, _>::new_tls(
         Source {
             sequence: 0,
             format: None,
@@ -122,8 +123,15 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 },
             })
         },
-    )
-    .expect("product TLS startup");
+    );
+    let mut live = match live {
+        Ok(live) => live,
+        Err(error) => {
+            drop(tls::open().expect("failed startup released SDK owner"));
+            println!("STARTUP Err({error:?})");
+            return;
+        }
+    };
     if media {
         // Exercise real publication/transport with a deliberately synthetic box.
         // This is not model-quality or compute-performance evidence.

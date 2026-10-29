@@ -13,9 +13,11 @@ connections. Detection metadata crosses the same bounded owned handoff.
 The initializer runs before capture on the TLS thread, where it must create the
 non-Send identity and supply approved DER certificates/CRL. Its certificate policy
 supplies the independently approved issuer pin and expected own/peer URI names.
+Startup validates the enrollment, key binding and trusted-time lease before
+reporting ready; each connection still revalidates them with fresh time.
 The worker retains these two bounded strings once, with no extra frame buffer.
-Its bounded time callback supplies an authenticated UTC lease on admission and
-once per second;
+Its bounded time callback supplies an authenticated UTC lease at startup, on
+admission and once per second while connected;
 it must account for the original observation's age. This API does not implement
 enrollment, persistent credentials, rollback protection or trusted-time discovery.
 
