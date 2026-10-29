@@ -10,9 +10,9 @@ offline after `python3 upstream/mbedtls/fetch.py`.
 The SDK uses CMake's size-optimized `MinSizeRel` build to match the embedded
 product's code-size priority; device execution and memory peaks still need qualification.
 
-Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` for
-NuttX compile qualification. Public socket/time types use Rust `std` and remain
-available without a selected backend; `open()` then returns `Unsupported`,
+Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` and
+`esp32s3-camera-tls` for NuttX compile qualification. Public socket/time types use
+Rust `std` and remain available without a selected backend; `open()` then returns `Unsupported`,
 acquiring no SDK or entropy. Services need no platform conditionals.
 The NuttX factory accepts only the configured RP2350 hardware source, opens
 `/dev/random` nonblocking and refuses software fallbacks. Polling and interrupted
@@ -59,5 +59,29 @@ custody. CSR subjects are advisory; the issuer must independently assign the
 approved identity. The camera composition offers an opt-in TLS worker via
 `LiveCamera::new_tls`. Enrollment/persistence, a trusted device-time source,
 physical entropy/execution/resource measurements and
-reset/decommission behavior remain required before product admission. Product
+reset/decommission behavior remain required before product admission. Shipping
 profiles do not enable this capability.
+
+The ESP32-S3 compile profile inherits the video-only camera's Wi-Fi, PSRAM and
+cache configuration. Build the existing endpoint fixture with the normal pinned
+ESP32-S3 tools (no hardware is accessed):
+
+```sh
+python3 upstream/mbedtls/fetch.py
+bash tools/build-nuttx-std-app.sh \
+  --app-manifest tests/nuttx-std/tls-identity/Cargo.toml \
+  --app-package nxrs-std-tls-identity --bin tls-endpoint \
+  --command tls_endpoint --priority 100 --stack-size 65536 \
+  --platform esp32s3-camera-tls --out target/esp32s3-camera-tls \
+  --abi-profile minimal --size-optimized --trace-only-backtrace \
+  --panic-immediate-abort
+```
+
+This links the shared TLS adapter with the native camera/radio drivers; the
+fixture uses synthetic capture and test PKI/time. It does not qualify physical
+capture, handshake execution or peak memory. ESP32-S3 `tls::open()` still returns
+`Unsupported`: its RNG requires an active RF or exclusive SAR-ADC entropy source.
+The pinned PHY power flags are per radio, not per caller, so TLS cannot borrow
+Wi-Fi's flag as an entropy lease. Source ownership through sampling, bounded
+driver reads and physical measurements are required before admission; see
+[Espressif's RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html).
