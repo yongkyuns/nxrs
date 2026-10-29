@@ -10,6 +10,7 @@ import os
 import re
 from pathlib import Path
 import secrets
+import select
 import shutil
 import socket
 import subprocess
@@ -86,6 +87,26 @@ class PublisherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode,91,'publisher opened a native decoder')
         self.assertTrue(self.token.encode() not in result.stdout+result.stderr,'credential in process output')
         return result
+
+    def test_continuous_mpegts_publishes_without_waiting_for_more_probe_bytes_or_eof(self):
+        environment = {**os.environ}
+        if DECODER_GUARD is not None: environment['LD_PRELOAD'] = str(DECODER_GUARD)
+        child = subprocess.Popen([str(PUBLISHER), f'127.0.0.1:{self.port}', 'publisher', 'reference'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment, bufsize=0)
+        try:
+            payload = self.token.encode()+self.clips['libx264']
+            self.assertEqual(child.stdin.write(payload), len(payload))
+            self.assertTrue(select.select([child.stdout], [], [], 10)[0], 'publication blocked on extra probe bytes')
+            self.assertEqual(child.stdout.readline(), b'packet=1\n', 'real publication before source EOF')
+        finally:
+            child.stdin.close(); child.stdin = None
+            try: output, error = child.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                child.kill(); child.communicate(); raise
+        self.assertEqual(child.returncode, 0)
+        self.assertEqual(output.splitlines(), [f'packet={i}'.encode() for i in range(2, 13)])
+        self.assertFalse(error)
+        self.assertNotIn(self.token.encode(), output+error)
 
     def test_real_sdk_authenticated_publication_and_clean_eof(self):
         result=self.run_publisher(self.token.encode()+self.clips['libx264'])
