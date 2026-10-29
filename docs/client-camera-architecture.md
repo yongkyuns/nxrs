@@ -140,11 +140,11 @@ freshness deadlines and assertions. Debug-build CPU overhead belongs in separate
 build-cost measurements rather than the native client's throughput budget.
 
 The ingest watchdog measures encoded output with advancing frame counts and the
-copy-only publisher with strictly advancing muxed output time. FFmpeg 6's
-[output reporter](https://github.com/FFmpeg/FFmpeg/blob/n6.1.1/fftools/ffmpeg.c)
-omits the frame counter for stream-copy output. Repeated timestamps, unknown progress
-fields and partial lines do not renew deadlines. This output clock is only a
-publisher-health signal; decoded-image identity still comes from the access unit.
+SDK publisher with strictly advancing successful packet counts. Repeated counts,
+unknown progress fields and partial lines do not renew deadlines. The publisher's
+receipt clock supplies media timing only; decoded-image identity still comes from
+the access unit's SEI payload. The encoder never receives publication credentials;
+the [publisher helper](../gateway/publisher/README.md) owns authenticated remuxing.
 
 Record codec-input FPS, codec-output FPS, delivered FPS, actual rendered FPS and
 process CPU separately. Synchronous pixel readback is enabled for the identity
