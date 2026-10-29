@@ -266,11 +266,19 @@ def exercise(gateway, media, publisher):
             child.communicate(timeout=10)
             if accepted:
                 require(child.returncode == 0, 'private-pipe SDK publication')
+                def retired():
+                    request = urllib.request.Request(f'http://127.0.0.1:{ports[3]}/v3/paths/get/reference',
+                        headers={'Authorization': 'Bearer '+security['media_api_token']})
+                    with urllib.request.urlopen(request, timeout=1) as response:
+                        return json.loads(response.read(8192)).get('ready') is False
+                until(retired, 'native publisher retirement and recorder finalization')
 
         print('RECORDING STAGE: native recording and decoded playback', flush=True)
         publish(); unit(roles['media']+'.service', 'stop')
         clips = list((store/'media').rglob('*.mp4'))
-        require(clips and decode(clips) == 120, 'all published frames decode from completed recording')
+        recorded_frames = decode(clips)
+        print('RECORDING COUNTS:', json.dumps({'clips': len(clips), 'frames': recorded_frames}), flush=True)
+        require(clips and recorded_frames == 120, 'all published frames decode from completed recording')
         hashes = {path.relative_to(store/'media'): hashlib.sha256(path.read_bytes()).hexdigest() for path in clips}
         auxiliary = secrets.token_bytes(16*1024*1024)
         (store/'media/metadata.bin').write_bytes(auxiliary)
