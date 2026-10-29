@@ -24,7 +24,7 @@ def target_reference(function):
     return symbol in defined and symbol not in undefined and referenced
 
 for function in ['open', 'read', 'write', 'lseek', 'ftruncate', 'fsync', 'socket', 'sendto', 'recvfrom',
-                 'pthread_create', 'clock_gettime']:
+                 'pthread_create', 'clock_gettime', 'getrandom']:
     renamed = mapping.get(function)
     assert renamed and renamed != function, f'missing NuttX isolation rename: {function}'
     assert target_reference(function), f'no defined in-image target/call: {renamed}'
@@ -39,7 +39,6 @@ for purpose, alternatives in {
     'pthread_join': ['pthread_join', 'pthread_timedjoin_np'],
     'sem_wait': ['sem_wait'],
     'nanosleep': ['nanosleep', 'clock_nanosleep'],
-    'random device access': ['getrandom'],
     'random port bytes': ['arc4random_buf'],
 }.items():
     resolved = [name for name in alternatives if target_reference(name)]

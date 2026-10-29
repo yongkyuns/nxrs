@@ -43,6 +43,16 @@ diff --git a/arch/sim/src/Makefile b/arch/sim/src/Makefile
  hostfs.h: $(TOPDIR)/include/nuttx/fs/hostfs.h
  	@echo "CP:  $<"
  	$(Q) cp $< $@
+diff --git a/arch/sim/src/nuttx-names.in b/arch/sim/src/nuttx-names.in
+--- a/arch/sim/src/nuttx-names.in
++++ b/arch/sim/src/nuttx-names.in
+@@ -74,5 +74,6 @@
+ NXSYMBOLS(getenv)
+ NXSYMBOLS(getpid)
++NXSYMBOLS(getrandom)
+ NXSYMBOLS(getsockopt)
+ NXSYMBOLS(if_nametoindex)
+ NXSYMBOLS(ioctl)
 diff --git a/arch/sim/src/sim/CMakeLists.txt b/arch/sim/src/sim/CMakeLists.txt
 --- a/arch/sim/src/sim/CMakeLists.txt
 +++ b/arch/sim/src/sim/CMakeLists.txt
