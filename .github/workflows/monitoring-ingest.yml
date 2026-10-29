@@ -53,6 +53,7 @@ jobs:
       - name: TLS process controls and synthetic-media reference tools
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
+          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest small_paced_camera_frames_encode_within_startup_budget -- --ignored
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher --all-targets -- -D warnings

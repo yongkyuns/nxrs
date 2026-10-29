@@ -34,7 +34,9 @@ pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
         .args(["-nostdin","-hide_banner","-loglevel","quiet","-nostats","-stats_period","0.5",
             "-xerror","-err_detect","explode","-progress","pipe:2",
             "-threads","2","-f","image2pipe","-c:v","mjpeg",
-            "-framerate","30","-probesize",if elementary { "32" } else { "153600" },"-analyzeduration",if elementary { "1" } else { "0" }]);
+            // Input is already explicit MJPEG; do not accumulate a byte-sized probe
+            // whose startup delay depends on scene size and camera cadence.
+            "-framerate","30","-probesize","32","-analyzeduration","1"]);
     if !elementary { command.args(["-use_wallclock_as_timestamps","1"]); }
     command.args(["-i","pipe:0","-an","-c:v","libx264",
             "-threads","2","-preset","ultrafast","-tune","zerolatency","-profile:v","baseline",
@@ -215,6 +217,43 @@ pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "requires native FFmpeg with libx264; run in media qualification"]
+    async fn small_paced_camera_frames_encode_within_startup_budget() {
+        use tokio::io::AsyncBufReadExt;
+        let ffmpeg=std::env::var("NXRS_TEST_FFMPEG").unwrap_or_else(|_| "/usr/bin/ffmpeg".into());
+        let image=Command::new(&ffmpeg).args(["-nostdin","-hide_banner","-loglevel","error",
+            "-f","lavfi","-i","color=c=blue:size=320x240:rate=4","-frames:v","1",
+            "-threads","1","-c:v","mjpeg","-f","image2pipe","pipe:1"])
+            .output().await.unwrap();
+        assert!(image.status.success() && !image.stdout.is_empty());
+        let config:Config=serde_json::from_value(serde_json::json!({
+            "camera":"127.0.0.1:1","allow_insecure_camera_http":true,"rtsp":"127.0.0.1:2",
+            "stream_path":"reference","publisher_user":"publisher_reference","publisher_token_file":"/private/token",
+            "ffmpeg":ffmpeg,"publisher":"/not/started","width":320,"height":240,"frame_timeout_ms":2000
+        })).unwrap();
+        let mut child=encoder(&config,EncodedMedia::MpegTs).spawn().unwrap();
+        let mut input=child.stdin.take().unwrap();
+        let mut output=child.stdout.take().unwrap();
+        let progress=child.stderr.take().unwrap();
+        let writer=tokio::spawn(async move {
+            while input.write_all(&image.stdout).await.is_ok() { sleep(Duration::from_millis(250)).await; }
+        });
+        let reader=tokio::spawn(async move { tokio::io::copy(&mut output,&mut tokio::io::sink()).await.unwrap() });
+        let outcome=timeout(Duration::from_secs(10),async {
+            let mut lines=BufReader::new(progress).lines();
+            while let Some(line)=lines.next_line().await.unwrap() {
+                if line.strip_prefix("frame=").and_then(|v|v.trim().parse::<u64>().ok()).is_some_and(|n|n>=10) {
+                    return true;
+                }
+            }
+            false
+        }).await;
+        retire(&mut child).await.unwrap();
+        writer.abort(); let _=writer.await;
+        let bytes=reader.await.unwrap();
+        assert!(matches!(outcome,Ok(true)) && bytes>0,"progress={outcome:?}, bytes={bytes}");
+    }
     #[test] fn progress_matches_encoded_and_copy_output_contracts() {
         let mut encoded=ProgressCounter::Encoded(0);
         assert_eq!(encoded.observe("out_time_us=40000"),Ok(false));
