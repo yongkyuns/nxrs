@@ -19,7 +19,7 @@ pub enum Error {
 
 #[cfg_attr(not(hal_enabled), allow(dead_code))]
 mod api;
-pub use api::{Certificates, TimeLease};
+pub use api::{CertificatePolicy, Certificates, TimeLease};
 mod platform;
 #[cfg(hal_enabled)]
 #[allow(unsafe_code)]

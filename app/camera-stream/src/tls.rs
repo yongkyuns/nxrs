@@ -17,6 +17,7 @@ use stream_service::{HttpSession, Metadata, Options, Progress, ServerStats};
 /// It is called on admission and once per second while connected.
 pub struct TlsIdentity<T> {
     pub identity: ::tls::Identity,
+    pub policy: ::tls::CertificatePolicy,
     pub own: Vec<u8>,
     pub issuer: Vec<u8>,
     pub approved_peer: Vec<u8>,
@@ -173,6 +174,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                     {
                         return Err(Error::Tls(::tls::Error::InvalidInput));
                     }
+                    context.policy.validate().map_err(Error::Tls)?;
                     Ok(context)
                 });
                 let context = match context {
@@ -411,6 +413,7 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
     counters: &mut Counters,
 ) -> (HttpSession<TcpStream, B>, Result<(), ::tls::Error>) {
     let certs = ::tls::Certificates {
+        policy: &context.policy,
         own: &context.own,
         issuer: &context.issuer,
         approved_peer: &context.approved_peer,

@@ -11,8 +11,11 @@ handoffs; TLS never borrows camera storage. HTTP/header storage is reused across
 connections. Detection metadata crosses the same bounded owned handoff.
 
 The initializer runs before capture on the TLS thread, where it must create the
-non-Send identity and supply approved DER certificates/CRL. Its bounded time
-callback supplies an authenticated UTC lease on admission and once per second;
+non-Send identity and supply approved DER certificates/CRL. Its certificate policy
+supplies the independently approved issuer pin and expected own/peer URI names.
+The worker retains these two bounded strings once, with no extra frame buffer.
+Its bounded time callback supplies an authenticated UTC lease on admission and
+once per second;
 it must account for the original observation's age. This API does not implement
 enrollment, persistent credentials, rollback protection or trusted-time discovery.
 

@@ -56,6 +56,36 @@ fn bytes(owner: &Opaque, view: View) -> Result<&[u8], Error> {
     Ok(unsafe { std::slice::from_raw_parts(pointer, size) })
 }
 
+fn uri(owner: &Opaque, expected: &str) -> Result<(), Error> {
+    // SAFETY: the parsed certificate owns this list and all its buffers until
+    // owner is retired; no native view escapes this synchronous comparison.
+    let mut entry = unsafe { tls_crt_sans(owner.pointer()) };
+    let mut matched = false;
+    for _ in 0..8 {
+        if entry.is_null() {
+            break;
+        }
+        let mut size = 0;
+        let pointer = unsafe { tls_sequence_bytes(entry, &mut size) };
+        if pointer.is_null() || size == 0 || size > 256 {
+            return Err(Error::Authentication);
+        }
+        if unsafe { tls_sequence_tag(entry) == tls_uri_tag() } {
+            let actual = unsafe { std::slice::from_raw_parts(pointer, size) };
+            if matched || actual != expected.as_bytes() {
+                return Err(Error::Authentication);
+            }
+            matched = true;
+        }
+        entry = unsafe { tls_sequence_next(entry) };
+    }
+    if matched && entry.is_null() {
+        Ok(())
+    } else {
+        Err(Error::Authentication)
+    }
+}
+
 struct Roots {
     own: Opaque,
     issuer: Opaque,
@@ -64,6 +94,7 @@ struct Roots {
 }
 impl Roots {
     fn parse(identity: &Identity, certs: Certificates<'_>, epoch: i64) -> Result<Self, Error> {
+        certs.policy.validate()?;
         if [certs.own, certs.issuer, certs.approved_peer]
             .iter()
             .any(|v| v.is_empty() || v.len() > RECORD)
@@ -71,6 +102,23 @@ impl Roots {
             || certs.revocations.len() > 16_384
         {
             return Err(Error::Capacity);
+        }
+        let mut fingerprint = [0; 32];
+        let mut length = 0;
+        // SAFETY: initialized SDK owner; bounded input/output remain live for
+        // this synchronous hash operation. The expected pin is caller supplied.
+        identity.sdk(|| unsafe {
+            psa_hash_compute(
+                tls_sha256_algorithm(),
+                certs.issuer.as_ptr(),
+                certs.issuer.len(),
+                fingerprint.as_mut_ptr(),
+                fingerprint.len(),
+                &mut length,
+            )
+        })?;
+        if length != fingerprint.len() || fingerprint != certs.policy.issuer_sha256 {
+            return Err(Error::Authentication);
         }
         // SAFETY: exact SDK layouts, paired constructors/destructors, fresh contexts.
         let new_crt = || unsafe {
@@ -159,6 +207,8 @@ impl Roots {
             }
         }
         let pk = identity.pk.as_ref().ok_or(Error::Poisoned)?;
+        uri(&roots.own, &certs.policy.own_uri)?;
+        uri(&roots.peer, &certs.policy.peer_uri)?;
         identity.sdk(|| unsafe {
             mbedtls_pk_check_pair(tls_crt_pk(roots.own.pointer()), pk.pointer())
         })?;
