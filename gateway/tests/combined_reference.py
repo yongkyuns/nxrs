@@ -394,6 +394,19 @@ async def exercise(args, prefix, nets):
                 except Exception:
                     fields[key] = 'unavailable'
             print('COMBINED SERVICE:', role, json.dumps(fields), flush=True)
+        if camera is not None:
+            try:
+                status = await camera.command('status')
+                print('COMBINED SOURCE:', json.dumps({key: status[key] for key in
+                    ['active', 'peak', 'connections', 'disconnected', 'frames', 'busy']}), flush=True)
+            except Exception as diagnostic:
+                print('COMBINED SOURCE:', type(diagnostic).__name__, flush=True)
+        try:
+            journal = command(['journalctl', '-u', roles['ingest']+'.service', '-n', '200', '--no-pager', '-o', 'cat'])[-65536:].decode(errors='replace')
+            print('COMBINED INGEST:', json.dumps({category: journal.count(f'retired source/encoder ({category})')
+                for category in ['Configuration', 'Io', 'Protocol', 'Frame', 'Stale', 'Timeout', 'Encoder', 'Stopped', 'Cleanup']}), flush=True)
+        except Exception as diagnostic:
+            print('COMBINED INGEST:', type(diagnostic).__name__, flush=True)
         raise
     finally:
         failures = []
