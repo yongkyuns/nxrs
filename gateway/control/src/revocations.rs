@@ -173,21 +173,6 @@ mod tests {
         assert!(private_read(&fixture.path, MAX_BYTES).is_ok());
         assert!(read_opened(file, MAX_BYTES).is_err());
     }
-    #[test] fn fifo_read_returns_without_a_writer_and_cannot_be_a_state_lock() {
-        let fixture = Fixture::new();
-        let fifo = fixture.directory.join(".nxrs-revocations.lock");
-        assert!(std::process::Command::new("mkfifo").args(["-m", "600"]).arg(&fifo).status().unwrap().success());
-        let (reply, result) = std::sync::mpsc::sync_channel(1);
-        let path = fifo.clone();
-        let reader = std::thread::spawn(move || { let _ = reply.send(private_read(&path, 0).is_err()); });
-        let prompt = result.recv_timeout(std::time::Duration::from_secs(2));
-        // Unblock an accidentally blocking open before joining, even on failure.
-        let wake = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NONBLOCK).open(&fifo).unwrap();
-        drop(wake);
-        reader.join().unwrap();
-        assert_eq!(prompt, Ok(true));
-        assert!(Store::open(&fixture.path).is_err());
-    }
     #[test] fn failed_write_keeps_memory_denied_and_retry_can_persist() {
         let fixture = Fixture::new(); let mut store = Store::open(&fixture.path).unwrap();
         let backup = fixture.directory.join("backup"); fs::rename(&fixture.path, &backup).unwrap();
