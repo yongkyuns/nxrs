@@ -197,8 +197,9 @@ def exercise(gateway, media, publisher):
             webrtcAdditionalHosts=['127.0.0.1'])
         (config/'mediamtx.json').write_text(json.dumps(media_config))
         text = (config/'nxrs-media.service').read_text().replace(
-            '/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
+            '/usr/local/libexec/nxrs-mediamtx-recording', str(root/'bin/mediamtx'))
         text = adapt(text)
+        text += '\n[Service]\nEnvironment=GOMAXPROCS=1\n'  # Exercise queued recording retirement.
         for dependency in ['nxrs-control.service', 'wg-quick@wg-nxrs.service', 'nxrs-firewall.service']:
             text = text.replace(dependency, roles['network']+'.service')
         text = text.replace('nxrs-monitor.target', roles['network']+'.service')
@@ -261,7 +262,7 @@ def exercise(gateway, media, publisher):
                 chunk = (len(payload)+120)//121
                 for offset in range(0, len(payload), chunk):
                     child.stdin.write(payload[offset:offset+chunk]); child.stdin.flush()
-                    time.sleep(.1)
+                    time.sleep(.1 if offset < len(payload)*9//10 else 0)  # Burst the final queued frames.
             except BrokenPipeError:
                 pass
             finally:

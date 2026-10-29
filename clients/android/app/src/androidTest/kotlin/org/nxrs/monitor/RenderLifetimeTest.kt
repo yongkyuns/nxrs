@@ -79,6 +79,7 @@ class RenderLifetimeTest {
             until("Boxes must expire on the frozen actual rendered image", 2500) {
                 latest.get()?.let { !it.freshImage && it.boxesDrawn == 0 } == true
             }
+            assertNull("Expired annotation must not be reported as admitted", latest.get()?.metadata)
             val expired = samples.get()
             Thread.sleep(350)
             assertEquals("Idle expiry must stop submitting GPU redraws", expired, samples.get())
@@ -90,6 +91,7 @@ class RenderLifetimeTest {
             until("An obsolete source epoch must clear its frozen overlay", 500) {
                 latest.get()?.boxesDrawn == 0
             }
+            assertNull("Retired source metadata must not remain admitted", latest.get()?.metadata)
             buffer.retain()
             val replacement =
                 VideoFrame(
@@ -104,6 +106,7 @@ class RenderLifetimeTest {
                 until("Ambiguous decoder output clears a frozen overlay without new input", 500) {
                     latest.get()?.boxesDrawn == 0
                 }
+                assertNull("Ambiguous metadata must not remain admitted", latest.get()?.metadata)
             } finally {
                 replacement.release()
             }

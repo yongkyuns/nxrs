@@ -1,0 +1,72 @@
+--- a/gortsplib/pkg/ringbuffer/ringbuffer.go
++++ b/gortsplib/pkg/ringbuffer/ringbuffer.go
+@@ -37,13 +37,24 @@
+ 
+ // Close makes Pull() return false.
+ func (r *RingBuffer) Close() {
++	r.close(false)
++}
++
++// CloseAndDrain rejects new data and lets Pull consume all queued data.
++func (r *RingBuffer) CloseAndDrain() {
++	r.close(true)
++}
++
++func (r *RingBuffer) close(drain bool) {
+ 	r.mutex.Lock()
+ 
+ 	r.closed = true
+ 
+-	// discard pending data to make Pull() exit immediately
+-	for i := uint64(0); i < r.size; i++ {
+-		r.buffer[i] = nil
++	if !drain {
++		// discard pending data to make Pull() exit immediately
++		for i := uint64(0); i < r.size; i++ {
++			r.buffer[i] = nil
++		}
+ 	}
+ 
+ 	r.mutex.Unlock()
+@@ -65,7 +76,7 @@
+ func (r *RingBuffer) Push(data any) bool {
+ 	r.mutex.Lock()
+ 
+-	if r.buffer[r.writeIndex] != nil {
++	if r.closed || r.buffer[r.writeIndex] != nil {
+ 		r.mutex.Unlock()
+ 		return false
+ 	}
+--- a/mediamtx/internal/stream/reader.go
++++ b/mediamtx/internal/stream/reader.go
+@@ -17,6 +17,7 @@
+ 
+ // Reader is a stream reader.
+ type Reader struct {
++	DrainOnClose      bool
+ 	SkipOutboundBytes bool
+ 	Parent            logger.Writer
+ 
+@@ -100,7 +101,11 @@
+ }
+ 
+ func (r *Reader) stop() {
+-	r.buffer.Close()
++	if r.DrainOnClose {
++		r.buffer.CloseAndDrain()
++	} else {
++		r.buffer.Close()
++	}
+ 	r.outboundFramesDiscarded.Stop()
+ 	<-r.err
+ }
+--- a/mediamtx/internal/recorder/recorder_instance.go
++++ b/mediamtx/internal/recorder/recorder_instance.go
+@@ -47,6 +47,7 @@
+ 		ri.format,
+ 	)
+ 	ri.reader = &stream.Reader{
++		DrainOnClose:      true,
+ 		SkipOutboundBytes: true,
+ 		Parent:            ri,
+ 	}
