@@ -38,19 +38,19 @@ pub struct Source {
 }
 impl Source {
     pub fn open(format: EncodedMedia) -> Result<Self> {
-        // The supervisor supplies a known single H264 stream. Do not wait for
-        // scene-dependent probe bytes or EOF before admitting live publication.
+        // Preserve MPEG-TS program/header discovery. A zero analyzeduration
+        // requests automatic multi-second analysis; explicitly bound it instead.
+        let (name, probe) = match format {
+            EncodedMedia::MpegTs => (c"mpegts", c"153600"),
+            EncodedMedia::AnnexB => (c"h264", c"32"),
+        };
         let values = [
-            (c"probesize", c"32"),
+            (c"probesize", probe),
             (c"analyzeduration", c"1"),
             (c"max_streams", c"1"),
             (c"protocol_whitelist", c"pipe"),
             (c"codec_whitelist", c""),
         ];
-        let name = match format {
-            EncodedMedia::MpegTs => c"mpegts",
-            EncodedMedia::AnnexB => c"h264",
-        };
         Self::open_with(c"pipe:0", name, &values)
     }
     fn open_with(url: &CStr, name: &CStr, values: &[(&CStr, &CStr)]) -> Result<Self> {

@@ -65,7 +65,10 @@ def media_config(address, ports=vpn.PORTS, management_port=MANAGEMENT_PORT):
 
 def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
              width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic',
-             camera_detections=False, camera_tls=None):
+             camera_detections=False, camera_tls=None, recording_volume=None):
+    if recording_volume is not None:
+        import recording_service
+        recording_service.volume_id(recording_volume)
     ingest = None
     if camera is not None:
         import ingest_service
@@ -92,13 +95,18 @@ def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
         catalog['cameras'][0]['name'] = ('Configured nxrs camera' if source_kind == 'physical'
                                         else 'SYNTHETIC Rust camera-stream reference')
         files['config.json'] = json.dumps(catalog, indent=2) + '\n'
+    if recording_volume is not None:
+        files.update(recording_service.files(recording_volume, files['nxrs-media.service'], files['mediamtx.json']))
     for name, content in files.items():
         with open(directory / name, 'w', opener=lambda p, flags: os.open(p, flags, 0o600)) as f:
             f.write(content)
     # Written last: partial output is never a completed strict deployment.
     with open(directory / 'deployment.json', 'x', opener=lambda p, flags: os.open(p, flags, 0o600)) as f:
-        json.dump({'version': 1, 'mode': 'strict', 'target': 'nxrs-monitor.target',
-                   'state_must_be_provisioned_once': STATE, 'includes_ingest': ingest is not None}, f)
+        manifest = {'version': 1, 'mode': 'strict', 'target': 'nxrs-monitor.target',
+                    'state_must_be_provisioned_once': STATE, 'includes_ingest': ingest is not None}
+        if recording_volume is not None:
+            manifest['recording_volume'] = recording_volume
+        json.dump(manifest, f)
         f.write('\n')
     return directory
 
@@ -149,6 +157,7 @@ def main():
                            help='approved site/camera/gateway/CA fingerprint/generation JSON; no keys')
     render.add_argument('--camera-detections', action='store_true', help='opt in to the versioned camera metadata stream')
     render.add_argument('--source-kind', choices=['synthetic', 'physical'], default='synthetic')
+    render.add_argument('--recording-volume', help='opt in to a separately provisioned LUKS2/ext4 recording volume UUID')
     seed = commands.add_parser('init-state', help='FIRST enrollment only; never reset deployed state')
     seed.add_argument('directory', type=Path)
     args = parser.parse_args()
@@ -166,7 +175,8 @@ def main():
             generate(args.directory, args.host, args.gateway, args.peer, args.endpoint, args.peer_public_key,
                      camera=args.camera, width=args.width, height=args.height,
                      allow_insecure_camera_http=args.allow_insecure_camera_http, source_kind=args.source_kind,
-                     camera_detections=args.camera_detections, camera_tls=camera_tls)
+                     camera_detections=args.camera_detections, camera_tls=camera_tls,
+                     recording_volume=args.recording_volume)
         else:
             initialize_state(args.directory)
     except (ValueError, OSError, subprocess.SubprocessError):
