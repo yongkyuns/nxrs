@@ -216,6 +216,7 @@ class Sessions(unittest.TestCase):
         with socket.create_connection(address, timeout=7) as client:
             started = time.monotonic()
             self.assertEqual(client.recv(5), b'')
+            self.assertGreater(time.monotonic() - started, 4)
             self.assertLess(time.monotonic() - started, 6.5)
         self.result(root, process, credentials, error, accepted=False)
 
