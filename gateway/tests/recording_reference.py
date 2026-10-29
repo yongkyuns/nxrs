@@ -167,6 +167,7 @@ def exercise(gateway, media, publisher):
         install_unit(source_mount, adapt((config/recording.MOUNT).read_text()))
         install_unit(roles['volume']+'.service', adapt((config/recording.CHECK).read_text()))
         install_unit(roles['network']+'.service', '[Service]\nType=oneshot\nExecStart=/usr/bin/true\nRemainAfterExit=yes\n')
+        install_unit(backup_mount, f'[Mount]\nWhat={destination}\nWhere={backup}\nType=ext4\nOptions=nodev,nosuid,noexec,noatime\nTimeoutSec=15\n')
         for name in ['nxrs-backup-init.service', 'nxrs-backup.service', 'nxrs-restore@.service']:
             install_unit(adapt(name), adapt((config/name).read_text()))
         # Only network/controller dependencies and installed binary/config paths are adapted.
@@ -203,6 +204,11 @@ def exercise(gateway, media, publisher):
             print('RECORDING UNIT CHECK:', json.dumps({category: diagnostic.count(category) for category in
                 ['not executable', 'no such file', 'not found', 'failed to parse', 'unknown key',
                  'ordering cycle', 'conflicting', 'specifier', 'unbalanced', 'invalid']}), flush=True)
+            missing = [line for line in diagnostic.splitlines() if 'not found' in line]
+            print('RECORDING MISSING UNIT:', json.dumps({role: sum(name.lower() in line for line in missing)
+                for role, name in [('source_mount', source_mount), ('backup_mount', backup_mount),
+                                   ('crypto', crypt), ('volume', roles['volume']+'.service'),
+                                   ('media', roles['media']+'.service')]}), flush=True)
         require(verification.returncode == 0, 'generated unit verification')
         child = subprocess.Popen([str(gateway), str(config/'config.json'), '--security', str(config/'security.json')],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
