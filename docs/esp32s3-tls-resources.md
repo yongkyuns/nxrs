@@ -107,7 +107,26 @@ case requires successful output; it reports contention and maximum observed
 duration. This cannot preempt a stalled call, establish entropy quality or prove
 worst-case latency. Clock resolution also limits timing.
 
-Physical RF transitions, concurrent camera load, TLS handshake/reseed latency,
-heap/stack peaks and repeated teardown/recovery remain unmeasured for this
-image. Existing NSH `free`, `ps` and `/proc/meminfo` support resource observations;
-snapshots alone cannot establish peaks. ESP32-S3 TLS admission remains disabled.
+On a physical ESP32-S3, three station connection/shutdown cycles produced:
+
+| State | Successful reads | Bytes | Unavailable reads |
+| --- | ---: | ---: | ---: |
+| Associated, DHCP complete | 672 | 12,960 | 0 |
+| Disconnected, provider joined | 0 | 0 | 672 |
+
+Each cycle passed the 32-byte cap, untouched-suffix and zero-NSH-status checks.
+The maximum observed read was 1 ms with a 1 ms scheduler tick; this is neither
+an entropy-quality assessment nor a worst-case latency bound. The clean measured
+source is `2db83dd03fbd7730fa23e60552b5722e02e7907f`; image SHA-256 is
+`230538a4b5036d6e65118f91df7edc9c4dfaa337230f95c83a6604492d4c4d53`.
+Interface-up without association had refused every read, so it is insufficient
+as the active test prerequisite. This observation does not identify which driver
+guard caused refusal or independently qualify disconnected power saving.
+The original 16 MiB flash was restored and separately verified. Its camera
+supervisor resumed, and three advancing 320×240 source JPEGs decoded on the Mac;
+this recovery check does not qualify gateway or phone playback.
+
+Pre-radio cold start, concurrent camera load, TLS handshake/reseed latency and
+heap/stack peaks remain unmeasured. Existing NSH `free`, `ps` and `/proc/meminfo`
+support resource observations; snapshots alone cannot establish peaks.
+ESP32-S3 TLS admission remains disabled.
