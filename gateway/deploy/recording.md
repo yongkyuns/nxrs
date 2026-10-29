@@ -28,7 +28,7 @@ units and paths before installation. Stop the old monitoring group first.
   other entries. Install the generated sysusers file and run `systemd-sysusers`.
   Media and backup have separate stable accounts and the `nxrs-recordings` group.
 * Disable swap in the reviewed host configuration. Review and install
-  `nxrs-recording.sysctl.conf`: it discards **all host core dumps**. Admission
+  `nxrs-recording.sysctl.conf`: it discards **all host process core dumps**. Admission
   refuses active swap or another core-dump handler; `LimitCORE=0` alone is not the
   privacy boundary for a piped crash handler.
 * Create `/run/nxrs-keys` root-owned mode0700 on tmpfs. Load the independently
@@ -68,7 +68,11 @@ Start `nxrs-monitor.target` after reviewing the existing TLS/VPN prerequisites.
 ## Record, back up and restore
 
 MediaMTX writes one-minute fMP4 segments with one-second parts, an 8 MiB part
-bound and 24-hour native retention. The allocated recording filesystem supplies
+bound and 24-hour native retention. Its [native fMP4 writer](https://github.com/bluenviron/mediamtx/blob/v1.21.2/internal/recorder/format_fmp4_track.go)
+commits a sample when the next timestamp supplies its duration; the final pending
+sample can be omitted on source closure. This is not a lossless archive of every
+captured frame. The fixture verifies the exact decoded 120-frame prefix of 121
+published frames, then verifies its backup and restoration. The allocated recording filesystem supplies
 the hard capacity bound; exhaustion is an error, never an alternate path. Media
 temporary files stay there. Backups cover the complete media tree; restic cache,
 temporary files and restore staging also stay on the encrypted volume.

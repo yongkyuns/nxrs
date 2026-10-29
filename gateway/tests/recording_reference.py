@@ -233,8 +233,13 @@ def exercise(gateway, media, publisher):
         require(command(['runuser', '-u', 'nobody', '--', 'ls', store/'media'], check=False).returncode != 0,
             'unrelated account cannot list footage')
         payload = command(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
-            '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '120', '-an', '-c:v', 'libx264',
+            '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '121', '-an', '-c:v', 'libx264',
             '-bf', '0', '-g', '10', '-f', 'mpegts', 'pipe:1']).stdout
+        # Native fMP4 holds the last sample until the next DTS gives its duration.
+        # Qualify the complete 120-frame prefix, not an invented final duration.
+        decoded_hash = ['ffmpeg', '-nostdin', '-v', 'error', '-i']
+        hash_output = ['-frames:v', '120', '-pix_fmt', 'yuv420p', '-f', 'hash', '-hash', 'sha256', 'pipe:1']
+        expected_pixels = command([*decoded_hash, 'pipe:0', *hash_output], input=payload).stdout
         token = (config/'publisher.token').read_bytes().strip()
 
         def ready():
@@ -251,7 +256,7 @@ def exercise(gateway, media, publisher):
             children.append(child)
             try:
                 child.stdin.write(token); child.stdin.flush()
-                chunk = (len(payload)+119)//120
+                chunk = (len(payload)+120)//121
                 for offset in range(0, len(payload), chunk):
                     child.stdin.write(payload[offset:offset+chunk]); child.stdin.flush()
                     time.sleep(.1)
@@ -278,7 +283,9 @@ def exercise(gateway, media, publisher):
         clips = list((store/'media').rglob('*.mp4'))
         recorded_frames = decode(clips)
         print('RECORDING COUNTS:', json.dumps({'clips': len(clips), 'frames': recorded_frames}), flush=True)
-        require(clips and recorded_frames == 120, 'all published frames decode from completed recording')
+        require(len(clips) == 1 and recorded_frames == 120, 'complete native recording sample count')
+        require(command([*decoded_hash, clips[0], *hash_output]).stdout == expected_pixels,
+            'every committed source frame decodes in original order')
         hashes = {path.relative_to(store/'media'): hashlib.sha256(path.read_bytes()).hexdigest() for path in clips}
         auxiliary = secrets.token_bytes(16*1024*1024)
         (store/'media/metadata.bin').write_bytes(auxiliary)
