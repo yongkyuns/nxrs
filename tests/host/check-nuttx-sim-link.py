@@ -39,6 +39,8 @@ for purpose, alternatives in {
     'pthread_join': ['pthread_join', 'pthread_timedjoin_np'],
     'sem_wait': ['sem_wait'],
     'nanosleep': ['nanosleep', 'clock_nanosleep'],
+    'random device access': ['getrandom'],
+    'random port bytes': ['arc4random_buf'],
 }.items():
     resolved = [name for name in alternatives if target_reference(name)]
     assert resolved, f'no target implementation/call for {purpose}: {alternatives}'
@@ -47,4 +49,5 @@ for purpose, alternatives in {
 
 for function in ['rc_rust_run', 'rc_nx_camera_open', 'rc_nx_read', 'rc_nx_close_real', 'rc_nx_file_create_real', 'rc_nx_append', 'rc_nx_udp_open', 'rc_nx_send']:
     assert function in defined, f'missing application/bridge code in nuttx.rel: {function}'
+assert 'host_random' in undefined, 'missing explicit simulator host entropy boundary'
 print('PASS: Rust application and HAL bridge are linked inside nuttx.rel')
