@@ -53,7 +53,8 @@ pub(crate) fn publisher(config: &Config, format: EncodedMedia) -> Command {
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args([config.rtsp.to_string(),config.publisher_user.clone(),config.stream_path.clone()]);
     if format==EncodedMedia::AnnexB { command.arg("annexb"); }
-    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    // The publisher suppresses SDK logs and emits only fixed failure categories.
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).kill_on_drop(true);
     command
 }
 /// Only the publication pipe gets the credential; the encoder receives JPEGs only.
@@ -161,13 +162,19 @@ async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::
             tokio::select! {
                 biased;
                 _=stop.changed()=>Err(Error::Stopped),
-                _=encoder.wait()=>Err(Error::Encoder),
-                _=publisher.wait()=>Err(Error::Encoder),
+                status=encoder.wait()=>{
+                    eprintln!("nxrs-camera-ingest: encoder exit {:?}",status.ok().and_then(|s|s.code()));
+                    Err(Error::Encoder)
+                },
+                status=publisher.wait()=>{
+                    eprintln!("nxrs-camera-ingest: publisher exit {:?}",status.ok().and_then(|s|s.code()));
+                    Err(Error::Encoder)
+                },
                 error=policy.guard()=>Err(error),
                 result=pump(source,input,budget)=>result,
-                result=relay(encoded,output,token,budget.max(Duration::from_secs(5)))=>result,
-                result=encoder_progress(progress,budget.max(Duration::from_secs(3)))=>result,
-                result=publisher_progress(published,budget.max(Duration::from_secs(3)))=>result,
+                result=relay(encoded,output,token,budget.max(Duration::from_secs(5)))=>{ eprintln!("nxrs-camera-ingest: encoded relay stopped"); result },
+                result=encoder_progress(progress,budget.max(Duration::from_secs(3)))=>{ eprintln!("nxrs-camera-ingest: encoder progress stopped"); result },
+                result=publisher_progress(published,budget.max(Duration::from_secs(3)))=>{ eprintln!("nxrs-camera-ingest: publisher progress stopped"); result },
             }
         }
         _=>Err(Error::Encoder),
