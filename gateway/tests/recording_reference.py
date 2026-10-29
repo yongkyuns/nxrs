@@ -186,15 +186,24 @@ def exercise(gateway, media, publisher):
         media_config.update(authHTTPAddress=f'http://127.0.0.1:{ports[1]}/internal/mediamtx/auth',
             rtspAddress=f'127.0.0.1:{ports[2]}', apiAddress=f'127.0.0.1:{ports[3]}', webrtc=False)
         (config/'mediamtx.json').write_text(json.dumps(media_config))
-        text = adapt((config/'nxrs-media.service').read_text())
+        text = (config/'nxrs-media.service').read_text().replace(
+            '/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
+        text = adapt(text)
         for dependency in ['nxrs-control.service', 'wg-quick@wg-nxrs.service', 'nxrs-firewall.service']:
             text = text.replace(dependency, roles['network']+'.service')
         text = text.replace('nxrs-monitor.target', roles['network']+'.service')
         text = text.replace('/etc/nxrs-monitor/mediamtx.json', str(config/'mediamtx.json'))
-        text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
+        require('ExecStart='+str(root/'bin/mediamtx')+' %d/config\n' in text,
+            'fixture role substitution preserves the real media executable')
         install_unit(roles['media']+'.service', text)
         command(['systemctl', 'daemon-reload'])
-        command(['systemd-analyze', 'verify', *created])
+        verification = command(['systemd-analyze', 'verify', *created], check=False)
+        if verification.returncode:
+            diagnostic = verification.stderr[-8192:].decode(errors='replace').lower()
+            print('RECORDING UNIT CHECK:', json.dumps({category: diagnostic.count(category) for category in
+                ['not executable', 'no such file', 'not found', 'failed to parse', 'unknown key',
+                 'ordering cycle', 'conflicting', 'specifier', 'unbalanced', 'invalid']}), flush=True)
+        require(verification.returncode == 0, 'generated unit verification')
         child = subprocess.Popen([str(gateway), str(config/'config.json'), '--security', str(config/'security.json')],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         children.append(child)
@@ -346,8 +355,10 @@ def exercise(gateway, media, publisher):
             try:
                 state = property(name, 'ActiveState')
                 result = property(name, 'Result')
+                status = property(name, 'ExecMainStatus')
                 facts[role] = {'state': state if state in ['active', 'inactive', 'failed', 'activating', 'deactivating'] else 'other',
-                    'success': result == 'success', 'exit_code': property(name, 'ExecMainStatus').isdigit()}
+                    'result': result if result in ['success', 'exit-code', 'signal', 'core-dump', 'timeout', 'resources', 'oom-kill', 'start-limit-hit', 'dependency'] else 'other',
+                    'exit_code': int(status) if status.isdigit() and len(status) < 10 else None}
             except Exception:
                 facts[role] = 'unavailable'
         if helper.exists() and (store/'media').exists():
