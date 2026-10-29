@@ -18,3 +18,7 @@ required-capabilities = ["tls"]
 [[bin]]
 name = "tls-endpoint"
 path = "../../tls/endpoint.rs"
+
+[[bin]]
+name = "entropy-probe"
+path = "entropy.rs"
