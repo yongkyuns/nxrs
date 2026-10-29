@@ -26,7 +26,7 @@ public struct GatewayClient: Sendable {
 
     public func cameras(credential: BearerCredential) async throws -> [CameraSummary] {
         let request = request(path: ["v1", "cameras"], method: "GET", credential: credential)
-        let result = try await transport.send(request)
+        let result = try await send(request)
         let list: CameraList = try decode(result, status: 200)
         guard list.apiVersion == "1", list.cameras.count <= 64,
               Set(list.cameras.map(\.cameraID)).count == list.cameras.count,
@@ -40,7 +40,7 @@ public struct GatewayClient: Sendable {
                               method: "POST", credential: credential)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
-        let result = try await transport.send(request)
+        let result = try await send(request)
         let grant: GrantResponse = try decode(result, status: 201)
         guard grant.apiVersion == "1", grant.protocolName == "whep", grant.tokenType == "Bearer",
               grant.cameraID == cameraID else { throw MonitorError.invalidContract }
@@ -51,6 +51,11 @@ public struct GatewayClient: Sendable {
         guard lifetime <= 330 else { throw MonitorError.invalidContract }
         return try PlaybackGrant(cameraID: cameraID, endpoint: policy.validateMediaEndpoint(grant.endpoint),
                                  credential: BearerCredential(grant.accessToken), expiresAt: expiration)
+    }
+
+    private func send(_ request: URLRequest) async throws -> HTTPResult {
+        do { return try await transport.send(request) }
+        catch let failure as HTTPTransferFailure { throw failure.cause }
     }
 
     private func request(path: [String], method: String, credential: BearerCredential) -> URLRequest {

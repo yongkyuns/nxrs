@@ -3,6 +3,16 @@ import Foundation
 import FoundationNetworking
 #endif
 
+// Body/cancellation failure must not discard a resource's received headers.
+// Headers can contain private Locations; never expose them through error logging.
+struct HTTPTransferFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    let cause: Error
+    let response: HTTPURLResponse
+    var description: String { "<HTTP transfer failed: redacted>" }
+    var debugDescription: String { description }
+    var customMirror: Mirror { Mirror(self, children: [:]) }
+}
+
 /// Foreground, bounded, cancellable HTTPS requests. No cookies, credential cache, or redirects.
 public struct BoundedHTTPTransport: HTTPTransport {
     public static let maximumResponseBytes = 1_048_576
@@ -66,13 +76,18 @@ private final class Transfer: NSObject, URLSessionDataDelegate, @unchecked Senda
         finished = true
         let continuation = self.continuation
         let session = self.session
+        let completion: Result<HTTPResult, Error>
+        if case .failure(let cause) = result, let response {
+            completion = .failure(HTTPTransferFailure(cause: cause, response: response))
+        } else { completion = result }
         self.continuation = nil
         self.session = nil
         self.task = nil
+        self.response = nil
         data.removeAll(keepingCapacity: false)
         lock.unlock()
         session?.invalidateAndCancel()
-        continuation?.resume(with: result)
+        continuation?.resume(with: completion)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -87,14 +102,15 @@ private final class Transfer: NSObject, URLSessionDataDelegate, @unchecked Senda
         guard let http = response as? HTTPURLResponse else {
             completionHandler(.cancel); finish(.failure(MonitorError.invalidContract)); return
         }
-        guard response.expectedContentLength <= Int64(limit) else {
-            completionHandler(.cancel); finish(.failure(MonitorError.responseTooLarge)); return
-        }
         lock.lock()
         let active = !finished
         if active { self.response = http }
         lock.unlock()
-        completionHandler(active ? .allow : .cancel)
+        guard active else { completionHandler(.cancel); return }
+        guard response.expectedContentLength <= Int64(limit) else {
+            completionHandler(.cancel); finish(.failure(MonitorError.responseTooLarge)); return
+        }
+        completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {

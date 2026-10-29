@@ -55,6 +55,9 @@ expand it. Redirects, wrong-camera grants, expired grants and cross-origin WHEP
 Locations are rejected. Even an invalid, oversized or interrupted WHEP 201 body
 must retire its trusted allocated Location. No bearer key, SDP or raw server
 error is logged or persisted outside the appropriate credential/transport owner.
+HTTP transfer failures retain redacted response context for this cleanup, even
+when a declared body size is rejected before reading. Gateway API callers still
+receive the original transport error; untrusted Locations never receive DELETE.
 
 iOS uses a device-only, unlocked Keychain item. Android uses Android Keystore
 AES-GCM with a nonexportable, unlocked-device key, authenticated ciphertext in

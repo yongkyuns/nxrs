@@ -44,14 +44,18 @@ public struct WHEPClient: Sendable {
         request.setValue("application/sdp", forHTTPHeaderField: "Content-Type")
         request.setValue("application/sdp", forHTTPHeaderField: "Accept")
         request.httpBody = Data(offerSDP.utf8)
-        let result = try await transport.send(request)
-        try Self.checkStatus(result.response.statusCode, expected: 201)
-        guard let location = result.response.value(forHTTPHeaderField: "Location") else {
-            // No safe way to identify/delete a server resource without its Location.
-            throw WHEPError.invalidResponse
+        let result: HTTPResult
+        do { result = try await transport.send(request) }
+        catch let failure as HTTPTransferFailure {
+            if failure.response.statusCode == 201,
+               failure.response.value(forHTTPHeaderField: "Location") != nil {
+                let provisional = try allocated(failure.response, endpoint: endpoint, credential: grant.credential)
+                _ = await close(provisional)
+            }
+            throw failure.cause
         }
-        let url = try policy.sessionURL(location: location, endpoint: endpoint)
-        let provisional = WHEPSession(answerSDP: "", url: url, credential: grant.credential)
+        try Self.checkStatus(result.response.statusCode, expected: 201)
+        let provisional = try allocated(result.response, endpoint: endpoint, credential: grant.credential)
         do {
             try Task.checkCancellation()
             let contentType = result.response.value(forHTTPHeaderField: "Content-Type")?
@@ -59,11 +63,20 @@ public struct WHEPClient: Sendable {
             guard contentType == "application/sdp", result.data.count <= Self.maximumSDPBytes,
                   let answer = String(data: result.data, encoding: .utf8), Self.validSDP(answer)
             else { throw WHEPError.invalidResponse }
-            return WHEPSession(answerSDP: answer, url: url, credential: grant.credential)
+            return WHEPSession(answerSDP: answer, url: provisional.url, credential: grant.credential)
         } catch {
             _ = await close(provisional)
             throw error
         }
+    }
+
+    private func allocated(_ response: HTTPURLResponse, endpoint: URL, credential: BearerCredential) throws -> WHEPSession {
+        guard let location = response.value(forHTTPHeaderField: "Location") else {
+            // No safe way to identify/delete a resource without its Location.
+            throw WHEPError.invalidResponse
+        }
+        return WHEPSession(answerSDP: "", url: try policy.sessionURL(location: location, endpoint: endpoint),
+                           credential: credential)
     }
 
     /// Best-effort bounded cleanup also runs when the caller has been cancelled.
