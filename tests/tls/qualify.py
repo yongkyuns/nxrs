@@ -17,6 +17,11 @@ def qualify(platform, archive):
         environment = {**os.environ, 'NXRS_PLATFORM': platform+'-tls',
             'NXRS_TLS_ARCHIVE': str(archive.resolve()), 'NXRS_TLS_PUBLIC_DIR': str(work),
             'ASAN_OPTIONS': 'abort_on_error=1:detect_leaks=0', 'UBSAN_OPTIONS': 'halt_on_error=1'}
+        # Request defaults must not leak host extensions into the synthetic PKI.
+        defaults = work/'request-defaults.cnf'
+        defaults.write_text('[req]\ndistinguished_name=subject\nx509_extensions=inherited\n'
+                            '[subject]\n[inherited]\n1.2.3.4=critical,DER:05:00\n')
+        environment['OPENSSL_CONF'] = str(defaults)
         for name, arguments, diagnostic, disabled in [
             ('address', ['overflow'], b'AddressSanitizer: heap-buffer-overflow', 'undefined'),
             ('undefined', [], b'runtime error: shift exponent 32', 'address')]:
@@ -41,8 +46,7 @@ def qualify(platform, archive):
             keys.append(subprocess.check_output(['openssl', 'req', '-in', str(path), '-noout', '-pubkey'], timeout=10))
         if keys[0] == keys[1]:
             raise ValueError('Fresh SDK owners reused a public key')
-        subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint',
-                        '--features', 'nxrs-tls/probe'],
+        subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint'],
                        cwd=ROOT, env=environment, check=True, timeout=180)
         subprocess.run([sys.executable, str(ROOT/'tests/tls/sessions.py')],
                        cwd=ROOT, env=environment, check=True, timeout=120)
