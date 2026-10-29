@@ -86,6 +86,31 @@ class Sessions(unittest.TestCase):
                                         '-noout', '-pubkey'], timeout=10)
                 for name in ['request.csr', 'retired.csr']]
         self.assertTrue(keys[0] == keys[1], 'connection retirement replaced enrolled key')
+        return line
+
+    def test_certificate_purpose_is_required_before_handshake(self):
+        for name in ['server', 'client']:
+            wrong = 'clientAuth' if name == 'server' else 'serverAuth'
+            for purposes in ['', wrong, 'serverAuth,clientAuth']:
+                with self.subTest(certificate=name, purposes=purposes):
+                    root, process, credentials, error = self.start()
+                    names = ('URI:urn:nxrs:camera:site:cam,IP:127.0.0.1' if name == 'server'
+                             else 'URI:urn:nxrs:ingest:site:gateway:cam')
+                    private(root/'purpose.cnf', '[leaf]\nbasicConstraints=critical,CA:FALSE\n'
+                        'keyUsage=critical,digitalSignature\nsubjectKeyIdentifier=hash\n'
+                        f'authorityKeyIdentifier=keyid:always\nsubjectAltName={names}\n'+
+                        (f'extendedKeyUsage={purposes}\n' if purposes else ''))
+                    csr = root/('request.csr' if name == 'server' else 'client.csr')
+                    credentials.call('ca', '-config', root/'ca.cnf', '-batch', '-notext',
+                        '-extfile', root/'purpose.cnf', '-extensions', 'leaf', '-in', csr,
+                        '-out', root/(name+'.pem'))
+                    address = self.load(root, process, credentials)
+                    # No ClientHello: reject the configured role before TLS I/O,
+                    # rather than relying on the remote peer to enforce it.
+                    with socket.create_connection(address, timeout=2) as transport:
+                        self.assertEqual(transport.recv(1), b'')
+                    self.assertEqual(self.result(root, process, credentials, error, accepted=False),
+                                     'RESULT Err(Authentication)')
 
     def test_tls12_and_tls13_with_fragmented_plaintext(self):
         for version in [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3]:

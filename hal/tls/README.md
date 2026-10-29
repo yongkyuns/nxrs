@@ -25,6 +25,8 @@ key context, PSA key, DRBG and source before another owner can start.
 `Identity::accept` borrows the key for one nonblocking `TcpStream`. Supply one
 approved DER issuer, own leaf, exact peer leaf and signed CRL. The adapter checks
 the key pair, signatures, revocation, matching issuers and validity; the
+own leaf must declare only serverAuth and the peer only clientAuth. Missing,
+wrong or additional extended key usages are refused before handshake I/O. The
 application must approve identity/role/generation and reject enrollment or CRL
 rollback before supplying that material. Dropping a connection preserves the key.
 

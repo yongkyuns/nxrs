@@ -83,6 +83,8 @@ unsafe extern "C" {
     pub(super) fn tls_crt_raw(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_issuer(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_subject(p: *mut c_void, size: *mut usize) -> *const u8;
+    pub(super) fn tls_crt_eku(p: *mut c_void, size: *mut usize) -> *const u8;
+    pub(super) fn tls_crt_eku_next(p: *mut c_void) -> *const c_void;
     pub(super) fn tls_crl_raw(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crl_issuer(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_peer_raw(p: *mut c_void, size: *mut usize) -> *const u8;

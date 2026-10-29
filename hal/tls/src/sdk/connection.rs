@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 
 const RECORD: usize = 4096;
 const HANDSHAKE: Duration = Duration::from_secs(5);
+// RFC 5280 id-kp-serverAuth/clientAuth OID contents, parsed by the SDK.
+const SERVER_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x01";
+const CLIENT_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x02";
 thread_local! { static CLOCK: Cell<Option<i64>> = const { Cell::new(None) }; }
 
 /// Native SDK clock ABI. No ambient system UTC or retained owner pointer.
@@ -128,11 +131,13 @@ impl Roots {
         {
             return Err(Error::Authentication);
         }
-        for owner in [&roots.own, &roots.peer] {
+        for (owner, purpose) in [(&roots.own, SERVER_AUTH), (&roots.peer, CLIENT_AUTH)] {
             if bytes(owner, tls_crt_issuer)? != bytes(&roots.issuer, tls_crt_subject)?
+                || bytes(owner, tls_crt_eku)? != purpose
                 || unsafe {
                     tls_crt_ca(owner.pointer()) != 0
                         || tls_crt_usage(owner.pointer()) != tls_sign_usage()
+                        || !tls_crt_eku_next(owner.pointer()).is_null()
                 }
             {
                 return Err(Error::Authentication);

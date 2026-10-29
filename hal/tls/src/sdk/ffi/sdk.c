@@ -107,6 +107,10 @@ const unsigned char *tls_crt_issuer(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->issuer_raw.len; return v->issuer_raw.p; }
 const unsigned char *tls_crt_subject(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->subject_raw.len; return v->subject_raw.p; }
+const unsigned char *tls_crt_eku(void *p, size_t *size)
+{ mbedtls_x509_crt *v = p; *size = v->ext_key_usage.buf.len; return v->ext_key_usage.buf.p; }
+const void *tls_crt_eku_next(void *p)
+{ return ((mbedtls_x509_crt *)p)->ext_key_usage.next; }
 const unsigned char *tls_crl_raw(void *p, size_t *size)
 { mbedtls_x509_crl *v = p; *size = v->raw.len; return v->raw.p; }
 const unsigned char *tls_crl_issuer(void *p, size_t *size)
