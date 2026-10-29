@@ -22,13 +22,16 @@ jobs:
         with:
           persist-credentials: false
       - name: Strict rendering and one-time state regressions
-        run: python3 -m unittest discover -s gateway/tests -p test_strict_deployment.py -v
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_strict_deployment.py -v
+          python3 -m unittest discover -s gateway/tests -p test_recording_service.py -v
       - name: Build locked independent gateway
         working-directory: gateway
         run: cargo build --locked
       - name: Install hosted-only service reference tools
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh nginx wireguard-tools ffmpeg
+          bash .github/scripts/install-ubuntu-packages.sh nginx wireguard-tools ffmpeg cryptsetup-bin restic libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           python3 -m venv /tmp/nxrs-systemd-test
           /tmp/nxrs-systemd-test/bin/pip install -r gateway/tests/media-requirements.txt
           systemctl --version | head -n 1
@@ -48,3 +51,10 @@ jobs:
             /tmp/nxrs-systemd-test/bin/python gateway/tests/systemd_reference.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-systemd-mediamtx/mediamtx
+      - name: Actual encrypted recording, maintenance backup and isolated restore
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /tmp/nxrs-systemd-test/bin/python gateway/tests/recording_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --mediamtx /tmp/nxrs-systemd-mediamtx/mediamtx \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher

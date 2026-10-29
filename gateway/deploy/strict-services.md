@@ -6,6 +6,9 @@ fail-stop service group. It does not configure a machine automatically and is
 not a completed camera product. See #21 for commit-specific executed evidence;
 implemented tests are not themselves a claim that runtime qualification passed.
 
+The separate [encrypted recording profile](recording.md) adds MediaMTX segments
+and maintenance restic backups on explicitly provisioned storage.
+
 ## Render a new private bundle
 
 From the repository root, with `wg` installed:
