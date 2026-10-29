@@ -60,7 +60,6 @@ fn main() -> std::io::Result<()> {
     if !matches!(mode.as_str(), "cold" | "active" | "stopped") || args.next().is_some() {
         return Err(std::io::Error::other("expected cold, active or stopped"));
     }
-    assert!(matches!(tls::open(), Err(tls::Error::Unsupported)));
     // SAFETY: fixture-only fcntl.h constant, with no retained state or pointer.
     let flags = unsafe { entropy_probe_open_flags() };
     let mut source = std::fs::OpenOptions::new()

@@ -69,6 +69,8 @@ The image reserves **177,016 B of static RAM/address space**: 67,584 B IRAM,
 startup stack and linker reservations; aliased DRAM dummy space is counted once.
 It excludes dynamic task stacks, camera/DMA buffers, Wi-Fi buffers, TLS heap and
 fragmentation. It is **not a runtime peak**. ELF debug data is not flashed.
+For example, the profile configures a 614,400 B camera DMA buffer budget;
+that is a separate runtime resource, not part of the 1 MB flash figure.
 
 The fixture-only `entropy-probe` executable observes nonblocking `/dev/random`
 reads without printing samples or enabling TLS. In the existing build recipe,
