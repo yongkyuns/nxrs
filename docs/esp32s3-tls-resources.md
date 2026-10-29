@@ -88,13 +88,19 @@ that is a separate runtime resource, not part of the 1 MB flash figure.
 
 The fixture-only `entropy-probe` executable observes nonblocking `/dev/random`
 reads without printing samples or enabling TLS. In the existing build recipe,
-replace `--bin tls-endpoint --command tls_endpoint --stack-size 65536` with
-`--bin entropy-probe --command entropy_probe --stack-size 8192`, and add
-`--target-c-source tests/nuttx-std/tls-identity/entropy-flags.c`.
+use `--app-manifest tests/nuttx-std/wifi/Cargo.toml --app-package nxrs-std-wifi
+--bin entropy-probe --command entropy_probe --stack-size 8192` and add both
+`--target-c-source tests/nuttx-std/wifi/ffi/entropy-flags.c` and
+`--target-c-source tests/nuttx-std/wifi/ffi/credentials.c`.
 
 After preserving the original image, an exclusively owned board can run
 `entropy_probe cold` before RF starts, `entropy_probe active` after `ifup wlan0`,
-and `entropy_probe stopped` after `ifdown wlan0`. Confirm actual RF state and
+and `entropy_probe stopped` after `ifdown wlan0`. Interface-up alone does not
+establish active RF: the profile permits disconnected-station power saving.
+`entropy_probe station` reuses the Wi-Fi fixture's raw, no-echo credential input,
+association/DHCP, disconnect and joined shutdown; it samples while connected and
+again after shutdown. Credentials never enter shell arguments or history.
+Confirm actual RF state and
 zero NSH exit status each time. It checks 224 reads across seven boundary sizes,
 the 32-byte cap, untouched suffixes and unavailable-source refusal. The active
 case requires successful output; it reports contention and maximum observed
