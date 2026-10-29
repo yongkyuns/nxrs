@@ -207,7 +207,10 @@ fn main() {
         _ => panic!("unknown fixture case"),
     };
     if matches!(case, Case::Product) {
-        product::run(directory, age);
+        let stack = std::env::args()
+            .nth(4)
+            .map_or(65536, |v| v.parse().unwrap());
+        product::run(directory, age, stack);
         return;
     }
     let mut identity = tls::open().expect("SDK identity");

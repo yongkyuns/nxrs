@@ -21,6 +21,9 @@ def qualify(platform, archive):
         environment = {**os.environ, 'NXRS_PLATFORM': platform+'-tls',
             'NXRS_TLS_ARCHIVE': str(archive.resolve()), 'NXRS_TLS_PUBLIC_DIR': str(work),
             'ASAN_OPTIONS': 'abort_on_error=1:detect_leaks=0', 'UBSAN_OPTIONS': 'halt_on_error=1'}
+        # Debug frames and native ASan redzones need a host fixture budget;
+        # this is not evidence of the release firmware's stack requirement.
+        environment['NXRS_TEST_TLS_STACK_BYTES'] = str(256 * 1024)
         # Request defaults must not leak host extensions into the synthetic PKI.
         defaults = work/'request-defaults.cnf'
         defaults.write_text('[req]\ndistinguished_name=subject\nx509_extensions=inherited\n'

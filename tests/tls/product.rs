@@ -41,7 +41,7 @@ impl Camera for Source {
         }
     }
 }
-pub fn run(directory: PathBuf, age: u64) {
+pub fn run(directory: PathBuf, age: u64, stack_bytes: usize) {
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let root = directory.clone();
@@ -55,7 +55,7 @@ pub fn run(directory: PathBuf, age: u64) {
         std::array::from_fn(|_| vec![0; 16384]),
         stream_service::Options::default(),
         TlsOptions {
-            stack_bytes: 65536,
+            stack_bytes,
             poll_interval: Duration::from_millis(2),
         },
         move || {

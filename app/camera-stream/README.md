@@ -23,5 +23,7 @@ it is not a capture-loop operation. A stopped TLS output cannot restart.
 
 `tests/tls/qualify.py` exercises the product composition with synthetic JPEGs,
 actual SDK peers, rejected clients, reconnect, time failure, blocked-worker
-capture progress and teardown. Product profiles remain disabled pending board
+capture progress and teardown. Its debug/sanitizer host worker uses 256 KiB;
+the target compile fixture requests 64 KiB. Neither is a device peak measurement.
+Product profiles remain disabled pending board
 entropy, provisioning and physical flash/heap/stack/latency qualification.

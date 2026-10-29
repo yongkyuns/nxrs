@@ -28,7 +28,10 @@ class Sessions(unittest.TestCase):
         root.chmod(0o700)
         error = (root/'endpoint.log').open('w+')
         self.addCleanup(error.close)
-        process = subprocess.Popen([str(self.binary), str(root), str(age), case], stdin=subprocess.PIPE,
+        arguments = [str(self.binary), str(root), str(age), case]
+        if case == 'product':
+            arguments.append(os.environ.get('NXRS_TEST_TLS_STACK_BYTES', '65536'))
+        process = subprocess.Popen(arguments, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=error, text=True)
         def stop():
             if process.poll() is None:
