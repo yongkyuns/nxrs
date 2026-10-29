@@ -32,6 +32,13 @@ class Sessions(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
             process.wait(timeout=5)
+            remaining = process.stdout.read(1024).strip()
+            if remaining:
+                print('endpoint result: '+remaining, file=sys.stderr)
+            error.seek(0)
+            diagnostic = error.read(2048).strip()
+            if diagnostic:
+                print('endpoint diagnostic: '+diagnostic, file=sys.stderr)
             process.stdin.close(); process.stdout.close()
         self.addCleanup(stop)
         self.assertEqual(self.line(process), 'CSR_READY')
@@ -209,6 +216,7 @@ class Sessions(unittest.TestCase):
         with socket.create_connection(address, timeout=7) as client:
             started = time.monotonic()
             self.assertEqual(client.recv(5), b'')
+            self.assertGreater(time.monotonic() - started, 4)
             self.assertLess(time.monotonic() - started, 6.5)
         self.result(root, process, credentials, error, accepted=False)
 

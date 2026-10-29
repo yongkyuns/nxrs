@@ -37,7 +37,10 @@ class Credentials:
         private(root/'serial', '1000\n')
         private(root/'crlnumber', '01\n')
         self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/'ca.key')
+        # Host request defaults can append duplicate issuer extensions to -addext.
+        private(root/'request.cnf', '[req]\ndistinguished_name=subject\n[subject]\n')
         self.call('req', '-new', '-x509', '-key', root/'ca.key', '-sha256', '-days', '1',
+                  '-config', root/'request.cnf',
                   '-subj', '/CN=Synthetic TLS fixture', '-out', root/'ca.pem',
                   '-addext', 'basicConstraints=critical,CA:TRUE,pathlen:0',
                   '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-addext', 'subjectKeyIdentifier=hash')
@@ -73,7 +76,8 @@ authorityKeyIdentifier=keyid:always
         root = self.root
         if csr is None:
             self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/(name+'.key'))
-            self.call('req', '-new', '-key', root/(name+'.key'), '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
+            self.call('req', '-new', '-config', root/'request.cnf', '-key', root/(name+'.key'),
+                      '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
             csr = root/(name+'.csr')
         uri = f'urn:nxrs:ingest:site:gateway:{camera}' if client else f'urn:nxrs:camera:site:{camera}'
         private(root/'leaf.cnf', '[leaf]\nbasicConstraints=critical,CA:FALSE\n'

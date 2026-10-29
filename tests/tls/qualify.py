@@ -17,6 +17,11 @@ def qualify(platform, archive):
         environment = {**os.environ, 'NXRS_PLATFORM': platform+'-tls',
             'NXRS_TLS_ARCHIVE': str(archive.resolve()), 'NXRS_TLS_PUBLIC_DIR': str(work),
             'ASAN_OPTIONS': 'abort_on_error=1:detect_leaks=0', 'UBSAN_OPTIONS': 'halt_on_error=1'}
+        # Request defaults must not leak host extensions into the synthetic PKI.
+        defaults = work/'request-defaults.cnf'
+        defaults.write_text('[req]\ndistinguished_name=subject\nx509_extensions=inherited\n'
+                            '[subject]\n[inherited]\n1.2.3.4=critical,DER:05:00\n')
+        environment['OPENSSL_CONF'] = str(defaults)
         for name, arguments, diagnostic, disabled in [
             ('address', ['overflow'], b'AddressSanitizer: heap-buffer-overflow', 'undefined'),
             ('undefined', [], b'runtime error: shift exponent 32', 'address')]:
