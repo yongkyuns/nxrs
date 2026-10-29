@@ -116,7 +116,7 @@ import NxrsMonitorNative
         try await until("Two real camera decoders advance concurrently", diagnostics: {
             [a,b].map { camera in
                 guard let session = model.sessions[camera.cameraID] else { return camera.cameraID.value + ": missing" }
-                return "\(camera.cameraID.value): status=\(session.status) active=\(session.active) retiring=\(session.retiring) blocked=\(session.blocked) frames=\(session.peer?.frames.count ?? 0)"
+                return "\(camera.cameraID.value): status=\(session.status) active=\(session.active) retiring=\(session.retiring) blocked=\(session.blocked) frames=\(session.peer?.frames.count ?? 0) reason=\(session.errorMessage ?? "none")"
             }.joined(separator: "; ")
         }) {
             [a,b].allSatisfy { model.sessions[$0.cameraID]?.live == true && (model.sessions[$0.cameraID]?.peer?.frames.count ?? 0) >= 20 }
@@ -162,7 +162,7 @@ import NxrsMonitorNative
         XCTAssertTrue(removedPeer.isClosed, "Removed camera closes its local decoder immediately")
         try await until("Remaining cameras recover after removed camera retirement", diagnostics: {
             model.sessions.values.sorted { $0.camera.cameraID.value < $1.camera.cameraID.value }.map { session in
-                "\(session.camera.cameraID.value): status=\(session.status) active=\(session.active) retiring=\(session.retiring) blocked=\(session.blocked) frames=\(session.peer?.frames.count ?? 0)"
+                "\(session.camera.cameraID.value): status=\(session.status) active=\(session.active) retiring=\(session.retiring) blocked=\(session.blocked) frames=\(session.peer?.frames.count ?? 0) reason=\(session.errorMessage ?? "none")"
             }.joined(separator: "; ")
         }) {
             model.sessions.count == 2 && model.sessions.values.allSatisfy(\.live)

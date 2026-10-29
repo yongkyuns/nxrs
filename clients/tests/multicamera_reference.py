@@ -99,7 +99,14 @@ async def exercise(args):
             launch([args.gateway,root/'control.json','--security',root/'security.json'],'control')
             launch([args.mediamtx,root/'media.json'],'media')
             loop=asyncio.get_running_loop()
+            grant_status={}; status_lock=threading.Lock()
             class Control(proxy.handler(('127.0.0.1',control))):
+                def send_response(self, code, message=None):
+                    if self.path in [f'/v1/cameras/cam_{key}/playback-grants' for key in 'abc']:
+                        category=code if code in [201,401,403,404,429,503] else 'other'
+                        with status_lock:
+                            key=str(category); grant_status[key]=grant_status.get(key,0)+1
+                    return super().send_response(code,message)
                 def do_POST(self):
                     if not self.path.startswith('/_fixture/'):
                         return super().do_POST()
@@ -138,6 +145,7 @@ async def exercise(args):
                 'rootCertificate':str(root/'root.der'), 'ports':[tls,media], 'qualificationCase':args.case, 'minimumFPS':14.0 if args.case=='throughput' else 4.0})
             code=await run_runner([args.runner,root/'runner.json'])
             if code:
+                with status_lock: print('FIXTURE DIAGNOSTIC: grant HTTP status counts',grant_status,flush=True)
                 for key,source in zip('abc',sources):
                     try:print('FIXTURE DIAGNOSTIC:',key,await source.command('status'),flush=True)
                     except Exception as error:print('FIXTURE DIAGNOSTIC:',key,type(error).__name__,flush=True)

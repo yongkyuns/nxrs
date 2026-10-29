@@ -17,6 +17,7 @@ import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
@@ -126,6 +127,17 @@ class CameraQualificationTest {
         val library = CaptureLibrary(context)
         lateinit var controller: HomeController
         val mismatches = AtomicInteger()
+        val phase = AtomicReference("startup")
+        val firstMismatch = AtomicReference<String?>(null)
+        fun mismatch(id: CameraId, sample: RenderedSample, reason: String) {
+            mismatches.incrementAndGet()
+            firstMismatch.compareAndSet(
+                null,
+                "camera=$id phase=${phase.get()} reason=$reason " +
+                    "pixel=${sample.red}/${sample.green}/${sample.blue} " +
+                    "presence=${sample.metadata?.presence()} boxes=${sample.boxesDrawn}",
+            )
+        }
         val red = ConcurrentHashMap<CameraId, AtomicInteger>()
         val blue = ConcurrentHashMap<CameraId, AtomicInteger>()
         val epochs = ConcurrentHashMap<CameraId, MutableSet<String>>()
@@ -161,7 +173,7 @@ class CameraQualificationTest {
                                                     metadata.presence() != Presence.Person ||
                                                         sample.boxesDrawn != 1
                                                 )
-                                                    mismatches.incrementAndGet()
+                                                    mismatch(id, sample, "red-person-box")
                                                 red.computeIfAbsent(id) { AtomicInteger() }
                                                     .incrementAndGet()
                                             }
@@ -170,12 +182,12 @@ class CameraQualificationTest {
                                                     metadata.presence() != Presence.Clear ||
                                                         sample.boxesDrawn != 0
                                                 )
-                                                    mismatches.incrementAndGet()
+                                                    mismatch(id, sample, "blue-clear-box")
                                                 blue
                                                     .computeIfAbsent(id) { AtomicInteger() }
                                                     .incrementAndGet()
                                             }
-                                            else -> mismatches.incrementAndGet()
+                                            else -> mismatch(id, sample, "center-color")
                                         }
                                     }
                                 }
@@ -308,6 +320,7 @@ class CameraQualificationTest {
                 "${fixture.qualificationCase} case minimum decoded/rendered FPS: ${fixture.minimumFPS}; decoded=$fps rendered=$renderFps",
                 (fps + renderFps).all { it >= fixture.minimumFPS },
             )
+            phase.set("pause-fullscreen-capture")
             onMain { readPixels = true }
             val pauseNeighbor = controller.state.value.sessions.getValue(b).state.value.peer!!
             val before = pauseNeighbor.frames.count
@@ -380,6 +393,7 @@ class CameraQualificationTest {
             }
             val neighbor = controller.state.value.sessions.getValue(b).state.value.peer!!
             val neighborCount = neighbor.frames.count
+            phase.set("source-stall")
             checkStatus(
                 network
                     .send(
@@ -414,11 +428,13 @@ class CameraQualificationTest {
                     .status,
                 204,
             )
+            phase.set("source-recovery")
             onMain { controller.retry(a) }
             waitFor("recovered source uses a new metadata epoch", 30000) {
                 controller.state.value.sessions.getValue(a).state.value.live &&
                     (epochs[a]?.size ?: 0) >= 2
             }
+            phase.set("background")
             scenario.moveToState(Lifecycle.State.CREATED)
             onMain { controller.foreground(false) }
             waitFor("background releases both peers and annotation state") {
@@ -429,6 +445,7 @@ class CameraQualificationTest {
                     it.state.value.peer == null && it.state.value.presence == Presence.Unavailable
                 }
             )
+            phase.set("foreground")
             scenario.moveToState(Lifecycle.State.RESUMED)
             onMain { controller.foreground(true) }
             waitFor("foreground restarts both cameras") {
@@ -440,6 +457,7 @@ class CameraQualificationTest {
             // Two catalogs may reuse IDs; an enrollment replacement retires old
             // resources before slots can be reused by the newly bound sessions.
             val old = controller.state.value.sessions.values.toList()
+            phase.set("enrollment-replacement")
             withContext(Dispatchers.Main) {
                 controller.enroll(fixture.gateway, fixture.mediaOrigin, fixture.token)
             }
@@ -460,6 +478,14 @@ class CameraQualificationTest {
                 },
             )
         } finally {
+            firstMismatch.get()?.let { mismatch ->
+                instrumentation.sendStatus(
+                    0,
+                    android.os.Bundle().apply {
+                        putString("stream", "\nCAMERA DIAGNOSTIC: first mismatch $mismatch\n")
+                    },
+                )
+            }
             for (trace in pauseTrace) instrumentation.sendStatus(
                 0,
                 android.os.Bundle().apply {
