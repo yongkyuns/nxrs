@@ -12,6 +12,10 @@ FLAGS = ['-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit
 
 
 def qualify(platform, archive):
+    # Keep native sanitizer link flags off host proc-macro libraries, which are
+    # loaded into rustc rather than launched as instrumented executables.
+    host = next(line.split(': ', 1)[1] for line in subprocess.check_output(
+        ['rustc', '-vV'], text=True).splitlines() if line.startswith('host: '))
     with tempfile.TemporaryDirectory(prefix='nxrs-tls-') as temporary:
         work = Path(temporary)
         environment = {**os.environ, 'NXRS_PLATFORM': platform+'-tls',
@@ -36,7 +40,7 @@ def qualify(platform, archive):
         # Rust normally suppresses the compiler driver's default libraries.
         # Let that driver select its matching sanitizer runtimes for this test.
         environment['RUSTFLAGS'] = environment.get('RUSTFLAGS', '')+' -C default-linker-libraries=yes -C link-arg=-fsanitize=address,undefined'
-        subprocess.run(['cargo', 'test', '--locked', '-p', 'nxrs-tls', '--features', 'probe'],
+        subprocess.run(['cargo', 'test', '--locked', '--target', host, '-p', 'nxrs-tls', '--features', 'probe'],
                        cwd=ROOT, env=environment, check=True, timeout=180)
         keys = []
         for name in ['first.csr', 'second.csr']:
@@ -46,8 +50,9 @@ def qualify(platform, archive):
             keys.append(subprocess.check_output(['openssl', 'req', '-in', str(path), '-noout', '-pubkey'], timeout=10))
         if keys[0] == keys[1]:
             raise ValueError('Fresh SDK owners reused a public key')
-        subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint'],
+        subprocess.run(['cargo', 'build', '--locked', '--target', host, '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint'],
                        cwd=ROOT, env=environment, check=True, timeout=180)
+        environment['NXRS_TLS_ENDPOINT'] = str(ROOT/'target'/host/'debug/tls-endpoint')
         subprocess.run([sys.executable, str(ROOT/'tests/tls/sessions.py')],
                        cwd=ROOT, env=environment, check=True, timeout=120)
     print('PASS: actual SDK identity/TLS, native sanitizers, independent CSR and TLS peer/deadline controls')

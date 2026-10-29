@@ -12,6 +12,7 @@ nxrs-camera-service = { path = "../../service/camera" }
 nxrs-stream-service = { path = "../../service/stream" }
 nxrs-detection-service = { path = "../../service/detection" }
 nxrs-detection-wire = { path = "../../service/detection-wire" }
+nxrs-tls = { path = "../../hal/tls" }
 
 [package.metadata.nxrs]
 required-capabilities = ["camera"]

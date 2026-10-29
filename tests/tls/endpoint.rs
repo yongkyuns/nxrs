@@ -4,6 +4,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+mod product;
 
 #[derive(Clone, Copy)]
 enum Case {
@@ -13,6 +14,7 @@ enum Case {
     Refresh,
     Rollback,
     Http,
+    Product,
 }
 
 fn public(path: PathBuf) -> Vec<u8> {
@@ -201,8 +203,13 @@ fn main() {
         Some("refresh") => Case::Refresh,
         Some("rollback") => Case::Rollback,
         Some("http") => Case::Http,
+        Some("product") => Case::Product,
         _ => panic!("unknown fixture case"),
     };
+    if matches!(case, Case::Product) {
+        product::run(directory, age);
+        return;
+    }
     let mut identity = tls::open().expect("SDK identity");
     let mut csr = [0; 1024];
     let size = identity.request("fixture", &mut csr).unwrap();

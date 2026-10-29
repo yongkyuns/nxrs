@@ -238,6 +238,7 @@ dependencies = [
  "nxrs-detection-wire",
  "nxrs-detector",
  "nxrs-stream-service",
+ "nxrs-tls",
 ]
 
 [[package]]
@@ -438,6 +439,7 @@ name = "nxrs-std-tls-identity"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
+ "nxrs-camera-stream",
  "nxrs-stream-service",
  "nxrs-tls",
 ]

@@ -48,7 +48,8 @@ inputs, not device enrollment or clock qualification.
 
 The key is protected by software usage policy, not persistent or hardware-backed
 custody. CSR subjects are advisory; the issuer must independently assign the
-approved identity. Camera-service integration, enrollment/persistence, a trusted
-device-time source, physical entropy/execution/resource measurements and
+approved identity. The camera composition offers an opt-in TLS worker via
+`LiveCamera::new_tls`. Enrollment/persistence, a trusted device-time source,
+physical entropy/execution/resource measurements and
 reset/decommission behavior remain required before product admission. Product
 profiles do not enable this capability.

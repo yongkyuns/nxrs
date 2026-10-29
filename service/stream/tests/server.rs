@@ -44,6 +44,7 @@ fn admitted_transport_retirement_is_bounded_and_recovers_storage() {
     assert_eq!(retired.get(), 4);
     assert_eq!(http.stats().last_failure, Some(Failure::Clock));
     assert!(http.accept(Blocked(retired.clone()), 2011));
+    let http = http.retire::<std::io::Cursor<Vec<u8>>>();
     let recovered = http.into_buffer();
     assert_eq!(recovered.as_ptr(), allocation);
     assert_eq!(retired.get(), 5);

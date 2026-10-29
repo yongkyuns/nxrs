@@ -217,6 +217,31 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         self.stats
     }
 
+    /// The owner may refresh transport credentials/time without replacing HTTP
+    /// state. Authentication must already be complete before admission.
+    pub fn transport_mut(&mut self) -> Option<&mut W> {
+        match self.client.as_mut()? {
+            Client::Request(v) => Some(&mut v.socket),
+            Client::Reply(v) => Some(&mut v.socket),
+            Client::Streaming(v) => Some(v.session.writer_mut()),
+        }
+    }
+
+    /// Close the current transport and reuse HTTP/frame storage for another
+    /// transport type or lifetime, retaining statistics and the monotonic clock.
+    pub fn retire<T: Read + Write>(mut self) -> HttpSession<T, B> {
+        self.disconnect();
+        HttpSession {
+            buffer: self.buffer,
+            header: self.header,
+            client: None,
+            options: self.options,
+            stats: self.stats,
+            last_now_ms: self.last_now_ms,
+            request_bytes: self.request_bytes,
+        }
+    }
+
     /// Attach an already admitted, nonblocking transport. Busy arrivals are
     /// closed immediately. A backwards clock closes both arrivals and active
     /// clients. TLS callers complete peer authentication first.
