@@ -34,6 +34,7 @@ class RecordingTests(unittest.TestCase):
         self.assertFalse(media['playback'])
         self.assertEqual(media['authHTTPExclude'], [])
         self.assertIn('BindsTo='+recording.CHECK, files['nxrs-media.service'])
+        self.assertIn('ExecStart=/usr/local/libexec/nxrs-mediamtx-recording %d/config\n', files['nxrs-media.service'])
         self.assertNotIn('DynamicUser=yes', files['nxrs-media.service'])
         self.assertIn('headless', files['nxrs-recordings.crypttab'])
         self.assertIn('After='+recording.MOUNT, files[recording.CHECK])

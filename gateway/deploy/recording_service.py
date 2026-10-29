@@ -23,6 +23,10 @@ def files(value, media_service, media_json):
     value = volume_id(value)
     if media_service.count('DynamicUser=yes\n') != 1:
         raise ValueError('media service template changed')
+    executable = '/usr/local/libexec/nxrs-mediamtx %d/config\n'
+    if media_service.count(executable) != 1:
+        raise ValueError('media executable template changed')
+    media_service = media_service.replace(executable, '/usr/local/libexec/nxrs-mediamtx-recording %d/config\n', 1)
     media_service = media_service.replace('DynamicUser=yes\n', 'DynamicUser=no\n', 1)
     media_service += f'''
 [Unit]

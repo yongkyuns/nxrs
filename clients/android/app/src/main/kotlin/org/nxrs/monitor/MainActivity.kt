@@ -244,7 +244,8 @@ fun CameraGrid(
             FullscreenCamera(session, { fullscreen(null) }, witness)
         }
     } else {
-        LaunchedEffect(grid, home.cameras) {
+        // Enrollment can replace sessions while retaining the same camera IDs and viewport.
+        LaunchedEffect(grid, home.cameras, home.sessions) {
             snapshotFlow {
                     grid.layoutInfo.visibleItemsInfo
                         .mapNotNull { home.cameras.getOrNull(it.index)?.id }

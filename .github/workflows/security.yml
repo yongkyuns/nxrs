@@ -40,6 +40,24 @@ jobs:
       - name: Audit independent gateway lockfile
         if: success() || failure()
         run: cargo +1.90.0 audit --file gateway/Cargo.lock --deny unsound --no-fetch
+      - name: Audit Python test requirements and verify vulnerable-package refusal
+        if: success() || failure()
+        run: |
+          python3 -m venv "$RUNNER_TEMP/python-audit"
+          "$RUNNER_TEMP/python-audit/bin/pip" install pip-audit==2.10.1
+          printf 'aiohttp==3.12.15\n' > "$RUNNER_TEMP/vulnerable-python.txt"
+          audit_result=0
+          "$RUNNER_TEMP/python-audit/bin/pip-audit" --strict --disable-pip --no-deps --progress-spinner off \
+            -r "$RUNNER_TEMP/vulnerable-python.txt" --format json --output "$RUNNER_TEMP/vulnerable-python.json" || audit_result=$?
+          test "$audit_result" = 1
+          python3 - "$RUNNER_TEMP/vulnerable-python.json" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          assert any('CVE-2025-69223' in [v['id'], *v.get('aliases', [])]
+                     for package in report['dependencies'] for v in package.get('vulns', [])), 'missing known advisory'
+          PY
+          "$RUNNER_TEMP/python-audit/bin/pip-audit" --strict --progress-spinner off \
+            -r gateway/tests/requirements.txt -r gateway/tests/media-requirements.txt
       - name: Select production parser qualification
         id: parsers
         run: |

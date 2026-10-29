@@ -9,6 +9,7 @@ not vendored source trees.
 | --- | --- |
 | `nuttx/patches` | Ordered NuttX kernel and driver patchset |
 | `nuttx-apps/patches` | Ordered NuttX-apps patchset |
+| `mediamtx/` | Pinned recording-only queue drain; built by `tools/build-recording-media.py` |
 | [rust-llvm](rust-llvm/README.md) | Pinned compiler patchset, opt-in proposals and local/CI build instructions |
 | [rust-std](rust-std/README.md) | Separate opt-in standard-library proposal and pinned inputs |
 
