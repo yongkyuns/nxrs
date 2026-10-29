@@ -9,7 +9,9 @@ The hash-pinned, unmodified Mbed TLS 4.2.0 / TF-PSA-Crypto 1.2.0 source builds
 offline after `python3 upstream/mbedtls/fetch.py`.
 
 Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` for
-NuttX compile qualification. Ordinary unbound builds acquire no SDK or entropy.
+NuttX compile qualification. Public socket/time types use Rust `std` and remain
+available without a selected backend; `open()` then returns `Unsupported`,
+acquiring no SDK or entropy. Services need no platform conditionals.
 The NuttX factory accepts only the configured RP2350 hardware source, opens
 `/dev/random` nonblocking and refuses software fallbacks. Polling and interrupted
 reads are bounded; contention, partial output and source failures close the

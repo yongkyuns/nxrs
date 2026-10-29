@@ -1,7 +1,7 @@
 //! Bounded, portable multipart MJPEG session writing.
 #![forbid(unsafe_code)]
 mod server;
-pub use server::{Failure, Options, Progress, Server, ServerStats};
+pub use server::{Failure, HttpSession, Options, Progress, Server, ServerStats};
 
 use camera::{Frame, PixelFormat};
 use core::fmt;
@@ -277,8 +277,8 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         (self.writer, self.buffer, self.part_header, self.stats)
     }
 
-    pub(crate) fn writer(&self) -> &W {
-        &self.writer
+    pub(crate) fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
     }
 
     fn segment(&self, state: State) -> Option<(&[u8], usize)> {

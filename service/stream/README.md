@@ -13,12 +13,17 @@ completes. A send deadline covers the initial HTTP header and each accepted
 frame. Expiration, a backwards clock, zero writes, and fatal writer errors
 close the session; a truncated multipart part is never followed by another.
 
-`Server` adds a nonblocking HTTP listener and one active client. It serves
+`HttpSession` runs the same bounded HTTP state machine over an admitted
+`Read + Write` transport, including `tls::Connection`. Its owner completes TLS
+authentication before admission and isolates synchronous crypto from capture.
+Disconnect retires the transport; `into_buffer()` returns the owned frame buffer.
+
+`Server` adds a plaintext nonblocking TCP listener and one active client. It serves
 `/stream` (also `/stream.mjpg`), a minimal viewer at `/`, and a timestamp at
 `/clock`. Each poll does bounded accept/read/write work. Request size, request
 timeout, send deadline and frame age are bounded; extra clients are rejected.
 The same outgoing buffer is reused across disconnects.
 
-Neither layer starts a thread or owns camera hardware. The application supplies
+These types start no thread and own no camera hardware. The application supplies
 time and polls the server from its existing event loop. See the
 [portable composition and device test](../../tests/nuttx-std/stream/README.md).

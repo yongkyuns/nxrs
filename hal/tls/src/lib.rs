@@ -1,7 +1,6 @@
 //! Device TLS credential ownership. Unbound builds acquire no SDK or entropy.
 #![no_std]
 #![deny(unsafe_code)]
-#[cfg(hal_enabled)]
 extern crate std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,12 +17,11 @@ pub enum Error {
     Io,
 }
 
-#[cfg(hal_enabled)]
+#[cfg_attr(not(hal_enabled), allow(dead_code))]
+mod api;
+pub use api::{Certificates, TimeLease};
 mod platform;
 #[cfg(hal_enabled)]
 #[allow(unsafe_code)]
 mod sdk;
-#[cfg(hal_enabled)]
-pub use platform::open;
-#[cfg(hal_enabled)]
-pub use sdk::{Certificates, Connection, Identity, TimeLease};
+pub use platform::{open, Connection, Identity};

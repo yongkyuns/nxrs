@@ -4,9 +4,50 @@ use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-use stream_service::{Failure, Options, Server, SessionError};
+use stream_service::{Failure, HttpSession, Options, Server, SessionError};
 
 const JPEG: &[u8] = &[0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9];
+
+#[test]
+fn admitted_transport_retirement_is_bounded_and_recovers_storage() {
+    struct Blocked(Rc<Cell<usize>>);
+    impl Read for Blocked {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::WouldBlock.into())
+        }
+    }
+    impl Write for Blocked {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            panic!("no output before an HTTP request");
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Drop for Blocked {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    let retired = Rc::new(Cell::new(0));
+    let buffer = vec![0; 64];
+    let allocation = buffer.as_ptr();
+    let mut http = HttpSession::new(buffer, Options::default()).unwrap();
+    assert!(http.accept(Blocked(retired.clone()), 10));
+    assert!(!http.accept(Blocked(retired.clone()), 10));
+    assert_eq!(retired.get(), 1);
+    assert!(!http.poll(2010, None).active);
+    assert_eq!(http.stats().last_failure, Some(Failure::RequestDeadline));
+    assert_eq!(retired.get(), 2);
+    assert!(http.accept(Blocked(retired.clone()), 2010));
+    assert!(!http.accept(Blocked(retired.clone()), 2009));
+    assert_eq!(retired.get(), 4);
+    assert_eq!(http.stats().last_failure, Some(Failure::Clock));
+    assert!(http.accept(Blocked(retired.clone()), 2011));
+    let recovered = http.into_buffer();
+    assert_eq!(recovered.as_ptr(), allocation);
+    assert_eq!(retired.get(), 5);
+}
 
 #[test]
 fn invalid_capacity_and_deadlines_fail_at_construction() {

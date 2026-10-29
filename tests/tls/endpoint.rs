@@ -12,6 +12,7 @@ enum Case {
     ChangedRetry,
     Refresh,
     Rollback,
+    Http,
 }
 
 fn public(path: PathBuf) -> Vec<u8> {
@@ -38,6 +39,51 @@ fn transaction(
     let time = tls::TimeLease::from_trusted(epoch, Duration::from_millis(age))?;
     let mut connection = identity.accept(socket, certs, time)?;
     let deadline = Instant::now() + Duration::from_secs(10);
+    if matches!(case, Case::Http) {
+        while !connection.poll()? {
+            if Instant::now() >= deadline {
+                return Err(tls::Error::Time);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let start = Instant::now();
+        let mut http =
+            stream_service::HttpSession::new(vec![0; 16_384], stream_service::Options::default())
+                .map_err(|_| tls::Error::Capacity)?;
+        assert!(http.accept(connection, 0));
+        while http.stats().frames_completed < 2 {
+            if Instant::now() >= deadline {
+                return Err(tls::Error::Time);
+            }
+            let now = start.elapsed().as_millis() as u64;
+            let sequence = http.stats().frames_completed + 1;
+            let bytes: &[u8] = if sequence == 1 {
+                include_bytes!("../nuttx-std/detection/background.jpg")
+            } else {
+                include_bytes!("../nuttx-std/detection/person.jpg")
+            };
+            let frame = camera::Frame {
+                sequence,
+                bytes,
+                capture: camera::Capture {
+                    format: camera::Format {
+                        width: 96,
+                        height: 96,
+                        pixels: camera::PixelFormat::Jpeg,
+                    },
+                    timestamp_ms: now,
+                    len: bytes.len(),
+                },
+            };
+            if !http.poll(now, Some(frame)).active {
+                return Err(tls::Error::Io);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(http.stats().errors, 0);
+        assert_eq!(http.into_buffer().len(), 16_384);
+        return Ok(());
+    }
     for turn in 0..if matches!(case, Case::Refresh) { 2 } else { 1 } {
         let mut input = [0; 5];
         let mut read = 0;
@@ -154,6 +200,7 @@ fn main() {
         Some("changed-retry") => Case::ChangedRetry,
         Some("refresh") => Case::Refresh,
         Some("rollback") => Case::Rollback,
+        Some("http") => Case::Http,
         _ => panic!("unknown fixture case"),
     };
     let mut identity = tls::open().expect("SDK identity");

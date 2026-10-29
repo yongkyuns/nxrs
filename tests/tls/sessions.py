@@ -1,5 +1,6 @@
 """Real SDK server against independent OpenSSL TLS; private synthetic PKI only."""
 import argparse
+import http.client
 import os
 from pathlib import Path
 import select
@@ -93,6 +94,42 @@ class Sessions(unittest.TestCase):
                             client.sendall(bytes([byte]))
                         self.assertEqual(client.recv(5), b'pong\n')
                 self.result(root, process, credentials, error, accepted=True)
+
+    def test_shared_http_session_delivers_exact_jpegs_after_mutual_tls(self):
+        for version, peer in [(ssl.TLSVersion.TLSv1_2, 'client'),
+                              (ssl.TLSVersion.TLSv1_3, 'client'),
+                              (ssl.TLSVersion.TLSv1_3, None),
+                              (ssl.TLSVersion.TLSv1_3, 'other')]:
+            with self.subTest(version=version.name, peer=peer):
+                root, process, credentials, error = self.start(case='http')
+                if peer == 'other':
+                    credentials.issue('other', client=True)
+                address = self.load(root, process, credentials)
+                try:
+                    with socket.create_connection(address, timeout=5) as transport:
+                        with self.context(root, version, peer=peer).wrap_socket(transport, server_hostname='127.0.0.1') as client:
+                            client.sendall(b'GET /stream HTTP/1.1\r\nHost: fixture\r\n\r\n')
+                            response = http.client.HTTPResponse(client)
+                            response.begin()
+                            self.assertEqual(peer, 'client', 'unapproved peer received HTTP')
+                            self.assertEqual(response.status, 200)
+                            self.assertEqual(response.getheader('Content-Type'),
+                                             'multipart/x-mixed-replace; boundary=nxrs-frame')
+                            for sequence, name in enumerate(['background.jpg', 'person.jpg'], 1):
+                                expected = (ROOT/'tests/nuttx-std/detection'/name).read_bytes()
+                                self.assertEqual(response.fp.readline(128), b'--nxrs-frame\r\n')
+                                self.assertEqual(response.fp.readline(128), b'Content-Type: image/jpeg\r\n')
+                                self.assertEqual(response.fp.readline(128), f'Content-Length: {len(expected)}\r\n'.encode())
+                                self.assertEqual(response.fp.readline(128), f'X-Sequence: {sequence}\r\n'.encode())
+                                self.assertRegex(response.fp.readline(128), rb'^X-Capture-Ms: [0-9]+\r\n$')
+                                self.assertEqual(response.fp.readline(128), b'\r\n')
+                                self.assertEqual(response.read(len(expected)), expected)
+                                self.assertEqual(response.read(2), b'\r\n')
+                            response.close()
+                except (ssl.SSLError, ConnectionError, http.client.HTTPException):
+                    if peer == 'client':
+                        raise
+                self.result(root, process, credentials, error, accepted=peer == 'client')
 
     def test_missing_or_different_valid_peer_cannot_publish(self):
         for peer in [None, 'other']:
