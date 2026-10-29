@@ -43,6 +43,8 @@ impl TimeLease {
 /// Public DER enrollment material. The application must approve the peer's
 /// identity, role and generation before supplying its exact leaf certificate.
 /// This adapter checks signatures, revocation, validity and exact peer equality.
+/// Leaves must declare exactly serverAuth for `own` and clientAuth for the peer;
+/// missing or additional extended key usages are refused before the handshake.
 pub struct Certificates<'a> {
     pub own: &'a [u8],
     pub issuer: &'a [u8],
