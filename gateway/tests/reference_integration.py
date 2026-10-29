@@ -129,11 +129,14 @@ async def exercise(gateway, mediamtx):
                 async def forward(req):
                     if not (req.path == '/healthz' or req.path.startswith('/v1/')):
                         return web.Response(status=404, headers={'Cache-Control':'no-store'})
-                    async with http.request(req.method, f'http://127.0.0.1:{api}'+req.rel_url.path_qs,
-                                            data=await req.read(), headers={k:v for k,v in req.headers.items()
-                                                if k.lower() in ['authorization','content-type']}, allow_redirects=False) as r:
-                        return web.Response(status=r.status, body=await r.read(), headers={k:v for k,v in r.headers.items()
-                                             if k.lower() in ['content-type','cache-control','www-authenticate']})
+                    try:
+                        async with http.request(req.method, f'http://127.0.0.1:{api}'+req.rel_url.path_qs,
+                                                data=await req.read(), headers={k:v for k,v in req.headers.items()
+                                                    if k.lower() in ['authorization','content-type']}, allow_redirects=False) as r:
+                            return web.Response(status=r.status, body=await r.read(), headers={k:v for k,v in r.headers.items()
+                                                 if k.lower() in ['content-type','cache-control','www-authenticate']})
+                    except aiohttp.ClientConnectorError:
+                        return web.Response(status=503, headers={'Cache-Control':'no-store'})
                 app=web.Application(client_max_size=32*1024); app.router.add_route('*','/{path:.*}',forward)
                 runner=web.AppRunner(app, access_log=None); await runner.setup()
                 await web.TCPSite(runner,'127.0.0.1',proxy,ssl_context=server_tls).start()

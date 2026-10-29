@@ -120,6 +120,12 @@ blocks a FIPS claim. New validation needs vendor/laboratory work and certificate
 issuance; fees, lab spending and manufacturing are external gates. No nxrs host,
 emulator or physical functional test substitutes for formal validation.
 
+The existing advisory job audits both Rust lockfiles and resolves/audits the
+Python API/media test requirements. Its Python control must reject a known
+vulnerable aiohttp release with the expected advisory; no advisory is waived.
+These Python tools are test infrastructure. Native codec/OS inventory and
+artifact-bound release provenance remain separate gates under #38.
+
 ## Evidence matrix and release gates
 
 The following are required deliverables. Their implementation and execution
