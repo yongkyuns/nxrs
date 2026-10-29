@@ -1,0 +1,9 @@
+ÿHTTP/1.1 200 OK
+Content-Type: multipart/x-mixed-replace; boundary=nxrs-frame
+
+--nxrs-frame
+Content-Type: image/jpeg
+Content-Length: 153601
+X-Sequence: 1
+X-Capture-Ms: 1
+

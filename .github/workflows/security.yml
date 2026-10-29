@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          fetch-depth: 2
       - name: Install pinned auditor
         run: cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
       - name: Audit root lockfile against current advisories
@@ -39,3 +40,18 @@ jobs:
       - name: Audit independent gateway lockfile
         if: success() || failure()
         run: cargo +1.90.0 audit --file gateway/Cargo.lock --deny unsound --no-fetch
+      - name: Select production parser qualification
+        id: parsers
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]] || ! git diff --quiet HEAD^ HEAD -- \
+            Cargo.toml gateway/ingest gateway/fuzz gateway/Cargo.toml gateway/Cargo.lock \
+            service/stream service/detection-wire hal/camera platform/hal-build.rs \
+            tools/platform_config.py .github/workflows/security.yml; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install pinned test compiler
+        if: steps.parsers.outputs.required == 'true'
+        run: rustup toolchain install nightly-2026-03-01 --profile minimal
+      - name: Fuzz production device HTTP and gateway MJPEG parsers
+        if: steps.parsers.outputs.required == 'true'
+        run: bash gateway/fuzz/run.sh

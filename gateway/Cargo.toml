@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["control", "ingest", "publisher"]
+members = ["control", "ingest", "publisher", "fuzz"]
 # The SDK helper is built explicitly; portable controller/ingest checks need no media headers.
 default-members = ["control", "ingest"]
 

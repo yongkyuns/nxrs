@@ -1,0 +1,2 @@
+# Wire fixtures retain exact bytes, including CRLF and non-text selector bytes.
+seeds/** binary
