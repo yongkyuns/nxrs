@@ -10,6 +10,24 @@ import sys
 import tempfile
 
 
+def report_progress(path, token):
+    """Bounded structural evidence only; never export the private XCTest log."""
+    with path.open('rb') as stream:
+        size=stream.seek(0,os.SEEK_END)
+        stream.seek(max(0,size-65536))
+        text=stream.read(65536).decode(errors='replace')
+    print('IOS LOG PROGRESS:',json.dumps({'tail_truncated':size>65536,
+        'suite_seen':"Test Suite '" in text,'case_seen':"Test Case '" in text,
+        'launch_error_seen':any(value in text for value in [
+            'Failed to establish communication','Failed to launch','Early unexpected exit',
+            'Simulator device failed'])}),flush=True)
+    lines=[line for line in text.splitlines() if line.startswith(
+        ('CAMERA DIAGNOSTIC:',"Test Suite '","Test Case '")) or 'CameraSessionTests.swift:' in line]
+    for line in lines[-12:]:
+        safe=line.replace(token,'<redacted>') if token else line
+        print(safe.encode()[:512].decode(errors='ignore'),flush=True)
+
+
 def main(path):
     device=os.environ['NXRS_IOS_SIMULATOR']
     products=Path(os.environ['NXRS_IOS_TEST_PRODUCTS']).resolve()
@@ -50,13 +68,16 @@ def main(path):
         run=root/'CameraSessionTests.xctestrun';run.write_bytes(plistlib.dumps(expand(value)))
         print('IOS QUALIFICATION: execute hosted camera-session tests',flush=True)
         with (root/'private.log').open('wb') as log:
-            result=subprocess.run(['xcodebuild','test-without-building','-xctestrun',str(run),'-destination',f'platform=iOS Simulator,id={device}',
-                '-resultBundlePath',str(root/'results.xcresult'),'-parallel-testing-enabled','NO','-maximum-test-execution-time-allowance','120','-collect-test-diagnostics','never'],stdout=log,stderr=subprocess.STDOUT,timeout=180)
+            try:
+                result=subprocess.run(['xcodebuild','test-without-building','-xctestrun',str(run),'-destination',f'platform=iOS Simulator,id={device}',
+                    '-resultBundlePath',str(root/'results.xcresult'),'-parallel-testing-enabled','NO','-maximum-test-execution-time-allowance','120','-collect-test-diagnostics','never'],stdout=log,stderr=subprocess.STDOUT,timeout=180)
+            except subprocess.TimeoutExpired:
+                report_progress(root/'private.log',config['token'])
+                raise AssertionError('iOS hosted test execution deadline exceeded') from None
         text=(root/'private.log').read_text(errors='replace')
         markers=[line for line in text.splitlines() if line.startswith('MULTICAMERA IOS PASS:')]
         if result.returncode or len(markers)!=1:
-            for line in text.splitlines():
-                if line.startswith('CAMERA DIAGNOSTIC:') or 'CameraSessionTests.swift:' in line or 'error:' in line or 'TEST FAILED' in line:print(line.replace(config['token'],'<redacted>'),flush=True)
+            report_progress(root/'private.log',config['token'])
             raise AssertionError('iOS hosted multi-camera test failed')
         print(markers[0],flush=True)
 
