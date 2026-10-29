@@ -140,6 +140,7 @@ mod tests {
             let mut c=config(); c.stream_path=bad.into(); assert!(c.validate().is_err());
         }
         let mut c=config(); c.ffmpeg="ffmpeg".into(); assert!(c.validate().is_err());
+        let mut c=config(); c.publisher="publisher".into(); assert!(c.validate().is_err());
         let mut c=config(); c.width=641; assert!(c.validate().is_err());
         let mut c=config(); c.frame_timeout_ms=0; assert!(c.validate().is_err());
     }
