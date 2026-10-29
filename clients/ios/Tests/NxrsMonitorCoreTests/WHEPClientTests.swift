@@ -7,12 +7,18 @@ import XCTest
 
 private actor WHEPTransport: HTTPTransport {
     private var results: [HTTPResult]
+    private let bodyFailure: Error?
     private(set) var requests: [URLRequest] = []
-    init(_ results: [HTTPResult]) { self.results = results }
+    init(_ results: [HTTPResult], bodyFailure: Error? = nil) { self.results = results; self.bodyFailure = bodyFailure }
     func send(_ request: URLRequest) async throws -> HTTPResult {
         requests.append(request)
         guard !results.isEmpty else { throw URLError(.cannotConnectToHost) }
-        return results.removeFirst()
+        let result = results.removeFirst()
+        if requests.count == 1, let bodyFailure {
+            if bodyFailure is CancellationError { withUnsafeCurrentTask { $0?.cancel() } }
+            throw HTTPTransferFailure(cause: bodyFailure, response: result.response)
+        }
+        return result
     }
 }
 
@@ -119,5 +125,15 @@ final class WHEPClientTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
         let requests = await transport.requests
         XCTAssertTrue(requests.isEmpty)
+    }
+    func testCancellationAfterCreatedHeadersDeletesKnownResource() async throws {
+        let transport = WHEPTransport([result(), result(status: 204)], bodyFailure: CancellationError())
+        let client = try client(transport)
+        let grant = try grant(); let offer = sdp
+        let task = Task { try await client.open(grant: grant, offerSDP: offer) }
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map(\.httpMethod), ["POST", "DELETE"])
     }
 }
