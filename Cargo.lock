@@ -437,6 +437,8 @@ dependencies = [
 name = "nxrs-std-tls-identity"
 version = "0.1.0"
 dependencies = [
+ "nxrs-camera",
+ "nxrs-stream-service",
  "nxrs-tls",
 ]
 

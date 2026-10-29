@@ -74,22 +74,22 @@ pub struct Progress {
     pub frames_completed: u64,
 }
 
-struct Request {
-    socket: TcpStream,
+struct Request<W> {
+    socket: W,
     length: usize,
     deadline: u64,
 }
 
-struct Reply {
-    socket: TcpStream,
+struct Reply<W> {
+    socket: W,
     bytes: [u8; 256],
     length: usize,
     position: usize,
     deadline: u64,
 }
 
-struct Streaming<B> {
-    session: MjpegSession<TcpStream, B>,
+struct Streaming<W, B> {
+    session: MjpegSession<W, B>,
     read_closed: bool,
     last_offered: u64,
     last_write_ms: u64,
@@ -98,10 +98,10 @@ struct Streaming<B> {
     metadata_revision: u64,
 }
 
-enum Client<B> {
-    Request(Request),
-    Reply(Reply),
-    Streaming(Streaming<B>),
+enum Client<W, B> {
+    Request(Request<W>),
+    Reply(Reply<W>),
+    Streaming(Streaming<W, B>),
 }
 #[derive(Clone, Copy)]
 enum ReplyKind {
@@ -110,15 +110,73 @@ enum ReplyKind {
     Error(&'static [u8]),
 }
 
-/// A single-viewer server. `poll` attempts one accept, at most one read (1024
-/// bytes for requests, one byte for stream EOF detection), and one bounded
-/// output step. The owner supplies the latest frame on every poll; no borrow
-/// survives the call. Only listener errors escape through the poll result.
+/// TCP listener for the explicit plaintext/development path. Each poll accepts
+/// at most one client and advances the same bounded HTTP session used by TLS.
 pub struct Server<B> {
     listener: TcpListener,
+    session: HttpSession<TcpStream, B>,
+}
+impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
+    pub fn new(listener: TcpListener, buffer: B, options: Options) -> io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        Ok(Self {
+            listener,
+            session: HttpSession::new(buffer, options)?,
+        })
+    }
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.listener.local_addr()
+    }
+    pub fn stats(&self) -> ServerStats {
+        self.session.stats()
+    }
+    pub fn disconnect(&mut self) {
+        self.session.disconnect();
+    }
+    pub fn poll(&mut self, now_ms: u64, latest: Option<Frame<'_>>) -> io::Result<Progress> {
+        self.poll_with_metadata(now_ms, latest, None)
+    }
+    pub fn poll_with_metadata(
+        &mut self,
+        now_ms: u64,
+        latest: Option<Frame<'_>>,
+        metadata: Option<Metadata<'_>>,
+    ) -> io::Result<Progress> {
+        // Preserve clock refusal before admitting another socket.
+        if self.session.last_now_ms.is_some_and(|last| now_ms < last) {
+            return Ok(self.session.poll_with_metadata(now_ms, latest, metadata));
+        }
+        match self.listener.accept() {
+            Ok((socket, _)) => {
+                if self.session.client.is_none() {
+                    if let Err(error) = socket
+                        .set_nonblocking(true)
+                        .and_then(|()| socket.set_nodelay(true))
+                    {
+                        let stats = &mut self.session.stats;
+                        stats.accepted = stats.accepted.saturating_add(1);
+                        stats.disconnected = stats.disconnected.saturating_add(1);
+                        stats.errors = stats.errors.saturating_add(1);
+                        stats.last_failure = Some(Failure::Configure(error.kind()));
+                        return Ok(self.session.poll_with_metadata(now_ms, latest, metadata));
+                    }
+                }
+                self.session.accept(socket, now_ms);
+            }
+            Err(error) if retryable(&error) => {}
+            Err(error) => return Err(error),
+        }
+        Ok(self.session.poll_with_metadata(now_ms, latest, metadata))
+    }
+}
+
+/// Bounded HTTP/MJPEG processing over an admitted `Read + Write` transport.
+/// The owner supplies scheduling, nonblocking I/O, authentication and time.
+/// Request and frame storage are reused until this session is retired.
+pub struct HttpSession<W, B> {
     buffer: Option<B>,
     header: Option<Box<[u8]>>,
-    client: Option<Client<B>>,
+    client: Option<Client<W, B>>,
     options: Options,
     stats: ServerStats,
     last_now_ms: Option<u64>,
@@ -127,8 +185,8 @@ pub struct Server<B> {
     request_bytes: [u8; REQUEST_CAPACITY],
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
-    pub fn new(listener: TcpListener, mut buffer: B, options: Options) -> io::Result<Self> {
+impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
+    pub fn new(mut buffer: B, options: Options) -> io::Result<Self> {
         if buffer.as_ref().is_empty()
             || buffer.as_ref().len() != buffer.as_mut().len()
             || options.request_timeout_ms == 0
@@ -139,14 +197,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
                 "invalid streaming capacity or deadline",
             ));
         }
-        listener.set_nonblocking(true)?;
         let mut header = Vec::new();
         header
             .try_reserve_exact(crate::HEADER_CAPACITY)
             .map_err(|_| io::Error::other("metadata storage unavailable"))?;
         header.resize(crate::HEADER_CAPACITY, 0);
         Ok(Self {
-            listener,
             buffer: Some(buffer),
             header: Some(header.into_boxed_slice()),
             client: None,
@@ -157,15 +213,40 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
         })
     }
 
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.listener.local_addr()
-    }
     pub fn stats(&self) -> ServerStats {
         self.stats
     }
 
+    /// Attach an already admitted, nonblocking transport. Busy arrivals are
+    /// closed immediately. A backwards clock closes both arrivals and active
+    /// clients. TLS callers complete peer authentication first.
+    pub fn accept(&mut self, socket: W, now_ms: u64) -> bool {
+        if !self.advance_clock(now_ms) {
+            return false;
+        }
+        if self.client.is_some() {
+            self.stats.rejected_busy = self.stats.rejected_busy.saturating_add(1);
+            return false;
+        }
+        self.stats.accepted = self.stats.accepted.saturating_add(1);
+        self.client = Some(Client::Request(Request {
+            socket,
+            length: 0,
+            deadline: now_ms.saturating_add(self.options.request_timeout_ms),
+        }));
+        true
+    }
+
+    /// Retire the transport and recover the same owned frame storage.
+    pub fn into_buffer(mut self) -> B {
+        self.disconnect();
+        self.buffer
+            .take()
+            .expect("idle session owns its frame buffer")
+    }
+
     /// Release an active viewer, for example when the owner observes link loss.
-    /// The listener and the same frame buffer remain available for reconnect.
+    /// The same frame buffer remains available for reconnect.
     pub fn disconnect(&mut self) {
         if let Some(client) = self.client.take() {
             let _ = self.close(client, false);
@@ -176,7 +257,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
     /// increments errors; polling can resume once the previous time is reached.
     /// Sequences must increase; each new viewer starts with sequence zero as its
     /// lower bound. Future captures and captures older than the age cap are skipped.
-    pub fn poll(&mut self, now_ms: u64, latest: Option<Frame<'_>>) -> io::Result<Progress> {
+    pub fn poll(&mut self, now_ms: u64, latest: Option<Frame<'_>>) -> Progress {
         self.poll_with_metadata(now_ms, latest, None)
     }
     pub fn poll_with_metadata(
@@ -184,57 +265,39 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
         now_ms: u64,
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
-    ) -> io::Result<Progress> {
+    ) -> Progress {
         let mut progress = Progress::default();
+        if !self.advance_clock(now_ms) {
+            return progress;
+        }
+        if let Some(client) = self.client.take() {
+            self.client = self.step(client, now_ms, latest, metadata, &mut progress);
+        }
+        progress.active = self.client.is_some();
+        progress
+    }
+
+    fn advance_clock(&mut self, now_ms: u64) -> bool {
         if self.last_now_ms.is_some_and(|last| now_ms < last) {
             if let Some(client) = self.client.take() {
                 let _ = self.close(client, false);
             }
             self.stats.errors = self.stats.errors.saturating_add(1);
             self.stats.last_failure = Some(Failure::Clock);
-            return Ok(progress);
+            return false;
         }
         self.last_now_ms = Some(now_ms);
-        match self.listener.accept() {
-            Ok((socket, _)) if self.client.is_some() => {
-                drop(socket);
-                self.stats.rejected_busy = self.stats.rejected_busy.saturating_add(1);
-            }
-            Ok((socket, _)) => {
-                self.stats.accepted = self.stats.accepted.saturating_add(1);
-                if let Err(error) = socket
-                    .set_nonblocking(true)
-                    .and_then(|()| socket.set_nodelay(true))
-                {
-                    self.stats.errors = self.stats.errors.saturating_add(1);
-                    self.stats.last_failure = Some(Failure::Configure(error.kind()));
-                    self.stats.disconnected = self.stats.disconnected.saturating_add(1);
-                } else {
-                    self.client = Some(Client::Request(Request {
-                        socket,
-                        length: 0,
-                        deadline: now_ms.saturating_add(self.options.request_timeout_ms),
-                    }));
-                }
-            }
-            Err(error) if retryable(&error) => {}
-            Err(error) => return Err(error),
-        }
-        if let Some(client) = self.client.take() {
-            self.client = self.step(client, now_ms, latest, metadata, &mut progress);
-        }
-        progress.active = self.client.is_some();
-        Ok(progress)
+        true
     }
 
     fn step(
         &mut self,
-        client: Client<B>,
+        client: Client<W, B>,
         now: u64,
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
         progress: &mut Progress,
-    ) -> Option<Client<B>> {
+    ) -> Option<Client<W, B>> {
         match client {
             Client::Request(mut request) => {
                 if now >= request.deadline {
@@ -336,7 +399,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
                     return self.fail(Client::Streaming(stream), Failure::IdleDeadline);
                 }
                 if !stream.read_closed {
-                    match stream.session.writer().peek(&mut [0; 1]) {
+                    match stream.session.writer_mut().read(&mut [0; 1]) {
                         // A TCP FIN closes only the request direction. The
                         // viewer may still read; writes/deadlines detect loss
                         // of the other direction without another descriptor.
@@ -402,12 +465,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
         }
     }
 
-    fn fail(&mut self, client: Client<B>, reason: Failure) -> Option<Client<B>> {
+    fn fail(&mut self, client: Client<W, B>, reason: Failure) -> Option<Client<W, B>> {
         self.stats.last_failure = Some(reason);
         self.close(client, true)
     }
 
-    fn close(&mut self, client: Client<B>, failed: bool) -> Option<Client<B>> {
+    fn close(&mut self, client: Client<W, B>, failed: bool) -> Option<Client<W, B>> {
         if let Client::Streaming(stream) = client {
             let (socket, buffer, header, _) = stream.session.into_parts_with_header();
             drop(socket);
@@ -420,8 +483,8 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
     }
 }
 
-impl Reply {
-    fn new(socket: TcpStream, kind: ReplyKind, now: u64, timeout: u64) -> Self {
+impl<W> Reply<W> {
+    fn new(socket: W, kind: ReplyKind, now: u64, timeout: u64) -> Self {
         let mut reply = Self {
             socket,
             bytes: [0; 256],

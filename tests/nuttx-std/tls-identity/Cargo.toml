@@ -6,6 +6,8 @@ publish = false
 
 [dependencies]
 nxrs-tls = { path = "../../../hal/tls" }
+nxrs-camera = { path = "../../../hal/camera" }
+nxrs-stream-service = { path = "../../../service/stream" }
 
 [package.metadata.nxrs]
 required-capabilities = ["tls"]

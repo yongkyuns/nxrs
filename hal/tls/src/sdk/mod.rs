@@ -14,7 +14,8 @@ mod ffi;
 use ffi::*;
 
 mod connection;
-pub use connection::{Certificates, Connection, TimeLease};
+use crate::{Certificates, TimeLease};
+pub use connection::Connection;
 
 /// A successful fill must supply the full buffer with cryptographic entropy.
 /// Hardware providers must own the documented entropy source, bound acquisition
