@@ -38,6 +38,7 @@ PLATFORM_NAMES = {
     "esp32s3-camera-stream",
     "esp32s3-camera-stream-vww",
     "esp32s3-camera-stream-video",
+    "esp32s3-camera-tls",
     "pico2w-radio",
 }
 
@@ -170,6 +171,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
+                            "esp32s3-camera-tls": {"camera": "nuttx", "wifi": "nuttx", "detector": "none", "tls": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
                             "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},

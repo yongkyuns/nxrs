@@ -28,15 +28,17 @@ class TlsSdkTests(unittest.TestCase):
     def test_nuttx_factory_rejects_unqualified_sources_and_uses_nonblocking(self):
         admitted = ['BUILD_FLAT', 'ARCH_CHIP_RP23XX', 'RP23XX_RNG',
                     'DEV_RANDOM', 'DEV_URANDOM_ARCH']
+        configs = [admitted, [name for name in admitted if name != 'RP23XX_RNG'],
+                   [*admitted, 'SMP'], [*admitted, 'DEV_URANDOM_RANDOM_POOL'],
+                   ['BUILD_FLAT', 'ARCH_CHIP_ESP32S3', 'ESP32S3_RNG',
+                    'DEV_RANDOM', 'DEV_URANDOM_ARCH']]
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             (work/'nuttx').mkdir()
-            for index, removed, extra in [(0, None, None), (1, 'RP23XX_RNG', None),
-                                         (2, None, 'SMP'), (3, None, 'DEV_URANDOM_RANDOM_POOL')]:
-                defines = [f'#define CONFIG_{name} 1' for name in admitted if name != removed]
-                if extra:
-                    defines.append(f'#define CONFIG_{extra} 1')
-                defines.append('#define CONFIG_RP23XX_RNG_POLL_TIMEOUT 100000')
+            for index, config in enumerate(configs):
+                defines = [f'#define CONFIG_{name} 1' for name in config]
+                if 'RP23XX_RNG' in config:
+                    defines.append('#define CONFIG_RP23XX_RNG_POLL_TIMEOUT 100000')
                 (work/'nuttx/config.h').write_text('\n'.join(defines)+'\n')
                 library = work/f'gate{index}.so'
                 subprocess.run(['cc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',

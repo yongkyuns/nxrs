@@ -1,0 +1,4 @@
+# Compile qualification with the camera/Wi-Fi resources, without a detector.
+# The TLS factory still refuses ESP32-S3 entropy; this is not a shipping profile.
+extends = "esp32s3-camera-stream-video"
+hal = { tls = "nuttx" }
