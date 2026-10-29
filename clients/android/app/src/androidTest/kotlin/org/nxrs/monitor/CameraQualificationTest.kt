@@ -197,6 +197,11 @@ class CameraQualificationTest {
             }
         }
         val device = UiDevice.getInstance(instrumentation)
+        // Trust-negative network setup may outlast the emulator's idle timeout.
+        // KEEP_SCREEN_ON protects a visible window but does not wake a sleeping
+        // display. Restore the owned test display immediately before launch.
+        device.wakeUp()
+        device.executeShellCommand("wm dismiss-keyguard")
         val scenario = ActivityScenario.launch(QualificationActivity::class.java)
         val a = CameraId("cam_a")
         val b = CameraId("cam_b")
