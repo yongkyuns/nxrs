@@ -61,7 +61,7 @@ def build(out, target):
     config = [f'-DMBEDTLS_CONFIG_FILE="{ffi}/mbedtls_config.h"',
               f'-DTF_PSA_CRYPTO_CONFIG_FILE="{ffi}/crypto_config.h"']
     run([cmake, '-S', source, '-B', directory, '-DENABLE_TESTING=OFF', '-DENABLE_PROGRAMS=OFF',
-         '-DGEN_FILES=OFF', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+         '-DGEN_FILES=OFF', '-DCMAKE_BUILD_TYPE=MinSizeRel', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
          '-DCMAKE_C_COMPILER='+compiler, '-DCMAKE_AR='+archiver,
          '-DCMAKE_C_FLAGS='+shlex.join(flags), *cross,
          '-DMBEDTLS_CONFIG_FILE='+str(ffi/'mbedtls_config.h'),
