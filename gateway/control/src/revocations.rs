@@ -19,15 +19,32 @@ pub struct Store {
 }
 
 pub fn private_read(path: &Path, limit: u64) -> Result<Vec<u8>, &'static str> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| "private file unavailable")?;
-    if !metadata.is_file() { return Err("private file must be regular, not a symlink"); }
+    if !cfg!(unix) { return Err("private files require Unix descriptor checks"); }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    read_opened(options.open(path).map_err(|_| "private file unavailable")?, limit)
+}
+
+fn check_file(file: &File, limit: u64) -> Result<(), &'static str> {
+    let metadata = file.metadata().map_err(|_| "private file metadata unavailable")?;
+    if !metadata.is_file() { return Err("private file must be regular"); }
     #[cfg(unix)]
     if metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
         return Err("private file permissions or links invalid");
     }
+    if metadata.len() > limit { return Err("private file exceeds bound"); }
+    Ok(())
+}
+
+fn read_opened(file: File, limit: u64) -> Result<Vec<u8>, &'static str> {
+    let bound = limit.checked_add(1).ok_or("invalid private file bound")?;
+    check_file(&file, limit)?;
     let mut bytes = Vec::new();
-    File::open(path).map_err(|_| "private file unavailable")?.take(limit + 1)
+    (&file).take(bound)
         .read_to_end(&mut bytes).map_err(|_| "private file read failed")?;
+    check_file(&file, limit)?;
     if bytes.len() as u64 > limit { return Err("private file exceeds bound"); }
     Ok(bytes)
 }
@@ -45,13 +62,11 @@ impl Store {
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
-        options.mode(0o600);
-        if lock_path.exists() { private_read(&lock_path, 0)?; }
-        if fs::symlink_metadata(&lock_path).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err("invalid state lock");
-        }
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
         let lock = options.open(lock_path).map_err(|_| "state lock unavailable")?;
+        check_file(&lock, 0)?;
         lock.try_lock().map_err(|_| "revocation store already owned or lock unsupported")?;
+        check_file(&lock, 0)?;
         let bytes = private_read(path, MAX_BYTES)?;
         let snapshot: Snapshot = serde_json::from_slice(&bytes).map_err(|_| "invalid revocation state")?;
         let revoked: BTreeSet<_> = snapshot.revoked.iter().cloned().collect();
@@ -145,6 +160,32 @@ mod tests {
         let other = fixture.directory.join("other.json"); fs::rename(&fixture.path, &other).unwrap();
         symlink(&other, &fixture.path).unwrap(); assert!(Store::open(&fixture.path).is_err());
         fs::remove_file(&fixture.path).unwrap(); fs::hard_link(&other, &fixture.path).unwrap();
+        assert!(Store::open(&fixture.path).is_err());
+    }
+    #[test] fn opened_file_is_checked_even_when_its_path_is_replaced() {
+        let fixture = Fixture::new();
+        let file = File::open(&fixture.path).unwrap();
+        let old = fixture.directory.join("old.json");
+        fs::rename(&fixture.path, &old).unwrap();
+        fs::write(&fixture.path, b"replacement").unwrap();
+        fs::set_permissions(&fixture.path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::set_permissions(&old, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(private_read(&fixture.path, MAX_BYTES).is_ok());
+        assert!(read_opened(file, MAX_BYTES).is_err());
+    }
+    #[test] fn fifo_read_returns_without_a_writer_and_cannot_be_a_state_lock() {
+        let fixture = Fixture::new();
+        let fifo = fixture.directory.join(".nxrs-revocations.lock");
+        assert!(std::process::Command::new("mkfifo").args(["-m", "600"]).arg(&fifo).status().unwrap().success());
+        let (reply, result) = std::sync::mpsc::sync_channel(1);
+        let path = fifo.clone();
+        let reader = std::thread::spawn(move || { let _ = reply.send(private_read(&path, 0).is_err()); });
+        let prompt = result.recv_timeout(std::time::Duration::from_secs(2));
+        // Unblock an accidentally blocking open before joining, even on failure.
+        let wake = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NONBLOCK).open(&fifo).unwrap();
+        drop(wake);
+        reader.join().unwrap();
+        assert_eq!(prompt, Ok(true));
         assert!(Store::open(&fixture.path).is_err());
     }
     #[test] fn failed_write_keeps_memory_denied_and_retry_can_persist() {

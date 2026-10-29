@@ -12,6 +12,7 @@ tokio = { version = "=1.51.6", features = ["macros", "rt-multi-thread", "net", "
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 getrandom = "=0.3.4"
+libc = "=0.2.191"
 sha2 = "=0.10.9"
 subtle = "=2.6.1"
 # These already-pinned transport crates are reused; no general-purpose URL/redirect client.
