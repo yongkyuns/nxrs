@@ -106,10 +106,12 @@ def exercise(gateway, media, publisher):
     def decode(paths):
         frames = 0
         for path in paths:
-            result = command(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0',
-                '-show_entries', 'stream=width,height,nb_read_frames', '-of', 'json', path])
+            result = command(['ffprobe', '-v', 'error', '-count_frames', '-count_packets', '-select_streams', 'v:0',
+                '-show_entries', 'stream=width,height,nb_read_frames,nb_read_packets', '-of', 'json', path])
             stream = json.loads(result.stdout)['streams'][0]
             require((stream['width'], stream['height']) == (320, 240), 'recorded dimensions')
+            print('RECORDING SAMPLE COUNTS:', json.dumps({'packets': int(stream['nb_read_packets']),
+                'frames': int(stream['nb_read_frames'])}), flush=True)
             frames += int(stream['nb_read_frames'])
             command(['ffmpeg', '-nostdin', '-v', 'error', '-i', path, '-f', 'null', '-'])
         return frames
@@ -268,9 +270,13 @@ def exercise(gateway, media, publisher):
                 except BrokenPipeError:
                     pass
                 child.stdin = None
-            child.communicate(timeout=10)
+            progress, _ = child.communicate(timeout=10)
+            packets = progress.splitlines()
+            published = len(packets) if packets == [f'packet={n}'.encode() for n in range(1, len(packets)+1)] else 0
+            print('RECORDING PUBLICATION:', json.dumps({'accepted': accepted, 'packets': published}), flush=True)
             if accepted:
                 require(child.returncode == 0, 'private-pipe SDK publication')
+                require(published == 121, 'every source packet reaches the native publisher')
                 def retired():
                     request = urllib.request.Request(f'http://127.0.0.1:{ports[3]}/v3/paths/get/reference',
                         headers={'Authorization': 'Bearer '+security['media_api_token']})
@@ -347,7 +353,21 @@ def exercise(gateway, media, publisher):
         before = set((store/'media').rglob('*.mp4'))
         publish(); unit(roles['media']+'.service', 'stop')
         recovered = set((store/'media').rglob('*.mp4'))-before
-        require(recovered and decode(recovered) == 120, 'recording recovers after volume capacity returns')
+        recovered_frames = decode(recovered)
+        print('RECORDING RECOVERY COUNTS:', json.dumps({'clips': len(recovered), 'frames': recovered_frames,
+            'available_bytes': os.statvfs(store).f_bavail * os.statvfs(store).f_frsize}), flush=True)
+        if recovered_frames != 120 and len(recovered) == 1:
+            def frame_hashes(source, **kwargs):
+                result = command([*decoded_hash, source, '-frames:v', '121', '-pix_fmt', 'yuv420p',
+                    '-f', 'framemd5', 'pipe:1'], **kwargs)
+                return [line.rsplit(b',', 1)[-1].strip() for line in result.stdout.splitlines()
+                    if line and not line.startswith(b'#')]
+            source_frames = frame_hashes('pipe:0', input=payload)
+            positions = [source_frames.index(value) if source_frames.count(value) == 1 else -1
+                for value in frame_hashes(next(iter(recovered)))]
+            print('RECORDING RECOVERY POSITIONS:', json.dumps({'first': positions[:2], 'last': positions[-2:],
+                'missing': [n for n in range(121) if n not in positions], 'unmatched': positions.count(-1)}), flush=True)
+        require(recovered and recovered_frames == 120, 'recording recovers after volume capacity returns')
         print('RECORDING STAGE: accelerated native retention', flush=True)
         media_config['paths']['reference']['recordDeleteAfter'] = '3s'  # Fixture-only accelerated native retention.
         media_config['paths']['reference']['recordSegmentDuration'] = '1s'
