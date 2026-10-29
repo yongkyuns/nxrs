@@ -1,6 +1,6 @@
 # ESP32-S3 camera/TLS resource qualification
 
-The camera/Wi-Fi/TLS **interoperability fixture**, built with size optimization,
+The baseline camera/Wi-Fi/TLS **interoperability fixture**, built with size optimization,
 LTO and immediate abort, is **1,027,064 B (1.027 MB / 0.979 MiB)**. This is the
 whole NuttX flash image, not TLS alone or a shipping camera product. Measured
 source `c507da6d98fbb3016677949f7b737a5ae80ac462` has the same tree as merged
@@ -45,12 +45,26 @@ versions/configurations and callers prevent simply removing one. Rust std's
 named sections are a smaller part of this image. The fixture retains multiple
 protocol cases, synthetic images, file-based test PKI, output and a shell.
 
-First measure the actual camera entry point separately from this multi-case
-fixture. Next, measure whether function/data sections allow the native TLS linker
-to discard unused routines; its C objects currently contain combined sections.
-Keep the protocol/failure tests when trying that change. Radio configuration
-and shell trimming require separate comparisons. Alignment can hide or amplify
-growth, so compare loadable sections alongside `.bin` length.
+The SDK and ABI bridge now compile into separate function/data sections so the
+existing linker can discard unused routines. A matched endpoint build with the
+same pinned tools, platform, TLS policy and application gives:
+
+| Measurement | Combined sections | Function/data sections | Reduction |
+| --- | ---: | ---: | ---: |
+| Loadable code/data | 962,801 B | 934,521 B | 28,280 B |
+| Flash binary | 1,027,064 B | 1,023,556 B | 3,508 B |
+| Static BSS | 83,224 B | 83,216 B | 8 B |
+
+The clean control is `4223a5fffeb9c0d798205c9add660f56a27c1c5a`; the sectioned
+build is `f3802e60b2e6c209d3ef28100f4a92ee7714a182`. Alignment absorbs most
+of the payload saving. Native SDK/sanitizer/CSR controls and TLS1.2/1.3 peers
+pass on the host; this does not qualify physical timing or runtime memory.
+The size tool follows SDK input ownership through the partial link, rather
+than guessing ownership from C section names.
+
+Next measure the actual camera entry point separately from this multi-case
+fixture. Radio configuration and shell trimming need independent comparisons.
+Compare loadable sections alongside `.bin` length when evaluating changes.
 
 Reproduce the breakdown without rebuilding or accessing hardware:
 
@@ -64,7 +78,7 @@ windows are excluded. JSON records input hashes, section totals and components.
 
 ## RAM and physical checks
 
-The image reserves **177,016 B of static RAM/address space**: 67,584 B IRAM,
+The baseline reserves **177,016 B of static RAM/address space**: 67,584 B IRAM,
 109,372 B DRAM and 60 B RTC storage. This includes initialized data, BSS,
 startup stack and linker reservations; aliased DRAM dummy space is counted once.
 It excludes dynamic task stacks, camera/DMA buffers, Wi-Fi buffers, TLS heap and
