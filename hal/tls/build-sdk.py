@@ -36,7 +36,9 @@ def build(out, target):
     ffi = HERE/'src/sdk/ffi'
     cmake = os.environ.get('CMAKE', 'cmake')
     compiler, archiver = os.environ.get('CC', 'cc'), os.environ.get('AR', 'ar')
-    flags = shlex.split(os.environ.get('CFLAGS', ''))
+    # Let the final link discard unused SDK/ABI functions and static data.
+    flags = [*shlex.split(os.environ.get('CFLAGS', '')),
+             '-ffunction-sections', '-fdata-sections']
     cross = []
     if 'nuttx' in target:
         prefix, cpu = (('arm-none-eabi-', ['-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=soft'])
