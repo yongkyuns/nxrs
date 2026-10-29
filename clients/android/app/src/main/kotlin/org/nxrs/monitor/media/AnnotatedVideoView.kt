@@ -212,6 +212,12 @@ class AnnotatedVideoView(
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         var count = 0
         val frame = image
+        // Use the same admission snapshot for the draw and its diagnostic sample.
+        val annotation = metadata?.takeIf {
+            peer.owner.accepts(it) &&
+                (it.boxes.isEmpty() ||
+                    SystemClock.elapsedRealtime() - renderedAt < it.remainingLifetimeMs)
+        }
         if (frame != null) {
             val scale =
                 minOf(
@@ -229,12 +235,7 @@ class AnnotatedVideoView(
                 width,
                 height,
             )
-            val annotation = metadata
-            if (
-                annotation != null &&
-                    peer.owner.accepts(annotation) &&
-                    SystemClock.elapsedRealtime() - renderedAt < annotation.remainingLifetimeMs
-            ) {
+            if (annotation != null) {
                 GLES20.glViewport(0, 0, viewWidth, viewHeight)
                 val program = shader!!
                 program.useProgram()
@@ -290,11 +291,13 @@ class AnnotatedVideoView(
                     pixel[0].toInt() and 255,
                     pixel[1].toInt() and 255,
                     pixel[2].toInt() and 255,
-                    metadata,
+                    annotation,
                     count,
                 )
             lastSample = sample
             observer?.invoke(sample)
+        } else {
+            lastSample = lastSample?.copy(metadata = annotation, boxesDrawn = count, freshImage = false)
         }
     }
 
