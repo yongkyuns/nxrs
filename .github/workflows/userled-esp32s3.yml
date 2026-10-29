@@ -34,8 +34,9 @@ jobs:
       NUTTX_STD_COMPAT_FIXES: '1'
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           ref: ${{ env.SOURCE_SHA }}
           submodules: true
       - name: Install pinned host Cargo and dependencies
@@ -45,7 +46,7 @@ jobs:
           python3 -m venv target/userled-venv
           target/userled-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
           echo "$GITHUB_WORKSPACE/target/userled-venv/bin" >> "$GITHUB_PATH"
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: target/qemu-tools/*.tar.xz
           key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
@@ -67,7 +68,7 @@ jobs:
           python3 tests/nuttx-std/userled/run.py
       - name: Retain final image and target evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: userled-esp32s3-qemu
           path: |
