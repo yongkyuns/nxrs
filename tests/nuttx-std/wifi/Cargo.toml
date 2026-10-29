@@ -13,3 +13,7 @@ crossbeam-channel = "=0.5.17"
 
 [package.metadata.nxrs]
 required-capabilities = ["wifi"]
+
+[[bin]]
+name = "entropy-probe"
+path = "src/entropy.rs"

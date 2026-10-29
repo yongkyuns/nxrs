@@ -50,15 +50,10 @@ fn observe(source: &mut impl Read, active: bool) -> std::io::Result<Observed> {
 }
 
 #[cfg(target_os = "nuttx")]
-fn main() -> std::io::Result<()> {
+fn sample(mode: &str) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     unsafe extern "C" {
         fn entropy_probe_open_flags() -> i32;
-    }
-    let mut args = std::env::args().skip(1);
-    let mode = args.next().unwrap_or_default();
-    if !matches!(mode.as_str(), "cold" | "active" | "stopped") || args.next().is_some() {
-        return Err(std::io::Error::other("expected cold, active or stopped"));
     }
     // SAFETY: fixture-only fcntl.h constant, with no retained state or pointer.
     let flags = unsafe { entropy_probe_open_flags() };
@@ -73,6 +68,28 @@ fn main() -> std::io::Result<()> {
         result.reads, result.bytes, result.unavailable, result.max_us
     );
     Ok(())
+}
+
+#[cfg(target_os = "nuttx")]
+fn main() -> std::io::Result<()> {
+    let mut args = std::env::args().skip(1);
+    let mode = args.next().unwrap_or_default();
+    if !matches!(mode.as_str(), "cold" | "active" | "stopped" | "station")
+        || args.next().is_some()
+    {
+        return Err(std::io::Error::other("expected cold, active, stopped or station"));
+    }
+    if mode == "station" {
+        let mut measured = Ok(());
+        wifi_scan_owner::station::with_connection(|| {
+            measured = sample("active");
+            Ok(())
+        })
+        .map_err(|error| std::io::Error::other(format!("station entropy: {error:?}")))?;
+        measured?;
+        return sample("stopped");
+    }
+    sample(&mode)
 }
 
 #[cfg(not(target_os = "nuttx"))]
