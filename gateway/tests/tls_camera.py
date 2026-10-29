@@ -34,6 +34,7 @@ class TlsCamera:
             if await instance._line() != 'CSR_READY':
                 raise AssertionError('worker-owned device CSR')
             instance.credentials = Credentials(directory, server_csr=directory/'request.csr', **identity)
+            instance.credentials.device_policy()
             for pem, der in [('server.pem', 'server.der'), ('ca.pem', 'issuer.der'), ('client.pem', 'peer.der')]:
                 private(directory/der, ssl.PEM_cert_to_DER_cert((directory/pem).read_text()))
             instance.credentials.call('crl', '-in', directory/'crl.pem', '-outform', 'DER', '-out', directory/'revocations.der')

@@ -28,6 +28,13 @@ fn public(path: PathBuf) -> Vec<u8> {
     assert!(bytes.len() <= 16_384);
     bytes
 }
+fn policy(directory: &Path) -> tls::CertificatePolicy {
+    tls::CertificatePolicy {
+        issuer_sha256: public(directory.join("issuer.sha256")).try_into().unwrap(),
+        own_uri: String::from_utf8(public(directory.join("own.uri"))).unwrap(),
+        peer_uri: String::from_utf8(public(directory.join("peer.uri"))).unwrap(),
+    }
+}
 fn transaction(
     identity: &mut tls::Identity,
     socket: std::net::TcpStream,
@@ -225,6 +232,7 @@ fn main() {
     std::io::stdin().read_line(&mut line).unwrap();
     assert_eq!(line.trim(), "load");
     let own = public(directory.join("server.der"));
+    let policy = policy(&directory);
     let issuer = public(directory.join("issuer.der"));
     let peer = public(directory.join("peer.der"));
     let revocations = public(directory.join("revocations.der"));
@@ -238,6 +246,7 @@ fn main() {
         match listener.accept() {
             Ok((socket, _)) => {
                 let certs = tls::Certificates {
+                    policy: &policy,
                     own: &own,
                     issuer: &issuer,
                     approved_peer: &peer,

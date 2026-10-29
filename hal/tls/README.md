@@ -23,12 +23,16 @@ failure is sticky, including automatic reseeding. Dropping retires the borrowed
 key context, PSA key, DRBG and source before another owner can start.
 
 `Identity::accept` borrows the key for one nonblocking `TcpStream`. Supply one
-approved DER issuer, own leaf, exact peer leaf and signed CRL. The adapter checks
-the key pair, signatures, revocation, matching issuers and validity; the
+approved DER issuer, own leaf, exact peer leaf, signed CRL and `CertificatePolicy`.
+The policy pins the issuer's DER SHA-256 and expected own/peer URI names from
+authorized enrollment. Each leaf needs exactly one matching URI among at most
+eight SAN entries; names/values are bounded to 256 bytes. Subject CNs and other
+SAN types do not supply URI identity. The adapter checks the key pair,
+signatures, revocation, matching issuers and validity; the
 own leaf must declare only serverAuth and the peer only clientAuth. Missing,
 wrong or additional extended key usages are refused before handshake I/O. The
-application must approve identity/role/generation and reject enrollment or CRL
-rollback before supplying that material. Dropping a connection preserves the key.
+application must approve the identity mapping/generation and reject enrollment
+or CRL rollback before supplying that material. Dropping a connection preserves the key.
 
 Supply `TimeLease::from_trusted` with an authenticated UTC observation and a
 maximum age of at most 60 seconds. The adapter advances it monotonically, rounds

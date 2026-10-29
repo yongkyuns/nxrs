@@ -94,6 +94,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
             let time_root = root.clone();
             Ok(TlsIdentity {
                 identity,
+                policy: policy(&root),
                 own: public(root.join("server.der")),
                 issuer: public(root.join("issuer.der")),
                 approved_peer: public(root.join("peer.der")),

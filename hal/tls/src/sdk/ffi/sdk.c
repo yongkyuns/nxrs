@@ -50,6 +50,7 @@ uint16_t tls_p256_type(void) { return PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_S
 uint32_t tls_sign_hash_usage(void) { return PSA_KEY_USAGE_SIGN_HASH; }
 uint32_t tls_ecdsa_sha256(void) { return PSA_ALG_ECDSA(PSA_ALG_SHA_256); }
 uint32_t tls_volatile_lifetime(void) { return PSA_KEY_LIFETIME_VOLATILE; }
+uint32_t tls_sha256_algorithm(void) { return PSA_ALG_SHA_256; }
 int tls_sha256(void) { return MBEDTLS_MD_SHA256; }
 /* SDK enum width is compiler-specific (ARM GCC uses short enums). */
 void tls_csr_set_md_alg(void *p, int algorithm)
@@ -111,6 +112,16 @@ const unsigned char *tls_crt_eku(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->ext_key_usage.buf.len; return v->ext_key_usage.buf.p; }
 const void *tls_crt_eku_next(void *p)
 { return ((mbedtls_x509_crt *)p)->ext_key_usage.next; }
+const void *tls_crt_sans(void *p)
+{ return &((mbedtls_x509_crt *)p)->subject_alt_names; }
+const void *tls_sequence_next(const void *p)
+{ return ((const mbedtls_x509_sequence *)p)->next; }
+int tls_sequence_tag(const void *p)
+{ return ((const mbedtls_x509_sequence *)p)->buf.tag; }
+const unsigned char *tls_sequence_bytes(const void *p, size_t *size)
+{ const mbedtls_x509_sequence *v = p; *size = v->buf.len; return v->buf.p; }
+int tls_uri_tag(void)
+{ return MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_X509_SAN_UNIFORM_RESOURCE_IDENTIFIER; }
 const unsigned char *tls_crl_raw(void *p, size_t *size)
 { mbedtls_x509_crl *v = p; *size = v->raw.len; return v->raw.p; }
 const unsigned char *tls_crl_issuer(void *p, size_t *size)

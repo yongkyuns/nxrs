@@ -48,6 +48,7 @@ class Sessions(unittest.TestCase):
         self.addCleanup(stop)
         self.assertEqual(self.line(process), 'CSR_READY')
         credentials = Credentials(root, server_csr=root/'request.csr')
+        credentials.device_policy()
         return root, process, credentials, error
 
     def line(self, process):
@@ -123,6 +124,65 @@ class Sessions(unittest.TestCase):
                             client.sendall(bytes([byte]))
                         self.assertEqual(client.recv(5), b'pong\n')
                 self.result(root, process, credentials, error, accepted=True)
+
+    def test_enrollment_issuer_and_uri_scope_are_required(self):
+        for case in ['issuer-pin', 'camera-scope', 'gateway-scope', 'ambiguous-uri', 'missing-uri',
+                     'policy-input', 'policy-capacity']:
+            with self.subTest(case=case):
+                root, process, credentials, error = self.start()
+                if case == 'issuer-pin':
+                    private(root/'issuer.sha256', bytes(32))
+                elif case.startswith('policy-'):
+                    private(root/'peer.uri', '' if case == 'policy-input' else 'x'*257)
+                elif case == 'camera-scope':
+                    credentials.issue('server', camera='other', csr=root/'request.csr')
+                else:
+                    credentials.gateway = 'other' if case == 'gateway-scope' else 'gateway'
+                    credentials.issue('client')
+                    if case in ['ambiguous-uri', 'missing-uri']:
+                        names = ('URI:urn:nxrs:ingest:site:gateway:cam,URI:urn:nxrs:ingest:site:other:cam'
+                                 if case == 'ambiguous-uri' else 'DNS:cam.local')
+                        text = (root/'leaf.cnf').read_text().replace(
+                            'URI:urn:nxrs:ingest:site:gateway:cam', names)
+                        private(root/'leaf.cnf', text)
+                        credentials.call('ca', '-config', root/'ca.cnf', '-batch', '-notext',
+                            '-extfile', root/'leaf.cnf', '-extensions', 'leaf', '-in', root/'client.csr',
+                            '-out', root/'client.pem')
+                address = self.load(root, process, credentials)
+                try:
+                    with socket.create_connection(address, timeout=5) as transport:
+                        with self.context(root, ssl.TLSVersion.TLSv1_3).wrap_socket(
+                                transport, server_hostname='127.0.0.1') as client:
+                            client.sendall(b'ping\n')
+                            self.assertNotEqual(client.recv(5), b'pong\n')
+                except (ssl.SSLError, ConnectionError):
+                    pass
+                expected = 'InvalidInput' if case.startswith('policy-') else 'Authentication'
+                self.assertEqual(self.result(root, process, credentials, error, accepted=False),
+                                 f'RESULT Err({expected})')
+
+    def test_subject_alternative_name_traversal_is_bounded(self):
+        for count in [8, 9]:
+            with self.subTest(names=count):
+                root, process, credentials, error = self.start()
+                uri = 'URI:urn:nxrs:ingest:site:gateway:cam'
+                names = ','.join([f'DNS:n{i}.local' for i in range(count-1)] + [uri])
+                private(root/'leaf.cnf', (root/'leaf.cnf').read_text().replace(uri, names))
+                credentials.call('ca', '-config', root/'ca.cnf', '-batch', '-notext',
+                    '-extfile', root/'leaf.cnf', '-extensions', 'leaf', '-in', root/'client.csr',
+                    '-out', root/'client.pem')
+                address = self.load(root, process, credentials)
+                try:
+                    with socket.create_connection(address, timeout=5) as transport:
+                        with self.context(root, ssl.TLSVersion.TLSv1_3).wrap_socket(
+                                transport, server_hostname='127.0.0.1') as client:
+                            client.sendall(b'ping\n')
+                            self.assertEqual(count, 8, 'unbounded SAN list admitted')
+                            self.assertEqual(client.recv(5), b'pong\n')
+                except (ssl.SSLError, ConnectionError):
+                    if count == 8:
+                        raise
+                self.result(root, process, credentials, error, accepted=count == 8)
 
     def test_shared_http_session_delivers_exact_jpegs_after_mutual_tls(self):
         for version, peer in [(ssl.TLSVersion.TLSv1_2, 'client'),

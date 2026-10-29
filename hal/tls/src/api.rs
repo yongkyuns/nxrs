@@ -1,6 +1,7 @@
 //! Backend-independent credential inputs and trusted-time contract.
 #![forbid(unsafe_code)]
 use crate::Error;
+use std::string::String;
 use std::time::{Duration, Instant};
 
 /// A short-lived authenticated UTC observation, advanced by monotonic time.
@@ -40,12 +41,34 @@ impl TimeLease {
     }
 }
 
-/// Public DER enrollment material. The application must approve the peer's
-/// identity, role and generation before supplying its exact leaf certificate.
+/// Expected identities from independently approved enrollment, not from a CSR
+/// or from the certificates being checked. Protected generation/rollback state
+/// and the camera/site/gateway mapping remain the application's responsibility.
+/// Each leaf must have exactly one matching URI among at most eight SAN entries.
+/// Expected names contain 1..=256 printable ASCII bytes; SAN values are bounded
+/// to 256 bytes. Other SAN types do not satisfy URI identity.
+pub struct CertificatePolicy {
+    pub issuer_sha256: [u8; 32],
+    pub own_uri: String,
+    pub peer_uri: String,
+}
+impl CertificatePolicy {
+    pub fn validate(&self) -> Result<(), Error> {
+        if [&self.own_uri, &self.peer_uri].iter().any(|name| {
+            name.is_empty() || name.len() > 256 || !name.bytes().all(|b| (0x21..=0x7e).contains(&b))
+        }) {
+            return Err(Error::InvalidInput);
+        }
+        Ok(())
+    }
+}
+
+/// Public DER enrollment material and its independently approved expectations.
 /// This adapter checks signatures, revocation, validity and exact peer equality.
 /// Leaves must declare exactly serverAuth for `own` and clientAuth for the peer;
 /// missing or additional extended key usages are refused before the handshake.
 pub struct Certificates<'a> {
+    pub policy: &'a CertificatePolicy,
     pub own: &'a [u8],
     pub issuer: &'a [u8],
     pub approved_peer: &'a [u8],

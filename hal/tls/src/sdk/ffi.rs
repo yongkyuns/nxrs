@@ -15,6 +15,15 @@ unsafe extern "C" {
     pub(super) fn tls_ecdsa_sha256() -> u32;
     pub(super) fn tls_volatile_lifetime() -> u32;
     pub(super) fn tls_sha256() -> c_int;
+    pub(super) fn tls_sha256_algorithm() -> u32;
+    pub(super) fn psa_hash_compute(
+        algorithm: u32,
+        input: *const u8,
+        size: usize,
+        output: *mut u8,
+        capacity: usize,
+        length: *mut usize,
+    ) -> c_int;
     pub(super) fn tls_entropy_error() -> c_int;
     pub(super) fn tls_pk_size() -> usize;
     pub(super) fn tls_pk_align() -> usize;
@@ -85,6 +94,11 @@ unsafe extern "C" {
     pub(super) fn tls_crt_subject(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_eku(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_eku_next(p: *mut c_void) -> *const c_void;
+    pub(super) fn tls_crt_sans(p: *mut c_void) -> *const c_void;
+    pub(super) fn tls_sequence_next(p: *const c_void) -> *const c_void;
+    pub(super) fn tls_sequence_tag(p: *const c_void) -> c_int;
+    pub(super) fn tls_sequence_bytes(p: *const c_void, size: *mut usize) -> *const u8;
+    pub(super) fn tls_uri_tag() -> c_int;
     pub(super) fn tls_crl_raw(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crl_issuer(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_peer_raw(p: *mut c_void, size: *mut usize) -> *const u8;

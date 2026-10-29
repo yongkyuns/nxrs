@@ -108,6 +108,13 @@ authorityKeyIdentifier=keyid:always
                 ('ca_certificate_file', 'ca.pem'), ('camera_certificate_file', 'server.pem'),
                 ('client_certificate_file', 'client.pem'), ('client_key_file', 'client.key'), ('crl_file', 'crl.pem')]})
 
+    def device_policy(self):
+        # Synthetic enrollment inputs; production trust must be provisioned independently.
+        private(self.root/'issuer.sha256', hashlib.sha256(
+            ssl.PEM_cert_to_DER_cert((self.root/'ca.pem').read_text())).digest())
+        private(self.root/'own.uri', f'urn:nxrs:camera:{self.site}:{self.camera}')
+        private(self.root/'peer.uri', f'urn:nxrs:ingest:{self.site}:{self.gateway}:{self.camera}')
+
 
 class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
