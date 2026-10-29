@@ -9,6 +9,8 @@ The hash-pinned, unmodified Mbed TLS 4.2.0 / TF-PSA-Crypto 1.2.0 source builds
 offline after `python3 upstream/mbedtls/fetch.py`.
 The SDK uses CMake's size-optimized `MinSizeRel` build to match the embedded
 product's code-size priority; device execution and memory peaks still need qualification.
+The [ESP32-S3 resource breakdown](../../docs/esp32s3-tls-resources.md) separates
+kernel, radio, TLS, Rust and image alignment costs and describes the device probe.
 
 Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` and
 `esp32s3-camera-tls` for NuttX compile qualification. Public socket/time types use

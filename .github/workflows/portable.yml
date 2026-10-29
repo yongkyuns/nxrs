@@ -78,6 +78,8 @@ jobs:
           python -m unittest discover -s tests/host -p test_arc4random_entropy.py -v
           python -m unittest discover -s tests/host -p test_rng_entropy.py -v
           python -m unittest discover -s tests/host -p test_esp_rng_entropy.py -v
+          python -m unittest discover -s tests/host -p test_esp32s3_image_size.py -v
+          cargo test --locked -p nxrs-std-tls-identity --bin entropy-probe
           python -m unittest discover -s tests/host -p test_sim_entropy.py -v
           python -m unittest discover -s tests/host -p test_tls_sdk.py -v
           python -m unittest discover -s tests/event-services-comparison -p test_setup.py -v
