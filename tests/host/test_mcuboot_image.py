@@ -22,6 +22,11 @@ GEOMETRY = {"flash-size": 0x100000, "primary-offset": 0x20000,
 class LayoutTests(unittest.TestCase):
     def test_geometry_refuses_overlap_overflow_alignment_and_invalid_types(self):
         self.assertEqual(IMAGE.layout(GEOMETRY), GEOMETRY)
+        # Other ports may place the scratch region first or start a slot at zero.
+        for offsets in ((0, 0x10000, 0x20000), (0x20000, 0x30000, 0x1000)):
+            portable = dict(GEOMETRY, **dict(zip(
+                ("primary-offset", "secondary-offset", "scratch-offset"), offsets)))
+            self.assertEqual(IMAGE.layout(portable), portable)
         for field, value in (("slot-size", True), ("slot-size", 0),
                              ("slot-size", 1 << 32), ("primary-offset", 0x20001),
                              ("secondary-offset", 0x20000), ("scratch-offset", 0x30000),
@@ -65,7 +70,10 @@ class SigningTests(unittest.TestCase):
             self.assertIn("expected EC P-256 PUBLIC key", result.stderr)
             self.assertFalse(refused.exists())
             IMAGE.sign(source, output, GEOMETRY, key, root, "1.2.3+4", 7)
-            self.assertEqual(output.stat().st_size, GEOMETRY["slot-size"])
+            self.assertLess(output.stat().st_size, GEOMETRY["slot-size"])
+            factory = directory / "factory.bin"
+            IMAGE.sign(source, factory, GEOMETRY, key, root, "1.2.3+4", 7, confirm=True)
+            self.assertEqual(factory.stat().st_size, GEOMETRY["slot-size"])
             # Independently inspect the documented header, then test actual verifier refusal.
             self.assertEqual(struct.unpack_from("<BBHI", output.read_bytes(), 20), (1, 2, 3, 4))
             good = output.read_bytes()

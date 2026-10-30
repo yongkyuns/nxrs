@@ -20,9 +20,11 @@ bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream-mcuboot \
 The resulting `nuttx/nuttx.signed.bin` is signed and independently verified
 before publication. NuttX's intermediate `nuttx.bin` has no signature and is
 not the release artifact. Signing keys remain operator-owned inputs; no key is
-generated, embedded in source or included in the firmware. Update images are
-unconfirmed so MCUboot can revert them. The standalone `tools/mcuboot_image.py`
-also supports `--confirm` for an initial factory image.
+generated, embedded in source or included in the firmware. Update images contain
+only the signed container, without slot padding or boot-state trailers. The
+updater must bound writes before the trailer and request a trial through MCUboot
+after staging completes. The standalone `tools/mcuboot_image.py` supports
+`--confirm` to pad an initial factory image and initialize its confirmed trailer.
 Use separate signing authorities for incompatible products/layouts; a shared
 firmware version alone does not identify the intended hardware.
 
