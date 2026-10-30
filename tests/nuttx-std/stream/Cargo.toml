@@ -14,6 +14,8 @@ nxrs-camera-stream = { path = "../../../app/camera-stream" }
 nxrs-connectivity-service = { path = "../../../service/connectivity" }
 nxrs-stream-service = { path = "../../../service/stream" }
 nxrs-detection-service = { path = "../../../service/detection" }
+nxrs-tls = { path = "../../../hal/tls" }
+nxrs-std-wifi = { path = "../wifi" }
 
 [package.metadata.nxrs]
 required-capabilities = ["camera", "wifi"]

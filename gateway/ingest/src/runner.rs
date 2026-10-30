@@ -30,6 +30,8 @@ pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
     let elementary = format == EncodedMedia::AnnexB;
     let mut command=Command::new(&config.ffmpeg);
     // No shell, environment-proxy fallback, image looping, or constant-rate frame duplication.
+    // image2pipe wallclock PTS can collide when Wi-Fi delivers frame bursts.
+    let fps_mode=if elementary { "passthrough" } else { "vfr" };
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args(["-nostdin","-hide_banner","-loglevel","quiet","-nostats","-stats_period","0.5",
             "-xerror","-err_detect","explode","-progress","pipe:2",
@@ -40,7 +42,7 @@ pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
     if !elementary { command.args(["-use_wallclock_as_timestamps","1"]); }
     command.args(["-i","pipe:0","-an","-c:v","libx264",
             "-threads","2","-preset","ultrafast","-tune","zerolatency","-profile:v","baseline",
-            "-pix_fmt","yuv420p","-bf","0","-g","30","-fps_mode","passthrough",
+            "-pix_fmt","yuv420p","-bf","0","-g","30","-fps_mode",fps_mode,
             "-b:v","1500k","-maxrate","1500k","-bufsize","1500k"]);
     match format {
         EncodedMedia::MpegTs => { command.args(["-f","mpegts","-muxdelay","0"]); }
@@ -223,7 +225,7 @@ mod tests {
         use tokio::io::AsyncBufReadExt;
         let ffmpeg=std::env::var("NXRS_TEST_FFMPEG").unwrap_or_else(|_| "/usr/bin/ffmpeg".into());
         let image=Command::new(&ffmpeg).args(["-nostdin","-hide_banner","-loglevel","error",
-            "-f","lavfi","-i","color=c=blue:size=320x240:rate=4","-frames:v","1",
+            "-f","lavfi","-i","testsrc2=size=320x240:rate=4","-frames:v","2",
             "-threads","1","-c:v","mjpeg","-f","image2pipe","pipe:1"])
             .output().await.unwrap();
         assert!(image.status.success() && !image.stdout.is_empty());
@@ -237,7 +239,10 @@ mod tests {
         let mut output=child.stdout.take().unwrap();
         let progress=child.stderr.take().unwrap();
         let writer=tokio::spawn(async move {
-            while input.write_all(&image.stdout).await.is_ok() { sleep(Duration::from_millis(250)).await; }
+            loop {
+                if input.write_all(&image.stdout).await.is_err() || input.write_all(&image.stdout).await.is_err() { break; }
+                sleep(Duration::from_millis(250)).await;
+            }
         });
         let reader=tokio::spawn(async move { tokio::io::copy(&mut output,&mut tokio::io::sink()).await.unwrap() });
         let outcome=timeout(Duration::from_secs(10),async {

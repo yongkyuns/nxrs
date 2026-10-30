@@ -430,7 +430,9 @@ dependencies = [
  "nxrs-connectivity-service",
  "nxrs-detection-service",
  "nxrs-detector",
+ "nxrs-std-wifi",
  "nxrs-stream-service",
+ "nxrs-tls",
  "nxrs-wifi",
 ]
 

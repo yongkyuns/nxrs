@@ -28,6 +28,8 @@ time_t tls_platform_time(time_t *output);
 #define PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_GENERATE 1
 #define PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY 1
 #define PSA_WANT_ECC_SECP_R1_256 1
+/* Upstream fast prime reduction for the selected P-256 curve. */
+#define MBEDTLS_ECP_NIST_OPTIM
 #define MBEDTLS_ASN1_PARSE_C
 #define MBEDTLS_ASN1_WRITE_C
 #define MBEDTLS_BASE64_C
