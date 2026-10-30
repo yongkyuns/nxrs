@@ -124,6 +124,88 @@ class BootWiringTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("espsecure"), "install esptool==4.8.1 for ROM signature tests")
 class RomSigningTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("imgtool"), "install tools/mcuboot-requirements.txt")
+    def test_factory_ciphertext_initialization_and_refusals(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from imgtool.keys import load
+        from mcuboot_image import sign
+        import hashlib
+        import json
+        modules = []
+        for name in ("build-mcuboot", "prepare-protected-factory"):
+            spec = importlib.util.spec_from_file_location(name, ROOT / "tools" / f"{name}.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            modules.append(module)
+        builder, factory = modules
+        profile = resolve("esp32s3-camera-stream-protected-build")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            key, root = directory / "rom.key", directory / "rom.pem"
+            material = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+            key.write_bytes(material.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                    serialization.NoEncryption()))
+            root.write_bytes(material.public_key().public_bytes(
+                serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+            app_key, app_root = directory / "app.key", directory / "app.pem"
+            subprocess.run(["imgtool", "keygen", "-k", str(app_key), "-t", "ecdsa-p256"], check=True)
+            app_root.write_bytes(load(str(app_key)).get_public_pem())
+            source, boot, image = directory / "source.bin", directory / "bootloader.signed.bin", directory / "factory.bin"
+            source.write_bytes(b"test firmware" * 128)
+            builder.sign_rom(source, boot, key, root)
+            sign(source, image, profile["mcuboot"], app_key, app_root, "1.2.3", 7, confirm=True)
+            metadata = {"mcuboot": BOOT.MCUBOOT_REVISION, "esp-hal-3rdparty": BOOT.HAL_REVISION,
+                        "platform": profile["name"], "layout": profile["mcuboot"],
+                        "bootloader_file": boot.name, "hardware_secure_boot": True, "flash_encryption": True,
+                        "rom_root_pem_sha256": hashlib.sha256(root.read_bytes()).hexdigest(),
+                        "public_root_sha256": hashlib.sha256(app_root.read_bytes()).hexdigest(),
+                        "bootloader_sha256": hashlib.sha256(boot.read_bytes()).hexdigest()}
+            (directory / "bootloader.json").write_text(json.dumps(metadata))
+            flash_key = directory / "flash.key"
+            flash_key.write_bytes(os.urandom(32))
+            output = directory / "bundle"
+            factory.prepare(profile, directory, image, root, app_root, flash_key, output)
+            manifest = json.loads((output / "factory.json").read_text())
+            self.assertFalse(manifest["hardware_qualified"])
+            self.assertFalse(manifest["runtime_updates"])
+            self.assertEqual([region["offset"] for region in manifest["regions"]],
+                             [0, 0x20000, 0x220000, 0x420000])
+            self.assertEqual({path.name for path in output.iterdir()},
+                             {"factory.json", "boot.enc.bin", "primary.enc.bin", "secondary.enc.bin", "scratch.enc.bin"})
+            for region in manifest["regions"]:
+                encrypted, decrypted = output / region["file"], directory / "decoded.bin"
+                subprocess.run([sys.executable, "-m", "espsecure", "decrypt_flash_data", "--aes_xts",
+                                "--keyfile", str(flash_key), "--address", hex(region["offset"]),
+                                "--output", str(decrypted), str(encrypted)], check=True)
+                expected = boot.read_bytes() if region["offset"] == 0 else image.read_bytes() if (
+                    region["offset"] == profile["mcuboot"]["primary-offset"]) else b"\xff" * region["size"]
+                self.assertEqual(decrypted.read_bytes(), expected)
+                self.assertEqual(hashlib.sha256(encrypted.read_bytes()).hexdigest(), region["sha256"])
+            for name, changed in (("existing", {}), ("private-root", {"rom_root": key}),
+                                  ("private-app-root", {"app_root": app_key}),
+                                  ("wrong-profile", {"profile": resolve("esp32s3-camera-stream-mcuboot")})):
+                target = output if name == "existing" else directory / name
+                arguments = dict(profile=profile, boot_build=directory, application=image, rom_root=root,
+                                 app_root=app_root, flash_key=flash_key, output=target)
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    factory.prepare(**{**arguments, **changed})
+                self.assertEqual(target.exists(), name == "existing")
+            good = image.read_bytes()
+            data = bytearray(good)
+            data[64] ^= 1
+            image.write_bytes(data)
+            with self.assertRaises(subprocess.CalledProcessError):
+                factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "corrupt")
+            self.assertFalse((directory / "corrupt").exists())
+            data = bytearray(good)
+            data[-64] = 0xff  # Remove image_ok without changing the authenticated payload.
+            image.write_bytes(data)
+            with self.assertRaises(ValueError):
+                factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "unconfirmed")
+            self.assertFalse((directory / "unconfirmed").exists())
+            self.assertFalse(list(directory.glob(".factory-*")))
+
     def test_independent_root_corruption_size_and_atomic_publication(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
