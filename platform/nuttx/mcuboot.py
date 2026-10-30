@@ -1,0 +1,51 @@
+"""NuttX product/build wiring for the upstream Espressif MCUboot port."""
+from mcuboot_image import layout
+
+MCUBOOT_REVISION = "8a07053d42e592c85cb35b79c4de1b7749943387"
+HAL_REVISION = "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9"
+
+
+def application_config(platform: dict) -> dict[str, str]:
+    boot = layout(platform["mcuboot"])
+    if platform["target"] != "xtensa-esp32s3-nuttx":
+        raise ValueError("MCUboot build wiring is not qualified for this NuttX target")
+    if boot["flash-size"] != 0x1000000 or boot["primary-offset"] < 0x20000:
+        raise ValueError("ESP32-S3 camera requires 16 MiB flash and reserved boot/eFuse regions")
+    if boot["erase-size"] != 4096 or boot["slot-size"] // boot["erase-size"] != 512:
+        raise ValueError("Pinned Espressif MCUboot requires 512 sectors per camera slot")
+    if boot["write-align"] != 4:
+        raise ValueError("Unencrypted Espressif MCUboot uses four-byte writes")
+    return {
+        "ESP32S3_OTA_PRIMARY_SLOT_OFFSET": hex(boot["primary-offset"]),
+        "ESP32S3_OTA_SECONDARY_SLOT_OFFSET": hex(boot["secondary-offset"]),
+        "ESP32S3_OTA_SLOT_SIZE": hex(boot["slot-size"]),
+        "ESP32S3_OTA_SCRATCH_OFFSET": hex(boot["scratch-offset"]),
+        "ESP32S3_OTA_SCRATCH_SIZE": hex(boot["scratch-size"]),
+        "ESP32S3_APP_MCUBOOT_HEADER_SIZE": str(boot["header-size"]),
+        "ESP32S3_MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"',
+    }
+
+
+def bootloader_config(platform: dict, root: str) -> str:
+    """Only the public application root enters this reversible bootloader build."""
+    application_config(platform)
+    if any(char in root for char in ('\n', '\r', ';', '"', '\\')) or not root.startswith('/'):
+        raise ValueError("public root needs an absolute path without CMake delimiters")
+    boot = platform["mcuboot"]
+    values = {
+        "NON_OS_BUILD": 1, "CONFIG_ESPRESSIF_BOOTLOADER_MCUBOOT": 1,
+        "CONFIG_ESP_BOOTLOADER_OFFSET": "0x0", "CONFIG_ESP_BOOTLOADER_SIZE": "0xf000",
+        "CONFIG_ESP_IMAGE0_PRIMARY_START_ADDRESS": hex(boot["primary-offset"]),
+        "CONFIG_ESP_IMAGE0_SECONDARY_START_ADDRESS": hex(boot["secondary-offset"]),
+        "CONFIG_ESP_APPLICATION_SIZE": hex(boot["slot-size"]),
+        "CONFIG_ESP_SCRATCH_OFFSET": hex(boot["scratch-offset"]),
+        "CONFIG_ESP_SCRATCH_SIZE": hex(boot["scratch-size"]),
+        "CONFIG_LIBC_NEWLIB": 1, "CONFIG_IDF_TARGET_ARCH_XTENSA": 1,
+        "CONFIG_BOOTLOADER_FLASH_XMC_SUPPORT": 1,
+        "CONFIG_BOOTLOADER_LOG_LEVEL": 3,
+        "CONFIG_ESP_CONSOLE_UART": 1, "CONFIG_ESP_CONSOLE_UART_NUM": 0,
+        "CONFIG_ESP_CONSOLE_ROM_SERIAL_PORT_NUM": 0,
+        "CONFIG_ESP_SIGN_EC256": 1, "CONFIG_ESP_USE_TINYCRYPT": 1,
+        "CONFIG_ESP_SIGN_KEY_FILE": root,
+    }
+    return "".join(f"{key}={value}\n" for key, value in values.items())

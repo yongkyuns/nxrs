@@ -32,8 +32,23 @@ interface; flash operations stay in the owning HAL. Product wiring owns layout.
 The packager uses upstream signing/verification and explicit geometry, independent
 of the ESP32-S3 boot ROM.
 
-This first increment does **not** enable hardware secure boot or flash encryption,
-install a signature-enforcing bootloader, enforce a protected version floor, or
+Build the matching signature-enforcing second stage with:
+
+```sh
+python3 tools/build-mcuboot.py --platform esp32s3-camera-stream-mcuboot \
+  --mcuboot-repo /path/to/mcuboot --hal-repo /path/to/esp-hal-3rdparty \
+  --root /path/to/public-root.pem --out /private/tmp/camera-bootloader
+```
+
+The source repositories must contain the NuttX-pinned commits declared in
+`platform/nuttx/mcuboot.py`. The builder exports those exact Git objects into
+a fresh output directory and builds upstream's EC P-256 verifier with TinyCrypt.
+Only a public key is accepted; the signing key is unnecessary on the boot build
+host. `bootloader.json` records the pins, geometry, public-root and binary hashes.
+The bootloader console uses UART0; the application retains its USB console.
+
+These builds do **not** enable hardware secure boot or flash encryption,
+install the bootloader, enforce a protected version floor, or
 provide on-device update delivery/confirmation. Those and physical interrupted
 update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.

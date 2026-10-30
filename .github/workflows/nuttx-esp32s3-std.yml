@@ -18,9 +18,12 @@ on:
       - 'tools/apply-nuttx-patches.py'
       - 'tools/mcuboot_image.py'
       - 'tools/mcuboot-requirements.txt'
+      - 'tools/build-mcuboot.py'
+      - 'platform/nuttx/mcuboot.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'platform/nuttx/platforms/esp32s3-camera-stream-mcuboot.toml'
       - 'tests/host/test_mcuboot_image.py'
+      - 'tests/host/test_mcuboot_build.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -43,7 +46,7 @@ jobs:
       - name: Install host Cargo and emulator dependencies
         run: |
           rustup toolchain install 1.90.0 --profile minimal
-          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
           python3 -m venv target/esp-std-venv
           target/esp-std-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 -r tools/mcuboot-requirements.txt
           echo "$GITHUB_WORKSPACE/target/esp-std-venv/bin" >> "$GITHUB_PATH"
@@ -57,6 +60,7 @@ jobs:
         run: |
           source target/qemu-tools/environment.sh
           python3 -m unittest discover -s tests/host -p test_mcuboot_image.py -v
+          python3 -m unittest discover -s tests/host -p test_mcuboot_build.py -v
           python3 tests/nuttx-std/run.py --self-test
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
@@ -69,6 +73,18 @@ jobs:
           set -o pipefail
           mkdir -p target/nuttx-esp32s3-std
           bash tests/nuttx-std/build.sh esp32s3 2>&1 | tee target/nuttx-esp32s3-std/build.log
+      - name: Build signature-enforcing camera bootloader with a disposable public root
+        shell: bash
+        run: |
+          source target/qemu-tools/environment.sh
+          umask 077
+          imgtool keygen -k target/mcuboot-test-key.pem -t ecdsa-p256
+          imgtool getpub -k target/mcuboot-test-key.pem -e pem > target/mcuboot-test-root.pem
+          git clone --quiet --bare https://github.com/mcu-tools/mcuboot.git target/mcuboot-source.git
+          python3 tools/build-mcuboot.py --platform esp32s3-camera-stream-mcuboot \
+            --mcuboot-repo target/mcuboot-source.git \
+            --hal-repo target/nuttx-esp32s3-std/nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty \
+            --root target/mcuboot-test-root.pem --out target/mcuboot-camera
       - name: Execute three fresh kernels and deliberate failure
         run: |
           source target/qemu-tools/environment.sh
