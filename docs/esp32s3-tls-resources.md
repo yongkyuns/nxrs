@@ -132,7 +132,9 @@ The original 16 MiB flash was restored and separately verified. Its camera
 supervisor resumed, and three advancing 320×240 source JPEGs decoded on the Mac;
 this recovery check does not qualify gateway or phone playback.
 
-Pre-radio cold start, concurrent camera load, TLS handshake/reseed latency and
-heap/stack peaks remain unmeasured. Existing NSH `free`, `ps` and `/proc/meminfo`
+Concurrent camera load, TLS handshake/reseed latency and heap/stack peaks remain
+unmeasured. Pre-radio startup/reset coverage and source-health gates are tracked
+in [issue #35](https://github.com/yongkyuns/nxrs/issues/35).
+Existing NSH `free`, `ps` and `/proc/meminfo`
 support resource observations; snapshots alone cannot establish peaks.
 ESP32-S3 TLS admission remains disabled.
