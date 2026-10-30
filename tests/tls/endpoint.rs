@@ -47,7 +47,8 @@ fn transaction(
         .unwrap()
         .as_secs();
     let time = tls::TimeLease::from_trusted(epoch, Duration::from_millis(age))?;
-    let mut connection = identity.accept(socket, certs, time)?;
+    identity.configure(certs, &time)?;
+    let mut connection = identity.accept(socket, time)?;
     let deadline = Instant::now() + Duration::from_secs(10);
     if matches!(case, Case::Http) {
         while !connection.poll()? {

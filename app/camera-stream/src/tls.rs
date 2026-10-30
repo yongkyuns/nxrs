@@ -24,6 +24,10 @@ pub struct TlsIdentity<T> {
     pub revocations: Vec<u8>,
     pub time: T,
 }
+struct Context<T> {
+    identity: ::tls::Identity,
+    time: T,
+}
 #[derive(Clone, Copy, Debug)]
 pub struct TlsOptions {
     pub stack_bytes: usize,
@@ -166,7 +170,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                     let time = (context.time)().map_err(Error::Tls)?;
                     context
                         .identity
-                        .validate_certificates(
+                        .configure(
                             ::tls::Certificates {
                                 policy: &context.policy,
                                 own: &context.own,
@@ -174,10 +178,15 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                                 approved_peer: &context.approved_peer,
                                 revocations: &context.revocations,
                             },
-                            time,
+                            &time,
                         )
                         .map_err(Error::Tls)?;
-                    Ok(context)
+                    // The SDK owns its parsed, validated enrollment. Release
+                    // the input DER buffers before capture starts.
+                    Ok(Context {
+                        identity: context.identity,
+                        time: context.time,
+                    })
                 });
                 let context = match context {
                     Ok(context) => {
@@ -354,7 +363,7 @@ fn run<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tl
     listener: TcpListener,
     mut http: HttpSession<TcpStream, B>,
     resources: TlsOptions,
-    mut context: TlsIdentity<T>,
+    mut context: Context<T>,
 ) {
     let mut counters = Counters::default();
     while !shared.stop.load(Ordering::Acquire) {
@@ -410,18 +419,11 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
     socket: TcpStream,
     storage: HttpSession<TcpStream, B>,
     resources: TlsOptions,
-    context: &mut TlsIdentity<T>,
+    context: &mut Context<T>,
     epoch: usize,
     counters: &mut Counters,
 ) -> (HttpSession<TcpStream, B>, Result<(), ::tls::Error>) {
-    let certs = ::tls::Certificates {
-        policy: &context.policy,
-        own: &context.own,
-        issuer: &context.issuer,
-        approved_peer: &context.approved_peer,
-        revocations: &context.revocations,
-    };
-    let connection = (context.time)().and_then(|time| context.identity.accept(socket, certs, time));
+    let connection = (context.time)().and_then(|time| context.identity.accept(socket, time));
     let mut connection = match connection {
         Ok(v) => v,
         Err(e) => return (storage, Err(e)),

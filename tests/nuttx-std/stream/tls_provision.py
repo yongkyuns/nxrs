@@ -27,6 +27,18 @@ INIT_TIMEOUT = 120.0
 SITE = "qualification"
 CAMERA = "camera"
 GATEWAY = "gateway"
+TLS_ERROR = r"(?:Unsupported|Busy|Entropy|Poisoned|InvalidInput|Capacity|Crypto|Authentication|Time|Io)"
+_KNOWN_LINES = tuple(re.compile(pattern) for pattern in (
+    r"NXRS_TLS_LISTEN ip=(?:\d{1,3}\.){3}\d{1,3} port=8443",
+    rf"NXRS_TLS_STACK budget=\d+ used=\d+",
+    rf"NXRS_TLS_REPORT ms=\d+ captured=\d+ delivered=\d+ handshakes=\d+ failures=\d+ last=(?:None|Some\({TLS_ERROR}\)) heap_user=\d+ heap_kernel=\d+",
+    r"NXRS_TLS_DELIVERED captured=\d+ delivered=\d+ handshakes=\d+ failures=\d+",
+    r"NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
+    r"NXRS_STREAM_STACK budget=\d+ used=\d+",
+    r"NXRS_STREAM_REPORT ms=\d+ captured=\d+ delivered=\d+ bytes=\d+ max_bytes=\d+ heap_user=\d+ heap_kernel=\d+ cpu_busy_pm=\d+ owner_cpu_ms=\d+ online=[01] attempts=\d+ rejoined=\d+ errors=\d+(?: camera_discarded=\d+)?",
+    r"NXRS_STREAM_ONLINE ip=(?:\d{1,3}\.){3}\d{1,3} port=8080 ms=\d+",
+    r"NXRS_STREAM_PASS stopped=1 joined=1",
+))
 
 
 def _read_exact(port, size, deadline):
@@ -40,23 +52,23 @@ def _read_exact(port, size, deadline):
     return bytes(data)
 
 
-def _line(port, deadline):
-    data = bytearray()
+def _line(port, deadline, pending):
     while time.monotonic() < deadline:
         char = port.read(1)
         if not char:
             time.sleep(0.01)
             continue
         if char == b"\n":
-            line = bytes(data).rstrip(b"\r")
+            line = bytes(pending).rstrip(b"\r")
+            pending.clear()
             if len(line) > MAX_LINE:
                 raise ValueError("device line exceeds bound")
             try:
                 return line.decode("ascii")
             except UnicodeDecodeError:
                 raise ValueError("device line is not ASCII") from None
-        data.extend(char)
-        if len(data) > MAX_LINE:
+        pending.extend(char)
+        if len(pending) > MAX_LINE:
             raise ValueError("device line exceeds bound")
     raise TimeoutError("device line deadline")
 
@@ -91,6 +103,7 @@ class Supervisor:
         self.failure = None
         self.credentials = None
         self.events = []
+        self.pending = bytearray()
         self._stop = threading.Event()
         self._write_lock = threading.Lock()
         self._deadline = time.monotonic() + INIT_TIMEOUT
@@ -105,19 +118,25 @@ class Supervisor:
     def _wait_line(self, prefix, deadline):
         while not self._stop.is_set():
             try:
-                line = _line(self.port, min(deadline, time.monotonic() + 0.5))
+                line = _line(self.port, min(deadline, time.monotonic() + 0.5), self.pending)
             except TimeoutError:
                 if time.monotonic() >= deadline:
                     raise
                 continue
-            if line.startswith("NXRS_TLS_"):
-                if len(self.events) < 256 and re.fullmatch(r"NXRS_TLS_[A-Z_]+(?: [A-Za-z0-9_.= -]{0,300})?", line):
-                    self.events.append(line)
+            self._record(line)
             if line.startswith(prefix):
                 return line
             if line.startswith("NXRS_TLS_CAMERA_FAIL"):
                 raise RuntimeError("device TLS qualification failed")
         raise RuntimeError("TLS qualification stopped")
+
+    def _record(self, line):
+        if len(self.events) >= 256:
+            return
+        if line.startswith("NXRS_TLS_CAMERA_FAIL"):
+            self.events.append("NXRS_TLS_CAMERA_FAIL")
+        elif any(pattern.fullmatch(line) for pattern in _KNOWN_LINES):
+            self.events.append(line)
 
     def _enroll(self, csr):
         marker = self._wait_line("NXRS_TLS_ENROLL_READY", self._deadline)
@@ -165,7 +184,7 @@ class Supervisor:
             self._enroll(pem)
             while not self._stop.is_set():
                 try:
-                    line = _line(self.port, time.monotonic() + 1)
+                    line = _line(self.port, time.monotonic() + 0.5, self.pending)
                 except TimeoutError:
                     if self._stop.is_set():
                         break
@@ -185,14 +204,13 @@ class Supervisor:
                     self.address = address
                     self.ready.set()
                     continue
-                if line.startswith("NXRS_TLS_CAMERA_PASS"):
-                    self.events.append("NXRS_TLS_CAMERA_PASS")
+                if line == "NXRS_TLS_CAMERA_PASS stopped=1 joined=1":
+                    self._record(line)
                     return
                 if line.startswith("NXRS_TLS_CAMERA_FAIL"):
-                    self.events.append("NXRS_TLS_CAMERA_FAIL")
+                    self._record(line)
                     raise RuntimeError("device TLS qualification failed")
-                if line.startswith("NXRS_TLS_") and len(self.events) < 256:
-                    self.events.append("NXRS_TLS_OTHER")
+                self._record(line)
         except Exception as error:
             if self._stop.is_set():
                 return
@@ -222,6 +240,19 @@ class _IdleSerial:
         pass
 
 
+class _ChunkedSerial(_IdleSerial):
+    def __init__(self, data):
+        self.data = bytearray(data)
+
+    def read(self, _size):
+        if not self.data:
+            time.sleep(0.005)
+            return b""
+        value = self.data[0]
+        del self.data[0]
+        return bytes((value,))
+
+
 class SupervisorTests(unittest.TestCase):
     def test_address_is_kept_and_idle_reader_stops(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -230,6 +261,35 @@ class SupervisorTests(unittest.TestCase):
             supervisor.stop()
             self.assertTrue(supervisor.finished.is_set())
             self.assertIsNone(supervisor.failure)
+
+    def test_partial_line_survives_idle_deadline(self):
+        pending = bytearray()
+        serial = _ChunkedSerial(b"NXRS_TLS_STACK budget=12 ")
+        with self.assertRaises(TimeoutError):
+            _line(serial, time.monotonic() + 0.03, pending)
+        self.assertEqual(pending, b"NXRS_TLS_STACK budget=12 ")
+        serial.data.extend(b"used=10\r\n")
+        self.assertEqual(_line(serial, time.monotonic() + 0.5, pending), "NXRS_TLS_STACK budget=12 used=10")
+        self.assertEqual(pending, b"")
+
+    def test_only_bounded_numeric_witness_lines_are_retained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            supervisor = Supervisor(_IdleSerial(), directory, "192.0.2.8")
+            supervisor.stop()
+            for line in (
+                "NXRS_TLS_STACK budget=65536 used=4096",
+                "NXRS_TLS_REPORT ms=10000 captured=100 delivered=99 handshakes=1 failures=0 last=None heap_user=1 heap_kernel=2",
+                "NXRS_TLS_DELIVERED captured=100 delivered=99 handshakes=1 failures=0",
+                "NXRS_TLS_INPUT_ACK offset=32",
+                "NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
+            ):
+                supervisor._record(line)
+            self.assertEqual(supervisor.events, [
+                "NXRS_TLS_STACK budget=65536 used=4096",
+                "NXRS_TLS_REPORT ms=10000 captured=100 delivered=99 handshakes=1 failures=0 last=None heap_user=1 heap_kernel=2",
+                "NXRS_TLS_DELIVERED captured=100 delivered=99 handshakes=1 failures=0",
+                "NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
+            ])
 
     def test_enrollment_field_length_prefix(self):
         self.assertEqual(_field("urn:nxrs:camera:x:y"), b"\x00\x13urn:nxrs:camera:x:y")

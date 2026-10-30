@@ -59,6 +59,21 @@ impl TimeLease {
             + i64::from(upper_elapsed.subsec_nanos() != 0);
         Ok((lower, upper, now))
     }
+
+    /// Conservatively map an inclusive whole-second expiry to a monotonic
+    /// deadline, accounting for the observation's delivery uncertainty.
+    pub(crate) fn deadline_before(&self, unix_seconds: i64) -> Result<Instant, Error> {
+        let seconds = unix_seconds
+            .checked_sub(self.epoch)
+            .and_then(|delta| delta.checked_sub(1))
+            .and_then(|delta| u64::try_from(delta).ok())
+            .ok_or(Error::Time)?;
+        let duration = Duration::from_secs(seconds)
+            .checked_sub(self.uncertainty)
+            .ok_or(Error::Time)?;
+        let deadline = self.observed.checked_add(duration).ok_or(Error::Time)?;
+        Ok(deadline.min(self.expires))
+    }
 }
 
 /// Expected identities from independently approved enrollment, not from a CSR
@@ -135,6 +150,17 @@ mod tests {
         let (lower, upper, _) = time.sample().unwrap();
         assert_eq!(lower, epoch + 1);
         assert_eq!(upper, epoch + 4);
+
+        let deadline_lease =
+            TimeLease::from_trusted_with_uncertainty(epoch as u64, max_age, uncertainty).unwrap();
+        assert_eq!(
+            deadline_lease
+                .deadline_before(epoch + 5)
+                .unwrap()
+                .duration_since(deadline_lease.observed),
+            Duration::from_millis(2_500),
+        );
+        assert!(deadline_lease.deadline_before(epoch + 1).is_err());
 
         let compatible = TimeLease::from_trusted(epoch as u64, max_age).unwrap();
         assert_eq!(compatible.uncertainty, Duration::ZERO);

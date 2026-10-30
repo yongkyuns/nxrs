@@ -23,15 +23,10 @@ impl Identity {
     pub fn refresh_entropy(&self) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
-    pub fn validate_certificates(&self, _: Certificates<'_>, _: TimeLease) -> Result<(), Error> {
+    pub fn configure(&mut self, _: Certificates<'_>, _: &TimeLease) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
-    pub fn accept<'a>(
-        &'a mut self,
-        _: TcpStream,
-        _: Certificates<'_>,
-        _: TimeLease,
-    ) -> Result<Connection<'a>, Error> {
+    pub fn accept<'a>(&'a mut self, _: TcpStream, _: TimeLease) -> Result<Connection<'a>, Error> {
         Err(Error::Unsupported)
     }
 }

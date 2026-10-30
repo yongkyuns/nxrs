@@ -9,6 +9,8 @@ For physical TLS qualification, `build.sh --tls` selects the existing shared
 `LiveCamera::new_tls` output and the `esp32s3-camera-tls` profile. Run
 `tls_camera SECONDS` (10–600) after bringing up the station interface. The
 existing no-echo Wi-Fi input establishes the RF entropy source first.
+The serial owner sends the existing two length bytes followed by SSID/password
+at `NXRS_WIFI_CREDENTIALS_READY`, before handing the port to the TLS supervisor.
 `tls_provision.Supervisor(serial_port, private_empty_directory, camera_ip)`
 then enrolls the device-generated CSR and supplies fresh UTC over trusted USB.
 It exposes the approved gateway credentials and a `ready` event for the ingest

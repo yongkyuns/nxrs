@@ -267,8 +267,60 @@ impl Roots {
                 low = mid;
             }
         }
-        let until = time.observed + Duration::from_secs((high - time.epoch - 1) as u64);
-        Ok(until.min(time.expires))
+        time.deadline_before(high)
+    }
+}
+
+/// Parsed, validated enrollment and native server configuration. The config
+/// borrows the certificate owners and PSA key, so it is declared first and
+/// retires before those owners.
+pub(super) struct Enrollment {
+    config: Opaque,
+    roots: Roots,
+}
+impl Enrollment {
+    pub(super) fn configure(
+        identity: &Identity,
+        certificates: Certificates<'_>,
+        time: &TimeLease,
+    ) -> Result<Self, Error> {
+        let (_, upper, _) = time.sample()?;
+        let roots = Roots::parse(identity, certificates, upper)?;
+        // SAFETY: exact SDK layout and matching initialization/free operations.
+        let config = unsafe {
+            Opaque::new(
+                tls_config_size(),
+                tls_config_align(),
+                mbedtls_ssl_config_init,
+                mbedtls_ssl_config_free,
+            )?
+        };
+        identity.sdk(|| unsafe {
+            mbedtls_ssl_config_defaults(
+                config.pointer(),
+                tls_server_endpoint(),
+                tls_stream_transport(),
+                tls_default_preset(),
+            )
+        })?;
+        unsafe {
+            mbedtls_ssl_conf_authmode(config.pointer(), tls_verify_required());
+            tls_ssl_min_version(config.pointer(), tls_version12());
+            tls_ssl_max_version(config.pointer(), tls_version13());
+            mbedtls_ssl_conf_ca_chain(
+                config.pointer(),
+                roots.issuer.pointer(),
+                roots.crl.pointer(),
+            );
+        }
+        let pk = identity.pk.as_ref().ok_or(Error::Poisoned)?;
+        identity.sdk(|| unsafe {
+            mbedtls_ssl_conf_own_cert(config.pointer(), roots.own.pointer(), pk.pointer())
+        })?;
+        // Include configuration work in the initial validation. Later accepts
+        // and refreshes independently recalculate this deadline from fresh time.
+        roots.cutoff(identity, time)?;
+        Ok(Self { config, roots })
     }
 }
 
@@ -360,8 +412,7 @@ unsafe extern "C" fn recv(context: *mut c_void, output: *mut u8, size: usize) ->
 /// latency before placing it on a camera capture thread. No worker is implied.
 pub struct Connection<'a> {
     ssl: Opaque,
-    _config: Opaque,
-    roots: Roots,
+    enrollment: &'a Enrollment,
     socket: Box<Socket>,
     pending: Box<[u8; RECORD]>,
     pending_size: usize,
@@ -384,27 +435,14 @@ fn io_error(error: Error) -> io::Error {
     .into()
 }
 impl Identity {
-    /// Check approved enrollment, key binding and validity without a socket.
-    /// This does not retain trust or replace fresh validation on each connection.
-    pub fn validate_certificates(
-        &self,
-        certificates: Certificates<'_>,
-        time: TimeLease,
-    ) -> Result<(), Error> {
-        let (_, upper, _) = time.sample()?;
-        Roots::parse(self, certificates, upper)?.cutoff(self, &time)?;
-        Ok(())
-    }
-
     pub fn accept<'a>(
         &'a mut self,
         stream: TcpStream,
-        certificates: Certificates<'_>,
         time: TimeLease,
     ) -> Result<Connection<'a>, Error> {
-        let (lower, upper, now) = time.sample()?;
-        let roots = Roots::parse(self, certificates, upper)?;
-        let until = roots.cutoff(self, &time)?;
+        let enrollment = self.enrollment.as_ref().ok_or(Error::InvalidInput)?;
+        let (lower, _, now) = time.sample()?;
+        let until = enrollment.roots.cutoff(self, &time)?;
         stream.set_nonblocking(true).map_err(|_| Error::Io)?;
         let socket = try_boxed(Socket {
             stream: RefCell::new(stream),
@@ -415,37 +453,6 @@ impl Identity {
             fault: Cell::new(false),
         })?;
         let pending = try_boxed([0u8; RECORD])?;
-        // SAFETY: matching SDK layout/init/free operations, stable allocations.
-        let config = unsafe {
-            Opaque::new(
-                tls_config_size(),
-                tls_config_align(),
-                mbedtls_ssl_config_init,
-                mbedtls_ssl_config_free,
-            )?
-        };
-        self.sdk(|| unsafe {
-            mbedtls_ssl_config_defaults(
-                config.pointer(),
-                tls_server_endpoint(),
-                tls_stream_transport(),
-                tls_default_preset(),
-            )
-        })?;
-        unsafe {
-            mbedtls_ssl_conf_authmode(config.pointer(), tls_verify_required());
-            tls_ssl_min_version(config.pointer(), tls_version12());
-            tls_ssl_max_version(config.pointer(), tls_version13());
-            mbedtls_ssl_conf_ca_chain(
-                config.pointer(),
-                roots.issuer.pointer(),
-                roots.crl.pointer(),
-            );
-        }
-        let pk = self.pk.as_ref().ok_or(Error::Poisoned)?;
-        self.sdk(|| unsafe {
-            mbedtls_ssl_conf_own_cert(config.pointer(), roots.own.pointer(), pk.pointer())
-        })?;
         let ssl = unsafe {
             Opaque::new(
                 tls_ssl_size(),
@@ -454,7 +461,7 @@ impl Identity {
                 mbedtls_ssl_free,
             )?
         };
-        self.sdk(|| unsafe { mbedtls_ssl_setup(ssl.pointer(), config.pointer()) })?;
+        self.sdk(|| unsafe { mbedtls_ssl_setup(ssl.pointer(), enrollment.config.pointer()) })?;
         // SAFETY: the box remains stable until BIO is detached and SSL freed.
         unsafe {
             mbedtls_ssl_set_bio(
@@ -467,8 +474,7 @@ impl Identity {
         }
         Ok(Connection {
             ssl,
-            _config: config,
-            roots,
+            enrollment,
             socket,
             pending,
             pending_size: 0,
@@ -546,7 +552,7 @@ impl Connection<'_> {
         }
         let pin = match (
             bytes(&self.ssl, tls_peer_raw),
-            bytes(&self.roots.peer, tls_crt_raw),
+            bytes(&self.enrollment.roots.peer, tls_crt_raw),
         ) {
             (Ok(actual), Ok(approved)) => actual == approved,
             _ => false,
@@ -565,6 +571,7 @@ impl Connection<'_> {
             return Err(self.fail(Error::Time));
         }
         self.until = self
+            .enrollment
             .roots
             .cutoff(self.identity, &time)
             .map_err(|e| self.fail(e))?;

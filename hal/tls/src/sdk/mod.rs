@@ -168,6 +168,9 @@ pub unsafe extern "C" fn mbedtls_platform_get_entropy(
 pub struct Identity {
     callback: Callback<'static>,
     key: u32,
+    // Retire the cached SSL config/certificates before destroying its borrowed
+    // PSA key or releasing the SDK lease.
+    enrollment: Option<connection::Enrollment>,
     pk: Option<Opaque>,
     _single_thread: PhantomData<Rc<()>>,
     // Declared last: source destruction must finish before another SDK owner.
@@ -187,6 +190,7 @@ impl Identity {
         let mut identity = Self {
             callback,
             key: 0,
+            enrollment: None,
             pk: None,
             _single_thread: PhantomData,
             _lease: Lease,
@@ -234,6 +238,21 @@ impl Identity {
 
     fn failed(&self) -> bool {
         self.callback.failed.load(Ordering::Acquire) || UNEXPECTED_CALLBACK.load(Ordering::Acquire)
+    }
+
+    /// Validate an approved enrollment and prepare immutable native trust
+    /// state. The supplied time lease is checked again on every accept and
+    /// refresh; this cache never extends certificate validity.
+    pub fn configure(
+        &mut self,
+        certificates: Certificates<'_>,
+        time: &TimeLease,
+    ) -> Result<(), Error> {
+        // A failed replacement must not leave the previous enrollment usable.
+        drop(self.enrollment.take());
+        let enrollment = connection::Enrollment::configure(self, certificates, time)?;
+        self.enrollment = Some(enrollment);
+        Ok(())
     }
 
     fn sdk(&self, operation: impl FnOnce() -> c_int) -> Result<(), Error> {
@@ -342,6 +361,7 @@ impl Identity {
 impl Drop for Identity {
     fn drop(&mut self) {
         // SDK borrowed-key context must retire before destroying its PSA key.
+        drop(self.enrollment.take());
         drop(self.pk.take());
         // SAFETY: all operations and callback execution are synchronous. The
         // sole owner and source remain alive until native PSA/DRBG teardown ends.

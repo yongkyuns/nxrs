@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import runpy
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TlsSdkTests(unittest.TestCase):
+    def test_trusted_usb_supervisor_controls(self):
+        subprocess.run([sys.executable, str(ROOT/'tests/nuttx-std/stream/tls_provision.py')],
+                       check=True, capture_output=True, timeout=10)
+
     def test_archive_is_verified_before_native_build_or_extraction(self):
         build = runpy.run_path(str(ROOT/'hal/tls/build-sdk.py'))['build']
         with tempfile.TemporaryDirectory() as temporary:

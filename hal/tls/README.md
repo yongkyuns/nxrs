@@ -26,7 +26,7 @@ borrow it only during synchronous calls. Fresh reseeding is explicit and source
 failure is sticky, including automatic reseeding. Dropping retires the borrowed
 key context, PSA key, DRBG and source before another owner can start.
 
-`Identity::accept` borrows the key for one nonblocking `TcpStream`. Supply one
+`Identity::configure` prepares immutable native trust state once. Supply one
 approved DER issuer, own leaf, exact peer leaf, signed CRL and `CertificatePolicy`.
 The policy pins the issuer's DER SHA-256 and expected own/peer URI names from
 authorized enrollment. Each leaf needs exactly one matching URI among at most
@@ -37,6 +37,11 @@ own leaf must declare only serverAuth and the peer only clientAuth. Missing,
 wrong or additional extended key usages are refused before handshake I/O. The
 application must approve the identity mapping/generation and reject enrollment
 or CRL rollback before supplying that material. Dropping a connection preserves the key.
+`Identity::accept` then borrows that owner for one nonblocking `TcpStream` with
+fresh time. Each handshake authenticates the actual peer and exact leaf pin;
+each admission and time refresh checks certificate/CRL deadlines. Failed
+reconfiguration clears the previous enrollment. Configuration retires before
+its borrowed key, and the camera worker releases input DER copies after setup.
 
 Supply `TimeLease::from_trusted` with an authenticated UTC observation and a
 maximum age of at most 60 seconds. The adapter advances it monotonically, rounds
