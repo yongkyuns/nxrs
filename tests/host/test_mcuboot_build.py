@@ -26,6 +26,10 @@ class BootWiringTests(unittest.TestCase):
                                   ("ESP32S3_OTA_SLOT_SIZE", "CONFIG_ESP_APPLICATION_SIZE"),
                                   ("ESP32S3_OTA_SCRATCH_OFFSET", "CONFIG_ESP_SCRATCH_OFFSET")):
             self.assertEqual(app[application], config[boot])
+        self.assertEqual(app["BOOT_MCUBOOT"], "y")
+        self.assertEqual(app["ESP32S3_SPIFLASH_AUTO_BRINGUP"], "n")
+        self.assertEqual(app["MCUBOOT_VERSION"], app["ESP32S3_MCUBOOT_VERSION"])
+        self.assertEqual(int(app["ESP32S3_STORAGE_MTD_OFFSET"], 0), 0x460000)
         self.assertEqual(config["CONFIG_ESP_SIGN_EC256"], "1")
         self.assertEqual(config["CONFIG_BOOTLOADER_WDT_ENABLE"], "1")
         self.assertFalse(any(key.startswith("CONFIG_SECURE_") for key in config))

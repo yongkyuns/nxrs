@@ -15,7 +15,7 @@ def application_config(platform: dict) -> dict[str, str]:
         raise ValueError("Pinned Espressif MCUboot requires 512 sectors per camera slot")
     if boot["write-align"] != 4:
         raise ValueError("Unencrypted Espressif MCUboot uses four-byte writes")
-    return {
+    values = {
         "ESP32S3_OTA_PRIMARY_SLOT_OFFSET": hex(boot["primary-offset"]),
         "ESP32S3_OTA_SECONDARY_SLOT_OFFSET": hex(boot["secondary-offset"]),
         "ESP32S3_OTA_SLOT_SIZE": hex(boot["slot-size"]),
@@ -24,6 +24,14 @@ def application_config(platform: dict) -> dict[str, str]:
         "ESP32S3_APP_MCUBOOT_HEADER_SIZE": str(boot["header-size"]),
         "ESP32S3_MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"',
     }
+    if platform["hal"].get("boot") == "nuttx":
+        values.update({
+            "BOOT_MCUBOOT": "y", "ESP32S3_SPIFLASH": "y",
+            "ESP32S3_SPIFLASH_AUTO_BRINGUP": "n",
+            "MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"',
+            "ESP32S3_STORAGE_MTD_OFFSET": hex(boot["scratch-offset"] + boot["scratch-size"]),
+        })
+    return values
 
 
 def bootloader_config(platform: dict, root: str) -> str:

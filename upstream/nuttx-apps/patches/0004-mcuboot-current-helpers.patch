@@ -1,0 +1,41 @@
+--- a/boot/mcuboot/Makefile
++++ b/boot/mcuboot/Makefile
+@@ -43,10 +43,11 @@
+ 
+ CFLAGS += -Wno-undef -Wno-unused-but-set-variable
+ 
++ifneq ($(CONFIG_MCUBOOT_BOOTLOADER),)
+ CSRCS := $(MCUBOOT_UNPACK)/boot/bootutil/src/boot_record.c \
+-         $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_area.c \
++         $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_find_key.c \
+          $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_img_hash.c \
+-         $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_loader.c \
++         $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_img_security_cnt.c \
+          $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_misc.c \
+          $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_public.c \
+          $(MCUBOOT_UNPACK)/boot/bootutil/src/caps.c \
+@@ -80,12 +81,24 @@
+ CXXFLAGS += ${INCDIR_PREFIX}mcuboot/ext/tinycrypt/lib/include
+ endif
+ 
++else
++# Application control only needs the SDK's trailer operations, not another
++# image verifier, swap engine, or cryptographic library.
++CSRCS := $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_public.c \
++         $(MCUBOOT_UNPACK)/boot/bootutil/src/bootutil_misc.c \
++         $(MCUBOOT_UNPACK)/boot/nuttx/src/flash_map_backend/flash_map_backend.c
++endif
++
+ $(MCUBOOT_TARBALL):
+ 	$(Q) echo "Downloading MCUboot-$(MCUBOOT_VERSION) from $(MCUBOOT_REPOSITORY)"
+ 	$(Q) curl -O -L --proto-default https $(MCUBOOT_REPOSITORY)/archive/$(MCUBOOT_TARBALL)
+ 
+ $(MCUBOOT_UNPACK): $(MCUBOOT_TARBALL)
+ 	$(Q) echo "Unpacking: $(MCUBOOT_TARBALL) -> $(MCUBOOT_UNPACK)"
++# The product uses the same pinned source archive as tools/mcuboot-requirements.txt.
++ifeq ($(MCUBOOT_VERSION),8a07053d42e592c85cb35b79c4de1b7749943387)
++	$(Q) python3 -c 'import hashlib,pathlib,sys; sys.exit(0 if hashlib.sha256(pathlib.Path("$(MCUBOOT_TARBALL)").read_bytes()).hexdigest() == "f7b965694919899ac8e5cb989f70876396077bcd0cbe9649c4ae98efb97c4b35" else "MCUboot archive checksum mismatch")'
++endif
+ 	$(Q) tar zxf $(MCUBOOT_TARBALL)
+ 	$(Q) mv mcuboot-$(MCUBOOT_VERSION) $(MCUBOOT_UNPACK)
+ 	$(Q) touch $(MCUBOOT_UNPACK)

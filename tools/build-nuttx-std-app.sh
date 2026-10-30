@@ -185,7 +185,8 @@ if boot is not None:
     array([f"{key}={value}" for key, value in values.items()], "boot geometry", "BOOT_SET")
     print('NUTTX_SET+=("${BOOT_SET[@]}")')
     array(["CONFIG_ESP32S3_APP_FORMAT_MCUBOOT=y", "CONFIG_ESP32S3_FLASH_16M=y",
-           *[f"CONFIG_{key}={value}" for key, value in values.items()]],
+           *[f"# CONFIG_{key} is not set" if value == "n" else f"CONFIG_{key}={value}"
+             for key, value in values.items()]],
           "boot requirements", "BOOT_REQUIRE")
     print('NUTTX_REQUIRE+=("${BOOT_REQUIRE[@]}")')
     print("NUTTX_IMAGE_NAME=nuttx.signed.bin")

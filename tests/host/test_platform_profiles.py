@@ -185,7 +185,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-tls": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx"},
-                            "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx"},
+                            "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
                             "esp32s3-camera-tls": {"camera": "nuttx", "wifi": "nuttx", "detector": "none", "tls": "nuttx"},
