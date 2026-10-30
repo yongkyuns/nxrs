@@ -13,3 +13,75 @@
    if (fd < 0)
      {
        int errcode = errno;
+@@ -534,49 +538,39 @@
+ 
+ int flash_area_erase(const struct flash_area *fa, uint32_t off, uint32_t len)
+ {
+-  int ret;
+-  void *buffer;
+-  size_t i;
+   struct flash_device_s *dev = lookup_flash_device_by_id(fa->fa_id);
+-  const size_t sector_size = dev->mtdgeo.erasesize;
+-  const uint8_t erase_val = dev->erase_state;
++  struct mtd_erase_s erase;
++  int ret;
++  int discard;
+ 
+-  BOOT_LOG_INF("ID:%" PRIu8 " offset:%" PRIu32 " length:%" PRIu32,
+-               fa->fa_id, off, len);
+-
+-  buffer = malloc(sector_size);
+-  if (buffer == NULL)
++  if (dev == NULL || dev->fd < 0 || dev->mtdgeo.erasesize == 0 ||
++      off > fa->fa_size || len > fa->fa_size - off ||
++      off % dev->mtdgeo.erasesize != 0 || len % dev->mtdgeo.erasesize != 0)
+     {
+-      BOOT_LOG_ERR("Failed to allocate erase buffer");
+-
+       return ERROR;
+     }
+ 
+-  memset(buffer, erase_val, sector_size);
+-
+-  i = 0;
+-
+-  do
++  if (len == 0)
+     {
+-      BOOT_LOG_DBG("Erasing %zu bytes at offset %" PRIu32,
+-                   sector_size, off + i);
++      return OK;
++    }
+ 
+-      ret = flash_area_write(fa, off + i, buffer, sector_size);
+-      i += sector_size;
+-    }
+-  while (ret == OK && i < (len - sector_size));
++  /* Direct writes cannot erase NOR by programming the erased value. The
++   * partition ioctl uses erase-block units relative to this partition.
++   */
+ 
+-  if (ret == OK)
+-    {
+-      BOOT_LOG_DBG("Erasing %" PRIu32 " bytes at offset %" PRIu32,
+-                   len - i, off + i);
+-
+-      ret = flash_area_write(fa, off + i, buffer, len - i);
+-    }
++  erase.startblock = off / dev->mtdgeo.erasesize;
++  erase.nblocks = len / dev->mtdgeo.erasesize;
++  ret = ioctl(dev->fd, MTDIOC_ERASESECTORS,
++              (unsigned long)((uintptr_t)&erase));
+ 
+-  free(buffer);
++  /* An interrupted/failed erase may also change flash. Invalidate cached
++   * reads after every attempt, without writing any cached sector back.
++   */
+ 
+-  return ret;
++  discard = ioctl(dev->fd, BIOC_DISCARD, 0);
++  return ret < 0 || (ret > 0 && (uint32_t)ret != erase.nblocks) ||
++         discard < 0 ? ERROR : OK;
+ }
+ 
+ /****************************************************************************

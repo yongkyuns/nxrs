@@ -38,6 +38,10 @@ synchronous NOR writes so setting a trailer flag does not erase neighboring
 recovery state through the default MTD translation layer. The host regression
 compiles NuttX's actual direct-write function against a NOR/power-cut model;
 whole-device interrupted-update qualification is still required.
+The SDK erase helper uses the native partition erase ioctl, with aligned,
+bounded ranges and cached-read invalidation even after failure. Writing `0xff`
+through a direct descriptor is not a physical erase. The Rust boot API exposes
+only trailer control; this helper does not add firmware staging.
 Native flash partitions follow the product
 layout; filesystem auto-mounting stays disabled.
 
@@ -97,3 +101,8 @@ boot metadata; power loss during those writes is unqualified. Enabling encrypted
 updates requires resolving that recovery behavior, rather than adding another
 update state machine above it. The portable boot API and unencrypted qualification
 profile remain unchanged.
+Upstream's merged [erased-flash fix](https://github.com/mcu-tools/mcuboot/pull/2320)
+is already in our pin. It restores logical `0xff` after erase; it does not retain
+neighboring metadata across a reset between sector erase and rewrite. A fresh
+encrypted factory image also needs initialized secondary and scratch regions,
+not physically erased bytes read through unconditional decryption.
