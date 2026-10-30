@@ -115,7 +115,8 @@ class FirmwareFrontendTests(unittest.TestCase):
             ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh'),
              "--kconfig-enable", "RP23XX_CYW43439_READ_OBSERVER",
              "--kconfig-enable", "NET_STATISTICS",
-             "--kconfig-disable", "NSH_NETINIT"], cwd=ROOT,
+             "--kconfig-disable", "NSH_NETINIT",
+             "--kconfig-disable", "NETUTILS_NETINIT"], cwd=ROOT,
             text=True, capture_output=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Missing required argument", result.stderr)
