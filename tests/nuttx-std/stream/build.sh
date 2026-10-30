@@ -30,4 +30,4 @@ exec bash tools/build-nuttx-std-app.sh \
   --out target/camera-stream-device --abi-profile minimal \
   --target-c-source tests/nuttx-std/wifi/ffi/credentials.c \
   --target-c-source tests/nuttx-std/stream/ffi/platform.c \
-  --size-optimized --trace-only-backtrace --panic-immediate-abort "${STREAM_ARGS[@]}"
+  --size-optimized --trace-only-backtrace --panic-immediate-abort ${STREAM_ARGS[@]+"${STREAM_ARGS[@]}"}

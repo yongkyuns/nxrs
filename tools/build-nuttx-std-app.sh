@@ -131,6 +131,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
 from platform_config import model_features, native_helpers, resolve, validate_target
+from mcuboot_image import layout
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -175,6 +176,32 @@ array(kconfig.get("enable", []), "kconfig.enable", "NUTTX_ENABLE")
 array(kconfig.get("disable", []), "kconfig.disable", "NUTTX_DISABLE")
 array(kconfig.get("set", []), "kconfig.set", "NUTTX_SET")
 array(kconfig.get("require", []), "kconfig.require", "NUTTX_REQUIRE")
+boot = data.get("mcuboot")
+print(f"NUTTX_MCUBOOT={'y' if boot is not None else 'n'}")
+if boot is not None:
+    boot = layout(boot)
+    if data["target"] != "xtensa-esp32s3-nuttx":
+        raise SystemExit("MCUboot build wiring is not qualified for this NuttX target")
+    if boot["flash-size"] != 0x1000000 or boot["primary-offset"] < 0x20000:
+        raise SystemExit("ESP32-S3 camera requires 16 MiB flash and reserved boot/eFuse regions")
+    if boot["erase-size"] != 4096 or boot["slot-size"] // boot["erase-size"] != 512:
+        raise SystemExit("Pinned Espressif MCUboot requires 512 sectors per camera slot")
+    values = {
+        "ESP32S3_OTA_PRIMARY_SLOT_OFFSET": hex(boot["primary-offset"]),
+        "ESP32S3_OTA_SECONDARY_SLOT_OFFSET": hex(boot["secondary-offset"]),
+        "ESP32S3_OTA_SLOT_SIZE": hex(boot["slot-size"]),
+        "ESP32S3_OTA_SCRATCH_OFFSET": hex(boot["scratch-offset"]),
+        "ESP32S3_OTA_SCRATCH_SIZE": hex(boot["scratch-size"]),
+        "ESP32S3_APP_MCUBOOT_HEADER_SIZE": str(boot["header-size"]),
+    }
+    print("NUTTX_ENABLE+=(ESP32S3_APP_FORMAT_MCUBOOT)")
+    array([f"{key}={value}" for key, value in values.items()], "boot geometry", "BOOT_SET")
+    print('NUTTX_SET+=("${BOOT_SET[@]}")')
+    array(["CONFIG_ESP32S3_APP_FORMAT_MCUBOOT=y", "CONFIG_ESP32S3_FLASH_16M=y",
+           *[f"CONFIG_{key}={value}" for key, value in values.items()]],
+          "boot requirements", "BOOT_REQUIRE")
+    print('NUTTX_REQUIRE+=("${BOOT_REQUIRE[@]}")')
+    print("NUTTX_IMAGE_NAME=nuttx.signed.bin")
 forbid = kconfig.get("forbid-regex", "")
 if not isinstance(forbid, str):
     raise SystemExit(f"{path}: kconfig.forbid-regex must be a string")
@@ -182,6 +209,13 @@ print(f"NUTTX_FORBID_REGEX={shlex.quote(forbid)}")
 PY_PLATFORM
 )"
 eval "$PLATFORM_ENV"
+
+if test "$NUTTX_MCUBOOT" = y; then
+  for name in NXRS_FIRMWARE_SIGNING_KEY NXRS_FIRMWARE_VERIFY_KEY \
+              NXRS_FIRMWARE_VERSION NXRS_FIRMWARE_SECURITY_COUNTER; do
+    test -n "${!name:-}" || { echo "MCUboot build requires $name" >&2; exit 1; }
+  done
+fi
 export NXRS_PLATFORM
 NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
 for feature in ${NXRS_EXTRA_FEATURES[@]+"${NXRS_EXTRA_FEATURES[@]}"}; do
@@ -609,6 +643,13 @@ make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
 # NuttX context generation may annotate BASE_DEFCONFIG with "-dirty".
 # Preserve the final native configuration, not the pre-context snapshot.
 cp "$OUT/nuttx/.config" "$OUT/resolved.config"
+
+if test "$NUTTX_MCUBOOT" = y; then
+  python3 "$ROOT/tools/mcuboot_image.py" --platform "$NXRS_PLATFORM" \
+    --input "$OUT/nuttx/nuttx.hex" --output "$OUT/nuttx/nuttx.signed.bin" \
+    --key "$NXRS_FIRMWARE_SIGNING_KEY" --root "$NXRS_FIRMWARE_VERIFY_KEY" \
+    --version "$NXRS_FIRMWARE_VERSION" --security-counter "$NXRS_FIRMWARE_SECURITY_COUNTER"
+fi
 
 "${NUTTX_CROSSDEV}nm" "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
 FINAL_REQUIRED=("${NXRS_APP_COMMAND}_main" nx_start)

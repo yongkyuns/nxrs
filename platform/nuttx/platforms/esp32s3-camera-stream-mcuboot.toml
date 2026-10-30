@@ -1,0 +1,13 @@
+# Reversible signed-image qualification; hardware secure boot/encryption stay off.
+extends = "esp32s3-camera-stream-tls"
+
+[mcuboot]
+flash-size = 0x1000000
+primary-offset = 0x20000
+secondary-offset = 0x220000
+slot-size = 0x200000
+scratch-offset = 0x420000
+scratch-size = 0x40000
+header-size = 32
+write-align = 4
+erase-size = 4096
