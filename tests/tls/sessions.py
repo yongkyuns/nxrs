@@ -163,6 +163,16 @@ class Sessions(unittest.TestCase):
                 self.assertEqual(self.result(root, process, credentials, error, accepted=False),
                                  f'RESULT Err({expected})')
 
+    def test_failed_replacement_retires_previous_enrollment(self):
+        root, process, credentials, error = self.start(case='changed-enrollment')
+        address = self.load(root, process, credentials)
+        with socket.create_connection(address, timeout=5) as transport:
+            with self.assertRaises((ssl.SSLError, ConnectionError, OSError)):
+                self.context(root, ssl.TLSVersion.TLSv1_3).wrap_socket(
+                    transport, server_hostname='127.0.0.1')
+        self.assertEqual(self.result(root, process, credentials, error, accepted=False),
+                         'RESULT Err(InvalidInput)')
+
     def test_subject_alternative_name_traversal_is_bounded(self):
         for count in [8, 9]:
             with self.subTest(names=count):

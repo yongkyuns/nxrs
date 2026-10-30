@@ -13,6 +13,7 @@ enum Case {
     ChangedRetry,
     Refresh,
     Rollback,
+    ChangedEnrollment,
     Http,
     Product,
     Media,
@@ -47,7 +48,33 @@ fn transaction(
         .unwrap()
         .as_secs();
     let time = tls::TimeLease::from_trusted(epoch, Duration::from_millis(age))?;
-    identity.configure(certs, &time)?;
+    identity.configure(
+        tls::Certificates {
+            policy: certs.policy,
+            own: certs.own,
+            issuer: certs.issuer,
+            approved_peer: certs.approved_peer,
+            revocations: certs.revocations,
+        },
+        &time,
+    )?;
+    if matches!(case, Case::ChangedEnrollment) {
+        let rejected = tls::CertificatePolicy {
+            issuer_sha256: [0; 32],
+            own_uri: certs.policy.own_uri.clone(),
+            peer_uri: certs.policy.peer_uri.clone(),
+        };
+        assert_eq!(
+            identity.configure(
+                tls::Certificates { policy: &rejected, ..certs },
+                &time,
+            ),
+            Err(tls::Error::Authentication),
+        );
+        let result = identity.accept(socket, time);
+        assert!(matches!(result, Err(tls::Error::InvalidInput)));
+        return result.map(|_| ());
+    }
     let mut connection = identity.accept(socket, time)?;
     let deadline = Instant::now() + Duration::from_secs(10);
     if matches!(case, Case::Http) {
@@ -211,6 +238,7 @@ fn main() {
         Some("changed-retry") => Case::ChangedRetry,
         Some("refresh") => Case::Refresh,
         Some("rollback") => Case::Rollback,
+        Some("changed-enrollment") => Case::ChangedEnrollment,
         Some("http") => Case::Http,
         Some("product") => Case::Product,
         Some("media") => Case::Media,
