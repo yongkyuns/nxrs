@@ -131,7 +131,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
 from platform_config import model_features, native_helpers, resolve, validate_target
-from mcuboot_image import layout
+sys.path.insert(0, str(Path(sys.argv[2]) / "platform/nuttx"))
+from mcuboot import application_config
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -179,21 +180,7 @@ array(kconfig.get("require", []), "kconfig.require", "NUTTX_REQUIRE")
 boot = data.get("mcuboot")
 print(f"NUTTX_MCUBOOT={'y' if boot is not None else 'n'}")
 if boot is not None:
-    boot = layout(boot)
-    if data["target"] != "xtensa-esp32s3-nuttx":
-        raise SystemExit("MCUboot build wiring is not qualified for this NuttX target")
-    if boot["flash-size"] != 0x1000000 or boot["primary-offset"] < 0x20000:
-        raise SystemExit("ESP32-S3 camera requires 16 MiB flash and reserved boot/eFuse regions")
-    if boot["erase-size"] != 4096 or boot["slot-size"] // boot["erase-size"] != 512:
-        raise SystemExit("Pinned Espressif MCUboot requires 512 sectors per camera slot")
-    values = {
-        "ESP32S3_OTA_PRIMARY_SLOT_OFFSET": hex(boot["primary-offset"]),
-        "ESP32S3_OTA_SECONDARY_SLOT_OFFSET": hex(boot["secondary-offset"]),
-        "ESP32S3_OTA_SLOT_SIZE": hex(boot["slot-size"]),
-        "ESP32S3_OTA_SCRATCH_OFFSET": hex(boot["scratch-offset"]),
-        "ESP32S3_OTA_SCRATCH_SIZE": hex(boot["scratch-size"]),
-        "ESP32S3_APP_MCUBOOT_HEADER_SIZE": str(boot["header-size"]),
-    }
+    values = application_config(data)
     print("NUTTX_ENABLE+=(ESP32S3_APP_FORMAT_MCUBOOT)")
     array([f"{key}={value}" for key, value in values.items()], "boot geometry", "BOOT_SET")
     print('NUTTX_SET+=("${BOOT_SET[@]}")')

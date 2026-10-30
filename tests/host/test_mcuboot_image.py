@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -54,6 +55,15 @@ class SigningTests(unittest.TestCase):
             source, output = directory / "input.bin", directory / "signed.bin"
             source.write_bytes(bytes(range(256)) * 4)
             private = key.read_bytes()
+            refused = directory / "private-root-build"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "tools/build-mcuboot.py"), "--platform",
+                 "esp32s3-camera-stream-mcuboot", "--root", str(key),
+                 "--mcuboot-repo", str(directory), "--hal-repo", str(directory),
+                 "--out", str(refused)], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected EC P-256 PUBLIC key", result.stderr)
+            self.assertFalse(refused.exists())
             IMAGE.sign(source, output, GEOMETRY, key, root, "1.2.3+4", 7)
             self.assertEqual(output.stat().st_size, GEOMETRY["slot-size"])
             # Independently inspect the documented header, then test actual verifier refusal.
