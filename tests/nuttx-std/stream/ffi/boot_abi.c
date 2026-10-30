@@ -1,5 +1,7 @@
 /* SDK witness only; it exports no production C HAL interface. */
 #include <bootutil/bootutil_public.h>
+_Static_assert(MCUBOOT_IMAGE_NUMBER == 1 && BOOT_MAX_ALIGN == 8,
+               "qualified single-image unencrypted trailer geometry");
 _Static_assert(sizeof(int) == 4, "Rust c_int ABI");
 _Static_assert(BOOT_SWAP_TYPE_NONE == 1 && BOOT_SWAP_TYPE_TEST == 2 &&
                BOOT_SWAP_TYPE_REVERT == 4, "MCUboot state binding drift");

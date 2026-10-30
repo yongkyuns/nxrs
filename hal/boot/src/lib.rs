@@ -5,8 +5,11 @@
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
+    /// The executing image will be retained on reset.
     Stable,
+    /// A staged image is requested for a trial on reset.
     Pending,
+    /// The executing trial will revert on reset unless confirmed.
     Trial,
 }
 
