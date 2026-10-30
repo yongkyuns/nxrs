@@ -1,0 +1,2 @@
+# Match NuttX 13.1.0's MCUboot pin; PyPI 2.2.0 lacks its public EC-key verifier fix.
+imgtool @ https://codeload.github.com/mcu-tools/mcuboot/tar.gz/8a07053d42e592c85cb35b79c4de1b7749943387#subdirectory=scripts&sha256=f7b965694919899ac8e5cb989f70876396077bcd0cbe9649c4ae98efb97c4b35

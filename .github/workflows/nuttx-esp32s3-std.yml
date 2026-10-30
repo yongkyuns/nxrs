@@ -16,6 +16,11 @@ on:
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
+      - 'tools/mcuboot_image.py'
+      - 'tools/mcuboot-requirements.txt'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'platform/nuttx/platforms/esp32s3-camera-stream-mcuboot.toml'
+      - 'tests/host/test_mcuboot_image.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,7 +45,7 @@ jobs:
           rustup toolchain install 1.90.0 --profile minimal
           bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
           python3 -m venv target/esp-std-venv
-          target/esp-std-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          target/esp-std-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 -r tools/mcuboot-requirements.txt
           echo "$GITHUB_WORKSPACE/target/esp-std-venv/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -51,6 +56,7 @@ jobs:
       - name: Check oracle and SDK isolation controls
         run: |
           source target/qemu-tools/environment.sh
+          python3 -m unittest discover -s tests/host -p test_mcuboot_image.py -v
           python3 tests/nuttx-std/run.py --self-test
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
