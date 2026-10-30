@@ -124,6 +124,7 @@ class Session:
 class State:
     def __init__(self, path):
         self.path = RUN._outside_repo(path)
+        self._lock = threading.Lock()
         # Reserve a new private output, never overwrite an unrelated file.
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         os.close(fd)
@@ -131,6 +132,10 @@ class State:
                      "renewals": 0, "source": "physical", "status": "starting"}
 
     def emit(self, event, **fields):
+        with self._lock:
+            self._emit(event, **fields)
+
+    def _emit(self, event, **fields):
         if event == "tls":
             self.data.update(tls=fields['tls'], tls_received_unix=time.time())
         elif event == "detection":
