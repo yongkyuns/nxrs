@@ -1,0 +1,16 @@
+# Build-only qualification. Running the matching bootloader can burn eFuses.
+extends = "esp32s3-camera-stream-mcuboot"
+# Factory-image builds only: the pinned encrypted update path is unqualified.
+hal = { boot = "none" }
+hardware-protection = true
+
+[mcuboot]
+flash-size = 0x1000000
+primary-offset = 0x20000
+secondary-offset = 0x220000
+slot-size = 0x200000
+scratch-offset = 0x420000
+scratch-size = 0x40000
+header-size = 32
+write-align = 32
+erase-size = 4096

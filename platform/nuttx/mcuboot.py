@@ -5,6 +5,13 @@ MCUBOOT_REVISION = "8a07053d42e592c85cb35b79c4de1b7749943387"
 HAL_REVISION = "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9"
 
 
+def protected(platform: dict) -> bool:
+    value = platform.get("hardware-protection", False)
+    if type(value) is not bool:
+        raise ValueError("hardware-protection must be an explicit boolean")
+    return value
+
+
 def application_config(platform: dict) -> dict[str, str]:
     boot = layout(platform["mcuboot"])
     if platform["target"] != "xtensa-esp32s3-nuttx":
@@ -13,8 +20,8 @@ def application_config(platform: dict) -> dict[str, str]:
         raise ValueError("ESP32-S3 camera requires 16 MiB flash and reserved boot/eFuse regions")
     if boot["erase-size"] != 4096 or boot["slot-size"] // boot["erase-size"] != 512:
         raise ValueError("Pinned Espressif MCUboot requires 512 sectors per camera slot")
-    if boot["write-align"] != 4:
-        raise ValueError("Unencrypted Espressif MCUboot uses four-byte writes")
+    if boot["write-align"] != (32 if protected(platform) else 4):
+        raise ValueError("ESP32-S3 image alignment must match hardware flash protection")
     values = {
         "ESP32S3_OTA_PRIMARY_SLOT_OFFSET": hex(boot["primary-offset"]),
         "ESP32S3_OTA_SECONDARY_SLOT_OFFSET": hex(boot["secondary-offset"]),
@@ -24,18 +31,23 @@ def application_config(platform: dict) -> dict[str, str]:
         "ESP32S3_APP_MCUBOOT_HEADER_SIZE": str(boot["header-size"]),
         "ESP32S3_MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"',
     }
-    if platform["hal"].get("boot") == "nuttx":
+    if protected(platform) and platform["hal"].get("boot") != "none":
+        raise ValueError("encrypted MCUboot update control requires interrupted-write qualification")
+    if platform["hal"].get("boot") == "nuttx" or protected(platform):
         values.update({
-            "BOOT_MCUBOOT": "y", "ESP32S3_SPIFLASH": "y",
+            "ESP32S3_SPIFLASH": "y",
             "ESP32S3_SPIFLASH_AUTO_BRINGUP": "n",
-            "MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"',
             "ESP32S3_STORAGE_MTD_OFFSET": hex(boot["scratch-offset"] + boot["scratch-size"]),
         })
+    if platform["hal"].get("boot") == "nuttx":
+        values.update({"BOOT_MCUBOOT": "y", "MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"'})
+    if protected(platform):
+        values["ESP32S3_OTA_PARTITION_ENCRYPT"] = "y"
     return values
 
 
 def bootloader_config(platform: dict, root: str) -> str:
-    """Only the public application root enters this reversible bootloader build."""
+    """Only the public application root enters the SDK bootloader build."""
     application_config(platform)
     if any(char in root for char in ('\n', '\r', ';', '"', '\\')) or not root.startswith('/'):
         raise ValueError("public root needs an absolute path without CMake delimiters")
@@ -58,4 +70,12 @@ def bootloader_config(platform: dict, root: str) -> str:
         "CONFIG_ESP_SIGN_EC256": 1, "CONFIG_ESP_USE_TINYCRYPT": 1,
         "CONFIG_ESP_SIGN_KEY_FILE": root,
     }
+    if protected(platform):
+        values.update({key: 1 for key in (
+            "CONFIG_SECURE_SIGNED_ON_BOOT", "CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME",
+            "CONFIG_SECURE_BOOT", "CONFIG_SECURE_BOOT_V2_ENABLED",
+            "CONFIG_SECURE_BOOT_SUPPORTS_RSA", "CONFIG_SECURE_FLASH_ENC_ENABLED",
+            "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE",
+            "CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED",
+        )})
     return "".join(f"{key}={value}\n" for key, value in values.items())

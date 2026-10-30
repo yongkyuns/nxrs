@@ -25,6 +25,7 @@ on:
       - 'platform/nuttx/mcuboot.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'platform/nuttx/platforms/esp32s3-camera-stream-mcuboot.toml'
+      - 'platform/nuttx/platforms/esp32s3-camera-stream-protected-build.toml'
       - 'tests/host/test_mcuboot_image.py'
       - 'tests/host/test_mcuboot_build.py'
   workflow_dispatch:
@@ -93,6 +94,13 @@ jobs:
             -I target/mcuboot-camera/mcuboot/boot/nuttx/include \
             -I target/mcuboot-camera/mcuboot/boot/bootutil/include \
             -c tests/nuttx-std/stream/ffi/boot_abi.c -o target/mcuboot-control-abi.o
+          python3 -m espsecure generate_signing_key --version 2 --scheme rsa3072 target/mcuboot-rom-test-key.pem
+          python3 -m espsecure extract_public_key --version 2 --keyfile target/mcuboot-rom-test-key.pem target/mcuboot-rom-test-root.pem
+          python3 tools/build-mcuboot.py --platform esp32s3-camera-stream-protected-build \
+            --mcuboot-repo target/mcuboot-source.git \
+            --hal-repo target/nuttx-esp32s3-std/nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty \
+            --root target/mcuboot-test-root.pem --rom-key target/mcuboot-rom-test-key.pem \
+            --rom-root target/mcuboot-rom-test-root.pem --out target/mcuboot-protected-build-only
       - name: Execute three fresh kernels and deliberate failure
         run: |
           source target/qemu-tools/environment.sh
