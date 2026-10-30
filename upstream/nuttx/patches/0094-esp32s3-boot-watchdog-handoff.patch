@@ -1,0 +1,17 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_wdt.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_wdt.c
+@@ -1075,11 +1075,9 @@
+ 
+ void esp32s3_wdt_early_deinit(void)
+ {
+-  uint32_t regval;
+-  regval  = getreg32(RTC_CNTL_WDTCONFIG0_REG);
+-  regval &= ~RTC_CNTL_WDT_EN;
+-  putreg32(regval, RTC_CNTL_WDTCONFIG0_REG);
+-  putreg32(0, RTC_CNTL_WDTWPROTECT_REG);
++  rwdt_ll_write_protect_disable(&RTCCNTL);
++  rwdt_ll_disable(&RTCCNTL);
++  rwdt_ll_write_protect_enable(&RTCCNTL);
+ }
+ 
+ /****************************************************************************

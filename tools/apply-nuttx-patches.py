@@ -90,6 +90,7 @@ SERIES = {
         "0091-arc4random-fail-closed.patch",
         "0092-sim-host-random.patch",
         "0093-esp32s3-guard-rf-entropy.patch",
+        "0094-esp32s3-boot-watchdog-handoff.patch",
     ),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",

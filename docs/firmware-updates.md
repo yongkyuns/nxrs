@@ -46,6 +46,11 @@ a fresh output directory and builds upstream's EC P-256 verifier with TinyCrypt.
 Only a public key is accepted; the signing key is unnecessary on the boot build
 host. `bootloader.json` records the pins, geometry, public-root and binary hashes.
 The bootloader console uses UART0; the application retains its USB console.
+The bootloader enables the SDK's startup watchdog. The NuttX handoff unlocks,
+disables and relocks it before kernel initialization; application-health reset
+and confirmation remain separate policy. The register model checks locked and
+unlocked entry, preserved bits and repeated handoff. It does not qualify physical
+watchdog reset timing.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, enforce a protected version floor, or
