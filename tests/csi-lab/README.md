@@ -40,8 +40,10 @@ exercises native training without room cues or detector admission. It exposed a
 [recorder ordering defect](../csi-radio/results/csi-recorder-native-reservation-2026-10-29.json):
 reserving a journal sequence across native computation could block draining.
 One preallocated native workspace now preserves input bits and publishes after
-return. The bounded physical workload passes with zero loss; independent
-empty/occupied qualification remains required.
+return. The bounded physical workload passes with zero loss, but the
+[subsequent longer empty trial](../csi-radio/results/csi-ap-empty-workspace-recorder-loss-2026-10-29.json)
+loses data early in holdout. Recorder reliability and independent empty/occupied
+qualification remain unresolved.
 
 Older walking trials did not retain this continuous input stream. Their sampled
 reports and selected snapshots cannot reconstruct it. The synthetic `fixture`

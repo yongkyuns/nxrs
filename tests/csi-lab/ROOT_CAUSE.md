@@ -129,6 +129,23 @@ fix, not presence accuracy or exclusive attribution of every earlier loss.
 Occupancy stayed unknown, no detector calibration was admitted, and gateway
 forwarding remains a separate unresolved issue.
 
+The [subsequent labelled empty trial](../csi-radio/results/csi-ap-empty-workspace-recorder-loss-2026-10-29.json)
+completed vendor training and background calibration, then stopped early in
+holdout at about 104 seconds: 107,563 records and a footer with 365 loss events.
+The first rejection was again a nonfree slot for a native comparison. No native
+numerical fault was reported before abort, and observed stack margins remained
+above budget. Missing records prevent complete numerical or policy validation.
+All five analysis paths reject twice without emitting results. Holdout and the
+independent empty control did not complete; there is no new accuracy result.
+The original firmware and three advancing camera source frames were verified.
+
+The deterministic native-reservation defect remains fixed, but the longer run
+shows a remaining recorder reliability problem. First-loss reason alone cannot
+distinguish a delayed consumer/output path from an unpublished producer head.
+Instrument that distinction and qualify sustained unlabelled recording before
+requesting another room trial; do not enlarge queues or relax loss acceptance
+on this evidence.
+
 ## Current offline experiments
 
 `core/temporal.rs` is an original bounded feature experiment using maximum

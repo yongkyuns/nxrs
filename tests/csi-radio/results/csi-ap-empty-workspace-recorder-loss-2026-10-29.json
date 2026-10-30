@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "experiment": "ap_only_empty_calibration_recorder_loss_after_native_workspace_fix",
+  "source_commit": "82d79226c77d09511bc45a9e317146b18d0f0b58",
+  "firmware_sha256": "48f7421ce4535c8410e96b42fd97927bea12bc01584d9123db044402473f476c",
+  "capture_sha256": "8403fc603ce2498f6ff75f307f8b0321eb7d527c5f571f43b47501fbfc9296f3",
+  "fresh_human_empty_confirmation": true,
+  "human_occupied_phases": false,
+  "presence_qualified": false,
+  "espectre_parity_qualified": false,
+  "result": {
+    "vendor_training_completed": true,
+    "background_completed": true,
+    "holdout_started": true,
+    "holdout_completed": false,
+    "independent_empty_control_started": false,
+    "occupied_test_started": false,
+    "recorded_span_us": 104263738,
+    "records": 107563,
+    "footer": {
+      "count": 107562,
+      "chain": 955570265,
+      "losses": 365
+    },
+    "first_loss": {
+      "kind": "lab_recorder_first_loss",
+      "reason": "slot_not_free",
+      "journal_kind": 6
+    },
+    "schedule_outcome": "recorder_loss_or_stack_margin",
+    "frozen_threshold_bits": [
+      987842560,
+      976148992,
+      1002141056,
+      997443456
+    ],
+    "archived_features": 2906,
+    "owner_received": 2922,
+    "owner_applied": 2922,
+    "owner_pending": 0,
+    "minimum_observed_free_stack_bytes": 1296,
+    "numerical_faults_reported_before_abort": false,
+    "diagnostic_scope": "Periodic diagnostics do not certify missing records."
+  },
+  "interpretation": {
+    "capture_invalid": true,
+    "loss_total_may_include_cascading_generation_failures": true,
+    "native_reservation_regression_fix_retained": true,
+    "short_training_load_success_does_not_establish_full_trial_reliability": true,
+    "remaining_loss_cause": "Unresolved: nonfree slot alone does not distinguish output/consumer delay from an unpublished producer head.",
+    "thresholds_or_acceptance_relaxed": false
+  },
+  "offline": {
+    "host_binary_sha256": "bddf3516944003527a6ce42c901e365005dfbf557a4346915393079cb57fcf8c",
+    "commands": [
+      "replay",
+      "sampling",
+      "audit-gain",
+      "verify-distance",
+      "preview-motion"
+    ],
+    "each_rejects_twice_identically_without_stdout": true
+  },
+  "recovery": {
+    "original_firmware_16mb_hash_verified": true,
+    "receiver": "mac",
+    "protocol": "direct_http_mjpeg",
+    "decoded_advancing_real_source_frames": 3,
+    "source_dimensions": [
+      320,
+      240
+    ],
+    "resources_closed": true,
+    "gateway_whep_verified": false,
+    "iphone_playback_verified": false
+  }
+}
