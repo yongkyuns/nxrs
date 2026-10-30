@@ -1,0 +1,16 @@
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -1963,6 +1963,13 @@
+ 
+ comment "Application Image OTA Update support"
+ 
++config ESP32S3_OTA_PARTITION_ENCRYPT
++	bool "Encrypted application flash partitions"
++	default n
++	---help---
++		Select the existing hardware-encrypted MTD provider for the application
++		slots and scratch region. Requires provisioned flash encryption keys.
++
+ config ESP32S3_OTA_PRIMARY_SLOT_OFFSET
+ 	hex "Application image primary slot offset"
+ 	default 0x20000

@@ -74,3 +74,26 @@ install the bootloader, enforce a protected version floor, or
 provide on-device update delivery or a product startup-health policy. Those and physical interrupted
 update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.
+
+The opt-in `esp32s3-camera-stream-protected-build` profile is **build-only
+factory qualification**, not a production provisioning procedure. Its chain is
+ESP32-S3 ROM → RSA-3072-signed MCUboot → EC P-256-signed application. The builder
+requires separate `--rom-key` and `--rom-root` inputs, uses `espsecure` from
+`esptool==4.8.1`, verifies against the expected public root and checks the padded
+ROM signature fits the reserved boot region. `bootloader.signed.bin` is the ROM
+artifact; `bootloader.json` describes build configuration, never device state.
+Application packaging uses 32-byte trailer alignment and encrypted native OTA
+partitions. Factory images require `mcuboot_image.py --confirm`.
+
+This SDK configuration requires flash encryption to be provisioned already;
+its secure-boot startup can still burn permanent eFuses. Build commands never
+flash or provision a device. Production keys, encrypted factory flashing,
+ROM rejection tests, recovery/debug policy and a protected rollback floor need
+qualification before hardware activation. Keep disposable CI roots off devices.
+
+Runtime boot control is explicitly unavailable in the protected profile. The
+pinned Espressif encrypted-write path erases and rewrites sectors containing
+boot metadata; power loss during those writes is unqualified. Enabling encrypted
+updates requires resolving that recovery behavior, rather than adding another
+update state machine above it. The portable boot API and unencrypted qualification
+profile remain unchanged.

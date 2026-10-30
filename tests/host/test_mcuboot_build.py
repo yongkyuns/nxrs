@@ -37,6 +37,22 @@ class BootWiringTests(unittest.TestCase):
         self.assertFalse(any(key.startswith("CONFIG_SECURE_") for key in config))
         self.assertIn(BOOT.MCUBOOT_REVISION, (ROOT / "tools/mcuboot-requirements.txt").read_text())
 
+    def test_protected_build_matches_encryption_alignment_and_blocks_runtime_updates(self):
+        profile = resolve("esp32s3-camera-stream-protected-build")
+        app = BOOT.application_config(profile)
+        text = BOOT.bootloader_config(profile, "/tmp/public-root.pem")
+        self.assertEqual(profile["mcuboot"]["write-align"], 32)
+        self.assertEqual(app["ESP32S3_OTA_PARTITION_ENCRYPT"], "y")
+        self.assertNotIn("BOOT_MCUBOOT", app)
+        for key in ("SECURE_BOOT_V2_ENABLED", "SECURE_FLASH_ENC_ENABLED",
+                    "SECURE_FLASH_REQUIRE_ALREADY_ENABLED", "SECURE_FLASH_ENCRYPTION_MODE_RELEASE"):
+            self.assertIn(f"CONFIG_{key}=1\n", text)
+        for overrides in ({"hardware-protection": "yes"},
+                          {"mcuboot": {**profile["mcuboot"], "write-align": 4}},
+                          {"hal": {**profile["hal"], "boot": "nuttx"}}):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                BOOT.application_config({**profile, **overrides})
+
     def test_unsupported_target_geometry_and_config_injection_fail(self):
         profile = resolve("esp32s3-camera-stream-mcuboot")
         for field, value in (("slot-size", 0x300000), ("primary-offset", 0x10000),
@@ -97,6 +113,48 @@ class BootWiringTests(unittest.TestCase):
                 subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
                                 str(ROOT / "tests/host/esp32s3_wdt_handoff.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
+
+
+@unittest.skipUnless(importlib.util.find_spec("espsecure"), "install esptool==4.8.1 for ROM signature tests")
+class RomSigningTests(unittest.TestCase):
+    def test_independent_root_corruption_size_and_atomic_publication(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        spec = importlib.util.spec_from_file_location("boot_builder", ROOT / "tools/build-mcuboot.py")
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            keys = [rsa.generate_private_key(public_exponent=65537, key_size=3072) for _ in range(2)]
+            key, root, wrong = (directory / name for name in ("key.pem", "root.pem", "wrong.pem"))
+            private = keys[0].private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption())
+            key.write_bytes(private)
+            for path, material in ((root, keys[0]), (wrong, keys[1])):
+                path.write_bytes(material.public_key().public_bytes(
+                    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+            source, output = directory / "unsigned.bin", directory / "signed.bin"
+            source.write_bytes(b"payload" * 512)
+            builder.sign_rom(source, output, key, root)
+            good = output.read_bytes()
+            for expected, size in ((wrong, 4096), (root, 0xf000)):
+                source.write_bytes(b"x" * size)
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    builder.sign_rom(source, output, key, expected)
+                self.assertEqual(output.read_bytes(), good)
+            for protected in (source, key, root):
+                with self.assertRaises(ValueError):
+                    builder.sign_rom(source, protected, key, root)
+            with self.assertRaises(ValueError):
+                builder.sign_rom(source, output, key, key)
+            corrupt = bytearray(good)
+            corrupt[64] ^= 1
+            output.write_bytes(corrupt)
+            result = subprocess.run([sys.executable, "-m", "espsecure", "verify_signature", "--version", "2",
+                                     "--keyfile", str(root), str(output)], capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(key.read_bytes(), private)
+            self.assertFalse(list(directory.glob(".rom-sign-*")))
 
 
 if __name__ == "__main__":
