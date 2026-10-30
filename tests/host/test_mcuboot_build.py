@@ -84,6 +84,13 @@ class BootWiringTests(unittest.TestCase):
             subprocess.run(["patch", "-p1", "-i", str(ROOT / "upstream/mcuboot/patches/0001-nuttx-direct-trailer-writes.patch")],
                            cwd=directory, check=True, capture_output=True)
             (directory / "ftl.inc").write_text(function)
+            erase = path.read_text()
+            erase = erase[erase.index("int flash_area_erase("):]
+            (directory / "erase.inc").write_text(erase[:erase.index("\n}\n") + 3])
+            executable = directory / "erase"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                            str(ROOT / "tests/host/mcuboot_native_erase.c"), "-o", str(executable)], check=True)
+            subprocess.run([str(executable)], check=True, timeout=5)
             for source, expected in ((original, 1), (path.read_text(), 0)):
                 flags = re.search(r"fd = open\(dev->fa_cfg->fa_mtd_path, (.*?)\);", source).group(1)
                 (directory / "open_flags.inc").write_text(f"#define SDK_OPEN_FLAGS ({flags})\n")

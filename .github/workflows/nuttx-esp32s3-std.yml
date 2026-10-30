@@ -15,6 +15,7 @@ on:
       - 'upstream/nuttx/**'
       - 'upstream/mcuboot/**'
       - 'tests/host/mcuboot_trailer_nor.c'
+      - 'tests/host/mcuboot_native_erase.c'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
