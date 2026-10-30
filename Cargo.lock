@@ -214,6 +214,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-boot"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-browser-threads"
 version = "0.1.0"
 
@@ -425,6 +429,7 @@ version = "0.1.0"
 name = "nxrs-std-stream"
 version = "0.1.0"
 dependencies = [
+ "nxrs-boot",
  "nxrs-camera",
  "nxrs-camera-stream",
  "nxrs-connectivity-service",

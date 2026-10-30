@@ -7,6 +7,7 @@ edition.workspace = true
 probe = ["nxrs-detector/probe"]
 
 [dependencies]
+nxrs-boot = { path = "../../../hal/boot" }
 nxrs-detector = { path = "../../../hal/detector" }
 nxrs-camera = { path = "../../../hal/camera" }
 nxrs-wifi = { path = "../../../hal/wifi" }

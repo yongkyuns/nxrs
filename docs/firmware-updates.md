@@ -28,9 +28,24 @@ after staging completes. The standalone `tools/mcuboot_image.py` supports
 Use separate signing authorities for incompatible products/layouts; a shared
 firmware version alone does not identify the intended hardware.
 
-MCUboot owns image authentication and boot/recovery state. Shared Rust update
-delivery and startup-health policy will consume a small platform slot/boot
-interface; flash operations stay in the owning HAL. Product wiring owns layout.
+MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
+`state`, `request_trial` and `confirm`; shared Rust admits only stable-to-pending
+and trial-to-confirmed transitions and retains failures for that owner. The NuttX
+provider holds one exclusive lease while calling synchronous upstream SDK
+operations. Application control links only MCUboot's trailer helpers, without
+another verifier or crypto library. Its NuttX flash descriptors use direct,
+synchronous NOR writes so setting a trailer flag does not erase neighboring
+recovery state through the default MTD translation layer. The host regression
+compiles NuttX's actual direct-write function against a NOR/power-cut model;
+whole-device interrupted-update qualification is still required.
+Native flash partitions follow the product
+layout; filesystem auto-mounting stays disabled.
+
+Staging and application health remain separate caller responsibilities. A trial
+must be confirmed only after the application's startup health policy passes.
+The native `boot-control` fixture exercises SDK state, trial and confirmation,
+exclusive acquisition and repeated-query descriptor cleanup; it is not an OTA
+service or automatic startup confirmation policy. Product wiring owns layout.
 The packager uses upstream signing/verification and explicit geometry, independent
 of the ESP32-S3 boot ROM.
 
@@ -56,6 +71,6 @@ watchdog reset timing.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, enforce a protected version floor, or
-provide on-device update delivery/confirmation. Those and physical interrupted
+provide on-device update delivery or a product startup-health policy. Those and physical interrupted
 update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.

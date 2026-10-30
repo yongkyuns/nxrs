@@ -1,0 +1,15 @@
+--- a/boot/nuttx/src/flash_map_backend/flash_map_backend.c
++++ b/boot/nuttx/src/flash_map_backend/flash_map_backend.c
+@@ -269,7 +269,11 @@
+       return OK;
+     }
+ 
+-  fd = open(dev->fa_cfg->fa_mtd_path, O_RDWR);
++  /* Trailer flags are one-way NOR writes. The default MTD proxy otherwise
++   * erases and rewrites their whole sector, losing recovery state on power loss.
++   */
++
++  fd = open(dev->fa_cfg->fa_mtd_path, O_RDWR | O_DIRECT | O_SYNC);
+   if (fd < 0)
+     {
+       int errcode = errno;

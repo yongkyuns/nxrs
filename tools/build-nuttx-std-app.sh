@@ -132,7 +132,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
 from platform_config import model_features, native_helpers, resolve, validate_target
 sys.path.insert(0, str(Path(sys.argv[2]) / "platform/nuttx"))
-from mcuboot import application_config
+from mcuboot import application_config, MCUBOOT_REVISION
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -181,11 +181,13 @@ boot = data.get("mcuboot")
 print(f"NUTTX_MCUBOOT={'y' if boot is not None else 'n'}")
 if boot is not None:
     values = application_config(data)
+    print(f"NUTTX_MCUBOOT_REVISION={MCUBOOT_REVISION}")
     print("NUTTX_ENABLE+=(ESP32S3_APP_FORMAT_MCUBOOT)")
     array([f"{key}={value}" for key, value in values.items()], "boot geometry", "BOOT_SET")
     print('NUTTX_SET+=("${BOOT_SET[@]}")')
     array(["CONFIG_ESP32S3_APP_FORMAT_MCUBOOT=y", "CONFIG_ESP32S3_FLASH_16M=y",
-           *[f"CONFIG_{key}={value}" for key, value in values.items()]],
+           *[f"# CONFIG_{key} is not set" if value == "n" else f"CONFIG_{key}={value}"
+             for key, value in values.items()]],
           "boot requirements", "BOOT_REQUIRE")
     print('NUTTX_REQUIRE+=("${BOOT_REQUIRE[@]}")')
     print("NUTTX_IMAGE_NAME=nuttx.signed.bin")
@@ -610,6 +612,11 @@ fi
 # Generate the native headers, then qualify the exact compiled libc before
 # linking firmware. Symbol-only checks cannot establish a corrected poll ABI.
 make -C "$OUT/nuttx" context "${MAKE_ARGS[@]}"
+if test "$NUTTX_MCUBOOT" = y && grep -qx 'CONFIG_BOOT_MCUBOOT=y' "$OUT/nuttx/.config"; then
+  python3 "$ROOT/tools/apply-nuttx-patches.py" --component mcuboot \
+    --source "$OUT/apps/boot/mcuboot/mcuboot" --revision "$NUTTX_MCUBOOT_REVISION" \
+    --record "$OUT/mcuboot-patches.json"
+fi
 if test "$TOOLCHAIN_KIND" = esp32s3; then
   # context fetches the SDK when no cache was supplied. Patch only this build's
   # independent checkout, after its own submodule setup and before compilation.
