@@ -107,6 +107,15 @@ case requires successful output; it reports contention and maximum observed
 duration. This cannot preempt a stalled call, establish entropy quality or prove
 worst-case latency. Clock resolution also limits timing.
 
+For pre-radio startup observations, add `--kconfig-disable NSH_NETINIT` and
+`--kconfig-disable NETUTILS_NETINIT` to the fixture build, then run
+`entropy_probe cold` before `ifup wlan0` and `entropy_probe station`.
+NXInit also starts networking
+when `NETUTILS_NETINIT` is enabled, independently of NSH. The builder records
+and verifies both overrides while preserving profile requirements and
+forbidden-option checks. A reset/startup observation does not qualify a
+power-loss cycle or the bootloader's earlier entropy source.
+
 On a physical ESP32-S3, three station connection/shutdown cycles produced:
 
 | State | Successful reads | Bytes | Unavailable reads |
@@ -126,7 +135,9 @@ The original 16 MiB flash was restored and separately verified. Its camera
 supervisor resumed, and three advancing 320×240 source JPEGs decoded on the Mac;
 this recovery check does not qualify gateway or phone playback.
 
-Pre-radio cold start, concurrent camera load, TLS handshake/reseed latency and
-heap/stack peaks remain unmeasured. Existing NSH `free`, `ps` and `/proc/meminfo`
+Concurrent camera load, TLS handshake/reseed latency and heap/stack peaks remain
+unmeasured. Pre-radio startup/reset coverage and source-health gates are tracked
+in [issue #35](https://github.com/yongkyuns/nxrs/issues/35).
+Existing NSH `free`, `ps` and `/proc/meminfo`
 support resource observations; snapshots alone cannot establish peaks.
 ESP32-S3 TLS admission remains disabled.

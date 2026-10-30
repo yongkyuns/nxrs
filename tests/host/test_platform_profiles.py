@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+from itertools import product
 import shlex
 import subprocess
 import tempfile
@@ -90,11 +91,13 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertIn('"$OUT/resolved.config"', script[hashes:].splitlines()[0])
 
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
-        for symbol in ("", "lowercase", "FOO BAR", "FOO=1", "-FOO"):
-            with self.subTest(symbol=symbol):
+        for option, symbol in product(
+                ("--kconfig-enable", "--kconfig-disable"),
+                ("", "lowercase", "FOO BAR", "FOO=1", "-FOO")):
+            with self.subTest(option=option, symbol=symbol):
                 result = subprocess.run(
                     ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh'),
-                     "--kconfig-enable", symbol], cwd=ROOT, text=True,
+                     option, symbol], cwd=ROOT, text=True,
                     capture_output=True, timeout=5)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Invalid Kconfig symbol:", result.stderr)
@@ -111,11 +114,21 @@ class FirmwareFrontendTests(unittest.TestCase):
         result = subprocess.run(
             ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh'),
              "--kconfig-enable", "RP23XX_CYW43439_READ_OBSERVER",
-             "--kconfig-enable", "NET_STATISTICS"], cwd=ROOT,
+             "--kconfig-enable", "NET_STATISTICS",
+             "--kconfig-disable", "NSH_NETINIT",
+             "--kconfig-disable", "NETUTILS_NETINIT"], cwd=ROOT,
             text=True, capture_output=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Missing required argument", result.stderr)
         self.assertNotIn("Invalid Kconfig symbol", result.stderr)
+
+    def test_conflicting_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
+        result = subprocess.run(
+            ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh'),
+             "--kconfig-enable", "NSH_NETINIT", "--kconfig-disable", "NSH_NETINIT"],
+            cwd=ROOT, text=True, capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Conflicting Kconfig request: NSH_NETINIT", result.stderr)
 
     def test_native_builder_compiles_the_manifest_it_validates(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text().replace('\\\n', ' ')
