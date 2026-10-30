@@ -15,9 +15,9 @@ def layout(config: dict) -> dict:
               "scratch-offset", "scratch-size", "header-size", "write-align", "erase-size"}
     if not isinstance(config, dict) or set(config) != fields:
         raise ValueError("mcuboot requires explicit flash, slot, scratch, header and alignment geometry")
-    if any(type(value) is not int or not 0 < value <= 0xffffffff
-           for value in config.values()):
-        raise ValueError("mcuboot geometry must contain positive 32-bit byte counts")
+    if any(type(value) is not int or not (0 if key.endswith("-offset") else 1) <= value <= 0xffffffff
+           for key, value in config.items()):
+        raise ValueError("mcuboot geometry needs unsigned offsets and positive 32-bit byte counts")
     if config["write-align"] not in {1, 2, 4, 8, 16, 32}:
         raise ValueError("mcuboot write-align must be a power of two from 1 through 32")
     if config["header-size"] < 32 or config["header-size"] % config["write-align"]:
@@ -26,11 +26,11 @@ def layout(config: dict) -> dict:
     if sector & (sector - 1) or sector % config["write-align"]:
         raise ValueError("mcuboot erase-size must be a power of two and write-aligned")
     end = 0
-    for offset, size in ((config["primary-offset"], config["slot-size"]),
-                         (config["secondary-offset"], config["slot-size"]),
-                         (config["scratch-offset"], config["scratch-size"])):
+    for offset, size in sorted(((config["primary-offset"], config["slot-size"]),
+                                (config["secondary-offset"], config["slot-size"]),
+                                (config["scratch-offset"], config["scratch-size"]))):
         if offset % sector or size % sector or offset < end:
-            raise ValueError("mcuboot regions must be ordered, disjoint and flash-sector aligned")
+            raise ValueError("mcuboot regions must be disjoint and flash-sector aligned")
         end = offset + size
     if end > config["flash-size"] or config["slot-size"] <= config["header-size"]:
         raise ValueError("mcuboot layout exceeds flash or leaves no image space")
@@ -57,9 +57,9 @@ def sign(source: Path, output: Path, config: dict, key: Path, root: Path,
                    "-s", str(counter), "-H", str(config["header-size"]), "--pad-header",
                    "-S", str(config["slot-size"]), "--align", str(config["write-align"]),
                    "--max-align", str(max(8, config["write-align"])),
-                   "--max-sectors", str(config["slot-size"] // config["erase-size"]), "--pad"]
+                   "--max-sectors", str(config["slot-size"] // config["erase-size"])]
         if confirm:
-            command.append("--confirm")
+            command.extend(["--pad", "--confirm"])
         subprocess.run([*command, str(source), str(candidate)], check=True)
         subprocess.run(["imgtool", "verify", "-k", str(root), str(candidate)], check=True)
         os.replace(candidate, output)
