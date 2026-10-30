@@ -13,7 +13,7 @@ The [ESP32-S3 resource breakdown](../../docs/esp32s3-tls-resources.md) separates
 kernel, radio, TLS, Rust and image alignment costs and describes the device probe.
 
 Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` and
-`esp32s3-camera-tls` for NuttX compile qualification. Public socket/time types use
+`esp32s3-camera-tls` for NuttX qualification. Public socket/time types use
 Rust `std` and remain available without a selected backend; `open()` then returns `Unsupported`,
 acquiring no SDK or entropy. Services need no platform conditionals.
 The NuttX factory accepts only the configured RP2350 hardware source or the
@@ -84,10 +84,11 @@ bash tools/build-nuttx-std-app.sh \
   --panic-immediate-abort
 ```
 
-This links the shared TLS adapter with the native camera/radio drivers; the
-fixture uses synthetic capture and test PKI/time. It does not qualify physical
-capture, handshake execution or peak memory. ESP32-S3 `tls::open()` still returns
-`Unsupported`: its RNG requires an active RF or exclusive SAR-ADC entropy source.
+This endpoint fixture uses synthetic capture and test PKI/time. For the physical
+camera path, use [stream qualification](../../tests/nuttx-std/stream/README.md)
+with `build.sh --tls`. It uses the same shared worker, device-generated CSR and
+trusted USB enrollment/time. The RNG requires an active RF or exclusive
+SAR-ADC entropy source.
 The pinned PHY power flags are per radio, not per caller, so TLS cannot borrow
 Wi-Fi's flag as an entropy lease. NuttX patch 0093 instead holds the existing
 PHY mutex through `/dev/random` sampling. SDK patch 0003 moves the adapter's
@@ -100,7 +101,8 @@ the raw device honors `O_NONBLOCK`.
 `/dev/urandom` retains its legacy raw output, without a cryptographic guarantee
 at boot. The vendor's synchronous, cycle-paced sampling is unchanged. Native
 fault controls and target builds do not qualify physical source health or
-execution latency. Physical pre-radio refusal, associated reads and stopped-radio
-refusal have been observed, but actual TLS handshake and camera-to-gateway
-authentication qualification remains required before product admission. See
+execution latency bounds. Physical pre-radio refusal, associated reads and
+stopped-radio refusal have been observed. Controlled physical TLS, playback and
+recording measurements are in [resource qualification](../../docs/esp32s3-tls-resources.md).
+This does not establish an autonomous shipping device. See
 [Espressif's RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html).

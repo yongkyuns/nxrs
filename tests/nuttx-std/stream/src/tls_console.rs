@@ -210,7 +210,8 @@ mod device {
             let mut response = [0; 20];
             read_exact(&mut std::io::stdin(), &mut response, deadline)
                 .map_err(|_| tls::Error::Time)?;
-            let uncertainty = started.elapsed();
+            let observed = Instant::now();
+            let uncertainty = observed.duration_since(started);
             if uncertainty >= Duration::from_secs(1) {
                 return Err(tls::Error::Time);
             }
@@ -218,6 +219,7 @@ mod device {
             tls::TimeLease::from_trusted_with_uncertainty(
                 unix_seconds,
                 Duration::from_secs(30),
+                observed,
                 uncertainty,
             )
         };

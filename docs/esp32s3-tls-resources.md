@@ -135,9 +135,21 @@ The original 16 MiB flash was restored and separately verified. Its camera
 supervisor resumed, and three advancing 320×240 source JPEGs decoded on the Mac;
 this recovery check does not qualify gateway or phone playback.
 
-Concurrent camera load, TLS handshake/reseed latency and heap/stack peaks remain
-unmeasured. Pre-radio startup/reset coverage and source-health gates are tracked
-in [issue #35](https://github.com/yongkyuns/nxrs/issues/35).
-Existing NSH `free`, `ps` and `/proc/meminfo`
-support resource observations; snapshots alone cannot establish peaks.
-ESP32-S3 TLS admission remains disabled.
+The guarded RF source now admits TLS with active Wi-Fi, without SMP, PM or
+auto-sleep. A controlled physical camera run passed mutual TLS, rejection of
+unenrolled peers/plaintext, fresh-time loss, Rust gateway ingest, decoded WHEP
+playback and finalized H.264 recording. The original firmware was restored and
+independently verified afterward. [PR #197](https://github.com/yongkyuns/nxrs/pull/197)
+contains the validation and build provenance.
+
+The camera/TLS image remains 1,020,408 B. Preparing immutable enrollment once
+and enabling the upstream P-256 prime reduction avoids repeated slow validation:
+observed startup validation was about 0.98 s and client TLS 1.3 negotiation 0.37 s.
+The observed TLS stack high-water was under 16 KiB with a 64 KiB allocation;
+whole-application heap snapshots were about 1.08 MB user and 59 kB kernel.
+These observations do not bound every workload or establish heap peaks.
+
+This development path uses volatile keys and trusted USB enrollment/time for
+each boot. Persistent provisioning, autonomous trusted time, physical source
+health, power-loss cycles and worst-case execution/reseed measurements remain
+separate product gates. Phone playback is not qualified by the Mac receiver.

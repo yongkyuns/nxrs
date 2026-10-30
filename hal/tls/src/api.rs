@@ -15,25 +15,27 @@ pub struct TimeLease {
 }
 impl TimeLease {
     pub fn from_trusted(unix_seconds: u64, max_age: Duration) -> Result<Self, Error> {
-        Self::from_trusted_with_uncertainty(unix_seconds, max_age, Duration::ZERO)
+        Self::from_trusted_with_uncertainty(unix_seconds, max_age, Instant::now(), Duration::ZERO)
     }
 
     /// Constructs a lease for an authenticated UTC observation whose delivery
-    /// may have taken up to `uncertainty`. The uncertainty widens the upper time
-    /// bound and consumes the same amount of the lease's lifetime.
+    /// may have taken up to `uncertainty` at `observed`. Preserve that receipt
+    /// instant so subsequent scheduling delay cannot renew the observation.
+    /// Uncertainty widens the upper bound and consumes the lease's lifetime.
     pub fn from_trusted_with_uncertainty(
         unix_seconds: u64,
         max_age: Duration,
+        observed: Instant,
         uncertainty: Duration,
     ) -> Result<Self, Error> {
         if unix_seconds > 253_402_300_700
             || max_age.is_zero()
             || max_age > Duration::from_secs(60)
             || uncertainty >= max_age
+            || observed > Instant::now()
         {
             return Err(Error::InvalidInput);
         }
-        let observed = Instant::now();
         Ok(Self {
             epoch: unix_seconds as i64,
             observed,
@@ -126,6 +128,7 @@ mod tests {
             TimeLease::from_trusted_with_uncertainty(
                 1_800_000_000,
                 Duration::from_secs(5),
+                Instant::now(),
                 Duration::from_secs(5)
             ),
             Err(Error::InvalidInput)
@@ -138,29 +141,35 @@ mod tests {
         let epoch = 1_800_000_000i64;
         let max_age = Duration::from_secs(10);
         let uncertainty = Duration::from_millis(1_500);
+        let observed = Instant::now() - Duration::from_millis(1_250);
         let mut time =
-            TimeLease::from_trusted_with_uncertainty(epoch as u64, max_age, uncertainty).unwrap();
+            TimeLease::from_trusted_with_uncertainty(epoch as u64, max_age, observed, uncertainty)
+                .unwrap();
+        assert_eq!(time.observed, observed);
         assert_eq!(
             time.expires.duration_since(time.observed),
             max_age - uncertainty
         );
         // Simulate 1.25 seconds since receipt without sleeping. Lower time floors
         // elapsed; upper time rounds elapsed plus uncertainty outward.
-        time.observed -= Duration::from_millis(1_250);
         let (lower, upper, _) = time.sample().unwrap();
         assert_eq!(lower, epoch + 1);
         assert_eq!(upper, epoch + 4);
 
-        let deadline_lease =
-            TimeLease::from_trusted_with_uncertainty(epoch as u64, max_age, uncertainty).unwrap();
         assert_eq!(
-            deadline_lease
-                .deadline_before(epoch + 5)
+            time.deadline_before(epoch + 5)
                 .unwrap()
-                .duration_since(deadline_lease.observed),
+                .duration_since(time.observed),
             Duration::from_millis(2_500),
         );
-        assert!(deadline_lease.deadline_before(epoch + 1).is_err());
+        assert!(time.deadline_before(epoch + 1).is_err());
+        assert!(TimeLease::from_trusted_with_uncertainty(
+            epoch as u64,
+            max_age,
+            Instant::now() + max_age,
+            Duration::ZERO,
+        )
+        .is_err());
 
         let compatible = TimeLease::from_trusted(epoch as u64, max_age).unwrap();
         assert_eq!(compatible.uncertainty, Duration::ZERO);

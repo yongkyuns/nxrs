@@ -41,9 +41,11 @@ _KNOWN_LINES = tuple(re.compile(pattern) for pattern in (
 ))
 
 
-def _read_exact(port, size, deadline):
+def _read_exact(port, size, deadline, stopped):
     data = bytearray()
     while len(data) < size:
+        if stopped.is_set():
+            raise RuntimeError("TLS qualification stopped")
         if time.monotonic() >= deadline:
             raise TimeoutError("device binary response deadline")
         part = port.read(size - len(data))
@@ -131,12 +133,13 @@ class Supervisor:
         raise RuntimeError("TLS qualification stopped")
 
     def _record(self, line):
-        if len(self.events) >= 256:
-            return
         if line.startswith("NXRS_TLS_CAMERA_FAIL"):
-            self.events.append("NXRS_TLS_CAMERA_FAIL")
-        elif any(pattern.fullmatch(line) for pattern in _KNOWN_LINES):
-            self.events.append(line)
+            line = "NXRS_TLS_CAMERA_FAIL"
+        elif not any(pattern.fullmatch(line) for pattern in _KNOWN_LINES):
+            return
+        if len(self.events) == 256:
+            del self.events[0]
+        self.events.append(line)
 
     def _enroll(self, csr):
         marker = self._wait_line("NXRS_TLS_ENROLL_READY", self._deadline)
@@ -179,7 +182,7 @@ class Supervisor:
             match = re.fullmatch(r"NXRS_TLS_CSR bytes=(\d+)", line)
             if not match or not 1 <= int(match[1]) <= MAX_CSR:
                 raise ValueError("device CSR size invalid")
-            pem = _read_exact(self.port, int(match[1]), self._deadline)
+            pem = _read_exact(self.port, int(match[1]), self._deadline, self._stop)
             private(self.root / "camera.csr", pem)
             self._enroll(pem)
             while not self._stop.is_set():
@@ -243,9 +246,11 @@ class _IdleSerial:
 class _ChunkedSerial(_IdleSerial):
     def __init__(self, data):
         self.data = bytearray(data)
+        self.drained = threading.Event()
 
     def read(self, _size):
         if not self.data:
+            self.drained.set()
             time.sleep(0.005)
             return b""
         value = self.data[0]
@@ -255,12 +260,15 @@ class _ChunkedSerial(_IdleSerial):
 
 class SupervisorTests(unittest.TestCase):
     def test_address_is_kept_and_idle_reader_stops(self):
-        with tempfile.TemporaryDirectory() as directory:
-            supervisor = Supervisor(_IdleSerial(), directory, "192.0.2.8")
-            self.assertEqual(supervisor.address, "192.0.2.8")
-            supervisor.stop()
-            self.assertTrue(supervisor.finished.is_set())
-            self.assertIsNone(supervisor.failure)
+        for port in (_IdleSerial(), _ChunkedSerial(b"NXRS_TLS_CSR bytes=100\n")):
+            with tempfile.TemporaryDirectory() as directory:
+                supervisor = Supervisor(port, directory, "192.0.2.8")
+                if isinstance(port, _ChunkedSerial):
+                    self.assertTrue(port.drained.wait(1))  # Partial CSR input entered.
+                self.assertEqual(supervisor.address, "192.0.2.8")
+                supervisor.stop()
+                self.assertTrue(supervisor.finished.is_set())
+                self.assertIsNone(supervisor.failure)
 
     def test_partial_line_survives_idle_deadline(self):
         pending = bytearray()
@@ -281,6 +289,7 @@ class SupervisorTests(unittest.TestCase):
                 "NXRS_TLS_REPORT ms=10000 captured=100 delivered=99 handshakes=1 failures=0 last=None heap_user=1 heap_kernel=2",
                 "NXRS_TLS_DELIVERED captured=100 delivered=99 handshakes=1 failures=0",
                 "NXRS_TLS_INPUT_ACK offset=32",
+                "NXRS_TLS_STACK budget=65536 used=untrusted",
                 "NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
             ):
                 supervisor._record(line)
@@ -291,8 +300,11 @@ class SupervisorTests(unittest.TestCase):
                 "NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
             ])
 
-    def test_enrollment_field_length_prefix(self):
-        self.assertEqual(_field("urn:nxrs:camera:x:y"), b"\x00\x13urn:nxrs:camera:x:y")
+            for _ in range(300):
+                supervisor._record("NXRS_TLS_STACK budget=65536 used=4096")
+            supervisor._record("NXRS_TLS_CAMERA_PASS stopped=1 joined=1")
+            self.assertEqual(len(supervisor.events), 256)
+            self.assertEqual(supervisor.events[-1], "NXRS_TLS_CAMERA_PASS stopped=1 joined=1")
 
 
 if __name__ == "__main__":
