@@ -218,6 +218,28 @@ class SessionTests(unittest.TestCase):
 
 
 class StateTests(unittest.TestCase):
+    def test_usb_reports_and_owner_events_keep_one_consistent_private_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = SERVE.State(Path(directory) / 'state.json')
+            errors = []
+            def emit(event, fields):
+                try:
+                    for _ in range(10):
+                        state.emit(event, **fields)
+                        json.loads(state.path.read_text())
+                except Exception as error:
+                    errors.append(error)
+            with patch('builtins.print'):
+                usb = threading.Thread(target=emit, args=('tls', dict(tls=dict(handshakes=1))))
+                owner = threading.Thread(target=emit, args=('renewing', {}))
+                usb.start(); owner.start()
+                usb.join(); owner.join()
+            self.assertEqual(errors, [])
+            saved = json.loads(state.path.read_text())
+            self.assertEqual(saved['renewals'], 10)
+            self.assertEqual(saved['tls']['handshakes'], 1)
+            self.assertEqual(os.stat(state.path).st_mode & 0o777, 0o600)
+
     def test_private_atomic_status_and_restart_counters(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.json"
