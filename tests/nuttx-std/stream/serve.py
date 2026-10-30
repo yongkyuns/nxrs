@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -22,11 +23,12 @@ SPEC.loader.exec_module(RUN)
 
 
 class Session:
-    def __init__(self, console, credentials, seconds, emit, stop=None, clock=time.monotonic):
+    def __init__(self, console, credentials, seconds, emit, stop=None, clock=time.monotonic, tls=False):
         if seconds is not None and not 10 <= seconds <= 3600:
             raise ValueError("cycle seconds must be 10–3600")
         self.console, self.credentials, self.seconds = console, credentials, seconds
         self.emit, self.clock = emit, clock
+        self.tls = tls
         self.stop = stop or threading.Event()
         self.pending = bytearray()
         self.completed = 0
@@ -43,7 +45,8 @@ class Session:
     def start(self):
         ssid, password = self.credentials
         duration = "continuous" if self.seconds is None else str(self.seconds)
-        self.console.write(f"stream_test {duration} 0 320 240 81\n".encode("ascii"))
+        mode = "tls " if self.tls else ""
+        self.console.write(f"stream_test {mode}{duration} 0 320 240 81\n".encode("ascii"))
         RUN.wait_stage(self.console, self.pending, b"NXRS_WIFI_CREDENTIALS_READY", password, 15, "credential reader")
         payload = bytes((len(ssid), len(password))) + ssid + password
         if self.console.write(payload) != len(payload):
@@ -129,7 +132,9 @@ class State:
                      "renewals": 0, "source": "physical", "status": "starting"}
 
     def emit(self, event, **fields):
-        if event == "detection":
+        if event == "tls":
+            self.data.update(tls=fields['tls'], tls_received_unix=time.time())
+        elif event == "detection":
             self.data.update(detection=fields['detection'], detection_received_unix=time.time())
         elif event == "owner_stack":
             self.data.update(owner_stack=fields['stack'], owner_stack_received_unix=time.time())
@@ -220,11 +225,137 @@ def supervise(port, credentials, seconds, cycles, emit, stop):
             console.close()
 
 
+def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=45 * 60):
+    """Supervise the USB development enrollment and the actual Rust ingest.
+
+    Renew through ordinary joined camera sessions before the one-hour CRL
+    expires. The phone enrollment, media server and control gateway are separate.
+    USB loss or a real firmware/ingest fault stops supervision, without a reset.
+    """
+    import ipaddress
+    import re
+    import serial
+    if not 10 <= renew_after <= 45 * 60:
+        raise ValueError("TLS renewal must precede the one-hour CRL deadline")
+    spec = importlib.util.spec_from_file_location("tls_provision", Path(__file__).with_name("tls_provision.py"))
+    tls = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tls)
+    path = RUN._outside_repo(configuration)
+    metadata = path.stat()
+    if not path.is_file() or metadata.st_mode & 0o077 or metadata.st_size > 16384:
+        raise ValueError("TLS configuration must be a bounded private file")
+    config = json.loads(path.read_text())
+    template = config['ingest']
+    address, port_number = template['camera'].rsplit(':', 1)
+    if not ipaddress.IPv4Address(address).is_private or port_number != '8443' or template['allow_insecure_camera_http']:
+        raise ValueError("TLS ingest requires a private camera and port 8443")
+    enrollment = template['camera_tls']
+    root = RUN._outside_repo(config['enrollment_directory'])
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if root.stat().st_mode & 0o077:
+        raise ValueError("TLS enrollment directory must be private")
+    program = Path(config['ingest_program'])
+    if not program.is_absolute() or not program.is_file():
+        raise ValueError("Rust ingest requires an absolute executable path")
+    expected = identity(port)
+    if expected is None:
+        raise ValueError("selected USB device is absent")
+    console = serial.Serial(port=None, baudrate=115200, timeout=.05, write_timeout=5)
+    console.dtr = console.rts = False
+    console.port, console.exclusive = port, True
+    # Keep the original USB connection through renewals; closing it can reset
+    # this board before the next host operation sees its NSH prompt.
+    with console:
+        while not stop.is_set():
+            if identity(port) != expected:
+                raise RuntimeError("USB device identity changed")
+            with tempfile.TemporaryDirectory(prefix='enrollment-', dir=root) as directory:
+                session_root = Path(directory)
+                supervisor, child, log = None, None, None
+                passed = False
+                try:
+                    console.write(b'\n')
+                    RUN.wait_stage(console, bytearray(), b'nsh> ', credentials[1], 30, 'NSH')
+                    Session(console, credentials, None, emit, stop, tls=True).start()
+                    def observed(line):
+                        raw = line.encode('ascii')
+                        report = RUN.REPORT_RE.fullmatch(raw)
+                        online = RUN.ONLINE_RE.fullmatch(raw)
+                        if report:
+                            emit('telemetry', values=[int(v) if v is not None else None for v in report.groups()])
+                        elif online:
+                            emit('online', ip=online[1].decode('ascii'), port=int(online[2]))
+                        elif raw.startswith(b'NXRS_DETECTION_REPORT'):
+                            emit('detection', detection=RUN.detection_report(raw))
+                        elif raw.startswith(b'NXRS_STREAM_STACK'):
+                            emit('owner_stack', stack=RUN.owner_stack(raw))
+                        elif line.startswith('NXRS_TLS_REPORT'):
+                            fields = re.findall(r'(\w+)=(\d+)', line)
+                            emit('tls', tls={key: int(value) for key, value in fields})
+                    supervisor = tls.Supervisor(console, session_root, address,
+                        site=enrollment['site_id'], camera=enrollment['camera_id'],
+                        gateway=enrollment['gateway_id'], observer=observed)
+                    if not supervisor.ready.wait(tls.INIT_TIMEOUT) or supervisor.failure:
+                        raise RuntimeError("TLS enrollment/startup failed")
+                    rendered = dict(template, camera_tls=supervisor.credentials.config())
+                    ingest_config = root/'ingest.json'
+                    tls.private(ingest_config, json.dumps(rendered))
+                    subprocess.run([str(program), str(ingest_config), '--require-camera-tls', '--check-config'],
+                        check=True, timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    log = (root/'ingest.log').open('ab')
+                    os.chmod(log.name, 0o600)
+                    child = subprocess.Popen([str(program), str(ingest_config), '--require-camera-tls'],
+                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+                    emit('enrolled', ip=address, port=8443, ingest_pid=child.pid, ingest_config=str(ingest_config))
+                    deadline = time.monotonic() + renew_after
+                    while not stop.wait(.1) and time.monotonic() < deadline:
+                        if supervisor.finished.is_set() or child.poll() is not None:
+                            raise RuntimeError("TLS camera or Rust ingest stopped unexpectedly")
+                    passed = True
+                finally:
+                    try:
+                        if child and child.poll() is None:
+                            child.terminate()
+                            try:
+                                child.wait(timeout=10)
+                            except subprocess.TimeoutExpired:
+                                child.kill()
+                                child.wait(timeout=5)
+                                raise RuntimeError("Rust ingest failed to join") from None
+                    finally:
+                        try:
+                            if supervisor:
+                                try:
+                                    if supervisor.ready.is_set() and not supervisor.finished.is_set() and not supervisor.failure:
+                                        supervisor.request_stop()
+                                        # Admission requests time even when there is no viewer.
+                                        try:
+                                            with socket.create_connection((address, 8443), timeout=2):
+                                                pass
+                                        except OSError:
+                                            pass
+                                        if not supervisor.finished.wait(45):
+                                            raise RuntimeError("TLS camera shutdown deadline")
+                                    joined = any(line in supervisor.events for line in (
+                                        'NXRS_STREAM_PASS stopped=1 joined=1',
+                                        'NXRS_TLS_CAMERA_PASS stopped=1 joined=1'))
+                                    if passed and (supervisor.failure or not joined):
+                                        raise RuntimeError("TLS camera did not confirm joined shutdown")
+                                finally:
+                                    supervisor.stop()
+                        finally:
+                            if log:
+                                log.close()
+            if not stop.is_set():
+                emit('renewing')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--wifi-file", required=True)
     parser.add_argument("--state-file", required=True, help="new private JSON file outside the checkout")
+    parser.add_argument("--tls-config", help="private USB enrollment and Rust ingest configuration")
     args = parser.parse_args()
     credentials = RUN.read_wifi_file(args.wifi_file)
     state = State(args.state_file)
@@ -237,7 +368,10 @@ def main():
     try:
         if sys.platform == "darwin":
             awake = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
-        supervise(args.port, credentials, None, 0, state.emit, stop)
+        if args.tls_config:
+            supervise_tls(args.port, credentials, args.tls_config, state.emit, stop)
+        else:
+            supervise(args.port, credentials, None, 0, state.emit, stop)
         state.emit("stopped")
     except Exception:
         # Deliberately do not interpolate SDK/serial exceptions or raw console data.

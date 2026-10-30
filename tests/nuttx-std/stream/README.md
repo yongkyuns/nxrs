@@ -21,6 +21,28 @@ for every boot and for time refresh. It does not implement persistent enrollment
 or an autonomous trusted clock. Preserve and verify the original firmware before
 temporary flashing, and restore it after qualification.
 
+For continuous TLS **with the existing detector**, build with
+`build.sh --platform esp32s3-camera-stream-tls`, then run
+`stream_test tls continuous 0 320 240 81`. This uses the same capture,
+detector, reconnect and shutdown loop as HTTP. TLS owns the sole UART reader;
+a sequence-bound USB stop response requests ordinary joined shutdown.
+
+`serve.py` accepts `--tls-config FILE` alongside its existing port, Wi-Fi and
+state-file arguments. The mode-0600 JSON contains `enrollment_directory`
+(private directory), `ingest_program` (absolute Rust ingest executable), and
+`ingest` (its configuration). Set `camera` to the camera's private IPv4:8443,
+`allow_insecure_camera_http` to false, and `camera_tls` to the independently
+assigned `site_id`, `camera_id` and `gateway_id`. Keep the ordinary publisher,
+detector and media settings. The helper adds the issued certificate paths/pin,
+writes the complete `ingest.json`, and starts Rust with `--require-camera-tls`.
+Stop an existing ingest owner before starting this supervisor.
+
+The USB development supervisor renews through joined native/ingest sessions
+every 45 minutes, before the one-hour CRL expires, without closing the serial
+connection. Private enrollment files are removed after native and ingest retirement.
+USB/firmware/ingest faults stop supervision; they do not trigger blind resets or
+plaintext fallback. Trusted USB time and per-boot enrollment remain required.
+
 [`app/camera-stream`](../../../app/camera-stream) composes the camera service
 and caller-polled [`service/stream`](../../../service/stream) server.
 [`service/connectivity`](../../../service/connectivity) owns reconnect policy.

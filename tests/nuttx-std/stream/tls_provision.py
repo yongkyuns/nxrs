@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -36,7 +37,8 @@ _KNOWN_LINES = tuple(re.compile(pattern) for pattern in (
     r"NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
     r"NXRS_STREAM_STACK budget=\d+ used=\d+",
     r"NXRS_STREAM_REPORT ms=\d+ captured=\d+ delivered=\d+ bytes=\d+ max_bytes=\d+ heap_user=\d+ heap_kernel=\d+ cpu_busy_pm=\d+ owner_cpu_ms=\d+ online=[01] attempts=\d+ rejoined=\d+ errors=\d+(?: camera_discarded=\d+)?",
-    r"NXRS_STREAM_ONLINE ip=(?:\d{1,3}\.){3}\d{1,3} port=8080 ms=\d+",
+    r"NXRS_STREAM_ONLINE ip=(?:\d{1,3}\.){3}\d{1,3} port=(?:8080|8443) ms=\d+",
+    r"NXRS_DETECTION_REPORT ms=\d+ state=(?:Unavailable|Clear|Person) submitted=\d+ completed=\d+ failures=\d+ inference_us=\d+ max_inference_us=\d+ events=\d+ sequence=\d+ age_ms=\d+ score=\d+",
     r"NXRS_STREAM_PASS stopped=1 joined=1",
 ))
 
@@ -93,7 +95,7 @@ class Supervisor:
     lifetime. Only bounded, recognized NXRS_TLS lines are retained in `events`.
     """
 
-    def __init__(self, port, root, camera_ip, *, site=SITE, camera=CAMERA, gateway=GATEWAY):
+    def __init__(self, port, root, camera_ip, *, site=SITE, camera=CAMERA, gateway=GATEWAY, observer=None):
         self.port = port
         self.root = Path(root).resolve()
         self.address = str(ipaddress.IPv4Address(camera_ip))
@@ -105,8 +107,10 @@ class Supervisor:
         self.failure = None
         self.credentials = None
         self.events = []
+        self.observer = observer
         self.pending = bytearray()
         self._stop = threading.Event()
+        self._device_stop = threading.Event()
         self._write_lock = threading.Lock()
         self._deadline = time.monotonic() + INIT_TIMEOUT
         self._thread = threading.Thread(target=self._run, name="nxrs-tls-usb", daemon=True)
@@ -128,18 +132,20 @@ class Supervisor:
             self._record(line)
             if line.startswith(prefix):
                 return line
-            if line.startswith("NXRS_TLS_CAMERA_FAIL"):
+            if line.startswith(("NXRS_TLS_CAMERA_FAIL", "NXRS_STREAM_FAIL")):
                 raise RuntimeError("device TLS qualification failed")
         raise RuntimeError("TLS qualification stopped")
 
     def _record(self, line):
-        if line.startswith("NXRS_TLS_CAMERA_FAIL"):
-            line = "NXRS_TLS_CAMERA_FAIL"
+        if line.startswith(("NXRS_TLS_CAMERA_FAIL", "NXRS_STREAM_FAIL")):
+            line = line.split()[0]
         elif not any(pattern.fullmatch(line) for pattern in _KNOWN_LINES):
             return
         if len(self.events) == 256:
             del self.events[0]
         self.events.append(line)
+        if self.observer is not None:
+            self.observer(line)
 
     def _enroll(self, csr):
         marker = self._wait_line("NXRS_TLS_ENROLL_READY", self._deadline)
@@ -197,9 +203,12 @@ class Supervisor:
                     seq = int(time_match[1])
                     if seq > 0xffffffffffffffff:
                         raise ValueError("device time sequence invalid")
-                    self._write(b"NXT1" + struct.pack(">QQ", seq, int(time.time())))
+                    if self._device_stop.is_set():
+                        self._write(b"NXS1" + struct.pack(">QQ", seq, 0))
+                    else:
+                        self._write(b"NXT1" + struct.pack(">QQ", seq, int(time.time())))
                     continue
-                listen = re.fullmatch(r"NXRS_TLS_LISTEN ip=(\d{1,3}(?:\.\d{1,3}){3}) port=(\d+)", line)
+                listen = re.fullmatch(r"NXRS_(?:TLS_LISTEN|STREAM_ONLINE) ip=(\d{1,3}(?:\.\d{1,3}){3}) port=(\d+)(?: ms=\d+)?", line)
                 if listen:
                     address = str(ipaddress.IPv4Address(listen[1]))
                     if address != self.address or int(listen[2]) != 8443:
@@ -207,10 +216,10 @@ class Supervisor:
                     self.address = address
                     self.ready.set()
                     continue
-                if line == "NXRS_TLS_CAMERA_PASS stopped=1 joined=1":
+                if line in ("NXRS_TLS_CAMERA_PASS stopped=1 joined=1", "NXRS_STREAM_PASS stopped=1 joined=1"):
                     self._record(line)
                     return
-                if line.startswith("NXRS_TLS_CAMERA_FAIL"):
+                if line.startswith(("NXRS_TLS_CAMERA_FAIL", "NXRS_STREAM_FAIL")):
                     self._record(line)
                     raise RuntimeError("device TLS qualification failed")
                 self._record(line)
@@ -221,6 +230,14 @@ class Supervisor:
             self.ready.set()
         finally:
             self.finished.set()
+
+    def request_stop(self):
+        """Answer the next device time request with a sequence-bound stop.
+
+        The caller can open a TCP connection to wake an idle TLS accept loop.
+        The device owner, not this serial reader, joins camera and Wi-Fi.
+        """
+        self._device_stop.set()
 
     def stop(self):
         self._stop.set()
@@ -247,6 +264,13 @@ class _ChunkedSerial(_IdleSerial):
     def __init__(self, data):
         self.data = bytearray(data)
         self.drained = threading.Event()
+        self.writes = []
+        self.written = threading.Event()
+
+    def write(self, data):
+        self.writes.append(data)
+        self.written.set()
+        return len(data)
 
     def read(self, _size):
         if not self.data:
@@ -259,6 +283,25 @@ class _ChunkedSerial(_IdleSerial):
 
 
 class SupervisorTests(unittest.TestCase):
+    def test_stop_uses_the_next_time_sequence_and_waits_for_joined_shutdown(self):
+        port = _ChunkedSerial(b"NXRS_TLS_CSR bytes=1\nxNXRS_TLS_TIME_REQUEST sequence=3\n")
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(Supervisor, '_enroll', lambda *_: None), \
+                patch.object(time, 'time', return_value=1_800_000_000):
+            supervisor = Supervisor(port, directory, "192.0.2.8")
+            try:
+                self.assertTrue(port.written.wait(1))
+                self.assertEqual(port.writes, [b'NXT1' + struct.pack('>QQ', 3, 1_800_000_000)])
+                supervisor.request_stop()
+                self.assertFalse(supervisor.finished.is_set())
+                port.data.extend(b"NXRS_TLS_TIME_REQUEST sequence=4\nNXRS_STREAM_PASS stopped=1 joined=1\n")
+                self.assertTrue(supervisor.finished.wait(1))
+                self.assertEqual(port.writes[-1], b'NXS1' + struct.pack('>QQ', 4, 0))
+                self.assertEqual(supervisor.events[-1], 'NXRS_STREAM_PASS stopped=1 joined=1')
+                self.assertIsNone(supervisor.failure)
+            finally:
+                supervisor.stop()
+
     def test_address_is_kept_and_idle_reader_stops(self):
         for port in (_IdleSerial(), _ChunkedSerial(b"NXRS_TLS_CSR bytes=100\n")):
             with tempfile.TemporaryDirectory() as directory:

@@ -74,16 +74,25 @@ fn parse_enrollment(blob: &[u8]) -> Result<Enrollment, camera_stream::Error> {
     })
 }
 
-fn parse_time_response(bytes: &[u8], sequence: u64) -> Result<u64, tls::Error> {
-    if bytes.len() != 20 || &bytes[..4] != b"NXT1" {
+#[derive(Debug, PartialEq, Eq)]
+enum Response {
+    Time(u64),
+    Stop,
+}
+
+fn parse_time_response(bytes: &[u8], sequence: u64) -> Result<Response, tls::Error> {
+    if bytes.len() != 20 {
         return Err(tls::Error::Time);
     }
     if u64::from_be_bytes(bytes[4..12].try_into().map_err(|_| tls::Error::Time)?) != sequence {
         return Err(tls::Error::Time);
     }
-    Ok(u64::from_be_bytes(
-        bytes[12..20].try_into().map_err(|_| tls::Error::Time)?,
-    ))
+    let value = u64::from_be_bytes(bytes[12..20].try_into().map_err(|_| tls::Error::Time)?);
+    match (&bytes[..4], value) {
+        (b"NXT1", value) => Ok(Response::Time(value)),
+        (b"NXS1", 0) => Ok(Response::Stop),
+        _ => Err(tls::Error::Time),
+    }
 }
 
 #[cfg(target_os = "nuttx")]
@@ -92,6 +101,10 @@ mod device {
     use camera_stream::TlsIdentity;
     use std::{
         io::{Read, Write},
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
         time::{Duration, Instant},
     };
 
@@ -146,6 +159,7 @@ mod device {
     }
 
     pub fn initialize(
+        stop: Arc<AtomicBool>,
     ) -> Result<TlsIdentity<impl FnMut() -> Result<tls::TimeLease, tls::Error>>, camera_stream::Error>
     {
         let _raw = Raw::enter()?;
@@ -215,7 +229,13 @@ mod device {
             if uncertainty >= Duration::from_secs(1) {
                 return Err(tls::Error::Time);
             }
-            let unix_seconds = parse_time_response(&response, sequence)?;
+            let unix_seconds = match parse_time_response(&response, sequence)? {
+                Response::Time(value) => value,
+                Response::Stop => {
+                    stop.store(true, Ordering::Release);
+                    return Err(tls::Error::Time);
+                }
+            };
             tls::TimeLease::from_trusted_with_uncertainty(
                 unix_seconds,
                 Duration::from_secs(30),
@@ -294,8 +314,20 @@ mod tests {
         let mut response = b"NXT1".to_vec();
         response.extend_from_slice(&4u64.to_be_bytes());
         response.extend_from_slice(&1_800_000_000u64.to_be_bytes());
-        assert_eq!(parse_time_response(&response, 4), Ok(1_800_000_000));
+        assert_eq!(
+            parse_time_response(&response, 4),
+            Ok(Response::Time(1_800_000_000))
+        );
         assert_eq!(parse_time_response(&response, 5), Err(tls::Error::Time));
+        response[..4].copy_from_slice(b"NXS1");
+        assert_eq!(parse_time_response(&response, 4), Err(tls::Error::Time));
+        response[12..].copy_from_slice(&0u64.to_be_bytes());
+        assert_eq!(parse_time_response(&response, 4), Ok(Response::Stop));
+        assert_eq!(parse_time_response(&response, 5), Err(tls::Error::Time));
+        assert_eq!(
+            parse_time_response(&response[..19], 4),
+            Err(tls::Error::Time)
+        );
         response[0] = b'X';
         assert_eq!(parse_time_response(&response, 4), Err(tls::Error::Time));
     }

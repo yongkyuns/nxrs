@@ -9,6 +9,10 @@ fn run() -> Result<(), String> {
     use camera::{Camera, JpegQuality};
     use camera_stream::{LiveCamera, TlsOptions};
     use std::net::{Ipv4Addr, TcpListener};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
     use std::time::{Duration, Instant};
 
     unsafe extern "C" {
@@ -38,6 +42,8 @@ fn run() -> Result<(), String> {
                 .set_jpeg_quality(JpegQuality::new(81).unwrap())
                 .map_err(|e| format!("quality {e:?}"))?;
             let listener = TcpListener::bind("0.0.0.0:8443").map_err(|e| e.to_string())?;
+            let stop = Arc::new(AtomicBool::new(false));
+            let tls_stop = stop.clone();
             let mut live = LiveCamera::<_, BYTES, _>::new_tls(
                 device,
                 listener,
@@ -47,7 +53,7 @@ fn run() -> Result<(), String> {
                     stack_bytes: 64 * 1024,
                     poll_interval: Duration::from_millis(2),
                 },
-                console::initialize,
+                move || console::initialize(tls_stop),
             )
             .map_err(|e| format!("TLS setup {e:?}"))?;
             let result = (|| {
@@ -55,7 +61,7 @@ fn run() -> Result<(), String> {
                 println!("NXRS_TLS_LISTEN ip={} port=8443", Ipv4Addr::from(address));
                 let start = Instant::now();
                 let mut next_report = 10_000;
-                while start.elapsed() < Duration::from_secs(seconds) {
+                while !stop.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(seconds) {
                     network().map_err(|e| format!("network {e:?}"))?;
                     let now = start.elapsed().as_millis() as u64;
                     live.poll(now, true).map_err(|e| format!("stream {e:?}"))?;

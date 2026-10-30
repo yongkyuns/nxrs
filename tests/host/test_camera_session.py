@@ -48,7 +48,7 @@ class Console:
 
 
 class SessionTests(unittest.TestCase):
-    def test_owner_stack_is_bounded_and_cannot_renew_stream_health(self):
+    def test_auxiliary_metrics_cannot_renew_stream_health(self):
         row = b'NXRS_STREAM_STACK budget=32480 used=14784'
         parsed = SERVE.RUN.owner_stack(row)
         self.assertEqual(parsed, dict(budget_bytes=32480, used_bytes=14784))
@@ -64,6 +64,10 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(state.data['status'], 'online')
             self.assertEqual(state.data['updated_unix'], updated)
             self.assertEqual(state.data['owner_stack'], parsed)
+            state.emit('tls', tls=dict(handshakes=1, failures=0))
+            self.assertEqual(state.data['status'], 'online')
+            self.assertEqual(state.data['updated_unix'], updated)
+            self.assertEqual(state.data['tls']['handshakes'], 1)
 
     def test_stage_profile_telemetry_rejects_inconsistent_or_unbounded_layouts(self):
         row = b'NXRS_DETECTION_PROFILE decode_us=1000 resize_us=2000 kernel_us=3000 postprocess_us=0 total_us=6000'
