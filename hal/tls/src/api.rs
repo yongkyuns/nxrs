@@ -5,16 +5,31 @@ use std::string::String;
 use std::time::{Duration, Instant};
 
 /// A short-lived authenticated UTC observation, advanced by monotonic time.
-/// The caller must authenticate the observation and account for transport delay
-/// before construction. This does not make an unqualified device clock trusted.
+/// The caller must authenticate the source and bound delivery uncertainty before
+/// construction. This does not make an unqualified device clock trusted.
 pub struct TimeLease {
     pub(crate) epoch: i64,
     pub(crate) observed: Instant,
     pub(crate) expires: Instant,
+    uncertainty: Duration,
 }
 impl TimeLease {
     pub fn from_trusted(unix_seconds: u64, max_age: Duration) -> Result<Self, Error> {
-        if unix_seconds > 253_402_300_700 || max_age.is_zero() || max_age > Duration::from_secs(60)
+        Self::from_trusted_with_uncertainty(unix_seconds, max_age, Duration::ZERO)
+    }
+
+    /// Constructs a lease for an authenticated UTC observation whose delivery
+    /// may have taken up to `uncertainty`. The uncertainty widens the upper time
+    /// bound and consumes the same amount of the lease's lifetime.
+    pub fn from_trusted_with_uncertainty(
+        unix_seconds: u64,
+        max_age: Duration,
+        uncertainty: Duration,
+    ) -> Result<Self, Error> {
+        if unix_seconds > 253_402_300_700
+            || max_age.is_zero()
+            || max_age > Duration::from_secs(60)
+            || uncertainty >= max_age
         {
             return Err(Error::InvalidInput);
         }
@@ -22,7 +37,8 @@ impl TimeLease {
         Ok(Self {
             epoch: unix_seconds as i64,
             observed,
-            expires: observed + max_age,
+            expires: observed + (max_age - uncertainty),
+            uncertainty,
         })
     }
     pub(crate) fn sample(&self) -> Result<(i64, i64, Instant), Error> {
@@ -34,9 +50,13 @@ impl TimeLease {
             .checked_duration_since(self.observed)
             .ok_or(Error::Time)?;
         let lower = self.epoch + elapsed.as_secs() as i64;
-        // The observation reports whole seconds. Round the upper bound outward,
-        // including fractional monotonic elapsed time; never extend validity.
-        let upper = lower + 1 + i64::from(elapsed.subsec_nanos() != 0);
+        // The observation reports whole seconds. Include delivery uncertainty
+        // and round the upper bound outward; never extend validity.
+        let upper_elapsed = elapsed + self.uncertainty;
+        let upper = self.epoch
+            + 1
+            + upper_elapsed.as_secs() as i64
+            + i64::from(upper_elapsed.subsec_nanos() != 0);
         Ok((lower, upper, now))
     }
 }
@@ -79,7 +99,7 @@ pub struct Certificates<'a> {
 mod tests {
     use super::*;
     #[test]
-    fn time_observations_are_bounded_and_expire() {
+    fn time_observations_bound_uncertainty_and_expire() {
         const MAX_TIME_AGE: Duration = Duration::from_secs(60);
         for age in [Duration::ZERO, MAX_TIME_AGE + Duration::from_secs(1)] {
             assert!(matches!(
@@ -88,11 +108,48 @@ mod tests {
             ));
         }
         assert!(matches!(
+            TimeLease::from_trusted_with_uncertainty(
+                1_800_000_000,
+                Duration::from_secs(5),
+                Duration::from_secs(5)
+            ),
+            Err(Error::InvalidInput)
+        ));
+        assert!(matches!(
             TimeLease::from_trusted(u64::MAX, MAX_TIME_AGE),
             Err(Error::InvalidInput)
         ));
-        let time = TimeLease::from_trusted(1_800_000_000, Duration::from_millis(1)).unwrap();
-        std::thread::sleep(Duration::from_millis(2));
+
+        let epoch = 1_800_000_000i64;
+        let max_age = Duration::from_secs(10);
+        let uncertainty = Duration::from_millis(1_500);
+        let mut time =
+            TimeLease::from_trusted_with_uncertainty(epoch as u64, max_age, uncertainty).unwrap();
+        assert_eq!(
+            time.expires.duration_since(time.observed),
+            max_age - uncertainty
+        );
+        // Simulate 1.25 seconds since receipt without sleeping. Lower time floors
+        // elapsed; upper time rounds elapsed plus uncertainty outward.
+        time.observed -= Duration::from_millis(1_250);
+        let (lower, upper, _) = time.sample().unwrap();
+        assert_eq!(lower, epoch + 1);
+        assert_eq!(upper, epoch + 4);
+
+        let compatible = TimeLease::from_trusted(epoch as u64, max_age).unwrap();
+        assert_eq!(compatible.uncertainty, Duration::ZERO);
+        assert_eq!(
+            compatible.expires.duration_since(compatible.observed),
+            max_age
+        );
+        let (lower, upper, now) = compatible.sample().unwrap();
+        let elapsed = now.duration_since(compatible.observed);
+        assert_eq!(lower, epoch + elapsed.as_secs() as i64);
+        assert_eq!(
+            upper,
+            epoch + 1 + elapsed.as_secs() as i64 + i64::from(elapsed.subsec_nanos() != 0)
+        );
+        time.expires = Instant::now();
         assert_eq!(time.sample(), Err(Error::Time));
     }
 }

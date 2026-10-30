@@ -5,6 +5,20 @@ ESP32-S3/OV3660 with NuttX 13.1.0, single-core at 240 MHz. This is a local-netwo
 prototype, not an authenticated home-monitoring product or a production-readiness
 claim.
 
+For physical TLS qualification, `build.sh --tls` selects the existing shared
+`LiveCamera::new_tls` output and the `esp32s3-camera-tls` profile. Run
+`tls_camera SECONDS` (10–600) after bringing up the station interface. The
+existing no-echo Wi-Fi input establishes the RF entropy source first.
+`tls_provision.Supervisor(serial_port, private_empty_directory, camera_ip)`
+then enrolls the device-generated CSR and supplies fresh UTC over trusted USB.
+It exposes the approved gateway credentials and a `ready` event for the ingest
+fixture; use `--require-camera-tls`. The device listens on 8443 with no plaintext
+fallback. Enrollment is bounded and public; the volatile private key stays on
+the TLS worker. This controlled development path requires a trusted USB host
+for every boot and for time refresh. It does not implement persistent enrollment
+or an autonomous trusted clock. Preserve and verify the original firmware before
+temporary flashing, and restore it after qualification.
+
 [`app/camera-stream`](../../../app/camera-stream) composes the camera service
 and caller-polled [`service/stream`](../../../service/stream) server.
 [`service/connectivity`](../../../service/connectivity) owns reconnect policy.

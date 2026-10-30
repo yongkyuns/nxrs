@@ -31,9 +31,10 @@ def private(path, data):
 
 
 class Credentials:
-    def __init__(self, root, *, server_csr=None, site='site', camera='cam', gateway='gateway'):
+    def __init__(self, root, *, server_csr=None, server_ip='127.0.0.1', site='site', camera='cam', gateway='gateway'):
         self.root = root
         self.site, self.camera, self.gateway = site, camera, gateway
+        self.server_ip = server_ip
         self.openssl = os.environ.get('NXRS_TEST_OPENSSL', 'openssl')
         (root/'issued').mkdir()
         private(root/'index', '')
@@ -87,7 +88,7 @@ authorityKeyIdentifier=keyid:always
         private(root/'leaf.cnf', '[leaf]\nbasicConstraints=critical,CA:FALSE\n'
                 'keyUsage=critical,digitalSignature\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n'
                 f'extendedKeyUsage={"clientAuth" if client else "serverAuth"}\n'
-                f'subjectAltName=URI:{uri}'+('' if client else ',IP:127.0.0.1')+'\n')
+                f'subjectAltName=URI:{uri}'+('' if client else f',IP:{self.server_ip}')+'\n')
         dates = ['-startdate', '20000101000000Z', '-enddate', '20000102000000Z'] if expired else []
         self.call('ca', '-config', root/'ca.cnf', '-batch', '-notext', '-extfile', root/'leaf.cnf',
                   '-extensions', 'leaf', '-in', csr, '-out', root/(name+'.pem'), *dates)

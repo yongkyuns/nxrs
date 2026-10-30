@@ -16,10 +16,10 @@ Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` and
 `esp32s3-camera-tls` for NuttX compile qualification. Public socket/time types use
 Rust `std` and remain available without a selected backend; `open()` then returns `Unsupported`,
 acquiring no SDK or entropy. Services need no platform conditionals.
-The NuttX factory accepts only the configured RP2350 hardware source, opens
-`/dev/random` nonblocking and refuses software fallbacks. Polling and interrupted
-reads are bounded; contention, partial output and source failures close the
-identity. There is no fixed seed. ESP32-S3 source admission remains unsupported.
+The NuttX factory accepts only the configured RP2350 hardware source or the
+guarded ESP32-S3 RF source, opens `/dev/random` nonblocking and refuses
+unqualified sources. Polling and interrupted reads are bounded; contention,
+partial output and source failures close the identity. There is no fixed seed.
 
 Only one SDK owner may exist. It cannot move between threads; native callbacks
 borrow it only during synchronous calls. Fresh reseeding is explicit and source
@@ -88,10 +88,14 @@ Wi-Fi's flag as an entropy lease. NuttX patch 0093 instead holds the existing
 PHY mutex through `/dev/random` sampling. SDK patch 0003 moves the adapter's
 Wi-Fi hardware-bit operations inside that lock, closing the first shutdown step.
 Cold/busy/inactive Wi-Fi returns
-`EAGAIN`; PM, auto-sleep, SMP and radio-free builds are unsupported. Both random
-devices copy at most 32 bytes per read, and the raw device honors `O_NONBLOCK`.
+`EAGAIN`; PM, auto-sleep, SMP and radio-free builds are unsupported. The factory
+admits S3 only with the flat build, ESP32-S3 RNG, `/dev/random` and Wi-Fi
+configuration enabled. Both random devices copy at most 32 bytes per read, and
+the raw device honors `O_NONBLOCK`.
 `/dev/urandom` retains its legacy raw output, without a cryptographic guarantee
 at boot. The vendor's synchronous, cycle-paced sampling is unchanged. Native
 fault controls and target builds do not qualify physical source health or
-execution latency; those measurements remain required before TLS admission. See
+execution latency. Physical pre-radio refusal, associated reads and stopped-radio
+refusal have been observed, but actual TLS handshake and camera-to-gateway
+authentication qualification remains required before product admission. See
 [Espressif's RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html).

@@ -26,16 +26,23 @@ class TlsSdkTests(unittest.TestCase):
                     self.assertFalse((work/'out').exists())
 
     def test_nuttx_factory_rejects_unqualified_sources_and_uses_nonblocking(self):
-        admitted = ['BUILD_FLAT', 'ARCH_CHIP_RP23XX', 'RP23XX_RNG',
-                    'DEV_RANDOM', 'DEV_URANDOM_ARCH']
-        configs = [admitted, [name for name in admitted if name != 'RP23XX_RNG'],
-                   [*admitted, 'SMP'], [*admitted, 'DEV_URANDOM_RANDOM_POOL'],
-                   ['BUILD_FLAT', 'ARCH_CHIP_ESP32S3', 'ESP32S3_RNG',
-                    'DEV_RANDOM', 'DEV_URANDOM_ARCH']]
+        rp = {'BUILD_FLAT', 'ARCH_CHIP_RP23XX', 'RP23XX_RNG',
+              'DEV_RANDOM', 'DEV_URANDOM_ARCH'}
+        s3 = {'BUILD_FLAT', 'ARCH_CHIP_ESP32S3', 'ESP32S3_RNG',
+              'DEV_RANDOM', 'ESPRESSIF_WIFI'}
+        cases = [(rp, True),
+                 (rp - {'RP23XX_RNG'}, False),
+                 (rp | {'SMP'}, False),
+                 (rp | {'DEV_URANDOM_RANDOM_POOL'}, False),
+                 (s3, True)]
+        cases.extend((s3 - {required}, False) for required in s3)
+        cases.extend((s3 | {unsupported}, False)
+                     for unsupported in ('SMP', 'PM', 'ESPRESSIF_AUTO_SLEEP',
+                                         'ESP32S3_AUTO_SLEEP'))
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             (work/'nuttx').mkdir()
-            for index, config in enumerate(configs):
+            for index, (config, expected) in enumerate(cases):
                 defines = [f'#define CONFIG_{name} 1' for name in config]
                 if 'RP23XX_RNG' in config:
                     defines.append('#define CONFIG_RP23XX_RNG_POLL_TIMEOUT 100000')
@@ -46,5 +53,6 @@ class TlsSdkTests(unittest.TestCase):
                                 '-o', str(library)], check=True, capture_output=True)
                 gate = ctypes.CDLL(str(library))
                 gate.tls_rng_admitted.restype = ctypes.c_bool
-                self.assertEqual(gate.tls_rng_admitted(), index == 0)
+                self.assertEqual(gate.tls_rng_admitted(), expected,
+                                 f'configuration {sorted(config)}')
                 self.assertEqual(gate.tls_entropy_open_flags(), os.O_NONBLOCK)
