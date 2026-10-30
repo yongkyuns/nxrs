@@ -92,6 +92,7 @@ SERIES = {
         "0093-esp32s3-guard-rf-entropy.patch",
         "0094-esp32s3-boot-watchdog-handoff.patch",
     ),
+    "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
         "0002-nsh-dmesg-reset-options.patch",
@@ -114,6 +115,7 @@ SERIES = {
 }
 MARKERS = {
     "nuttx": "libs/libc/tls/Kconfig",
+    "mcuboot": "boot/nuttx/src/flash_map_backend/flash_map_backend.c",
     "nuttx-apps": "wireless/bluetooth/nimble/Makefile.nimble",
     "esp-hal-3rdparty": "components/mbedtls/port/esp_mem.c",
     "rust-llvm": "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp",

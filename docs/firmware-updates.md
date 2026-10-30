@@ -33,7 +33,12 @@ MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
 and trial-to-confirmed transitions and retains failures for that owner. The NuttX
 provider holds one exclusive lease while calling synchronous upstream SDK
 operations. Application control links only MCUboot's trailer helpers, without
-another verifier or crypto library. Native flash partitions follow the product
+another verifier or crypto library. Its NuttX flash descriptors use direct,
+synchronous NOR writes so setting a trailer flag does not erase neighboring
+recovery state through the default MTD translation layer. The host regression
+compiles NuttX's actual direct-write function against a NOR/power-cut model;
+whole-device interrupted-update qualification is still required.
+Native flash partitions follow the product
 layout; filesystem auto-mounting stays disabled.
 
 Staging and application health remain separate caller responsibilities. A trial
