@@ -17,7 +17,7 @@ mod device {
     use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicU8, Ordering},
         mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
         Arc,
     };
@@ -314,7 +314,7 @@ mod device {
         network: &mut Reconnector<W, F>,
         receiver: &Receiver<Event>,
         options: &Options,
-        stop_control: Option<&AtomicBool>,
+        stop_control: Option<&AtomicU8>,
         origin: Instant,
     ) -> Result<(), String>
     where
@@ -399,15 +399,13 @@ mod device {
             let mut reported_errors = 0;
             let mut measurement = None;
             let mut control = super::session::Control::default();
-            let mut stopped_by_control = false;
             report(&live, 0, false, 0, 0, &mut measurement)?;
             loop {
                 let elapsed = now(origin);
                 if duration.expired(elapsed.saturating_sub(started)) {
                     break;
                 }
-                if stop_control.is_some_and(|flag| flag.load(Ordering::Acquire)) {
-                    stopped_by_control = true;
+                if stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) != 0) {
                     break;
                 }
                 if stop_control.is_none() && *duration == super::session::Duration::Continuous {
@@ -418,7 +416,6 @@ mod device {
                         let mut input = [0; 16];
                         if let Ok(count) = std::io::stdin().read(&mut input) {
                             if control.input(&input[..count]) {
-                                stopped_by_control = true;
                                 break;
                             }
                         }
@@ -501,7 +498,7 @@ mod device {
             if stats.captured == 0 || stats.stream.frames_completed == 0 {
                 return Err("no delivered frames".into());
             }
-            if !stopped_by_control && reconnect != 0 && network.stats().reconnections == 0 {
+            if reconnect != 0 && network.stats().reconnections == 0 {
                 return Err("link recovery not observed".into());
             }
             if let Some(tls) = stats.tls {
@@ -586,12 +583,6 @@ mod device {
 
         stage("credential_reader");
         let profile = Profile::read()?;
-        stage("camera_open");
-        let mut device = camera::open().map_err(|error| format!("camera open {error:?}"))?;
-        device
-            .set_jpeg_quality(quality)
-            .map_err(|error| format!("JPEG quality {error:?}"))?;
-
         let (sender, receiver) = sync_channel(8);
         stage("wifi_open");
         let controller = wifi::open(Sink {
@@ -601,7 +592,7 @@ mod device {
         .map_err(|error| format!("wifi open {error:?}"))?;
         let mut network = Reconnector::new(controller, || profile.command());
         let origin = Instant::now();
-        let tls_stop = Arc::new(AtomicBool::new(false));
+        let tls_stop = Arc::new(AtomicU8::new(0));
         let operation: Result<(), String> = (|| {
             if tls_mode {
                 stage("wifi_preflight");
@@ -611,7 +602,6 @@ mod device {
             let port = if tls_mode { 8443 } else { 8080 };
             let listener = TcpListener::bind(("0.0.0.0", port))
                 .map_err(|error| format!("listener {error:?}"))?;
-            stage("pipeline_setup");
             let options = Options {
                 duration,
                 reconnect,
@@ -622,28 +612,63 @@ mod device {
                 port,
             };
             if tls_mode {
-                let stop = tls_stop.clone();
-                let live = LiveCamera::<_, BYTES, _>::new_tls(
-                    device,
-                    listener,
-                    std::array::from_fn(|_| vec![0; BYTES]),
-                    stream_service::Options::default(),
-                    TlsOptions {
-                        stack_bytes: 64 * 1024,
-                        poll_interval: Duration::from_millis(2),
-                    },
-                    move || super::console::initialize(stop),
-                )
-                .map_err(|error| format!("TLS composition {error:?}"))?;
-                run_live(
-                    live,
-                    &mut network,
-                    &receiver,
-                    &options,
-                    Some(&tls_stop),
-                    origin,
-                )?;
+                loop {
+                    stage("camera_open");
+                    let mut device =
+                        camera::open().map_err(|error| format!("camera open {error:?}"))?;
+                    device
+                        .set_jpeg_quality(quality)
+                        .map_err(|error| format!("JPEG quality {error:?}"))?;
+                    stage("pipeline_setup");
+                    let stop = tls_stop.clone();
+                    let live = LiveCamera::<_, BYTES, _>::new_tls(
+                        device,
+                        listener
+                            .try_clone()
+                            .map_err(|error| format!("listener clone {error:?}"))?,
+                        std::array::from_fn(|_| vec![0; BYTES]),
+                        stream_service::Options::default(),
+                        TlsOptions {
+                            stack_bytes: 64 * 1024,
+                            poll_interval: Duration::from_millis(2),
+                        },
+                        move || {
+                            // Keep model observations schedulable during encryption.
+                            // SAFETY: target-header call affects this TLS worker only.
+                            if unsafe { nxrs_stream_worker_priority(80) } != 0 {
+                                return Err(camera_stream::Error::Worker);
+                            }
+                            super::console::initialize(stop)
+                        },
+                    )
+                    .map_err(|error| format!("TLS composition {error:?}"))?;
+                    run_live(
+                        live,
+                        &mut network,
+                        &receiver,
+                        &options,
+                        Some(&tls_stop),
+                        origin,
+                    )?;
+                    match tls_stop.load(Ordering::Acquire) {
+                        1 => break,
+                        2 => {
+                            tls_stop.store(0, Ordering::Release);
+                            println!("NXRS_TLS_SESSION_PASS stopped=1 joined=1");
+                        }
+                        value => {
+                            return Err(format!("invalid TLS session control {value}"));
+                        }
+                    }
+                }
             } else {
+                stage("camera_open");
+                let mut device =
+                    camera::open().map_err(|error| format!("camera open {error:?}"))?;
+                device
+                    .set_jpeg_quality(quality)
+                    .map_err(|error| format!("JPEG quality {error:?}"))?;
+                stage("pipeline_setup");
                 let live = LiveCamera::<_, BYTES, _>::new(
                     device,
                     listener,

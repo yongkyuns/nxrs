@@ -25,7 +25,9 @@ For continuous TLS **with the existing detector**, build with
 `build.sh --platform esp32s3-camera-stream-tls`, then run
 `stream_test tls continuous 0 320 240 81`. This uses the same capture,
 detector, reconnect and shutdown loop as HTTP. TLS owns the sole UART reader;
-a sequence-bound USB stop response requests ordinary joined shutdown.
+sequence-bound USB control requests joined TLS renewal or full shutdown.
+The running camera process retains its listener across renewal, so old TCP
+connections cannot prevent rebinding on NuttX.
 
 `serve.py` accepts `--tls-config FILE` alongside its existing port, Wi-Fi and
 state-file arguments. The mode-0600 JSON contains `enrollment_directory`
@@ -39,7 +41,8 @@ Stop an existing ingest owner before starting this supervisor.
 
 The USB development supervisor renews through joined native/ingest sessions
 every 45 minutes, before the one-hour CRL expires, without closing the serial
-connection. Private enrollment files are removed after native and ingest retirement.
+connection or rebinding its listener. Private enrollment files are removed
+after native TLS/capture/detector and ingest retirement.
 USB/firmware/ingest faults stop supervision; they do not trigger blind resets or
 plaintext fallback. Trusted USB time and per-boot enrollment remain required.
 

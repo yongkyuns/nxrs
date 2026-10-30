@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
@@ -266,7 +265,10 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
     # Keep the original USB connection through renewals; closing it can reset
     # this board before the next host operation sees its NSH prompt.
     with console:
-        while not stop.is_set():
+        first_session = True
+        renew_pending = False
+        while not stop.is_set() or renew_pending:
+            renew_pending = False
             if identity(port) != expected:
                 raise RuntimeError("USB device identity changed")
             with tempfile.TemporaryDirectory(prefix='enrollment-', dir=root) as directory:
@@ -274,9 +276,11 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                 supervisor, child, log = None, None, None
                 passed = False
                 try:
-                    console.write(b'\n')
-                    RUN.wait_stage(console, bytearray(), b'nsh> ', credentials[1], 30, 'NSH')
-                    Session(console, credentials, None, emit, stop, tls=True).start()
+                    if first_session:
+                        console.write(b'\n')
+                        RUN.wait_stage(console, bytearray(), b'nsh> ', credentials[1], 30, 'NSH')
+                        Session(console, credentials, None, emit, stop, tls=True).start()
+                        first_session = False
                     def observed(line):
                         raw = line.encode('ascii')
                         report = RUN.REPORT_RE.fullmatch(raw)
@@ -327,18 +331,12 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                             if supervisor:
                                 try:
                                     if supervisor.ready.is_set() and not supervisor.finished.is_set() and not supervisor.failure:
-                                        supervisor.request_stop()
-                                        # Admission requests time even when there is no viewer.
-                                        try:
-                                            with socket.create_connection((address, 8443), timeout=2):
-                                                pass
-                                        except OSError:
-                                            pass
-                                        if not supervisor.finished.wait(45):
-                                            raise RuntimeError("TLS camera shutdown deadline")
+                                        renew_pending = passed and not stop.is_set()
+                                        supervisor.shutdown(renew=renew_pending)
                                     joined = any(line in supervisor.events for line in (
                                         'NXRS_STREAM_PASS stopped=1 joined=1',
-                                        'NXRS_TLS_CAMERA_PASS stopped=1 joined=1'))
+                                        'NXRS_TLS_CAMERA_PASS stopped=1 joined=1',
+                                        'NXRS_TLS_SESSION_PASS stopped=1 joined=1'))
                                     if passed and (supervisor.failure or not joined):
                                         raise RuntimeError("TLS camera did not confirm joined shutdown")
                                 finally:

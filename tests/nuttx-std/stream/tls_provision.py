@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import re
 import ssl
+import socket
 import struct
 import sys
 import tempfile
@@ -35,6 +36,7 @@ _KNOWN_LINES = tuple(re.compile(pattern) for pattern in (
     rf"NXRS_TLS_REPORT ms=\d+ captured=\d+ delivered=\d+ handshakes=\d+ failures=\d+ last=(?:None|Some\({TLS_ERROR}\)) heap_user=\d+ heap_kernel=\d+",
     r"NXRS_TLS_DELIVERED captured=\d+ delivered=\d+ handshakes=\d+ failures=\d+",
     r"NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
+    r"NXRS_TLS_SESSION_PASS stopped=1 joined=1",
     r"NXRS_STREAM_STACK budget=\d+ used=\d+",
     r"NXRS_STREAM_REPORT ms=\d+ captured=\d+ delivered=\d+ bytes=\d+ max_bytes=\d+ heap_user=\d+ heap_kernel=\d+ cpu_busy_pm=\d+ owner_cpu_ms=\d+ online=[01] attempts=\d+ rejoined=\d+ errors=\d+(?: camera_discarded=\d+)?",
     r"NXRS_STREAM_ONLINE ip=(?:\d{1,3}\.){3}\d{1,3} port=(?:8080|8443) ms=\d+",
@@ -111,6 +113,7 @@ class Supervisor:
         self.pending = bytearray()
         self._stop = threading.Event()
         self._device_stop = threading.Event()
+        self._renew = False
         self._write_lock = threading.Lock()
         self._deadline = time.monotonic() + INIT_TIMEOUT
         self._thread = threading.Thread(target=self._run, name="nxrs-tls-usb", daemon=True)
@@ -204,7 +207,7 @@ class Supervisor:
                     if seq > 0xffffffffffffffff:
                         raise ValueError("device time sequence invalid")
                     if self._device_stop.is_set():
-                        self._write(b"NXS1" + struct.pack(">QQ", seq, 0))
+                        self._write((b"NXR1" if self._renew else b"NXS1") + struct.pack(">QQ", seq, 0))
                     else:
                         self._write(b"NXT1" + struct.pack(">QQ", seq, int(time.time())))
                     continue
@@ -216,7 +219,7 @@ class Supervisor:
                     self.address = address
                     self.ready.set()
                     continue
-                if line in ("NXRS_TLS_CAMERA_PASS stopped=1 joined=1", "NXRS_STREAM_PASS stopped=1 joined=1"):
+                if line in ("NXRS_TLS_CAMERA_PASS stopped=1 joined=1", "NXRS_TLS_SESSION_PASS stopped=1 joined=1", "NXRS_STREAM_PASS stopped=1 joined=1"):
                     self._record(line)
                     return
                 if line.startswith(("NXRS_TLS_CAMERA_FAIL", "NXRS_STREAM_FAIL")):
@@ -231,13 +234,38 @@ class Supervisor:
         finally:
             self.finished.set()
 
-    def request_stop(self):
+    def request_stop(self, *, renew=False):
         """Answer the next device time request with a sequence-bound stop.
 
         The caller can open a TCP connection to wake an idle TLS accept loop.
         The device owner, not this serial reader, joins camera and Wi-Fi.
         """
+        self._renew = renew
         self._device_stop.set()
+
+    def shutdown(self, *, renew=False, timeout=45):
+        """Hold a TCP wake peer until the USB owner confirms retirement.
+
+        Closing before accept can abort the listener on NuttX. A busy rejection
+        retries within the same deadline; only the USB reader consumes replies.
+        """
+        self.request_stop(renew=renew)
+        deadline = time.monotonic() + timeout
+        while not self.finished.is_set() and time.monotonic() < deadline:
+            try:
+                with socket.create_connection((self.address, 8443), timeout=2) as wake:
+                    wake.settimeout(.5)
+                    while not self.finished.is_set() and time.monotonic() < deadline:
+                        try:
+                            if not wake.recv(1):
+                                break
+                        except socket.timeout:
+                            pass
+            except OSError:
+                pass
+            self.finished.wait(.05)
+        if not self.finished.is_set():
+            raise RuntimeError("TLS camera shutdown deadline")
 
     def stop(self):
         self._stop.set()
@@ -283,24 +311,38 @@ class _ChunkedSerial(_IdleSerial):
 
 
 class SupervisorTests(unittest.TestCase):
-    def test_stop_uses_the_next_time_sequence_and_waits_for_joined_shutdown(self):
-        port = _ChunkedSerial(b"NXRS_TLS_CSR bytes=1\nxNXRS_TLS_TIME_REQUEST sequence=3\n")
-        with tempfile.TemporaryDirectory() as directory, \
-                patch.object(Supervisor, '_enroll', lambda *_: None), \
-                patch.object(time, 'time', return_value=1_800_000_000):
-            supervisor = Supervisor(port, directory, "192.0.2.8")
-            try:
-                self.assertTrue(port.written.wait(1))
-                self.assertEqual(port.writes, [b'NXT1' + struct.pack('>QQ', 3, 1_800_000_000)])
-                supervisor.request_stop()
-                self.assertFalse(supervisor.finished.is_set())
-                port.data.extend(b"NXRS_TLS_TIME_REQUEST sequence=4\nNXRS_STREAM_PASS stopped=1 joined=1\n")
-                self.assertTrue(supervisor.finished.wait(1))
-                self.assertEqual(port.writes[-1], b'NXS1' + struct.pack('>QQ', 4, 0))
-                self.assertEqual(supervisor.events[-1], 'NXRS_STREAM_PASS stopped=1 joined=1')
-                self.assertIsNone(supervisor.failure)
-            finally:
-                supervisor.stop()
+    def test_control_keeps_wake_peer_until_sequence_bound_join(self):
+        for renew in (False, True):
+            port = _ChunkedSerial(b"NXRS_TLS_CSR bytes=1\nxNXRS_TLS_TIME_REQUEST sequence=3\n")
+            with self.subTest(renew=renew), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(Supervisor, '_enroll', lambda *_: None), \
+                    patch.object(time, 'time', return_value=1_800_000_000):
+                supervisor = Supervisor(port, directory, "192.0.2.8")
+                owner = self
+                marker = 'NXRS_TLS_SESSION_PASS' if renew else 'NXRS_TLS_CAMERA_PASS'
+                class WakePeer:
+                    closed = False
+                    def __enter__(self): return self
+                    def __exit__(self, *_): self.closed = True
+                    def settimeout(self, _): pass
+                    def recv(self, _):
+                        port.data.extend(f"NXRS_TLS_TIME_REQUEST sequence=4\n{marker} stopped=1 joined=1\n".encode())
+                        owner.assertTrue(supervisor.finished.wait(1))
+                        owner.assertFalse(self.closed)
+                        return b''
+                wake = WakePeer()
+                try:
+                    self.assertTrue(port.written.wait(1))
+                    self.assertEqual(port.writes, [b'NXT1' + struct.pack('>QQ', 3, 1_800_000_000)])
+                    self.assertFalse(supervisor.finished.is_set())
+                    with patch.object(socket, 'create_connection', return_value=wake):
+                        supervisor.shutdown(renew=renew, timeout=2)
+                    self.assertTrue(wake.closed)
+                    self.assertEqual(port.writes[-1], (b'NXR1' if renew else b'NXS1') + struct.pack('>QQ', 4, 0))
+                    self.assertEqual(supervisor.events[-1], marker + ' stopped=1 joined=1')
+                    self.assertIsNone(supervisor.failure)
+                finally:
+                    supervisor.stop()
 
     def test_address_is_kept_and_idle_reader_stops(self):
         for port in (_IdleSerial(), _ChunkedSerial(b"NXRS_TLS_CSR bytes=100\n")):
