@@ -106,3 +106,23 @@ is already in our pin. It restores logical `0xff` after erase; it does not retai
 neighboring metadata across a reset between sector erase and rewrite. A fresh
 encrypted factory image also needs initialized secondary and scratch regions,
 not physically erased bytes read through unconditional decryption.
+
+Prepare those files offline from the protected boot build and a confirmed
+factory application:
+
+```sh
+python3 tools/prepare-protected-factory.py \
+  --platform esp32s3-camera-stream-protected-build --boot-build /path/to/boot-build \
+  --application /path/to/factory.signed.bin --rom-root /path/to/rom-public.pem \
+  --app-root /path/to/app-public.pem --flash-key /path/to/device-xts-key.bin \
+  --output /path/to/new-factory-bundle
+```
+
+The operator supplies a 32-byte `XTS_AES_128_KEY` input that must match the
+device's factory-provisioned key. The tool checks build provenance, both public
+signature roots and a fresh confirmed trailer. Espressif's SDK encrypts each
+region at its flash address, including logical `0xff` in secondary/scratch, and
+decrypts it for an exact comparison before publishing the complete bundle.
+Only ciphertext and an offset/size/hash manifest are published. This neither
+provisions keys/eFuses nor qualifies hardware protection or runtime recovery;
+the encrypted-update gate remains closed.

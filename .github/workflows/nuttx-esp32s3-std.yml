@@ -22,6 +22,7 @@ on:
       - 'tools/mcuboot_image.py'
       - 'tools/mcuboot-requirements.txt'
       - 'tools/build-mcuboot.py'
+      - 'tools/prepare-protected-factory.py'
       - 'hal/boot/**'
       - 'platform/nuttx/mcuboot.py'
       - 'tools/build-nuttx-std-app.sh'
