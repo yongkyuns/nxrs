@@ -107,6 +107,12 @@ case requires successful output; it reports contention and maximum observed
 duration. This cannot preempt a stalled call, establish entropy quality or prove
 worst-case latency. Clock resolution also limits timing.
 
+For pre-radio startup observations, add `--kconfig-disable NSH_NETINIT` to the
+fixture build and run `entropy_probe cold` before any station command. The
+builder records and verifies the override while preserving profile requirements
+and forbidden-option checks. A reset/startup observation does not qualify a
+power-loss cycle or the bootloader's earlier entropy source.
+
 On a physical ESP32-S3, three station connection/shutdown cycles produced:
 
 | State | Successful reads | Bytes | Unavailable reads |

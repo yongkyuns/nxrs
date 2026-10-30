@@ -13,6 +13,7 @@ usage: build-nuttx-std-app.sh \
   [--size-optimized] [--trace-only-backtrace] [--panic-immediate-abort]
   [--target-c-source <path> ...]
   [--kconfig-enable <symbol> ...]
+  [--kconfig-disable <symbol> ...]
   [--feature <cargo-feature> ...]
 EOF
 }
@@ -32,6 +33,7 @@ NXRS_PANIC_IMMEDIATE_ABORT=0
 NXRS_TARGET_C_SOURCES=()
 NXRS_EXTRA_FEATURES=()
 NXRS_KCONFIG_ENABLE=()
+NXRS_KCONFIG_DISABLE=()
 
 while test "$#" -gt 0; do
   case "$1" in
@@ -49,15 +51,24 @@ while test "$#" -gt 0; do
     --panic-immediate-abort) NXRS_PANIC_IMMEDIATE_ABORT=1; shift ;;
     --target-c-source) NXRS_TARGET_C_SOURCES+=("${2:-}"); shift 2 ;;
     --kconfig-enable) NXRS_KCONFIG_ENABLE+=("${2:-}"); shift 2 ;;
+    --kconfig-disable) NXRS_KCONFIG_DISABLE+=("${2:-}"); shift 2 ;;
     --feature) NXRS_EXTRA_FEATURES+=("${2:-}"); shift 2 ;;
     *) echo "Unknown firmware backend argument: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-for symbol in ${NXRS_KCONFIG_ENABLE[@]+"${NXRS_KCONFIG_ENABLE[@]}"}; do
+for symbol in ${NXRS_KCONFIG_ENABLE[@]+"${NXRS_KCONFIG_ENABLE[@]}"} \
+              ${NXRS_KCONFIG_DISABLE[@]+"${NXRS_KCONFIG_DISABLE[@]}"}; do
   [[ "$symbol" =~ ^[A-Z][A-Z0-9_]*$ ]] || {
     echo "Invalid Kconfig symbol: $symbol" >&2; exit 1
   }
+done
+for symbol in ${NXRS_KCONFIG_ENABLE[@]+"${NXRS_KCONFIG_ENABLE[@]}"}; do
+  for disabled in ${NXRS_KCONFIG_DISABLE[@]+"${NXRS_KCONFIG_DISABLE[@]}"}; do
+    test "$symbol" != "$disabled" || {
+      echo "Conflicting Kconfig request: $symbol" >&2; exit 1
+    }
+  done
 done
 
 for name in NXRS_APP_MANIFEST NXRS_APP_PACKAGE NXRS_APP_BIN \
@@ -341,6 +352,10 @@ for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
   test -n "$symbol" || continue
   kconfig-tweak --enable "CONFIG_$symbol"
 done
+for symbol in "${NXRS_KCONFIG_DISABLE[@]:-}"; do
+  test -n "$symbol" || continue
+  kconfig-tweak --disable "CONFIG_$symbol"
+done
 
 # NuttX 13.x always uses 64-bit time_t; the target ABI gate verifies its layout.
 for symbol in EXAMPLES_NXRS_STD_APP FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
@@ -361,6 +376,12 @@ for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
   test -n "$symbol" || continue
   grep -qx "CONFIG_$symbol=y" .config || {
     echo "Unresolved requested Kconfig symbol: $symbol" >&2; exit 1
+  }
+done
+for symbol in "${NXRS_KCONFIG_DISABLE[@]:-}"; do
+  test -n "$symbol" || continue
+  grep -qx "# CONFIG_$symbol is not set" .config || {
+    echo "Unresolved requested disabled Kconfig symbol: $symbol" >&2; exit 1
   }
 done
 
@@ -625,6 +646,10 @@ test -s "$NUTTX_IMAGE"
   for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
     test -n "$symbol" || continue
     echo "kconfig_enable=$symbol"
+  done
+  for symbol in "${NXRS_KCONFIG_DISABLE[@]:-}"; do
+    test -n "$symbol" || continue
+    echo "kconfig_disable=$symbol"
   done
   for source_path in ${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"}; do
     echo "target_c_source=$source_path"
