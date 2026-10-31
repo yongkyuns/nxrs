@@ -1,0 +1,101 @@
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -1884,9 +1884,15 @@
+ 	select ARCH_HAVE_TICKLESS
+ 	select SCHED_TICKLESS
+ 
++# The common driver has no encrypted-write path. Select the legacy driver
++# for encrypted OTA even on devices without PSRAM or a partition table.
++config ESP32S3_SPIFLASH_LEGACY
++	bool
++	default y if ESP32S3_PARTITION_TABLE || ESP32S3_SPIRAM || ESP32S3_OTA_PARTITION_ENCRYPT
++
+ config ESP32S3_SPIFLASH
+ 	bool "SPI Flash MTD Partition"
+-	select ESPRESSIF_SPIFLASH if !ESP32S3_PARTITION_TABLE && !ESP32S3_SPIRAM
++	select ESPRESSIF_SPIFLASH if !ESP32S3_SPIFLASH_LEGACY
+ 	default n
+ 
+ menu "SPI Flash configuration"
+@@ -2057,7 +2063,7 @@
+ 	select MTD
+ 	select MTD_BYTE_WRITE
+ 	select MTD_PARTITION
+-	select ESPRESSIF_MTD if !ESP32S3_PARTITION_TABLE && !ESP32S3_SPIRAM
++	select ESPRESSIF_MTD if !ESP32S3_SPIFLASH_LEGACY
+ 	---help---
+ 		Initialize an MTD driver for the ESP32-S3 SPI Flash, which will
+ 		add an entry at /dev for application access from userspace.
+--- a/arch/xtensa/src/esp32s3/Make.defs
++++ b/arch/xtensa/src/esp32s3/Make.defs
+@@ -109,10 +109,10 @@
+   endif
+ endif
+ 
+-# Partition table and SPIRAM requires legacy spiflash driver
++# Encryption, partition tables and PSRAM require the legacy flash driver
+ 
+ ifeq ($(CONFIG_ESP32S3_SPIFLASH),y)
+-  ifeq ($(filter y,$(CONFIG_ESP32S3_PARTITION_TABLE) $(CONFIG_ESP32S3_SPIRAM)),y)
++  ifeq ($(CONFIG_ESP32S3_SPIFLASH_LEGACY),y)
+     CHIP_CSRCS += esp32s3_spiflash.c
+     CHIP_CSRCS += esp32s3_spiflash_mtd.c
+   endif
+--- a/arch/xtensa/src/common/espressif/Kconfig
++++ b/arch/xtensa/src/common/espressif/Kconfig
+@@ -289,7 +289,7 @@
+ config ESPRESSIF_SPIFLASH
+ 	bool "SPI Flash (User Storage)"
+ 	default n
+-	depends on !ESP32_PARTITION_TABLE && !ESP32S3_PARTITION_TABLE && !ESP32S3_SPIRAM
++	depends on !ESP32_PARTITION_TABLE && !ESP32S3_SPIFLASH_LEGACY
+ 	---help---
+ 		Enable SPI Flash driver for general storage support. This allows
+ 		mounting an MTD partition at a configurable region in flash.
+@@ -1988,7 +1988,7 @@
+ 	select MTD
+ 	select MTD_BYTE_WRITE
+ 	select MTD_PARTITION
+-	depends on !ESP32_PARTITION_TABLE && !ESP32S3_PARTITION_TABLE && !ESP32S3_SPIRAM
++	depends on !ESP32_PARTITION_TABLE && !ESP32S3_SPIFLASH_LEGACY
+ 	---help---
+ 		Initialize an MTD driver for the ESP32-S2 SPI Flash, which will
+ 		add an entry at /dev for application access from userspace.
+--- a/boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c
++++ b/boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c
+@@ -43,7 +43,7 @@
+ #include <nuttx/fs/nxffs.h>
+ #include <nuttx/fs/partition.h>
+ 
+-#if defined(CONFIG_ESP32S3_SPIRAM) || defined(CONFIG_ESP32S3_PARTITION_TABLE)
++#if defined(CONFIG_ESP32S3_SPIFLASH_LEGACY)
+ #  include "esp32s3_spiflash.h"
+ #  include "esp32s3_spiflash_mtd.h"
+ #else
+@@ -129,7 +129,7 @@
+   for (i = 0; i < nitems(g_ota_partition_table); ++i)
+     {
+       const struct partition_s *part = &g_ota_partition_table[i];
+-#if defined(CONFIG_ESP32S3_SPIRAM) || defined(CONFIG_ESP32S3_PARTITION_TABLE)
++#if defined(CONFIG_ESP32S3_SPIFLASH_LEGACY)
+       mtd = esp32s3_spiflash_alloc_mtdpart(part->firstblock, part->blocksize,
+                                            OTA_ENCRYPT);
+ #else
+@@ -368,7 +368,7 @@
+   int ret = OK;
+   struct mtd_dev_s *mtd;
+ 
+-#if defined(CONFIG_ESP32S3_SPIRAM) || defined(CONFIG_ESP32S3_PARTITION_TABLE)
++#if defined(CONFIG_ESP32S3_SPIFLASH_LEGACY)
+   mtd = esp32s3_spiflash_alloc_mtdpart(CONFIG_ESP32S3_STORAGE_MTD_OFFSET,
+                                        CONFIG_ESP32S3_STORAGE_MTD_SIZE,
+                                        OTA_ENCRYPT);
+@@ -450,7 +450,7 @@
+ {
+   int ret = OK;
+ 
+-#if defined(CONFIG_ESP32S3_SPIRAM) || defined(CONFIG_ESP32S3_PARTITION_TABLE)
++#if defined(CONFIG_ESP32S3_SPIFLASH_LEGACY)
+   ret = esp32s3_spiflash_init();
+ #endif
+   if (ret < 0)

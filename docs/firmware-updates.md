@@ -61,6 +61,9 @@ bounded ranges and cached-read invalidation even after failure. Writing `0xff`
 through a direct descriptor is not a physical erase.
 Native flash partitions follow the product
 layout; filesystem auto-mounting stays disabled.
+Encrypted OTA selects NuttX's encryption-capable flash driver independently of
+PSRAM and partition-table use. Ordinary unencrypted builds keep their existing
+driver selection; no extra memory or flash operation is introduced.
 
 `stage_update` erases only the inactive slot and streams an exact declared length,
 using two 256-byte transfer buffers. It reserves the upstream-calculated trailer,
