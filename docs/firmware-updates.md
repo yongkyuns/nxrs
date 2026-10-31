@@ -132,16 +132,19 @@ The startup profile has a separate signed-image class to exclude legacy
 candidates that cancel the deadline. Reversible unprotected ESP32-S3 qualification
 has passed Stable autostart and a changed-code Trial: joined confirmation, fresh
 TLS enrollment, camera/inference reacquisition and 200 seconds of sampled
-progress, with confirmed primary-image readback. Full-flash restoration and
-ordinary TLS-camera recovery were verified afterward. Failed-startup recovery
-remains pending. These ownership barriers do not prove physical bus quiescence, torn
-writes or encrypted-write timing.
+progress, with confirmed primary-image readback. A credential-input failure also
+led to restart and reversion to the previous confirmed image, verified by primary
+readback and 200 seconds of recovered TLS/inference progress. That observation
+included one USB reopen and no explicit host reset command; the reset cause was
+not measured. Full-flash restoration and ordinary TLS-camera recovery were
+verified after both trials. These preloaded-candidate tests do not qualify
+on-device staging, physical bus quiescence, torn writes or encrypted-write timing.
 The USB qualification reader returns at `NXRS_STARTUP_CONFIRMED`, preserving
 the next pipeline's CSR for a new enrollment reader on the same serial connection.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, advance a hardware monotonic counter, or
-provide on-device update delivery. Startup/recovery and physical interrupted
+provide on-device update delivery. Joined staging and physical interrupted
 update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.
 
