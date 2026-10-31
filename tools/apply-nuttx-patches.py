@@ -95,6 +95,7 @@ SERIES = {
         "0096-esp32s3-propagate-encrypted-write-errors.patch",
         "0097-esp32s3-encrypted-flash-contract.patch",
         "0098-esp32s3-select-encrypted-flash-driver.patch",
+        "0099-esp32s3-encrypted-write-alignment.patch",
     ),
     "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",
                 "0004-nuttx-encrypted-metadata-alignment.patch",
