@@ -1,4 +1,4 @@
-# Build-only qualification. Running the matching bootloader can burn eFuses.
+# Build-only qualification. The guarded loader refuses unprovisioned hardware.
 extends = "esp32s3-camera-stream-mcuboot"
 # Factory-image builds only: the pinned encrypted update path is unqualified.
 hal = { boot = "none" }

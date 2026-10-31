@@ -150,6 +150,40 @@ class BootWiringTests(unittest.TestCase):
                                 str(ROOT / "tests/host/esp32s3_encrypted_write.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
 
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for encrypted flash regression")
+    def test_encrypted_boot_and_native_flash_share_nor_contract(self):
+        relative = "arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c"
+        revision = subprocess.check_output(["git", "rev-parse", ":external/nuttx"], cwd=ROOT, text=True).strip()
+        native = subprocess.check_output(["git", "-C", str(ROOT / "external/nuttx"), "show",
+                                          f"{revision}:{relative}"], text=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for source, name, patches in (
+                (Path(os.environ["NXRS_MCUBOOT_SOURCE"]) / "boot/espressif/port/esp_mcuboot.c",
+                 "boot/espressif/port/esp_mcuboot.c", ("mcuboot/0003-encrypted-write-once-flash.patch",)),
+                (None, relative, ("nuttx/0096-esp32s3-propagate-encrypted-write-errors.patch",
+                                  "nuttx/0097-esp32s3-encrypted-flash-contract.patch"))):
+                path = directory / name
+                path.parent.mkdir(parents=True)
+                path.write_text(source.read_text() if source else native)
+                for patch in patches:
+                    component, filename = patch.split("/", 1)
+                    subprocess.run(["patch", "--batch", "-p1", "-i",
+                                    str(ROOT / "upstream" / component / "patches" / filename)],
+                                   cwd=directory, check=True, capture_output=True)
+            boot = (directory / "boot/espressif/port/esp_mcuboot.c").read_text()
+            native = (directory / relative).read_text()
+            (directory / "boot_io.inc").write_text(boot[boot.index("static bool aligned_flash_read("):
+                                                        boot.index("uint32_t flash_area_align(")])
+            for name, marker in (("native_read", "static int spi_flash_read_erased_aware("),
+                                 ("native_write", "int spi_flash_write_encrypted_manu(")):
+                function = native[native.index(marker):]
+                (directory / f"{name}.inc").write_text(function[:function.index("\n}\n") + 3])
+            executable = directory / "io"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                            str(ROOT / "tests/host/mcuboot_encrypted_io.c"), "-o", str(executable)], check=True)
+            subprocess.run([str(executable)], check=True, timeout=5)
+
     def test_actual_nuttx_handoff_preserves_bits_and_unlocks_then_relocks(self):
         relative = "arch/xtensa/src/esp32s3/esp32s3_wdt.c"
         revision = subprocess.check_output(["git", "rev-parse", ":external/nuttx"],
@@ -209,7 +243,7 @@ class RomSigningTests(unittest.TestCase):
             metadata = {"mcuboot": BOOT.MCUBOOT_REVISION, "esp-hal-3rdparty": BOOT.HAL_REVISION,
                         "platform": profile["name"], "layout": profile["mcuboot"],
                         "bootloader_file": boot.name, "hardware_secure_boot": True, "flash_encryption": True,
-                        "efuse_writes_forbidden": True,
+                        "efuse_writes_forbidden": True, "encrypted_write_once": True,
                         "rom_root_pem_sha256": hashlib.sha256(root.read_bytes()).hexdigest(),
                         "public_root_sha256": hashlib.sha256(app_root.read_bytes()).hexdigest(),
                         "bootloader_sha256": hashlib.sha256(boot.read_bytes()).hexdigest()}
@@ -222,6 +256,7 @@ class RomSigningTests(unittest.TestCase):
             self.assertFalse(manifest["hardware_qualified"])
             self.assertFalse(manifest["runtime_updates"])
             self.assertTrue(manifest["efuse_writes_forbidden"])
+            self.assertTrue(manifest["encrypted_write_once"])
             self.assertEqual([region["offset"] for region in manifest["regions"]],
                              [0, 0x20000, 0x220000, 0x420000])
             self.assertEqual({path.name for path in output.iterdir()},
@@ -233,7 +268,18 @@ class RomSigningTests(unittest.TestCase):
                                 "--output", str(decrypted), str(encrypted)], check=True)
                 expected = boot.read_bytes() if region["offset"] == 0 else image.read_bytes() if (
                     region["offset"] == profile["mcuboot"]["primary-offset"]) else b"\xff" * region["size"]
-                self.assertEqual(decrypted.read_bytes(), expected)
+                data = bytearray(decrypted.read_bytes())
+                ciphertext = encrypted.read_bytes()
+                for position in range(0, len(data), 16):
+                    if ciphertext[position:position + 16] == b"\xff" * 16:
+                        data[position:position + 16] = b"\xff" * 16
+                self.assertEqual(data, expected)
+                if region["offset"] in (0x220000, 0x420000):
+                    self.assertEqual(ciphertext, b"\xff" * region["size"])
+                if region["offset"] == 0x20000:
+                    self.assertNotEqual(ciphertext[32:48], b"\xff" * 16)
+                    self.assertNotEqual(ciphertext[4096:4112], b"\xff" * 16)  # Image padding stays encrypted.
+                    self.assertEqual(ciphertext[-96:-64], b"\xff" * 32)
                 self.assertEqual(hashlib.sha256(encrypted.read_bytes()).hexdigest(), region["sha256"])
             for name, changed in (("existing", {}), ("private-root", {"rom_root": key}),
                                   ("private-app-root", {"app_root": app_key}),
@@ -258,6 +304,12 @@ class RomSigningTests(unittest.TestCase):
                 factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "unconfirmed")
             self.assertFalse((directory / "unconfirmed").exists())
             image.write_bytes(good)
+            metadata["encrypted_write_once"] = False
+            (directory / "bootloader.json").write_text(json.dumps(metadata))
+            with self.assertRaises(ValueError):
+                factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "legacy-format")
+            self.assertFalse((directory / "legacy-format").exists())
+            metadata["encrypted_write_once"] = True
             metadata["efuse_writes_forbidden"] = False
             (directory / "bootloader.json").write_text(json.dumps(metadata))
             with self.assertRaises(ValueError):

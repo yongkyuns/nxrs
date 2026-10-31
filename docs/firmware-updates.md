@@ -99,19 +99,18 @@ Build commands never flash or provision a device. Production keys, encrypted fac
 ROM rejection tests, recovery/debug policy and a protected rollback floor need
 qualification before hardware activation. Keep disposable CI roots off devices.
 
-Runtime boot control is explicitly unavailable in the protected profile. The
-NuttX encrypted programmer propagates SPI failures and releases the encryption
-engine before returning; callers must not treat a failed program as committed.
-The pinned Espressif encrypted-write path erases and rewrites sectors containing
-boot metadata; power loss during those writes is unqualified. Enabling encrypted
-updates requires resolving that recovery behavior, rather than adding another
-update state machine above it. The portable boot API and unencrypted qualification
-profile remain unchanged.
-Upstream's merged [erased-flash fix](https://github.com/mcu-tools/mcuboot/pull/2320)
-is already in our pin. It restores logical `0xff` after erase; it does not retain
-neighboring metadata across a reset between sector erase and rewrite. A fresh
-encrypted factory image also needs initialized secondary and scratch regions,
-not physically erased bytes read through unconditional decryption.
+Protected builds preserve MCUboot's NOR contract: explicit sector erases,
+aligned writes only to erased ciphertext, and read-back verification. They remove
+the upstream sector rewrite on each encrypted metadata write. Both SDK adapters
+read physically erased 16-byte AES blocks as logical `0xff`; programmed blocks
+use hardware decryption. Writes verify actual decrypted bytes, including `0xff`,
+so a dropped program cannot pass through erased-value normalization. NuttX keeps
+its existing flash mutex and internal-stack worker context.
+
+Runtime boot control remains unavailable in the protected profile pending joined
+interrupted-update qualification. MCUboot still owns swapping and recovery; the
+portable Rust boot API and unencrypted qualification profile are unchanged.
+Host flash models do not qualify torn hardware programs or physical reset timing.
 
 Prepare those files offline from the protected boot build and a confirmed
 factory application:
@@ -125,10 +124,12 @@ python3 tools/prepare-protected-factory.py \
 ```
 
 The operator supplies a 32-byte `XTS_AES_128_KEY` input that must match the
-device's factory-provisioned key. The tool checks build provenance, both public
-signature roots and a fresh confirmed trailer. Espressif's SDK encrypts each
-region at its flash address, including logical `0xff` in secondary/scratch, and
-decrypts it for an exact comparison before publishing the complete bundle.
+device's factory-provisioned key. The tool requires the matching guarded
+write-once boot build, both public signature roots and a fresh confirmed trailer.
+Espressif's SDK encrypts image bytes at their flash addresses, including padding
+needed for direct execution. Unwritten trailer blocks and empty secondary/scratch
+remain physically erased. The tool verifies the exact logical read-back before
+publishing the complete bundle.
 Only ciphertext and an offset/size/hash manifest are published. This neither
 provisions keys/eFuses nor qualifies hardware protection or runtime recovery;
 the encrypted-update gate remains closed.

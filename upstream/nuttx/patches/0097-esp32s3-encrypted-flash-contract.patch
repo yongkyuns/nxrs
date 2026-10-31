@@ -1,0 +1,125 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c
+@@ -651,7 +651,26 @@
+ 
+   if (esp_flash_encryption->flash_encryption_check(address, length) != true)
+     {
+-      return ESP_ERR_NOT_SUPPORTED;
++      return -EINVAL;
++    }
++
++  const uint32_t original_size = length;
++  const uint32_t original_address = address;
++  uint32_t verify[4];
++  for (uint32_t offset = 0; offset < length; offset += sizeof(verify))
++    {
++      err = spi_flash_read(address + offset, verify, sizeof(verify));
++      if (err != ESP_OK)
++        {
++          return err;
++        }
++      for (unsigned int i = 0; i < 4; i++)
++        {
++          if (verify[i] != UINT32_MAX)
++            {
++              return -EIO;
++            }
++        }
+     }
+ 
+   const uint8_t *data_bytes = (const uint8_t *)buffer;
+@@ -748,7 +767,75 @@
+     }
+ 
+   esp_flash_encryption->flash_encryption_disable();
+-  return err;
++  if (err != ESP_OK)
++    {
++      return err;
++    }
++
++  /* Read hardware-decrypted bytes, not the erased-value-normalized MTD view.
++   * Otherwise a dropped write of all-0xff data could appear successful.
++   */
++
++  for (uint32_t offset = 0; offset < original_size; offset += sizeof(verify))
++    {
++      err = spi_flash_read(original_address + offset, verify, sizeof(verify));
++      if (err != ESP_OK)
++        {
++          return err;
++        }
++      if ((verify[0] & verify[1] & verify[2] & verify[3]) == UINT32_MAX)
++        {
++          return -EIO;
++        }
++      err = spi_flash_read_encrypted(original_address + offset,
++                                    verify, sizeof(verify));
++      if (err != ESP_OK)
++        {
++          return err;
++        }
++      if (memcmp(verify, (const uint8_t *)buffer + offset, sizeof(verify)))
++        {
++          return -EIO;
++        }
++    }
++
++  return ESP_OK;
++}
++
++static int spi_flash_read_erased_aware(uint32_t addr, void *dest, uint32_t size)
++{
++  int result;
++  uint32_t data[256 / sizeof(uint32_t)];
++  size_t head = (addr % 16);
++  addr = (addr / 16 * 16);
++  while (size != 0) {
++      size_t bytes = (size < sizeof(data) - head ? size : sizeof(data) - head) + head;
++      size_t aligned_size = ((bytes + 15) / 16 * 16);
++      uint32_t erased = 0;
++      if ((result = spi_flash_read(addr, data, aligned_size)) != ESP_OK) {
++          return result;
++      }
++      for (size_t i = 0; i < aligned_size / 16; i++) {
++          if ((data[4*i] & data[4*i+1] & data[4*i+2] & data[4*i+3]) == UINT32_MAX) {
++              erased |= 1U << i;
++          }
++      }
++      if (erased != ((1U << (aligned_size / 16)) - 1U) &&
++          (result = spi_flash_read_encrypted(addr, data, aligned_size)) != ESP_OK) {
++          return result;
++      }
++      for (size_t i = 0; i < aligned_size / 16; i++) {
++          if (erased & (1U << i)) {
++              memset((uint8_t *)data + 16*i, 0xff, 16);
++          }
++      }
++      memcpy(dest, (uint8_t *)data + head, bytes - head);
++      dest = (uint8_t *)dest + bytes - head;
++      size -= bytes - head;
++      addr += bytes;
++      head = 0;
++  }
++  return ESP_OK;
+ }
+ 
+ /****************************************************************************
+@@ -796,7 +883,7 @@
+     }
+   else if (work_arg->op_code == SPIFLASH_OP_CODE_ENCRYPT_READ)
+     {
+-      work_arg->ret = spi_flash_read_encrypted(work_arg->op_arg.addr,
++      work_arg->ret = spi_flash_read_erased_aware(work_arg->op_arg.addr,
+                                                work_arg->op_arg.buffer,
+                                                work_arg->op_arg.size);
+     }
+@@ -1098,7 +1185,7 @@
+   else
+ #endif
+     {
+-      ret = spi_flash_read_encrypted(offset, buffer, nbytes);
++      ret = spi_flash_read_erased_aware(offset, buffer, nbytes);
+     }
+ 
+   nxmutex_unlock(&g_lock);

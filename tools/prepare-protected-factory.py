@@ -47,6 +47,7 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
                 "bootloader_file": "bootloader.signed.bin",
                 "hardware_secure_boot": True, "flash_encryption": True,
                 "efuse_writes_forbidden": True,
+                "encrypted_write_once": True,
                 "rom_root_pem_sha256": digest(public),
                 "public_root_sha256": digest(app.get_public_pem())}
     if any(metadata.get(field) != value for field, value in expected.items()):
@@ -89,10 +90,26 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
             decrypted = work / "decrypted.bin"
             for operation, src, dst in (("encrypt_flash_data", source, encrypted),
                                         ("decrypt_flash_data", encrypted, decrypted)):
+                if operation == "decrypt_flash_data":
+                    # Executable/padded image bytes stay encrypted for direct XIP.
+                    # Only unwritten trailer/empty-slot AES blocks remain erased.
+                    start = len(plaintext) if name == "boot" else (
+                        len(image) - len(trailer.payload) if name == "primary" else 0)
+                    ciphertext = bytearray(encrypted.read_bytes())
+                    for position in range(start, len(plaintext), 16):
+                        if plaintext[position:position + 16] == b"\xff" * 16:
+                            ciphertext[position:position + 16] = b"\xff" * 16
+                    encrypted.write_bytes(ciphertext)
                 subprocess.run([sys.executable, "-m", "espsecure", operation, "--aes_xts",
                                 "--keyfile", str(work / "key.bin"), "--address", hex(offset),
                                 "--output", str(dst), str(src)], check=True)
-            if decrypted.read_bytes() != plaintext:
+            decoded = bytearray(decrypted.read_bytes())
+            for position in range(0, len(decoded), 16):
+                if ciphertext[position:position + 16] == b"\xff" * 16:
+                    if position < start:
+                        raise ValueError("executable ciphertext collides with the erased AES-block marker")
+                    decoded[position:position + 16] = b"\xff" * 16
+            if decoded != plaintext:
                 raise ValueError("factory ciphertext failed address-specific SDK round-trip verification")
             regions.append({"file": encrypted.name, "offset": offset, "size": encrypted.stat().st_size,
                             "sha256": digest(encrypted.read_bytes())})
@@ -101,6 +118,7 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
             "rom_root_pem_sha256": digest(public), "app_root_pem_sha256": digest(app.get_public_pem()),
             "flash_encryption": "xts-aes-128",
             "efuse_writes_forbidden": True,
+            "encrypted_write_once": True,
             "hardware_qualified": False, "runtime_updates": False,
             "requires_factory_provisioning": True,
         }, indent=2) + "\n")
