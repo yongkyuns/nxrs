@@ -129,6 +129,8 @@ the pipeline; later recreation failures are outside the trial watchdog window.
 The startup profile has a separate signed-image class to exclude legacy
 candidates that cancel the deadline. Native full-path qualification remains
 pending; these ownership barriers alone do not prove physical bus quiescence.
+The USB qualification reader returns at `NXRS_STARTUP_CONFIRMED`, preserving
+the next pipeline's CSR for a new enrollment reader on the same serial connection.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, advance a hardware monotonic counter, or
