@@ -1,0 +1,502 @@
+From: Nxrs maintainers
+Subject: [PATCH] netdev: retain poll-thread ownership through exit acknowledgement
+
+Propagate failed joins, release caller locks while polling finishes, and reject
+concurrent lifecycle transitions. Reap failed startup threads before replacement
+and join before unregister destroys the device lock or upper-half storage.
+This changes kernel thread lifetime only; it does not establish radio/DMA stop.
+
+--- a/drivers/net/netdev_upperhalf.c
++++ b/drivers/net/netdev_upperhalf.c
+@@ -26,9 +26,11 @@
+ 
+ #include <nuttx/config.h>
+ 
++#include <nuttx/atomic.h>
+ #include <nuttx/debug.h>
+ #include <errno.h>
+ #include <stdbool.h>
++#include <sched.h>
+ #include <stdio.h>
+ #include <string.h>
+ 
+@@ -68,6 +70,7 @@
+   pid_t tid;
+   sem_t sem;
+   sem_t sem_exit;
++  atomic_t stopping; /* Exit requested; tid remains owned until acknowledged */
+ };
+ 
+ /* This structure describes the state of the upper half driver */
+@@ -87,6 +90,7 @@
+ #endif
+ 
+   bool txing;
++  atomic_t lifecycle; /* Nonblocking admission while a join releases locks */
+ 
+   /* Deferring process to work queue or thread */
+ 
+@@ -810,10 +814,10 @@
+ 
+       CPU_ZERO(&cpuset);
+       CPU_SET(cpu, &cpuset);
+-      sched_setaffinity(t->tid, sizeof(cpu_set_t), &cpuset);
+-    }
+-
+-  while (nxsem_wait(&t->sem) == OK && t->tid != INVALID_PROCESS_ID)
++      sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
++    }
++
++  while (nxsem_wait(&t->sem) == OK && !atomic_read_acquire(&t->stopping))
+     {
+       netdev_upper_work(upper);
+     }
+@@ -1171,9 +1175,22 @@
+  *
+  ****************************************************************************/
+ 
+-static void netdev_upper_exit_thread(FAR struct netdev_upperhalf_s *upper)
+-{
++static int netdev_upper_exit_thread(FAR struct netdev_upperhalf_s *upper)
++{
++  FAR struct net_driver_s *dev = &upper->lower->netdev;
++  unsigned int devcount;
++  unsigned int netcount;
+   int cpu = 1;
++  int ret;
++  int restore;
++  int devret;
++  int netret;
++  int cancelstate;
++
++  /* The caller holds lifecycle admission until every wait/restore completes.
++   * stopping requests exit; tid owns the acknowledgement across cancellation
++   * and prevents reuse of the thread's semaphores.
++   */
+ 
+   switch (upper->lower->rxtype)
+     {
+@@ -1184,17 +1201,85 @@
+           {
+             FAR struct netdev_thread_s *t = &upper->thread[cpu];
+ 
+-            if (t->tid >= 0)
++            if (t->tid < 0)
+               {
+-                /* Try to tear down the dedicated thread for work. */
+-
+-                t->tid = INVALID_PROCESS_ID;
++                continue;
++              }
++
++            if (!atomic_read_acquire(&t->stopping))
++              {
++                atomic_set_release(&t->stopping, 1);
+                 nxsem_post(&t->sem);
+-                nxsem_wait(&t->sem_exit);
+               }
+-          }
+-        break;
+-    }
++
++            /* Polling can need both locks. Release device then network and
++             * restore in the reverse order, preserving recursive counts.
++             */
++
++            devcount = 0;
++            devret = nxrmutex_breaklock(&dev->d_lock, &devcount);
++            if (devret < 0 && devcount != 0)
++              {
++                return devret;
++              }
++
++            netcount = 0;
++            netret = net_breaklock(&netcount);
++            ret = netret;
++            if (netret >= 0 || netcount == 0)
++              {
++                /* An unheld lock is optional, not a failed join. */
++
++                ret = nxsem_wait_uninterruptible(&t->sem_exit);
++                if (ret >= 0)
++                  {
++                    t->tid = INVALID_PROCESS_ID;
++                  }
++              }
++
++            /* The ioctl caller must regain its locks even when the join
++             * was canceled. Defer cancellation only during restoration, then
++             * propagate the first error at the caller's cancellation point.
++             */
++
++            task_setcancelstate(TASK_CANCEL_DISABLE, &cancelstate);
++            if (netret >= 0 && netcount != 0)
++              {
++                do
++                  {
++                    restore = net_restorelock(netcount);
++                    if (ret >= 0 && restore < 0)
++                      {
++                        ret = restore;
++                      }
++                  }
++                while (restore == -EINTR || restore == -ECANCELED);
++              }
++
++            if (devret >= 0 && devcount != 0)
++              {
++                do
++                  {
++                    restore = nxrmutex_restorelock(&dev->d_lock, devcount);
++                    if (ret >= 0 && restore < 0)
++                      {
++                        ret = restore;
++                      }
++                  }
++                while (restore == -EINTR || restore == -ECANCELED);
++              }
++
++            task_setcancelstate(cancelstate, NULL);
++
++            if (ret < 0)
++              {
++                return ret;
++              }
++          }
++        break;
++    }
++
++  return OK;
+ }
+ 
+ /****************************************************************************
+@@ -1208,7 +1293,27 @@
+ static int netdev_upper_ifup(FAR struct net_driver_s *dev)
+ {
+   FAR struct netdev_upperhalf_s *upper = dev->d_private;
++  bool threaded = upper->lower->rxtype == NETDEV_RX_THREAD ||
++                  upper->lower->rxtype == NETDEV_RX_THREAD_RSS;
+   int cpu = 1;
++  int ret;
++  int cleanup;
++
++  if (threaded)
++    {
++      if (atomic_xchg_acquire(&upper->lifecycle, 1))
++        {
++          return -EBUSY;
++        }
++
++      /* A failed prior startup may still own an exit acknowledgement. */
++
++      ret = netdev_upper_exit_thread(upper);
++      if (ret < 0)
++        {
++          goto out;
++        }
++    }
+ 
+   switch (upper->lower->rxtype)
+     {
+@@ -1236,29 +1341,55 @@
+             snprintf(name, sizeof(name), NETDEV_THREAD_NAME_FMT,
+                      dev->d_ifname);
+ 
+-            t->tid = kthread_create(name, upper->lower->priority,
+-                                    CONFIG_DEFAULT_TASK_STACKSIZE,
+-                                    netdev_upper_loop, argv);
+-            if (t->tid < 0)
++            /* The child may run before kthread_create returns its pid. */
++
++            atomic_set(&t->stopping, 0);
++            ret = kthread_create(name, upper->lower->priority,
++                                 CONFIG_DEFAULT_TASK_STACKSIZE,
++                                 netdev_upper_loop, argv);
++            if (ret < 0)
+               {
+-                netdev_upper_exit_thread(upper);
+-                return t->tid;
++                goto cleanup;
+               }
+-          }
+-        break;
+-    }
+-
+-  if (upper->lower->ops->ifup)
+-    {
+-      return upper->lower->ops->ifup(upper->lower);
+-    }
+-
+-  return -ENOSYS;
++
++            t->tid = ret;
++          }
++        break;
++    }
++
++  ret = upper->lower->ops->ifup ?
++        upper->lower->ops->ifup(upper->lower) : -ENOSYS;
++
++cleanup:
++  if (ret < 0 && threaded)
++    {
++      cleanup = netdev_upper_exit_thread(upper);
++      if (cleanup < 0)
++        {
++          ret = cleanup;
++        }
++    }
++
++out:
++  if (threaded)
++    {
++      atomic_set_release(&upper->lifecycle, 0);
++    }
++
++  return ret;
+ }
+ 
+ static int netdev_upper_ifdown(FAR struct net_driver_s *dev)
+ {
+   FAR struct netdev_upperhalf_s *upper = dev->d_private;
++  bool threaded = upper->lower->rxtype == NETDEV_RX_THREAD ||
++                  upper->lower->rxtype == NETDEV_RX_THREAD_RSS;
++  int ret;
++
++  if (threaded && atomic_xchg_acquire(&upper->lifecycle, 1))
++    {
++      return -EBUSY;
++    }
+ 
+   switch (upper->lower->rxtype)
+     {
+@@ -1267,16 +1398,24 @@
+         break;
+       case NETDEV_RX_THREAD:
+       case NETDEV_RX_THREAD_RSS:
+-        netdev_upper_exit_thread(upper);
+-        break;
+-    }
+-
+-  if (upper->lower->ops->ifdown)
+-    {
+-      return upper->lower->ops->ifdown(upper->lower);
+-    }
+-
+-  return -ENOSYS;
++        ret = netdev_upper_exit_thread(upper);
++        if (ret < 0)
++          {
++            goto out;
++          }
++        break;
++    }
++
++  ret = upper->lower->ops->ifdown ?
++        upper->lower->ops->ifdown(upper->lower) : -ENOSYS;
++
++out:
++  if (threaded)
++    {
++      atomic_set_release(&upper->lifecycle, 0);
++    }
++
++  return ret;
+ }
+ 
+ #ifdef CONFIG_NET_MCASTGROUP
+@@ -1372,6 +1511,7 @@
+   FAR struct netdev_upperhalf_s *upper;
+   size_t extra_size;
+   int cpu = 0;
++  int i;
+   int ret;
+ 
+   if (dev == NULL || dev->ops == NULL ||
+@@ -1418,6 +1558,7 @@
+     }
+ 
+   upper->txing = false;
++  atomic_set(&upper->lifecycle, 0);
+ 
+   dev->netdev.d_ifup    = netdev_upper_ifup;
+   dev->netdev.d_ifdown  = netdev_upper_ifdown;
+@@ -1431,23 +1572,32 @@
+ #endif
+   dev->netdev.d_private = upper;
+ 
++  for (i = 0; i < cpu; i++)
++    {
++      FAR struct netdev_thread_s *t = &upper->thread[i];
++
++      t->tid = INVALID_PROCESS_ID;
++      atomic_set(&t->stopping, 0);
++      nxsem_init(&t->sem, 0, 0);
++      nxsem_init(&t->sem_exit, 0, 0);
++    }
++
+   ret = netdev_register(&dev->netdev, lltype);
+   if (ret < 0)
+     {
+       nerr("ERROR: Netdev_register failed: %d\n", ret);
++      while (--cpu >= 0)
++        {
++          FAR struct netdev_thread_s *t = &upper->thread[cpu];
++
++          nxsem_destroy(&t->sem);
++          nxsem_destroy(&t->sem_exit);
++        }
++
+       kmm_free(upper);
+       dev->netdev.d_private = NULL;
+     }
+ 
+-  while (--cpu >= 0)
+-    {
+-      FAR struct netdev_thread_s *t = &upper->thread[cpu];
+-
+-      t->tid = INVALID_PROCESS_ID;
+-      nxsem_init(&t->sem, 0, 0);
+-      nxsem_init(&t->sem_exit, 0, 0);
+-    }
+-
+   return ret;
+ }
+ 
+@@ -1468,6 +1618,7 @@
+ int netdev_lower_unregister(FAR struct netdev_lowerhalf_s *dev)
+ {
+   FAR struct netdev_upperhalf_s *upper;
++  bool threaded;
+   int cpu = 1;
+   int ret;
+ 
+@@ -1478,6 +1629,25 @@
+     }
+ 
+   upper = (FAR struct netdev_upperhalf_s *)dev->netdev.d_private;
++  threaded = dev->rxtype == NETDEV_RX_THREAD ||
++             dev->rxtype == NETDEV_RX_THREAD_RSS;
++  if (threaded)
++    {
++      if (atomic_xchg_acquire(&upper->lifecycle, 1))
++        {
++          return -EBUSY;
++        }
++
++      /* netdev_unregister destroys d_lock. Join before removing any state
++       * that the polling thread can still access.
++       */
++
++      ret = netdev_upper_exit_thread(upper);
++      if (ret < 0)
++        {
++          goto out;
++        }
++    }
+ 
+ #ifdef CONFIG_NET_VLAN
+   netdev_upper_vlan_foreach(upper, vlan_unregister);
+@@ -1486,7 +1656,7 @@
+   ret = netdev_unregister(&dev->netdev);
+   if (ret < 0)
+     {
+-      return ret;
++      goto out;
+     }
+ 
+   switch (dev->rxtype)
+@@ -1494,10 +1664,6 @@
+       case NETDEV_RX_THREAD_RSS:
+         cpu = CONFIG_SMP_NCPUS;
+       case NETDEV_RX_THREAD:
+-
+-        /* Stop the dedicated thread for network operations in thread mode */
+-
+-        netdev_upper_exit_thread(upper);
+         while (--cpu >= 0)
+           {
+             FAR struct netdev_thread_s *t = &upper->thread[cpu];
+@@ -1516,6 +1682,14 @@
+   dev->netdev.d_private = NULL;
+ 
+   return OK;
++
++out:
++  if (threaded)
++    {
++      atomic_set_release(&upper->lifecycle, 0);
++    }
++
++  return ret;
+ }
+ 
+ /****************************************************************************
+--- a/include/nuttx/net/net.h
++++ b/include/nuttx/net/net.h
+@@ -388,6 +388,31 @@
+ void net_unlock(void);
+ 
+ /****************************************************************************
++ * Name: net_breaklock
++ *
++ * Description:
++ *   Break the lock, return information needed to restore re-entrant lock
++ *   state.
++ *
++ ****************************************************************************/
++
++int net_breaklock(FAR unsigned int *count);
++
++/****************************************************************************
++ * Name: net_restorelock
++ *
++ * Description:
++ *   Restore the locked state
++ *
++ * Returned Value:
++ *   Zero (OK) is returned on success; a negated errno value is returned on
++ *   failure (probably -ECANCELED).
++ *
++ ****************************************************************************/
++
++int net_restorelock(unsigned int count);
++
++/****************************************************************************
+  * Name: net_sem_timedwait
+  *
+  * Description:
+--- a/net/utils/utils.h
++++ b/net/utils/utils.h
+@@ -224,31 +224,6 @@
+ struct timeval;           /* Forward reference */
+ 
+ /****************************************************************************
+- * Name: net_breaklock
+- *
+- * Description:
+- *   Break the lock, return information needed to restore re-entrant lock
+- *   state.
+- *
+- ****************************************************************************/
+-
+-int net_breaklock(FAR unsigned int *count);
+-
+-/****************************************************************************
+- * Name: net_restorelock
+- *
+- * Description:
+- *   Restore the locked state
+- *
+- * Returned Value:
+- *   Zero (OK) is returned on success; a negated errno value is returned on
+- *   failure (probably -ECANCELED).
+- *
+- ****************************************************************************/
+-
+-int net_restorelock(unsigned int count);
+-
+-/****************************************************************************
+  * Name: net_dsec2timeval
+  *
+  * Description:
