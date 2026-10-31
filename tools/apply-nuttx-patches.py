@@ -97,6 +97,7 @@ SERIES = {
         "0098-esp32s3-select-encrypted-flash-driver.patch",
         "0099-esp32s3-encrypted-write-alignment.patch",
         "0100-esp32s3-inherit-boot-watchdog.patch",
+        "0101-netdev-poll-thread-lifetime.patch",
     ),
     "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",
                 "0004-nuttx-encrypted-metadata-alignment.patch",

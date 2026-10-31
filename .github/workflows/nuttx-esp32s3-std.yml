@@ -37,6 +37,8 @@ on:
       - 'platform/nuttx/platforms/esp32s3-camera-stream-protected-build.toml'
       - 'tests/host/test_mcuboot_image.py'
       - 'tests/host/test_mcuboot_build.py'
+      - 'tests/host/test_netdev_lifecycle.py'
+      - 'tests/host/netdev_lifecycle.c'
   workflow_dispatch:
 permissions:
   contents: read
@@ -74,6 +76,7 @@ jobs:
           source target/qemu-tools/environment.sh
           python3 -m unittest discover -s tests/host -p test_mcuboot_image.py -v
           python3 -m unittest discover -s tests/host -p test_mcuboot_build.py -v
+          python3 tests/host/test_netdev_lifecycle.py -v
           python3 tests/nuttx-std/run.py --self-test
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
