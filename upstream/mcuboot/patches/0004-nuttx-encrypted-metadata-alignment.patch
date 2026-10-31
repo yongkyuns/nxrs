@@ -1,0 +1,34 @@
+--- a/boot/nuttx/include/mcuboot_config/mcuboot_config.h
++++ b/boot/nuttx/include/mcuboot_config/mcuboot_config.h
+@@ -143,6 +143,17 @@
+ 
+ #define MCUBOOT_MAX_IMG_SECTORS 512
+ 
++/* Encrypted OTA partitions require one native write unit per trailer field.
++ * A larger MTD proxy block would reprogram neighboring ciphertext.
++ */
++
++#ifdef CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT
++#  if CONFIG_ESP32S3_SPIFLASH_MTD_BLKSIZE != 32
++#    error "Encrypted MCUboot requires 32-byte MTD blocks"
++#  endif
++#  define MCUBOOT_BOOT_MAX_ALIGN 32
++#endif
++
+ /* Default number of separately updateable images; change in case of
+  * multiple images.
+  */
+--- a/boot/nuttx/src/flash_map_backend/flash_map_backend.c
++++ b/boot/nuttx/src/flash_map_backend/flash_map_backend.c
+@@ -601,7 +601,11 @@
+    * drivers.
+    */
+ 
++#ifdef CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT
++  const uint32_t minimum_write_length = 32;
++#else
+   const uint32_t minimum_write_length = 1;
++#endif
+ 
+   BOOT_LOG_INF("ID:%" PRIu8 " align:%" PRIu32,
+                fa->fa_id, minimum_write_length);

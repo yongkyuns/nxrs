@@ -45,6 +45,7 @@ class BootWiringTests(unittest.TestCase):
         text = BOOT.bootloader_config(profile, "/tmp/public-root.pem")
         self.assertEqual(profile["mcuboot"]["write-align"], 32)
         self.assertEqual(app["ESP32S3_OTA_PARTITION_ENCRYPT"], "y")
+        self.assertEqual(app["ESP32S3_SPIFLASH_MTD_BLKSIZE"], "32")
         self.assertNotIn("BOOT_MCUBOOT", app)
         for key in ("SECURE_BOOT_V2_ENABLED", "SECURE_FLASH_ENC_ENABLED",
                     "SECURE_BOOT_REQUIRE_ALREADY_ENABLED", "EFUSE_WRITES_FORBIDDEN",
@@ -143,6 +144,39 @@ class BootWiringTests(unittest.TestCase):
                 subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
                                 str(ROOT / "tests/host/mcuboot_trailer_nor.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
+
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for encrypted trailer regression")
+    def test_protected_native_trailer_fields_use_independent_program_units(self):
+        sdk = Path(os.environ["NXRS_MCUBOOT_SOURCE"])
+        backend = "boot/nuttx/src/flash_map_backend/flash_map_backend.c"
+        header = "boot/nuttx/include/mcuboot_config/mcuboot_config.h"
+        writer = (sdk / "boot/bootutil/src/bootutil_public.c").read_text()
+        writer = writer[writer.index("int\nboot_write_trailer("):]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for relative in (backend, header):
+                path = directory / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text((sdk / relative).read_text())
+            config = directory / "nuttx/config.h"
+            config.parent.mkdir()
+            (directory / "trailer.inc").write_text(writer[:writer.index("\n}\n") + 3])
+            for patched in (False, True):
+                if patched:
+                    subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/mcuboot/patches/0004-nuttx-encrypted-metadata-alignment.patch")],
+                                   cwd=directory, check=True, capture_output=True)
+                align = (directory / backend).read_text().split("uint32_t flash_area_align(", 1)[1]
+                (directory / "alignment.inc").write_text("uint32_t flash_area_align(" + align[:align.index("\n}\n") + 3])
+                config.write_text("#define CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT 1\n#define CONFIG_ESP32S3_SPIFLASH_MTD_BLKSIZE 32\n")
+                command = ["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                           "-I", str(directory / "boot/nuttx/include"),
+                           str(ROOT / "tests/host/mcuboot_encrypted_trailer.c"), "-o", str(directory / "trailer")]
+                subprocess.run(command, check=True)
+                self.assertEqual(subprocess.run([str(directory / "trailer")]).returncode, 0 if patched else 1)
+            config.write_text("#define CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT 1\n#define CONFIG_ESP32S3_SPIFLASH_MTD_BLKSIZE 256\n")
+            failed = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("Encrypted MCUboot requires 32-byte MTD blocks", failed.stderr)
 
     def test_encrypted_program_failure_propagates_and_releases_hardware(self):
         relative = "arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c"

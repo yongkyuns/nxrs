@@ -95,7 +95,8 @@ SERIES = {
         "0096-esp32s3-propagate-encrypted-write-errors.patch",
         "0097-esp32s3-encrypted-flash-contract.patch",
     ),
-    "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",),
+    "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",
+                "0004-nuttx-encrypted-metadata-alignment.patch"),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
         "0002-nsh-dmesg-reset-options.patch",

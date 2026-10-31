@@ -1,7 +1,12 @@
 /* SDK witness only; it exports no production C HAL interface. */
 #include <bootutil/bootutil_public.h>
-_Static_assert(MCUBOOT_IMAGE_NUMBER == 1 && BOOT_MAX_ALIGN == 8,
-               "qualified single-image unencrypted trailer geometry");
+_Static_assert(MCUBOOT_IMAGE_NUMBER == 1, "qualified single-image geometry");
+#ifdef CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT
+_Static_assert(BOOT_MAX_ALIGN == 32 && CONFIG_ESP32S3_SPIFLASH_MTD_BLKSIZE == 32,
+               "encrypted SDK layout and MTD program units must match");
+#else
+_Static_assert(BOOT_MAX_ALIGN == 8, "unencrypted trailer geometry");
+#endif
 _Static_assert(sizeof(int) == 4, "Rust c_int ABI");
 _Static_assert(BOOT_SWAP_TYPE_NONE == 1 && BOOT_SWAP_TYPE_TEST == 2 &&
                BOOT_SWAP_TYPE_REVERT == 4, "MCUboot state binding drift");
