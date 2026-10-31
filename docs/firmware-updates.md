@@ -100,8 +100,11 @@ a fresh output directory and builds upstream's EC P-256 verifier with TinyCrypt.
 Only a public key is accepted; the signing key is unnecessary on the boot build
 host. `bootloader.json` records the pins, geometry, public-root and binary hashes.
 The bootloader console uses UART0; the application retains its USB console.
-The bootloader enables the SDK's startup watchdog. By default NuttX disables
-and relocks it before kernel initialization. Opt-in `ESP32S3_RWDT_INHERIT` keeps
+The bootloader arms the SDK's startup watchdog with a nine-second default.
+A product can set `boot-watchdog-ms` from 1 through 300000; the builder records
+that fixed budget and the SDK honors it. This changes bootloader arming, not the application's
+ability to feed or extend the timer. NuttX normally disables and relocks it
+before kernel initialization. Opt-in `ESP32S3_RWDT_INHERIT` keeps
 the deadline and its slow-clock source unchanged through the SDK's clock
 initialization, calibrates that source for SDK time/radio consumers without
 feeding, and relocks it. The SDK's user-owned cancellation setting also

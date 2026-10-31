@@ -115,7 +115,8 @@ jobs:
               tests.host.test_mcuboot_build.BootWiringTests.test_trailer_writes_never_erase_the_sector \
               tests.host.test_mcuboot_build.BootWiringTests.test_sdk_clock_init_keeps_the_inherited_deadline_and_clock \
               tests.host.test_mcuboot_build.BootWiringTests.test_sdk_late_startup_keeps_the_user_owned_watchdog \
-              tests.host.test_mcuboot_build.BootWiringTests.test_protected_startup_and_native_burn_refuse_provisioning
+              tests.host.test_mcuboot_build.BootWiringTests.test_protected_startup_and_native_burn_refuse_provisioning \
+              tests.host.test_mcuboot_build.BootWiringTests.test_upstream_header_preserves_the_configured_watchdog_budget
           xtensa-esp32s3-elf-gcc -Werror -I target/nuttx-esp32s3-std/nuttx/include \
             -I target/mcuboot-camera/mcuboot/boot/nuttx/include \
             -I target/mcuboot-camera/mcuboot/boot/bootutil/include \

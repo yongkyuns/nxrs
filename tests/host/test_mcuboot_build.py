@@ -86,8 +86,49 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(bytes(int(byte, 16) for byte in config["CONFIG_ESP_IMAGE_CLASS_ID"].split(",")),
                          UUID(profile["image-class"]).bytes)
         self.assertEqual(config["CONFIG_BOOTLOADER_WDT_ENABLE"], "1")
+        self.assertEqual(config["CONFIG_BOOTLOADER_WDT_TIME_MS"], "9000")
         self.assertFalse(any(key.startswith("CONFIG_SECURE_") for key in config))
         self.assertIn(BOOT.MCUBOOT_REVISION, (ROOT / "tools/mcuboot-requirements.txt").read_text())
+
+    def test_startup_watchdog_budget_is_a_bounded_product_setting(self):
+        profile = resolve("esp32s3-camera-stream-mcuboot")
+        for value in (1, 180000, 300000):
+            config = BOOT.bootloader_config({**profile, "boot-watchdog-ms": value}, "/tmp/root.pem")
+            self.assertIn(f"CONFIG_BOOTLOADER_WDT_TIME_MS={value}\n", config)
+        for value in (True, False, 0, -1, 300001, "180000", 1.5, None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                BOOT.bootloader_config({**profile, "boot-watchdog-ms": value}, "/tmp/root.pem")
+
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned MCUboot source for watchdog header regression")
+    def test_upstream_header_preserves_the_configured_watchdog_budget(self):
+        relative = "boot/espressif/hal/include/esp32s3/sdkconfig.h"
+        patch = ROOT / "upstream/mcuboot/patches/0007-espressif-watchdog-budget.patch"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / relative
+            path.parent.mkdir(parents=True)
+            path.write_text((Path(os.environ["NXRS_MCUBOOT_SOURCE"]) / relative).read_text())
+            reverse = ["patch", "--batch", "--force", "-R", "-p1", "-i", str(patch)]
+            if subprocess.run([*reverse, "--dry-run"], cwd=directory, capture_output=True).returncode == 0:
+                subprocess.run(reverse, cwd=directory, check=True, capture_output=True)
+            original = path.read_text()
+            subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=directory,
+                           check=True, capture_output=True)
+            for source, override, expected in ((original, None, 9000), (original, 180000, None),
+                                               (path.read_text(), None, 9000),
+                                               (path.read_text(), 180000, 180000)):
+                header = directory / "config.h"
+                header.write_text(source)
+                result = subprocess.run(["cc", "-E", "-P", "-Werror", "-include", str(header),
+                                         *([f"-DCONFIG_BOOTLOADER_WDT_TIME_MS={override}"] if override else []),
+                                         "-x", "c", "-"], input="CONFIG_BOOTLOADER_WDT_TIME_MS\n",
+                                        text=True, capture_output=True)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0, "baseline must reject the forced redefinition")
+                    self.assertIn("CONFIG_BOOTLOADER_WDT_TIME_MS", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(int(result.stdout.strip()), expected)
 
     def test_protected_build_matches_encryption_alignment_and_blocks_runtime_updates(self):
         profile = resolve("esp32s3-camera-stream-protected-build")
