@@ -19,6 +19,7 @@ on:
       - 'tests/host/mcuboot_provisioning_guard.c'
       - 'tests/host/esp32s3_encrypted_write.c'
       - 'tests/host/mcuboot_encrypted_io.c'
+      - 'tests/host/mcuboot_security_counter.c'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
@@ -96,6 +97,7 @@ jobs:
             --root target/mcuboot-test-root.pem --out target/mcuboot-camera
           NXRS_MCUBOOT_SOURCE=target/mcuboot-camera/mcuboot NXRS_BOOT_HAL_SOURCE=target/mcuboot-camera/hal \
             python3 -m unittest tests.host.test_mcuboot_build.BootWiringTests.test_encrypted_boot_and_native_flash_share_nor_contract \
+              tests.host.test_mcuboot_build.BootWiringTests.test_upstream_counter_policy_preserves_equal_counter_recovery \
               tests.host.test_mcuboot_build.BootWiringTests.test_trailer_writes_never_erase_the_sector \
               tests.host.test_mcuboot_build.BootWiringTests.test_protected_startup_and_native_burn_refuse_provisioning
           xtensa-esp32s3-elf-gcc -Werror -I target/nuttx-esp32s3-std/nuttx/include \

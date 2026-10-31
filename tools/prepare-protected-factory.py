@@ -29,7 +29,9 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
         raise ValueError("install esptool==4.8.1 and tools/mcuboot-requirements.txt")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from imgtool.image import Image
+    from imgtool.image import Image, TLV_VALUES
+    from imgtool.dumpinfo import dump_imginfo
+    import yaml
     from imgtool.keys import load, ECDSA256P1Public
 
     public = rom_root.read_bytes()
@@ -79,6 +81,13 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
         subprocess.run([sys.executable, "-m", "espsecure", "verify_signature", "--version", "2",
                         "--keyfile", str(work / "rom.pem"), str(work / "boot.bin")], check=True)
         subprocess.run(["imgtool", "verify", "-k", str(work / "app.pem"), str(work / "primary.bin")], check=True)
+        # The upstream admission policy needs a signed factory counter baseline.
+        info = work / "image.yaml"
+        dump_imginfo(str(work / "primary.bin"), str(info), silent=True)
+        counters = [tlv for tlv in yaml.safe_load(info.read_text())["tlv_area"]["tlvs_prot"]
+                    if tlv["type"] == TLV_VALUES["SEC_CNT"]]
+        if len(counters) != 1 or counters[0]["len"] != 4 or len(counters[0]["data"]) != 4:
+            raise ValueError("factory application needs one protected 32-bit security counter")
         regions = []
         for name, offset, plaintext in (
                 ("boot", 0, boot), ("primary", geometry["primary-offset"], image),
