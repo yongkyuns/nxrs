@@ -389,7 +389,11 @@ int main(void)
         self.assertEqual(applied.returncode, 0, applied.stderr)
         native = (source / "arch/xtensa/src/esp32s3/esp32s3_cam.c").read_text()
         function = function_definition(native, "static uint32_t IRAM_ATTR cam_jpeg_length(")
-        gating = function_definition(native, "static void IRAM_ATTR cam_prepare_frame(")
+        gating = function_definition(native, "static int IRAM_ATTR cam_prepare_frame(")
+        stop_dma = function_definition(native, "static int IRAM_ATTR cam_stop_dma(")
+        registers = (ROOT / "external/nuttx/arch/xtensa/src/esp32s3/hardware/esp32s3_dma.h").read_text()
+        registers = registers.replace('#include "esp32s3_soc.h"',
+                                      '#define DR_REG_GDMA_BASE 0\n#define BIT(n) (1u << (n))')
         start = function_definition(native, "static int esp32s3_cam_start_capture(")
         interrupt = function_definition(native, "static int IRAM_ATTR cam_interrupt(")
         set_buffer = function_definition(native, "static int esp32s3_cam_set_buf(")
@@ -399,6 +403,8 @@ int main(void)
         program = self.base / "camera-jpeg.c"
         binary = self.base / "camera-jpeg"
         program.write_text(template.replace("/* FUNCTION */", function)
+                           .replace("/* DMA_REGISTERS */", registers)
+                           .replace("/* STOP_DMA */", stop_dma)
                            .replace("/* GATING */", gating)
                            .replace("/* INTERRUPT */", interrupt)
                            .replace("/* SET_BUFFER */", set_buffer))
@@ -534,6 +540,8 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
         self.assertEqual(applied.returncode, 0, applied.stderr)
         capture = (source / "drivers/video/v4l2_cap.c").read_text()
         functions = "\n\n".join(function_definition(capture, signature) for signature in (
+            "static int stop_capture(FAR struct capture_mng_s *cmng,",
+            "static int cleanup_resources(FAR capture_mng_t *cmng)",
             "static int capture_open(FAR struct file *filep)",
             "static int capture_close(FAR struct file *filep)"))
         template = (ROOT / "tests/nuttx-std/camera-lifecycle.c").read_text()
@@ -580,16 +588,23 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
         self.assertEqual(template.count("/* FRAMEBUFF_FUNCTIONS */"), 1)
         env = os.environ.copy()
         env["GIT_CEILING_DIRECTORIES"] = str(source.parent)
-        rollback = subprocess.run([
-            "git", "apply", "--reverse", "--include=drivers/video/v4l2_cap.c",
-            str(ROOT / "upstream/nuttx/patches/0079-video-rollback-failed-qbuf.patch"),
-        ], cwd=source, env=env, text=True, capture_output=True, timeout=10)
-        self.assertEqual(rollback.returncode, 0, rollback.stderr)
+        # Construct the historical QBUF counterfactual before the later stop
+        # acknowledgment patch changed the same rollback hunk.
+        for patch in ("0102-camera-stop-acknowledgement.patch",
+                      "0079-video-rollback-failed-qbuf.patch"):
+            rollback = subprocess.run([
+                "git", "apply", "--reverse", "--include=drivers/video/v4l2_cap.c",
+                str(ROOT / "upstream/nuttx/patches" / patch),
+            ], cwd=source, env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(rollback.returncode, 0, rollback.stderr)
         before_rollback_fix = target.read_text()
         for label, native in (("patched", capture), ("before-qbuf-fix", before_rollback_fix)):
             with self.subTest(source=label):
+                stop_signature = ("static int stop_capture(" if label == "patched"
+                                  else "static void stop_capture(")
                 functions = "\n\n".join(function_definition(native, signature)
                     for signature in (
+                        stop_signature,
                         "static int start_capture(FAR struct capture_mng_s *cmng,",
                         "static int change_capture_state(FAR capture_mng_t *cmng,",
                         "static int capture_qbuf(FAR struct file *filep,",
@@ -601,6 +616,7 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
                 compiled = subprocess.run([
                     "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    *(["-DSTOP_ACKNOWLEDGED"] if label == "patched" else []),
                     str(program), "-o", str(binary),
                 ], capture_output=True, text=True, timeout=30)
                 self.assertEqual(compiled.returncode, 0, compiled.stderr)
@@ -608,7 +624,7 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
                                         text=True, timeout=10)
                 if label == "patched":
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    for marker in ("order=BSD", "unwind=BSs/BSDsd",
+                    for marker in ("order=BSD", "unwind=BSds/BSDds",
                                    "state=preserved", "qbuf=transactional"):
                         self.assertIn(marker, result.stdout)
                 else:

@@ -200,6 +200,7 @@ typedef struct
 typedef struct
 {
   enum capture_state_e state;
+  bool lower_active;
   uint32_t seqnum;
   uint8_t nr_fmt;
   video_format_t *fmt;
@@ -320,13 +321,6 @@ static const struct imgsensor_ops_s sensor_ops =
 
 static struct imgdata_s data = { .ops = &data_ops };
 static struct imgsensor_s sensor = { .ops = &sensor_ops };
-
-static void stop_capture(struct capture_mng_s *manager,
-                         enum v4l2_buf_type type)
-{
-  (void)manager;
-  (void)type;
-}
 
 static void get_clipped_format(uint8_t count, video_format_t *format,
                                struct v4l2_rect *clip,
@@ -558,13 +552,23 @@ int main(void)
 
   reset(0, -EIO, 0);
   ret = run_start_capture();
-  check(ret == -EIO && strcmp(events, "BSs") == 0,
-        "unwind sensor start failure");
+  check(ret == -EIO && strcmp(events,
+#ifdef STOP_ACKNOWLEDGED
+                             "BSds"
+#else
+                             "BSs"
+#endif
+                             ) == 0, "unwind sensor start failure");
 
   reset(0, 0, -EAGAIN);
   ret = run_start_capture();
-  check(ret == -EAGAIN && strcmp(events, "BSDsd") == 0,
-        "stop sensor before DMA after data start failure");
+  check(ret == -EAGAIN && strcmp(events,
+#ifdef STOP_ACKNOWLEDGED
+                                "BSDds"
+#else
+                                "BSDsd"
+#endif
+                                ) == 0, "stop both lower halves after data start failure");
 
   memset(&manager, 0, sizeof(manager));
   manager.imgsensor = &sensor;
@@ -586,6 +590,10 @@ int main(void)
   check(ret == OK && manager.capture_inf.state == CAPTURE_STATE_CAPTURE,
         "commit capture state after successful start");
 
+#ifdef STOP_ACKNOWLEDGED
+  check(stop_capture(&manager, V4L2_BUF_TYPE_VIDEO_CAPTURE) == OK,
+        "acknowledge stop before resetting the simulated stream state");
+#endif
   manager.capture_inf.state = CAPTURE_STATE_STREAMOFF;
   manager.capture_inf.bufinf.vbuf_next = NULL;
   ret = change_capture_state(&manager, CAPTURE_STATE_CAPTURE);
@@ -608,6 +616,10 @@ int main(void)
         }
     }
 
+#ifdef STOP_ACKNOWLEDGED
+  puts("camera start errors: order=BSD, unwind=BSds/BSDds, state=preserved, qbuf=transactional");
+#else
   puts("camera start errors: order=BSD, unwind=BSs/BSDsd, state=preserved, qbuf=transactional");
+#endif
   return 0;
 }

@@ -85,7 +85,7 @@ static int stub_ok(void) { return 0; }
 #define IMGSENSOR_START_CAPTURE(...) sensor_start_result
 #define IMGDATA_START_CAPTURE(...) lower_start()
 #define IMGDATA_UNINIT(...) lower_uninit()
-#define IMGSENSOR_UNINIT(...) 0
+#define IMGSENSOR_UNINIT(...) stub_ok()
 #define IMGDATA_INIT(...) 0
 #define IMGSENSOR_INIT(...) 0
 static capture_type_inf_t *get_capture_type_inf(capture_mng_t *c, enum v4l2_buf_type t)

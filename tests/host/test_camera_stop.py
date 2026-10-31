@@ -71,9 +71,11 @@ class CameraStopTests(unittest.TestCase):
                             if name != 'cam_stop_dma' or patched]
                 (directory / (include + '.inc')).write_text('\n'.join(selected))
                 binary = directory / f'{fixture}-{patched}'
-                subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-Wno-unused-function',
-                                '-I', str(directory), str(ROOT / 'tests/host' / (fixture + '.c')),
-                                '-o', str(binary)], check=True, capture_output=True, text=True)
+                built = subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-Wno-unused-function',
+                                        '-I', str(directory), str(ROOT / 'tests/host' / (fixture + '.c')),
+                                        '-o', str(binary)], capture_output=True, text=True)
+                if built.returncode:
+                    raise AssertionError(f'{binary.name}:\n' + (built.stdout + built.stderr)[-12000:])
                 cls.binaries[fixture, patched] = binary
 
     def cases(self, fixture, cases, baseline_refuses=()):

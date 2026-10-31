@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #define IRAM_ATTR
+/* DMA_REGISTERS */
 #define ESP32S3_CAM_DMA_BUFLEN 4096
 #define LCD_CAM_CAM_VSYNC_INT_CLR_M 4
 #define LCD_CAM_CAM_VSYNC_INT_ST_M 2
@@ -44,6 +45,7 @@ struct esp32s3_cam_s {
   int dma_channel;
   struct esp32s3_dmadesc_s *dmadesc;
   bool capturing;
+  bool stop_pending;
   uint8_t vsync_cnt;
   uint8_t *fb;
   uint32_t fb_size, pixfmt, width, height;
@@ -54,6 +56,18 @@ struct esp32s3_cam_s {
 static char events[128];
 static unsigned int event_count;
 static bool dma_enabled;
+static unsigned int dma_stops;
+static uint32_t dma_status(uint32_t reg, int channel)
+{
+  assert(channel == 0);
+  if (reg == DMA_IN_LINK_CH0_REG) return DMA_INLINK_PARK_CH0;
+  assert(reg == DMA_INFIFO_STATUS_CH0_REG);
+  return DMA_INFIFO_EMPTY_L1_CH0 | DMA_INFIFO_EMPTY_L2_CH0 |
+         DMA_INFIFO_EMPTY_L3_CH0;
+}
+#define GET_GDMA_CH_REG(reg, channel) dma_status((reg), (channel))
+#define esp32s3_dma_disable(channel, tx) \
+  (assert((channel) == 0 && !(tx)), dma_stops++, dma_enabled = false)
 static bool external_memory;
 static uintptr_t invalidated;
 static unsigned int dma_setups;
@@ -184,6 +198,8 @@ static uint32_t esp32s3_dma_setup(struct esp32s3_dmadesc_s *desc, int count,
   event('u');
   return size;
 }
+
+/* STOP_DMA */
 
 /* GATING */
 
@@ -392,6 +408,7 @@ int main(void)
   stop_at = 5;
   boundary(&camera);
   assert(completions == 5 && !dma_enabled); /* Raw short frames remain errors. */
+  assert(dma_stops != 0 && !camera.stop_pending);
   puts("JPEG extent: APP/entropy/truncation/padding bounds pass");
   return 0;
 }
