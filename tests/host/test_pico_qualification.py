@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -28,6 +29,20 @@ PROFILE = load('pico_profile', 'tests/detection/report_profile.py')
 
 
 class PicoQualification(unittest.TestCase):
+    def test_fixed_graph_rejects_non_s8_operators(self):
+        names = ['input', 'score0', 'score1', 'score2', 'bbox0', 'bbox1', 'bbox2']
+        variables = {name: {'shape': [1, 1, 1, 1], 'exp': 0} for name in names}
+        nodes = [dict(op='Concat', ins=['input'], out=name,
+                      attrs={'axis': 3, 'quant_type': 'S8'}) for name in names[1:]]
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(GRAPH, 'read', return_value=({}, variables, nodes)):
+            output = Path(directory) / 'engine.cpp'
+            GRAPH.generate(b'', output, False)
+            for precision in ('S16', 'F32', None):
+                nodes[-1]['attrs']['quant_type'] = precision
+                with self.assertRaisesRegex(ValueError, 'requires S8'):
+                    GRAPH.generate(b'', output, False)
+
     def test_optimized_native_corpus_preserves_scores_and_stage_summaries(self):
         evidence = ROOT / 'tests/detection/results/2026-10-22-pico'
         previous = ROOT / 'tests/detection/results/2026-10-21-pico'
