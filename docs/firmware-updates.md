@@ -38,10 +38,12 @@ its counter for subsequent admissions. This uses authenticated image state, not
 an eFuse counter; it does not prevent replay of an entire external-flash snapshot.
 
 MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
-`state`, `request_trial` and `confirm`; shared Rust admits only stable-to-pending
-and trial-to-confirmed transitions and retains failures for that owner. The NuttX
+`state`, `stage_update`, `request_trial` and `confirm`. Shared Rust admits staging
+only from a stable image, stable-to-pending trial requests, and trial-to-confirmed
+transitions. Failures remain sticky for that owner, including a staging reader
+unwind. The NuttX
 provider holds one exclusive lease while calling synchronous upstream SDK
-operations. Application control links only MCUboot's trailer helpers, without
+operations. Application control links MCUboot's flash/trailer helpers, without
 another verifier or crypto library. Its NuttX flash descriptors use direct,
 synchronous NOR writes so setting a trailer flag does not erase neighboring
 recovery state through the default MTD translation layer. The host regression
@@ -49,13 +51,17 @@ compiles NuttX's actual direct-write function against a NOR/power-cut model;
 whole-device interrupted-update qualification is still required.
 The SDK erase helper uses the native partition erase ioctl, with aligned,
 bounded ranges and cached-read invalidation even after failure. Writing `0xff`
-through a direct descriptor is not a physical erase. The Rust boot API exposes
-only trailer control; this helper does not add firmware staging.
+through a direct descriptor is not a physical erase.
 Native flash partitions follow the product
 layout; filesystem auto-mounting stays disabled.
 
-Staging and application health remain separate caller responsibilities. A trial
-must be confirmed only after the application's startup health policy passes.
+`stage_update` erases only the inactive slot and streams an exact declared length,
+using two 256-byte transfer buffers. It reserves the upstream-calculated trailer,
+pads the last write to the provider's program unit, and verifies each write. Short,
+extra or failed input cannot complete staging or activate an image through that
+owner. Staging leaves the running image stable; the caller separately requests a
+trial after success. The source owns I/O deadlines, and target compatibility and
+startup health remain caller policy. Confirm only after startup health passes.
 The native `boot-control` fixture exercises SDK state, trial and confirmation,
 exclusive acquisition and repeated-query descriptor cleanup; it is not an OTA
 service or automatic startup confirmation policy. Product wiring owns layout.
@@ -122,7 +128,7 @@ build. This does not enable protected runtime boot control.
 
 Runtime boot control remains unavailable in the protected profile pending joined
 interrupted-update qualification. MCUboot still owns swapping and recovery; the
-portable Rust boot API and unencrypted qualification profile are unchanged.
+unencrypted qualification profile remains available.
 Host flash models do not qualify torn hardware programs or physical reset timing.
 
 Prepare those files offline from the protected boot build and a confirmed

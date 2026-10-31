@@ -145,6 +145,36 @@ class BootWiringTests(unittest.TestCase):
                                 str(ROOT / "tests/host/mcuboot_trailer_nor.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
 
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for staging I/O regression")
+    def test_native_staging_rejects_short_io_and_reserves_matching_metadata(self):
+        relative = "boot/nuttx/src/flash_map_backend/flash_map_backend.c"
+        header = "boot/nuttx/include/mcuboot_config/mcuboot_config.h"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name in (relative, header):
+                path = directory / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((Path(os.environ["NXRS_MCUBOOT_SOURCE"]) / name).read_bytes())
+            for patch in ("0001-nuttx-direct-trailer-writes.patch", "0004-nuttx-encrypted-metadata-alignment.patch"):
+                subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/mcuboot/patches" / patch)],
+                               cwd=directory, check=True, capture_output=True)
+            for patched in (False, True):
+                if patched:
+                    subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/mcuboot/patches/0005-nuttx-bounded-image-io.patch")],
+                                   cwd=directory, check=True, capture_output=True)
+                source = (directory / relative).read_text()
+                functions = []
+                for name in ("flash_area_read", "flash_area_write", "flash_area_align", "flash_area_get_sector"):
+                    match = re.search(r"(?:int|uint32_t) " + name + r"\(", source)
+                    function = source[match.start():]
+                    functions.append(function[:function.index("\n}\n") + 3])
+                (directory / "io.inc").write_text("\n".join(functions))
+                for flags in ([], ["-DCONFIG_ESP32S3_APP_FORMAT_MCUBOOT"], ["-DCONFIG_ESP32S3_OTA_PARTITION_ENCRYPT"]):
+                    executable = directory / "io"
+                    subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-Wno-unused-variable", "-I", str(directory),
+                                    *flags, str(ROOT / "tests/host/mcuboot_staging_io.c"), "-o", str(executable)], check=True)
+                    self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, 0 if patched else 1)
+
     @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for encrypted trailer regression")
     def test_protected_native_trailer_fields_use_independent_program_units(self):
         sdk = Path(os.environ["NXRS_MCUBOOT_SOURCE"])

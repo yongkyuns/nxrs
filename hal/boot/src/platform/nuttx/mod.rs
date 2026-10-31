@@ -1,6 +1,6 @@
 use crate::{
-    control::{Backend, Owner},
     Control, DeviceError, State,
+    control::{Backend, Owner},
 };
 use core::cell::Cell;
 use core::marker::PhantomData;
@@ -18,6 +18,10 @@ impl Drop for Provider {
     }
 }
 impl Backend for Provider {
+    type Slot = ffi::Secondary;
+    fn secondary(&mut self) -> Result<Self::Slot, DeviceError> {
+        ffi::Secondary::open()
+    }
     fn state(&mut self) -> Result<State, DeviceError> {
         ffi::state()
     }
