@@ -76,6 +76,7 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
     if protected(platform):
         for component, folder, name in (
                 ("mcuboot", "mcuboot", "0002-require-provisioned-protection.patch"),
+                ("mcuboot", "mcuboot", "0003-encrypted-write-once-flash.patch"),
                 ("esp-hal-3rdparty", "hal", "0004-forbid-efuse-programming.patch")):
             patch = ROOT / "upstream" / component / "patches" / name
             subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=out / folder, check=True)
@@ -107,7 +108,7 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
         binary = signed
         rom = {"rom_signature": "rsa-3072-pss-sha256", "rom_root_pem_sha256": fingerprint,
                "hardware_qualified": False, "requires_factory_provisioning": True,
-               "efuse_writes_forbidden": True}
+               "efuse_writes_forbidden": True, "encrypted_write_once": True}
     (out / "bootloader.json").write_text(json.dumps({
         "mcuboot": MCUBOOT_REVISION, "esp-hal-3rdparty": HAL_REVISION,
         "platform": platform["name"], "layout": platform["mcuboot"],
