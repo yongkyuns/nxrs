@@ -506,6 +506,10 @@ name = "nxrs-transport"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-watchdog"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-wifi"
 version = "0.1.0"
 dependencies = [

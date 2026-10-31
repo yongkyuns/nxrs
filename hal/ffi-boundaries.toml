@@ -2,6 +2,11 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "hal/watchdog/src/platform/nuttx/ffi/watchdog.c"
+kind = "abi"
+reason = "Target watchdog status fields and individual GETSTATUS/STOP ioctls. Rust owns descriptor admission, cancellation verification and sticky failure; the bridge never arms or feeds."
+
+[[bridge]]
 path = "hal/tls/src/platform/linux/ffi/rng.c"
 kind = "abi"
 reason = "Linux GRND_NONBLOCK and scalar getrandom ABI checks. Rust calls the OS RNG and refuses unseeded/error/partial output."
