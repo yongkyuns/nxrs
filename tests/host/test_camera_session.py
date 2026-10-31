@@ -46,8 +46,75 @@ class Console:
     def close(self):
         self.closed = True
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
 
 class SessionTests(unittest.TestCase):
+    def test_autostart_sends_only_credentials_after_the_ready_marker(self):
+        console = Console([b''], initial=b'NXRS_WIFI_CREDENTIALS_READY')
+        SERVE.Session(console, CREDENTIALS, None, Mock(), tls=True).start(autostart=True)
+        self.assertEqual(console.writes, [bytes((3, 9)) + b'labsecret123'])
+
+    def test_tls_trial_confirmation_reenrolls_but_other_exits_fail(self):
+        marker = 'NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1'
+        for events, failure, stop_at, accepted in (
+                ([marker], None, None, True), ([marker], None, 'confirmation', True),
+                ([], None, 'shutdown', True), ([], None, None, False),
+                ([marker], 'device failure', None, False)):
+            with self.subTest(events=events, failure=failure, stop_at=stop_at), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                config = root / 'config.json'
+                config.write_text(json.dumps(dict(enrollment_directory=str(root / 'enrollment'),
+                    ingest_program=sys.executable, ingest=dict(camera='192.168.1.20:8443',
+                    allow_insecure_camera_http=False, camera_tls=dict(site_id='s', camera_id='c', gateway_id='g')))))
+                config.chmod(0o600)
+                stop, emitted, readers = threading.Event(), [], []
+                console = Console([b''], initial=b'NXRS_WIFI_CREDENTIALS_READY')
+                def supervisor(*args, **kwargs):
+                    first = not readers
+                    reader = Mock(failure=failure if first else None,
+                                  events=list(events) if first else [])
+                    reader.ready.wait.return_value = True
+                    reader.finished.is_set.return_value = first and stop_at != 'shutdown'
+                    reader.credentials.config.return_value = {}
+                    reader.shutdown.side_effect = lambda **kw: reader.events.append(
+                        marker if first and stop_at == 'shutdown' else 'NXRS_TLS_CAMERA_PASS stopped=1 joined=1')
+                    readers.append(reader)
+                    if len(readers) == 2 or stop_at == 'shutdown':
+                        stop.set()
+                    return reader
+                def emit(event, **kwargs):
+                    emitted.append(event)
+                    if event == 'startup_confirmed' and stop_at == 'confirmation':
+                        stop.set()
+                tls = SimpleNamespace(Supervisor=supervisor, INIT_TIMEOUT=1,
+                                      private=lambda path, value: path.write_text(value))
+                child = Mock()
+                child.poll.return_value = None
+                with patch.object(SERVE, 'identity', return_value=(0x303a, 0x1001, 'camera')), \
+                     patch.dict(sys.modules, serial=SimpleNamespace(Serial=Mock(return_value=console))), \
+                     patch.object(SERVE.importlib.util, 'spec_from_file_location'), \
+                     patch.object(SERVE.importlib.util, 'module_from_spec', return_value=tls), \
+                     patch.object(SERVE.subprocess, 'run'), \
+                     patch.object(SERVE.subprocess, 'Popen', return_value=child):
+                    def run():
+                        SERVE.supervise_tls('port', CREDENTIALS, config,
+                            emit, stop, autostart=True)
+                    if accepted:
+                        run()
+                        self.assertEqual(len(readers), 2)
+                        self.assertIn('startup_confirmed', emitted)
+                        readers[-1].shutdown.assert_called_once_with(renew=False)
+                        self.assertEqual(console.writes, [bytes((3, 9)) + b'labsecret123'])
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            run()
+                        self.assertNotIn('startup_confirmed', emitted)
+
     def test_auxiliary_metrics_cannot_renew_stream_health(self):
         row = b'NXRS_STREAM_STACK budget=32480 used=14784'
         parsed = SERVE.RUN.owner_stack(row)

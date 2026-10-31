@@ -39,6 +39,12 @@ detector and media settings. The helper adds the issued certificate paths/pin,
 writes the complete `ingest.json`, and starts Rust with `--require-camera-tls`.
 Stop an existing ingest owner before starting this supervisor.
 
+For the signed `esp32s3-camera-stream-startup` profile, add `--autostart`:
+the helper waits for the firmware's credential reader without sending shell
+bytes. A successful trial joins its resources and confirms the image, then
+the same USB owner enrolls the recreated TLS session. Unexpected exits still
+stop supervision. This reversible profile leaves hardware protections off.
+
 The USB development supervisor renews through joined native/ingest sessions
 every 45 minutes, before the one-hour CRL expires, without closing the serial
 connection or rebinding its listener. Private enrollment files are removed
