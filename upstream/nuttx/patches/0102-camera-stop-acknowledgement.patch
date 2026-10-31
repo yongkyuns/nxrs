@@ -1,0 +1,702 @@
+Subject: [PATCH] video: acknowledge camera DMA stop before releasing owners
+
+Observe channel-local STOP/PARK and reset/FIFO state without polling in IRQ
+context. Retain descriptors, queues and callback context on pending abort,
+including partial START and automatic STOP failures. A failed consuming close
+keeps native owners pinned and refuses reopen. Rust owns retry deadlines.
+
+PARK is descriptor-FSM idle; this does not claim a separately observed external
+bus fence or physical cache-off timing qualification.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -45,6 +45,7 @@
+ #include "espressif/esp_irq.h"
+ 
+ #include "xtensa.h"
++#include "hardware/esp32s3_dma.h"
+ #include "hardware/esp32s3_system.h"
+ #include "hardware/esp32s3_gpio_sigmap.h"
+ #include "hardware/esp32s3_lcd_cam.h"
+@@ -113,6 +114,7 @@
+   lcd_cam_dev_t *hw;
+ 
+   bool capturing;
++  bool stop_pending;             /* DMA abort has not acknowledged idle */
+ 
+   int cpuint;
+   int32_t dma_channel;
+@@ -264,18 +266,61 @@
+   return 0;
+ }
+ 
+-/* CAM_START must be enabled to observe VSYNC. While waiting for a boundary,
+- * discard input with DMA off. At that boundary, flush the old partial frame
+- * from CAM/AFIFO and arm DMA for the next complete frame.
++/* Stop admission before checking the channel-local abort acknowledgment.
++ * PARK acknowledges descriptor-FSM idle, not a separate external-bus fence.
++ * Never wait here: this also runs in the VSYNC ISR. The caller retains all
++ * DMA storage and may retry from thread context on -EAGAIN.
+  */
+ 
+-static void IRAM_ATTR cam_prepare_frame(struct esp32s3_cam_s *priv,
+-                                      bool transfer)
++static int IRAM_ATTR cam_stop_dma(struct esp32s3_cam_s *priv)
+ {
++  uint32_t empty = DMA_INFIFO_EMPTY_L1_CH0 | DMA_INFIFO_EMPTY_L2_CH0 |
++                   DMA_INFIFO_EMPTY_L3_CH0;
++
++  priv->stop_pending = true;
+   cam_ll_stop(priv->hw);
++  esp32s3_dma_disable(priv->dma_channel, false);
++  if ((GET_GDMA_CH_REG(DMA_IN_LINK_CH0_REG, priv->dma_channel) &
++       DMA_INLINK_PARK_CH0) == 0)
++    {
++      return -EAGAIN;
++    }
++
++  /* Abort queued input only after descriptor processing has stopped. Reset
++   * discards FIFO contents; empty readback is not a claim they were drained
++   * into the frame buffer.
++   */
++
+   cam_ll_reset(priv->hw);
+   cam_ll_fifo_reset(priv->hw);
+   esp32s3_dma_reset_channel(priv->dma_channel, false);
++  if ((GET_GDMA_CH_REG(DMA_IN_LINK_CH0_REG, priv->dma_channel) &
++       DMA_INLINK_PARK_CH0) == 0 ||
++      (GET_GDMA_CH_REG(DMA_INFIFO_STATUS_CH0_REG, priv->dma_channel) &
++       empty) != empty)
++    {
++      return -EAGAIN;
++    }
++
++  priv->stop_pending = false;
++  return OK;
++}
++
++/* CAM_START must be enabled to observe VSYNC. While waiting for a boundary,
++ * discard input with DMA off. At that boundary, flush the old partial frame
++ * from CAM/AFIFO and arm DMA for the next complete frame.
++ */
++
++static int IRAM_ATTR cam_prepare_frame(struct esp32s3_cam_s *priv,
++                                      bool transfer)
++{
++  int ret = cam_stop_dma(priv);
++
++  if (ret < 0)
++    {
++      return ret;
++    }
++
+   cam_ll_set_recv_data_bytelen(priv->hw, ESP32S3_CAM_DMA_BUFLEN - 1);
+   cam_ll_clear_interrupt_status(priv->hw, LCD_CAM_CAM_VSYNC_INT_CLR_M);
+   if (transfer && esp_gpioread(CONFIG_ESP32S3_CAM_VSYNC_PIN) &&
+@@ -311,10 +356,7 @@
+                  !esp_gpioread(CONFIG_ESP32S3_CAM_HREF_PIN);
+       if (!transfer)
+         {
+-          cam_ll_stop(priv->hw);
+-          cam_ll_reset(priv->hw);
+-          cam_ll_fifo_reset(priv->hw);
+-          esp32s3_dma_reset_channel(priv->dma_channel, false);
++          ret = cam_stop_dma(priv);
+           priv->vsync_cnt = 0;
+         }
+ 
+@@ -324,9 +366,9 @@
+       cam_ll_enable_vsync_generate_eof(priv->hw, eof);
+       priv->hw->cam_ctrl.cam_update = 1;
+       priv->hw->lc_dma_int_ena.cam_vsync_int_ena = enabled;
+-      if (transfer)
++      if (ret < 0 || transfer)
+         {
+-          return;
++          return ret;
+         }
+     }
+   else
+@@ -337,12 +379,14 @@
+   /* Initial or delayed start: observe a physical boundary with DMA off. */
+ 
+   cam_ll_start(priv->hw);
++  return OK;
+ }
+ 
+ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)arg;
+   uint32_t status = cam_ll_get_interrupt_status(priv->hw);
++  int ret;
+ 
+   /* Only handle CAM VSYNC interrupt */
+ 
+@@ -363,7 +407,14 @@
+ 
+           if (priv->vsync_cnt == 1)
+             {
+-              cam_prepare_frame(priv, true);
++              ret = cam_prepare_frame(priv, true);
++              if (ret < 0)
++                {
++                  priv->capturing = false;
++                  priv->cb = NULL;
++                  priv->cb_arg = NULL;
++                  return ret;
++                }
+             }
+           else if (priv->vsync_cnt >= 2 && priv->cb)
+             {
+@@ -379,12 +430,19 @@
+                * unrelated memory (e.g. g_cam_priv.data.ops).
+                */
+ 
+-              cam_ll_stop(priv->hw);
++              ret = cam_stop_dma(priv);
++              if (ret < 0)
++                {
++                  /* Do not publish storage or let the callback replace DMA
++                   * descriptors until the abort has acknowledged idle.
++                   */
+ 
+-              /* Stop DMA channel before callback to prevent race */
++                  priv->capturing = false;
++                  priv->cb = NULL;
++                  priv->cb_arg = NULL;
++                  return ret;
++                }
+ 
+-              esp32s3_dma_reset_channel(priv->dma_channel, false);
+-
+               gettimeofday(&ts, NULL);
+ 
+               /* DMA is stopped: lengths are now stable. A short frame is
+@@ -443,7 +501,14 @@
+                    */
+ 
+                   priv->vsync_cnt = 1;
+-                  cam_prepare_frame(priv, true);
++                  ret = cam_prepare_frame(priv, true);
++                  if (ret < 0)
++                    {
++                      priv->capturing = false;
++                      priv->cb = NULL;
++                      priv->cb_arg = NULL;
++                      return ret;
++                    }
+                 }
+             }
+         }
+@@ -682,6 +747,11 @@
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)data;
+ 
++  if (priv->stop_pending)
++    {
++      return -EAGAIN;
++    }
++
+   priv->capturing = false;
+   priv->cb = NULL;
+   priv->cb_arg = NULL;
+@@ -732,33 +802,11 @@
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)data;
+   irqstate_t flags;
+-
+-  /* Stop capture */
++  int ret = esp32s3_cam_stop_capture(data);
+ 
+-  cam_ll_stop(priv->hw);
+-
+-  /* Reset CAM module and AFIFO to stop all hardware activity */
+-
+-  cam_ll_reset(priv->hw);
+-  cam_ll_fifo_reset(priv->hw);
+-
+-  /* Keep XCLK running so the sensor stays accessible via I2C for
+-   * subsequent re-initialization.  VSYNC generation is already
+-   * stopped by the CAM_RESET above.  Disable only the CAM_START
+-   * bit in CAM_CTRL to stop the capture engine while preserving
+-   * the clock divider configuration.
+-   */
+-
+-  /* Stop and release DMA before tearing down the CPU-level IRQ.
+-   * esp32s3_dma_release() detaches the GDMA channel interrupt;
+-   * if DMA is still active it may fire after detach -> irq_unexpected.
+-   */
+-
+-  if (priv->dma_channel >= 0)
++  if (ret < 0)
+     {
+-      esp32s3_dma_reset_channel(priv->dma_channel, false);
+-      esp32s3_dma_release(priv->dma_channel);
+-      priv->dma_channel = -1;
++      return ret;
+     }
+ 
+   /* Mask CPU interrupts so no new peripheral interrupt can be
+@@ -778,6 +826,16 @@
+ 
+   spin_unlock_irqrestore(&priv->lock, flags);
+ 
++  /* Callback admission is closed and the channel acknowledged its abort.
++   * Only now may the channel and descriptor storage be reused.
++   */
++
++  if (priv->dma_channel >= 0)
++    {
++      esp32s3_dma_release(priv->dma_channel);
++      priv->dma_channel = -1;
++    }
++
+   /* Free DMA descriptors */
+ 
+   if (priv->dmadesc)
+@@ -812,6 +870,11 @@
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)data;
+ 
++  if (priv->stop_pending)
++    {
++      return -EAGAIN;
++    }
++
+   /* Store negotiated format from upper layer */
+ 
+   /* Bound both caller-provided and internally allocated buffers before the
+@@ -958,7 +1021,14 @@
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)data;
+   irqstate_t flags = spin_lock_irqsave(&priv->lock);
++  int ret;
+ 
++  if (priv->stop_pending)
++    {
++      spin_unlock_irqrestore(&priv->lock, flags);
++      return -EAGAIN;
++    }
++
+   if (priv->capturing)
+     {
+       spin_unlock_irqrestore(&priv->lock, flags);
+@@ -975,11 +1045,16 @@
+   priv->cb_arg = arg;
+   priv->vsync_cnt = 0;
+ 
+-  cam_prepare_frame(priv, false);
+-  priv->capturing = true;
+-  spin_unlock_irqrestore(&priv->lock, flags);
++  ret = cam_prepare_frame(priv, false);
++  priv->capturing = ret == OK;
++  if (ret < 0)
++    {
++      priv->cb = NULL;
++      priv->cb_arg = NULL;
++    }
+ 
+-  return OK;
++  spin_unlock_irqrestore(&priv->lock, flags);
++  return ret;
+ }
+ 
+ /****************************************************************************
+@@ -990,6 +1065,7 @@
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)data;
+   irqstate_t flags;
++  int ret;
+ 
+   flags = spin_lock_irqsave(&priv->lock);
+ 
+@@ -999,19 +1075,8 @@
+   priv->cb = NULL;
+   priv->cb_arg = NULL;
+ 
+-  /* Stop capture engine */
++  ret = priv->dma_channel >= 0 ? cam_stop_dma(priv) : OK;
+ 
+-  cam_ll_stop(priv->hw);
+-
+-  /* Reset CAM + AFIFO to fully quiesce hardware */
+-
+-  cam_ll_reset(priv->hw);
+-  cam_ll_fifo_reset(priv->hw);
+-
+-  /* Reset DMA channel to abort any in-flight transfer */
+-
+-  esp32s3_dma_reset_channel(priv->dma_channel, false);
+-
+   /* Clear any pending VSYNC interrupt */
+ 
+   cam_ll_clear_interrupt_status(priv->hw,
+@@ -1019,7 +1084,7 @@
+ 
+   spin_unlock_irqrestore(&priv->lock, flags);
+ 
+-  return OK;
++  return ret;
+ }
+ 
+ /****************************************************************************
+diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
+--- a/drivers/video/v4l2_cap.c
++++ b/drivers/video/v4l2_cap.c
+@@ -103,6 +103,7 @@
+ {
+   mutex_t                lock_state;
+   enum capture_state_e   state;
++  bool                   lower_active; /* Includes an unacknowledged stop */
+   int32_t                remaining_capnum;
+   capture_wait_capture_t wait_capture;
+   uint8_t                nr_fmt;
+@@ -175,6 +176,7 @@
+   /* Parameter of capture_initialize() */
+ 
+   uint8_t                open_num;
++  bool                   shutdown_failed; /* Retain callback/DMA owners */
+   capture_type_inf_t     capture_inf;
+   capture_type_inf_t     still_inf;
+   FAR struct imgdata_s   *imgdata;
+@@ -204,7 +206,7 @@
+                                  enum capture_state_e next_state);
+ static bool is_taking_still_picture(FAR capture_mng_t *cmng);
+ static bool is_bufsize_sufficient(FAR capture_mng_t *cmng, uint32_t bufsize);
+-static void cleanup_resources(FAR capture_mng_t *cmng);
++static int cleanup_resources(FAR capture_mng_t *cmng);
+ static bool is_sem_waited(FAR sem_t *sem);
+ static int save_scene_param(FAR capture_mng_t *cmng,
+                             enum v4l2_scene_mode mode,
+@@ -782,7 +784,40 @@
+   else
+     {
+       memcpy(c_fmt, fmt, nr_fmt * sizeof(video_format_t));
++    }
++}
++
++/* lower_active is set before START, since failure can leave the engine
++ * partially armed. Only successful stops of both lower halves release it.
++ */
++
++static int stop_capture(FAR struct capture_mng_s *cmng,
++                        enum v4l2_buf_type type)
++{
++  FAR capture_type_inf_t *type_inf = get_capture_type_inf(cmng, type);
++  int ret;
++  int result;
++
++  if (!type_inf->lower_active)
++    {
++      return OK;
++    }
++
++  ret = IMGDATA_STOP_CAPTURE(cmng->imgdata);
++  result = IMGSENSOR_STOP_CAPTURE(cmng->imgsensor,
++    type == V4L2_BUF_TYPE_VIDEO_CAPTURE ?
++    IMGSENSOR_STREAM_TYPE_VIDEO : IMGSENSOR_STREAM_TYPE_STILL);
++  if (ret == OK)
++    {
++      ret = result;
+     }
++
++  if (ret == OK)
++    {
++      type_inf->lower_active = false;
++    }
++
++  return ret;
+ }
+ 
+ static int start_capture(FAR struct capture_mng_s *cmng,
+@@ -815,6 +850,11 @@
+ 
+   ASSERT(fmt && interval && cmng->imgsensor && cmng->imgdata);
+ 
++  if (cmng->capture_inf.lower_active || cmng->still_inf.lower_active)
++    {
++      return -EAGAIN;
++    }
++
+   get_clipped_format(nr_fmt, fmt, clip, c_fmt);
+ 
+   convert_to_imgdatafmt(&c_fmt[CAPTURE_FMT_MAIN], &df[IMGDATA_FMT_MAIN]);
+@@ -835,15 +875,14 @@
+    * thread-context I2C; it must not race the first incoming frame.
+    */
+ 
++  get_capture_type_inf(cmng, type)->lower_active = true;
+   ret = IMGSENSOR_START_CAPTURE(cmng->imgsensor,
+      type == V4L2_BUF_TYPE_VIDEO_CAPTURE ?
+      IMGSENSOR_STREAM_TYPE_VIDEO : IMGSENSOR_STREAM_TYPE_STILL,
+      nr_fmt, sf, &si);
+   if (ret < 0)
+     {
+-      IMGSENSOR_STOP_CAPTURE(cmng->imgsensor,
+-        type == V4L2_BUF_TYPE_VIDEO_CAPTURE ?
+-        IMGSENSOR_STREAM_TYPE_VIDEO : IMGSENSOR_STREAM_TYPE_STILL);
++      stop_capture(cmng, type);
+       return ret;
+     }
+ 
+@@ -851,26 +890,13 @@
+      nr_fmt, df, &di, complete_capture, cmng);
+   if (ret < 0)
+     {
+-      IMGSENSOR_STOP_CAPTURE(cmng->imgsensor,
+-        type == V4L2_BUF_TYPE_VIDEO_CAPTURE ?
+-        IMGSENSOR_STREAM_TYPE_VIDEO : IMGSENSOR_STREAM_TYPE_STILL);
+-      IMGDATA_STOP_CAPTURE(cmng->imgdata);
++      stop_capture(cmng, type);
+     }
+ 
+   return ret;
+ }
+ 
+-static void stop_capture(FAR struct capture_mng_s *cmng,
+-                         enum v4l2_buf_type type)
+-{
+-  ASSERT(cmng->imgsensor && cmng->imgdata);
+ 
+-  IMGDATA_STOP_CAPTURE(cmng->imgdata);
+-  IMGSENSOR_STOP_CAPTURE(cmng->imgsensor,
+-    type == V4L2_BUF_TYPE_VIDEO_CAPTURE ?
+-    IMGSENSOR_STREAM_TYPE_VIDEO : IMGSENSOR_STREAM_TYPE_STILL);
+-}
+-
+ static int change_capture_state(FAR capture_mng_t *cmng,
+                                  enum capture_state_e next_state)
+ {
+@@ -904,10 +930,14 @@
+           updated_next_state = CAPTURE_STATE_STREAMON;
+         }
+     }
+-  else if (current_state == CAPTURE_STATE_CAPTURE &&
+-           next_state    != CAPTURE_STATE_CAPTURE)
++  else if (cmng->capture_inf.lower_active &&
++           next_state != CAPTURE_STATE_CAPTURE)
+     {
+-          stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
++      ret = stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
++      if (ret < 0)
++        {
++          return ret;
++        }
+     }
+ 
+   cmng->capture_inf.state = updated_next_state;
+@@ -1284,25 +1314,42 @@
+   cmng->capture_scence_num = 0;
+ }
+ 
+-static void cleanup_resources(FAR capture_mng_t *cmng)
++static int cleanup_resources(FAR capture_mng_t *cmng)
+ {
+-  /* If in capture, stop */
++  int ret = stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
++  int result = stop_capture(cmng, V4L2_BUF_TYPE_STILL_CAPTURE);
+ 
+-  if (cmng->capture_inf.state == CAPTURE_STATE_CAPTURE)
++  if (ret == OK)
+     {
+-      stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
++      ret = result;
+     }
+ 
+-  if (cmng->still_inf.state == CAPTURE_STATE_CAPTURE)
++  if (ret < 0)
+     {
+-      stop_capture(cmng, V4L2_BUF_TYPE_STILL_CAPTURE);
++      return ret;
+     }
+ 
+-  /* Clean up resource */
++  /* Do not destroy queues/callback context before lower uninit acknowledges
++   * release. close consumes the descriptor even on error: retaining these
++   * resources and refusing reopen is the only safe failure ownership.
++   */
+ 
++  ret = IMGDATA_UNINIT(cmng->imgdata);
++  result = IMGSENSOR_UNINIT(cmng->imgsensor);
++  if (ret == OK)
++    {
++      ret = result;
++    }
++
++  if (ret < 0)
++    {
++      return ret;
++    }
++
+   cleanup_streamresources(&cmng->capture_inf, cmng);
+   cleanup_streamresources(&cmng->still_inf, cmng);
+   cleanup_scenes_parameter(cmng);
++  return OK;
+ }
+ 
+ static bool is_sem_waited(FAR sem_t *sem)
+@@ -2016,6 +2063,7 @@
+   FAR vbuf_container_t *container = NULL;
+   enum v4l2_buf_type buf_type;
+   irqstate_t           flags;
++  int ret = OK;
+   imgdata_format_t df[MAX_CAPTURE_FMT] =
+     {
+       0
+@@ -2075,7 +2123,13 @@
+ 
+   if (type_inf->remaining_capnum == 0)
+     {
+-      stop_capture(cmng, buf_type);
++      ret = stop_capture(cmng, buf_type);
++      if (ret < 0)
++        {
++          spin_unlock_irqrestore_nopreempt(&cmng->lock, flags);
++          return ret;
++        }
++
+       type_inf->state = CAPTURE_STATE_STREAMOFF;
+ 
+       /* If stop still stream, notify it to video stream */
+@@ -2093,7 +2147,13 @@
+       container = video_framebuff_get_vacant_container(&type_inf->bufinf);
+       if (container == NULL)
+         {
+-          stop_capture(cmng, buf_type);
++          ret = stop_capture(cmng, buf_type);
++          if (ret < 0)
++            {
++              spin_unlock_irqrestore_nopreempt(&cmng->lock, flags);
++              return ret;
++            }
++
+           type_inf->state = CAPTURE_STATE_STREAMON;
+         }
+       else
+@@ -2236,9 +2296,9 @@
+ 
+   nxmutex_lock(&cmng->mutex);
+ 
+-  if (type_inf->state == CAPTURE_STATE_CAPTURE)
++  if (type_inf->state == CAPTURE_STATE_CAPTURE || type_inf->lower_active)
+     {
+-      /* In capture, REQBUFS is not permitted */
++      /* DMA may still own the existing queue and storage. */
+ 
+       ret = -EPERM;
+     }
+@@ -2340,6 +2400,11 @@
+       return -EINVAL;
+     }
+ 
++  if (type_inf->lower_active && type_inf->state != CAPTURE_STATE_CAPTURE)
++    {
++      return -EAGAIN;
++    }
++
+   if (!is_bufsize_sufficient(cmng, buf->length))
+     {
+       return -EINVAL;
+@@ -2398,10 +2463,10 @@
+         }
+     }
+ 
+-  if (ret < 0)
++  if (ret < 0 && !type_inf->lower_active)
+     {
+-      /* Failed QBUF must leave ownership with the caller. Remove only this
+-       * submission, preserving other queued and completed buffers.
++      /* Roll back only after lower START failure has quiesced. Otherwise
++       * preserve the queued owner until explicit STREAMOFF succeeds.
+        */
+ 
+       container = video_framebuff_remove_container(&type_inf->bufinf, queued);
+@@ -2847,7 +2912,7 @@
+ 
+   nxmutex_lock(&cmng->mutex);
+ 
+-  if (type_inf->state == CAPTURE_STATE_STREAMOFF)
++  if (type_inf->state == CAPTURE_STATE_STREAMOFF && !type_inf->lower_active)
+     {
+       ret = -EPERM;
+     }
+@@ -2980,20 +3045,22 @@
+   nxmutex_lock(&cmng->still_inf.lock_state);
+ 
+   if (cmng->still_inf.state == CAPTURE_STATE_STREAMOFF &&
+-      cmng->still_inf.remaining_capnum == REMAINING_CAPNUM_INFINITY)
++      cmng->still_inf.remaining_capnum == REMAINING_CAPNUM_INFINITY &&
++      !cmng->still_inf.lower_active)
+     {
+       ret = -EPERM;
+     }
+   else
+     {
+       nxmutex_lock(&cmng->mutex);
+-      if (cmng->still_inf.state == CAPTURE_STATE_CAPTURE)
++      ret = stop_capture(cmng, V4L2_BUF_TYPE_STILL_CAPTURE);
++      nxmutex_unlock(&cmng->mutex);
++      if (ret < 0)
+         {
+-          stop_capture(cmng, V4L2_BUF_TYPE_STILL_CAPTURE);
++          nxmutex_unlock(&cmng->still_inf.lock_state);
++          return ret;
+         }
+ 
+-      nxmutex_unlock(&cmng->mutex);
+-
+       cmng->still_inf.state = CAPTURE_STATE_STREAMOFF;
+       cmng->still_inf.remaining_capnum = REMAINING_CAPNUM_INFINITY;
+ 
+@@ -3668,6 +3735,12 @@
+     }
+ 
+   nxmutex_lock(&cmng->mutex);
++  if (cmng->shutdown_failed)
++    {
++      nxmutex_unlock(&cmng->mutex);
++      return -EBUSY;
++    }
++
+   if (cmng->open_num == 0)
+     {
+       /* Only in first execution, open device */
+@@ -3707,7 +3780,6 @@
+   FAR struct inode *inode = filep->f_inode;
+   FAR capture_mng_t *cmng = inode->i_private;
+   int ret = OK;
+-  int result;
+ 
+   if (cmng == NULL)
+     {
+@@ -3718,13 +3790,14 @@
+ 
+   if (--cmng->open_num == 0)
+     {
+-      cleanup_resources(cmng);
+-      ret = IMGSENSOR_UNINIT(cmng->imgsensor);
+-      result = IMGDATA_UNINIT(cmng->imgdata);
+-      if (ret == OK)
+-        {
+-          ret = result;
++      ret = cleanup_resources(cmng);
++      if (ret < 0)
++        {
++          cmng->shutdown_failed = true;
++          nxmutex_unlock(&cmng->mutex);
++          return ret;
+         }
++
+ #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+       if (cmng->unlinked)
+         {
+@@ -3833,7 +3906,7 @@
+     }
+ 
+   nxmutex_lock(&cmng->mutex);
+-  if (cmng->open_num == 0)
++  if (cmng->open_num == 0 && !cmng->shutdown_failed)
+     {
+       nxmutex_unlock(&cmng->mutex);
+       nxmutex_destroy(&cmng->mutex);
