@@ -41,6 +41,16 @@ def prepare(destination, checkout=None):
         start = text.index('/**\n * @brief The data struct of module task.')
         end = text.index('#pragma GCC diagnostic pop', start) + len('#pragma GCC diagnostic pop')
         path.write_text(text[:start] + 'static void module_forward_dual_core(Module *, void *, void *) { abort(); }\n' + text[end:])
+        # This private SDK port serves only the fixed S8 graph. A constant
+        # precision lets ordinary dead-code elimination drop unused S16/float
+        # dispatch and kernels, without changing the selected S8 operations.
+        path.write_text(path.read_text().replace(
+            'quant_type_t quant_type;',
+            'static constexpr quant_type_t quant_type = QUANT_TYPE_SYMM_8BIT;'))
+        path = staged / 'esp-dl/dl/module/src/dl_module_base.cpp'
+        path.write_text(path.read_text().replace(
+            'inplace(inplace), quant_type(quant_type)\n{',
+            'inplace(inplace)\n{\n    if (quant_type != QUANT_TYPE_SYMM_8BIT) abort();'))
         # SDK headers assume a 32-bit pointer even in a scalar host build.
         path = staged / 'esp-dl/dl/base/dl_base_pool2d.hpp'
         path.write_text(path.read_text().replace('(unsigned)&args.', '(uintptr_t)&args.'))

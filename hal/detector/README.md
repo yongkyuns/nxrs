@@ -83,7 +83,10 @@ the qualified single-core flat NuttX profile. Shared Rust behavior contains no p
 `upstream/esp-dl/source.json` pins source revision, model bytes and every retained
 source before and after the narrow SDK port. Preparation removes SDK dual-core
 task launching and unused iostream initialization, and corrects a host pointer
-alignment check. An attempted SDK dual-core path aborts; all generated calls
+alignment check. Module precision is fixed to S8 so unused S16/float dispatch
+and kernels can be discarded. Generation rejects other precisions, and the
+private SDK constructor rejects non-S8 modules. Weights and S8 kernels remain
+unchanged. An attempted SDK dual-core path aborts; all generated calls
 explicitly request single-core execution on the Rust-owned worker.
 
 A fixed graph is generated from the pinned FlatBuffer at build time. The target

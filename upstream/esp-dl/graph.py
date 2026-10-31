@@ -142,6 +142,7 @@ def generate(model,destination,optimized):
         code.append(f'context.push_back_tensor(new TensorBase({values(t["shape"])},static_cast<char*>(parameters.get())+{parameter_offsets[name]},{t["exp"]},{dtype},false),true);')
     for node in nodes:
         a=node['attrs'];op=node['op'];ins=node['ins'];out=node['out']
+        if a.get('quant_type') != 'S8':raise ValueError('fixed PICO graph requires S8 operators')
         if op=='Conv':
             if a['dilations']!=[1,1] or a['activation'] not in ['Relu','Linear']:raise ValueError('unsupported convolution')
             pads=a['pads'];init=f'new Conv({"ReLU" if a["activation"]=="Relu" else "Linear"},{values([pads[0],pads[2],pads[1],pads[3]])},{{1,1}},{values(a["strides"])},nullptr,{a["group"]},QUANT_TYPE_SYMM_8BIT)'
