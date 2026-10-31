@@ -32,8 +32,8 @@ different classes are refused, even with a valid signature from the same root.
 Protected and unprotected builds have distinct classes because their flash
 formats differ. Factory preparation also requires a matching class. Older,
 classless images need a newly signed matching factory/candidate set before using
-this loader; no physical camera migration has been performed. Keep signing
-authorities separate where products have different trust requirements.
+this loader. Keep signing authorities separate where products have different
+trust requirements.
 
 MCUboot compares the candidate's signed security counter with the active image's
 counter before a trial swap. With a readable active counter, missing or lower
@@ -125,10 +125,17 @@ joins TLS, camera and detection; the product then disconnects/stops/joins Wi-Fi,
 acquires its quiet owner, confirms and verifies Stable, resumes, and cancels the
 watchdog. Expired health or any failure prevents cancellation. A resume failure
 after confirmation cannot undo Stable metadata. Successful completion recreates
-the pipeline; later recreation failures are outside the trial watchdog window.
+the pipeline using the retained bound TCP listener; its TLS worker joins before
+Wi-Fi quiescence. Retention avoids NuttX's `AddrInUse` failure on immediate
+rebinding. Later recreation failures are outside the trial watchdog window.
 The startup profile has a separate signed-image class to exclude legacy
-candidates that cancel the deadline. Native full-path qualification remains
-pending; these ownership barriers alone do not prove physical bus quiescence.
+candidates that cancel the deadline. Reversible unprotected ESP32-S3 qualification
+has passed Stable autostart and a changed-code Trial: joined confirmation, fresh
+TLS enrollment, camera/inference reacquisition and 200 seconds of sampled
+progress, with confirmed primary-image readback. Full-flash restoration and
+ordinary TLS-camera recovery were verified afterward. Failed-startup recovery
+remains pending. These ownership barriers do not prove physical bus quiescence, torn
+writes or encrypted-write timing.
 The USB qualification reader returns at `NXRS_STARTUP_CONFIRMED`, preserving
 the next pipeline's CSR for a new enrollment reader on the same serial connection.
 
