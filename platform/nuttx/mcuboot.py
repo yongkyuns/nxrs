@@ -43,6 +43,7 @@ def application_config(platform: dict) -> dict[str, str]:
         values.update({"BOOT_MCUBOOT": "y", "MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"'})
     if protected(platform):
         values["ESP32S3_OTA_PARTITION_ENCRYPT"] = "y"
+        values["ESP32S3_SPIFLASH_MTD_BLKSIZE"] = "32"
     return values
 
 

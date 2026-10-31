@@ -115,6 +115,10 @@ read physically erased 16-byte AES blocks as logical `0xff`; programmed blocks
 use hardware decryption. Writes verify actual decrypted bytes, including `0xff`,
 so a dropped program cannot pass through erased-value normalization. NuttX keeps
 its existing flash mutex and internal-stack worker context.
+The NuttX application helper uses the same 32-byte trailer layout and reports
+32-byte writes. Its MTD proxy block size is also 32 bytes, so writing one flag
+cannot reprogram neighboring ciphertext; incompatible block sizes fail the SDK
+build. This does not enable protected runtime boot control.
 
 Runtime boot control remains unavailable in the protected profile pending joined
 interrupted-update qualification. MCUboot still owns swapping and recovery; the
