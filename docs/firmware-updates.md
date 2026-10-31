@@ -73,6 +73,13 @@ owner. Staging leaves the running image stable; the caller separately requests a
 trial after success. The source owns I/O deadlines; MCUboot enforces the signed
 target class before execution. Startup health remains caller policy. Confirm
 only after startup health passes.
+The separate `hal/watchdog` resource can adopt an already-running native reset
+watchdog without feeding or restarting its deadline. Drop and startup failure
+leave it running; explicit cancellation verifies stopped state and retains
+uncertain failures. This resource alone does not close the early-startup gap:
+the current NuttX handoff still disables the bootloader watchdog, and automatic
+camera startup/health confirmation remain unimplemented. No product profile
+admits the watchdog yet.
 The native `boot-control` fixture exercises SDK state, trial and confirmation,
 exclusive acquisition and repeated-query descriptor cleanup; it is not an OTA
 service or automatic startup confirmation policy. Product wiring owns layout.
