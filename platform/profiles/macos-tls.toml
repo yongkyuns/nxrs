@@ -3,3 +3,5 @@ extends = "macos"
 
 [hal]
 tls = "macos"
+# This socket/SDK fixture does not acquire a host radio controller.
+wifi = "none"

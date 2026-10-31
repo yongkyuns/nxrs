@@ -236,6 +236,7 @@ dependencies = [
 name = "nxrs-camera-stream"
 version = "0.1.0"
 dependencies = [
+ "nxrs-boot",
  "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-detection-service",
@@ -243,6 +244,8 @@ dependencies = [
  "nxrs-detector",
  "nxrs-stream-service",
  "nxrs-tls",
+ "nxrs-watchdog",
+ "nxrs-wifi",
 ]
 
 [[package]]
@@ -438,6 +441,7 @@ dependencies = [
  "nxrs-std-wifi",
  "nxrs-stream-service",
  "nxrs-tls",
+ "nxrs-watchdog",
  "nxrs-wifi",
 ]
 

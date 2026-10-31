@@ -43,6 +43,10 @@ def application_config(platform: dict) -> dict[str, str]:
         })
     if platform["hal"].get("boot") == "nuttx":
         values.update({"BOOT_MCUBOOT": "y", "MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"'})
+    if platform["hal"].get("watchdog") == "nuttx":
+        if platform["hal"].get("boot") != "nuttx":
+            raise ValueError("inherited boot watchdog requires boot control")
+        values.update({"WATCHDOG": "y", "ESP32S3_RWDT": "y", "ESP32S3_RWDT_INHERIT": "y"})
     if protected(platform):
         values["ESP32S3_OTA_PARTITION_ENCRYPT"] = "y"
         values["ESP32S3_SPIFLASH_MTD_BLKSIZE"] = "32"

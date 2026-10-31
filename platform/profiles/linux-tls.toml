@@ -3,3 +3,5 @@ extends = "linux"
 
 [hal]
 tls = "linux"
+# This socket/SDK fixture does not acquire a host radio controller.
+wifi = "none"

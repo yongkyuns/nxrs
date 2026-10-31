@@ -4,6 +4,7 @@
 
 mod detection;
 mod publication;
+pub mod startup;
 mod tls;
 pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
 pub use tls::{TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};

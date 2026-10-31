@@ -1,0 +1,10 @@
+# Reversible unencrypted trial-startup qualification; no physical provisioning.
+extends = "esp32s3-camera-stream-mcuboot"
+hal = { watchdog = "nuttx" }
+boot-watchdog-ms = 180000
+# A distinct cohort excludes legacy candidates that cancel the startup deadline.
+image-class = "a098ebd6-f35f-4e43-babc-96f2d5ebc72e"
+
+[init]
+command = "stream_test"
+args = ["boot-tls", "continuous", "0"]

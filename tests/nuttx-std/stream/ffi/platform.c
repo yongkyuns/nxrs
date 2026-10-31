@@ -13,6 +13,7 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <netutils/netlib.h>
+#include <netutils/netinit.h>
 #include <poll.h>
 #include <unistd.h>
 #include <errno.h>
@@ -20,6 +21,16 @@
 #ifdef CONFIG_ARCH_CHIP_ESP32S3
 #include "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/esp_hw_support/include/esp_private/esp_clk.h"
 #endif
+
+/* Direct init bypasses NSH's normal network initialization. */
+int stream_network_initialize(void)
+{
+#ifdef CONFIG_NETINIT_THREAD
+  return -ENOTSUP;
+#else
+  return netinit_bringup();
+#endif
+}
 
 uint32_t nxrs_stream_cpu_frequency(void)
 {
