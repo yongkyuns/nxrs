@@ -7,6 +7,18 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import uuid
+
+
+def image_class(platform: dict) -> str:
+    """A stable compatibility class supplied by the product, not its release."""
+    value = platform.get("image-class")
+    if not isinstance(value, str):
+        raise ValueError("MCUboot product requires an explicit image-class UUID")
+    parsed = uuid.UUID(value)
+    if not parsed.int or str(parsed) != value:
+        raise ValueError("image-class must be a nonzero canonical UUID")
+    return value
 
 
 def layout(config: dict) -> dict:
@@ -38,9 +50,11 @@ def layout(config: dict) -> dict:
 
 
 def sign(source: Path, output: Path, config: dict, key: Path, root: Path,
-         version: str, counter: int, *, confirm: bool = False) -> None:
+         version: str, counter: int, *, class_id: str | None = None, confirm: bool = False) -> None:
     """Publish only after upstream verifies against the independently supplied root."""
     layout(config)
+    if class_id is not None:
+        class_id = image_class({"image-class": class_id})
     if not 0 <= counter <= 0xffffffff:
         raise ValueError("security counter must be an explicit unsigned 32-bit integer")
     if output.resolve() in {path.resolve() for path in (source, key, root)}:
@@ -60,6 +74,8 @@ def sign(source: Path, output: Path, config: dict, key: Path, root: Path,
                    "--max-sectors", str(config["slot-size"] // config["erase-size"])]
         if confirm:
             command.extend(["--pad", "--confirm"])
+        if class_id is not None:
+            command.extend(["--cid", class_id])
         subprocess.run([*command, str(source), str(candidate)], check=True)
         subprocess.run(["imgtool", "verify", "-k", str(root), str(candidate)], check=True)
         os.replace(candidate, output)
@@ -78,9 +94,9 @@ def main() -> None:
     args = parser.parse_args()
     from platform_config import resolve
     try:
-        config = resolve(args.platform)["mcuboot"]
-        sign(args.input, args.output, config, args.key, args.root,
-             args.version, args.security_counter, confirm=args.confirm)
+        platform = resolve(args.platform)
+        sign(args.input, args.output, platform["mcuboot"], args.key, args.root,
+             args.version, args.security_counter, class_id=image_class(platform), confirm=args.confirm)
     except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"MCUboot packaging failed: {error}\n")
 

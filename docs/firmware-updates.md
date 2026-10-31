@@ -25,8 +25,15 @@ only the signed container, without slot padding or boot-state trailers. The
 updater must bound writes before the trailer and request a trial through MCUboot
 after staging completes. The standalone `tools/mcuboot_image.py` supports
 `--confirm` to pad an initial factory image and initialize its confirmed trailer.
-Use separate signing authorities for incompatible products/layouts; a shared
-firmware version alone does not identify the intended hardware.
+Product profiles supply a stable `image-class` UUID, independent of release
+version. Signing places it in MCUboot's protected class-ID TLV; the loader uses
+upstream parsing/authentication and a fixed product-ID callback. Missing or
+different classes are refused, even with a valid signature from the same root.
+Protected and unprotected builds have distinct classes because their flash
+formats differ. Factory preparation also requires a matching class. Older,
+classless images need a newly signed matching factory/candidate set before using
+this loader; no physical camera migration has been performed. Keep signing
+authorities separate where products have different trust requirements.
 
 MCUboot compares the candidate's signed security counter with the active image's
 counter before a trial swap. With a readable active counter, missing or lower
@@ -60,8 +67,9 @@ using two 256-byte transfer buffers. It reserves the upstream-calculated trailer
 pads the last write to the provider's program unit, and verifies each write. Short,
 extra or failed input cannot complete staging or activate an image through that
 owner. Staging leaves the running image stable; the caller separately requests a
-trial after success. The source owns I/O deadlines, and target compatibility and
-startup health remain caller policy. Confirm only after startup health passes.
+trial after success. The source owns I/O deadlines; MCUboot enforces the signed
+target class before execution. Startup health remains caller policy. Confirm
+only after startup health passes.
 The native `boot-control` fixture exercises SDK state, trial and confirmation,
 exclusive acquisition and repeated-query descriptor cleanup; it is not an OTA
 service or automatic startup confirmation policy. Product wiring owns layout.

@@ -1,0 +1,27 @@
+--- a/boot/espressif/port/esp_mcuboot.c
++++ b/boot/espressif/port/esp_mcuboot.c
+@@ -22,6 +22,24 @@
+ 
+ #include "flash_map_backend/flash_map_backend.h"
+ #include "sysflash/sysflash.h"
++
++#ifdef MCUBOOT_UUID_CID
++#include <bootutil/mcuboot_uuid.h>
++
++/* MCUboot parses and authenticates the signed class TLV. The product supplies
++ * only its fixed compatibility identifier; no second verifier or parser.
++ */
++fih_ret boot_uuid_cid_match(uint32_t image_id, const struct image_uuid *uuid_cid)
++{
++    static const uint8_t expected[16] = { CONFIG_ESP_IMAGE_CLASS_ID };
++    FIH_DECLARE(rc, FIH_FAILURE);
++    if (image_id == 0 && uuid_cid != NULL &&
++        memcmp(uuid_cid->raw, expected, sizeof(expected)) == 0) {
++        FIH_SET(rc, FIH_SUCCESS);
++    }
++    FIH_RET(rc);
++}
++#endif
+ 
+ #ifndef ARRAY_SIZE
+ #  define ARRAY_SIZE(arr)           (sizeof(arr) / sizeof((arr)[0]))

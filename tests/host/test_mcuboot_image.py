@@ -20,6 +20,14 @@ GEOMETRY = {"flash-size": 0x100000, "primary-offset": 0x20000,
 
 
 class LayoutTests(unittest.TestCase):
+    def test_image_class_requires_an_explicit_canonical_nonzero_uuid(self):
+        valid = "2f24c1da-fce4-4d80-9a91-4bad54503e16"
+        self.assertEqual(IMAGE.image_class({"image-class": valid}), valid)
+        for value in (None, 42, "", "invalid", valid.upper(), valid.replace("-", ""),
+                      "00000000-0000-0000-0000-000000000000"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                IMAGE.image_class({"image-class": value})
+
     def test_geometry_refuses_overlap_overflow_alignment_and_invalid_types(self):
         self.assertEqual(IMAGE.layout(GEOMETRY), GEOMETRY)
         # Other ports may place the scratch region first or start a slot at zero.

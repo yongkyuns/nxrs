@@ -1,5 +1,6 @@
 """NuttX product/build wiring for the upstream Espressif MCUboot port."""
-from mcuboot_image import layout
+from mcuboot_image import image_class, layout
+from uuid import UUID
 
 MCUBOOT_REVISION = "8a07053d42e592c85cb35b79c4de1b7749943387"
 HAL_REVISION = "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9"
@@ -14,6 +15,7 @@ def protected(platform: dict) -> bool:
 
 def application_config(platform: dict) -> dict[str, str]:
     boot = layout(platform["mcuboot"])
+    image_class(platform)
     if platform["target"] != "xtensa-esp32s3-nuttx":
         raise ValueError("MCUboot build wiring is not qualified for this NuttX target")
     if boot["flash-size"] != 0x1000000 or boot["primary-offset"] < 0x20000:
@@ -72,6 +74,8 @@ def bootloader_config(platform: dict, root: str) -> str:
         "CONFIG_ESP_DOWNGRADE_PREVENTION": 1,
         "CONFIG_ESP_DOWNGRADE_PREVENTION_SECURITY_COUNTER": 1,
         "CONFIG_ESP_SIGN_KEY_FILE": root,
+        "MCUBOOT_UUID_CID": 1,
+        "CONFIG_ESP_IMAGE_CLASS_ID": ",".join(f"0x{byte:02x}" for byte in UUID(image_class(platform)).bytes),
     }
     if protected(platform):
         values.update({key: 1 for key in (

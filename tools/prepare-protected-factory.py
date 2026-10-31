@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "platform/nuttx"))
 from mcuboot import application_config, protected, MCUBOOT_REVISION, HAL_REVISION
 from platform_config import resolve
+from mcuboot_image import image_class
+from uuid import UUID
 
 
 def digest(data: bytes) -> str:
@@ -46,6 +48,7 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
     metadata = json.loads((boot_build / "bootloader.json").read_text())
     expected = {"mcuboot": MCUBOOT_REVISION, "esp-hal-3rdparty": HAL_REVISION,
                 "platform": profile["name"], "layout": geometry,
+                "image_class": image_class(profile),
                 "bootloader_file": "bootloader.signed.bin",
                 "hardware_secure_boot": True, "flash_encryption": True,
                 "efuse_writes_forbidden": True,
@@ -84,10 +87,14 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
         # The upstream admission policy needs a signed factory counter baseline.
         info = work / "image.yaml"
         dump_imginfo(str(work / "primary.bin"), str(info), silent=True)
-        counters = [tlv for tlv in yaml.safe_load(info.read_text())["tlv_area"]["tlvs_prot"]
+        protected_tlvs = yaml.safe_load(info.read_text())["tlv_area"]["tlvs_prot"]
+        counters = [tlv for tlv in protected_tlvs
                     if tlv["type"] == TLV_VALUES["SEC_CNT"]]
         if len(counters) != 1 or counters[0]["len"] != 4 or len(counters[0]["data"]) != 4:
             raise ValueError("factory application needs one protected 32-bit security counter")
+        classes = [tlv for tlv in protected_tlvs if tlv["type"] == TLV_VALUES["UUID_CID"]]
+        if len(classes) != 1 or classes[0]["len"] != 16 or bytes(classes[0]["data"]) != UUID(image_class(profile)).bytes:
+            raise ValueError("factory application image class does not match the product")
         regions = []
         for name, offset, plaintext in (
                 ("boot", 0, boot), ("primary", geometry["primary-offset"], image),
@@ -124,6 +131,7 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
                             "sha256": digest(encrypted.read_bytes())})
         (bundle / "factory.json").write_text(json.dumps({
             "platform": profile["name"], "layout": geometry, "regions": regions,
+            "image_class": image_class(profile),
             "rom_root_pem_sha256": digest(public), "app_root_pem_sha256": digest(app.get_public_pem()),
             "flash_encryption": "xts-aes-128",
             "efuse_writes_forbidden": True,
