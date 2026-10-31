@@ -1,0 +1,43 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: optionally inherit the bootloader reset deadline
+
+Keep the existing disable-and-relock default. Opt-in MCUboot products can keep
+the running RTC watchdog unchanged through early startup, then explicitly stop
+it through the existing driver after Rust startup-health policy succeeds.
+Never feed, restart or lengthen the deadline during this handoff.
+
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -887,6 +887,19 @@
+ 		to have the RTC module reset, please, use the Timers' Module WDTs.
+ 		They will only reset Main System.
+ 
++config ESP32S3_RWDT_INHERIT
++	bool "Inherit MCUboot's startup watchdog deadline"
++	default n
++	depends on ESP32S3_APP_FORMAT_MCUBOOT && ESP32S3_RWDT
++	depends on !WATCHDOG_AUTOMONITOR && !WATCHDOG_PANIC_NOTIFIER
++	---help---
++		Keep the bootloader's running RTC reset watchdog through startup.
++		The application must start automatically and explicitly stop it after
++		health and firmware confirmation succeed. Do not enable this for an
++		interactive shell awaiting a manual application command. The handoff
++		neither starts a disabled watchdog nor extends its inherited deadline.
++		Requires a bootloader that leaves the reset watchdog running.
++
+ config ESP32S3_XTWDT
+ 	bool "XTAL32K Watchdog Timer"
+ 	depends on ESP32S3_RTC_CLK_EXT_OSC || ESP32S3_RTC_CLK_EXT_XTAL
+--- a/arch/xtensa/src/esp32s3/esp32s3_wdt.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_wdt.c
+@@ -1075,8 +1075,10 @@
+ 
+ void esp32s3_wdt_early_deinit(void)
+ {
++#ifndef CONFIG_ESP32S3_RWDT_INHERIT
+   rwdt_ll_write_protect_disable(&RTCCNTL);
+   rwdt_ll_disable(&RTCCNTL);
++#endif
+   rwdt_ll_write_protect_enable(&RTCCNTL);
+ }
+ 

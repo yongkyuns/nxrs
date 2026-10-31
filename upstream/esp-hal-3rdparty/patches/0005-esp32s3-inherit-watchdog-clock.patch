@@ -1,0 +1,51 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: preserve inherited watchdog clock and deadline
+
+Opt-in NuttX watchdog inheritance keeps the bootloader slow-clock source.
+Calibrate that source for SDK time/radio consumers without feeding or changing
+the watchdog timeout. CPU/fast-clock setup and default SDK behavior stay intact.
+
+--- a/components/esp_system/port/soc/esp32s3/clk.c
++++ b/components/esp_system/port/soc/esp32s3/clk.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <stdint.h>
++#include <stdlib.h>
+ #include <sys/cdefs.h>
+ #include <sys/time.h>
+ #include <sys/param.h>
+@@ -83,6 +84,7 @@
+     rtc_clk_8m_enable(true, rc_fast_d256_is_enabled);
+     rtc_clk_fast_src_set(SOC_RTC_FAST_CLK_SRC_RC_FAST);
+ 
++#ifndef CONFIG_ESP32S3_RWDT_INHERIT
+ #ifdef CONFIG_BOOTLOADER_WDT_ENABLE
+     // WDT uses a SLOW_CLK clock source. After a function select_rtc_slow_clk a frequency of this source can changed.
+     // If the frequency changes from 150kHz to 32kHz, then the timeout set for the WDT will increase 4.6 times.
+@@ -115,6 +117,25 @@
+     wdt_hal_feed(&rtc_wdt_ctx);
+     wdt_hal_config_stage(&rtc_wdt_ctx, WDT_STAGE0, stage_timeout_ticks, WDT_STAGE_ACTION_RESET_RTC);
+     wdt_hal_write_protect_enable(&rtc_wdt_ctx);
++#endif
++#else
++    /* Keep the inherited source and deadline, but initialize the software
++     * period for RTC time/radio consumers even on cold startup.
++     */
++    uint32_t cal_val;
++    if (SLOW_CLK_CAL_CYCLES > 0) {
++        cal_val = rtc_clk_cal(CLK_CAL_RTC_SLOW, SLOW_CLK_CAL_CYCLES);
++    } else {
++        uint32_t slow_hz = rtc_clk_slow_freq_get_hz();
++        if (slow_hz == 0) {
++            abort();
++        }
++        cal_val = (uint32_t)(((1ULL << RTC_CLK_CAL_FRACT) * 1000000ULL) / slow_hz);
++    }
++    if (cal_val == 0) {
++        abort();
++    }
++    esp_clk_slowclk_cal_set(cal_val);
+ #endif
+ 
+     rtc_cpu_freq_config_t old_config, new_config;

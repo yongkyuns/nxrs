@@ -1,0 +1,21 @@
+From: nxrs contributors
+Subject: [PATCH] nuttx: leave inherited RWDT cancellation to the application
+
+Use the SDK existing user-owned watchdog switch so its late system-init hook
+does not disable the deadline preserved by early NuttX and clock startup.
+Keep the SDK default for products without inheritance.
+
+--- a/nuttx/esp32s3/include/sdkconfig.h
++++ b/nuttx/esp32s3/include/sdkconfig.h
+@@ -520,6 +520,11 @@
+ 
+ #include <nuttx/config.h>
+ 
++/* The application owns cancellation of the inherited startup watchdog. */
++#if defined(CONFIG_ESP32S3_RWDT_INHERIT) && !defined(CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE)
++#  define CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE 1
++#endif
++
+ #define CONFIG_ESP_TIMER_TASK_AFFINITY 0
+ #define CONFIG_ESP_TIMER_TASK_STACK_SIZE 4096
+ #define CONFIG_ESP_TIMER_ISR_AFFINITY_CPU0 1

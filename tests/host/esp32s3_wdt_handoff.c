@@ -32,9 +32,15 @@ int main(void)
     config = 0x1234567u | ((state & 1) ? RTC_CNTL_WDT_EN : 0);
     locked = (state & 2) != 0;
     denied = false;
+    const uint32_t inherited = config;
     for (unsigned repeat = 0; repeat < 2; ++repeat) {
       esp32s3_wdt_early_deinit();
+#ifdef CONFIG_ESP32S3_RWDT_INHERIT
+      if (config != inherited || !locked || denied) return 1;
+#else
+      (void)inherited;
       if (config != 0x1234567u || !locked || denied) return 1;
+#endif
     }
   }
   return 0;
