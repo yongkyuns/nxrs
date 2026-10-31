@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "platform/nuttx"))
-from mcuboot import application_config, bootloader_config, protected, MCUBOOT_REVISION, HAL_REVISION
+from mcuboot import application_config, bootloader_config, protected, watchdog_timeout_ms, MCUBOOT_REVISION, HAL_REVISION
 from platform_config import resolve
 from mcuboot_image import image_class
 
@@ -83,10 +83,11 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
             subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=out / folder, check=True)
             patches.append({"component": component, "patch": name,
                             "sha256": hashlib.sha256(patch.read_bytes()).hexdigest()})
-    patch = ROOT / "upstream/mcuboot/patches/0006-espressif-image-class.patch"
-    subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=out / "mcuboot", check=True)
-    patches.append({"component": "mcuboot", "patch": patch.name,
-                    "sha256": hashlib.sha256(patch.read_bytes()).hexdigest()})
+    for name in ("0006-espressif-image-class.patch", "0007-espressif-watchdog-budget.patch"):
+        patch = ROOT / "upstream/mcuboot/patches" / name
+        subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=out / "mcuboot", check=True)
+        patches.append({"component": "mcuboot", "patch": patch.name,
+                        "sha256": hashlib.sha256(patch.read_bytes()).hexdigest()})
     public_root = out / "root.pem"
     public_root.write_bytes(public)
     config = bootloader_config(platform, str(public_root))
@@ -118,6 +119,7 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
         "mcuboot": MCUBOOT_REVISION, "esp-hal-3rdparty": HAL_REVISION,
         "platform": platform["name"], "layout": platform["mcuboot"],
         "image_class": image_class(platform),
+        "boot_watchdog_ms": watchdog_timeout_ms(platform),
         "application_signature": "ecdsa-p256-sha256",
         "public_root_sha256": hashlib.sha256(public_root.read_bytes()).hexdigest(),
         "bootloader_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),

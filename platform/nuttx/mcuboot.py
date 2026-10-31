@@ -49,6 +49,14 @@ def application_config(platform: dict) -> dict[str, str]:
     return values
 
 
+def watchdog_timeout_ms(platform: dict) -> int:
+    """A fixed bootloader-owned startup budget, capped at five minutes."""
+    value = platform.get("boot-watchdog-ms", 9000)
+    if type(value) is not int or not 1 <= value <= 300000:
+        raise ValueError("boot-watchdog-ms must be an integer from 1 through 300000")
+    return value
+
+
 def bootloader_config(platform: dict, root: str) -> str:
     """Only the public application root enters the SDK bootloader build."""
     application_config(platform)
@@ -67,6 +75,7 @@ def bootloader_config(platform: dict, root: str) -> str:
         "CONFIG_BOOTLOADER_FLASH_XMC_SUPPORT": 1,
         "CONFIG_BOOTLOADER_LOG_LEVEL": 3,
         "CONFIG_BOOTLOADER_WDT_ENABLE": 1,
+        "CONFIG_BOOTLOADER_WDT_TIME_MS": watchdog_timeout_ms(platform),
         "CONFIG_ESP_MCUBOOT_WDT_ENABLE": 1,
         "CONFIG_ESP_CONSOLE_UART": 1, "CONFIG_ESP_CONSOLE_UART_NUM": 0,
         "CONFIG_ESP_CONSOLE_ROM_SERIAL_PORT_NUM": 0,
