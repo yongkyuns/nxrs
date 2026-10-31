@@ -77,5 +77,6 @@ def bootloader_config(platform: dict, root: str) -> str:
             "CONFIG_SECURE_BOOT_SUPPORTS_RSA", "CONFIG_SECURE_FLASH_ENC_ENABLED",
             "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE",
             "CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED",
+            "CONFIG_SECURE_BOOT_REQUIRE_ALREADY_ENABLED", "CONFIG_EFUSE_WRITES_FORBIDDEN",
         )})
     return "".join(f"{key}={value}\n" for key, value in values.items())

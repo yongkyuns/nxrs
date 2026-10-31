@@ -1,0 +1,21 @@
+--- a/boot/espressif/main.c
++++ b/boot/espressif/main.c
+@@ -98,6 +98,18 @@
+ 
+ int main()
+ {
++    /* Refuse before SDK startup can stage keys or permanent protection. */
++#if defined(CONFIG_SECURE_BOOT_REQUIRE_ALREADY_ENABLED)
++    if (!esp_secure_boot_enabled()) {
++        FIH_PANIC;
++    }
++#endif
++#if defined(CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED)
++    if (!esp_flash_encryption_enabled()) {
++        FIH_PANIC;
++    }
++#endif
++
+     if (bootloader_init() != ESP_OK) {
+         FIH_PANIC;
+     }

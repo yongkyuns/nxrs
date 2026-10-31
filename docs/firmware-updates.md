@@ -89,9 +89,13 @@ artifact; `bootloader.json` describes build configuration, never device state.
 Application packaging uses 32-byte trailer alignment and encrypted native OTA
 partitions. Factory images require `mcuboot_image.py --confirm`.
 
-This SDK configuration requires flash encryption to be provisioned already;
-its secure-boot startup can still burn permanent eFuses. Build commands never
-flash or provision a device. Production keys, encrypted factory flashing,
+Protected builds require both protections to exist before SDK initialization;
+unprovisioned hardware halts instead of entering automatic provisioning. A pinned
+SDK patch rejects eFuse programming and clears staged writes. The builder records
+the patch hashes and rejects an ELF that retains the physical programmer.
+Factory preparation refuses older builds without this guard. These are software
+safeguards, not physical qualification or permission to flash the working camera.
+Build commands never flash or provision a device. Production keys, encrypted factory flashing,
 ROM rejection tests, recovery/debug policy and a protected rollback floor need
 qualification before hardware activation. Keep disposable CI roots off devices.
 
