@@ -1,5 +1,20 @@
 /* SDK witness only; it exports no production C HAL interface. */
 #include <bootutil/bootutil_public.h>
+#include <stddef.h>
+#include <sys/types.h>
+#include <flash_map_backend/flash_map_backend.h>
+_Static_assert(sizeof(void *) == 4 && sizeof(off_t) == 8, "SDK pointer/offset ABI");
+_Static_assert(sizeof(struct flash_area) == 16 && _Alignof(struct flash_area) == 4 &&
+               offsetof(struct flash_area, fa_id) == 0 && offsetof(struct flash_area, fa_size) == 8 &&
+               offsetof(struct flash_area, fa_mtd_path) == 12, "Rust private flash area layout");
+_Static_assert(sizeof(struct flash_sector) == 8 && offsetof(struct flash_sector, fs_size) == 4,
+               "Rust private sector layout");
+_Static_assert(__builtin_types_compatible_p(__typeof__(&flash_area_get_sector),
+                 int (*)(const struct flash_area *, off_t, struct flash_sector *)), "sector ABI");
+_Static_assert(__builtin_types_compatible_p(__typeof__(&flash_area_read),
+                 int (*)(const struct flash_area *, uint32_t, void *, uint32_t)), "read ABI");
+_Static_assert(__builtin_types_compatible_p(__typeof__(&flash_area_write),
+                 int (*)(const struct flash_area *, uint32_t, const void *, uint32_t)), "write ABI");
 _Static_assert(MCUBOOT_IMAGE_NUMBER == 1, "qualified single-image geometry");
 #ifdef CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT
 _Static_assert(BOOT_MAX_ALIGN == 32 && CONFIG_ESP32S3_SPIFLASH_MTD_BLKSIZE == 32,

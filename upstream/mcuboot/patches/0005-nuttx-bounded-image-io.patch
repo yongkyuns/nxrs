@@ -1,0 +1,70 @@
+--- a/boot/nuttx/src/flash_map_backend/flash_map_backend.c
++++ b/boot/nuttx/src/flash_map_backend/flash_map_backend.c
+@@ -415,7 +415,7 @@
+ 
+   DEBUGASSERT(dev != NULL);
+ 
+-  if (off + len > fa->fa_size)
++  if (off > fa->fa_size || len > fa->fa_size - off)
+     {
+       BOOT_LOG_ERR("Attempt to read out of flash area bounds");
+ 
+@@ -437,7 +437,7 @@
+   /* Read the flash block into memory */
+ 
+   nbytes = read(dev->fd, dst, len);
+-  if (nbytes < 0)
++  if (nbytes < 0 || (size_t)nbytes != len)
+     {
+       int errcode = errno;
+ 
+@@ -483,7 +483,7 @@
+ 
+   DEBUGASSERT(dev != NULL);
+ 
+-  if (off + len > fa->fa_size)
++  if (off > fa->fa_size || len > fa->fa_size - off)
+     {
+       BOOT_LOG_ERR("Attempt to write out of flash area bounds");
+ 
+@@ -505,7 +505,7 @@
+   /* Write the buffer to the flash block */
+ 
+   nbytes = write(dev->fd, src, len);
+-  if (nbytes < 0)
++  if (nbytes < 0 || (size_t)nbytes != len)
+     {
+       int errcode = errno;
+ 
+@@ -597,6 +597,8 @@
+ 
+ #ifdef CONFIG_ESP32S3_OTA_PARTITION_ENCRYPT
+   const uint32_t minimum_write_length = 32;
++#elif defined(CONFIG_ESP32S3_APP_FORMAT_MCUBOOT)
++  const uint32_t minimum_write_length = 4;
+ #else
+   const uint32_t minimum_write_length = 1;
+ #endif
+@@ -828,14 +830,14 @@
+ int flash_area_get_sector(const struct flash_area *fap, off_t off,
+                           struct flash_sector *fs)
+ {
+-  off_t offset = fap->fa_off + off;
+-  struct flash_device_s *dev = lookup_flash_device_by_offset(offset);
+-  if (dev == NULL)
+-    {
+-      return -errno;
+-    }
+-
+-  fs->fs_off = (offset / dev->mtdgeo.erasesize) * dev->mtdgeo.erasesize;
++  struct flash_device_s *dev = lookup_flash_device_by_id(fap->fa_id);
++  if (dev == NULL || dev->mtdgeo.erasesize == 0 ||
++      off < 0 || (uint64_t)off >= fap->fa_size)
++    {
++      return ERROR;
++    }
++
++  fs->fs_off = (off / dev->mtdgeo.erasesize) * dev->mtdgeo.erasesize;
+   fs->fs_size = dev->mtdgeo.erasesize;
+ 
+   return 0;
