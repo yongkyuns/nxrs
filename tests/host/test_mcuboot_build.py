@@ -335,10 +335,18 @@ class BootWiringTests(unittest.TestCase):
                                  ("native_write", "int spi_flash_write_encrypted_manu(")):
                 function = native[native.index(marker):]
                 (directory / f"{name}.inc").write_text(function[:function.index("\n}\n") + 3])
-            executable = directory / "io"
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
-                            str(ROOT / "tests/host/mcuboot_encrypted_io.c"), "-o", str(executable)], check=True)
-            subprocess.run([str(executable)], check=True, timeout=5)
+            for patched in (False, True):
+                if patched:
+                    subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/nuttx/patches/0099-esp32s3-encrypted-write-alignment.patch")],
+                                   cwd=directory, check=True, capture_output=True)
+                native = (directory / relative).read_text()
+                function = native[native.index("static inline bool spi_flash_encrypt_ll_check("):]
+                constant = re.search(r"^#define SPI_FLASH_ENCRYPT_MIN_SIZE.*$", native, re.M).group()
+                (directory / "native_check.inc").write_text(constant + "\n" + function[:function.index("\n}\n") + 3])
+                executable = directory / "io"
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                                str(ROOT / "tests/host/mcuboot_encrypted_io.c"), "-o", str(executable)], check=True)
+                self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, 0 if patched else 1)
 
     def test_actual_nuttx_handoff_preserves_bits_and_unlocks_then_relocks(self):
         relative = "arch/xtensa/src/esp32s3/esp32s3_wdt.c"

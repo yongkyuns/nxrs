@@ -1,0 +1,13 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c
+@@ -475,7 +475,9 @@
+ static inline bool spi_flash_encrypt_ll_check(uint32_t address,
+                                               uint32_t length)
+ {
+-  return ((address % length) == 0) ? true : false;
++  return length != 0 &&
++         (address % SPI_FLASH_ENCRYPT_MIN_SIZE) == 0 &&
++         (length % SPI_FLASH_ENCRYPT_MIN_SIZE) == 0;
+ }
+ 
+ /**

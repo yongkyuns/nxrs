@@ -59,7 +59,8 @@ static int bootloader_flash_write(uint32_t addr, void *data, uint32_t size, bool
 static int bootloader_flash_erase_range(uint32_t addr, uint32_t size)
 { erases++; if (!erase_failed) memset(flash + addr, 0xff, size); return 0; }
 static void flush_cache(uint32_t addr, uint32_t size) { (void)addr; (void)size; }
-static bool check(uint32_t addr, uint32_t size) { return !(addr % 16 || size % 16); }
+#include "native_check.inc"
+static bool check(uint32_t addr, uint32_t size) { return spi_flash_encrypt_ll_check(addr, size); }
 static void enable(void) { assert(!active); active = 1; }
 static void disable(void) { assert(active && !prepared); active = 0; }
 static void prepare(uint32_t addr, const uint32_t *data, uint32_t size)
@@ -87,7 +88,16 @@ int main(void)
     int (*readers[])(uint32_t, void *, uint32_t) = {boot_read, spi_flash_read_erased_aware};
     uint8_t data[768], output[800], saved[32];
     memset(data, 0xff, sizeof(data)); data[0] = 1;
+    /* The actual candidate ends in a 160-byte aligned write at this address. */
+    if (!check(0x267800, 160)) return 1;
+    if (check(0, 0) || check(1, 32) || check(32, 31)) return 1;
     for (unsigned int w = 0; w < 2; w++) {
+        const uint32_t sizes[] = {32, 64, 96, 160, 224, 256, 384, 768};
+        for (unsigned int i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+            reset();
+            if (writers[w](32, data, sizes[i]) != 0 ||
+                readers[w](32, output, sizes[i]) != 0 || memcmp(data, output, sizes[i])) return 1;
+        }
         reset();
         assert(writers[w](0, data, 32) == 0);
         memcpy(saved, flash, 32);
