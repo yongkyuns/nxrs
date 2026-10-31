@@ -19,6 +19,51 @@ SPEC.loader.exec_module(BOOT)
 
 
 class BootWiringTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("kconfiglib"), "install NuttX kconfiglib for driver selection")
+    def test_encrypted_driver_selection_is_independent_of_psram(self):
+        import itertools
+        import kconfiglib
+        revision = subprocess.check_output(["git", "rev-parse", ":external/nuttx"], cwd=ROOT, text=True).strip()
+        names = ("arch/xtensa/src/esp32s3/Kconfig", "arch/xtensa/src/esp32s3/Make.defs",
+                 "arch/xtensa/src/common/espressif/Kconfig",
+                 "boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name in names:
+                path = directory / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(subprocess.check_output(["git", "-C", str(ROOT / "external/nuttx"),
+                                                         "show", f"{revision}:{name}"]))
+            for patched in (False, True):
+                if patched:
+                    subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/nuttx/patches/0098-esp32s3-select-encrypted-flash-driver.patch")],
+                                   cwd=directory, check=True, capture_output=True)
+                # Use the actual SDK declarations with only unrelated dependencies stubbed.
+                text = "".join((directory / name).read_text() for name in (names[0], names[2]))
+                inputs = ("ESP32S3_SPIRAM", "ESP32S3_PARTITION_TABLE", "ESP32S3_OTA_PARTITION_ENCRYPT")
+                declarations = "".join(f'config {name}\n\tbool "{name}"\n' for name in inputs)
+                declarations += "".join(f"config {name}\n\tbool\n" for name in
+                                        ("ESP32_PARTITION_TABLE", "MTD", "MTD_BYTE_WRITE", "MTD_PARTITION"))
+                for name in ("ESP32S3_SPIFLASH_LEGACY", "ESP32S3_SPIFLASH", "ESP32S3_MTD",
+                             "ESPRESSIF_SPIFLASH", "ESPRESSIF_MTD"):
+                    match = re.search(rf"(?ms)^config {name}\n.*?(?=^[A-Za-z#]|\Z)", text)
+                    if match:
+                        declarations += match.group()
+                config_path = directory / "Kconfig"
+                config_path.write_text(declarations)
+                failures = []
+                for values in itertools.product((0, 2), repeat=3):
+                    config = kconfiglib.Kconfig(str(config_path), warn=False)
+                    for name, value in zip(inputs, values):
+                        config.syms[name].set_value(value)
+                    config.syms["ESP32S3_SPIFLASH"].set_value(2)
+                    config.syms["ESP32S3_MTD"].set_value(2)
+                    common = not any(values)
+                    if any(config.syms[name].tri_value != (2 if common else 0)
+                           for name in ("ESPRESSIF_SPIFLASH", "ESPRESSIF_MTD")):
+                        failures.append(values)
+                self.assertEqual(failures, [] if patched else [(0, 0, 2)])
+
     def test_shared_geometry_public_root_and_reversible_configuration(self):
         profile = resolve("esp32s3-camera-stream-mcuboot")
         app = BOOT.application_config(profile)
