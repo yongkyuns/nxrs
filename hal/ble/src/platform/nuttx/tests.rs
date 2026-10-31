@@ -492,9 +492,11 @@ fn persistent_drop_failure_retains_lease_and_retries_with_backoff() {
     // Restore the fake radio so the test does not leave a worker or global lease behind.
     state.lock().unwrap().persistent_stop_failure = false;
     wait_for(
-        || state.lock().unwrap().closes == 1,
+        || Lease::acquire().is_ok(),
         "worker did not release after native stop recovered",
     );
+    // Native close precedes the worker's final admission release.
+    assert_eq!(state.lock().unwrap().closes, 1);
     drop(Lease::acquire().unwrap());
 }
 

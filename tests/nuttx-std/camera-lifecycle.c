@@ -12,9 +12,15 @@ struct imgsensor_s { int (*init)(struct imgsensor_s *); int (*uninit)(struct img
 struct imgdata_s { int (*init)(struct imgdata_s *); int (*uninit)(struct imgdata_s *); };
 struct inode { void *i_private; };
 struct file { struct inode *f_inode; };
+enum v4l2_buf_type { V4L2_BUF_TYPE_VIDEO_CAPTURE, V4L2_BUF_TYPE_STILL_CAPTURE };
+enum capture_state_e { CAPTURE_STATE_STREAMOFF, CAPTURE_STATE_STREAMON, CAPTURE_STATE_CAPTURE };
+enum { IMGSENSOR_STREAM_TYPE_VIDEO, IMGSENSOR_STREAM_TYPE_STILL };
+typedef struct { enum capture_state_e state; bool lower_active; } capture_type_inf_t;
 typedef struct capture_mng_s
 {
   unsigned char open_num;
+  bool shutdown_failed;
+  capture_type_inf_t capture_inf, still_inf;
   mutex_t mutex;
   struct imgsensor_s *imgsensor;
   struct imgdata_s *imgdata;
@@ -24,6 +30,13 @@ typedef struct capture_mng_s
 #define IMGSENSOR_UNINIT(s) ((s)->uninit(s))
 #define IMGDATA_INIT(d) ((d)->init(d))
 #define IMGDATA_UNINIT(d) ((d)->uninit(d))
+#define IMGDATA_STOP_CAPTURE(d) ((void)(d), 0)
+#define IMGSENSOR_STOP_CAPTURE(s, type) ((void)(s), (void)(type), 0)
+static capture_type_inf_t *get_capture_type_inf(capture_mng_t *cmng,
+                                                enum v4l2_buf_type type)
+{
+  return type == V4L2_BUF_TYPE_VIDEO_CAPTURE ? &cmng->capture_inf : &cmng->still_inf;
+}
 static void nxmutex_lock(mutex_t *mutex) { assert(!mutex->held); mutex->held = 1; }
 static void nxmutex_unlock(mutex_t *mutex) { assert(mutex->held); mutex->held = 0; }
 
@@ -42,7 +55,9 @@ static int data_uninit(struct imgdata_s *data)
 { (void)data; data_uninits++; return data_uninit_result; }
 static void initialize_resources(capture_mng_t *cmng)
 { (void)cmng; resource_initializes++; }
-static void cleanup_resources(capture_mng_t *cmng)
+static void cleanup_streamresources(capture_type_inf_t *type, capture_mng_t *cmng)
+{ (void)type; (void)cmng; }
+static void cleanup_scenes_parameter(capture_mng_t *cmng)
 { (void)cmng; resource_cleanups++; }
 
 /* FUNCTIONS */
@@ -109,9 +124,13 @@ static void test_last_close_returns_first_error_and_calls_both(void)
         assert(capture_open(&file) == 0);
         sensor_uninit_result = sensor_error;
         data_uninit_result = data_error;
-        int expected = sensor_error < 0 ? sensor_error : data_error;
+        /* The data uninit barrier now precedes sensor uninit and resource
+         * cleanup. Either failure retains owners instead of reclaiming them.
+         */
+        int expected = data_error < 0 ? data_error : sensor_error;
         assert(capture_close(&file) == expected);
-        assert(manager.open_num == 0 && resource_cleanups == 1);
+        assert(manager.open_num == 0 && resource_cleanups == (expected == 0));
+        assert(manager.shutdown_failed == (expected < 0));
         assert(sensor_uninits == 1 && data_uninits == 1);
       }
 
