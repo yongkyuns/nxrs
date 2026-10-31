@@ -89,6 +89,7 @@ fn transaction(
             stream_service::HttpSession::new(vec![0; 16_384], stream_service::Options::default())
                 .map_err(|_| tls::Error::Capacity)?;
         assert!(http.accept(connection, 0));
+        let mut offered = None;
         while http.stats().frames_completed < 2 {
             if Instant::now() >= deadline {
                 return Err(tls::Error::Time);
@@ -113,7 +114,16 @@ fn transaction(
                     len: bytes.len(),
                 },
             };
-            if !http.poll(now, Some(frame)).active {
+            let progress = http.poll(now, Some(frame));
+            if progress.frame_accepted {
+                offered = Some((sequence, now));
+            }
+            if progress.frames_completed != 0 {
+                let receipt = http.stats().latest_completed.unwrap();
+                assert_eq!(Some((receipt.sequence, receipt.captured_ms)), offered);
+                assert_eq!(receipt.completed_ms, now);
+            }
+            if !progress.active {
                 return Err(tls::Error::Io);
             }
             std::thread::sleep(Duration::from_millis(1));

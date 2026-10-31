@@ -73,6 +73,9 @@ owner. Staging leaves the running image stable; the caller separately requests a
 trial after success. The source owns I/O deadlines; MCUboot enforces the signed
 target class before execution. Startup health remains caller policy. Confirm
 only after startup health passes.
+The stream snapshot records the latest fully written image's sequence, capture
+time and completion time, so startup policy can reject stale delivery. It
+proves transport write completion, not receipt or decoding on the phone.
 The separate `hal/watchdog` resource can adopt an already-running native reset
 watchdog without feeding or restarting its deadline. Drop and startup failure
 leave it running; explicit cancellation verifies stopped state and retains

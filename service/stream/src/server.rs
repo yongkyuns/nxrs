@@ -45,10 +45,20 @@ pub struct ServerStats {
     pub disconnected: u64,
     pub rejected_busy: u64,
     pub frames_completed: u64,
+    /// Latest complete image accepted by the transport writer. Retained across
+    /// reconnects; consumers must check freshness. This is not remote decoding.
+    pub latest_completed: Option<CompletedFrame>,
     /// HTTP rejections, timeouts, clock violations, and connection failures.
     pub errors: u64,
     /// Most recent failure, retained across reconnects without allocating.
     pub last_failure: Option<Failure>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompletedFrame {
+    pub sequence: u64,
+    pub captured_ms: u64,
+    pub completed_ms: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,6 +102,7 @@ struct Streaming<W, B> {
     session: MjpegSession<W, B>,
     read_closed: bool,
     last_offered: u64,
+    last_capture_ms: u64,
     last_write_ms: u64,
     ready: bool,
     metadata_enabled: bool,
@@ -358,6 +369,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                     self.options.send_deadline_ms,
                                 ),
                                 last_offered: 0,
+                                last_capture_ms: 0,
                                 read_closed: false,
                                 last_write_ms: now,
                                 ready: false,
@@ -456,6 +468,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                         match stream.session.offer_with_metadata(frame, now, metadata) {
                             OfferResult::Accepted => {
                                 stream.last_offered = frame.sequence;
+                                stream.last_capture_ms = frame.capture.timestamp_ms;
                                 progress.frame_accepted = true;
                                 if let Some(m) = metadata {
                                     stream.metadata_revision = m.revision;
@@ -474,6 +487,13 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                 let completed = after.completed.saturating_sub(before.completed);
                 self.stats.frames_completed = self.stats.frames_completed.saturating_add(completed);
                 progress.frames_completed += completed;
+                if completed != 0 {
+                    self.stats.latest_completed = Some(CompletedFrame {
+                        sequence: stream.last_offered,
+                        captured_ms: stream.last_capture_ms,
+                        completed_ms: now,
+                    });
+                }
                 let bytes = after.bytes_written.saturating_sub(before.bytes_written) as usize;
                 progress.bytes_written += bytes;
                 if bytes != 0 {

@@ -9,6 +9,65 @@ use stream_service::{Failure, HttpSession, Options, Server, SessionError};
 const JPEG: &[u8] = &[0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9];
 
 #[test]
+fn completion_receipt_tracks_the_owned_frame_after_its_last_byte() {
+    struct Transport {
+        request: io::Cursor<&'static [u8]>,
+        quota: Rc<Cell<usize>>,
+    }
+    impl Read for Transport {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            self.request.read(bytes)
+        }
+    }
+    impl Write for Transport {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let count = self.quota.get().min(bytes.len());
+            if count == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            self.quota.set(self.quota.get() - count);
+            Ok(count)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let quota = Rc::new(Cell::new(usize::MAX));
+    let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+    assert!(http.accept(
+        Transport {
+            request: io::Cursor::new(b"GET /stream HTTP/1.1\r\n\r\n"),
+            quota: quota.clone(),
+        },
+        100,
+    ));
+    http.poll(100, None); // Request.
+    http.poll(100, None); // HTTP response alone is not an image.
+    assert_eq!(http.stats().latest_completed, None);
+    quota.set(5);
+    assert!(http.poll(101, Some(frame(41, 99, JPEG))).frame_accepted);
+    assert_eq!(http.stats().latest_completed, None);
+    quota.set(usize::MAX);
+    let progress = http.poll(110, Some(frame(42, 109, JPEG)));
+    assert!(!progress.frame_accepted);
+    assert_eq!(progress.frames_completed, 1);
+    let receipt = Some(stream_service::CompletedFrame {
+        sequence: 41,
+        captured_ms: 99,
+        completed_ms: 110,
+    });
+    assert_eq!(http.stats().latest_completed, receipt);
+    quota.set(5);
+    assert!(http.poll(111, Some(frame(43, 111, JPEG))).frame_accepted);
+    assert_eq!(http.stats().latest_completed, receipt);
+    assert!(!http.poll(3111, None).active); // Partial frame expires.
+    assert_eq!(http.stats().frames_completed, 1);
+    assert_eq!(http.stats().latest_completed, receipt);
+    let http = http.retire::<io::Cursor<Vec<u8>>>();
+    assert_eq!(http.stats().latest_completed, receipt);
+}
+
+#[test]
 fn admitted_transport_retirement_is_bounded_and_recovers_storage() {
     struct Blocked(Rc<Cell<usize>>);
     impl Read for Blocked {
@@ -345,6 +404,7 @@ fn disconnect_returns_the_same_buffer_and_new_viewer_gets_only_latest() {
     wait(&mut server, 11, until, |server| {
         server.stats().disconnected == 1
     });
+    assert_eq!(server.stats().latest_completed.unwrap().sequence, 1);
     assert_eq!(drops.get(), 0);
     let mut second = connect(&server);
     send(&mut second, b"GET /stream.mjpg HTTP/1.1\r\n\r\n", until);
@@ -361,6 +421,14 @@ fn disconnect_returns_the_same_buffer_and_new_viewer_gets_only_latest() {
     let text = String::from_utf8_lossy(&output);
     assert!(text.contains("X-Sequence: 9\r\n"));
     assert!(!text.contains("X-Sequence: 1\r\n"));
+    assert_eq!(
+        server.stats().latest_completed,
+        Some(stream_service::CompletedFrame {
+            sequence: 9,
+            captured_ms: 12,
+            completed_ms: 12,
+        })
+    );
     // One mutable-view capacity check at construction, then two frame copies.
     assert_eq!(copies.get(), 3);
     assert_eq!(drops.get(), 0);
