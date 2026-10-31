@@ -72,6 +72,15 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
     out.mkdir(parents=True, exist_ok=False)
     export(mcuboot, MCUBOOT_REVISION, out / "mcuboot")
     export(hal, HAL_REVISION, out / "hal")
+    patches = []
+    if protected(platform):
+        for component, folder, name in (
+                ("mcuboot", "mcuboot", "0002-require-provisioned-protection.patch"),
+                ("esp-hal-3rdparty", "hal", "0004-forbid-efuse-programming.patch")):
+            patch = ROOT / "upstream" / component / "patches" / name
+            subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=out / folder, check=True)
+            patches.append({"component": component, "patch": name,
+                            "sha256": hashlib.sha256(patch.read_bytes()).hexdigest()})
     public_root = out / "root.pem"
     public_root.write_bytes(public)
     config = bootloader_config(platform, str(public_root))
@@ -88,11 +97,17 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
         raise ValueError("bootloader exceeds the reserved flash region")
     rom = {}
     if protected(platform):
+        cache = (out / "build/CMakeCache.txt").read_text()
+        nm = next(line.split("=", 1)[1] for line in cache.splitlines() if line.startswith("CMAKE_NM:FILEPATH="))
+        symbols = subprocess.check_output([nm, "--defined-only", str(out / "build/mcuboot_esp32s3.elf")], text=True)
+        if any(line.split()[-1:] == ["efuse_hal_program"] for line in symbols.splitlines()):
+            raise ValueError("protected bootloader still contains the physical eFuse programmer")
         signed = out / "bootloader.signed.bin"
         fingerprint = sign_rom(binary, signed, rom_key, rom_root)
         binary = signed
         rom = {"rom_signature": "rsa-3072-pss-sha256", "rom_root_pem_sha256": fingerprint,
-               "hardware_qualified": False, "requires_factory_provisioning": True}
+               "hardware_qualified": False, "requires_factory_provisioning": True,
+               "efuse_writes_forbidden": True}
     (out / "bootloader.json").write_text(json.dumps({
         "mcuboot": MCUBOOT_REVISION, "esp-hal-3rdparty": HAL_REVISION,
         "platform": platform["name"], "layout": platform["mcuboot"],
@@ -101,6 +116,7 @@ def build(platform: dict, mcuboot: Path, hal: Path, root: Path, out: Path,
         "bootloader_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "bootloader_file": str(binary.relative_to(out)),
         "hardware_secure_boot": protected(platform), "flash_encryption": protected(platform),
+        "patches": patches,
         **rom,
     }, indent=2) + "\n")
 

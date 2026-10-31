@@ -16,6 +16,7 @@ on:
       - 'upstream/mcuboot/**'
       - 'tests/host/mcuboot_trailer_nor.c'
       - 'tests/host/mcuboot_native_erase.c'
+      - 'tests/host/mcuboot_provisioning_guard.c'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
@@ -91,7 +92,9 @@ jobs:
             --mcuboot-repo target/mcuboot-source.git \
             --hal-repo target/nuttx-esp32s3-std/nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty \
             --root target/mcuboot-test-root.pem --out target/mcuboot-camera
-          NXRS_MCUBOOT_SOURCE=target/mcuboot-camera/mcuboot python3 -m unittest tests.host.test_mcuboot_build.BootWiringTests.test_trailer_writes_never_erase_the_sector
+          NXRS_MCUBOOT_SOURCE=target/mcuboot-camera/mcuboot NXRS_BOOT_HAL_SOURCE=target/mcuboot-camera/hal \
+            python3 -m unittest tests.host.test_mcuboot_build.BootWiringTests.test_trailer_writes_never_erase_the_sector \
+              tests.host.test_mcuboot_build.BootWiringTests.test_protected_startup_and_native_burn_refuse_provisioning
           xtensa-esp32s3-elf-gcc -Werror -I target/nuttx-esp32s3-std/nuttx/include \
             -I target/mcuboot-camera/mcuboot/boot/nuttx/include \
             -I target/mcuboot-camera/mcuboot/boot/bootutil/include \

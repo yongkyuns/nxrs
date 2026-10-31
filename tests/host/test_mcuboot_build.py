@@ -45,6 +45,7 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(app["ESP32S3_OTA_PARTITION_ENCRYPT"], "y")
         self.assertNotIn("BOOT_MCUBOOT", app)
         for key in ("SECURE_BOOT_V2_ENABLED", "SECURE_FLASH_ENC_ENABLED",
+                    "SECURE_BOOT_REQUIRE_ALREADY_ENABLED", "EFUSE_WRITES_FORBIDDEN",
                     "SECURE_FLASH_REQUIRE_ALREADY_ENABLED", "SECURE_FLASH_ENCRYPTION_MODE_RELEASE"):
             self.assertIn(f"CONFIG_{key}=1\n", text)
         for overrides in ({"hardware-protection": "yes"},
@@ -64,6 +65,35 @@ class BootWiringTests(unittest.TestCase):
         for path in ("relative.pem", "/tmp/root\nCONFIG_SECURE_BOOT=1", "/tmp/root;injected"):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 BOOT.bootloader_config(profile, path)
+
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE") and os.environ.get("NXRS_BOOT_HAL_SOURCE"),
+                         "set pinned boot SDK exports for provisioning regression")
+    def test_protected_startup_and_native_burn_refuse_provisioning(self):
+        inputs = (("mcuboot", Path(os.environ["NXRS_MCUBOOT_SOURCE"]), "boot/espressif/main.c",
+                   "0002-require-provisioned-protection.patch"),
+                  ("esp-hal-3rdparty", Path(os.environ["NXRS_BOOT_HAL_SOURCE"]),
+                   "components/efuse/esp32s3/esp_efuse_utility.c", "0004-forbid-efuse-programming.patch"))
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            sources = []
+            for component, sdk, relative, patch in inputs:
+                path = directory / component / relative
+                path.parent.mkdir(parents=True)
+                original = (sdk / relative).read_text()
+                path.write_text(original)
+                subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream" / component / "patches" / patch)],
+                               cwd=directory / component, check=True, capture_output=True)
+                sources.append((original, path.read_text()))
+            burn = sources[1][1]
+            burn = burn[burn.index("esp_err_t esp_efuse_utility_burn_chip(void)"):]
+            (directory / "burn.inc").write_text(burn[:burn.index("\n}\n") + 3])
+            for source, expected in ((sources[0][0], 1), (sources[0][1], 0)):
+                prefix = source[source.index("int main()") : source.index("    /* Rough steps")]
+                (directory / "startup.inc").write_text(prefix.replace("int main()", "int boot_entry(void)") + "return 0;\n}\n")
+                executable = directory / "guard"
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                                str(ROOT / "tests/host/mcuboot_provisioning_guard.c"), "-o", str(executable)], check=True)
+                self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
 
     @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for native FTL regression")
     def test_trailer_writes_never_erase_the_sector(self):
@@ -158,6 +188,7 @@ class RomSigningTests(unittest.TestCase):
             metadata = {"mcuboot": BOOT.MCUBOOT_REVISION, "esp-hal-3rdparty": BOOT.HAL_REVISION,
                         "platform": profile["name"], "layout": profile["mcuboot"],
                         "bootloader_file": boot.name, "hardware_secure_boot": True, "flash_encryption": True,
+                        "efuse_writes_forbidden": True,
                         "rom_root_pem_sha256": hashlib.sha256(root.read_bytes()).hexdigest(),
                         "public_root_sha256": hashlib.sha256(app_root.read_bytes()).hexdigest(),
                         "bootloader_sha256": hashlib.sha256(boot.read_bytes()).hexdigest()}
@@ -169,6 +200,7 @@ class RomSigningTests(unittest.TestCase):
             manifest = json.loads((output / "factory.json").read_text())
             self.assertFalse(manifest["hardware_qualified"])
             self.assertFalse(manifest["runtime_updates"])
+            self.assertTrue(manifest["efuse_writes_forbidden"])
             self.assertEqual([region["offset"] for region in manifest["regions"]],
                              [0, 0x20000, 0x220000, 0x420000])
             self.assertEqual({path.name for path in output.iterdir()},
@@ -204,6 +236,12 @@ class RomSigningTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "unconfirmed")
             self.assertFalse((directory / "unconfirmed").exists())
+            image.write_bytes(good)
+            metadata["efuse_writes_forbidden"] = False
+            (directory / "bootloader.json").write_text(json.dumps(metadata))
+            with self.assertRaises(ValueError):
+                factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "unsafe-build")
+            self.assertFalse((directory / "unsafe-build").exists())
             self.assertFalse(list(directory.glob(".factory-*")))
 
     def test_independent_root_corruption_size_and_atomic_publication(self):

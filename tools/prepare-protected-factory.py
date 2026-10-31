@@ -46,6 +46,7 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
                 "platform": profile["name"], "layout": geometry,
                 "bootloader_file": "bootloader.signed.bin",
                 "hardware_secure_boot": True, "flash_encryption": True,
+                "efuse_writes_forbidden": True,
                 "rom_root_pem_sha256": digest(public),
                 "public_root_sha256": digest(app.get_public_pem())}
     if any(metadata.get(field) != value for field, value in expected.items()):
@@ -99,6 +100,7 @@ def prepare(profile: dict, boot_build: Path, application: Path, rom_root: Path,
             "platform": profile["name"], "layout": geometry, "regions": regions,
             "rom_root_pem_sha256": digest(public), "app_root_pem_sha256": digest(app.get_public_pem()),
             "flash_encryption": "xts-aes-128",
+            "efuse_writes_forbidden": True,
             "hardware_qualified": False, "runtime_updates": False,
             "requires_factory_provisioning": True,
         }, indent=2) + "\n")
