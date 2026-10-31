@@ -40,7 +40,10 @@ class Credentials:
         private(root/'index', '')
         private(root/'serial', '1000\n')
         private(root/'crlnumber', '01\n')
-        self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/'ca.key')
+        # Host CLIs differ in their default EC encoding; the embedded parser
+        # supports named P-256 parameters, not explicit domain descriptions.
+        self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256',
+                  '-pkeyopt', 'ec_param_enc:named_curve', '-out', root/'ca.key')
         # Host request defaults can append duplicate issuer extensions to -addext.
         private(root/'request.cnf', '[req]\ndistinguished_name=subject\n[subject]\n')
         self.call('req', '-new', '-x509', '-key', root/'ca.key', '-sha256', '-days', '1',
@@ -80,7 +83,8 @@ authorityKeyIdentifier=keyid:always
         camera = self.camera if camera is None else camera
         root = self.root
         if csr is None:
-            self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/(name+'.key'))
+            self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256',
+                      '-pkeyopt', 'ec_param_enc:named_curve', '-out', root/(name+'.key'))
             self.call('req', '-new', '-config', root/'request.cnf', '-key', root/(name+'.key'),
                       '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
             csr = root/(name+'.csr')
@@ -115,6 +119,26 @@ authorityKeyIdentifier=keyid:always
             ssl.PEM_cert_to_DER_cert((self.root/'ca.pem').read_text())).digest())
         private(self.root/'own.uri', f'urn:nxrs:camera:{self.site}:{self.camera}')
         private(self.root/'peer.uri', f'urn:nxrs:ingest:{self.site}:{self.gateway}:{self.camera}')
+
+
+class CredentialTests(unittest.TestCase):
+    def test_generated_certificates_use_named_p256_parameters(self):
+        # SubjectPublicKeyInfo prefix: id-ecPublicKey + named prime256v1,
+        # followed by an uncompressed 65-byte public point.
+        prefix = bytes.fromhex('3059301306072a8648ce3d020106082a8648ce3d03010703420004')
+        with tempfile.TemporaryDirectory(prefix='nxrs-named-curve-') as directory:
+            root = Path(directory)
+            credentials = Credentials(root)
+            for name in ('ca', 'server', 'client'):
+                with self.subTest(certificate=name):
+                    public = subprocess.check_output([
+                        credentials.openssl, 'x509', '-in', str(root/(name+'.pem')),
+                        '-pubkey', '-noout'], timeout=15)
+                    der = subprocess.run([
+                        credentials.openssl, 'pkey', '-pubin', '-outform', 'DER'],
+                        input=public, capture_output=True, check=True, timeout=15).stdout
+                    self.assertEqual(len(der), len(prefix) + 64)
+                    self.assertTrue(der.startswith(prefix))
 
 
 class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
