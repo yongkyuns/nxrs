@@ -90,8 +90,10 @@ unchanged. An attempted SDK dual-core path aborts; all generated calls
 explicitly request single-core execution on the Rust-owned worker.
 
 A fixed graph is generated from the pinned FlatBuffer at build time. The target
-contains numerical operators and weights, with a 551,936-byte aligned activation
-arena. The lifetime plan allocates an output before retiring its inputs and
+contains numerical operators and weights, with a 401,408-byte aligned activation
+arena. Build-time largest-first placement saves 150,528 bytes over execution-order
+placement and reaches this graph's peak-live-tensor lower bound. An output's
+lifetime includes its producing operation, before inputs retire; the plan
 keeps every result head alive through result copy. SDK tensor views borrow this
 arena. The generated SDK owner explicitly deletes registered tensor views:
 `ModelContext` otherwise skips them when it does not own a root allocation.
