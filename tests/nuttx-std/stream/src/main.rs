@@ -626,6 +626,9 @@ mod device {
         stage("credential_reader");
         let profile = Profile::read()?;
         let origin = Instant::now();
+        // Reuse the bound listener after confirmation; its TLS worker still
+        // joins before Wi-Fi quiescence, leaving no active accept loop.
+        let mut listener = None;
         loop {
             let (sender, receiver) = sync_channel(8);
             stage("wifi_open");
@@ -642,10 +645,15 @@ mod device {
                     stage("wifi_preflight");
                     wait_addressed(&mut network, &receiver, origin)?;
                 }
-                stage("tcp_bind");
-                let listener = TcpListener::bind(("0.0.0.0", port))
-                    .map_err(|error| format!("listener {error:?}"))?;
+                if listener.is_none() {
+                    stage("tcp_bind");
+                    listener = Some(
+                        TcpListener::bind(("0.0.0.0", port))
+                            .map_err(|error| format!("listener {error:?}"))?,
+                    );
+                }
                 if tls_mode {
+                    let listener = listener.as_ref().ok_or("missing bound listener")?;
                     loop {
                         stage("camera_open");
                         let mut device =
@@ -700,6 +708,7 @@ mod device {
                         }
                     }
                 } else {
+                    let listener = listener.take().ok_or("missing bound listener")?;
                     stage("camera_open");
                     let mut device =
                         camera::open().map_err(|error| format!("camera open {error:?}"))?;
