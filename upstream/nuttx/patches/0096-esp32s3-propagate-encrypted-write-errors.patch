@@ -1,0 +1,22 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c
+@@ -728,7 +728,7 @@
+           return err;
+         }
+ 
+-      spi_flash_write(address, data_bytes, block_size);
++      err = spi_flash_write(address, data_bytes, block_size);
+ 
+       /**
+        * Note: we don't wait for idle status here, because this way
+@@ -737,6 +737,10 @@
+        */
+ 
+       esp_flash_encryption->flash_encryption_destroy();
++      if (err != ESP_OK)
++        {
++          break;
++        }
+ 
+       length -= block_size;
+       data_bytes += block_size;

@@ -100,7 +100,9 @@ ROM rejection tests, recovery/debug policy and a protected rollback floor need
 qualification before hardware activation. Keep disposable CI roots off devices.
 
 Runtime boot control is explicitly unavailable in the protected profile. The
-pinned Espressif encrypted-write path erases and rewrites sectors containing
+NuttX encrypted programmer propagates SPI failures and releases the encryption
+engine before returning; callers must not treat a failed program as committed.
+The pinned Espressif encrypted-write path erases and rewrites sectors containing
 boot metadata; power loss during those writes is unqualified. Enabling encrypted
 updates requires resolving that recovery behavior, rather than adding another
 update state machine above it. The portable boot API and unencrypted qualification

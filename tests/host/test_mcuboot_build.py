@@ -129,6 +129,27 @@ class BootWiringTests(unittest.TestCase):
                                 str(ROOT / "tests/host/mcuboot_trailer_nor.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
 
+    def test_encrypted_program_failure_propagates_and_releases_hardware(self):
+        relative = "arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c"
+        revision = subprocess.check_output(["git", "rev-parse", ":external/nuttx"],
+                                           cwd=ROOT, text=True).strip()
+        original = subprocess.check_output(
+            ["git", "-C", str(ROOT / "external/nuttx"), "show", f"{revision}:{relative}"], text=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / relative
+            path.parent.mkdir(parents=True)
+            path.write_text(original)
+            subprocess.run(["patch", "-p1", "-i", str(ROOT / "upstream/nuttx/patches/0096-esp32s3-propagate-encrypted-write-errors.patch")],
+                           cwd=directory, check=True, capture_output=True)
+            for source, expected in ((original, 1), (path.read_text(), 0)):
+                function = source[source.index("int spi_flash_write_encrypted_manu("):]
+                (directory / "encrypted_write.inc").write_text(function[:function.index("\n}\n") + 3])
+                executable = directory / "write"
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                                str(ROOT / "tests/host/esp32s3_encrypted_write.c"), "-o", str(executable)], check=True)
+                self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
+
     def test_actual_nuttx_handoff_preserves_bits_and_unlocks_then_relocks(self):
         relative = "arch/xtensa/src/esp32s3/esp32s3_wdt.c"
         revision = subprocess.check_output(["git", "rev-parse", ":external/nuttx"],
