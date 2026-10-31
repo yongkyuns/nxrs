@@ -7,6 +7,7 @@ import sys
 import subprocess
 import tempfile
 import unittest
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -35,6 +36,9 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(config["CONFIG_ESP_SIGN_EC256"], "1")
         self.assertEqual(config["CONFIG_ESP_DOWNGRADE_PREVENTION"], "1")
         self.assertEqual(config["CONFIG_ESP_DOWNGRADE_PREVENTION_SECURITY_COUNTER"], "1")
+        self.assertEqual(config["MCUBOOT_UUID_CID"], "1")
+        self.assertEqual(bytes(int(byte, 16) for byte in config["CONFIG_ESP_IMAGE_CLASS_ID"].split(",")),
+                         UUID(profile["image-class"]).bytes)
         self.assertEqual(config["CONFIG_BOOTLOADER_WDT_ENABLE"], "1")
         self.assertFalse(any(key.startswith("CONFIG_SECURE_") for key in config))
         self.assertIn(BOOT.MCUBOOT_REVISION, (ROOT / "tools/mcuboot-requirements.txt").read_text())
@@ -47,6 +51,7 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(app["ESP32S3_OTA_PARTITION_ENCRYPT"], "y")
         self.assertEqual(app["ESP32S3_SPIFLASH_MTD_BLKSIZE"], "32")
         self.assertNotIn("BOOT_MCUBOOT", app)
+        self.assertNotEqual(profile["image-class"], resolve("esp32s3-camera-stream-mcuboot")["image-class"])
         for key in ("SECURE_BOOT_V2_ENABLED", "SECURE_FLASH_ENC_ENABLED",
                     "SECURE_BOOT_REQUIRE_ALREADY_ENABLED", "EFUSE_WRITES_FORBIDDEN",
                     "SECURE_FLASH_REQUIRE_ALREADY_ENABLED", "SECURE_FLASH_ENCRYPTION_MODE_RELEASE"):
@@ -81,6 +86,33 @@ class BootWiringTests(unittest.TestCase):
             subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
                             str(ROOT / "tests/host/mcuboot_security_counter.c"), "-o", str(executable)], check=True)
             subprocess.run([str(executable)], check=True)
+
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for image-class regression")
+    def test_native_image_class_matches_only_the_configured_product(self):
+        sdk = Path(os.environ["NXRS_MCUBOOT_SOURCE"])
+        relative = "boot/espressif/port/esp_mcuboot.c"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / relative
+            path.parent.mkdir(parents=True)
+            path.write_bytes((sdk / relative).read_bytes())
+            if "fih_ret boot_uuid_cid_match(" not in path.read_text():
+                subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/mcuboot/patches/0006-espressif-image-class.patch")],
+                               cwd=directory, check=True, capture_output=True)
+            source = path.read_text().split("fih_ret boot_uuid_cid_match(", 1)[1]
+            (directory / "class.inc").write_text("fih_ret boot_uuid_cid_match(" + source[:source.index("\n}\n") + 3])
+            config = directory / "mcuboot_config/mcuboot_config.h"
+            config.parent.mkdir()
+            expected = UUID(resolve("esp32s3-camera-stream-mcuboot")["image-class"]).bytes
+            config.write_text("#define CONFIG_ESP_IMAGE_CLASS_ID " +
+                              ",".join(f"0x{byte:02x}" for byte in expected) + "\n")
+            executable = directory / "class"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                            "-I", str(sdk / "boot/bootutil/include"),
+                            str(ROOT / "tests/host/mcuboot_image_class.c"),
+                            str(sdk / "boot/bootutil/src/fault_injection_hardening.c"),
+                            "-o", str(executable)], check=True)
+            subprocess.run([str(executable)], check=True, timeout=5)
 
     @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE") and os.environ.get("NXRS_BOOT_HAL_SOURCE"),
                          "set pinned boot SDK exports for provisioning regression")
@@ -318,9 +350,11 @@ class RomSigningTests(unittest.TestCase):
             source, boot, image = directory / "source.bin", directory / "bootloader.signed.bin", directory / "factory.bin"
             source.write_bytes(b"test firmware" * 128)
             builder.sign_rom(source, boot, key, root)
-            sign(source, image, profile["mcuboot"], app_key, app_root, "1.2.3", 7, confirm=True)
+            sign(source, image, profile["mcuboot"], app_key, app_root, "1.2.3", 7,
+                 class_id=profile["image-class"], confirm=True)
             metadata = {"mcuboot": BOOT.MCUBOOT_REVISION, "esp-hal-3rdparty": BOOT.HAL_REVISION,
                         "platform": profile["name"], "layout": profile["mcuboot"],
+                        "image_class": profile["image-class"],
                         "bootloader_file": boot.name, "hardware_secure_boot": True, "flash_encryption": True,
                         "efuse_writes_forbidden": True, "encrypted_write_once": True,
                         "rom_root_pem_sha256": hashlib.sha256(root.read_bytes()).hexdigest(),
@@ -336,6 +370,7 @@ class RomSigningTests(unittest.TestCase):
             self.assertFalse(manifest["runtime_updates"])
             self.assertTrue(manifest["efuse_writes_forbidden"])
             self.assertTrue(manifest["encrypted_write_once"])
+            self.assertEqual(manifest["image_class"], profile["image-class"])
             self.assertEqual([region["offset"] for region in manifest["regions"]],
                              [0, 0x20000, 0x220000, 0x420000])
             self.assertEqual({path.name for path in output.iterdir()},
@@ -370,6 +405,13 @@ class RomSigningTests(unittest.TestCase):
                     factory.prepare(**{**arguments, **changed})
                 self.assertEqual(target.exists(), name == "existing")
             good = image.read_bytes()
+            for name, class_id in (("missing-class", None),
+                                   ("wrong-class", resolve("esp32s3-camera-stream-mcuboot")["image-class"])):
+                sign(source, image, profile["mcuboot"], app_key, app_root, "1.2.3", 7,
+                     class_id=class_id, confirm=True)
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, "image class"):
+                    factory.prepare(profile, directory, image, root, app_root, flash_key, directory / name)
+                self.assertFalse((directory / name).exists())
             subprocess.run(["imgtool", "sign", "-k", str(app_key), "-v", "1.2.3",
                             "-H", "32", "--pad-header", "-S", "0x200000", "--align", "32",
                             "--max-align", "32", "--max-sectors", "512", "--pad", "--confirm",

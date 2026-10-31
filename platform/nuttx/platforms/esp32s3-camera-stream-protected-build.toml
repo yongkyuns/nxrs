@@ -4,6 +4,9 @@ extends = "esp32s3-camera-stream-mcuboot"
 hal = { boot = "none" }
 hardware-protection = true
 
+# Stable product/flash-format class, independent of release version.
+image-class = "b8c23dde-977a-454f-88ea-7cafafe51a90"
+
 [mcuboot]
 flash-size = 0x1000000
 primary-offset = 0x20000

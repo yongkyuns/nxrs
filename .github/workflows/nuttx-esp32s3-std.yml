@@ -22,6 +22,7 @@ on:
       - 'tests/host/mcuboot_encrypted_trailer.c'
       - 'tests/host/mcuboot_security_counter.c'
       - 'tests/host/mcuboot_staging_io.c'
+      - 'tests/host/mcuboot_image_class.c'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
@@ -101,6 +102,7 @@ jobs:
             python3 -m unittest tests.host.test_mcuboot_build.BootWiringTests.test_encrypted_boot_and_native_flash_share_nor_contract \
               tests.host.test_mcuboot_build.BootWiringTests.test_native_staging_rejects_short_io_and_reserves_matching_metadata \
               tests.host.test_mcuboot_build.BootWiringTests.test_upstream_counter_policy_preserves_equal_counter_recovery \
+              tests.host.test_mcuboot_build.BootWiringTests.test_native_image_class_matches_only_the_configured_product \
               tests.host.test_mcuboot_build.BootWiringTests.test_protected_native_trailer_fields_use_independent_program_units \
               tests.host.test_mcuboot_build.BootWiringTests.test_trailer_writes_never_erase_the_sector \
               tests.host.test_mcuboot_build.BootWiringTests.test_protected_startup_and_native_burn_refuse_provisioning
