@@ -148,6 +148,19 @@ the confirmed primary unchanged; TLS/inference recovered. Full 16 MiB restoratio
 digest verification and ordinary-camera recovery passed after each experiment.
 These tests do not qualify network delivery, changed-code staging, physical bus
 quiescence, torn writes, power loss or encrypted-write timing.
+The separate `joined-update` qualification binary reuses the camera composition,
+then stages a complete externally supplied image after successful resource
+retirement. Build it with the startup profile and `build.sh --bin joined-update`;
+the ordinary camera binary contains no update receiver. Its trusted-USB frame is
+`NXUP`, a big-endian 32-bit length, the signed container, then `DONE`. Wait for
+`NXRS_UPDATE_READY` before the header and `NXRS_UPDATE_ACK offset=0` before data.
+Send at most 32 bytes before each `NXRS_UPDATE_RX` acknowledgement; each
+`NXRS_UPDATE_ACK` separately confirms the previous stager write/readback.
+Send `DONE` after the final write acknowledgement. Input waits have ten-second
+fragment and 300-second overall deadlines; native flash calls are synchronous.
+Successful staging requests a trial but does not authenticate the image;
+MCUboot checks signatures, class and counter on reboot. This is a temporary
+qualification tool, not network OTA delivery.
 The USB qualification reader returns at `NXRS_STARTUP_CONFIRMED`, preserving
 the next pipeline's CSR for a new enrollment reader on the same serial connection.
 

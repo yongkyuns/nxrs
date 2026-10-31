@@ -10,7 +10,7 @@ mod model {
     include!(concat!(env!("OUT_DIR"), "/stream_detector.rs"));
 }
 #[cfg(target_os = "nuttx")]
-mod device {
+pub(crate) mod device {
     use camera::{Camera, JpegQuality};
     use camera_stream::{LiveCamera, StreamOutput, TlsOptions};
     use connectivity_service::Reconnector;
