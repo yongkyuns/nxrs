@@ -77,7 +77,7 @@ The separate `hal/watchdog` resource can adopt an already-running native reset
 watchdog without feeding or restarting its deadline. Drop and startup failure
 leave it running; explicit cancellation verifies stopped state and retains
 uncertain failures. This resource alone does not close the early-startup gap:
-the current NuttX handoff still disables the bootloader watchdog, and automatic
+current product handoffs still disable the bootloader watchdog, and automatic
 camera startup/health confirmation remain unimplemented. No product profile
 admits the watchdog yet.
 The native `boot-control` fixture exercises SDK state, trial and confirmation,
@@ -100,11 +100,15 @@ a fresh output directory and builds upstream's EC P-256 verifier with TinyCrypt.
 Only a public key is accepted; the signing key is unnecessary on the boot build
 host. `bootloader.json` records the pins, geometry, public-root and binary hashes.
 The bootloader console uses UART0; the application retains its USB console.
-The bootloader enables the SDK's startup watchdog. The NuttX handoff unlocks,
-disables and relocks it before kernel initialization; application-health reset
-and confirmation remain separate policy. The register model checks locked and
-unlocked entry, preserved bits and repeated handoff. It does not qualify physical
-watchdog reset timing.
+The bootloader enables the SDK's startup watchdog. By default NuttX disables
+and relocks it before kernel initialization. Opt-in `ESP32S3_RWDT_INHERIT` keeps
+the deadline and its slow-clock source unchanged through the SDK's clock
+initialization, calibrates that source for SDK time/radio consumers without
+feeding, and relocks it. The SDK's user-owned cancellation setting also
+leaves the timer running. No product enables this yet. It requires
+automatic application startup and explicit cancellation after health and trial
+confirmation. The register model checks both modes, locked/unlocked entry,
+preserved bits and repeated handoff; it does not qualify reset timing.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, advance a hardware monotonic counter, or

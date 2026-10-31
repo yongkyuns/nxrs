@@ -184,7 +184,16 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         phy_patch = ROOT/'upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch'
         phy_source.write_text(source_preimage(phy_patch.read_text(),
                                              'components/esp_phy/src/phy_init.c', expected_lines=None))
-        self.original_sources = {path: path.read_bytes() for path in (source, intr_source, phy_source)}
+        originals = [source, intr_source, phy_source]
+        for name, relative in (
+                ("0005-esp32s3-inherit-watchdog-clock.patch", "components/esp_system/port/soc/esp32s3/clk.c"),
+                ("0006-esp32s3-inherit-watchdog-user-handoff.patch", "nuttx/esp32s3/include/sdkconfig.h")):
+            path = self.source_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            patch = ROOT / "upstream/esp-hal-3rdparty/patches" / name
+            path.write_text(source_preimage(patch.read_text(), relative, expected_lines=None))
+            originals.append(path)
+        self.original_sources = {path: path.read_bytes() for path in originals}
         for name, contents in STUBS.items():
             path = self.root / "include" / name
             path.parent.mkdir(parents=True, exist_ok=True)

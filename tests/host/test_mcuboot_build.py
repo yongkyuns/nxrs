@@ -2,6 +2,7 @@
 import importlib.util
 import os
 import re
+import runpy
 from pathlib import Path
 import sys
 import subprocess
@@ -348,6 +349,67 @@ class BootWiringTests(unittest.TestCase):
                                 str(ROOT / "tests/host/mcuboot_encrypted_io.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, 0 if patched else 1)
 
+    @unittest.skipUnless(os.environ.get("NXRS_BOOT_HAL_SOURCE"), "set pinned SDK source for watchdog clock regression")
+    def test_sdk_clock_init_keeps_the_inherited_deadline_and_clock(self):
+        relative = "components/esp_system/port/soc/esp32s3/clk.c"
+        name = "0005-esp32s3-inherit-watchdog-clock.patch"
+        self.assertIn(name, runpy.run_path(str(ROOT / "tools/apply-nuttx-patches.py"))["SERIES"]["esp-hal-3rdparty"])
+        original = (Path(os.environ["NXRS_BOOT_HAL_SOURCE"]) / relative).read_text()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / relative
+            path.parent.mkdir(parents=True)
+            path.write_text(original)
+            subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/esp-hal-3rdparty/patches" / name)],
+                           cwd=directory, check=True, capture_output=True)
+            for source, inherited, cycles, expected in ((original, True, 1024, 1), (path.read_text(), False, 1024, 0),
+                                                         (path.read_text(), True, 1024, 0), (path.read_text(), True, 0, 0)):
+                prefix = source[source.index("__attribute__((weak)) void esp_clk_init(void)"):]
+                prefix = prefix[:prefix.index("\n    rtc_cpu_freq_config_t")] + "\n}\n"
+                (directory / "clock.c").write_text(prefix)
+                executable = directory / "clock"
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                                f"-DSLOW_CLK_CAL_CYCLES={cycles}",
+                                *(["-DCONFIG_ESP32S3_RWDT_INHERIT=1"] if inherited else []),
+                                str(ROOT / "tests/host/esp32s3_wdt_clock.c"), "-o", str(executable)], check=True)
+                self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
+                if inherited and expected == 0:
+                    self.assertLess(subprocess.run([str(executable), "failed-calibration"], timeout=5).returncode, 0)
+
+    @unittest.skipUnless(os.environ.get("NXRS_APPLICATION_HAL_SOURCE"), "set native application SDK for late-watchdog regression")
+    def test_sdk_late_startup_keeps_the_user_owned_watchdog(self):
+        sdk = Path(os.environ["NXRS_APPLICATION_HAL_SOURCE"])
+        relative = "nuttx/esp32s3/include/sdkconfig.h"
+        name = "0006-esp32s3-inherit-watchdog-user-handoff.patch"
+        patch = ROOT / "upstream/esp-hal-3rdparty/patches" / name
+        self.assertIn(name, runpy.run_path(str(ROOT / "tools/apply-nuttx-patches.py"))["SERIES"]["esp-hal-3rdparty"])
+        startup = (sdk / "components/esp_system/startup_funcs.c").read_text()
+        hook = startup[startup.index("#ifndef CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE"):]
+        hook = hook[:hook.index("#endif // CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE")] + "#endif\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / relative
+            path.parent.mkdir(parents=True)
+            path.write_text((sdk / relative).read_text())
+            # CI supplies its patched build export; restore the exact preimage privately.
+            reverse = ["patch", "--batch", "--force", "-R", "-p1", "-i", str(patch)]
+            if subprocess.run([*reverse, "--dry-run"], cwd=directory, capture_output=True).returncode == 0:
+                subprocess.run(reverse, cwd=directory, check=True, capture_output=True)
+            original = path.read_text()
+            subprocess.run(["patch", "--batch", "-p1", "-i", str(patch)], cwd=directory, check=True, capture_output=True)
+            (directory / "hook.inc").write_text(hook)
+            (directory / "nuttx").mkdir(exist_ok=True)
+            (directory / "nuttx/config.h").write_text("")
+            for source, inherited, expected in ((original, True, 1), (path.read_text(), False, 0),
+                                                 (path.read_text(), True, 0)):
+                config = source[source.index("#include <nuttx/config.h>"):]
+                (directory / "config.inc").write_text(config[:config.index("#define CONFIG_ESP_TIMER_TASK_AFFINITY")])
+                executable = directory / "startup"
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                                *(["-DCONFIG_ESP32S3_RWDT_INHERIT=1"] if inherited else []),
+                                str(ROOT / "tests/host/esp32s3_wdt_startup.c"), "-o", str(executable)], check=True)
+                self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
+
     def test_actual_nuttx_handoff_preserves_bits_and_unlocks_then_relocks(self):
         relative = "arch/xtensa/src/esp32s3/esp32s3_wdt.c"
         revision = subprocess.check_output(["git", "rev-parse", ":external/nuttx"],
@@ -359,14 +421,21 @@ class BootWiringTests(unittest.TestCase):
             path = directory / relative
             path.parent.mkdir(parents=True)
             path.write_text(original)
-            subprocess.run(["patch", "-p1", "-i", str(ROOT / "upstream/nuttx/patches/0094-esp32s3-boot-watchdog-handoff.patch")],
-                           cwd=directory, check=True, capture_output=True)
-            for source, expected in ((original, 1), (path.read_text(), 0)):
+            kconfig = "arch/xtensa/src/esp32s3/Kconfig"
+            (directory / kconfig).write_text(subprocess.check_output(
+                ["git", "-C", str(ROOT / "external/nuttx"), "show", f"{revision}:{kconfig}"], text=True))
+            for name in ("0094-esp32s3-boot-watchdog-handoff.patch", "0100-esp32s3-inherit-boot-watchdog.patch"):
+                self.assertIn(name, runpy.run_path(str(ROOT / "tools/apply-nuttx-patches.py"))["SERIES"]["nuttx"])
+                subprocess.run(["patch", "-p1", "-i", str(ROOT / "upstream/nuttx/patches" / name)],
+                               cwd=directory, check=True, capture_output=True)
+            for source, inherited, expected in ((original, False, 1), (path.read_text(), False, 0),
+                                                 (path.read_text(), True, 0)):
                 function = source[source.index("void esp32s3_wdt_early_deinit(void)"):]
                 function = function[:function.index("\n}") + 2]
                 (directory / "early.c").write_text(function)
                 executable = directory / "handoff"
                 subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                                *(["-DCONFIG_ESP32S3_RWDT_INHERIT=1"] if inherited else []),
                                 str(ROOT / "tests/host/esp32s3_wdt_handoff.c"), "-o", str(executable)], check=True)
                 self.assertEqual(subprocess.run([str(executable)], timeout=5).returncode, expected)
 
