@@ -158,6 +158,21 @@ class PicoQualification(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'input lifetime lost'):
             GRAPH.plan(variables, [{'ins': ['later'], 'out': 'score0'}])
 
+    def test_largest_first_plan_reuses_dead_input_without_fragmenting_arena(self):
+        sizes = {'input': 48, 'a': 64, 'b': 64, 'score0': 16}
+        variables = {name: {'shape': [1, 1, 1, size]} for name, size in sizes.items()}
+        nodes = [dict(ins=[a], out=b) for a, b in
+                 [('input', 'a'), ('a', 'b'), ('b', 'score0')]]
+        offsets, high = GRAPH.plan(variables, nodes)
+        self.assertEqual(high, 128)  # The two 64-byte tensors must coexist.
+        for name, offset in offsets.items():
+            self.assertEqual(offset % 16, 0)
+            self.assertLessEqual(offset + sizes[name], high)
+        for node in nodes:
+            a, b = node['ins'][0], node['out']
+            self.assertTrue(offsets[a] + sizes[a] <= offsets[b] or
+                            offsets[b] + sizes[b] <= offsets[a])
+
     def test_edited_sdk_cannot_self_certify_with_a_forged_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

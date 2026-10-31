@@ -91,29 +91,29 @@ def read(data):
     return params,variables,nodes
 
 def plan(variables,nodes):
-    """First-fit lifetime plan. Output allocation precedes input retirement."""
+    """Largest-first placement of tensors with inclusive execution lifetimes."""
     outputs=['score0','score1','score2','bbox0','bbox1','bbox2']
-    last={name:-1 for name in variables}
+    first={'input':-1};last={name:-1 for name in variables}
     for i,node in enumerate(nodes):
+        if any(name in variables and name not in first for name in node['ins']):raise ValueError('input lifetime lost')
+        first[node['out']]=i
         for name in node['ins']:
             if name in variables:last[name]=i
     for name in outputs:last[name]=len(nodes)
-    offsets={}; live={}; high=0
-    def allocate(name):
-        nonlocal high
-        size=(math.prod(variables[name]['shape'])+15)//16*16
+    if set(first)!=set(variables):raise ValueError('unused or undefined variable')
+    for name in variables:last[name]=max(first[name],last[name])
+    sizes={name:(math.prod(t['shape'])+15)//16*16 for name,t in variables.items()}
+    offsets={};high=0
+    for name in sorted(variables,key=lambda name:-sizes[name]):
+        # Output and input coexist during an operator. Only tensors whose
+        # inclusive lifetimes do not intersect may share arena storage.
+        live=[(offsets[other],sizes[other]) for other in offsets
+              if first[name]<=last[other] and first[other]<=last[name]]
         start=0
-        for p,n in sorted(live.values()):
-            if start+size<=p:break
+        for p,n in sorted(live):
+            if start+sizes[name]<=p:break
             start=max(start,p+n)
-        offsets[name]=start;live[name]=(start,size);high=max(high,start+size)
-    allocate('input')
-    for i,node in enumerate(nodes):
-        if any(name in variables and name not in live for name in node['ins']):raise ValueError('input lifetime lost')
-        allocate(node['out'])
-        for name in list(live):
-            if last[name]==i:del live[name]
-    if set(offsets)!=set(variables):raise ValueError('unused or undefined variable')
+        offsets[name]=start;high=max(high,start+sizes[name])
     return offsets,high
 
 def generate(model,destination,optimized):
