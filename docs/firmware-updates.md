@@ -136,16 +136,24 @@ progress, with confirmed primary-image readback. A credential-input failure also
 led to restart and reversion to the previous confirmed image, verified by primary
 readback and 200 seconds of recovered TLS/inference progress. That observation
 included one USB reopen and no explicit host reset command; the reset cause was
-not measured. Full-flash restoration and ordinary TLS-camera recovery were
-verified after both trials. These preloaded-candidate tests do not qualify
-on-device staging, physical bus quiescence, torn writes or encrypted-write timing.
+not measured. Separately, after joining camera/TLS/detection and stopping Wi-Fi,
+the unprotected target staged a 2,000,000-byte prefix of its own signed image
+from the primary device into the inactive slot. Pending readback, subsequent
+Trial confirmation, confirmed primary readback and 200 seconds of recreated
+TLS/inference progress passed. A reset after one completed 256-byte staging
+write and readback left the rest of the checked prefix and trailer erased and
+the confirmed primary unchanged; TLS/inference recovered. Full 16 MiB restoration,
+digest verification and ordinary-camera recovery passed after each experiment.
+These tests do not qualify network delivery, changed-code staging, physical bus
+quiescence, torn writes, power loss or encrypted-write timing.
 The USB qualification reader returns at `NXRS_STARTUP_CONFIRMED`, preserving
 the next pipeline's CSR for a new enrollment reader on the same serial connection.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, advance a hardware monotonic counter, or
-provide on-device update delivery. Joined staging and physical interrupted
-update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
+provide network update delivery. Remaining physical flash-operation quiescence
+and encrypted interruption qualification keep protected runtime admission closed
+in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.
 
 The opt-in `esp32s3-camera-stream-protected-build` profile is **build-only
@@ -180,9 +188,9 @@ The NuttX application helper uses the same 32-byte trailer layout and reports
 cannot reprogram neighboring ciphertext; incompatible block sizes fail the SDK
 build. This does not enable protected runtime boot control.
 
-Runtime boot control remains unavailable in the protected profile pending joined
-interrupted-update qualification. MCUboot still owns swapping and recovery; the
-unencrypted qualification profile remains available.
+Runtime boot control remains unavailable in the protected profile pending physical
+encrypted interruption and flash-quiescence qualification. MCUboot still owns
+swapping and recovery; the unencrypted qualification profile remains available.
 Host flash models do not qualify torn hardware programs or physical reset timing.
 
 Prepare those files offline from the protected boot build and a confirmed
