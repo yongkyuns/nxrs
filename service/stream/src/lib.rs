@@ -1,7 +1,7 @@
 //! Bounded, portable multipart MJPEG session writing.
 #![forbid(unsafe_code)]
 mod server;
-pub use server::{Failure, HttpSession, Options, Progress, Server, ServerStats};
+pub use server::{CompletedFrame, Failure, HttpSession, Options, Progress, Server, ServerStats};
 
 use camera::{Frame, PixelFormat};
 use core::fmt;
