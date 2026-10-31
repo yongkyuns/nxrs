@@ -334,15 +334,21 @@ class Sessions(unittest.TestCase):
                 for name in ['request.csr', 'replacement.csr']]
         self.assertNotEqual(*keys, 'retired worker retained its native key owner')
 
-        root, process, credentials, error = self.start(case='product')
-        address = self.load(root, process, credentials)
-        client, response = connect()
-        image(response)
-        (root/'control').write_text('drop')
-        self.assertEqual(self.line(process), 'CAMERA_STOPPED')
-        process.wait(timeout=5)
-        error.seek(0)
-        self.assertEqual(process.returncode, 0, error.read()[-2000:])
+        for retirement in ['drop', 'confirm']:
+            root, process, credentials, error = self.start(case='product')
+            address = self.load(root, process, credentials)
+            client, response = connect()
+            image(response)
+            (root/'control').write_text(retirement)
+            if retirement == 'confirm':
+                marker = self.line(process)
+                if marker != 'STARTUP_RETIRED':
+                    error.seek(0)
+                    self.fail(f'healthy retirement marker {marker!r}: '+error.read()[-2000:])
+            self.assertEqual(self.line(process), 'CAMERA_STOPPED')
+            process.wait(timeout=5)
+            error.seek(0)
+            self.assertEqual(process.returncode, 0, error.read()[-2000:])
 
     def test_missing_or_different_valid_peer_cannot_publish(self):
         for peer in [None, 'other']:

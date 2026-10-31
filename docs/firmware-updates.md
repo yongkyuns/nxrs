@@ -79,10 +79,10 @@ proves transport write completion, not receipt or decoding on the phone.
 The separate `hal/watchdog` resource can adopt an already-running native reset
 watchdog without feeding or restarting its deadline. Drop and startup failure
 leave it running; explicit cancellation verifies stopped state and retains
-uncertain failures. This resource alone does not close the early-startup gap:
-current product handoffs still disable the bootloader watchdog, and automatic
-camera startup/health confirmation remain unimplemented. No product profile
-admits the watchdog yet.
+uncertain failures. The opt-in, unencrypted `esp32s3-camera-stream-startup`
+qualification profile adopts the inherited deadline; ordinary profiles retain
+their existing handoff. Protected runtime control remains closed pending joined
+startup/recovery and physical quiescence qualification.
 The native `boot-control` fixture exercises SDK state, trial and confirmation,
 exclusive acquisition and repeated-query descriptor cleanup; it is not an OTA
 service or automatic startup confirmation policy. Product wiring owns layout.
@@ -111,14 +111,28 @@ before kernel initialization. Opt-in `ESP32S3_RWDT_INHERIT` keeps
 the deadline and its slow-clock source unchanged through the SDK's clock
 initialization, calibrates that source for SDK time/radio consumers without
 feeding, and relocks it. The SDK's user-owned cancellation setting also
-leaves the timer running. No product enables this yet. It requires
-automatic application startup and explicit cancellation after health and trial
-confirmation. The register model checks both modes, locked/unlocked entry,
+leaves the timer running. The startup profile selects a fixed 180-second budget
+and direct `stream_test boot-tls continuous 0` entry through its typed `[init]`
+table. Board late initialization registers devices; the entry adopts first, then
+invokes synchronous network initialization. Stable boots cancel before USB
+credential/enrollment input; trial boots retain the deadline while waiting.
+The register model checks both modes, locked/unlocked entry,
 preserved bits and repeated handoff; it does not qualify reset timing.
+
+Trial health requires capture, authenticated full-image write completion and
+any configured real-frame inference within five seconds. Consuming retirement
+joins TLS, camera and detection; the product then disconnects/stops/joins Wi-Fi,
+acquires its quiet owner, confirms and verifies Stable, resumes, and cancels the
+watchdog. Expired health or any failure prevents cancellation. A resume failure
+after confirmation cannot undo Stable metadata. Successful completion recreates
+the pipeline; later recreation failures are outside the trial watchdog window.
+The startup profile has a separate signed-image class to exclude legacy
+candidates that cancel the deadline. Native full-path qualification remains
+pending; these ownership barriers alone do not prove physical bus quiescence.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader, advance a hardware monotonic counter, or
-provide on-device update delivery or a product startup-health policy. Those and physical interrupted
+provide on-device update delivery. Startup/recovery and physical interrupted
 update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.
 

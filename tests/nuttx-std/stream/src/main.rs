@@ -28,7 +28,9 @@ mod device {
     };
 
     const BYTES: usize = 320 * 240 * 2;
+    const STARTUP_HEALTH_AGE_MS: u64 = 5000;
     unsafe extern "C" {
+        fn stream_network_initialize() -> i32;
         fn nxrs_wifi_test_credentials(
             ssid: *mut u8,
             password: *mut u8,
@@ -316,7 +318,8 @@ mod device {
         options: &Options,
         stop_control: Option<&AtomicU8>,
         origin: Instant,
-    ) -> Result<(), String>
+        trial: bool,
+    ) -> Result<Option<camera_stream::startup::Health>, String>
     where
         D: camera::Camera,
         O: StreamOutput,
@@ -442,6 +445,12 @@ mod device {
                 was_online = online;
                 live.poll(elapsed, online)
                     .map_err(|error| format!("stream {error:?}"))?;
+                if trial
+                    && online
+                    && camera_stream::startup::healthy(&live, elapsed, STARTUP_HEALTH_AGE_MS)
+                {
+                    break;
+                }
                 let stats = live.stats();
                 if stats.stream.errors != reported_errors {
                     println!(
@@ -508,29 +517,49 @@ mod device {
             }
             Ok(())
         })();
-        let stopped = live
-            .stop()
-            .map_err(|error| format!("camera stop {error:?}"));
+        let stats = live.stats();
+        let stopped = if trial {
+            camera_stream::startup::retire_healthy(live, now(origin), STARTUP_HEALTH_AGE_MS)
+                .map(Some)
+                .map_err(|error| format!("startup retirement {error:?}"))
+        } else {
+            live.stop()
+                .map(|()| None)
+                .map_err(|error| format!("camera stop {error:?}"))
+        };
         result?;
-        stopped?;
-        if let Some(tls) = live.stats().tls {
+        let health = stopped?;
+        if let Some(tls) = stats.tls {
             println!(
                 "NXRS_TLS_DELIVERED captured={} delivered={} handshakes={} failures={}",
-                live.stats().captured,
-                live.stats().stream.frames_completed,
-                tls.handshakes,
-                tls.failures
+                stats.captured, stats.stream.frames_completed, tls.handshakes, tls.failures
             );
         }
-        Ok(())
+        Ok(health)
     }
 
     pub fn run() -> Result<(), String> {
         let mut arguments: Vec<String> = std::env::args().skip(1).collect();
+        let startup_mode = arguments.first().is_some_and(|value| value == "boot-tls");
+        let mut startup = if startup_mode {
+            let watchdog =
+                watchdog::adopt().map_err(|error| format!("watchdog adopt {error:?}"))?;
+            let boot = boot::open().map_err(|error| format!("boot open {error:?}"))?;
+            let trial = camera_stream::startup::Trial::begin(boot, watchdog)
+                .map_err(|error| format!("boot startup {error:?}"))?;
+            // SAFETY: existing synchronous NuttX network initialization. Board
+            // late initialization already registered the devices before entry.
+            if unsafe { stream_network_initialize() } != 0 {
+                return Err("network initialization failed".into());
+            }
+            trial
+        } else {
+            None
+        };
         if let Some(result) = super::model::batch_command(&arguments) {
             return result;
         }
-        let tls_mode = arguments.first().is_some_and(|value| value == "tls");
+        let tls_mode = startup_mode || arguments.first().is_some_and(|value| value == "tls");
         if tls_mode {
             arguments.remove(0);
         }
@@ -559,6 +588,9 @@ mod device {
             return Err("usage: stream_test [tls] SECONDS|continuous RECONNECT_AT_SECONDS [WIDTH HEIGHT [QUALITY]] [no-detection] [sample-ms=N]".into());
         }
         let reconnect: u64 = arguments[1].parse().map_err(|_| "reconnect time")?;
+        if startup_mode && super::model::ENABLED && !detection_enabled {
+            return Err("startup qualification requires the product detector".into());
+        }
         let duration = super::session::Duration::parse(&arguments[0], reconnect)?;
         if tls_mode && duration != super::session::Duration::Continuous {
             return Err("TLS mode requires continuous operation".into());
@@ -581,38 +613,93 @@ mod device {
         })
         .map_err(|_| "JPEG quality must be 1..100")?;
 
+        let port = if tls_mode { 8443 } else { 8080 };
+        let options = Options {
+            duration,
+            reconnect,
+            detection_enabled,
+            sample_interval_ms,
+            width,
+            height,
+            port,
+        };
         stage("credential_reader");
         let profile = Profile::read()?;
-        let (sender, receiver) = sync_channel(8);
-        stage("wifi_open");
-        let controller = wifi::open(Sink {
-            events: sender,
-            owner: std::thread::current(),
-        })
-        .map_err(|error| format!("wifi open {error:?}"))?;
-        let mut network = Reconnector::new(controller, || profile.command());
         let origin = Instant::now();
-        let tls_stop = Arc::new(AtomicU8::new(0));
-        let operation: Result<(), String> = (|| {
-            if tls_mode {
-                stage("wifi_preflight");
-                wait_addressed(&mut network, &receiver, origin)?;
-            }
-            stage("tcp_bind");
-            let port = if tls_mode { 8443 } else { 8080 };
-            let listener = TcpListener::bind(("0.0.0.0", port))
-                .map_err(|error| format!("listener {error:?}"))?;
-            let options = Options {
-                duration,
-                reconnect,
-                detection_enabled,
-                sample_interval_ms,
-                width,
-                height,
-                port,
-            };
-            if tls_mode {
-                loop {
+        loop {
+            let (sender, receiver) = sync_channel(8);
+            stage("wifi_open");
+            let controller = wifi::open(Sink {
+                events: sender,
+                owner: std::thread::current(),
+            })
+            .map_err(|error| format!("wifi open {error:?}"))?;
+            let mut network = Reconnector::new(controller, || profile.command());
+            let tls_stop = Arc::new(AtomicU8::new(0));
+            let mut startup_health = None;
+            let operation: Result<(), String> = (|| {
+                if tls_mode {
+                    stage("wifi_preflight");
+                    wait_addressed(&mut network, &receiver, origin)?;
+                }
+                stage("tcp_bind");
+                let listener = TcpListener::bind(("0.0.0.0", port))
+                    .map_err(|error| format!("listener {error:?}"))?;
+                if tls_mode {
+                    loop {
+                        stage("camera_open");
+                        let mut device =
+                            camera::open().map_err(|error| format!("camera open {error:?}"))?;
+                        device
+                            .set_jpeg_quality(quality)
+                            .map_err(|error| format!("JPEG quality {error:?}"))?;
+                        stage("pipeline_setup");
+                        let stop = tls_stop.clone();
+                        let live = LiveCamera::<_, BYTES, _>::new_tls(
+                            device,
+                            listener
+                                .try_clone()
+                                .map_err(|error| format!("listener clone {error:?}"))?,
+                            std::array::from_fn(|_| vec![0; BYTES]),
+                            stream_service::Options::default(),
+                            TlsOptions {
+                                stack_bytes: 64 * 1024,
+                                poll_interval: Duration::from_millis(2),
+                            },
+                            move || {
+                                // Keep model observations schedulable during encryption.
+                                // SAFETY: target-header call affects this TLS worker only.
+                                if unsafe { nxrs_stream_worker_priority(80) } != 0 {
+                                    return Err(camera_stream::Error::Worker);
+                                }
+                                super::console::initialize(stop)
+                            },
+                        )
+                        .map_err(|error| format!("TLS composition {error:?}"))?;
+                        startup_health = run_live(
+                            live,
+                            &mut network,
+                            &receiver,
+                            &options,
+                            Some(&tls_stop),
+                            origin,
+                            startup.is_some(),
+                        )?;
+                        if startup_health.is_some() {
+                            break;
+                        }
+                        match tls_stop.load(Ordering::Acquire) {
+                            1 => break,
+                            2 => {
+                                tls_stop.store(0, Ordering::Release);
+                                println!("NXRS_TLS_SESSION_PASS stopped=1 joined=1");
+                            }
+                            value => {
+                                return Err(format!("invalid TLS session control {value}"));
+                            }
+                        }
+                    }
+                } else {
                     stage("camera_open");
                     let mut device =
                         camera::open().map_err(|error| format!("camera open {error:?}"))?;
@@ -620,97 +707,60 @@ mod device {
                         .set_jpeg_quality(quality)
                         .map_err(|error| format!("JPEG quality {error:?}"))?;
                     stage("pipeline_setup");
-                    let stop = tls_stop.clone();
-                    let live = LiveCamera::<_, BYTES, _>::new_tls(
+                    let live = LiveCamera::<_, BYTES, _>::new(
                         device,
-                        listener
-                            .try_clone()
-                            .map_err(|error| format!("listener clone {error:?}"))?,
-                        std::array::from_fn(|_| vec![0; BYTES]),
+                        listener,
+                        vec![0; BYTES],
+                        vec![0; BYTES],
+                        vec![0; BYTES],
                         stream_service::Options::default(),
-                        TlsOptions {
-                            stack_bytes: 64 * 1024,
-                            poll_interval: Duration::from_millis(2),
-                        },
-                        move || {
-                            // Keep model observations schedulable during encryption.
-                            // SAFETY: target-header call affects this TLS worker only.
-                            if unsafe { nxrs_stream_worker_priority(80) } != 0 {
-                                return Err(camera_stream::Error::Worker);
-                            }
-                            super::console::initialize(stop)
-                        },
                     )
-                    .map_err(|error| format!("TLS composition {error:?}"))?;
-                    run_live(
-                        live,
-                        &mut network,
-                        &receiver,
-                        &options,
-                        Some(&tls_stop),
-                        origin,
-                    )?;
-                    match tls_stop.load(Ordering::Acquire) {
-                        1 => break,
-                        2 => {
-                            tls_stop.store(0, Ordering::Release);
-                            println!("NXRS_TLS_SESSION_PASS stopped=1 joined=1");
-                        }
-                        value => {
-                            return Err(format!("invalid TLS session control {value}"));
-                        }
-                    }
+                    .map_err(|error| format!("composition {error:?}"))?;
+                    run_live(live, &mut network, &receiver, &options, None, origin, false)?;
                 }
-            } else {
-                stage("camera_open");
-                let mut device =
-                    camera::open().map_err(|error| format!("camera open {error:?}"))?;
-                device
-                    .set_jpeg_quality(quality)
-                    .map_err(|error| format!("JPEG quality {error:?}"))?;
-                stage("pipeline_setup");
-                let live = LiveCamera::<_, BYTES, _>::new(
-                    device,
-                    listener,
-                    vec![0; BYTES],
-                    vec![0; BYTES],
-                    vec![0; BYTES],
-                    stream_service::Options::default(),
-                )
-                .map_err(|error| format!("composition {error:?}"))?;
-                run_live(live, &mut network, &receiver, &options, None, origin)?;
+                Ok(())
+            })();
+            let stop_result = network
+                .request_disconnect_and_stop(now(origin))
+                .map_err(|error| format!("wifi stop {error:?}"));
+            let deadline = Instant::now() + Duration::from_secs(35);
+            while network.status() != ProviderStatus::Stopped && Instant::now() < deadline {
+                let elapsed = now(origin);
+                let _ = dispatch_events(&mut network, &receiver, elapsed);
+                let _ = network.poll(elapsed);
+                std::thread::park_timeout(Duration::from_millis(5));
             }
-            Ok(())
-        })();
-        let stop_result = network
-            .request_disconnect_and_stop(now(origin))
-            .map_err(|error| format!("wifi stop {error:?}"));
-        let deadline = Instant::now() + Duration::from_secs(35);
-        while network.status() != ProviderStatus::Stopped && Instant::now() < deadline {
-            let elapsed = now(origin);
-            let _ = dispatch_events(&mut network, &receiver, elapsed);
-            let _ = network.poll(elapsed);
-            std::thread::park_timeout(Duration::from_millis(5));
+            let joined = network
+                .finish()
+                .map_err(|error| format!("wifi join {error:?}"));
+            operation?;
+            stop_result?;
+            joined?;
+            if let Some(health) = startup_health {
+                let trial = startup.take().ok_or("missing trial owner")?;
+                let mut quiet = wifi::open_for_quiescence()
+                    .map_err(|error| format!("wifi maintenance {error:?}"))?;
+                trial
+                    .complete(health, &mut quiet, || now(origin))
+                    .map_err(|error| format!("trial confirmation {error:?}"))?;
+                drop(quiet);
+                println!("NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1");
+                continue;
+            }
+            if tls_mode {
+                println!("NXRS_TLS_CAMERA_PASS stopped=1 joined=1");
+            } else {
+                println!("NXRS_STREAM_PASS stopped=1 joined=1");
+            }
+            return Ok(());
         }
-        let joined = network
-            .finish()
-            .map_err(|error| format!("wifi join {error:?}"));
-        operation?;
-        stop_result?;
-        joined?;
-        if tls_mode {
-            println!("NXRS_TLS_CAMERA_PASS stopped=1 joined=1");
-        } else {
-            println!("NXRS_STREAM_PASS stopped=1 joined=1");
-        }
-        Ok(())
     }
 }
 
 #[cfg(target_os = "nuttx")]
 fn main() {
     if let Err(error) = device::run() {
-        if std::env::args().nth(1).as_deref() == Some("tls") {
+        if matches!(std::env::args().nth(1).as_deref(), Some("tls" | "boot-tls")) {
             eprintln!("NXRS_TLS_CAMERA_FAIL error={error}");
         } else {
             eprintln!("NXRS_STREAM_FAIL error={error}");

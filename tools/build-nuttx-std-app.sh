@@ -125,7 +125,8 @@ command -v python3 >/dev/null || {
 # only to translate trusted repository data into shell variables for the common
 # NuttX backend; product profiles themselves contain no executable shell.
 PLATFORM_ENV="$(
-python3 - "$PLATFORM_PATH" "$ROOT" "$NXRS_APP_MANIFEST" <<'PY_PLATFORM'
+python3 - "$PLATFORM_PATH" "$ROOT" "$NXRS_APP_MANIFEST" \
+  "$NXRS_APP_COMMAND" "$NXRS_APP_PRIORITY" "$NXRS_APP_STACKSIZE" <<'PY_PLATFORM'
 import shlex
 import sys
 from pathlib import Path
@@ -133,6 +134,7 @@ sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
 from platform_config import model_features, native_helpers, resolve, validate_target
 sys.path.insert(0, str(Path(sys.argv[2]) / "platform/nuttx"))
 from mcuboot import application_config, MCUBOOT_REVISION
+from init import application_config as init_config
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -191,6 +193,13 @@ if boot is not None:
           "boot requirements", "BOOT_REQUIRE")
     print('NUTTX_REQUIRE+=("${BOOT_REQUIRE[@]}")')
     print("NUTTX_IMAGE_NAME=nuttx.signed.bin")
+values = init_config(data, sys.argv[4], int(sys.argv[5]), int(sys.argv[6]))
+if values:
+    array([f"{key}={value}" for key, value in values.items()], "init entry", "INIT_SET")
+    print('NUTTX_SET+=("${INIT_SET[@]}")')
+    array([f"# CONFIG_{key} is not set" if value == "n" else f"CONFIG_{key}={value}"
+           for key, value in values.items()], "init requirements", "INIT_REQUIRE")
+    print('NUTTX_REQUIRE+=("${INIT_REQUIRE[@]}")')
 forbid = kconfig.get("forbid-regex", "")
 if not isinstance(forbid, str):
     raise SystemExit(f"{path}: kconfig.forbid-regex must be a string")
@@ -365,10 +374,21 @@ done
 for symbol in "${NUTTX_DISABLE[@]:-}"; do
   test -n "$symbol" && kconfig-tweak --disable "CONFIG_$symbol"
 done
-for assignment in "${NUTTX_SET[@]:-}"; do
-  test -n "$assignment" || continue
-  kconfig-tweak --set-val "CONFIG_${assignment%%=*}" "${assignment#*=}"
-done
+# Preserve literal Kconfig escaping: kconfig-tweak's sed replacement consumes
+# backslashes in the nested C string list used by INIT_ARGS.
+python3 - "${NUTTX_SET[@]:-}" <<'PY_SET'
+from pathlib import Path
+import re
+import sys
+values = dict(value.split("=", 1) for value in sys.argv[1:] if value)
+path = Path(".config")
+lines = []
+for line in path.read_text().splitlines():
+    setting = re.match(r"(?:# )?CONFIG_(\w+)(?:=| is not set$)", line)
+    if setting is None or setting[1] not in values:
+        lines.append(line)
+path.write_text("\n".join([*lines, *[f"CONFIG_{key}={value}" for key, value in values.items()]]) + "\n")
+PY_SET
 
 # Explicit diagnostic builds still go through normal resolution and provenance.
 for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
@@ -410,7 +430,7 @@ done
 
 for required in "${NUTTX_REQUIRE[@]:-}"; do
   test -n "$required" || continue
-  grep -qx "$required" .config || {
+  grep -Fqx "$required" .config || {
     echo "Deployment $NXRS_DEPLOYMENT unresolved requirement: $required" >&2
     exit 1
   }

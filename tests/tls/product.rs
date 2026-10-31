@@ -178,12 +178,14 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
     }
     let (width, height) = if media { (320, 240) } else { (96, 96) };
     live.start(width, height).unwrap();
+    assert!(!camera_stream::startup::healthy(&live, 0, 5000));
     println!("LISTEN {address}");
     std::io::stdout().flush().unwrap();
     let origin = Instant::now();
     let mut online = true;
     let mut report_at = 0;
     let mut drop_only = false;
+    let mut confirm = false;
     let mut peak = 0;
     while origin.elapsed() < Duration::from_secs(if media { 120 } else { 30 }) {
         match std::fs::read_to_string(directory.join("control"))
@@ -201,6 +203,9 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 std::io::stdout().flush().unwrap();
             }
             "stop" => break,
+            "confirm" => {
+                confirm = true;
+            }
             "pause" => {
                 paused.set(true);
                 std::fs::write(directory.join("control"), "").unwrap();
@@ -221,6 +226,9 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         }
         let now = origin.elapsed().as_millis() as u64;
         live.poll(now, online).unwrap();
+        if confirm && camera_stream::startup::healthy(&live, now, 5000) {
+            break;
+        }
         let stats = live.stats();
         let active = stats
             .stream
@@ -235,12 +243,21 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         }
         std::thread::sleep(Duration::from_millis(2));
     }
-    if !drop_only {
-        let result = live.stop();
-        assert_eq!(result.is_err(), directory.join("fail-camera-stop").exists());
+    if confirm {
+        let now = origin.elapsed().as_millis() as u64;
+        assert!(camera_stream::startup::healthy(&live, now, 5000));
         report(&directory, live.stats(), peak);
+        let _health = camera_stream::startup::retire_healthy(live, now, 5000)
+            .expect("real authenticated image and joined retirement");
+        println!("STARTUP_RETIRED");
+    } else {
+        if !drop_only {
+            let result = live.stop();
+            assert_eq!(result.is_err(), directory.join("fail-camera-stop").exists());
+            report(&directory, live.stats(), peak);
+        }
+        drop(live);
     }
-    drop(live);
     // Even a failed camera stop must have joined TLS and released its SDK owner.
     let mut replacement = tls::open().expect("TLS worker joined and released native owner");
     let mut csr = [0; 1024];
