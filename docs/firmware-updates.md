@@ -136,7 +136,9 @@ progress, with confirmed primary-image readback. A credential-input failure also
 led to restart and reversion to the previous confirmed image, verified by primary
 readback and 200 seconds of recovered TLS/inference progress. That observation
 included one USB reopen and no explicit host reset command; the reset cause was
-not measured. Separately, after joining camera/TLS/detection and stopping Wi-Fi,
+not measured. A separate attribution witness observed USB reset causes and failed
+the RTC-watchdog check; it does not establish physical watchdog causation.
+Separately, after joining camera/TLS/detection and stopping Wi-Fi,
 the unprotected target staged a 2,000,000-byte prefix of its own signed image
 from the primary device into the inactive slot. Pending readback, subsequent
 Trial confirmation, confirmed primary readback and 200 seconds of recreated
@@ -188,10 +190,18 @@ The NuttX application helper uses the same 32-byte trailer layout and reports
 cannot reprogram neighboring ciphertext; incompatible block sizes fail the SDK
 build. This does not enable protected runtime boot control.
 
-Runtime boot control remains unavailable in the protected profile pending physical
-encrypted interruption and flash-quiescence qualification. MCUboot still owns
-swapping and recovery; the unencrypted qualification profile remains available.
-Host flash models do not qualify torn hardware programs or physical reset timing.
+Offline integration also compiles the camera/TLS/detector/Wi-Fi startup path and
+inherited watchdog with encrypted OTA and 32-byte MTD writes. Independently
+verified 32-byte factory artifacts match the guarded loader's roots, fixture
+class and 180-second budget. This is build/package evidence; encrypted camera
+runtime remains unqualified.
+
+The pre-activation software and bounded qualification milestone is complete.
+Protected runtime admission and a shipping startup cohort remain deferred pending
+separate configuration review and physical qualification. ROM enforcement,
+encrypted torn-write/power-loss recovery, cache/AES timing, a comprehensive
+DMA/MSPI fence and physical watchdog attribution remain unproved. Hardware
+protections remain OFF; no permanent device setting has been changed.
 
 Prepare those files offline from the protected boot build and a confirmed
 factory application:
