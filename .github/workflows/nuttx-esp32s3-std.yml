@@ -17,6 +17,7 @@ on:
       - 'tests/host/mcuboot_trailer_nor.c'
       - 'tests/host/mcuboot_native_erase.c'
       - 'tests/host/mcuboot_provisioning_guard.c'
+      - 'tests/host/esp32s3_encrypted_write.c'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'

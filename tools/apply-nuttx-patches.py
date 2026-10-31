@@ -92,6 +92,7 @@ SERIES = {
         "0093-esp32s3-guard-rf-entropy.patch",
         "0094-esp32s3-boot-watchdog-handoff.patch",
         "0095-esp32s3-encrypted-ota-partition-config.patch",
+        "0096-esp32s3-propagate-encrypted-write-errors.patch",
     ),
     "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",),
     "nuttx-apps": (
