@@ -10,6 +10,33 @@ use std::time::{Duration, Instant};
 #[cfg(not(test))]
 mod native;
 
+#[cfg(not(test))]
+pub(super) fn open_for_quiescence() -> Result<impl crate::QuiescenceControl, Error> {
+    let lease = Lease::acquire()?;
+    let interface = native::QuiescenceInterface::open()?;
+    Ok(super::quiescence::Owner::new(interface, lease))
+}
+
+fn set_interface_enabled(
+    enabled: bool,
+    mut get: impl FnMut() -> Result<(u32, u32), Error>,
+    mut set: impl FnMut(u32) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let (flags, mask) = get()?;
+    // A skipped native transition cannot prove completion of an earlier,
+    // unknown operation. Only the exclusive owner's idempotence is trusted.
+    if !mask.is_power_of_two() || (flags & mask != 0) == enabled {
+        return Err(Error::Protocol);
+    }
+    // Preserve unrelated flags such as IFF_NOARP using the target's UP mask.
+    set(if enabled { flags | mask } else { flags & !mask })?;
+    let (observed, observed_mask) = get()?;
+    if observed_mask != mask || (observed & mask != 0) != enabled {
+        return Err(Error::Protocol);
+    }
+    Ok(())
+}
+
 pub(crate) const SCAN_READ_TIMEOUT: Duration = Duration::from_secs(6);
 const SCAN_READ_POLL: Duration = Duration::from_millis(20);
 
@@ -112,4 +139,83 @@ pub(crate) fn normalize_scan(
         }
     }
     Ok(point.is_none_or(emit))
+}
+
+#[cfg(test)]
+mod quiescence_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn interface_transition_requires_native_completion_and_matching_readback() {
+        const UP: u32 = 1 << 1;
+        const OTHER: u32 = 1 << 29;
+        // Each fallible boundary, invalid masks, skipped transitions and both
+        // readback inconsistencies must fail without an extra native operation.
+        for case in 0..9 {
+            let (flags, calls) = (Cell::new(UP | OTHER), Cell::new(0));
+            let result = set_interface_enabled(
+                false,
+                || {
+                    let call = calls.get() + 1;
+                    calls.set(call);
+                    if (case == 1 && call == 1) || (case == 3 && call == 3) {
+                        return Err(Error::Io);
+                    }
+                    let mask = match (case, call) {
+                        (4, 1) => 0,
+                        (5, 1) => UP | 1,
+                        (7, 3) => 1,
+                        _ => UP,
+                    };
+                    let value = match (case, call) {
+                        (6, 1) => OTHER,
+                        (8, 3) => UP | OTHER,
+                        _ => flags.get(),
+                    };
+                    Ok((value, mask))
+                },
+                |value| {
+                    calls.set(calls.get() + 1);
+                    assert_eq!(value, OTHER);
+                    flags.set(value); // Even a failing SET may have side effects.
+                    if case == 2 {
+                        Err(Error::Io)
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            assert_eq!(
+                result,
+                match case {
+                    0 => Ok(()),
+                    1..=3 => Err(Error::Io),
+                    _ => Err(Error::Protocol),
+                }
+            );
+            assert_eq!(
+                calls.get(),
+                match case {
+                    1 | 4..=6 => 1,
+                    2 => 2,
+                    _ => 3,
+                }
+            );
+            if case == 0 {
+                assert_eq!(
+                    set_interface_enabled(
+                        true,
+                        || Ok((flags.get(), UP)),
+                        |value| {
+                            flags.set(value);
+                            Ok(())
+                        }
+                    ),
+                    Ok(())
+                );
+                assert_eq!(flags.get(), UP | OTHER);
+            }
+        }
+    }
 }

@@ -13,6 +13,68 @@ SPEC.loader.exec_module(WIFI)
 
 
 class WifiQualificationTests(unittest.TestCase):
+    def test_quiescence_flags_bindings_preserve_width_and_report_ioctl_failures(self):
+        native = (WIFI.ROOT / 'hal/wifi/src/platform/nuttx/ffi/wifi_station.c').read_text()
+        helpers = native[native.index('static int named('):
+                         native.index('int wifi_station_available(')]
+        bindings = native[native.index('int wifi_quiescence_available('):
+                          native.index('int wifi_station_link(')]
+        source = r'''
+#include <assert.h>
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
+#define IFNAMSIZ 16
+#define IFF_UP (1u << 1)
+enum { SIOCGIFFLAGS, SIOCSIFFLAGS };
+struct iwreq { char ifr_name[IFNAMSIZ]; };
+struct ifreq { char ifr_name[IFNAMSIZ]; uint32_t ifr_flags; };
+static uint32_t current = IFF_UP | (1u << 29);
+static unsigned calls;
+static int failure;
+static int fake_ioctl(int fd, int command, unsigned long argument) {
+  struct ifreq *request = (void *)(uintptr_t)argument;
+  assert(fd == 37 && !strcmp(request->ifr_name, "wlan0"));
+  calls++;
+  if (failure) { errno = failure; return -1; }
+  if (command == SIOCGIFFLAGS) request->ifr_flags = current;
+  else { assert(command == SIOCSIFFLAGS); current = request->ifr_flags; }
+  return 0;
+}
+#define ioctl fake_ioctl
+''' + helpers + bindings + r'''
+int main(void) {
+  uint32_t flags = 0, mask = 0;
+  assert(wifi_quiescence_available() == EXPECT_AVAILABLE);
+  assert(wifi_interface_flags_get(37, "wlan0", &flags, &mask) == 0);
+  assert(flags == current && mask == IFF_UP && calls == 1);
+  assert(wifi_interface_flags_set(37, "wlan0", flags & ~mask) == 0);
+  assert(current == (1u << 29) && calls == 2);
+  failure = EIO; flags = 123; mask = 456;
+  assert(wifi_interface_flags_get(37, "wlan0", &flags, &mask) == EIO);
+  assert(flags == 123 && mask == 456);
+  assert(wifi_interface_flags_set(37, "wlan0", 0) == EIO);
+  assert(current == (1u << 29) && calls == 4);
+  assert(wifi_interface_flags_get(37, "", &flags, &mask) == EINVAL);
+  assert(wifi_interface_flags_set(37, "interface-too-long", 0) == EINVAL);
+  assert(calls == 4);
+  return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'flags.c').write_text(source)
+            for defines in (['-DEXPECT_AVAILABLE=0'],
+                            ['-DCONFIG_ARCH_CHIP_ESP32S3', '-DCONFIG_ESPRESSIF_WIFI_STATION',
+                             '-DEXPECT_AVAILABLE=1'],
+                            ['-DCONFIG_ARCH_CHIP_ESP32S3', '-DCONFIG_ESPRESSIF_WIFI_STATION',
+                             '-DCONFIG_SMP', '-DEXPECT_AVAILABLE=0']):
+                result = subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', *defines,
+                                         str(path / 'flags.c'), '-o', str(path / 'flags')],
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                subprocess.run([str(path / 'flags')], check=True, capture_output=True)
+
     def test_station_configures_mode_before_authentication_and_stops_on_errors(self):
         native = (WIFI.ROOT / 'hal/wifi/src/platform/nuttx/ffi/wifi_station.c').read_text()
         helpers = native[native.index('static int named('):

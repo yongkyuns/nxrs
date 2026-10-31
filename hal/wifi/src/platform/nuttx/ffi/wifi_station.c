@@ -42,6 +42,47 @@ int wifi_station_available(void)
 #endif
 }
 
+/* This driver uses the native poll-thread shutdown barrier. Other drivers and
+ * execution configurations need their own qualification before admission.
+ */
+int wifi_quiescence_available(void)
+{
+#if defined(CONFIG_ARCH_CHIP_ESP32S3) && \
+    defined(CONFIG_ESPRESSIF_WIFI_STATION) && !defined(CONFIG_SMP)
+  return 1;
+#else
+  return 0;
+#endif
+}
+
+int wifi_interface_flags_get(int fd, const char *name,
+                             uint32_t *flags, uint32_t *up_mask)
+{
+  struct ifreq request = {0};
+  struct iwreq wireless;
+  int result = named(&wireless, name);
+  if (result != 0) return result;
+  memcpy(request.ifr_name, wireless.ifr_name, IFNAMSIZ);
+  result = control(fd, SIOCGIFFLAGS, &request);
+  if (result == 0)
+    {
+      *flags = request.ifr_flags;
+      *up_mask = IFF_UP;
+    }
+  return result;
+}
+
+int wifi_interface_flags_set(int fd, const char *name, uint32_t flags)
+{
+  struct ifreq request = {0};
+  struct iwreq wireless;
+  int result = named(&wireless, name);
+  if (result != 0) return result;
+  memcpy(request.ifr_name, wireless.ifr_name, IFNAMSIZ);
+  request.ifr_flags = flags;
+  return control(fd, SIOCSIFFLAGS, &request);
+}
+
 int wifi_station_link(int fd, const char *name, uint32_t *state)
 {
   struct ifreq request = {0};

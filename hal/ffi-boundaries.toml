@@ -101,7 +101,7 @@ reason = "Decode target-header wireless event layouts and issue individual scan 
 [[bridge]]
 path = "hal/wifi/src/platform/nuttx/ffi/wifi_station.c"
 kind = "abi"
-reason = "Individual target wireless ioctls, address layouts and netutils DHCP handle operations. Rust owns station sequencing, lease validation and SDK handle lifetime."
+reason = "Individual target wireless/interface ioctls, address layouts and netutils DHCP handle operations. Rust owns station/quiescence sequencing, admission, lease validation and SDK handle lifetime."
 
 [[bridge]]
 path = "hal/wifi/src/platform/macos/ffi/status.h"
