@@ -41,11 +41,12 @@ class Session:
         if len(self.pending) > RUN.SERIAL_LIMIT:
             raise RuntimeError("console output exceeded bound")
 
-    def start(self):
+    def start(self, *, autostart=False):
         ssid, password = self.credentials
         duration = "continuous" if self.seconds is None else str(self.seconds)
         mode = "tls " if self.tls else ""
-        self.console.write(f"stream_test {mode}{duration} 0 320 240 81\n".encode("ascii"))
+        if not autostart:
+            self.console.write(f"stream_test {mode}{duration} 0 320 240 81\n".encode("ascii"))
         RUN.wait_stage(self.console, self.pending, b"NXRS_WIFI_CREDENTIALS_READY", password, 15, "credential reader")
         payload = bytes((len(ssid), len(password))) + ssid + password
         if self.console.write(payload) != len(payload):
@@ -229,7 +230,7 @@ def supervise(port, credentials, seconds, cycles, emit, stop):
             console.close()
 
 
-def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=45 * 60):
+def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=45 * 60, autostart=False):
     """Supervise the USB development enrollment and the actual Rust ingest.
 
     Renew through ordinary joined camera sessions before the one-hour CRL
@@ -272,6 +273,8 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
     with console:
         first_session = True
         renew_pending = False
+        startup_confirmed = False
+        confirmation = 'NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1'
         while not stop.is_set() or renew_pending:
             renew_pending = False
             if identity(port) != expected:
@@ -282,9 +285,10 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                 passed = False
                 try:
                     if first_session:
-                        console.write(b'\n')
-                        RUN.wait_stage(console, bytearray(), b'nsh> ', credentials[1], 30, 'NSH')
-                        Session(console, credentials, None, emit, stop, tls=True).start()
+                        if not autostart:
+                            console.write(b'\n')
+                            RUN.wait_stage(console, bytearray(), b'nsh> ', credentials[1], 30, 'NSH')
+                        Session(console, credentials, None, emit, stop, tls=True).start(autostart=autostart)
                         first_session = False
                     def observed(line):
                         raw = line.encode('ascii')
@@ -318,7 +322,11 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                     emit('enrolled', ip=address, port=8443, ingest_pid=child.pid, ingest_config=str(ingest_config))
                     deadline = time.monotonic() + renew_after
                     while not stop.wait(.1) and time.monotonic() < deadline:
-                        if supervisor.finished.is_set() or child.poll() is not None:
+                        if child.poll() is not None or supervisor.failure:
+                            raise RuntimeError("TLS camera or Rust ingest stopped unexpectedly")
+                        if supervisor.finished.is_set():
+                            if autostart and not startup_confirmed and confirmation in supervisor.events:
+                                break  # Joined trial confirmation recreates TLS and its CSR.
                             raise RuntimeError("TLS camera or Rust ingest stopped unexpectedly")
                     passed = True
                 finally:
@@ -342,10 +350,20 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                                         'NXRS_STREAM_PASS stopped=1 joined=1',
                                         'NXRS_TLS_CAMERA_PASS stopped=1 joined=1',
                                         'NXRS_TLS_SESSION_PASS stopped=1 joined=1'))
+                                    joined = joined or (autostart and not startup_confirmed
+                                                        and confirmation in supervisor.events)
                                     if passed and (supervisor.failure or not joined):
                                         raise RuntimeError("TLS camera did not confirm joined shutdown")
                                 finally:
                                     supervisor.stop()
+                                    if autostart and confirmation in supervisor.events and not supervisor.failure:
+                                        if startup_confirmed:
+                                            raise RuntimeError('unexpected repeated startup confirmation')
+                                        startup_confirmed = True
+                                        # Confirmation recreates the pipeline even when stop
+                                        # arrived during shutdown. Enroll it so it can join too.
+                                        renew_pending = True
+                                        emit('startup_confirmed')
                         finally:
                             if log:
                                 log.close()
@@ -359,7 +377,10 @@ def main():
     parser.add_argument("--wifi-file", required=True)
     parser.add_argument("--state-file", required=True, help="new private JSON file outside the checkout")
     parser.add_argument("--tls-config", help="private USB enrollment and Rust ingest configuration")
+    parser.add_argument("--autostart", action="store_true", help="TLS firmware starts itself; do not send a shell command")
     args = parser.parse_args()
+    if args.autostart and not args.tls_config:
+        parser.error('--autostart requires --tls-config')
     credentials = RUN.read_wifi_file(args.wifi_file)
     state = State(args.state_file)
     stop = threading.Event()
@@ -372,7 +393,7 @@ def main():
         if sys.platform == "darwin":
             awake = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
         if args.tls_config:
-            supervise_tls(args.port, credentials, args.tls_config, state.emit, stop)
+            supervise_tls(args.port, credentials, args.tls_config, state.emit, stop, autostart=args.autostart)
         else:
             supervise(args.port, credentials, None, 0, state.emit, stop)
         state.emit("stopped")
