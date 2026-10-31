@@ -16,6 +16,14 @@ const SCAN_BYTES: usize = 4096;
 
 unsafe extern "C" {
     fn wifi_station_available() -> c_int;
+    fn wifi_quiescence_available() -> c_int;
+    fn wifi_interface_flags_get(
+        fd: c_int,
+        interface: *const c_char,
+        flags: *mut u32,
+        up_mask: *mut u32,
+    ) -> c_int;
+    fn wifi_interface_flags_set(fd: c_int, interface: *const c_char, flags: u32) -> c_int;
     fn wifi_station_link(fd: c_int, interface: *const c_char, state: *mut u32) -> c_int;
     fn wifi_station_infra(fd: c_int, interface: *const c_char) -> c_int;
     fn wifi_station_wpa(fd: c_int, interface: *const c_char, secured: c_int) -> c_int;
@@ -66,16 +74,70 @@ pub(super) struct Native {
     lease_until: Option<Instant>,
     scan_buffer: Box<[u8]>,
 }
+
+fn open_interface() -> Result<(UdpSocket, CString), Error> {
+    let interface = CString::new(option_env!("NXRS_WIFI_INTERFACE").unwrap_or("wlan0"))
+        .map_err(|_| Error::InvalidConfig)?;
+    let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)).map_err(io_error)?;
+    // SAFETY: live descriptor and name; validation retains no pointer and has
+    // no interface side effects. Already-down interfaces are refused.
+    status(unsafe { wifi_scan_check(socket.as_raw_fd(), interface.as_ptr()) })?;
+    Ok((socket, interface))
+}
+
+pub(super) struct QuiescenceInterface {
+    socket: UdpSocket,
+    interface: CString,
+}
+
+impl QuiescenceInterface {
+    pub(super) fn open() -> Result<Self, Error> {
+        // Only the qualified native driver/execution configuration is admitted.
+        if unsafe { wifi_quiescence_available() } != 1 {
+            return Err(Error::Unsupported);
+        }
+        let (socket, interface) = open_interface()?;
+        Ok(Self { socket, interface })
+    }
+
+    fn flags(&self) -> Result<(u32, u32), Error> {
+        let (mut flags, mut up_mask) = (0, 0);
+        // SAFETY: scalar outputs and live descriptor/name; no retained pointers.
+        status(unsafe {
+            wifi_interface_flags_get(
+                self.socket.as_raw_fd(),
+                self.interface.as_ptr(),
+                &mut flags,
+                &mut up_mask,
+            )
+        })?;
+        Ok((flags, up_mask))
+    }
+}
+
+impl super::super::quiescence::Interface for QuiescenceInterface {
+    fn set_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        super::set_interface_enabled(
+            enabled,
+            || self.flags(),
+            |desired| {
+                // SAFETY: target-header ioctl translation copies the flags,
+                // without retaining pointers.
+                status(unsafe {
+                    wifi_interface_flags_set(
+                        self.socket.as_raw_fd(),
+                        self.interface.as_ptr(),
+                        desired,
+                    )
+                })
+            },
+        )
+    }
+}
+
 impl Native {
     pub(super) fn open() -> Result<Self, Error> {
-        let interface = CString::new(option_env!("NXRS_WIFI_INTERFACE").unwrap_or("wlan0"))
-            .map_err(|_| Error::InvalidConfig)?;
-        // This is an ioctl control socket, not hostname-based networking.
-        let socket =
-            UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)).map_err(io_error)?;
-        // SAFETY: live std descriptor and NUL-terminated name; no retained
-        // pointer. Reject absent/down/non-wireless bindings before Ready.
-        status(unsafe { wifi_scan_check(socket.as_raw_fd(), interface.as_ptr()) })?;
+        let (socket, interface) = open_interface()?;
         Ok(Self {
             socket,
             interface,

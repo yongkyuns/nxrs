@@ -204,6 +204,18 @@ pub trait Wifi {
     fn finish(&mut self) -> Result<(), Error>;
 }
 
+/// Exclusive maintenance owner for an otherwise unused Wi-Fi interface.
+/// Keep this owner alive throughout operations that require radio quiescence.
+/// Ordinary session Stop retains its existing semantics.
+pub trait QuiescenceControl {
+    /// Stop native radio activity and verify interface-down state. Idempotent
+    /// after success. This does not establish quiescence of other peripherals.
+    fn quiesce(&mut self) -> Result<(), Error>;
+    /// Restore interface availability, without associating or configuring IP.
+    /// Keep the startup watchdog armed until this succeeds.
+    fn resume(&mut self) -> Result<(), Error>;
+}
+
 #[cfg(test)]
 extern crate std;
 

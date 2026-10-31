@@ -16,21 +16,4 @@ mod shared;
 mod worker;
 
 #[cfg(hal_enabled)]
-pub fn open<S>(sink: S) -> Result<Controller<impl Wifi + Send>, Error>
-where
-    S: EventSink<Event> + Send + 'static,
-{
-    open_with_storage(sink, CredentialStorage::Volatile)
-}
-
-/// Acquire Wi-Fi with an explicit credential persistence policy.
-#[cfg(hal_enabled)]
-pub fn open_with_storage<S>(
-    sink: S,
-    storage: CredentialStorage,
-) -> Result<Controller<impl Wifi + Send>, Error>
-where
-    S: EventSink<Event> + Send + 'static,
-{
-    platform::open(sink, storage).map(Controller::new)
-}
+pub use platform::acquisition::{open, open_for_quiescence, open_with_storage};
