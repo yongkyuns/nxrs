@@ -28,6 +28,15 @@ after staging completes. The standalone `tools/mcuboot_image.py` supports
 Use separate signing authorities for incompatible products/layouts; a shared
 firmware version alone does not identify the intended hardware.
 
+MCUboot compares the candidate's signed security counter with the active image's
+counter before a trial swap. With a readable active counter, missing or lower
+candidate counters are refused; equal counters allow an older recovery release
+within the same security epoch. Factory preparation requires one protected
+32-bit counter, avoiding upstream's counterless-primary migration behavior.
+An unconfirmed trial may still revert. Confirmation retains the newer image and
+its counter for subsequent admissions. This uses authenticated image state, not
+an eFuse counter; it does not prevent replay of an entire external-flash snapshot.
+
 MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
 `state`, `request_trial` and `confirm`; shared Rust admits only stable-to-pending
 and trial-to-confirmed transitions and retains failures for that owner. The NuttX
@@ -74,7 +83,7 @@ unlocked entry, preserved bits and repeated handoff. It does not qualify physica
 watchdog reset timing.
 
 These builds do **not** enable hardware secure boot or flash encryption,
-install the bootloader, enforce a protected version floor, or
+install the bootloader, advance a hardware monotonic counter, or
 provide on-device update delivery or a product startup-health policy. Those and physical interrupted
 update/recovery qualification remain open in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.
@@ -96,8 +105,8 @@ the patch hashes and rejects an ELF that retains the physical programmer.
 Factory preparation refuses older builds without this guard. These are software
 safeguards, not physical qualification or permission to flash the working camera.
 Build commands never flash or provision a device. Production keys, encrypted factory flashing,
-ROM rejection tests, recovery/debug policy and a protected rollback floor need
-qualification before hardware activation. Keep disposable CI roots off devices.
+ROM rejection tests and recovery/debug policy need qualification before hardware
+activation. Keep disposable CI roots off devices.
 
 Protected builds preserve MCUboot's NOR contract: explicit sector erases,
 aligned writes only to erased ciphertext, and read-back verification. They remove

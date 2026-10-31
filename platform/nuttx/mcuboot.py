@@ -68,6 +68,8 @@ def bootloader_config(platform: dict, root: str) -> str:
         "CONFIG_ESP_CONSOLE_UART": 1, "CONFIG_ESP_CONSOLE_UART_NUM": 0,
         "CONFIG_ESP_CONSOLE_ROM_SERIAL_PORT_NUM": 0,
         "CONFIG_ESP_SIGN_EC256": 1, "CONFIG_ESP_USE_TINYCRYPT": 1,
+        "CONFIG_ESP_DOWNGRADE_PREVENTION": 1,
+        "CONFIG_ESP_DOWNGRADE_PREVENTION_SECURITY_COUNTER": 1,
         "CONFIG_ESP_SIGN_KEY_FILE": root,
     }
     if protected(platform):

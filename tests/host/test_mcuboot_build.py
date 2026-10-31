@@ -33,6 +33,8 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(app["MCUBOOT_VERSION"], app["ESP32S3_MCUBOOT_VERSION"])
         self.assertEqual(int(app["ESP32S3_STORAGE_MTD_OFFSET"], 0), 0x460000)
         self.assertEqual(config["CONFIG_ESP_SIGN_EC256"], "1")
+        self.assertEqual(config["CONFIG_ESP_DOWNGRADE_PREVENTION"], "1")
+        self.assertEqual(config["CONFIG_ESP_DOWNGRADE_PREVENTION_SECURITY_COUNTER"], "1")
         self.assertEqual(config["CONFIG_BOOTLOADER_WDT_ENABLE"], "1")
         self.assertFalse(any(key.startswith("CONFIG_SECURE_") for key in config))
         self.assertIn(BOOT.MCUBOOT_REVISION, (ROOT / "tools/mcuboot-requirements.txt").read_text())
@@ -65,6 +67,19 @@ class BootWiringTests(unittest.TestCase):
         for path in ("relative.pem", "/tmp/root\nCONFIG_SECURE_BOOT=1", "/tmp/root;injected"):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 BOOT.bootloader_config(profile, path)
+
+    @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for counter regression")
+    def test_upstream_counter_policy_preserves_equal_counter_recovery(self):
+        source = (Path(os.environ["NXRS_MCUBOOT_SOURCE"]) / "boot/bootutil/src/loader.c").read_text()
+        function = source[source.index("static int\ncheck_downgrade_prevention("):]
+        function = function[:function.index("\n}\n") + 3]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "counter.inc").write_text(function)
+            executable = directory / "counter"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
+                            str(ROOT / "tests/host/mcuboot_security_counter.c"), "-o", str(executable)], check=True)
+            subprocess.run([str(executable)], check=True)
 
     @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE") and os.environ.get("NXRS_BOOT_HAL_SOURCE"),
                          "set pinned boot SDK exports for provisioning regression")
@@ -291,6 +306,13 @@ class RomSigningTests(unittest.TestCase):
                     factory.prepare(**{**arguments, **changed})
                 self.assertEqual(target.exists(), name == "existing")
             good = image.read_bytes()
+            subprocess.run(["imgtool", "sign", "-k", str(app_key), "-v", "1.2.3",
+                            "-H", "32", "--pad-header", "-S", "0x200000", "--align", "32",
+                            "--max-align", "32", "--max-sectors", "512", "--pad", "--confirm",
+                            str(source), str(image)], check=True)  # Valid legacy image, no counter.
+            with self.assertRaisesRegex(ValueError, "protected 32-bit security counter"):
+                factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "counterless")
+            self.assertFalse((directory / "counterless").exists())
             data = bytearray(good)
             data[64] ^= 1
             image.write_bytes(data)
