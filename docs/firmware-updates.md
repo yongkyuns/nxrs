@@ -104,7 +104,8 @@ The source repositories must contain the NuttX-pinned commits declared in
 a fresh output directory and builds upstream's EC P-256 verifier with TinyCrypt.
 Only a public key is accepted; the signing key is unnecessary on the boot build
 host. `bootloader.json` records the pins, geometry, public-root and binary hashes.
-The bootloader console uses UART0; the application retains its USB console.
+The bootloader and startup camera diagnostics use UART0; explicit legacy USB
+qualification profiles retain their USB console.
 The bootloader arms the SDK's startup watchdog with a nine-second default.
 A product can set `boot-watchdog-ms` from 1 through 300000; the builder records
 that fixed budget and the SDK honors it. This changes bootloader arming, not the application's
