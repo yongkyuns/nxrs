@@ -388,10 +388,6 @@ impl Authority {
         write_new(&next, format!("{generation}\n").as_bytes())?;
         fs::rename(next, self.directory.join("generation"))?;
         self.generation = generation;
-        let config = self.config_for(generation)?;
-        crate::check(&config)?;
-        let (stop, receiver) = watch::channel(false);
-        self.active = Some((stop, tokio::spawn(runner::run(config, receiver))));
         if let Some(previous) = self.grant_directory.replace(directory) {
             fs::remove_dir_all(previous)?;
         }
@@ -422,10 +418,18 @@ async fn wait_upload(task: &mut Option<JoinHandle<Result<()>>>) -> Result<()> {
         None => std::future::pending().await,
     }
 }
+fn start_upload(authority: &Authority, image: &Path) -> Result<JoinHandle<Result<()>>> {
+    let config = authority.config_for(authority.generation)?;
+    crate::check(&config)?;
+    let image = image.to_owned();
+    Ok(tokio::spawn(async move {
+        crate::update::upload(&config, &image).await
+    }))
+}
 async fn execute(
     config: Config,
     mut stop: watch::Receiver<bool>,
-    image: Option<PathBuf>,
+    mut image: Option<PathBuf>,
 ) -> Result<()> {
     let listen = config
         .bootstrap
@@ -434,12 +438,17 @@ async fn execute(
         .listen;
     let (mut authority, acceptor) = Authority::load(config)?;
     let listener = TcpListener::bind(listen).await?;
-    let mut upload = if let Some(image) = image {
-        let config = authority.config_for(authority.generation)?;
-        crate::check(&config)?;
-        Some(tokio::spawn(async move {
-            crate::update::upload(&config, &image).await
-        }))
+    let upload_deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    let mut upload = if let Some(image) = &image {
+        if authority.generation == 0 {
+            None
+        } else {
+            match start_upload(&authority, image) {
+                Ok(task) => Some(task),
+                Err(Error::Authentication) => None,
+                Err(error) => return Err(error),
+            }
+        }
     } else {
         authority.resume()?;
         None
@@ -449,9 +458,14 @@ async fn execute(
             let socket=tokio::select! {
                 biased;
                 _=stop.changed()=>return Ok(()),
+                _=tokio::time::sleep_until(upload_deadline), if image.is_some()=>return Err(Error::Timeout),
                 result=wait_upload(&mut upload)=>{
-                    upload=None;result?;
-                    println!("Firmware transfer committed; continuing network enrollment and ingest.");
+                    upload=None;
+                    match result {
+                        Ok(())=>{image=None;println!("Firmware transfer committed; continuing network enrollment and ingest.");},
+                        Err(error @ (Error::Configuration|Error::Cleanup))=>return Err(error),
+                        Err(_)=>eprintln!("Firmware transfer interrupted; awaiting fresh camera enrollment within the original deadline."),
+                    }
                     continue;
                 },
                 value=listener.accept()=>value?.0,
@@ -465,12 +479,21 @@ async fn execute(
                 let mut header=[0;38];tls.read_exact(&mut header).await?;
                 if &header[..4]!=enrollment::MAGIC || header[4..36].ct_eq(&authority.token).unwrap_u8()!=1 { return Err(Error::Authentication); }
                 let n=u16::from_be_bytes(header[36..].try_into().unwrap()) as usize;
-                if n>enrollment::MAX_CSR || (n!=0 && upload.is_some()) { return Err(Error::Protocol); }
+                if n>enrollment::MAX_CSR { return Err(Error::Protocol); }
                 let mut csr=vec![0;n];tls.read_exact(&mut csr).await?;
                 let epoch=now()?;
                 if epoch<authority.clock { return Err(Error::Authentication); }
                 authority.clock=epoch;
-                let certificate=if n==0 { vec![] } else { authority.enroll(&csr,epoch,address).await? };
+                let certificate=if n==0 { vec![] } else {
+                    // A reboot changes the volatile key. Join the obsolete
+                    // uploader before publishing/retrying against a new grant.
+                    if let Some(task)=upload.as_mut() { task.abort();let _=task.await; }
+                    upload=None;
+                    let certificate=authority.enroll(&csr,epoch,address).await?;
+                    if let Some(image)=&image { upload=Some(start_upload(&authority,image)?); }
+                    else { authority.resume()?; }
+                    certificate
+                };
                 let response_epoch=now()?;
                 if response_epoch<authority.clock { return Err(Error::Authentication); }
                 authority.clock=response_epoch;

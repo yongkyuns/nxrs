@@ -137,13 +137,20 @@ def run(ingest, camera):
             wait(lambda: frames() > baseline + 5)
             # The stopped owner releases its listener and children before upload.
             stop(gateway)
+            private(root/'control', 'stop')
+            assert device.wait(timeout=8) == 0
+            private(root/'control', '')
             private(root/'image.bin', struct.pack('<I', 0x96f3b83d)+bytes(24572))
             paced.set()
             started = time.monotonic()
             gateway = start([*command, '--update', str(root/'image.bin')], 'gateway-update.log')
-            assert device.wait(timeout=80) == 0, (root/'camera.log').read_text()
+            # The updater initially has an obsolete grant. A cold camera must
+            # enroll its new volatile key without waiting for that transfer.
+            time.sleep(.3)
+            device = start([str(camera), str(root), '30000', 'network'], 'camera-update.log')
+            assert device.wait(timeout=80) == 0, (root/'camera-update.log').read_text()
             assert time.monotonic() - started > 30
-            assert 'UPDATE_RECEIVED' in (root/'camera.log').read_text()
+            assert 'UPDATE_RECEIVED' in (root/'camera-update.log').read_text()
             wait(lambda: 'Firmware transfer committed' in (root/'gateway-update.log').read_text())
             stop(gateway)
             print('PASS: SDK network enrollment, >30s trusted time, gateway restart, paced OTA and joined cleanup')
