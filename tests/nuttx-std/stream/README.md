@@ -47,10 +47,23 @@ writes the complete `ingest.json`, and starts Rust with `--require-camera-tls`.
 Stop an existing ingest owner before starting this supervisor.
 
 For the default signed `esp32s3-camera-stream-startup` profile, add `--autostart`:
-the helper waits for the firmware's credential reader without sending shell
-bytes. A successful trial joins its resources and confirms the image, then
+the helper waits for saved credentials or the firmware's credential reader
+without sending shell bytes. A successful trial joins its resources and confirms the image, then
 the same USB owner enrolls the recreated TLS session. Unexpected exits still
 stop supervision. This reversible profile leaves hardware protections off.
+
+This profile stores one Wi-Fi network after a successful join, with the radio
+stopped and joined during the write. Later boots load it before starting Wi-Fi;
+`NXRS_WIFI_CREDENTIALS_SAVED` tells the helper to send no credentials. The small
+`config` HAL uses NuttX NVS in two data-flash sectors at `0x460000..0x462000`,
+outside MCUboot's image slots and scratch. No filesystem or extra worker is
+added. Invalid/corrupt records fail visibly; they are not silently erased.
+Credentials are plaintext while flash encryption is off. Logical deletion does
+not securely erase historical values, and interrupted-write durability is not
+yet physically qualified. To replace a network, stop/join the USB supervisor,
+enter ROM download mode and erase **only** that 8 KiB data region, then boot and
+provision again. Preserve a full-flash recovery backup first. This does not
+change eFuses, the loader, firmware slots or hardware protection settings.
 
 The USB development supervisor renews through joined native/ingest sessions
 every 45 minutes, before the one-hour CRL expires, without closing the serial
@@ -292,7 +305,7 @@ Press Ctrl-C or send SIGTERM to the supervisor for a clean stop. In continuous
 mode it sends the exact `stop` line and waits for the existing camera stop,
 Wi-Fi disconnect and provider join before closing the console. An absent USB
 control channel alone does not stop video. Resetting or removing power from the
-board still loses its in-memory credentials; recovery requires the Mac supervisor.
+unsigned fixture still loses its in-memory credentials; recovery requires the Mac supervisor.
 
 The original `run.py` remains a bounded qualification tool. Continuous inspection
 is not itself a soak result, a public/secure camera endpoint, gateway deployment,

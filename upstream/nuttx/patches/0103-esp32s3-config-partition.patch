@@ -1,0 +1,24 @@
+diff --git a/boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c b/boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c
+--- a/boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c
++++ b/boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c
+@@ -41,6 +41,7 @@
+ #include <nuttx/kmalloc.h>
+ #include <nuttx/spi/spi.h>
+ #include <nuttx/mtd/mtd.h>
++#include <nuttx/mtd/configdata.h>
+ #include <nuttx/fs/nxffs.h>
+ #include <nuttx/fs/partition.h>
+ 
+@@ -384,7 +385,11 @@ static int init_storage_partition(void)
+       return ERROR;
+     }
+ 
+-#if defined (CONFIG_ESP32S3_SPIFLASH_SMARTFS)
++#if defined(CONFIG_MTD_CONFIG_NVS)
++
++  ret = mtdconfig_register(mtd);
++
++#elif defined (CONFIG_ESP32S3_SPIFLASH_SMARTFS)
+ 
+   ret = setup_smartfs(0, mtd, "/data");
+   if (ret < 0)

@@ -99,6 +99,7 @@ SERIES = {
         "0100-esp32s3-inherit-boot-watchdog.patch",
         "0101-netdev-poll-thread-lifetime.patch",
         "0102-camera-stop-acknowledgement.patch",
+        "0103-esp32s3-config-partition.patch",
     ),
     "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",
                 "0004-nuttx-encrypted-metadata-alignment.patch",

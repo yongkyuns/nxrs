@@ -112,9 +112,9 @@ def _load_helper(name, path):
 WIFI = _load_helper("nxrs_wifi_run", WIFI_RUN)
 
 
-def wait_stage(console, pending, marker, password, timeout, stage):
+def wait_stage(console, pending, marker, password, timeout, stage, *, read_size=512):
     try:
-        return WIFI.read_until(console, pending, marker, password, timeout)
+        return WIFI.read_until(console, pending, marker, password, timeout, read_size=read_size)
     except RuntimeError as error:
         # Keep diagnostic context without ever returning raw serial content.
         detail = ""

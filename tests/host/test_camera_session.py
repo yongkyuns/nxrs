@@ -59,6 +59,18 @@ class SessionTests(unittest.TestCase):
         SERVE.Session(console, CREDENTIALS, None, Mock(), tls=True).start(autostart=True)
         self.assertEqual(console.writes, [bytes((3, 9)) + b'labsecret123'])
 
+    def test_saved_profile_sends_nothing_and_preserves_the_tls_reader_boundary(self):
+        data = bytearray(b'NXRS_WIFI_CREDENTIALS_SAVED\nNXRS_TLS_CSR bytes=1\nx')
+        console = Console([])
+        def read(size):
+            chunk = bytes(data[:size])
+            del data[:size]
+            return chunk
+        console.read = read
+        SERVE.Session(console, CREDENTIALS, None, Mock(), tls=True).start(autostart=True)
+        self.assertEqual(console.writes, [])
+        self.assertEqual(data, b'\nNXRS_TLS_CSR bytes=1\nx')
+
     def test_tls_trial_confirmation_reenrolls_but_other_exits_fail(self):
         marker = 'NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1'
         reboot = 'NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1'

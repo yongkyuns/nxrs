@@ -1,0 +1,12 @@
+[package]
+name = "nxrs-config"
+version.workspace = true
+edition.workspace = true
+build = "../../platform/hal-build.rs"
+
+[lib]
+name = "config"
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["nuttx"]

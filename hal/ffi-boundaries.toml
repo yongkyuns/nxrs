@@ -123,3 +123,7 @@ allowed_calls = ["clock_gettime"]
 path = "hal/detector/src/platform/nuttx/ffi/context.c"
 kind = "abi"
 reason = "NuttX target-header cop_ai state-save witness and enabled-state access. The owning Rust provider serializes numerical execution and restores prior context state; no native thread creation, frame handling or detector policy."
+[[bridge]]
+path = "hal/config/src/platform/nuttx/ffi/config.c"
+kind = "abi"
+reason = "NuttX config-data ioctl layout and errno translation. Rust owns files, keys, bounds and product-record validation."

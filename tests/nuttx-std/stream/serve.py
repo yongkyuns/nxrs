@@ -47,12 +47,16 @@ class Session:
         mode = "tls " if self.tls else ""
         if not autostart:
             self.console.write(f"stream_test {mode}{duration} 0 320 240 81\n".encode("ascii"))
-        RUN.wait_stage(self.console, self.pending, b"NXRS_WIFI_CREDENTIALS_READY", password,
-                       60 if autostart else 15, "credential reader")
-        payload = bytes((len(ssid), len(password))) + ssid + password
-        if self.console.write(payload) != len(payload):
-            raise RuntimeError("incomplete credential write; output withheld")
-        self.emit("starting")
+        # Stop exactly at the selected marker: a saved profile can proceed
+        # immediately to TLS enrollment, whose reader owns the following bytes.
+        marker = RUN.wait_stage(self.console, self.pending,
+                       (b"NXRS_WIFI_CREDENTIALS_READY", b"NXRS_WIFI_CREDENTIALS_SAVED"), password,
+                       60 if autostart else 15, "credential reader", read_size=1)
+        if marker.endswith(b"NXRS_WIFI_CREDENTIALS_READY"):
+            payload = bytes((len(ssid), len(password))) + ssid + password
+            if self.console.write(payload) != len(payload):
+                raise RuntimeError("incomplete credential write; output withheld")
+        self.emit("starting", wifi_credentials="saved" if marker.endswith(b"_SAVED") else "usb")
 
     def run(self, cycles=0):
         # Sending a blank line is safe both at NSH and while stream_test owns stdin.

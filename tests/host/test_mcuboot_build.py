@@ -29,6 +29,19 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(config["INIT_STACKSIZE"], "32768")
         self.assertEqual(BOOT.application_config(profile)["ESP32S3_RWDT_INHERIT"], "y")
         self.assertEqual(BOOT.watchdog_timeout_ms(profile), 180000)
+        storage = BOOT.application_config(profile)
+        self.assertEqual(storage["MTD_CONFIG_NVS"], "y")
+        self.assertEqual(storage["MTD_CONFIG_NAME_LEN"], "32")
+        offset = int(storage["ESP32S3_STORAGE_MTD_OFFSET"], 0)
+        size = int(storage["ESP32S3_STORAGE_MTD_SIZE"], 0)
+        self.assertEqual(offset, profile["mcuboot"]["scratch-offset"] + profile["mcuboot"]["scratch-size"])
+        self.assertEqual(size, 2 * profile["mcuboot"]["erase-size"])
+        self.assertLessEqual(offset + size, profile["mcuboot"]["flash-size"])
+        for changed in ({"scratch-offset": 0, "scratch-size": 0x1000},
+                        {"scratch-offset": 0xfc0000},
+                        {"scratch-offset": 0x10000, "scratch-size": 0x10000}):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "config partition"):
+                BOOT.application_config({**profile, "mcuboot": {**profile["mcuboot"], **changed}})
         self.assertFalse(BOOT.protected(profile))
         self.assertNotEqual(profile["image-class"], resolve("esp32s3-camera-stream-mcuboot")["image-class"])
         self.assertEqual(configure({}, "stream_test", 100, 32768), {})

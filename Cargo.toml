@@ -21,6 +21,7 @@ members = [
     "service/recording",
     "service/telemetry",
     "hal/common",
+    "hal/config",
     "hal/wifi",
     "hal/ble",
     "hal/imu",
@@ -70,6 +71,7 @@ default-members = [
     "hal/ble",
     "hal/transport",
     "hal/storage",
+    "hal/config",
     "hal/camera",
     "hal/detector",
 ]

@@ -9,7 +9,7 @@ import re
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPABILITIES = {"detector", "camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "tls", "boot", "watchdog"}
+CAPABILITIES = {"detector", "camera", "config", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "tls", "boot", "watchdog"}
 HOST_OS = {"linux", "macos", "windows"}
 MODEL_FEATURES = {"vww": "person-model", "pico": "pico-model"}
 
