@@ -48,7 +48,7 @@ def application_config(platform: dict) -> dict[str, str]:
             raise ValueError("camera config storage requires the unencrypted MCUboot layout")
         # Two erase blocks, separate from firmware slots and swap scratch.
         offset = boot["scratch-offset"] + boot["scratch-size"]
-        if offset + 0x2000 > boot["flash-size"] or any(
+        if offset < 0x20000 or offset + 0x2000 > boot["flash-size"] or any(
                 max(offset, boot[name]) < min(offset + 0x2000, boot[name] + boot["slot-size"])
                 for name in ("primary-offset", "secondary-offset")):
             raise ValueError("camera config partition overlaps firmware or exceeds flash")

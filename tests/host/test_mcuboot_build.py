@@ -37,7 +37,8 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(offset, profile["mcuboot"]["scratch-offset"] + profile["mcuboot"]["scratch-size"])
         self.assertEqual(size, 2 * profile["mcuboot"]["erase-size"])
         self.assertLessEqual(offset + size, profile["mcuboot"]["flash-size"])
-        for changed in ({"scratch-offset": 0xfc0000},
+        for changed in ({"scratch-offset": 0, "scratch-size": 0x1000},
+                        {"scratch-offset": 0xfc0000},
                         {"scratch-offset": 0x10000, "scratch-size": 0x10000}):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "config partition"):
                 BOOT.application_config({**profile, "mcuboot": {**profile["mcuboot"], **changed}})
