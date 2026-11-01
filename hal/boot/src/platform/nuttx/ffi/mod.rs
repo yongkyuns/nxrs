@@ -22,6 +22,7 @@ struct Sector {
 }
 
 unsafe extern "C" {
+    fn up_systemreset() -> !;
     fn flash_area_id_from_image_slot(slot: c_int) -> c_int;
     fn flash_area_open(id: u8, area: *mut *const FlashArea) -> c_int;
     fn flash_area_close(area: *const FlashArea);
@@ -35,6 +36,11 @@ unsafe extern "C" {
     fn boot_swap_type_multi(image: c_int) -> c_int;
     fn boot_set_pending_multi(image: c_int, permanent: c_int) -> c_int;
     fn boot_set_confirmed_multi(image: c_int) -> c_int;
+}
+
+pub(super) fn reboot() -> Result<core::convert::Infallible, DeviceError> {
+    // SAFETY: NuttX's noreturn reset entry; the Rust owner admits Pending only.
+    unsafe { up_systemreset() }
 }
 
 pub(super) struct Secondary {

@@ -59,6 +59,13 @@ after native TLS/capture/detector and ingest retirement.
 USB/firmware/ingest faults stop supervision; they do not trigger blind resets or
 plaintext fallback. Trusted USB time and per-boot enrollment remain required.
 
+For an operator OTA upload at the next boot of an OTA-enabled signed camera,
+add `--firmware /path/to/nuttx.signed.bin` to the supervisor's `--autostart`
+invocation. It uploads over mutual TLS before starting media, acknowledges the
+joined/Pending reboot handoff, then re-enrolls and supervises the new trial.
+Keep one USB owner. See [OTA delivery](../../../docs/firmware-updates.md#ota-delivery)
+for its RAM bound, prerequisites and receipt semantics.
+
 [`app/camera-stream`](../../../app/camera-stream) composes the camera service
 and caller-polled [`service/stream`](../../../service/stream) server.
 [`service/connectivity`](../../../service/connectivity) owns reconnect policy.

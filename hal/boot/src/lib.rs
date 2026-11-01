@@ -27,6 +27,11 @@ pub enum DeviceError {
 /// One exclusive boot-control owner. Requests apply on the next reset, without
 /// asserting that the staged image is authentic; the bootloader checks that.
 pub trait Control {
+    /// Reset only after a complete staged image has been admitted for trial.
+    /// This never changes hardware protection or provisioning settings.
+    fn reboot(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
     fn state(&mut self) -> Result<State, DeviceError>;
     /// Erase and stream exactly `length` bytes into the inactive image slot,
     /// excluding boot metadata. Uses bounded scratch space and verifies writes.

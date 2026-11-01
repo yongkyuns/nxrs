@@ -3,6 +3,9 @@ use crate::staging::{self, Slot};
 use crate::{Control, DeviceError, State};
 
 pub(crate) trait Backend {
+    fn reboot(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
     type Slot: Slot;
     fn secondary(&mut self) -> Result<Self::Slot, DeviceError>;
     fn state(&mut self) -> Result<State, DeviceError>;
@@ -47,6 +50,12 @@ impl<B: Backend> Owner<B> {
 }
 
 impl<B: Backend> Control for Owner<B> {
+    fn reboot(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        if self.state()? != State::Pending {
+            return Err(DeviceError::Busy);
+        }
+        self.backend.reboot()
+    }
     fn stage_update(
         &mut self,
         source: &mut dyn std::io::Read,
@@ -92,6 +101,20 @@ impl<B: Backend> Control for Owner<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reset_is_admitted_only_after_pending_readback() {
+        let mut owner = Owner::new(Fake {
+            state: State::Stable,
+            failure: None,
+            writes: 0,
+            ignore: false,
+        })
+        .unwrap();
+        assert_eq!(owner.reboot(), Err(DeviceError::Busy));
+        owner.stage_update(&mut &[0; 32][..], 32).unwrap();
+        owner.request_trial().unwrap();
+        assert_eq!(owner.reboot(), Err(DeviceError::Unsupported));
+    }
     struct Fake {
         state: State,
         failure: Option<DeviceError>,

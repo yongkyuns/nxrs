@@ -47,7 +47,8 @@ class Session:
         mode = "tls " if self.tls else ""
         if not autostart:
             self.console.write(f"stream_test {mode}{duration} 0 320 240 81\n".encode("ascii"))
-        RUN.wait_stage(self.console, self.pending, b"NXRS_WIFI_CREDENTIALS_READY", password, 15, "credential reader")
+        RUN.wait_stage(self.console, self.pending, b"NXRS_WIFI_CREDENTIALS_READY", password,
+                       60 if autostart else 15, "credential reader")
         payload = bytes((len(ssid), len(password))) + ssid + password
         if self.console.write(payload) != len(payload):
             raise RuntimeError("incomplete credential write; output withheld")
@@ -230,7 +231,7 @@ def supervise(port, credentials, seconds, cycles, emit, stop):
             console.close()
 
 
-def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=45 * 60, autostart=False):
+def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=45 * 60, autostart=False, firmware=None):
     """Supervise the USB development enrollment and the actual Rust ingest.
 
     Renew through ordinary joined camera sessions before the one-hour CRL
@@ -242,6 +243,8 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
     import serial
     if not 10 <= renew_after <= 45 * 60:
         raise ValueError("TLS renewal must precede the one-hour CRL deadline")
+    if firmware is not None and not autostart:
+        raise ValueError('firmware upload requires the signed autostart profile')
     spec = importlib.util.spec_from_file_location("tls_provision", Path(__file__).with_name("tls_provision.py"))
     tls = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tls)
@@ -275,6 +278,7 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
         renew_pending = False
         startup_confirmed = False
         confirmation = 'NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1'
+        reboot = 'NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1'
         while not stop.is_set() or renew_pending:
             renew_pending = False
             if identity(port) != expected:
@@ -282,6 +286,7 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
             with tempfile.TemporaryDirectory(prefix='enrollment-', dir=root) as directory:
                 session_root = Path(directory)
                 supervisor, child, log = None, None, None
+                uploading = firmware is not None
                 passed = False
                 try:
                     if first_session:
@@ -317,19 +322,34 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                         check=True, timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     log = (root/'ingest.log').open('ab')
                     os.chmod(log.name, 0o600)
-                    child = subprocess.Popen([str(program), str(ingest_config), '--require-camera-tls'],
+                    command = [str(program), str(ingest_config), '--require-camera-tls']
+                    if uploading:
+                        command += ['--update', str(firmware)]
+                    child = subprocess.Popen(command,
                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
                     emit('enrolled', ip=address, port=8443, ingest_pid=child.pid, ingest_config=str(ingest_config))
-                    deadline = time.monotonic() + renew_after
+                    deadline = time.monotonic() + (180 if uploading else renew_after)
                     while not stop.wait(.1) and time.monotonic() < deadline:
+                        if uploading:
+                            if supervisor.failure or child.poll() not in (None, 0):
+                                raise RuntimeError('firmware upload failed')
+                            if supervisor.finished.is_set():
+                                if reboot not in supervisor.events:
+                                    raise RuntimeError('firmware did not stage and retire')
+                                if child.poll() == 0:
+                                    break
+                            continue
                         if child.poll() is not None or supervisor.failure:
                             raise RuntimeError("TLS camera or Rust ingest stopped unexpectedly")
                         if supervisor.finished.is_set():
                             if autostart and not startup_confirmed and confirmation in supervisor.events:
                                 break  # Joined trial confirmation recreates TLS and its CSR.
                             raise RuntimeError("TLS camera or Rust ingest stopped unexpectedly")
+                    if uploading and reboot not in supervisor.events:
+                        raise RuntimeError('firmware installation deadline expired')
                     passed = True
                 finally:
+                    child_retired = False
                     try:
                         if child and child.poll() is None:
                             child.terminate()
@@ -339,6 +359,7 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                                 child.kill()
                                 child.wait(timeout=5)
                                 raise RuntimeError("Rust ingest failed to join") from None
+                        child_retired = True
                     finally:
                         try:
                             if supervisor:
@@ -352,10 +373,19 @@ def supervise_tls(port, credentials, configuration, emit, stop, *, renew_after=4
                                         'NXRS_TLS_SESSION_PASS stopped=1 joined=1'))
                                     joined = joined or (autostart and not startup_confirmed
                                                         and confirmation in supervisor.events)
+                                    joined = joined or (uploading and reboot in supervisor.events)
                                     if passed and (supervisor.failure or not joined):
                                         raise RuntimeError("TLS camera did not confirm joined shutdown")
                                 finally:
                                     supervisor.stop()
+                                    if passed and child_retired and uploading and reboot in supervisor.events and not supervisor.failure:
+                                        firmware = None
+                                        first_session = True
+                                        startup_confirmed = False
+                                        renew_pending = True
+                                        emit('firmware_reboot')
+                                        if console.write(b'NXRB') != 4:
+                                            raise RuntimeError('incomplete firmware reboot acknowledgement')
                                     if autostart and confirmation in supervisor.events and not supervisor.failure:
                                         if startup_confirmed:
                                             raise RuntimeError('unexpected repeated startup confirmation')
@@ -378,9 +408,12 @@ def main():
     parser.add_argument("--state-file", required=True, help="new private JSON file outside the checkout")
     parser.add_argument("--tls-config", help="private USB enrollment and Rust ingest configuration")
     parser.add_argument("--autostart", action="store_true", help="TLS firmware starts itself; do not send a shell command")
+    parser.add_argument("--firmware", type=Path, help="one signed image to upload over TLS before normal ingest")
     args = parser.parse_args()
     if args.autostart and not args.tls_config:
         parser.error('--autostart requires --tls-config')
+    if args.firmware and not args.autostart:
+        parser.error('--firmware requires --autostart')
     credentials = RUN.read_wifi_file(args.wifi_file)
     state = State(args.state_file)
     stop = threading.Event()
@@ -393,7 +426,7 @@ def main():
         if sys.platform == "darwin":
             awake = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
         if args.tls_config:
-            supervise_tls(args.port, credentials, args.tls_config, state.emit, stop, autostart=args.autostart)
+            supervise_tls(args.port, credentials, args.tls_config, state.emit, stop, autostart=args.autostart, firmware=args.firmware)
         else:
             supervise(args.port, credentials, None, 0, state.emit, stop)
         state.emit("stopped")

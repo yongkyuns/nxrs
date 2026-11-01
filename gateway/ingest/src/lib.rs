@@ -6,6 +6,7 @@ mod video;
 mod tls;
 pub mod protocol;
 pub mod runner;
+pub mod update;
 
 /// Fixed categories only: neither remote bytes nor credential-bearing argv enter logs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

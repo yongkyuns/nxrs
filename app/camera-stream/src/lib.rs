@@ -6,6 +6,7 @@ mod detection;
 mod publication;
 pub mod startup;
 mod tls;
+pub mod update;
 pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
 pub use tls::{TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
 
@@ -152,6 +153,15 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
             stats: Stats::default(),
             detection: None,
         })
+    }
+}
+
+impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>>
+    LiveCamera<D, BYTES, B, TlsOutput<B>>
+{
+    /// Configure before polling. Only the approved mutual-TLS peer can upload.
+    pub fn enable_updates(&mut self, update: update::Update) -> Result<(), Error> {
+        self.server.enable_updates(update)
     }
 }
 

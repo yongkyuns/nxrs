@@ -38,6 +38,7 @@ _KNOWN_LINES = tuple(re.compile(pattern) for pattern in (
     r"NXRS_TLS_CAMERA_PASS stopped=1 joined=1",
     r"NXRS_TLS_SESSION_PASS stopped=1 joined=1",
     r"NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1",
+    r"NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1",
     r"NXRS_STREAM_STACK budget=\d+ used=\d+",
     r"NXRS_STREAM_REPORT ms=\d+ captured=\d+ delivered=\d+ bytes=\d+ max_bytes=\d+ heap_user=\d+ heap_kernel=\d+ cpu_busy_pm=\d+ owner_cpu_ms=\d+ online=[01] attempts=\d+ rejoined=\d+ errors=\d+(?: camera_discarded=\d+)?",
     r"NXRS_STREAM_ONLINE ip=(?:\d{1,3}\.){3}\d{1,3} port=(?:8080|8443) ms=\d+",
@@ -221,7 +222,8 @@ class Supervisor:
                     self.ready.set()
                     continue
                 if line in ("NXRS_TLS_CAMERA_PASS stopped=1 joined=1", "NXRS_TLS_SESSION_PASS stopped=1 joined=1", "NXRS_STREAM_PASS stopped=1 joined=1",
-                            "NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1"):
+                            "NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1",
+                            "NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1"):
                     self._record(line)
                     return
                 if line.startswith(("NXRS_TLS_CAMERA_FAIL", "NXRS_STREAM_FAIL")):
@@ -314,19 +316,21 @@ class _ChunkedSerial(_IdleSerial):
 
 class SupervisorTests(unittest.TestCase):
     def test_confirmed_startup_releases_reader_before_next_enrollment(self):
-        marker = b"NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1\n"
-        following = b"NXRS_TLS_CSR bytes=1\ny"
-        port = _ChunkedSerial(b"NXRS_TLS_CSR bytes=1\nx" + marker + following)
-        with tempfile.TemporaryDirectory() as directory, \
-                patch.object(Supervisor, '_enroll', lambda *_: None):
-            supervisor = Supervisor(port, directory, "192.0.2.8")
-            try:
-                self.assertTrue(supervisor.finished.wait(1))
-                self.assertIsNone(supervisor.failure)
-                self.assertEqual(supervisor.events[-1], marker.decode().strip())
-                self.assertEqual(port.data, following)
-            finally:
-                supervisor.stop()
+        for marker, following in (
+            (b"NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1\n", b"NXRS_TLS_CSR bytes=1\ny"),
+            (b"NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1\n", b"NXRS_WIFI_CREDENTIALS_READY\n"),
+        ):
+            port = _ChunkedSerial(b"NXRS_TLS_CSR bytes=1\nx" + marker + following)
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(Supervisor, '_enroll', lambda *_: None):
+                supervisor = Supervisor(port, directory, "192.0.2.8")
+                try:
+                    self.assertTrue(supervisor.finished.wait(1))
+                    self.assertIsNone(supervisor.failure)
+                    self.assertEqual(supervisor.events[-1], marker.decode().strip())
+                    self.assertEqual(port.data, following)
+                finally:
+                    supervisor.stop()
 
     def test_control_keeps_wake_peer_until_sequence_bound_join(self):
         for renew in (False, True):

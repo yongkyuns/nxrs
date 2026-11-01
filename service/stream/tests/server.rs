@@ -34,12 +34,13 @@ fn completion_receipt_tracks_the_owned_frame_after_its_last_byte() {
     }
     let quota = Rc::new(Cell::new(usize::MAX));
     let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
-    assert!(http.accept(
+    assert!(http.accept_with_prefix(
         Transport {
-            request: io::Cursor::new(b"GET /stream HTTP/1.1\r\n\r\n"),
+            request: io::Cursor::new(b"/stream HTTP/1.1\r\n\r\n"),
             quota: quota.clone(),
         },
         100,
+        b"GET ",
     ));
     http.poll(100, None); // Request.
     http.poll(100, None); // HTTP response alone is not an image.

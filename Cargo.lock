@@ -242,6 +242,7 @@ dependencies = [
  "nxrs-detection-service",
  "nxrs-detection-wire",
  "nxrs-detector",
+ "nxrs-firmware-update",
  "nxrs-stream-service",
  "nxrs-tls",
  "nxrs-watchdog",
@@ -296,6 +297,10 @@ dependencies = [
 
 [[package]]
 name = "nxrs-firmware"
+version = "0.1.0"
+
+[[package]]
+name = "nxrs-firmware-update"
 version = "0.1.0"
 
 [[package]]

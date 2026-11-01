@@ -206,9 +206,9 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ProcessLookupError): os.kill(int(path.read_text()), 0)
 
     async def serve(self, *, certificate='server', mode='tls', tls12=False):
-        self.assertIn(mode, ['tls', 'silent', 'cleartext'])
+        self.assertIn(mode, ['tls', 'update', 'silent', 'cleartext'])
         context = None
-        if mode == 'tls':
+        if mode in ('tls', 'update'):
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             if tls12: context.maximum_version = ssl.TLSVersion.TLSv1_2
@@ -222,7 +222,7 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
             self.active += 1
             self.peak = max(self.peak, self.active)
             try:
-                if mode != 'tls':
+                if mode not in ('tls', 'update'):
                     first = await reader.read(8192)
                     self.plaintext_http |= first.startswith(b'GET ')
                     if mode == 'cleartext':
@@ -232,6 +232,17 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
                     while await reader.read(8192): pass
                     return
                 self.negotiated.add(writer.get_extra_info('ssl_object').version())
+                if mode == 'update':
+                    self.assertEqual(await reader.readexactly(4), b'NXU1')
+                    writer.write(b'NXRD' + (64).to_bytes(4, 'big'))
+                    await writer.drain()
+                    length = int.from_bytes(await reader.readexactly(4), 'big')
+                    self.updated = await reader.readexactly(length)
+                    self.assertEqual(await reader.readexactly(4), b'DONE')
+                    writer.write(b'NXOK')
+                    await writer.drain()
+                    self.assertEqual(await reader.readexactly(4), b'CMIT')
+                    return
                 request = await reader.readuntil(b'\r\n\r\n')
                 self.assertTrue(request.startswith(b'GET /stream HTTP/1.1\r\n'))
                 self.requests += 1
@@ -259,6 +270,27 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
             '--require-camera-tls', *(['--check-config'] if check else []),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return self.process
+
+    async def test_authenticated_firmware_upload_does_not_start_media_workers(self):
+        await self.serve(mode='update')
+        image = self.root/'firmware.bin'
+        payload = bytes.fromhex('3db8f396') + b'x' * 28
+        private(image, payload)
+        private(self.root/'config.json', json.dumps(self.config))
+        self.process = await asyncio.create_subprocess_exec(str(INGEST), str(self.root/'config.json'),
+            '--require-camera-tls', '--update', str(image), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, error = await asyncio.wait_for(self.process.communicate(), 5)
+        self.assertEqual(self.process.returncode, 0, error)
+        self.assertEqual(self.updated, payload)
+        self.assertIn(b'installation and trial confirmation are pending', output)
+        self.assertFalse(self.encoder_pid.exists())
+        self.assertFalse(self.publisher_pid.exists())
+        image.unlink()
+        os.mkfifo(image)
+        self.process = await asyncio.create_subprocess_exec(str(INGEST), str(self.root/'config.json'),
+            '--update', str(image), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        await asyncio.wait_for(self.process.communicate(), 5)
+        self.assertEqual(self.process.returncode, 1)  # Refuse FIFO without a blocking open.
 
     async def test_mbed_tls_product_camera_delivers_exact_jpegs_to_rustls_ingest(self):
         if TLS_CAMERA is None:
