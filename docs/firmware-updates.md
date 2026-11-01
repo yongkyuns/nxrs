@@ -1,8 +1,11 @@
 # Signed firmware updates
 
-The opt-in `esp32s3-camera-stream-mcuboot` profile builds the camera/TLS/PICO
-application in NuttX's MCUboot image format. Its two 2 MiB slots and 256 KiB
-scratch region fit the 16 MiB camera flash. It inherits the existing camera
+The camera's `tests/nuttx-std/stream/build.sh` defaults to
+`esp32s3-camera-stream-startup`: a signed MCUboot camera/TLS/PICO image with
+TLS autostart and trial confirmation. Unsigned qualification builds require an
+explicit `--platform`; missing signing inputs fail before building.
+Its two 2 MiB slots and 256 KiB scratch region fit the 16 MiB camera flash.
+It inherits the existing camera
 configuration without copying its HAL implementations or resource budgets.
 The pinned Espressif port reserves swap status for 512 sectors; signing includes
 that trailer budget and rejects an image that no longer fits.
@@ -13,8 +16,7 @@ The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix.
 `NXRS_FIRMWARE_VERSION` and `NXRS_FIRMWARE_SECURITY_COUNTER`, then run:
 
 ```sh
-bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream-mcuboot \
-  --out /private/tmp/camera-mcuboot
+bash tests/nuttx-std/stream/build.sh --out /private/tmp/camera-mcuboot
 ```
 
 The resulting `nuttx/nuttx.signed.bin` is signed and independently verified
@@ -79,8 +81,8 @@ proves transport write completion, not receipt or decoding on the phone.
 The separate `hal/watchdog` resource can adopt an already-running native reset
 watchdog without feeding or restarting its deadline. Drop and startup failure
 leave it running; explicit cancellation verifies stopped state and retains
-uncertain failures. The opt-in, unencrypted `esp32s3-camera-stream-startup`
-qualification profile adopts the inherited deadline; ordinary profiles retain
+uncertain failures. The unencrypted `esp32s3-camera-stream-startup`
+profile adopts the inherited deadline; other profiles retain
 their existing handoff. Protected runtime control remains closed pending joined
 startup/recovery and physical quiescence qualification.
 The native `boot-control` fixture exercises SDK state, trial and confirmation,
@@ -92,7 +94,7 @@ of the ESP32-S3 boot ROM.
 Build the matching signature-enforcing second stage with:
 
 ```sh
-python3 tools/build-mcuboot.py --platform esp32s3-camera-stream-mcuboot \
+python3 tools/build-mcuboot.py --platform esp32s3-camera-stream-startup \
   --mcuboot-repo /path/to/mcuboot --hal-repo /path/to/esp-hal-3rdparty \
   --root /path/to/public-root.pem --out /private/tmp/camera-bootloader
 ```

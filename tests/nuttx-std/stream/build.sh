@@ -18,10 +18,10 @@ while (($#)); do
 done
 if [[ -z "$STREAM_PLATFORM" ]]; then
   if [[ "$STREAM_BIN" == tls-camera ]]; then
-    STREAM_PLATFORM=esp32s3-camera-tls
-  else
-    STREAM_PLATFORM=esp32s3-camera-stream
+    echo '--tls is a bounded qualification fixture; choose its --platform explicitly.' >&2
+    exit 2
   fi
+  STREAM_PLATFORM=esp32s3-camera-stream-startup
 fi
 exec bash tools/build-nuttx-std-app.sh \
   --app-manifest tests/nuttx-std/stream/Cargo.toml \

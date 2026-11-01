@@ -204,11 +204,11 @@ python3 tests/detection/report.py --dataset /private/tmp/prepared/dataset.json \
 python3 tests/detection/report_boxes.py --dataset /private/tmp/prepared/dataset.json \
   --annotations /private/tmp/instances_val2017.json --boxes /private/tmp/boxes.tsv \
   --out /private/tmp/localization.json
-bash tests/nuttx-std/stream/build.sh --probe
+bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream --probe
 python3 tests/detection/run_device.py --port /dev/cu.usbmodemCAMERA \
   --expected-serial CAMERA_SERIAL --dataset /private/tmp/prepared \
   --scores /private/tmp/native.tsv --report /private/tmp/native.json
-bash tests/nuttx-std/stream/build.sh
+bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream
 ```
 
 Follow the verified-device, recovery-backup and private-credential procedures in

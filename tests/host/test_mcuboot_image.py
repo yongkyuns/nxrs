@@ -46,12 +46,39 @@ class LayoutTests(unittest.TestCase):
     def test_product_build_requires_signing_inputs_before_building(self):
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("NXRS_FIRMWARE_")}
-        result = subprocess.run(
-            ["bash", "tests/nuttx-std/stream/build.sh", "--platform",
-             "esp32s3-camera-stream-mcuboot"], cwd=ROOT, env=environment,
-            capture_output=True, text=True, timeout=10)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("MCUboot build requires NXRS_FIRMWARE_SIGNING_KEY", result.stderr)
+        for args in ([], ["--probe"], ["--platform", "esp32s3-camera-stream-mcuboot"]):
+            with self.subTest(args=args):
+                result = subprocess.run(
+                    ["bash", "tests/nuttx-std/stream/build.sh", *args],
+                    cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("MCUboot build requires NXRS_FIRMWARE_SIGNING_KEY", result.stderr)
+
+    def test_camera_default_and_explicit_qualification_profiles(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            # Capture the real frontend's backend invocation without building firmware.
+            backend = Path(temporary) / "bash"
+            backend.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            backend.chmod(0o755)
+            environment = dict(os.environ, PATH=temporary + os.pathsep + os.environ["PATH"])
+            for args, platform, binary in (
+                ([], "esp32s3-camera-stream-startup", "nxrs-std-stream"),
+                (["--platform", "esp32s3-camera-stream"], "esp32s3-camera-stream", "nxrs-std-stream"),
+                (["--tls", "--platform", "esp32s3-camera-tls"], "esp32s3-camera-tls", "tls-camera"),
+            ):
+                with self.subTest(args=args):
+                    result = subprocess.run(
+                        ["/bin/bash", "tests/nuttx-std/stream/build.sh", *args],
+                        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = result.stdout.splitlines()
+                    self.assertEqual(values[values.index("--platform") + 1], platform)
+                    self.assertEqual(values[values.index("--bin") + 1], binary)
+            result = subprocess.run(
+                ["/bin/bash", "tests/nuttx-std/stream/build.sh", "--tls"],
+                cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("choose its --platform explicitly", result.stderr)
 
 
 @unittest.skipUnless(shutil.which("imgtool"), "install tools/mcuboot-requirements.txt for signature tests")
