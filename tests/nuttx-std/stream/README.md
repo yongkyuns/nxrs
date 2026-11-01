@@ -1,11 +1,18 @@
 # Local camera streaming qualification
 
 Portable camera capture and one-viewer HTTP MJPEG, tested on the Freenove
-ESP32-S3/OV3660 with NuttX 13.1.0, single-core at 240 MHz. This is a local-network
-prototype, not an authenticated home-monitoring product or a production-readiness
-claim.
+ESP32-S3/OV3660 with NuttX 13.1.0, single-core at 240 MHz. The HTTP qualification
+below is a local-network prototype, not an authenticated home-monitoring product
+or a production-readiness claim.
 
-For physical TLS qualification, `build.sh --tls` selects the existing shared
+`build.sh` defaults to the signed `esp32s3-camera-stream-startup` profile with
+TLS autostart and trial confirmation. Supply the operator-owned signing inputs
+in [signed firmware updates](../../../docs/firmware-updates.md); the release
+artifact is `nuttx.signed.bin`, for the matching MCUboot loader. Missing inputs
+fail before building. The unsigned fixtures below require explicit profiles.
+
+For bounded physical TLS qualification,
+`build.sh --tls --platform esp32s3-camera-tls` selects the existing shared
 `LiveCamera::new_tls` output and the `esp32s3-camera-tls` profile. Run
 `tls_camera SECONDS` (10–600) after bringing up the station interface. The
 existing no-echo Wi-Fi input establishes the RF entropy source first.
@@ -39,7 +46,7 @@ detector and media settings. The helper adds the issued certificate paths/pin,
 writes the complete `ingest.json`, and starts Rust with `--require-camera-tls`.
 Stop an existing ingest owner before starting this supervisor.
 
-For the signed `esp32s3-camera-stream-startup` profile, add `--autostart`:
+For the default signed `esp32s3-camera-stream-startup` profile, add `--autostart`:
 the helper waits for the firmware's credential reader without sending shell
 bytes. A successful trial joins its resources and confirms the image, then
 the same USB owner enrolls the recreated TLS session. Unexpected exits still
@@ -221,12 +228,13 @@ installed SDK or tracked checkouts.
 ```sh
 cargo test --locked -p nxrs-camera -p nxrs-camera-service \
   -p nxrs-camera-stream -p nxrs-stream-service -p nxrs-connectivity-service
-bash tests/nuttx-std/stream/build.sh
+bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream
 ```
 
-Back up the verified ESP before flashing
-`target/camera-stream-device/nuttx/nuttx.bin` at offset zero with esptool. Do not
-flash the Pico. Install host packages from `requirements.txt` into a local venv:
+This explicit unsigned HTTP fixture uses simple boot. Back up the verified ESP
+before flashing `target/camera-stream-device/nuttx/nuttx.bin` at offset zero
+with esptool. Do not flash the Pico. Install host packages from `requirements.txt`
+into a local venv:
 
 ```sh
 python tests/nuttx-std/stream/run.py --port /dev/cu.usbmodem14201 \
