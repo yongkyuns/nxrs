@@ -6,7 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+probe = []
+
 [dependencies]
+nxrs-enrollment = { path = "../../service/enrollment" }
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "x509-parser"] }
+time = "=0.3.55"
+subtle = "=2.6.1"
 # Reuse the gateway's exact versions; no camera HAL or MCU dependency.
 tokio = { version = "=1.51.6", features = ["macros", "rt", "net", "io-util", "process", "signal", "sync", "time"] }
 serde = { version = "=1.0.228", features = ["derive"] }

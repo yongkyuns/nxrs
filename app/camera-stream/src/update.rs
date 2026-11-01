@@ -1,6 +1,6 @@
 //! Bounded RAM delivery precedes joined retirement and inactive-slot writes.
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
     Arc, Mutex,
 };
 use std::time::Duration;
@@ -10,6 +10,7 @@ pub struct Update(Arc<Shared>);
 struct Shared {
     image: Mutex<Option<Vec<u8>>>,
     ready: AtomicBool,
+    admission: AtomicU8,
     pub maximum: u32,
     pub timeout: Duration,
 }
@@ -22,6 +23,7 @@ impl Update {
         Ok(Self(Arc::new(Shared {
             image: Mutex::new(None),
             ready: AtomicBool::new(false),
+            admission: AtomicU8::new(0),
             maximum,
             timeout,
         })))
@@ -29,6 +31,30 @@ impl Update {
     /// Capture never waits on a lower-priority receiver's mailbox lock.
     pub fn ready(&self) -> bool {
         self.0.ready.load(Ordering::Acquire)
+    }
+    /// Atomically exclude new uploads before retiring for a media reconnect.
+    /// An admitted upload retains its existing fixed deadline instead.
+    pub fn retire_if_idle(&self) -> bool {
+        self.0
+            .admission
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+    /// A new camera session gets fresh admission only after every prior
+    /// receiver has joined. Never discard a completed firmware upload.
+    pub fn renew(self) -> Result<Self, crate::Error> {
+        let shared = Arc::try_unwrap(self.0).map_err(|_| crate::Error::Tls(tls::Error::Busy))?;
+        if shared.ready.load(Ordering::Acquire) {
+            return Err(crate::Error::Tls(tls::Error::InvalidInput));
+        }
+        Self::new(shared.maximum, shared.timeout)
+    }
+    pub(crate) fn begin(&self) -> Option<Receiving<'_>> {
+        self.0
+            .admission
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .ok()?;
+        Some(Receiving(self))
     }
     pub(crate) fn maximum(&self) -> u32 {
         self.0.maximum
@@ -69,6 +95,12 @@ impl Update {
             return Err(Error::Boot(boot::DeviceError::InvalidState));
         }
         Ok(())
+    }
+}
+pub(crate) struct Receiving<'a>(&'a Update);
+impl Drop for Receiving<'_> {
+    fn drop(&mut self) {
+        self.0 .0.admission.store(0, Ordering::Release);
     }
 }
 #[cfg(test)]
@@ -141,6 +173,18 @@ mod tests {
             let mut boot = Boot(State::Stable, trace.clone(), fault);
             let mut quiet = Quiet(trace.clone(), fault);
             let update = Update::new(32, Duration::from_secs(1)).unwrap();
+            {
+                let _receiving = update.begin().unwrap();
+                assert!(!update.retire_if_idle());
+                assert!(update.begin().is_none());
+                assert!(!update.ready());
+            }
+            assert!(update.retire_if_idle());
+            assert!(update.begin().is_none());
+            let receiver = update.clone();
+            assert!(update.renew().is_err());
+            let update = receiver.renew().unwrap();
+            assert!(update.begin().is_some());
             update.received(vec![42; 32]);
             assert!(update.ready());
             assert!(update.clone().stage(&mut boot, &mut quiet).is_err());

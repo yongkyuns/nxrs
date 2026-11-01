@@ -15,7 +15,8 @@ use stream_service::{HttpSession, Metadata, Options, Progress, ServerStats};
 /// Product-owned, approved enrollment. Construct this on the TLS thread.
 /// `time` must be bounded and supply a currently authenticated observation,
 /// accounting for its original age; recreating a lease cannot renew stale UTC.
-/// It is called at startup, on admission and once per second while connected.
+/// Called at startup/admission and roughly once per second between complete
+/// media frames or during bounded firmware reception.
 pub struct TlsIdentity<T> {
     pub identity: ::tls::Identity,
     pub policy: ::tls::CertificatePolicy,
@@ -136,7 +137,7 @@ impl<B> Drop for Worker<B> {
     }
 }
 impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
-    pub fn spawn<T: FnMut() -> Result<::tls::TimeLease, ::tls::Error> + 'static>(
+    pub fn spawn<T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error> + 'static>(
         listener: TcpListener,
         mut outgoing: B,
         mut handoff: B,
@@ -182,7 +183,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
             .stack_size(resources.stack_bytes)
             .spawn(move || {
                 let context = initialize().and_then(|mut context| {
-                    let time = (context.time)().map_err(Error::Tls)?;
+                    let time = (context.time)(&context.identity).map_err(Error::Tls)?;
                     context
                         .identity
                         .configure(
@@ -374,7 +375,10 @@ fn publish<B, W: std::io::Read + std::io::Write>(
     state.stream.rejected_busy = state.stream.rejected_busy.saturating_add(counters.busy);
     state.tls = counters.tls;
 }
-fn run<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tls::Error>>(
+fn run<
+    B: AsRef<[u8]> + AsMut<[u8]>,
+    T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>,
+>(
     shared: &Shared<B>,
     listener: TcpListener,
     mut http: HttpSession<TcpStream, B>,
@@ -407,7 +411,13 @@ fn run<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tl
                 Err(error)
                     if matches!(
                         error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::Interrupted
+                            // A queued peer may disappear during enrollment
+                            // replacement. The listener itself remains usable.
+                            | std::io::ErrorKind::NotConnected
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::ConnectionReset
                     ) => {}
                 Err(_) => {
                     shared.failed.store(true, Ordering::Release);
@@ -429,7 +439,10 @@ fn run<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tl
     }
 }
 #[allow(clippy::too_many_arguments)]
-fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tls::Error>>(
+fn serve<
+    B: AsRef<[u8]> + AsMut<[u8]>,
+    T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>,
+>(
     shared: &Shared<B>,
     listener: &TcpListener,
     socket: TcpStream,
@@ -439,7 +452,8 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
     epoch: usize,
     counters: &mut Counters,
 ) -> (HttpSession<TcpStream, B>, Result<(), ::tls::Error>) {
-    let connection = (context.time)().and_then(|time| context.identity.accept(socket, time));
+    let connection =
+        (context.time)(&context.identity).and_then(|time| context.identity.accept(socket, time));
     let mut connection = match connection {
         Ok(v) => v,
         Err(e) => return (storage, Err(e)),
@@ -489,6 +503,9 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
             return (storage, Err(::tls::Error::InvalidInput));
         };
         let deadline = Instant::now() + update.timeout();
+        let Some(_receiving) = update.begin() else {
+            return (storage, Err(::tls::Error::Io));
+        };
         let mut refreshed = Instant::now();
         let image = firmware_update::receive(&mut connection, update.maximum(), |connection| {
             if !current(shared, epoch) {
@@ -498,13 +515,21 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
                 return Err(io::ErrorKind::TimedOut.into());
             }
             if refreshed.elapsed() >= Duration::from_secs(1) {
-                let time = (context.time)().map_err(|_| io::ErrorKind::PermissionDenied)?;
+                let time = (context.time)(&context.identity)
+                    .map_err(|_| io::ErrorKind::PermissionDenied)?;
                 connection
                     .refresh_time(time)
                     .map_err(|_| io::ErrorKind::PermissionDenied)?;
                 refreshed = Instant::now();
             }
             thread::park_timeout(resources.poll_interval);
+            // A network time refresh may itself consume the remaining budget.
+            if !current(shared, epoch) {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
             Ok(())
         });
         return match image {
@@ -522,13 +547,24 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
         if !current(shared, epoch) {
             break Ok(());
         }
-        if refreshed.elapsed() >= Duration::from_secs(1) {
-            let result =
-                (context.time)().and_then(|time| http.transport_mut().unwrap().refresh_time(time));
+        if refreshed.elapsed() >= Duration::from_secs(1) && http.ready_for_frame() {
+            let result = (context.time)(&context.identity)
+                .and_then(|time| http.transport_mut().unwrap().refresh_time(time));
             if let Err(error) = result {
                 break Err(error);
             }
             refreshed = Instant::now();
+            // The callback can perform network I/O. Finish the prior JPEG
+            // first, then return the queued capture rather than sending a
+            // frame held across that exchange. The producer supplies a fresh
+            // owned handoff on the next poll.
+            let mut state = lock(shared);
+            if let Some(packet) = state.pending.take() {
+                state.returned = Some(packet);
+            }
+            drop(state);
+            thread::park_timeout(resources.poll_interval);
+            continue;
         }
         if !current(shared, epoch) {
             break Ok(());
@@ -583,22 +619,23 @@ mod tests {
     #[test]
     fn initializer_error_or_unwind_cannot_strand_startup() {
         for unwind in [false, true] {
-            let result = Worker::spawn::<fn() -> Result<::tls::TimeLease, ::tls::Error>>(
-                TcpListener::bind("127.0.0.1:0").unwrap(),
-                [0; 4],
-                [0; 4],
-                Options::default(),
-                TlsOptions {
-                    stack_bytes: 65536,
-                    poll_interval: Duration::from_millis(1),
-                },
-                move || {
-                    if unwind {
-                        panic!("initializer witness");
-                    }
-                    Err(Error::Tls(::tls::Error::Unsupported))
-                },
-            );
+            let result =
+                Worker::spawn::<fn(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>>(
+                    TcpListener::bind("127.0.0.1:0").unwrap(),
+                    [0; 4],
+                    [0; 4],
+                    Options::default(),
+                    TlsOptions {
+                        stack_bytes: 65536,
+                        poll_interval: Duration::from_millis(1),
+                    },
+                    move || {
+                        if unwind {
+                            panic!("initializer witness");
+                        }
+                        Err(Error::Tls(::tls::Error::Unsupported))
+                    },
+                );
             assert!(matches!(
                 result,
                 Err(Error::Worker) | Err(Error::Tls(::tls::Error::Unsupported))

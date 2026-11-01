@@ -2,9 +2,11 @@ use crate::{Error, Result};
 use serde::Deserialize;
 use std::{fs::OpenOptions, io::Read, net::SocketAddrV4, path::{Component, Path, PathBuf}};
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub bootstrap: Option<Bootstrap>,
     #[serde(default)]
     pub detections: Option<DetectionConfig>,
     pub camera: SocketAddrV4,
@@ -24,11 +26,20 @@ pub struct Config {
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Bootstrap {
+    pub listen: SocketAddrV4,
+    pub directory: PathBuf,
+    pub site_id: String,
+    pub camera_id: String,
+    pub gateway_id: String,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DetectionConfig {
     pub control: SocketAddrV4,
     pub camera_id: String,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CameraTls {
     pub site_id: String,
@@ -60,6 +71,11 @@ fn absolute(path: &Path) -> bool {
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
+        if self.bootstrap.as_ref().is_some_and(|b| self.camera_tls.is_some() || self.allow_insecure_camera_http
+            || !identifier(&b.site_id) || !identifier(&b.camera_id) || !identifier(&b.gateway_id)
+            || !(b.listen.ip().is_private() || b.listen.ip().is_loopback())
+            || b.listen.port() == 0 || b.listen == self.camera || b.listen == self.rtsp
+            || !absolute(&b.directory)) { return Err(Error::Configuration); }
         if self.detections.as_ref().is_some_and(|v| {
             !v.control.ip().is_loopback()
                 || v.control.port() == 0
@@ -69,10 +85,11 @@ impl Config {
         }) {
             return Err(Error::Configuration);
         }
-        if self.allow_insecure_camera_http == self.camera_tls.is_some()
+        if self.allow_insecure_camera_http == (self.camera_tls.is_some() || self.bootstrap.is_some())
             || self.camera_tls.as_ref().is_some_and(|c| !c.validate())
-            || self.detections.as_ref().zip(self.camera_tls.as_ref())
-                .is_some_and(|(metadata, tls)| metadata.camera_id != tls.camera_id)
+            || self.detections.as_ref().is_some_and(|metadata|
+                self.camera_tls.as_ref().is_some_and(|tls| metadata.camera_id != tls.camera_id)
+                || self.bootstrap.as_ref().is_some_and(|bootstrap| metadata.camera_id != bootstrap.camera_id))
             || !(self.camera.ip().is_private() || self.camera.ip().is_loopback())
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0
             || self.camera == self.rtsp || !identifier(&self.stream_path) || !identifier(&self.publisher_user)

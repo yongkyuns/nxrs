@@ -4,8 +4,8 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-mod product;
 mod bootstrap;
+mod product;
 
 #[derive(Clone, Copy)]
 enum Case {
@@ -19,6 +19,8 @@ enum Case {
     Product,
     Media,
     Interleave,
+    Network,
+    NetworkTimeStall,
 }
 
 fn public(path: PathBuf) -> Vec<u8> {
@@ -68,7 +70,10 @@ fn transaction(
         };
         assert_eq!(
             identity.configure(
-                tls::Certificates { policy: &rejected, ..certs },
+                tls::Certificates {
+                    policy: &rejected,
+                    ..certs
+                },
                 &time,
             ),
             Err(tls::Error::Authentication),
@@ -263,9 +268,14 @@ fn main() {
         Some("product") => Case::Product,
         Some("media") => Case::Media,
         Some("interleave") => Case::Interleave,
+        Some("network") => Case::Network,
+        Some("network-time-stall") => Case::NetworkTimeStall,
         _ => panic!("unknown fixture case"),
     };
-    if matches!(case, Case::Product | Case::Media) {
+    if matches!(
+        case,
+        Case::Product | Case::Media | Case::Network | Case::NetworkTimeStall
+    ) {
         let stack = std::env::args()
             .nth(4)
             .map_or(65536, |v| v.parse().unwrap());

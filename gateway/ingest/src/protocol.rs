@@ -96,6 +96,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
                     || metadata.emitted_ms < old.emitted_ms
                     || metadata.event_count < old.event_count
             }) {
+                eprintln!("nxrs-camera-ingest: source metadata order regressed");
                 return Err(Error::Stale);
             }
             self.metadata = Some(metadata);
@@ -118,6 +119,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
                 frame.sequence <= last.sequence || frame.capture_ms < last.capture_ms
             })
         {
+            eprintln!("nxrs-camera-ingest: source image order regressed");
             return Err(Error::Stale);
         }
         if self.metadata.as_ref().is_some_and(|s| {
@@ -125,7 +127,10 @@ impl<R: AsyncRead + Unpin> Reader<R> {
                 o.frame_sequence > frame.sequence || o.captured_ms > frame.capture_ms
             })
         })
-        { return Err(Error::Stale); }
+        {
+            eprintln!("nxrs-camera-ingest: source annotation is ahead of its image");
+            return Err(Error::Stale);
+        }
         self.input.read_exact(&mut self.payload[..frame.length]).await?;
         let mut tail = [0;2];
         self.input.read_exact(&mut tail).await?;

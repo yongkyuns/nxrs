@@ -228,8 +228,13 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         self.stats
     }
 
-    /// The owner may refresh transport credentials/time without replacing HTTP
-    /// state. Authentication must already be complete before admission.
+    /// True only between complete multipart frames, after the response header.
+    /// Transport maintenance must finish before selecting another capture.
+    pub fn ready_for_frame(&self) -> bool {
+        matches!(self.client.as_ref(), Some(Client::Streaming(stream)) if stream.ready)
+    }
+
+    /// Borrow the admitted transport without replacing HTTP/frame storage.
     pub fn transport_mut(&mut self) -> Option<&mut W> {
         match self.client.as_mut()? {
             Client::Request(v) => Some(&mut v.socket),

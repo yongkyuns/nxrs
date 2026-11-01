@@ -20,6 +20,7 @@ on:
       - 'Cargo.lock'
       - 'service/detection-wire/**'
       - 'service/firmware-update/**'
+      - 'service/enrollment/**'
       - 'docs/detection-protocol*'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
@@ -42,7 +43,7 @@ jobs:
         working-directory: gateway
         run: |
           cargo test --locked -p nxrs-camera-ingest
-          cargo clippy --locked -p nxrs-camera-ingest --all-targets -- -D warnings
+          cargo clippy --locked -p nxrs-camera-ingest --all-targets --all-features -- -D warnings
           cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest
       - name: Compile actual camera contract and stream server from the PR merge
         run: |
@@ -51,6 +52,7 @@ jobs:
           NXRS_PLATFORM=linux-tls cargo build --locked -p nxrs-std-tls-identity --bin tls-endpoint --target-dir target/device-tls
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
           python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
+          python3 -m unittest discover -s tests/host -p test_camera_commission.py -v
       - name: TLS process controls and synthetic-media reference tools
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
@@ -59,6 +61,8 @@ jobs:
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher --all-targets -- -D warnings
           python3 gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest \
+            --camera-source target/device-tls/debug/tls-endpoint
+          python3 gateway/tests/network_enrollment.py --ingest gateway/target/debug/nxrs-camera-ingest \
             --camera-source target/device-tls/debug/tls-endpoint
           python3 -m venv /tmp/nxrs-ingest-test
           /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
