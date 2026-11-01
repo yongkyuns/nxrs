@@ -501,7 +501,12 @@ async fn execute(
                 tls.write_all(&bytes).await?;tls.flush().await?;
                 Ok(())
             };
-            let result=tokio::select! { biased; _=stop.changed()=>return Ok(()), value=timeout(Duration::from_secs(5),request)=>value };
+            let result=tokio::select! {
+                biased;
+                _=stop.changed()=>return Ok(()),
+                _=tokio::time::sleep_until(upload_deadline), if image.is_some()=>return Err(Error::Timeout),
+                value=timeout(Duration::from_secs(5),request)=>value,
+            };
             if matches!(result,Ok(Err(Error::Cleanup|Error::Configuration))) { return Err(Error::Cleanup); }
         }
     }.await;

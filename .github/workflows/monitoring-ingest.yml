@@ -52,6 +52,7 @@ jobs:
           NXRS_PLATFORM=linux-tls cargo build --locked -p nxrs-std-tls-identity --bin tls-endpoint --target-dir target/device-tls
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
           python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
+          python3 -m unittest discover -s tests/host -p test_camera_commission.py -v
       - name: TLS process controls and synthetic-media reference tools
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config

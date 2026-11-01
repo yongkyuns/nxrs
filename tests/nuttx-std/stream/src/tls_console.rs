@@ -1,6 +1,5 @@
 //! Trusted USB provisioning for the physical camera TLS qualification fixture.
 
-
 fn invalid() -> camera_stream::Error {
     camera_stream::Error::Tls(tls::Error::InvalidInput)
 }
@@ -56,8 +55,8 @@ fn parse_time_response(bytes: &[u8], sequence: u64) -> Result<Response, tls::Err
 #[cfg(target_os = "nuttx")]
 mod device {
     use super::*;
-    use enrollment::MAX_ENROLLMENT;
     use camera_stream::TlsIdentity;
+    use enrollment::MAX_ENROLLMENT;
     use std::{
         io::{Read, Write},
         sync::{
