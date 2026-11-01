@@ -8,9 +8,7 @@ bash platform/nuttx/camera/build.sh --out /private/tmp/camera-firmware
 ```
 
 Supply the operator signing inputs described in
-[signed updates](../../../docs/firmware-updates.md). `cargo firmware --app camera
---platform esp32s3-camera-stream-startup` selects the same entry and native glue.
-The profile boots `camera` directly; it loads saved records before network
+[signed updates](../../../docs/firmware-updates.md). The profile boots `camera` directly; it loads saved records before network
 initialization and opens USB only for missing first-time commissioning records.
 TLS enrollment, trusted time, reconnect and OTA then use Wi-Fi.
 

@@ -23,8 +23,4 @@ nxrs-detection-service = { path = "../../../service/detection" }
 required-capabilities = ["camera", "wifi", "tls", "config", "boot", "watchdog"]
 
 [package.metadata.nxrs.firmware]
-bin = "nxrs-camera-firmware"
-command = "camera"
-priority = 100
-stack-size = 32768
 target-c-sources = ["platform/nuttx/camera/src/platform/nuttx/ffi/startup.c"]

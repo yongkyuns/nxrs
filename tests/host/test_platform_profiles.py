@@ -19,7 +19,6 @@ _SPEC.loader.exec_module(PLATFORM_CONFIG)
 # An independent expected inventory, not discovery using the frontend under test.
 # Keep exact equality so missing, duplicate and unexpected apps cannot pass.
 FIRMWARE_APPS = {
-    "camera": ("nxrs-camera-firmware", "nxrs-camera-firmware", "camera"),
     "event-demo": ("nxrs-event-demo", "event-demo", "event_demo"),
     "dual-imu-demo": ("nxrs-dual-imu-demo", "dual-imu-demo", "dual_imu_demo"),
     "std-demo": ("nxrs-std-demo", "std-demo", "std_demo"),
@@ -162,7 +161,7 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_firmware_apps_keep_build_metadata_in_cargo(self):
         for app, (package, binary, command) in FIRMWARE_APPS.items():
             with self.subTest(app=app):
-                manifest = ROOT / ("platform/nuttx" if app == "camera" else "app") / app / "Cargo.toml"
+                manifest = ROOT / "app" / app / "Cargo.toml"
                 data = tomllib.loads(manifest.read_text())
                 self.assertEqual(data["package"]["name"], package)
                 firmware = data["package"]["metadata"]["nxrs"]["firmware"]
