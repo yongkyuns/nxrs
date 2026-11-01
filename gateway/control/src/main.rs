@@ -51,7 +51,12 @@ async fn run() -> Result<(), &'static str> {
     }
     Ok(())
 }
-#[tokio::main]
-async fn main() {
-    if let Err(message) = run().await { eprintln!("nxrs-gateway: {message}"); std::process::exit(1); }
+fn main() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .expect("gateway control runtime");
+    if let Err(message) = runtime.block_on(run()) { eprintln!("nxrs-gateway: {message}"); std::process::exit(1); }
 }

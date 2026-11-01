@@ -48,9 +48,13 @@ async fn execute() -> Result<()> {
 }
 #[cfg(not(unix))]
 async fn execute() -> Result<()> { Err(Error::Configuration) }
-#[tokio::main(flavor="current_thread")]
-async fn main() {
-    if let Err(category)=execute().await {
+fn main() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .expect("camera ingest runtime");
+    if let Err(category)=runtime.block_on(execute()) {
         eprintln!("nxrs-camera-ingest: {category}");
         std::process::exit(1);
     }
