@@ -168,8 +168,8 @@ fn load_app(root: &Path, app: &str) -> Result<AppConfig, String> {
         package,
         bin: bin.ok_or_else(|| missing("bin"))?,
         command: command.ok_or_else(|| missing("command"))?,
-        priority: priority.ok_or_else(|| missing("priority"))?,
-        stack_size: stack_size.ok_or_else(|| missing("stack-size"))?,
+        priority: priority.unwrap_or(100),
+        stack_size: stack_size.unwrap_or(32768),
     })
 }
 
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn names_are_path_safe() {
-        for name in ["event-demo", "pico2-mock", "v1.2", "a_b"] {
+        for name in ["demo-app", "board-profile", "v1.2", "a_b"] {
             assert!(valid_name(name), "{name}");
         }
         for name in ["", "../pico2", "/tmp/x", "a/b", "-leading"] {

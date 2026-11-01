@@ -40,6 +40,11 @@ requirements, not aspirational guidance.
 - Avoid redundant `nxrs_` prefixes on private functions, native ABI symbols,
   internal cfg names and files. Retain namespacing only where an external
   interface or global symbol collision makes it necessary.
+- App and service source, manifests and build scripts must contain no OS/board
+  cfg, native imports, device paths, platform inspection or platform dependencies.
+  Platform code must be application-agnostic: accept the selected entry as input,
+  never name an application or provide an app-specific runtime crate. No exceptions.
+
 - Platform/provider selection belongs in crate/module wiring and platform-local
   factories. Shared APIs, controllers, workers, and I/O algorithms must not use
   platform/provider flags or inspect platform identity. Supply explicit resource

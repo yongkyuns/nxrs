@@ -8,6 +8,9 @@ pub(crate) trait Backend {
     }
     type Slot: Slot;
     fn secondary(&mut self) -> Result<Self::Slot, DeviceError>;
+    fn update_capacity(&mut self) -> Result<u32, DeviceError> {
+        self.secondary().map(|slot| slot.capacity())
+    }
     fn state(&mut self) -> Result<State, DeviceError>;
     fn request_trial(&mut self) -> Result<(), DeviceError>;
     fn confirm(&mut self) -> Result<(), DeviceError>;
@@ -56,6 +59,10 @@ impl<B: Backend> Control for Owner<B> {
         }
         self.backend.reboot()
     }
+    fn update_capacity(&mut self) -> Result<u32, DeviceError> {
+        self.state()?;
+        self.backend.update_capacity()
+    }
     fn stage_update(
         &mut self,
         source: &mut dyn std::io::Read,
@@ -101,6 +108,18 @@ impl<B: Backend> Control for Owner<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capacity_query_does_not_stage_or_transition() {
+        let mut control = owner(State::Stable);
+        let capacity = control.update_capacity().unwrap();
+        assert!(capacity > 0);
+        assert_eq!(control.state(), Ok(State::Stable));
+        // The fixture counts slot acquisitions; no request/confirmation occurs.
+        assert_eq!(control.backend.writes, 1);
+        control.backend.failure = Some(DeviceError::Io);
+        assert_eq!(control.update_capacity(), Err(DeviceError::Io));
+        assert_eq!(control.state(), Ok(State::Stable));
+    }
     #[test]
     fn reset_is_admitted_only_after_pending_readback() {
         let mut owner = Owner::new(Fake {
@@ -218,12 +237,10 @@ mod tests {
             }
         }
         let mut control = owner(State::Stable);
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                || control.stage_update(&mut Panics, 32)
-            ))
-            .is_err()
-        );
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || control.stage_update(&mut Panics, 32)
+        ))
+        .is_err());
         assert_eq!(control.request_trial(), Err(DeviceError::Io));
     }
 }

@@ -59,28 +59,38 @@ class ArchitectureTests(unittest.TestCase):
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
 
-    def test_home_cam_can_use_only_its_target_bound_platform_startup(self):
-        app = self.package('home-cam', 'app/home-cam')
-        support = self.package('startup', 'platform/nuttx/home-cam')
-        for package in (app, support):
-            self.metadata['packages'].append(package)
-            self.metadata['workspace_members'].append(package['id'])
-        directory = Path(support['manifest_path']).parent
-        (directory / 'src/lib.rs').write_text('#![deny(unsafe_code)]\n')
-        support['targets'] = [{'kind': ['lib']}]
-        self.add('home-cam', 'startup', target='cfg(target_os = "nuttx")')
-        self.assertEqual(self.violations(), [])
-        for extra in ({}, {'target': 'cfg(unix)'}, {'target': 'cfg(target_os = "nuttx")', 'kind': 'build'}):
-            app['dependencies'].clear()
-            self.add('home-cam', 'startup', **extra)
-            self.assertTrue(self.violations())
-        app['dependencies'].clear()
-        for source, target in [('app', 'startup'), ('service', 'startup'), ('camera', 'startup'), ('startup', 'home-cam')]:
-            self.add(source, target, target='cfg(target_os = "nuttx")')
-            self.assertTrue(self.violations())
-            self.packages[source]['dependencies'].clear()
-        self.metadata['workspace_default_members'].append('startup')
+    def test_portability_boundary_has_no_app_or_target_exceptions(self):
+        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
+            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'target': 'cfg(target_os = "nuttx")'}):
+                self.add(source, target, **extra)
+                self.assertTrue(self.violations())
+                self.packages[source]['dependencies'].clear()
+        directory = Path(self.packages['app']['manifest_path']).parent
+        for code in ['#[cfg(target_os = "nuttx")] fn f() {}', 'fn f() { cfg!(unix); }',
+                     'fn f() { let _ = std::env::consts::OS; }',
+                     'fn f() { let _ = std::fs::File::open("/dev/ttyACM0"); }',
+                     '#[path="../../platform/provider.rs"] mod hidden;']:
+            with self.subTest(code=code):
+                (directory / 'src/entry.rs').write_text(code)
+                self.assertTrue(self.violations())
+        (directory / 'src/entry.rs').unlink()
+        native = directory / 'src/bridge.c'
+        native.write_text('int call_sdk(void) { return 0; }')
         self.assertTrue(self.violations())
+        native.unlink()
+        manifest = directory / 'Cargo.toml'
+        manifest.write_text('[package]\nname="app"\n[target.\'cfg(unix)\'.dependencies]\n')
+        self.assertTrue(self.violations())
+        manifest.write_text('[package]\nname="app"\n')
+        platform = Path(self.packages['platform']['manifest_path']).parent
+        (platform / 'src/main.rs').write_text('fn f(name: &str) { if name == "app" {} }')
+        self.assertTrue(self.violations())
+        (platform / 'src/main.rs').write_text('fn main() {}')
+        script = platform / 'build.sh'
+        script.write_text('exec build --app-manifest app/demo/Cargo.toml')
+        self.assertTrue(self.violations())
+        script.write_text('exec build --app-manifest "$selected_manifest"')
+        self.assertEqual(self.violations(), [])
 
     def test_shared_radio_delivery_contracts_are_only_reused_by_radio_hals(self):
         for name in ('wifi', 'ble'):

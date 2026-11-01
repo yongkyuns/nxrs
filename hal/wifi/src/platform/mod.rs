@@ -2,7 +2,6 @@
 #[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
 #[path = "../quiescence.rs"]
 pub(crate) mod quiescence;
-#[cfg(hal_enabled)]
 pub mod acquisition {
     use crate::{Controller, CredentialStorage, Error, Event, EventSink, QuiescenceControl, Wifi};
 
@@ -84,4 +83,18 @@ where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {
     nuttx::open(sink)
+}
+
+#[cfg(not(hal_enabled))]
+mod unbound;
+#[cfg(not(hal_enabled))]
+fn open<S>(_: S, _: crate::CredentialStorage) -> Result<impl crate::Wifi + Send, crate::Error>
+where
+    S: crate::EventSink<crate::Event> + Send + 'static,
+{
+    Err::<unbound::Unavailable, _>(crate::Error::Unsupported)
+}
+#[cfg(not(hal_enabled))]
+fn open_quiescence() -> Result<impl crate::QuiescenceControl, crate::Error> {
+    Err::<unbound::Unavailable, _>(crate::Error::Unsupported)
 }

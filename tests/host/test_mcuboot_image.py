@@ -49,7 +49,7 @@ class LayoutTests(unittest.TestCase):
         for args in ([], ["--out", "/private/tmp/nxrs-product-signing-guard"]):
             with self.subTest(args=args):
                 result = subprocess.run(
-                    ["bash", "platform/nuttx/home-cam/build.sh", *args],
+                    ["cargo", "firmware", "--app", "home-cam", "--platform", "esp32s3-camera-stream-startup", *args],
                     cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("MCUboot build requires NXRS_FIRMWARE_SIGNING_KEY", result.stderr)
@@ -62,7 +62,7 @@ class LayoutTests(unittest.TestCase):
             backend.chmod(0o755)
             environment = dict(os.environ, PATH=temporary + os.pathsep + os.environ["PATH"])
             for script, args, platform, binary in (
-                ("platform/nuttx/home-cam/build.sh", [], "esp32s3-camera-stream-startup", "home-cam"),
+
                 ("tests/nuttx-std/stream/build.sh", ["--platform", "esp32s3-camera-stream"], "esp32s3-camera-stream", "nxrs-std-stream"),
                 ("tests/nuttx-std/stream/build.sh", ["--tls", "--platform", "esp32s3-camera-tls"], "esp32s3-camera-tls", "tls-camera"),
             ):

@@ -128,7 +128,18 @@ path = "hal/config/src/platform/nuttx/ffi/config.c"
 kind = "abi"
 reason = "NuttX config-data ioctl layout and errno translation. Rust owns files, keys, bounds and product-record validation."
 
+
 [[bridge]]
-path = "platform/nuttx/home-cam/src/platform/nuttx/ffi/startup.c"
+path = "hal/console/src/platform/nuttx/ffi/console.c"
 kind = "abi"
-reason = "Product bootstrap only: target-header network init, calling-worker priority and commissioning termios/poll. Rust owns input, deadlines, resource lifetime and policy."
+reason = "Target termios/poll layout only; Rust owns descriptor, mode lifetime and deadlines."
+
+[[bridge]]
+path = "hal/execution/src/platform/nuttx/ffi/scheduling.c"
+kind = "abi"
+reason = "Calling-thread scheduler ABI only; portable scheduling intent and profile priorities remain in Rust."
+
+[[bridge]]
+path = "hal/wifi/src/platform/nuttx/ffi/network.c"
+kind = "abi"
+reason = "Synchronous netinit SDK operation; Rust serializes once-only acquisition and retains partial failures."

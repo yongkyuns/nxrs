@@ -4,7 +4,7 @@
 mod writer;
 use crate::{DeviceError, Storage};
 use std::io;
-#[cfg_attr(test, allow(unused_imports))]
+#[allow(unused_imports)]
 pub use writer::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
 
 pub fn storage(

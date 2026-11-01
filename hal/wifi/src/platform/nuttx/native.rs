@@ -409,3 +409,11 @@ impl Drop for Dhcp {
         unsafe { wifi_dhcp_close(self.0.as_ptr()) };
     }
 }
+
+pub(super) fn initialize_network() -> i32 {
+    unsafe extern "C" {
+        fn wifi_initialize_network() -> i32;
+    }
+    // SAFETY: synchronous SDK setup; the caller serializes and retains failures.
+    unsafe { wifi_initialize_network() }
+}

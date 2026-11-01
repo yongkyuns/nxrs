@@ -7,7 +7,8 @@ use std::{env, path::PathBuf, process::Command};
 fn main() {
     selection::configure();
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
-    if let Some(config) = product::configure(&root) {
+    let budget = product::configure(&root);
+    if let Some(config) = &budget {
         let pico = env::var_os("CARGO_FEATURE_PICO_MODEL").is_some();
         let vww = env::var_os("CARGO_FEATURE_PERSON_MODEL").is_some();
         assert!(
@@ -18,6 +19,17 @@ fn main() {
             "Detector dependencies do not match the product profile. Use the product build frontend, which includes its selected model automatically."
         );
     }
+    let value = budget.as_ref().map_or("None".to_owned(), |b| {
+        format!(
+            "Some(crate::ExecutionBudget {{ stack_bytes: {}, sample_interval_ms: {} }})",
+            b.stack_bytes, b.sample_ms
+        )
+    });
+    std::fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("execution_budget.rs"),
+        format!("pub(super) const BUDGET: Option<crate::ExecutionBudget> = {value};\n"),
+    )
+    .unwrap();
     compile_model::main();
     if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none() {
         return;

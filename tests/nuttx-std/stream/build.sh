@@ -27,5 +27,6 @@ exec bash tools/build-nuttx-std-app.sh \
   --out target/camera-stream-device --abi-profile minimal \
   --target-c-source tests/nuttx-std/wifi/ffi/credentials.c \
   --target-c-source tests/nuttx-std/stream/ffi/platform.c \
-  --target-c-source platform/nuttx/home-cam/src/platform/nuttx/ffi/startup.c \
+  --target-c-source hal/console/src/platform/nuttx/ffi/console.c \
+  --target-c-source hal/execution/src/platform/nuttx/ffi/scheduling.c \
   --size-optimized --trace-only-backtrace --panic-immediate-abort ${STREAM_ARGS[@]+"${STREAM_ARGS[@]}"}

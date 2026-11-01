@@ -9,7 +9,7 @@ import re
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPABILITIES = {"detector", "camera", "config", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "tls", "boot", "watchdog"}
+CAPABILITIES = {"console", "execution", "detector", "camera", "config", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "tls", "boot", "watchdog"}
 HOST_OS = {"linux", "macos", "windows"}
 MODEL_FEATURES = {"vww": "person-model", "pico": "pico-model"}
 
@@ -59,6 +59,8 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
         if provider in {"std", "native"} or (provider != "none" and provider not in declared):
             raise ValueError(f"{name}: unsupported {capability} implementation: {provider}")
     detector_config(data)
+    scheduling_config(data)
+    console_config(data)
     return data
 
 
@@ -79,6 +81,34 @@ def detector_config(platform: dict) -> dict | None:
         if type(config[key]) is not int or not 0 < config[key] <= 0x7fffffff:
             raise ValueError(f"{platform['name']}: detector {key} must be a positive 32-bit integer")
     return config
+
+
+def scheduling_config(platform: dict) -> dict | None:
+    config = platform.get("scheduling", {})
+    if platform["hal"].get("execution", "none") == "none":
+        if config:
+            raise ValueError("scheduling requires an execution HAL binding")
+        return None
+    if (not isinstance(config, dict) or set(config) != {"background", "normal"}
+            or any(type(value) is not int or not 1 <= value <= 255 for value in config.values())
+            or config["background"] >= config["normal"]):
+        raise ValueError("scheduling requires ordered bounded background and normal priorities")
+    return config
+
+
+def console_config(platform: dict) -> str | None:
+    config = platform.get("console", {})
+    if platform["hal"].get("console", "none") == "none":
+        if config:
+            raise ValueError("console configuration requires a console HAL binding")
+        return None
+    if not isinstance(config, dict) or set(config) != {"device"}:
+        raise ValueError("console requires one device")
+    device = config["device"]
+    if (not isinstance(device, str) or not re.fullmatch(r"/dev/[A-Za-z0-9_/.-]{1,120}", device)
+            or ".." in device.split("/")):
+        raise ValueError("invalid console device path")
+    return device
 
 
 def uses_detector(manifest: Path, root: Path = ROOT, seen: set[Path] | None = None) -> bool:
@@ -145,7 +175,14 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     validate_target(platform, target_os)
     manifests = {root / "hal" / name / "Cargo.toml" for name in platform["hal"]}
     manifests.add(root / "hal" / capability / "Cargo.toml")
+    resources = []
+    if capability == "console" and platform["hal"].get(capability, "none") != "none":
+        resources.append("cargo:rustc-env=CONSOLE_DEVICE=" + console_config(platform))
+    if capability == "execution" and platform["hal"].get(capability, "none") != "none":
+        resources.extend("cargo:rustc-env=EXECUTION_" + key.upper() + "_PRIORITY=" + str(value)
+                         for key, value in scheduling_config(platform).items())
     return [
+        *resources,
         *(f"cargo:rerun-if-changed={source}" for source in platform["sources"]),
         *(f"cargo:rerun-if-changed={manifest}" for manifest in sorted(manifests)),
         *(["cargo:rustc-cfg=hal_mock"] if platform["hal"].get(capability) == "mock"

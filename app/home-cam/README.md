@@ -1,12 +1,12 @@
 # Home camera
 
-`home-cam` owns camera streaming, commissioning, TLS enrollment, detection,
-trial confirmation and OTA policy. `main()` and the lifecycle live here;
-NuttX bring-up, native startup operations and execution budgets live in
-[`platform/nuttx/home-cam`](../../platform/nuttx/home-cam).
+`home-cam` owns streaming, commissioning, TLS enrollment, detection, trial
+confirmation and OTA policy. Its entry and lifecycle use only portable HAL APIs;
+console access, scheduling and device admission stay below the HAL boundary.
+Target configuration and generic entry wiring belong to `platform/`.
 
-Build the signed ESP32-S3 application with that platform's `build.sh`; supply
-operator signing inputs from [signed updates](../../docs/firmware-updates.md).
+Build through `cargo firmware --app home-cam --platform PLATFORM`; supply
+operator signing inputs as described in [signed updates](../../docs/firmware-updates.md).
 Saved records are loaded before network bring-up. USB opens only for missing
 first-time commissioning records; enrollment, trusted time and OTA then use
 Wi-Fi. Qualification controls remain in the

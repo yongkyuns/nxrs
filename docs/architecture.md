@@ -52,9 +52,10 @@ app/nxrs follows the same provider-hiding rule for its native replay
 profile. It acquires camera, storage and transport through `nxrs-camera`,
 `nxrs-storage`, and `nxrs-transport`, then moves those resources into
 CameraService, RecordingService and TelemetryService.
-HAL provider selection stays inside the HAL. The `home-cam` entry has a
-target-bound dependency on `platform/nuttx/home-cam` for bring-up, console
-access and execution resources, as defined in the normative architecture rules.
+App and service code has no platform knowledge or dependencies. HAL factories
+own admission and implementation selection, including typed `Unsupported`
+results when unbound. Platform build/configuration code accepts an entry as
+input without naming a particular application.
 
 There is no platform launcher, app registry, mandatory App trait, registration
 macro or service-graph configuration language.

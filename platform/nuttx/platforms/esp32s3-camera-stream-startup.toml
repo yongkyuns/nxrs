@@ -1,11 +1,25 @@
 # Reversible unencrypted trial-startup qualification; no physical provisioning.
 extends = "esp32s3-camera-stream-mcuboot"
-hal = { watchdog = "nuttx", config = "nuttx" }
+hal = { watchdog = "nuttx", config = "nuttx", console = "nuttx", execution = "nuttx" }
 boot-watchdog-ms = 180000
 # A distinct cohort excludes legacy candidates that cancel the startup deadline.
 image-class = "a098ebd6-f35f-4e43-babc-96f2d5ebc72e"
 
 [init]
 console = "uart0"
-command = "home_cam"
-args = []
+network = "on-acquire"
+priority = 100
+stack-bytes = 32768
+
+[build]
+abi-profile = "minimal"
+size-optimized = true
+trace-only-backtrace = true
+panic-immediate-abort = true
+
+[scheduling]
+background = 80
+normal = 90
+
+[console]
+device = "/dev/ttyACM0"

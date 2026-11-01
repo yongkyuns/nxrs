@@ -1,8 +1,6 @@
-//! Product entry; profile admission is selected once by the build wiring.
+//! Portable application entry. HAL factories own resource admission.
 #![forbid(unsafe_code)]
-mod entry {
-    include!(concat!(env!("OUT_DIR"), "/cli_entry.rs"));
-}
+mod cli;
 fn main() -> std::process::ExitCode {
-    entry::run()
+    cli::main()
 }

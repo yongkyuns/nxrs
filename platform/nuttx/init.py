@@ -7,11 +7,12 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
     init = platform.get("init")
     if init is None:
         return {}
-    if (not isinstance(init, dict) or set(init) not in ({"command", "args"}, {"command", "args", "console"})
-            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", command)
-            or init["command"] != command):
-        raise ValueError("init must name the built application command and its args")
-    args = init["args"]
+    if (not isinstance(init, dict) or set(init) - {"args", "console", "network", "priority", "stack-bytes"}
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", command)):
+        raise ValueError("init must contain only target startup settings")
+    args = init.get("args", [])
+    priority = init.get("priority", priority)
+    stack = init.get("stack-bytes", stack)
     if (not isinstance(args, list) or len(args) > 16
             or any(not isinstance(arg, str) or len(arg) > 128
                    or any(not 32 <= ord(char) < 127 or char in '\\"' for char in arg) for arg in args)
@@ -29,11 +30,13 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
         if init["console"] != "uart0":
             raise ValueError("unsupported init console")
         values.update(UART0_SERIAL_CONSOLE="y", OTHER_SERIAL_CONSOLE="n")
-    if command == "home_cam" or (command == "stream_test" and args[:1] == ["boot-tls"]):
+    if platform.get("boot-watchdog-ms") is not None:
         hal = platform.get("hal", {})
-        if ("mcuboot" not in platform or hal.get("boot") != "nuttx"
-                or hal.get("watchdog") != "nuttx"):
-            raise ValueError("camera startup requires MCUboot, boot control and inherited watchdog")
+        if "mcuboot" not in platform or hal.get("boot") != "nuttx" or hal.get("watchdog") != "nuttx":
+            raise ValueError("inherited boot watchdog requires MCUboot and boot/watchdog control")
+    if "network" in init:
+        if init["network"] != "on-acquire":
+            raise ValueError("unsupported network initialization policy")
         values["NETINIT_THREAD"] = "n"
         values["NETUTILS_NETINIT"] = "y"
     return values
