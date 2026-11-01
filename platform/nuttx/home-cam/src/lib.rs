@@ -20,7 +20,7 @@ pub struct Resources {
     pub detector: Option<DetectorBudget>,
     pub tls_stack_bytes: usize,
     pub tls_poll_interval: std::time::Duration,
-    pub update_capacity: usize,
+    pub update_capacity: u32,
 }
 pub fn resources() -> Resources {
     Resources {
