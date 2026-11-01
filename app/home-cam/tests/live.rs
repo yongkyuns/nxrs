@@ -1,5 +1,5 @@
 use camera::{Camera, Capture, DeviceError, Format, PixelFormat};
-use camera_stream::LiveCamera;
+use home_cam::LiveCamera;
 use std::cell::Cell;
 use std::net::TcpListener;
 use std::rc::Rc;
@@ -89,7 +89,7 @@ fn non_jpeg_negotiation_stops_before_streaming() {
     .unwrap();
     assert!(matches!(
         app.start(2, 2),
-        Err(camera_stream::Error::Camera(
+        Err(home_cam::Error::Camera(
             camera_service::Error::InvalidFormat
         ))
     ));
@@ -153,7 +153,7 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
         Options::default(),
     )
     .unwrap();
-    app.attach_detection(camera_stream::SecurityDetection::new(worker, Policy::default()).unwrap())
+    app.attach_detection(home_cam::SecurityDetection::new(worker, Policy::default()).unwrap())
         .unwrap();
     app.start(320, 240).unwrap();
     app.poll(0, false).unwrap();
@@ -170,7 +170,7 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
     assert_eq!(stops.get(), 1);
     assert!(matches!(
         app.start(320, 240),
-        Err(camera_stream::Error::Detection(Error::Stopped))
+        Err(home_cam::Error::Detection(Error::Stopped))
     ));
 }
 
@@ -238,11 +238,11 @@ fn camera_stop_failure_still_joins_and_releases_the_detector() {
         Options::default(),
     )
     .unwrap();
-    app.attach_detection(camera_stream::SecurityDetection::new(worker, Policy::default()).unwrap())
+    app.attach_detection(home_cam::SecurityDetection::new(worker, Policy::default()).unwrap())
         .unwrap();
     app.start(320, 240).unwrap();
     app.poll(0, false).unwrap();
-    assert!(matches!(app.stop(), Err(camera_stream::Error::Camera(_))));
+    assert!(matches!(app.stop(), Err(home_cam::Error::Camera(_))));
     assert!(released.load(Ordering::Acquire));
     assert_eq!(
         app.detection().unwrap().snapshot().presence,

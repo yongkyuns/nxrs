@@ -1,7 +1,7 @@
 # Person detection for the camera application
 
 This Rust service adds bounded inference scheduling and person-presence events
-to `app/camera-stream`. The detector API, models, image preprocessing and native
+to `app/home-cam`. The detector API, models, image preprocessing and native
 compute implementations belong to [`hal/detector`](../../hal/detector/README.md).
 Applications acquire `detector::open(Config)` and never import a platform SDK.
 The service owns frame admission, its worker, expiry, temporal confirmation and
@@ -104,9 +104,9 @@ or failed detector must never be interpreted as proof that a scene is clear.
 ## Reproduce the checks
 
 ```sh
-cargo test --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream \
+cargo test --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam \
   --features nxrs-detector/person-model
-cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream \
+cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam \
   --all-targets --features nxrs-detector/person-model -- -D warnings
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_architecture.py

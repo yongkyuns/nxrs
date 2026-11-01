@@ -13,7 +13,7 @@ mod ffi {
         fn camera_console_ready(fd: i32) -> i32;
         fn camera_console_mode(fd: i32, fields: *mut u32, raw: i32) -> i32;
     }
-    pub(crate) fn network() -> io::Result<()> {
+    pub fn network() -> io::Result<()> {
         // SAFETY: synchronous SDK setup; no pointers/callbacks are retained.
         if unsafe { camera_network_initialize() } == 0 {
             Ok(())
@@ -47,14 +47,15 @@ mod ffi {
     use std::io;
 }
 
-pub(crate) use ffi::{network as initialize_network, priority};
+pub use ffi::network as initialize_network;
+pub(crate) use ffi::priority;
 
-pub(crate) struct Console {
+pub struct Console {
     file: File,
     saved: [u32; 6],
 }
 impl Console {
-    pub(crate) fn open() -> io::Result<Self> {
+    pub fn open() -> io::Result<Self> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)

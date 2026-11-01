@@ -1,9 +1,10 @@
 //! Fixed product lifecycle; qualification controls stay in the stream fixture.
 #![forbid(unsafe_code)]
-use crate::{commissioning, model, platform};
+use crate::commissioning;
 use camera::{Camera, JpegQuality};
-use camera_stream::{LiveCamera, TlsOptions, TlsOutput};
 use connectivity_service::Reconnector;
+use home_cam::{LiveCamera, TlsOptions, TlsOutput};
+use home_cam_platform::{self as platform, Resources, Worker};
 use std::{
     net::TcpListener,
     sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
@@ -93,7 +94,7 @@ enum Outcome {
     SaveWifi,
     Renew,
     Update,
-    Healthy(camera_stream::startup::Health),
+    Healthy(home_cam::startup::Health),
 }
 
 fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>>(
@@ -101,25 +102,27 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
     network: &mut Reconnector<W, F>,
     events: &Receiver<Event>,
     origin: Instant,
-    update: Option<&camera_stream::update::Update>,
+    update: Option<&home_cam::update::Update>,
     trial: bool,
+    resources: Resources,
 ) -> Result<Outcome, String> {
     let operation: Result<bool, String> = (|| {
-        if model::ENABLED {
+        if let Some(budget) = resources.detector {
             let worker = detection_service::Worker::spawn(
                 detection_service::WorkerOptions {
                     frame_capacity: BYTES,
-                    sample_interval_ms: model::SAMPLE_MS,
-                    stack_bytes: model::STACK_BYTES,
+                    sample_interval_ms: budget.sample_ms,
+                    stack_bytes: budget.stack_bytes,
                 },
                 || {
-                    platform::priority(90).map_err(|_| detection_service::Error::Worker)?;
+                    platform::initialize_worker(Worker::Detector)
+                        .map_err(|_| detection_service::Error::Worker)?;
                     detector::open(detector::Config::default()).map_err(Into::into)
                 },
             )
             .map_err(|e| format!("detector startup {e:?}"))?;
             live.attach_detection(
-                camera_stream::SecurityDetection::new(worker, detection_service::Policy::default())
+                home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
                     .map_err(|e| format!("detection policy {e:?}"))?,
             )
             .map_err(|e| format!("detection attachment {e:?}"))?;
@@ -130,11 +133,11 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
         let (mut delivered, mut captured) = (0, 0);
         let (mut last_delivery, mut last_capture) = (Instant::now(), Instant::now());
         loop {
-            if update.is_some_and(camera_stream::update::Update::ready) {
+            if update.is_some_and(home_cam::update::Update::ready) {
                 return Ok(false);
             }
             if (started.elapsed() >= RENEW_AFTER || last_delivery.elapsed() >= DELIVERY_TIMEOUT)
-                && update.is_none_or(camera_stream::update::Update::retire_if_idle)
+                && update.is_none_or(home_cam::update::Update::retire_if_idle)
             {
                 return Ok(false);
             }
@@ -143,7 +146,7 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
             let online = network.link() == LinkState::Addressed;
             live.poll(elapsed, online)
                 .map_err(|e| format!("stream {e:?}"))?;
-            if trial && online && camera_stream::startup::healthy(&live, elapsed, HEALTH_AGE_MS) {
+            if trial && online && home_cam::startup::healthy(&live, elapsed, HEALTH_AGE_MS) {
                 // Consuming retirement below joins before handing health to confirmation.
                 return Ok(true);
             }
@@ -172,28 +175,27 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
         }
     })();
     if matches!(operation, Ok(true)) {
-        return camera_stream::startup::retire_healthy(live, now(origin), HEALTH_AGE_MS)
+        return home_cam::startup::retire_healthy(live, now(origin), HEALTH_AGE_MS)
             .map(Outcome::Healthy)
             .map_err(|e| format!("startup retirement {e:?}"));
     }
     let stopped = live.stop().map_err(|e| format!("camera retirement {e:?}"));
     operation?;
     stopped?;
-    Ok(
-        if update.is_some_and(camera_stream::update::Update::ready) {
-            Outcome::Update
-        } else {
-            Outcome::Renew
-        },
-    )
+    Ok(if update.is_some_and(home_cam::update::Update::ready) {
+        Outcome::Update
+    } else {
+        Outcome::Renew
+    })
 }
 
 pub(crate) fn run() -> Result<(), String> {
     // Adoption precedes storage, first-time input and network initialization.
     let watchdog = watchdog::adopt().map_err(|e| format!("watchdog adopt {e:?}"))?;
     let boot = boot::open().map_err(|e| format!("boot open {e:?}"))?;
-    let mut trial = camera_stream::startup::Trial::begin(boot, watchdog)
-        .map_err(|e| format!("startup {e:?}"))?;
+    let mut trial =
+        home_cam::startup::Trial::begin(boot, watchdog).map_err(|e| format!("startup {e:?}"))?;
+    let resources = platform::resources();
     let mut store = Some(config::open().map_err(|e| format!("config open {e:?}"))?);
     let mut settings = commissioning::load(
         store.as_mut().ok_or("missing store")?,
@@ -209,7 +211,7 @@ pub(crate) fn run() -> Result<(), String> {
     loop {
         let mut update = if trial.is_none() {
             Some(
-                camera_stream::update::Update::new(0x200000 - 8192, Duration::from_secs(120))
+                home_cam::update::Update::new(resources.update_capacity, Duration::from_secs(120))
                     .map_err(|e| format!("update setup {e:?}"))?,
             )
         } else {
@@ -248,12 +250,13 @@ pub(crate) fn run() -> Result<(), String> {
                     std::array::from_fn(|_| vec![0; BYTES]),
                     stream_service::Options::default(),
                     TlsOptions {
-                        stack_bytes: 64 * 1024,
-                        poll_interval: Duration::from_millis(2),
+                        stack_bytes: resources.tls_stack_bytes,
+                        poll_interval: resources.tls_poll_interval,
                     },
                     move || {
-                        platform::priority(80).map_err(|_| camera_stream::Error::Worker)?;
-                        camera_stream::bootstrap::initialize(commission)
+                        platform::initialize_worker(Worker::Tls)
+                            .map_err(|_| home_cam::Error::Worker)?;
+                        home_cam::bootstrap::initialize(commission)
                     },
                 );
                 let mut live = match composed {
@@ -261,7 +264,7 @@ pub(crate) fn run() -> Result<(), String> {
                     Err(error) => {
                         retry_network = matches!(
                             error,
-                            camera_stream::Error::Tls(
+                            home_cam::Error::Tls(
                                 tls::Error::Io | tls::Error::Time | tls::Error::Authentication
                             )
                         );
@@ -279,11 +282,12 @@ pub(crate) fn run() -> Result<(), String> {
                     origin,
                     update.as_ref(),
                     trial.is_some(),
+                    resources,
                 )? {
                     Outcome::Renew => {
                         update = update
                             .take()
-                            .map(camera_stream::update::Update::renew)
+                            .map(home_cam::update::Update::renew)
                             .transpose()
                             .map_err(|e| format!("update renewal {e:?}"))?;
                     }

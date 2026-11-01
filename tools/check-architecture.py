@@ -18,7 +18,6 @@ import tomllib
 
 ALLOWED = {
     'app': {'service', 'api', 'hal'},
-    'product': {'app', 'service', 'api', 'hal'},
     'service': {'service', 'api', 'hal'},
     'hal': {'api', 'hal', 'driver', 'support'},
     'api': {'api'},
@@ -27,9 +26,9 @@ ALLOWED = {
     'mock': {'api'},
     'driver': {'api', 'driver'},
     'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform'},
-    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'product', 'test'},
+    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test'},
 }
-PORTABLE = {'app', 'service', 'hal', 'api', 'product'}
+PORTABLE = {'app', 'service', 'hal', 'api'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
@@ -51,8 +50,6 @@ def layer(path: Path) -> str:
     parts = path.parts
     if not parts:
         raise ValueError('a package cannot live at the virtual workspace root')
-    if len(parts) == 3 and parts[:2] == ('platform', 'nuttx'):
-        return 'product'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
             return 'api'
@@ -102,7 +99,13 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: shared radio delivery contracts must remain dependency-free')
                 if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
                     errors.append(f'{context}: device errors belong to the capability; common is radio delivery only')
-                if roles[target] not in ALLOWED[role]:
+                startup_edge = (
+                    source == ('app', 'home-cam')
+                    and destination == ('platform', 'nuttx', 'home-cam')
+                    and dep.get('kind') is None
+                    and re.sub(r'\s+', '', dep.get('target') or '') == 'cfg(target_os="nuttx")'
+                )
+                if roles[target] not in ALLOWED[role] and not startup_edge:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
                 errors.append(f'{context}: local dependency is outside classified workspace packages')
@@ -113,7 +116,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
         if identity not in paths:
             continue
         path = paths[identity]
-        if roles[identity] == 'product' or path.parts[:2] in {('tests', 'nuttx'), ('tests', 'nuttx-std')}:
+        if path.parts[:2] in {('tests', 'nuttx'), ('tests', 'nuttx-std'), ('platform', 'nuttx')}:
             errors.append(f'{path}: target-only package must not be a default member')
     return errors
 
@@ -160,30 +163,31 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             role = layer(directory.relative_to(root))
         except ValueError:
             continue
+        if role == 'platform' and directory.relative_to(root).parts[:2] == ('platform', 'nuttx'):
+            source = directory / 'src/lib.rs'
+            text = source.read_text() if source.is_file() else ''
+            if '#![deny(unsafe_code)]' not in text or any('bin' in t.get('kind', []) for t in package.get('targets', [])):
+                errors.append(f"{package['name']}: platform startup support must be a library with deny(unsafe_code)")
         if role not in PORTABLE:
             continue
         has_binary = any('bin' in target.get('kind', []) for target in package.get('targets', [{'kind': ['bin']}]))
-        if role in {'app', 'product'} and has_binary:
+        if role == 'app' and has_binary:
             source = directory / 'src/main.rs'
             text = source.read_text(encoding='utf-8') if source.is_file() else ''
             if not re.search(r'\bfn\s+main\s*\(', text) or '#![forbid(unsafe_code)]' not in text:
                 errors.append(f"{package['name']}: app must own a safe handwritten src/main.rs")
         source = directory / 'src/lib.rs'
-        if role in {'app', 'product'} and has_binary and not source.is_file():
+        if role == 'app' and has_binary and not source.is_file():
             continue
         text = source.read_text(encoding='utf-8') if source.is_file() else ''
-        markers = ['#![deny(unsafe_code)]' if role in {'hal', 'product'} else '#![forbid(unsafe_code)]']
+        markers = ['#![deny(unsafe_code)]' if role == 'hal' else '#![forbid(unsafe_code)]']
         if role in {'api', 'hal'}:
             markers.insert(0, '#![no_std]')
         for marker in markers:
             if marker not in text:
                 qualifier = 'service library' if role == 'service' else 'portable library'
                 errors.append(f"{package['name']}: {qualifier} must retain {marker}")
-        if role == 'product':
-            for controller in (directory / 'src').glob('*.rs'):
-                if controller.name not in {'lib.rs', 'main.rs'} and '#![forbid(unsafe_code)]' not in controller.read_text():
-                    errors.append(f'{controller.relative_to(root)}: product controllers must forbid unsafe code')
-        if role in {'service', 'app', 'product'}:
+        if role in {'service', 'app'}:
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             for dep in package['dependencies']:
                 if (dep.get('kind') == 'dev' or not dep.get('path')

@@ -17,7 +17,7 @@ while (($#)); do
   esac
 done
 if [[ -z "$STREAM_PLATFORM" ]]; then
-  echo 'Qualification requires --platform; build the product with platform/nuttx/camera/build.sh.' >&2
+  echo 'Qualification requires --platform; build the product with platform/nuttx/home-cam/build.sh.' >&2
   exit 2
 fi
 exec bash tools/build-nuttx-std-app.sh \
@@ -27,5 +27,5 @@ exec bash tools/build-nuttx-std-app.sh \
   --out target/camera-stream-device --abi-profile minimal \
   --target-c-source tests/nuttx-std/wifi/ffi/credentials.c \
   --target-c-source tests/nuttx-std/stream/ffi/platform.c \
-  --target-c-source platform/nuttx/camera/src/platform/nuttx/ffi/startup.c \
+  --target-c-source platform/nuttx/home-cam/src/platform/nuttx/ffi/startup.c \
   --size-optimized --trace-only-backtrace --panic-immediate-abort ${STREAM_ARGS[@]+"${STREAM_ARGS[@]}"}

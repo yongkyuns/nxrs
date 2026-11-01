@@ -1,6 +1,6 @@
 # Signed firmware updates
 
-The camera's `platform/nuttx/camera/build.sh` defaults to
+The camera's `platform/nuttx/home-cam/build.sh` defaults to
 `esp32s3-camera-stream-startup`: a signed MCUboot camera/TLS/PICO image with
 TLS autostart and trial confirmation. Unsigned qualification builds require an
 explicit `--platform`; missing signing inputs fail before building.
@@ -16,7 +16,7 @@ The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix.
 `NXRS_FIRMWARE_VERSION` and `NXRS_FIRMWARE_SECURITY_COUNTER`, then run:
 
 ```sh
-bash platform/nuttx/camera/build.sh --out /private/tmp/camera-mcuboot
+bash platform/nuttx/home-cam/build.sh --out /private/tmp/camera-mcuboot
 ```
 
 The resulting `nuttx/nuttx.signed.bin` is signed and independently verified
@@ -115,7 +115,7 @@ the deadline and its slow-clock source unchanged through the SDK's clock
 initialization, calibrates that source for SDK time/radio consumers without
 feeding, and relocks it. The SDK's user-owned cancellation setting also
 leaves the timer running. The startup profile selects a fixed 180-second budget
-and direct `camera` product entry through its typed `[init]`
+and direct `home_cam` application entry through its typed `[init]`
 table. Board late initialization registers devices; the entry adopts first, then
 invokes synchronous network initialization. Stable boots cancel before USB
 credential/enrollment input; trial boots retain the deadline while waiting.

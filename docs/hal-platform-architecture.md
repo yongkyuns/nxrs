@@ -63,18 +63,22 @@ radio migration exceptions remain. The architecture audit checks that inventory
 and rejects platform selection in shared Rust modules.
 Inventory checks support review; they cannot prove that C code is mechanical.
 
-## Product entry
+## Application entry and platform startup
 
-`platform/nuttx/camera` is the camera's product composition root. Its safe
-handwritten entry and Rust lifecycle compose `app/camera-stream`, services and
-HALs; no lower layer depends back on the product. Reusable streaming, enrollment,
-OTA and startup health remain in their owning crates. The product fixes resource
-budgets and sequencing; qualification controls stay under `tests/`.
-Its private `src/platform/nuttx/ffi` translates only network initialization,
-calling-worker priority and console termios/poll operations against native
-headers. It implements no HAL capability. Product controllers forbid unsafe
-code; only the private ABI module allows it. The architecture audit enforces
-downward dependencies and inventories the native source.
+`app/home-cam` owns `main()` and the camera application's streaming,
+commissioning, enrollment, reconnect, trial confirmation and OTA lifecycle.
+`platform/nuttx/home-cam` is library-only startup support: NuttX console access,
+network bring-up, native scheduling translation and execution resource budgets.
+Product profiles and the platform build script own target configuration, driver
+registration/build wiring and signing settings. Hardware capabilities remain in
+HAL crates.
+
+The application's NuttX entry uses a typed, target-bound dependency on its
+platform startup support. The audit permits that specific edge while rejecting
+service/HAL dependencies on startup support and reverse dependencies into the
+app. App code forbids unsafe; minimal native startup glue is private to the
+platform library and included in the ABI inventory. Qualification controls stay
+under `tests/`.
 
 ## One platform selection
 
@@ -202,7 +206,7 @@ explicit fixture; unbound capabilities emit neither. These booleans express
 capability admission, not platform identity, and belong only in module/acquisition
 wiring. OS modules use Rust's `target_os` at that boundary. Do not add a second
 OS-valued cfg, per-OS Cargo features, or platform branches in shared algorithms.
-There is no runtime registry or platform dependency in the production graph.
+There is no runtime registry. The home camera entry depends only on its target-bound platform startup support.
 
 Keep conditional compilation at a small set of ownership boundaries:
 
@@ -288,7 +292,7 @@ automatically become a service or get a thread/queue. For example,
 and lifecycle in the consumer's existing event loop. A connectivity service
 can own Wi-Fi/BLE and add network selection/reconnect policy when needed.
 
-`app/camera-stream` composes the camera service with a caller-polled MJPEG
+`app/home-cam` composes the camera service with a caller-polled MJPEG
 server. `service/connectivity` adds Wi-Fi reconnect policy separately; neither
 component adds a service thread. Hardware, storage and time are injected, and
 platform configuration owns native driver resources. See the

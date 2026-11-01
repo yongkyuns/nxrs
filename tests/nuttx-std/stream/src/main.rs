@@ -12,7 +12,7 @@ mod model {
 #[cfg(target_os = "nuttx")]
 pub(crate) mod device {
     use camera::{Camera, JpegQuality};
-    use camera_stream::{LiveCamera, StreamOutput, TlsOptions};
+    use home_cam::{LiveCamera, StreamOutput, TlsOptions};
     use connectivity_service::Reconnector;
     use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
@@ -43,7 +43,7 @@ pub(crate) mod device {
         fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
-    fn read_profile() -> Result<camera_stream::network::Profile, String> {
+    fn read_profile() -> Result<home_cam::network::Profile, String> {
         let mut ssid = [0; 32];
         let mut password = [0; 63];
         let (mut ssid_length, mut password_length) = (0, 0);
@@ -59,7 +59,7 @@ pub(crate) mod device {
         if result != 0 || ssid_length > 32 || password_length > 63 {
             return Err("credential input failed".into());
         }
-        camera_stream::network::Profile::new(
+        home_cam::network::Profile::new(
             &ssid[..ssid_length as usize],
             &password[..password_length as usize],
         )
@@ -276,7 +276,7 @@ pub(crate) mod device {
     }
 
     struct Options {
-        update: Option<camera_stream::update::Update>,
+        update: Option<home_cam::update::Update>,
         duration: super::session::Duration,
         reconnect: u64,
         detection_enabled: bool,
@@ -289,7 +289,7 @@ pub(crate) mod device {
     enum RunOutcome {
         Stopped,
         Renew,
-        Healthy(camera_stream::startup::Health),
+        Healthy(home_cam::startup::Health),
     }
 
     fn run_live<D, O, W, F>(
@@ -366,7 +366,7 @@ pub(crate) mod device {
                     },
                 )
                 .map_err(|error| format!("detection worker {error:?}"))?;
-                let detection = camera_stream::SecurityDetection::new(worker, Policy::default())
+                let detection = home_cam::SecurityDetection::new(worker, Policy::default())
                     .map_err(|error| format!("detection composition {error:?}"))?;
                 live.attach_detection(detection)
                     .map_err(|error| format!("detection attach {error:?}"))?;
@@ -389,7 +389,7 @@ pub(crate) mod device {
                 if options
                     .update
                     .as_ref()
-                    .is_some_and(camera_stream::update::Update::ready)
+                    .is_some_and(home_cam::update::Update::ready)
                 {
                     break;
                 }
@@ -435,7 +435,7 @@ pub(crate) mod device {
                     .map_err(|error| format!("stream {error:?}"))?;
                 if trial
                     && online
-                    && camera_stream::startup::healthy(&live, elapsed, STARTUP_HEALTH_AGE_MS)
+                    && home_cam::startup::healthy(&live, elapsed, STARTUP_HEALTH_AGE_MS)
                 {
                     break;
                 }
@@ -495,7 +495,7 @@ pub(crate) mod device {
             if options
                 .update
                 .as_ref()
-                .is_some_and(camera_stream::update::Update::ready)
+                .is_some_and(home_cam::update::Update::ready)
             {
                 return Ok(());
             }
@@ -522,7 +522,7 @@ pub(crate) mod device {
             && options.renew_after.is_some()
             && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2);
         let stopped = if trial && !renewal && result.is_ok() {
-            camera_stream::startup::retire_healthy(live, now(origin), STARTUP_HEALTH_AGE_MS)
+            home_cam::startup::retire_healthy(live, now(origin), STARTUP_HEALTH_AGE_MS)
                 .map(RunOutcome::Healthy)
                 .map_err(|error| format!("startup retirement {error:?}"))
         } else {
@@ -554,7 +554,7 @@ pub(crate) mod device {
             let watchdog =
                 watchdog::adopt().map_err(|error| format!("watchdog adopt {error:?}"))?;
             let boot = boot::open().map_err(|error| format!("boot open {error:?}"))?;
-            let trial = camera_stream::startup::Trial::begin(boot, watchdog)
+            let trial = home_cam::startup::Trial::begin(boot, watchdog)
                 .map_err(|error| format!("boot startup {error:?}"))?;
             trial
         } else {
@@ -636,7 +636,7 @@ pub(crate) mod device {
         };
         let saved = profile_store
             .as_mut()
-            .map(camera_stream::network::Profile::load)
+            .map(home_cam::network::Profile::load)
             .transpose()
             .map_err(|error| format!("config load {error:?}"))?
             .flatten();
@@ -667,7 +667,7 @@ pub(crate) mod device {
             options.update = if startup_mode && startup.is_none() {
                 // Product resource budget: 2 MiB slots, 8 KiB trailer reserve.
                 Some(
-                    camera_stream::update::Update::new(0x200000 - 8192, Duration::from_secs(120))
+                    home_cam::update::Update::new(0x200000 - 8192, Duration::from_secs(120))
                         .map_err(|error| format!("update setup {error:?}"))?,
                 )
             } else {
@@ -726,7 +726,7 @@ pub(crate) mod device {
                                 // Keep model observations schedulable during encryption.
                                 // SAFETY: target-header call affects this TLS worker only.
                                 if unsafe { camera_worker_priority(80) } != 0 {
-                                    return Err(camera_stream::Error::Worker);
+                                    return Err(home_cam::Error::Worker);
                                 }
                                 super::console::initialize(stop)
                             },
@@ -753,7 +753,7 @@ pub(crate) mod device {
                             || options
                                 .update
                                 .as_ref()
-                                .is_some_and(camera_stream::update::Update::ready)
+                                .is_some_and(home_cam::update::Update::ready)
                         {
                             break;
                         }
@@ -763,7 +763,7 @@ pub(crate) mod device {
                                 options.update = options
                                     .update
                                     .take()
-                                    .map(camera_stream::update::Update::renew)
+                                    .map(home_cam::update::Update::renew)
                                     .transpose()
                                     .map_err(|error| format!("update renewal {error:?}"))?;
                                 tls_stop.store(0, Ordering::Release);
@@ -836,7 +836,7 @@ pub(crate) mod device {
             if let Some(update) = options
                 .update
                 .take()
-                .filter(camera_stream::update::Update::ready)
+                .filter(home_cam::update::Update::ready)
             {
                 use boot::Control;
                 let mut boot = boot::open().map_err(|error| format!("update boot {error:?}"))?;

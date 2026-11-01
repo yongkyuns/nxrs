@@ -123,7 +123,7 @@ python3 upstream/esp-dl/prepare.py
 python3 tests/detection/check_product_composition.py
 NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features pico-model,person-model
 NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-detector -p nxrs-detection-service \
-  -p nxrs-camera-stream --all-targets \
+  -p nxrs-home-cam --all-targets \
   --features nxrs-detector/pico-model,nxrs-detector/person-model -- -D warnings
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_architecture.py
