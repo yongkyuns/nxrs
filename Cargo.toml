@@ -13,6 +13,7 @@ members = [
     "service/camera",
     "service/detection",
     "service/detection-wire",
+    "service/firmware-update",
     "service/stream",
     "service/connectivity",
     "service/event",

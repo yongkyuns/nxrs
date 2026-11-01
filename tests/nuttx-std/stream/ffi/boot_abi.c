@@ -1,5 +1,6 @@
 /* SDK witness only; it exports no production C HAL interface. */
 #include <bootutil/bootutil_public.h>
+#include <nuttx/arch.h>
 #include <stddef.h>
 #include <sys/types.h>
 #include <flash_map_backend/flash_map_backend.h>
@@ -23,6 +24,10 @@ _Static_assert(BOOT_MAX_ALIGN == 32 && CONFIG_ESP32S3_SPIFLASH_MTD_BLKSIZE == 32
 _Static_assert(BOOT_MAX_ALIGN == 8, "unencrypted trailer geometry");
 #endif
 _Static_assert(sizeof(int) == 4, "Rust c_int ABI");
+/* Include the noreturn type attribute used by the target header. */
+extern void reset_abi_expected(void) noreturn_function;
+_Static_assert(__builtin_types_compatible_p(__typeof__(&up_systemreset), __typeof__(&reset_abi_expected)),
+               "reset ABI");
 _Static_assert(BOOT_SWAP_TYPE_NONE == 1 && BOOT_SWAP_TYPE_TEST == 2 &&
                BOOT_SWAP_TYPE_REVERT == 4, "MCUboot state binding drift");
 _Static_assert(__builtin_types_compatible_p(__typeof__(&boot_swap_type_multi),

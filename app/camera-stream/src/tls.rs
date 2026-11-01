@@ -1,6 +1,7 @@
 //! One TLS owner; capture uses only try-lock transfers of bounded owned data.
 use crate::Error;
 use camera::{Capture, Frame};
+use std::io::{self, Read};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -27,6 +28,7 @@ pub struct TlsIdentity<T> {
 struct Context<T> {
     identity: ::tls::Identity,
     time: T,
+    request_timeout: Duration,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct TlsOptions {
@@ -48,6 +50,7 @@ struct Packet<B> {
     epoch: usize,
 }
 struct State<B> {
+    update: Option<crate::update::Update>,
     pending: Option<Packet<B>>,
     returned: Option<Packet<B>>,
     clock: Option<(u64, Instant)>,
@@ -74,6 +77,17 @@ pub struct Worker<B> {
     skipped_busy: u64,
 }
 impl<B> Worker<B> {
+    pub fn enable_updates(&mut self, update: crate::update::Update) -> Result<(), Error> {
+        if self.last_now.is_some() || self.stopped() {
+            return Err(Error::Worker);
+        }
+        let mut state = lock(&self.shared);
+        if state.update.is_some() {
+            return Err(Error::Worker);
+        }
+        state.update = Some(update);
+        Ok(())
+    }
     pub fn stats(&self) -> (ServerStats, TlsStats) {
         let mut stats = self.stats;
         stats.1.skipped_busy = self.skipped_busy;
@@ -148,6 +162,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
         listener.set_nonblocking(true).map_err(Error::Network)?;
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
+                update: None,
                 pending: None,
                 returned: None,
                 clock: None,
@@ -186,6 +201,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                     Ok(Context {
                         identity: context.identity,
                         time: context.time,
+                        request_timeout: Duration::from_millis(options.request_timeout_ms),
                     })
                 });
                 let context = match context {
@@ -440,8 +456,67 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
         }
     }
     counters.tls.handshakes = counters.tls.handshakes.saturating_add(1);
+    // Multiplex only after exact enrolled-peer authentication. Preserve GET's
+    // inspected prefix for the existing HTTP parser; no extra TLS context.
+    let update = lock(shared).update.clone();
+    let request_now = now(shared);
+    let deadline = Instant::now() + context.request_timeout;
+    let mut prefix = [0; 4];
+    let mut used = 0;
+    while update.is_some() && used < prefix.len() {
+        if !current(shared, epoch) {
+            return (storage, Ok(()));
+        }
+        if Instant::now() >= deadline {
+            return (storage, Err(::tls::Error::Io));
+        }
+        match connection.read(&mut prefix[used..]) {
+            Ok(0) => return (storage, Ok(())),
+            Ok(n) => used += n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) =>
+            {
+                thread::park_timeout(resources.poll_interval)
+            }
+            Err(_) => return (storage, Err(::tls::Error::Io)),
+        }
+    }
+    if used == prefix.len() && &prefix == firmware_update::REQUEST {
+        let Some(update) = update.filter(|v| !v.ready()) else {
+            return (storage, Err(::tls::Error::InvalidInput));
+        };
+        let deadline = Instant::now() + update.timeout();
+        let mut refreshed = Instant::now();
+        let image = firmware_update::receive(&mut connection, update.maximum(), |connection| {
+            if !current(shared, epoch) {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            if refreshed.elapsed() >= Duration::from_secs(1) {
+                let time = (context.time)().map_err(|_| io::ErrorKind::PermissionDenied)?;
+                connection
+                    .refresh_time(time)
+                    .map_err(|_| io::ErrorKind::PermissionDenied)?;
+                refreshed = Instant::now();
+            }
+            thread::park_timeout(resources.poll_interval);
+            Ok(())
+        });
+        return match image {
+            Ok(image) => {
+                update.received(image);
+                (storage, Ok(()))
+            }
+            Err(_) => (storage, Err(::tls::Error::Io)),
+        };
+    }
     let mut http = storage.retire();
-    http.accept(connection, now(shared));
+    http.accept_with_prefix(connection, request_now, &prefix[..used]);
     let mut refreshed = Instant::now();
     let result = loop {
         if !current(shared, epoch) {
@@ -535,6 +610,7 @@ mod tests {
     fn preempted_mailbox_does_not_block_capture_or_hide_network_transitions() {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::<[u8; 4]> {
+                update: None,
                 pending: None,
                 returned: None,
                 clock: None,

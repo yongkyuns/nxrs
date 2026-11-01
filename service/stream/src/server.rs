@@ -257,6 +257,15 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
     /// closed immediately. A backwards clock closes both arrivals and active
     /// clients. TLS callers complete peer authentication first.
     pub fn accept(&mut self, socket: W, now_ms: u64) -> bool {
+        self.accept_with_prefix(socket, now_ms, &[])
+    }
+
+    /// Preserve up to four bytes inspected by an authenticated protocol router.
+    /// This is a partial method prefix, never a complete buffered HTTP request.
+    pub fn accept_with_prefix(&mut self, socket: W, now_ms: u64, prefix: &[u8]) -> bool {
+        if prefix.len() > 4 {
+            return false;
+        }
         if !self.advance_clock(now_ms) {
             return false;
         }
@@ -265,9 +274,10 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             return false;
         }
         self.stats.accepted = self.stats.accepted.saturating_add(1);
+        self.request_bytes[..prefix.len()].copy_from_slice(prefix);
         self.client = Some(Client::Request(Request {
             socket,
-            length: 0,
+            length: prefix.len(),
             deadline: now_ms.saturating_add(self.options.request_timeout_ms),
         }));
         true

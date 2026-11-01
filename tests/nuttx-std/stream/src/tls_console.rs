@@ -160,6 +160,19 @@ mod device {
         Ok(())
     }
 
+    pub fn prepare_reboot() -> Result<(), camera_stream::Error> {
+        use std::os::fd::AsFd;
+        let _raw = Raw::enter()?;
+        let descriptor = std::io::stdin().as_fd().try_clone_to_owned().map_err(|_| invalid())?;
+        let mut input = std::fs::File::from(descriptor);
+        println!("NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1");
+        std::io::stdout().flush().map_err(|_| invalid())?;
+        let mut ack = [0; 4];
+        read_exact(&mut input, &mut ack, Instant::now() + Duration::from_secs(30))?;
+        if &ack != b"NXRB" { return Err(invalid()); }
+        Ok(())
+    }
+
     pub fn initialize(
         stop: Arc<AtomicU8>,
     ) -> Result<TlsIdentity<impl FnMut() -> Result<tls::TimeLease, tls::Error>>, camera_stream::Error>
@@ -262,7 +275,7 @@ mod device {
 }
 
 #[cfg(target_os = "nuttx")]
-pub use device::initialize;
+pub use device::{initialize, prepare_reboot};
 
 #[cfg(test)]
 mod tests {

@@ -9,14 +9,22 @@ async fn execute() -> Result<()> {
     let path=PathBuf::from(args.next().ok_or(Error::Configuration)?);
     let mut require_tls = false;
     let mut check = false;
-    for flag in args {
+    let mut update = None;
+    while let Some(flag) = args.next() {
         if flag == "--require-camera-tls" && !require_tls { require_tls = true; }
         else if flag == "--check-config" && !check { check = true; }
+        else if flag == "--update" && update.is_none() { update = Some(PathBuf::from(args.next().ok_or(Error::Configuration)?)); }
         else { return Err(Error::Configuration); }
     }
     let config=Config::load(&path)?;
     if require_tls && config.camera_tls.is_none() { return Err(Error::Configuration); }
+    if check && update.is_some() { return Err(Error::Configuration); }
     if check { return nxrs_camera_ingest::check(&config); }
+    if let Some(image) = update {
+        nxrs_camera_ingest::update::upload(&config, &image).await?;
+        println!("Firmware received; installation and trial confirmation are pending.");
+        return Ok(());
+    }
     let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let (stop,rx)=watch::channel(false);
     let signal=tokio::spawn(async move {

@@ -61,10 +61,14 @@ class SessionTests(unittest.TestCase):
 
     def test_tls_trial_confirmation_reenrolls_but_other_exits_fail(self):
         marker = 'NXRS_STARTUP_CONFIRMED joined=1 resumed=1 watchdog_stopped=1'
-        for events, failure, stop_at, accepted in (
-                ([marker], None, None, True), ([marker], None, 'confirmation', True),
-                ([], None, 'shutdown', True), ([], None, None, False),
-                ([marker], 'device failure', None, False)):
+        reboot = 'NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1'
+        for events, failure, stop_at, accepted, firmware in (
+                ([marker], None, None, True, False), ([marker], None, 'confirmation', True, False),
+                ([], None, 'shutdown', True, False), ([], None, None, False, False),
+                ([marker], 'device failure', None, False, False),
+                ([reboot], None, None, True, True), ([], None, None, False, True),
+                ([reboot], None, 'cleanup', False, True),
+                ([reboot], 'device failure', None, False, True)):
             with self.subTest(events=events, failure=failure, stop_at=stop_at), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 config = root / 'config.json'
@@ -73,7 +77,7 @@ class SessionTests(unittest.TestCase):
                     allow_insecure_camera_http=False, camera_tls=dict(site_id='s', camera_id='c', gateway_id='g')))))
                 config.chmod(0o600)
                 stop, emitted, readers = threading.Event(), [], []
-                console = Console([b''], initial=b'NXRS_WIFI_CREDENTIALS_READY')
+                console = Console([b'', b''], initial=b'NXRS_WIFI_CREDENTIALS_READY')
                 def supervisor(*args, **kwargs):
                     first = not readers
                     reader = Mock(failure=failure if first else None,
@@ -84,17 +88,21 @@ class SessionTests(unittest.TestCase):
                     reader.shutdown.side_effect = lambda **kw: reader.events.append(
                         marker if first and stop_at == 'shutdown' else 'NXRS_TLS_CAMERA_PASS stopped=1 joined=1')
                     readers.append(reader)
-                    if len(readers) == 2 or stop_at == 'shutdown':
+                    if len(readers) == 2 or stop_at in ('shutdown', 'cleanup'):
                         stop.set()
                     return reader
                 def emit(event, **kwargs):
                     emitted.append(event)
+                    if event == 'firmware_reboot':
+                        console.chunks.append(b'NXRS_WIFI_CREDENTIALS_READY')
                     if event == 'startup_confirmed' and stop_at == 'confirmation':
                         stop.set()
                 tls = SimpleNamespace(Supervisor=supervisor, INIT_TIMEOUT=1,
                                       private=lambda path, value: path.write_text(value))
                 child = Mock()
-                child.poll.return_value = None
+                child.poll.side_effect = lambda: 0 if firmware and len(readers) == 1 and stop_at != 'cleanup' else None
+                if stop_at == 'cleanup':
+                    child.wait.side_effect = [SERVE.subprocess.TimeoutExpired('ingest', 10), 0]
                 with patch.object(SERVE, 'identity', return_value=(0x303a, 0x1001, 'camera')), \
                      patch.dict(sys.modules, serial=SimpleNamespace(Serial=Mock(return_value=console))), \
                      patch.object(SERVE.importlib.util, 'spec_from_file_location'), \
@@ -103,16 +111,19 @@ class SessionTests(unittest.TestCase):
                      patch.object(SERVE.subprocess, 'Popen', return_value=child):
                     def run():
                         SERVE.supervise_tls('port', CREDENTIALS, config,
-                            emit, stop, autostart=True)
+                            emit, stop, autostart=True, firmware='candidate.bin' if firmware else None)
                     if accepted:
                         run()
                         self.assertEqual(len(readers), 2)
-                        self.assertIn('startup_confirmed', emitted)
+                        self.assertIn('firmware_reboot' if firmware else 'startup_confirmed', emitted)
                         readers[-1].shutdown.assert_called_once_with(renew=False)
-                        self.assertEqual(console.writes, [bytes((3, 9)) + b'labsecret123'])
+                        credential_frame = bytes((3, 9)) + b'labsecret123'
+                        self.assertEqual(console.writes, [credential_frame, b'NXRB', credential_frame]
+                                         if firmware else [credential_frame])
                     else:
                         with self.assertRaises(RuntimeError):
                             run()
+                        self.assertNotIn(b'NXRB', console.writes)
                         self.assertNotIn('startup_confirmed', emitted)
 
     def test_auxiliary_metrics_cannot_renew_stream_health(self):

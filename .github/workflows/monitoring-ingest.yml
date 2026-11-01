@@ -19,6 +19,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'service/detection-wire/**'
+      - 'service/firmware-update/**'
       - 'docs/detection-protocol*'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'

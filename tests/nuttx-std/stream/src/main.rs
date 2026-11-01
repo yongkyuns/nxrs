@@ -302,6 +302,7 @@ pub(crate) mod device {
     }
 
     struct Options {
+        update: Option<camera_stream::update::Update>,
         duration: super::session::Duration,
         reconnect: u64,
         detection_enabled: bool,
@@ -405,6 +406,13 @@ pub(crate) mod device {
             report(&live, 0, false, 0, 0, &mut measurement)?;
             loop {
                 let elapsed = now(origin);
+                if options
+                    .update
+                    .as_ref()
+                    .is_some_and(camera_stream::update::Update::ready)
+                {
+                    break;
+                }
                 if duration.expired(elapsed.saturating_sub(started)) {
                     break;
                 }
@@ -504,6 +512,13 @@ pub(crate) mod device {
                 &mut measurement,
             )?;
             let stats = live.stats();
+            if options
+                .update
+                .as_ref()
+                .is_some_and(camera_stream::update::Update::ready)
+            {
+                return Ok(());
+            }
             if stats.captured == 0 || stats.stream.frames_completed == 0 {
                 return Err("no delivered frames".into());
             }
@@ -614,7 +629,8 @@ pub(crate) mod device {
         .map_err(|_| "JPEG quality must be 1..100")?;
 
         let port = if tls_mode { 8443 } else { 8080 };
-        let options = Options {
+        let mut options = Options {
+            update: None,
             duration,
             reconnect,
             detection_enabled,
@@ -630,6 +646,15 @@ pub(crate) mod device {
         // joins before Wi-Fi quiescence, leaving no active accept loop.
         let mut listener = None;
         loop {
+            options.update = if startup_mode && startup.is_none() {
+                // Product resource budget: 2 MiB slots, 8 KiB trailer reserve.
+                Some(
+                    camera_stream::update::Update::new(0x200000 - 8192, Duration::from_secs(120))
+                        .map_err(|error| format!("update setup {error:?}"))?,
+                )
+            } else {
+                None
+            };
             let (sender, receiver) = sync_channel(8);
             stage("wifi_open");
             let controller = wifi::open(Sink {
@@ -663,7 +688,7 @@ pub(crate) mod device {
                             .map_err(|error| format!("JPEG quality {error:?}"))?;
                         stage("pipeline_setup");
                         let stop = tls_stop.clone();
-                        let live = LiveCamera::<_, BYTES, _>::new_tls(
+                        let mut live = LiveCamera::<_, BYTES, _>::new_tls(
                             device,
                             listener
                                 .try_clone()
@@ -684,6 +709,10 @@ pub(crate) mod device {
                             },
                         )
                         .map_err(|error| format!("TLS composition {error:?}"))?;
+                        if let Some(update) = &options.update {
+                            live.enable_updates(update.clone())
+                                .map_err(|error| format!("update receiver {error:?}"))?;
+                        }
                         startup_health = run_live(
                             live,
                             &mut network,
@@ -693,7 +722,12 @@ pub(crate) mod device {
                             origin,
                             startup.is_some(),
                         )?;
-                        if startup_health.is_some() {
+                        if startup_health.is_some()
+                            || options
+                                .update
+                                .as_ref()
+                                .is_some_and(camera_stream::update::Update::ready)
+                        {
                             break;
                         }
                         match tls_stop.load(Ordering::Acquire) {
@@ -745,6 +779,26 @@ pub(crate) mod device {
             operation?;
             stop_result?;
             joined?;
+            if let Some(update) = options
+                .update
+                .take()
+                .filter(camera_stream::update::Update::ready)
+            {
+                use boot::Control;
+                let mut boot = boot::open().map_err(|error| format!("update boot {error:?}"))?;
+                let mut quiet = wifi::open_for_quiescence()
+                    .map_err(|error| format!("update maintenance {error:?}"))?;
+                update
+                    .stage(&mut boot, &mut quiet)
+                    .map_err(|error| format!("update stage {error:?}"))?;
+                drop(quiet);
+                // All data-plane owners have joined, and Pending was read back.
+                super::console::prepare_reboot().map_err(|error| format!("update reboot handoff {error:?}"))?;
+                let never = boot
+                    .reboot()
+                    .map_err(|error| format!("update reset {error:?}"))?;
+                match never {}
+            }
             if let Some(health) = startup_health {
                 let trial = startup.take().ok_or("missing trial owner")?;
                 let mut quiet = wifi::open_for_quiescence()

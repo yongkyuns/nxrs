@@ -1,6 +1,6 @@
 use crate::{
-    Control, DeviceError, State,
     control::{Backend, Owner},
+    Control, DeviceError, State,
 };
 use core::cell::Cell;
 use core::marker::PhantomData;
@@ -18,6 +18,9 @@ impl Drop for Provider {
     }
 }
 impl Backend for Provider {
+    fn reboot(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        ffi::reboot()
+    }
     type Slot = ffi::Secondary;
     fn secondary(&mut self) -> Result<Self::Slot, DeviceError> {
         ffi::Secondary::open()

@@ -7,6 +7,7 @@ on:
       - 'app/camera-stream/**'
       - 'service/detection/**'
       - 'service/detection-wire/**'
+      - 'service/firmware-update/**'
       - 'hal/detector/**'
       - 'upstream/esp-dl/**'
       - 'hal/ffi-boundaries.toml'
@@ -84,7 +85,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Actual models, ownership, alerts and shutdown
         run: |
-          cargo test --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
+          cargo test --locked -p nxrs-firmware-update -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
             --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe
           cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
             --all-targets --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe -- -D warnings

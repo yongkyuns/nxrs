@@ -166,9 +166,38 @@ qualification tool, not network OTA delivery.
 The USB qualification reader returns at `NXRS_STARTUP_CONFIRMED`, preserving
 the next pipeline's CSR for a new enrollment reader on the same serial connection.
 
+## OTA delivery
+
+The signed startup camera accepts one bounded firmware upload from its approved
+mutual-TLS gateway peer on port 8443. Firmware reception allocates at most the
+product's 2 MiB minus 8 KiB limit in RAM; it never writes flash while receiving.
+After the sender acknowledges receipt, the camera joins capture, TLS, detection
+and Wi-Fi, quiesces the radio, stages through `hal/boot`, requests a trial and
+checks Pending. MCUboot authenticates the image after reset. A failed transfer
+does not request a trial; an unauthentic image is rejected by MCUboot.
+
+Install an OTA-enabled signed image once through the existing factory process.
+For subsequent updates, run the existing USB supervisor as the sole owner at
+the camera's next boot, adding `--autostart --firmware /path/to/nuttx.signed.bin`
+to its normal TLS arguments. It invokes the Rust gateway uploader before media
+ingest, acknowledges the joined/Pending reboot handoff, supplies credentials and
+fresh enrollment after reset, then supervises trial confirmation and video.
+The reboot acknowledgement has a 30-second deadline; missing acknowledgement
+leaves Pending without resetting. USB-assisted enrollment remains required.
+
+The Rust operation is `nxrs-camera-ingest INGEST_JSON --require-camera-tls
+--update SIGNED_IMAGE`. Use it with the current enrollment and no active video
+connection; the supervised command above coordinates those lifetimes. Its success
+means RAM delivery, with installation/confirmation still pending. Use a regular
+local image file: the network deadline does not bound stalled filesystem I/O.
+The versioned
+wire contract is shared in `service/firmware-update`: `NXU1`, receiver `NXRD` plus
+maximum length, sender length/image/`DONE`, receiver `NXOK`, then sender `CMIT`.
+No hardware protection setting or eFuse is changed.
+
 These builds do **not** enable hardware secure boot or flash encryption,
-install the bootloader, advance a hardware monotonic counter, or
-provide network update delivery. Remaining physical flash-operation quiescence
+install the bootloader or advance a hardware monotonic counter.
+Remaining physical flash-operation quiescence
 and encrypted interruption qualification keep protected runtime admission closed
 in [#34](https://github.com/yongkyuns/nxrs/issues/34).
 No eFuse or debug/download setting is changed by these build commands.

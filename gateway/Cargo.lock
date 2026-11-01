@@ -457,12 +457,16 @@ version = "0.1.0"
 [[package]]
 name = "nxrs-camera-ingest"
 version = "0.1.0"
-dependencies = ["getrandom 0.3.4", "libc", "nxrs-detection-wire", "rustls", "serde", "serde_json", "sha2", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
+dependencies = ["getrandom 0.3.4", "libc", "nxrs-detection-wire", "nxrs-firmware-update", "rustls", "serde", "serde_json", "sha2", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
 
 [[package]]
 name = "nxrs-detection-wire"
 version = "0.1.0"
 dependencies = ["serde", "serde_json"]
+
+[[package]]
+name = "nxrs-firmware-update"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-gateway-control"

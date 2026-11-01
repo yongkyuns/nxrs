@@ -1,0 +1,8 @@
+[package]
+name = "nxrs-firmware-update"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "firmware_update"
