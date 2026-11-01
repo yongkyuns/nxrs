@@ -17,7 +17,8 @@ time_t tls_platform_time(time_t *output);
 #define PSA_WANT_ALG_TLS12_PRF 1
 #define PSA_WANT_KEY_TYPE_HMAC 1
 #define MBEDTLS_PSA_RNG_RESEED_INTERVAL 1024
-#define MBEDTLS_PSA_KEY_SLOT_COUNT 8
+/* One identity plus the enrolled media and short bootstrap TLS contexts. */
+#define MBEDTLS_PSA_KEY_SLOT_COUNT 16
 #define PSA_WANT_ALG_SHA_256 1
 #define PSA_WANT_ALG_ECDSA 1
 #define PSA_WANT_ALG_ECDH 1

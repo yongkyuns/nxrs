@@ -1,5 +1,6 @@
 """Real SDK server against independent OpenSSL TLS; private synthetic PKI only."""
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -10,6 +11,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -20,6 +22,75 @@ from tls_reference import Credentials, private
 
 class Sessions(unittest.TestCase):
     binary = Path(os.environ.get('NXRS_TLS_ENDPOINT', ROOT/'target/debug/tls-endpoint'))
+
+    def test_pinned_bootstrap_needs_no_utc_and_rejects_other_peers_before_credentials(self):
+        for wrong_pin, delayed in ((False, False), (True, False), (False, True)):
+            with self.subTest(wrong_pin=wrong_pin, delayed=delayed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                credentials = Credentials(root)
+                credentials.issue('expired', expired=True)
+                certificate = ssl.PEM_cert_to_DER_cert((root/'expired.pem').read_text())
+                pin = hashlib.sha256(certificate).digest()
+                if wrong_pin: pin = bytes([pin[0] ^ 1]) + pin[1:]
+                private(root/'gateway-pin', pin)
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
+                context.load_cert_chain(root/'expired.pem', root/'expired.key')
+                received, faults = [], []
+                with socket.socket() as server:
+                    server.bind(('127.0.0.1', 0));server.listen();server.settimeout(5)
+                    private(root/'gateway-address', f'127.0.0.1:{server.getsockname()[1]}')
+                    def serve():
+                        try:
+                            with server.accept()[0] as raw, context.wrap_socket(raw, server_side=True) as client:
+                                client.settimeout(3)
+                                received.append(client.recv(32))
+                                if delayed: time.sleep(.2)
+                                if not wrong_pin: client.sendall(bytes([42]))
+                        except (ssl.SSLError, ConnectionError, OSError) as error:
+                            if not wrong_pin and not delayed: faults.append(type(error).__name__)
+                    thread = threading.Thread(target=serve);thread.start()
+                    try:
+                        result = subprocess.run([str(self.binary), str(root), '100' if delayed else '3000', 'bootstrap'],
+                                                capture_output=True, text=True, timeout=6)
+                    finally:
+                        thread.join(timeout=5)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(faults, faults)
+                    if wrong_pin:
+                        self.assertEqual(received, [b''])
+                        self.assertIn('Err(Authentication)', result.stdout)
+                    else:
+                        self.assertEqual(received, [b'credential'])
+                        self.assertIn('Err(Time)' if delayed else 'Ok(())', result.stdout)
+
+    def test_pinned_exchange_preserves_a_live_enrolled_connection_and_key(self):
+        root, process, credentials, error = self.start(case='interleave')
+        credentials.issue('bootstrap')
+        private(root/'gateway-pin', hashlib.sha256(ssl.PEM_cert_to_DER_cert((root/'bootstrap.pem').read_text())).digest())
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
+        context.load_cert_chain(root/'bootstrap.pem', root/'bootstrap.key')
+        received = []
+        with socket.socket() as server:
+            server.bind(('127.0.0.1', 0));server.listen();server.settimeout(5)
+            private(root/'gateway-address', f'127.0.0.1:{server.getsockname()[1]}')
+            def serve():
+                with server.accept()[0] as raw, context.wrap_socket(raw, server_side=True) as client:
+                    client.settimeout(3)
+                    received.append(client.recv(32));client.sendall(bytes([42]))
+            thread = threading.Thread(target=serve);thread.start()
+            try:
+                host, port = self.load(root, process, credentials)
+                with socket.create_connection((host, port), timeout=3) as raw:
+                    with self.context(root, ssl.TLSVersion.TLSv1_3).wrap_socket(raw, server_hostname='127.0.0.1') as client:
+                        client.sendall(b'ping\n')
+                        self.assertEqual(client.recv(5), b'pong\n')
+                self.result(root, process, credentials, error, accepted=True)
+            finally: thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(received, [b'credential'])
 
     def start(self, *, age=30000, case='echo'):
         directory = tempfile.TemporaryDirectory(prefix='nxrs-sdk-session-')

@@ -43,6 +43,20 @@ each admission and time refresh checks certificate/CRL deadlines. Failed
 reconfiguration clears the previous enrollment. Configuration retires before
 its borrowed key, and the camera worker releases input DER copies after setup.
 
+`Identity::connect_pinned` provides a separate TLS1.3 bootstrap client for an
+independently commissioned exact certificate DER SHA-256. Its trust comes from
+the pin and TLS proof of key possession; it does not require or assert trusted
+UTC, a CA chain or certificate validity dates. No application bytes are admitted
+until the complete handshake and pin comparison pass. A fixed monotonic lifetime
+of at most ten seconds bounds handshake and I/O. Tickets, PSK and early data
+remain disabled. Pin rotation requires an independently authorized commissioning
+path. Normal enrolled server connections retain their complete PKI/time checks.
+Both connection types share the existing bounded I/O and teardown code; one
+single-threaded identity can serve a short bootstrap exchange while its media
+connection exists. Sixteen fixed PSA key slots admit both contexts; the previous
+eight-slot budget fails the real interleaving witness. The caller owns the
+two-context resource/latency budget.
+
 Supply `TimeLease::from_trusted` with an authenticated UTC observation and a
 maximum age of at most 60 seconds. The adapter advances it monotonically, rounds
 uncertainty outward and refuses I/O at the earliest lease/certificate/CRL deadline.
