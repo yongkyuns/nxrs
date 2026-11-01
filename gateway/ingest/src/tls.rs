@@ -305,6 +305,8 @@ impl Prepared {
         tls.resumption = Resumption::disabled();
         tls.enable_early_data = false;
         tls.require_ems = true;
+        // Match the camera's bounded Mbed TLS receive record buffer.
+        tls.max_fragment_size = Some(4096);
         let remaining = Duration::from_secs(until)
             .checked_sub(now)
             .ok_or(Error::Authentication)?;

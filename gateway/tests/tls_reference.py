@@ -215,6 +215,11 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
             context.load_cert_chain(self.root/(certificate+'.pem'), self.root/(certificate+'.key'))
             context.load_verify_locations(cafile=self.root/'ca.pem')
             context.verify_mode = ssl.CERT_REQUIRED
+            self.inbound_records = []
+            def record(_connection, direction, _version, content_type, _message_type, data):
+                if direction == 'read' and content_type == 256:  # TLS record header.
+                    self.inbound_records.append(int.from_bytes(data[3:5], 'big'))
+            context._msg_callback = record
         async def accept(reader, writer):
             task = asyncio.current_task()
             self.handlers.add(task)
@@ -234,7 +239,7 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
                 self.negotiated.add(writer.get_extra_info('ssl_object').version())
                 if mode == 'update':
                     self.assertEqual(await reader.readexactly(4), b'NXU1')
-                    writer.write(b'NXRD' + (64).to_bytes(4, 'big'))
+                    writer.write(b'NXRD' + (32768).to_bytes(4, 'big'))
                     await writer.drain()
                     length = int.from_bytes(await reader.readexactly(4), 'big')
                     self.updated = await reader.readexactly(length)
@@ -274,7 +279,7 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
     async def test_authenticated_firmware_upload_does_not_start_media_workers(self):
         await self.serve(mode='update')
         image = self.root/'firmware.bin'
-        payload = bytes.fromhex('3db8f396') + b'x' * 28
+        payload = bytes.fromhex('3db8f396') + b'x' * 30000
         private(image, payload)
         private(self.root/'config.json', json.dumps(self.config))
         self.process = await asyncio.create_subprocess_exec(str(INGEST), str(self.root/'config.json'),
@@ -282,6 +287,8 @@ class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
         output, error = await asyncio.wait_for(self.process.communicate(), 5)
         self.assertEqual(self.process.returncode, 0, error)
         self.assertEqual(self.updated, payload)
+        self.assertTrue(self.inbound_records)
+        self.assertLessEqual(max(self.inbound_records), 4096 + 256)  # Encrypted-record overhead.
         self.assertIn(b'installation and trial confirmation are pending', output)
         self.assertFalse(self.encoder_pid.exists())
         self.assertFalse(self.publisher_pid.exists())
