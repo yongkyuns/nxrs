@@ -1,0 +1,30 @@
+[package]
+name = "nxrs-camera-firmware"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "camera_firmware"
+
+[dependencies]
+nxrs-camera-stream = { path = "../../../app/camera-stream" }
+nxrs-config = { path = "../../../hal/config" }
+nxrs-boot = { path = "../../../hal/boot" }
+nxrs-watchdog = { path = "../../../hal/watchdog" }
+nxrs-detector = { path = "../../../hal/detector" }
+nxrs-camera = { path = "../../../hal/camera" }
+nxrs-wifi = { path = "../../../hal/wifi" }
+nxrs-tls = { path = "../../../hal/tls" }
+nxrs-connectivity-service = { path = "../../../service/connectivity" }
+nxrs-stream-service = { path = "../../../service/stream" }
+nxrs-detection-service = { path = "../../../service/detection" }
+
+[package.metadata.nxrs]
+required-capabilities = ["camera", "wifi", "tls", "config", "boot", "watchdog"]
+
+[package.metadata.nxrs.firmware]
+bin = "nxrs-camera-firmware"
+command = "camera"
+priority = 100
+stack-size = 32768
+target-c-sources = ["platform/nuttx/camera/src/platform/nuttx/ffi/startup.c"]

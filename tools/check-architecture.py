@@ -18,6 +18,7 @@ import tomllib
 
 ALLOWED = {
     'app': {'service', 'api', 'hal'},
+    'product': {'app', 'service', 'api', 'hal'},
     'service': {'service', 'api', 'hal'},
     'hal': {'api', 'hal', 'driver', 'support'},
     'api': {'api'},
@@ -26,9 +27,9 @@ ALLOWED = {
     'mock': {'api'},
     'driver': {'api', 'driver'},
     'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform'},
-    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test'},
+    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'product', 'test'},
 }
-PORTABLE = {'app', 'service', 'hal', 'api'}
+PORTABLE = {'app', 'service', 'hal', 'api', 'product'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
@@ -50,6 +51,8 @@ def layer(path: Path) -> str:
     parts = path.parts
     if not parts:
         raise ValueError('a package cannot live at the virtual workspace root')
+    if len(parts) == 3 and parts[:2] == ('platform', 'nuttx'):
+        return 'product'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
             return 'api'
@@ -110,7 +113,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
         if identity not in paths:
             continue
         path = paths[identity]
-        if path.parts[:2] in {('tests', 'nuttx'), ('tests', 'nuttx-std')}:
+        if roles[identity] == 'product' or path.parts[:2] in {('tests', 'nuttx'), ('tests', 'nuttx-std')}:
             errors.append(f'{path}: target-only package must not be a default member')
     return errors
 
@@ -160,23 +163,27 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
         if role not in PORTABLE:
             continue
         has_binary = any('bin' in target.get('kind', []) for target in package.get('targets', [{'kind': ['bin']}]))
-        if role == 'app' and has_binary:
+        if role in {'app', 'product'} and has_binary:
             source = directory / 'src/main.rs'
             text = source.read_text(encoding='utf-8') if source.is_file() else ''
             if not re.search(r'\bfn\s+main\s*\(', text) or '#![forbid(unsafe_code)]' not in text:
                 errors.append(f"{package['name']}: app must own a safe handwritten src/main.rs")
         source = directory / 'src/lib.rs'
-        if role == 'app' and has_binary and not source.is_file():
+        if role in {'app', 'product'} and has_binary and not source.is_file():
             continue
         text = source.read_text(encoding='utf-8') if source.is_file() else ''
-        markers = ['#![deny(unsafe_code)]' if role == 'hal' else '#![forbid(unsafe_code)]']
+        markers = ['#![deny(unsafe_code)]' if role in {'hal', 'product'} else '#![forbid(unsafe_code)]']
         if role in {'api', 'hal'}:
             markers.insert(0, '#![no_std]')
         for marker in markers:
             if marker not in text:
                 qualifier = 'service library' if role == 'service' else 'portable library'
                 errors.append(f"{package['name']}: {qualifier} must retain {marker}")
-        if role in {'service', 'app'}:
+        if role == 'product':
+            for controller in (directory / 'src').glob('*.rs'):
+                if controller.name not in {'lib.rs', 'main.rs'} and '#![forbid(unsafe_code)]' not in controller.read_text():
+                    errors.append(f'{controller.relative_to(root)}: product controllers must forbid unsafe code')
+        if role in {'service', 'app', 'product'}:
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             for dep in package['dependencies']:
                 if (dep.get('kind') == 'dev' or not dep.get('path')
@@ -270,13 +277,15 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if path in declared:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
-    actual = {path.relative_to(root).as_posix(): path for path in (root / 'hal').rglob('*')
+    native_roots = [root / 'hal', *(root / 'platform/nuttx').glob('*/src/platform')]
+    actual = {path.relative_to(root).as_posix(): path for native_root in native_roots for path in native_root.rglob('*')
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
-        if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
+        if not (re.fullmatch(r'platform/nuttx/[^/]+/src/platform/nuttx/ffi/.+', relative)
+                or re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'hal/detector/src/compute/esp_dl/ffi/.+', relative)
                 or re.fullmatch(r'hal/tls/src/sdk/ffi/.+', relative)):
             errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')

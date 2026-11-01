@@ -122,7 +122,15 @@ fn load_app(root: &Path, app: &str) -> Result<AppConfig, String> {
     if !valid_name(app) {
         return Err(format!("invalid app name: {app}"));
     }
-    let manifest = root.join("app").join(app).join("Cargo.toml");
+    let candidates = [
+        root.join("app").join(app).join("Cargo.toml"),
+        root.join("platform/nuttx").join(app).join("Cargo.toml"),
+    ];
+    let mut matches = candidates.into_iter().filter(|p| p.is_file());
+    let manifest = matches.next().ok_or_else(|| format!("unknown app {app}"))?;
+    if matches.next().is_some() {
+        return Err(format!("ambiguous app name {app}"));
+    }
     let text = fs::read_to_string(&manifest)
         .map_err(|error| format!("cannot read {}: {error}", manifest.display()))?;
 
@@ -156,11 +164,8 @@ fn load_app(root: &Path, app: &str) -> Result<AppConfig, String> {
     }
 
     let manifest_display = manifest.display().to_string();
-    let missing = |name: &str| {
-        format!(
-            "{manifest_display} is missing package.metadata.nxrs.firmware.{name}"
-        )
-    };
+    let missing =
+        |name: &str| format!("{manifest_display} is missing package.metadata.nxrs.firmware.{name}");
     let package = package.ok_or_else(|| format!("{manifest_display} is missing package.name"))?;
 
     Ok(AppConfig {
@@ -174,21 +179,27 @@ fn load_app(root: &Path, app: &str) -> Result<AppConfig, String> {
 }
 
 fn list_apps(root: &Path) -> Result<(), String> {
-    let app_root = root.join("app");
-    let entries = fs::read_dir(&app_root)
-        .map_err(|error| format!("cannot read {}: {error}", app_root.display()))?;
     let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if !entry.file_type().map_err(|error| error.to_string())?.is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if load_app(root, &name).is_ok() {
-            names.push(name);
+    for app_root in [root.join("app"), root.join("platform/nuttx")] {
+        let entries = fs::read_dir(&app_root)
+            .map_err(|error| format!("cannot read {}: {error}", app_root.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+            {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if load_app(root, &name).is_ok() {
+                names.push(name);
+            }
         }
     }
     names.sort();
+    names.dedup();
     for name in names {
         println!("{name}");
     }
@@ -331,7 +342,16 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_name;
+    use super::{load_app, valid_name};
+
+    #[test]
+    fn camera_product_is_discoverable() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let camera = load_app(&root, "camera").unwrap();
+        assert_eq!(camera.package, "nxrs-camera-firmware");
+        assert_eq!(camera.command, "camera");
+        assert_eq!((camera.priority, camera.stack_size), (100, 32768));
+    }
 
     #[test]
     fn names_are_path_safe() {

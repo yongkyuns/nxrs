@@ -226,6 +226,23 @@ name = "nxrs-camera"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-camera-firmware"
+version = "0.1.0"
+dependencies = [
+ "nxrs-boot",
+ "nxrs-camera",
+ "nxrs-camera-stream",
+ "nxrs-config",
+ "nxrs-connectivity-service",
+ "nxrs-detection-service",
+ "nxrs-detector",
+ "nxrs-stream-service",
+ "nxrs-tls",
+ "nxrs-watchdog",
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-camera-service"
 version = "0.1.0"
 dependencies = [

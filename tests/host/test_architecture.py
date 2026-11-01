@@ -59,6 +59,32 @@ class ArchitectureTests(unittest.TestCase):
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
 
+    def test_product_composition_is_downward_and_controllers_stay_safe(self):
+        product = self.package('product', 'platform/nuttx/camera')
+        self.metadata['packages'].append(product)
+        self.metadata['workspace_members'].append('product')
+        directory = Path(product['manifest_path']).parent
+        (directory / 'src/lib.rs').write_text('#![deny(unsafe_code)]\n')
+        (directory / 'src/main.rs').write_text('#![forbid(unsafe_code)]\nfn main() {}\n')
+        for target in ('app', 'service', 'camera'):
+            self.add('product', target)
+        self.assertEqual(self.violations(), [])
+        for source, target in [('product', 'test'), ('app', 'product'), ('service', 'product'),
+                               ('camera', 'product'), ('platform', 'product')]:
+            for extra in ({}, {'optional': True}, {'kind': 'build'}, {'target': 'cfg(unix)'}):
+                with self.subTest(edge=(source, target), extra=extra):
+                    before = copy.deepcopy(self.packages[source]['dependencies'])
+                    self.add(source, target, **extra)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'] = before
+        controller = directory / 'src/runtime.rs'
+        controller.write_text('fn run() {}\n')
+        self.assertTrue(self.violations())
+        controller.write_text('#![forbid(unsafe_code)]\nfn run() {}\n')
+        self.assertEqual(self.violations(), [])
+        self.metadata['workspace_default_members'].append('product')
+        self.assertTrue(self.violations())
+
     def test_shared_radio_delivery_contracts_are_only_reused_by_radio_hals(self):
         for name in ('wifi', 'ble'):
             self.package(name, f'hal/{name}')

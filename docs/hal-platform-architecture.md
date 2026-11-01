@@ -63,6 +63,19 @@ radio migration exceptions remain. The architecture audit checks that inventory
 and rejects platform selection in shared Rust modules.
 Inventory checks support review; they cannot prove that C code is mechanical.
 
+## Product entry
+
+`platform/nuttx/camera` is the camera's product composition root. Its safe
+handwritten entry and Rust lifecycle compose `app/camera-stream`, services and
+HALs; no lower layer depends back on the product. Reusable streaming, enrollment,
+OTA and startup health remain in their owning crates. The product fixes resource
+budgets and sequencing; qualification controls stay under `tests/`.
+Its private `src/platform/nuttx/ffi` translates only network initialization,
+calling-worker priority and console termios/poll operations against native
+headers. It implements no HAL capability. Product controllers forbid unsafe
+code; only the private ABI module allows it. The architecture audit enforces
+downward dependencies and inventories the native source.
+
 ## One platform selection
 
 The developer selects the application and a complete product platform:

@@ -5,11 +5,10 @@ ESP32-S3/OV3660 with NuttX 13.1.0, single-core at 240 MHz. The HTTP qualificatio
 below is a local-network prototype, not an authenticated home-monitoring product
 or a production-readiness claim.
 
-`build.sh` defaults to the signed `esp32s3-camera-stream-startup` profile with
-TLS autostart and trial confirmation. Supply the operator-owned signing inputs
-in [signed firmware updates](../../../docs/firmware-updates.md); the release
-artifact is `nuttx.signed.bin`, for the matching MCUboot loader. Missing inputs
-fail before building. The unsigned fixtures below require explicit profiles.
+The signed product entry lives in
+[`platform/nuttx/camera`](../../../platform/nuttx/camera), built with its `build.sh`.
+This fixture always requires an explicit `--platform`; it owns timed runs,
+forced reconnects, metrics, model witnesses and trusted-USB TLS controls.
 
 For bounded physical TLS qualification,
 `build.sh --tls --platform esp32s3-camera-tls` selects the existing shared
@@ -46,7 +45,7 @@ detector and media settings. The helper adds the issued certificate paths/pin,
 writes the complete `ingest.json`, and starts Rust with `--require-camera-tls`.
 Stop an existing ingest owner before starting this supervisor.
 
-For the default signed `esp32s3-camera-stream-startup` profile, add `--autostart`:
+For a qualification profile with `stream_test boot-tls continuous 0` as its init command, add `--autostart`:
 the helper waits for saved credentials or the firmware's credential reader
 without sending shell bytes. A successful trial joins its resources and confirms the image, then
 the same USB owner enrolls the recreated TLS session. Unexpected exits still
