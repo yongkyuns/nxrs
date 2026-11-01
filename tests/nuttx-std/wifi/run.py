@@ -38,7 +38,8 @@ def expected_packet(sequence):
     return sequence.to_bytes(4, "big") + bytes((offset + sequence) % 256 for offset in range(size - 4))
 
 
-def read_until(console, pending, marker, password, timeout):
+def read_until(console, pending, marker, password, timeout, *, read_size=512):
+    markers = (marker,) if isinstance(marker, bytes) else marker
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         # Never print or save raw console data, including failures.
@@ -60,12 +61,14 @@ def read_until(console, pending, marker, password, timeout):
             if arp:
                 suffix += f"; ARP wait error {int(arp[1])}"
             raise RuntimeError(f"device reported station failure; no pass{suffix}")
-        if marker in pending:
+        found = next((value for value in markers if value in pending), None)
+        if found is not None:
+            marker = found
             end = pending.index(marker) + len(marker)
             result = bytes(pending[:end])
             del pending[:end]
             return result
-        pending.extend(console.read(512))
+        pending.extend(console.read(read_size))
         if len(pending) > 8192:
             del pending[:-4096]
     raise RuntimeError("timed out waiting for the device test stage")

@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod detection;
+pub mod network;
 mod publication;
 pub mod startup;
 mod tls;

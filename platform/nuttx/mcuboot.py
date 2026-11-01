@@ -43,6 +43,13 @@ def application_config(platform: dict) -> dict[str, str]:
         })
     if platform["hal"].get("boot") == "nuttx":
         values.update({"BOOT_MCUBOOT": "y", "MCUBOOT_VERSION": f'"{MCUBOOT_REVISION}"'})
+    if platform["hal"].get("config") == "nuttx":
+        if platform["hal"].get("boot") != "nuttx" or protected(platform):
+            raise ValueError("camera config storage requires the unencrypted MCUboot layout")
+        # Two erase blocks, separate from firmware slots and swap scratch.
+        values.update({"MTD_CONFIG_NVS": "y", "MTD_CONFIG_NONE": "n",
+                       "MTD_CONFIG_NAMED": "y", "MTD_CONFIG_NAME_LEN": "32",
+                       "ESP32S3_STORAGE_MTD_SIZE": "0x2000"})
     if platform["hal"].get("watchdog") == "nuttx":
         if platform["hal"].get("boot") != "nuttx":
             raise ValueError("inherited boot watchdog requires boot control")

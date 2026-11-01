@@ -1,7 +1,7 @@
 # HAL and platform architecture
 
 Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
-`imu`, `gnss`, `camera`, `storage` and `transport`; Cargo package names
+`imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
 ## Required implementation boundaries

@@ -22,10 +22,7 @@ pub(crate) mod device {
         Arc,
     };
     use std::time::{Duration, Instant};
-    use wifi::{
-        Command, Credentials, DeliveryError, Event, EventSink, LinkState, Passphrase,
-        ProviderStatus, Rejected, Ssid,
-    };
+    use wifi::{Command, DeliveryError, Event, EventSink, LinkState, ProviderStatus, Rejected};
 
     const BYTES: usize = 320 * 240 * 2;
     const STARTUP_HEALTH_AGE_MS: u64 = 5000;
@@ -46,50 +43,27 @@ pub(crate) mod device {
         fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
-    struct Profile {
-        ssid: Ssid,
-        password: [u8; 63],
-        length: usize,
-    }
-    impl Profile {
-        fn read() -> Result<Self, String> {
-            let mut ssid = [0; 32];
-            let mut password = [0; 63];
-            let (mut ssid_length, mut password_length) = (0, 0);
-            // SAFETY: fixed-size writable arrays/scalars match the no-echo C ABI.
-            let result = unsafe {
-                nxrs_wifi_test_credentials(
-                    ssid.as_mut_ptr(),
-                    password.as_mut_ptr(),
-                    &mut ssid_length,
-                    &mut password_length,
-                )
-            };
-            if result != 0 || ssid_length > 32 || password_length > 63 {
-                return Err("credential input failed".into());
-            }
-            let ssid = Ssid::new(&ssid[..ssid_length as usize]).map_err(|_| "invalid SSID")?;
-            let profile = Self {
-                ssid,
-                password,
-                length: password_length as usize,
-            };
-            profile.command().map_err(|_| "invalid credentials")?;
-            Ok(profile)
+    fn read_profile() -> Result<camera_stream::network::Profile, String> {
+        let mut ssid = [0; 32];
+        let mut password = [0; 63];
+        let (mut ssid_length, mut password_length) = (0, 0);
+        // SAFETY: fixed-size writable arrays/scalars match the no-echo C ABI.
+        let result = unsafe {
+            nxrs_wifi_test_credentials(
+                ssid.as_mut_ptr(),
+                password.as_mut_ptr(),
+                &mut ssid_length,
+                &mut password_length,
+            )
+        };
+        if result != 0 || ssid_length > 32 || password_length > 63 {
+            return Err("credential input failed".into());
         }
-        fn command(&self) -> Result<Command, wifi::Error> {
-            let credentials = if self.length == 0 {
-                Credentials::Open
-            } else {
-                let text = std::str::from_utf8(&self.password[..self.length])
-                    .map_err(|_| wifi::Error::InvalidConfig)?;
-                Credentials::Wpa2Personal(Passphrase::new(text)?)
-            };
-            Ok(Command::Connect {
-                ssid: self.ssid,
-                credentials,
-            })
-        }
+        camera_stream::network::Profile::new(
+            &ssid[..ssid_length as usize],
+            &password[..password_length as usize],
+        )
+        .map_err(|_| "invalid credentials".into())
     }
 
     struct Sink {
@@ -562,11 +536,6 @@ pub(crate) mod device {
             let boot = boot::open().map_err(|error| format!("boot open {error:?}"))?;
             let trial = camera_stream::startup::Trial::begin(boot, watchdog)
                 .map_err(|error| format!("boot startup {error:?}"))?;
-            // SAFETY: existing synchronous NuttX network initialization. Board
-            // late initialization already registered the devices before entry.
-            if unsafe { stream_network_initialize() } != 0 {
-                return Err("network initialization failed".into());
-            }
             trial
         } else {
             None
@@ -640,7 +609,36 @@ pub(crate) mod device {
             port,
         };
         stage("credential_reader");
-        let profile = Profile::read()?;
+        let mut profile_store = if startup_mode {
+            Some(config::open().map_err(|error| format!("config open {error:?}"))?)
+        } else {
+            None
+        };
+        let saved = profile_store
+            .as_mut()
+            .map(camera_stream::network::Profile::load)
+            .transpose()
+            .map_err(|error| format!("config load {error:?}"))?
+            .flatten();
+        let mut provision = startup_mode && saved.is_none();
+        let profile = match saved {
+            Some(profile) => {
+                println!("NXRS_WIFI_CREDENTIALS_SAVED");
+                profile
+            }
+            None => read_profile()?,
+        };
+        if !provision {
+            drop(profile_store.take());
+        }
+        if startup_mode {
+            // Load NVS before bringing the interface up: even a corrupt-record
+            // read can write recovery metadata in the native store.
+            // SAFETY: board initialization registered the devices before entry.
+            if unsafe { stream_network_initialize() } != 0 {
+                return Err("network initialization failed".into());
+            }
+        }
         let origin = Instant::now();
         // Reuse the bound listener after confirmation; its TLS worker still
         // joins before Wi-Fi quiescence, leaving no active accept loop.
@@ -669,6 +667,11 @@ pub(crate) mod device {
                 if tls_mode {
                     stage("wifi_preflight");
                     wait_addressed(&mut network, &receiver, origin)?;
+                    if provision {
+                        // Prove these credentials work, then use the common
+                        // joined retirement below before writing data flash.
+                        return Ok(());
+                    }
                 }
                 if listener.is_none() {
                     stage("tcp_bind");
@@ -779,6 +782,27 @@ pub(crate) mod device {
             operation?;
             stop_result?;
             joined?;
+            if provision {
+                use wifi::QuiescenceControl;
+                let mut quiet = wifi::open_for_quiescence()
+                    .map_err(|error| format!("config maintenance {error:?}"))?;
+                quiet
+                    .quiesce()
+                    .map_err(|error| format!("config quiet {error:?}"))?;
+                let saved = profile
+                    .save(profile_store.as_mut().ok_or("missing profile store")?)
+                    .map_err(|error| format!("config save {error:?}"));
+                let resumed = quiet
+                    .resume()
+                    .map_err(|error| format!("config resume {error:?}"));
+                saved?;
+                resumed?;
+                drop(quiet);
+                drop(profile_store.take());
+                provision = false;
+                println!("NXRS_WIFI_PROFILE_COMMITTED");
+                continue;
+            }
             if let Some(update) = options
                 .update
                 .take()
@@ -793,7 +817,8 @@ pub(crate) mod device {
                     .map_err(|error| format!("update stage {error:?}"))?;
                 drop(quiet);
                 // All data-plane owners have joined, and Pending was read back.
-                super::console::prepare_reboot().map_err(|error| format!("update reboot handoff {error:?}"))?;
+                super::console::prepare_reboot()
+                    .map_err(|error| format!("update reboot handoff {error:?}"))?;
                 let never = boot
                     .reboot()
                     .map_err(|error| format!("update reset {error:?}"))?;
