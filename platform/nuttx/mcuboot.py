@@ -47,6 +47,11 @@ def application_config(platform: dict) -> dict[str, str]:
         if platform["hal"].get("boot") != "nuttx" or protected(platform):
             raise ValueError("camera config storage requires the unencrypted MCUboot layout")
         # Two erase blocks, separate from firmware slots and swap scratch.
+        offset = boot["scratch-offset"] + boot["scratch-size"]
+        if offset + 0x2000 > boot["flash-size"] or any(
+                max(offset, boot[name]) < min(offset + 0x2000, boot[name] + boot["slot-size"])
+                for name in ("primary-offset", "secondary-offset")):
+            raise ValueError("camera config partition overlaps firmware or exceeds flash")
         values.update({"MTD_CONFIG_NVS": "y", "MTD_CONFIG_NONE": "n",
                        "MTD_CONFIG_NAMED": "y", "MTD_CONFIG_NAME_LEN": "32",
                        "ESP32S3_STORAGE_MTD_SIZE": "0x2000"})
