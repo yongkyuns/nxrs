@@ -244,6 +244,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-console"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-detection-service"
 version = "0.1.0"
 dependencies = [
@@ -287,6 +291,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-execution"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-firmware"
 version = "0.1.0"
 
@@ -318,21 +326,18 @@ dependencies = [
  "nxrs-camera-service",
  "nxrs-config",
  "nxrs-connectivity-service",
+ "nxrs-console",
  "nxrs-detection-service",
  "nxrs-detection-wire",
  "nxrs-detector",
  "nxrs-enrollment",
+ "nxrs-execution",
  "nxrs-firmware-update",
- "nxrs-home-cam-platform",
  "nxrs-stream-service",
  "nxrs-tls",
  "nxrs-watchdog",
  "nxrs-wifi",
 ]
-
-[[package]]
-name = "nxrs-home-cam-platform"
-version = "0.1.0"
 
 [[package]]
 name = "nxrs-imu"
@@ -448,6 +453,9 @@ dependencies = [
 [[package]]
 name = "nxrs-std-resources"
 version = "0.1.0"
+dependencies = [
+ "nxrs-service-event",
+]
 
 [[package]]
 name = "nxrs-std-stream"

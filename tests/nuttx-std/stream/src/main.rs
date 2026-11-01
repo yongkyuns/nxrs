@@ -27,7 +27,6 @@ pub(crate) mod device {
     const BYTES: usize = 320 * 240 * 2;
     const STARTUP_HEALTH_AGE_MS: u64 = 5000;
     unsafe extern "C" {
-        fn camera_network_initialize() -> i32;
         fn nxrs_wifi_test_credentials(
             ssid: *mut u8,
             password: *mut u8,
@@ -650,14 +649,6 @@ pub(crate) mod device {
         };
         if !provision {
             drop(profile_store.take());
-        }
-        if startup_mode {
-            // Load NVS before bringing the interface up: even a corrupt-record
-            // read can write recovery metadata in the native store.
-            // SAFETY: board initialization registered the devices before entry.
-            if unsafe { camera_network_initialize() } != 0 {
-                return Err("network initialization failed".into());
-            }
         }
         let origin = Instant::now();
         // Reuse the bound listener after confirmation; its TLS worker still

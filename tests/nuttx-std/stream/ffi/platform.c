@@ -20,8 +20,8 @@
 #include "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/esp_hw_support/include/esp_private/esp_clk.h"
 #endif
 
-int camera_console_ready(int descriptor);
-int camera_console_mode(int descriptor, uint32_t saved[6], int raw);
+int console_ready(int descriptor);
+int console_mode(int descriptor, uint32_t saved[6], int raw);
 
 uint32_t nxrs_stream_cpu_frequency(void)
 {
@@ -50,7 +50,7 @@ int nxrs_stream_worker_stack(uint32_t values[2])
 
 int nxrs_stream_console_ready(void)
 {
-  return camera_console_ready(STDIN_FILENO);
+  return console_ready(STDIN_FILENO);
 }
 
 int nxrs_stream_address(uint8_t address[4])
@@ -106,5 +106,8 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
 
 int nxrs_detector_console_mode(uint32_t saved[6], int raw)
 {
-  return camera_console_mode(STDIN_FILENO, saved, raw);
+  return console_mode(STDIN_FILENO, saved, raw);
 }
+
+int execution_current_priority(int priority);
+int camera_worker_priority(int priority) { return execution_current_priority(priority); }

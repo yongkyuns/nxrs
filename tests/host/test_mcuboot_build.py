@@ -27,7 +27,7 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(config["NETINIT_THREAD"], "n")
         self.assertEqual(config["INIT_ENTRYPOINT"], '"home_cam_main"')
         self.assertEqual(config["INIT_STACKSIZE"], "32768")
-        self.assertEqual(profile["init"]["args"], [])
+        self.assertEqual(profile["init"].get("args", []), [])
         self.assertEqual(config["UART0_SERIAL_CONSOLE"], "y")
         self.assertEqual(config["OTHER_SERIAL_CONSOLE"], "n")
         self.assertEqual(BOOT.application_config(profile)["ESP32S3_RWDT_INHERIT"], "y")
@@ -53,12 +53,14 @@ class BootWiringTests(unittest.TestCase):
                 configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "home_cam", 100, 32768)
         for args in (None, "boot-tls", [True], ["x"] * 17, ["x" * 129], ['a"b'], ['a\\b'], ["a\nb"]):
             with self.subTest(args=args), self.assertRaises(ValueError):
-                configure({**profile, "init": {"command": "home_cam", "args": args}}, "home_cam", 100, 32768)
-        for command, priority, stack in (("other", 100, 32768), ("bad-name", 100, 32768),
+                configure({**profile, "init": {"args": args}}, "home_cam", 100, 32768)
+        self.assertEqual(configure(profile, "unrelated_entry", 100, 32768)["INIT_ENTRYPOINT"], '"unrelated_entry_main"')
+        bare_profile = {**profile, "init": {"console": "uart0"}}
+        for command, priority, stack in (("bad-name", 100, 32768),
                                          ("home_cam", True, 32768), ("home_cam", 256, 32768),
                                          ("home_cam", 100, 0)):
             with self.subTest(command=command, priority=priority, stack=stack), self.assertRaises(ValueError):
-                configure(profile, command, priority, stack)
+                configure(bare_profile, command, priority, stack)
 
     def test_actual_nuttx_header_preserves_direct_entry_and_argument_boundaries(self):
         configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]

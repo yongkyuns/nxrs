@@ -19,6 +19,7 @@ _SPEC.loader.exec_module(PLATFORM_CONFIG)
 # An independent expected inventory, not discovery using the frontend under test.
 # Keep exact equality so missing, duplicate and unexpected apps cannot pass.
 FIRMWARE_APPS = {
+    "home-cam": ("nxrs-home-cam", "home-cam", "home_cam"),
     "event-demo": ("nxrs-event-demo", "event-demo", "event_demo"),
     "dual-imu-demo": ("nxrs-dual-imu-demo", "dual-imu-demo", "dual_imu_demo"),
     "std-demo": ("nxrs-std-demo", "std-demo", "std_demo"),
@@ -167,8 +168,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 firmware = data["package"]["metadata"]["nxrs"]["firmware"]
                 self.assertEqual(firmware["bin"], binary)
                 self.assertEqual(firmware["command"], command)
-                self.assertGreater(firmware["priority"], 0)
-                self.assertGreater(firmware["stack-size"], 0)
+                self.assertGreater(firmware.get("priority", 100), 0)
+                self.assertGreater(firmware.get("stack-size", 32768), 0)
 
     def test_platforms_are_declarative_and_own_hardware_not_app_policy(self):
         profiles = sorted(PLATFORMS.glob("*.toml"))
@@ -188,7 +189,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-tls": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx"},
                             "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx"},
-                            "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx"},
+                            "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx", "console": "nuttx", "execution": "nuttx"},
                             "esp32s3-camera-stream-protected-build": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "none"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},

@@ -4,14 +4,32 @@
 
 #[cfg(any(hal_mock, test))]
 extern crate alloc;
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(
+    hal_enabled,
+    test,
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "nuttx"
+    )
+))]
 extern crate std;
 
 mod api;
 pub use api::{DeviceError, PacketSink, Transport};
-#[cfg(any(hal_enabled, hal_mock, test))]
 mod platform;
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(
+    hal_enabled,
+    test,
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "nuttx"
+    )
+))]
+#[allow(dead_code)]
 mod udp;
-#[cfg(any(hal_enabled, hal_mock))]
+#[cfg(any(hal_enabled, hal_mock, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
 pub use platform::*;

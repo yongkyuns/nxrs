@@ -167,6 +167,22 @@ scalar("image", "NUTTX_IMAGE_NAME")
 helpers = [str(path) for path in native_helpers(data)]
 array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
 array(model_features(data, Path(sys.argv[3])), "model dependencies", "NXRS_MODEL_FEATURES")
+build = data.get("build", {})
+if not isinstance(build, dict) or set(build) - {"abi-profile", "size-optimized", "trace-only-backtrace", "panic-immediate-abort"}:
+    raise SystemExit("invalid platform build settings")
+for key, variable in [("size-optimized", "NXRS_SIZE_OPTIMIZED"),
+                      ("trace-only-backtrace", "NXRS_TRACE_ONLY_BACKTRACE"),
+                      ("panic-immediate-abort", "NXRS_PANIC_IMMEDIATE_ABORT")]:
+    if key in build:
+        if type(build[key]) is not bool:
+            raise SystemExit(f"build.{key} must be boolean")
+        print(f"{variable}={int(build[key])}")
+if "abi-profile" in build:
+    if build["abi-profile"] not in {"active", "minimal"}:
+        raise SystemExit("invalid build ABI profile")
+    print("NXRS_ABI_PROFILE=" + build["abi-profile"])
+if build.get("panic-immediate-abort") and not build.get("trace-only-backtrace"):
+    raise SystemExit("immediate abort requires trace-only backtrace")
 firmware = data.get("radio-firmware", "")
 if firmware not in ("", "cyw43439", "cyw43439-bluetooth"):
     raise SystemExit(f"{path}: unsupported radio-firmware")

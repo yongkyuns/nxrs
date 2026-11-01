@@ -33,6 +33,10 @@ pub trait Control {
         Err(DeviceError::Unsupported)
     }
     fn state(&mut self) -> Result<State, DeviceError>;
+    /// Inactive-slot data capacity, excluding boot metadata; no erase or write.
+    fn update_capacity(&mut self) -> Result<u32, DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
     /// Erase and stream exactly `length` bytes into the inactive image slot,
     /// excluding boot metadata. Uses bounded scratch space and verifies writes.
     /// The source must end at `length`; any failure poisons this owner. This does

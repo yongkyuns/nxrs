@@ -3,12 +3,30 @@
 #![deny(unsafe_code)]
 #[cfg(any(hal_mock, test))]
 extern crate alloc;
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(
+    hal_enabled,
+    test,
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "nuttx"
+    )
+))]
 extern crate std;
 mod api;
 pub use api::{Camera, Capture, DeviceError, Format, Frame, JpegQuality, PixelFormat};
 mod platform;
-#[cfg(any(hal_enabled, test))]
-#[cfg_attr(test, allow(dead_code))]
+#[cfg(any(
+    hal_enabled,
+    test,
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "nuttx"
+    )
+))]
+#[allow(dead_code)]
 mod replay;
 pub use platform::*;

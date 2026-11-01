@@ -35,6 +35,24 @@ class DeploymentTests(unittest.TestCase):
         path.write_text(content)
         return path
 
+    def test_resource_settings_are_validated_and_emitted_only_for_their_capability(self):
+        profile = PLATFORM.resolve('esp32s3-camera-stream-startup')
+        console = PLATFORM.cargo_output(profile, 'console', 'nuttx')
+        execution = PLATFORM.cargo_output(profile, 'execution', 'nuttx')
+        self.assertIn('cargo:rustc-env=CONSOLE_DEVICE=/dev/ttyACM0', console)
+        self.assertIn('cargo:rustc-env=EXECUTION_BACKGROUND_PRIORITY=80', execution)
+        self.assertFalse(any('CONSOLE_DEVICE' in item for item in execution))
+        for name, expected in [('esp32s3-camera-stream-startup', 'on-acquire'),
+                               ('esp32s3-camera-stream', 'external')]:
+            wifi = PLATFORM.cargo_output(PLATFORM.resolve(name), 'wifi', 'nuttx')
+            self.assertIn('cargo:rustc-env=WIFI_INITIALIZATION=' + expected, wifi)
+        for settings in ({'background': 90, 'normal': 80}, {'background': True, 'normal': 90}, {}):
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                PLATFORM.scheduling_config({**profile, 'scheduling': settings})
+        for device in ('/dev/../secret', '/tmp/port', '/dev/tty\x00'):
+            with self.subTest(device=device), self.assertRaises(ValueError):
+                PLATFORM.console_config({**profile, 'console': {'device': device}})
+
     def test_one_platform_selects_complete_bindings(self):
         result = CHECK.validate(self.app, 'mock', 'linux')
         self.assertEqual({p['capability'] for p in result['providers']}, {'imu', 'gnss'})

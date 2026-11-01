@@ -3,9 +3,8 @@
 //! This observes owners only after their workload has completed and while the
 //! completion barrier keeps every owner thread alive. NuttX stack coloration
 //! retains the lifetime high-water mark in /proc/<pid>/stack.
-#![cfg(target_os = "nuttx")]
 
-use crate::stress::{Config, Scenario};
+use crate::application::stress::{Config, Scenario};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -38,7 +37,7 @@ fn expected_names(config: &Config) -> BTreeSet<String> {
     names
 }
 
-pub(super) fn report_stacks(
+pub(crate) fn report_stacks(
     config: &Config,
     scenario: Scenario,
     round: usize,

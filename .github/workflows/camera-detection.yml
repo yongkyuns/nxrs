@@ -14,7 +14,8 @@ on:
       - 'platform/profiles/**'
       - 'platform/hal-build.rs'
       - 'platform/detector-build.rs'
-      - 'platform/nuttx/home-cam/**'
+      - 'hal/console/**'
+      - 'hal/execution/**'
       - 'platform/nuttx/platforms/esp32s3-camera-stream*.toml'
       - 'tools/build-nuttx-std-app.sh'
       - 'vendor/microflow/**'
@@ -86,9 +87,9 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Actual models, ownership, alerts and shutdown
         run: |
-          cargo test --locked -p nxrs-firmware-update -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-home-cam-platform \
+          cargo test --locked -p nxrs-firmware-update -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-console -p nxrs-execution \
             --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe
-          cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-home-cam-platform \
+          cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-console -p nxrs-execution \
             --all-targets --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe -- -D warnings
       - name: Native SDK ownership with AddressSanitizer
         run: python3 tests/detection/check_pico_asan.py

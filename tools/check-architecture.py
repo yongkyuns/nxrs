@@ -89,6 +89,11 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             # Cargo resolves aliases/workspace inheritance to the actual package.
             # Optional, target cfg and build edges are NOT exempted.
             if dep.get('kind') == 'dev':
+                dep_path = dep.get('path')
+                destination = by_path.get(Path(dep_path).resolve()) if dep_path else None
+                if destination and ((role in {'app', 'service'} and roles[destination] == 'platform')
+                                    or (role == 'platform' and roles[destination] == 'app')):
+                    errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
                 continue
             context = f"{package['name']} ({paths[identity]}) -> {dep['name']}"
             dep_path = dep.get('path')
@@ -99,13 +104,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: shared radio delivery contracts must remain dependency-free')
                 if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
                     errors.append(f'{context}: device errors belong to the capability; common is radio delivery only')
-                startup_edge = (
-                    source == ('app', 'home-cam')
-                    and destination == ('platform', 'nuttx', 'home-cam')
-                    and dep.get('kind') is None
-                    and re.sub(r'\s+', '', dep.get('target') or '') == 'cfg(target_os="nuttx")'
-                )
-                if roles[target] not in ALLOWED[role] and not startup_edge:
+                if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
                 errors.append(f'{context}: local dependency is outside classified workspace packages')
@@ -163,11 +162,27 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             role = layer(directory.relative_to(root))
         except ValueError:
             continue
-        if role == 'platform' and directory.relative_to(root).parts[:2] == ('platform', 'nuttx'):
-            source = directory / 'src/lib.rs'
-            text = source.read_text() if source.is_file() else ''
-            if '#![deny(unsafe_code)]' not in text or any('bin' in t.get('kind', []) for t in package.get('targets', [])):
-                errors.append(f"{package['name']}: platform startup support must be a library with deny(unsafe_code)")
+        if role in {'app', 'service'}:
+            data = tomllib.loads((directory / 'Cargo.toml').read_text())
+            manifest_text = (directory / 'Cargo.toml').read_text()
+            if data.get('target') or re.search(r'["\'](?:nuttx|linux|macos|windows)["\']', manifest_text):
+                errors.append(f"{package['name']}: app/service manifests must not select targets or providers")
+            native = {'.c', '.h', '.cc', '.cpp', '.m', '.mm', '.hpp'}
+            for path in directory.rglob('*'):
+                if path.is_file() and path.suffix in native and 'target' not in path.relative_to(directory).parts:
+                    errors.append(f'{path.relative_to(root)}: native code belongs below the app/service boundary')
+            sources = [directory / 'build.rs', *directory.rglob('*.rs')]
+            for path in set(sources):
+                if not path.is_file() or 'target' in path.relative_to(directory).parts:
+                    continue
+                text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|hal_enabled|hal_mock|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM)\b'
+                            r'|(?:std|core)::(?:os|arch)::|std::env::consts::(?:OS|ARCH|FAMILY)|\blibc::'
+                            r'|(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b'
+                            r'|["\']/(?:dev|proc)/|["\'](?:nuttx|linux|macos|windows)["\']')
+                hidden_source = r'(?:#\[path|include!)[^;\n]*["\'][^"\']*(?:platform/|hal/[^/]+/src/platform/)'
+                if re.search(identity, text) or re.search(hidden_source, text):
+                    errors.append(f'{path.relative_to(root)}: app/service code must have no platform knowledge')
         if role not in PORTABLE:
             continue
         has_binary = any('bin' in target.get('kind', []) for target in package.get('targets', [{'kind': ['bin']}]))
@@ -208,6 +223,31 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 path = directory / 'src' / module
                 if path.is_file() and '#![forbid(unsafe_code)]' not in path.read_text():
                     errors.append(f"{package['name']}: shared {module} must forbid unsafe code")
+    identities = set()
+    app_directories = set()
+    entry_symbols = set()
+    for package in metadata['packages']:
+        directory = Path(package['manifest_path']).resolve().parent
+        if package['id'] not in members or directory.relative_to(root).parts[0] != 'app':
+            continue
+        data = tomllib.loads((directory / 'Cargo.toml').read_text())
+        identities.update({directory.name, package['name']})
+        app_directories.add(directory.name)
+        command = data.get('package', {}).get('metadata', {}).get('nxrs', {}).get('firmware', {}).get('command')
+        if command:
+            identities.add(command)
+            entry_symbols.add(command + "_main")
+    for path in (root / 'platform').rglob('*'):
+        if not path.is_file() or path.suffix not in {'.rs', '.py', '.sh', '.toml', '.c', '.h', '.cpp', '.cc', '.m', '.mm'} or 'target' in path.relative_to(root).parts:
+            continue
+        text = path.read_text()
+        quoted_identity = any(re.search(r'["\']' + re.escape(name) + r'["\']', text) for name in identities)
+        app_path = any(re.search(r'\bapp/' + re.escape(name) + r'/', text) for name in app_directories)
+        static_entry = any(re.search(r'\b' + re.escape(name) + r'\b', text) for name in entry_symbols)
+        cli_identity = any(re.search(r'--(?:app|app-package|bin|command)(?:=|\s+)' + re.escape(name) + r'(?:\s|$)', text)
+                           for name in identities)
+        if quoted_identity or app_path or static_entry or cli_identity:
+            errors.append(f'{path.relative_to(root)}: platform code must not name a specific application')
     return errors
 
 
@@ -281,15 +321,14 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if path in declared:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
-    native_roots = [root / 'hal', *(root / 'platform/nuttx').glob('*/src/platform')]
+    native_roots = [root / 'hal']
     actual = {path.relative_to(root).as_posix(): path for native_root in native_roots for path in native_root.rglob('*')
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
-        if not (re.fullmatch(r'platform/nuttx/[^/]+/src/platform/nuttx/ffi/.+', relative)
-                or re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
+        if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'hal/detector/src/compute/esp_dl/ffi/.+', relative)
                 or re.fullmatch(r'hal/tls/src/sdk/ffi/.+', relative)):
             errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')

@@ -4,9 +4,7 @@
 #[cfg(all(test, feature = "probe"))]
 #[allow(dead_code)] // Executed by the dedicated harness-free qualification target.
 mod memory_qualification;
-mod stress;
-#[cfg(target_os = "nuttx")]
-mod target_memory;
+pub(crate) mod stress;
 use std::process::ExitCode;
 use std::time::Duration;
 use stress::{Config, Scenario};
@@ -17,7 +15,9 @@ pub(crate) fn qualify_memory() {
     memory_qualification::run();
 }
 
-fn run() -> Result<(), String> {
+type Observer = fn(&Config, Scenario, usize) -> Result<(), String>;
+
+pub(crate) fn run(observer: Option<Observer>) -> Result<(), String> {
     let mut config = Config::default();
     let mut scenario = "all".to_owned();
     let mut rounds = 1usize;
@@ -64,9 +64,8 @@ fn run() -> Result<(), String> {
         }
     }
     config.validate()?;
-    #[cfg(not(target_os = "nuttx"))]
-    if stack_report {
-        return Err("--stack-report requires a NuttX target with procfs stack coloration".into());
+    if stack_report && observer.is_none() {
+        return Err("--stack-report requires the stack qualification executable".into());
     }
     if !(1..=100).contains(&rounds) {
         return Err("rounds must be in 1..=100".into());
@@ -82,15 +81,13 @@ fn run() -> Result<(), String> {
     stress::transport_edges()?;
     for round in 1..=rounds {
         for &scenario in scenarios {
-            #[cfg(target_os = "nuttx")]
             let report = if stack_report {
-                let mut observer = || target_memory::report_stacks(&config, scenario, round);
+                let observe = observer.ok_or("missing stack observer")?;
+                let mut observer = || observe(&config, scenario, round);
                 stress::run_observed(&config, scenario, &mut observer)?
             } else {
                 stress::run(&config, scenario)?
             };
-            #[cfg(not(target_os = "nuttx"))]
-            let report = stress::run(&config, scenario)?;
             report.print(&config, scenario, round);
         }
     }
@@ -102,7 +99,7 @@ fn run() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    match run(None) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("AO_STRESS FAIL: {error}");

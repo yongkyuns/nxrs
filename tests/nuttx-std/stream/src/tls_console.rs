@@ -75,7 +75,7 @@ mod device {
             let mut saved = Self([0; 6], descriptor);
             // SAFETY: target-header translation saves the six termios fields before
             // switching this TLS worker's standard input to raw mode.
-            if unsafe { camera_console_mode(descriptor, saved.0.as_mut_ptr(), 1) } != 0 {
+            if unsafe { console_mode(descriptor, saved.0.as_mut_ptr(), 1) } != 0 {
                 return Err(home_cam::Error::Tls(tls::Error::Unsupported));
             }
             Ok(saved)
@@ -84,13 +84,13 @@ mod device {
     impl Drop for Raw {
         fn drop(&mut self) {
             // SAFETY: restore only the termios fields captured by this owner.
-            let _ = unsafe { camera_console_mode(self.1, self.0.as_mut_ptr(), 0) };
+            let _ = unsafe { console_mode(self.1, self.0.as_mut_ptr(), 0) };
         }
     }
 
     unsafe extern "C" {
-        fn camera_console_mode(descriptor: i32, saved: *mut u32, raw: i32) -> i32;
-        fn camera_console_ready(descriptor: i32) -> i32;
+        fn console_mode(descriptor: i32, saved: *mut u32, raw: i32) -> i32;
+        fn console_ready(descriptor: i32) -> i32;
         fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
@@ -113,7 +113,7 @@ mod device {
                 return Err(home_cam::Error::Tls(tls::Error::Time));
             }
             // SAFETY: target-header readiness observes this task's standard input.
-            match unsafe { camera_console_ready(descriptor) } {
+            match unsafe { console_ready(descriptor) } {
                 n if n < 0 => return Err(home_cam::Error::Tls(tls::Error::Unsupported)),
                 0 => std::thread::sleep(Duration::from_millis(1)),
                 _ => match input.read(&mut bytes[offset..]) {

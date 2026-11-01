@@ -21,3 +21,24 @@ mod selected {
 }
 #[cfg(any(hal_enabled, hal_mock))]
 pub use selected::*;
+
+#[cfg(all(
+    not(hal_enabled),
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "nuttx"
+    )
+))]
+mod unbound;
+#[cfg(all(
+    not(hal_enabled),
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "nuttx"
+    )
+))]
+pub use unbound::*;

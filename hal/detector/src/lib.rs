@@ -19,3 +19,11 @@ pub use model::person::{MobileNet, MODEL_SHA256 as VWW_MODEL_SHA256};
 pub use platform::open;
 #[cfg(all(feature = "probe", feature = "pico-model"))]
 pub mod qualification;
+
+/// Selected detector's execution requirements; absence means no configured detector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExecutionBudget {
+    pub stack_bytes: usize,
+    pub sample_interval_ms: u64,
+}
+pub use platform::execution_budget;

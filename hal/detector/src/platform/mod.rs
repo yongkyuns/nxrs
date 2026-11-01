@@ -33,3 +33,10 @@ pub(crate) use selected::kernel;
 pub(crate) fn kernel() -> Result<crate::model::pico::Engine, DeviceError> {
     Err(DeviceError::Unsupported)
 }
+
+mod budget {
+    include!(concat!(env!("OUT_DIR"), "/execution_budget.rs"));
+}
+pub fn execution_budget() -> Option<crate::ExecutionBudget> {
+    budget::BUDGET
+}

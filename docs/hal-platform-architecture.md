@@ -63,21 +63,21 @@ radio migration exceptions remain. The architecture audit checks that inventory
 and rejects platform selection in shared Rust modules.
 Inventory checks support review; they cannot prove that C code is mechanical.
 
-## Application entry and platform startup
+## Strict portability above the HAL
 
-`app/home-cam` owns `main()` and the camera application's streaming,
-commissioning, enrollment, reconnect, trial confirmation and OTA lifecycle.
-`platform/nuttx/home-cam` is library-only startup support: NuttX console access,
-network bring-up, native scheduling translation and execution resource budgets.
-Product profiles and the platform build script own target configuration, driver
-registration/build wiring and signing settings. Hardware capabilities remain in
-HAL crates.
+Applications own their ordinary `main()` and workflows. App and service source,
+manifests and build scripts contain no OS/board cfgs, native imports, device
+paths, platform inspection or platform dependencies. Unbound HAL factories keep
+the same API and return `Unsupported`; applications never select a provider to
+compile. The architecture audit rejects these violations without app exceptions.
 
-The application's NuttX entry uses a typed, target-bound dependency on its
-platform startup support. The audit permits that specific edge while rejecting
-service/HAL dependencies on startup support and reverse dependencies into the
-app. App code forbids unsafe; minimal native startup glue is private to the
-platform library and included in the ABI inventory. Qualification controls stay
+Platform code owns target configuration, driver registration and generic build/
+entry wiring. It receives an application descriptor as input and contains no
+application identities, runtime crates or command-specific branches. Profiles
+supply resource configuration; capability HALs consume the applicable data.
+Console byte-stream ownership belongs to the console HAL; calling-thread
+scheduling belongs to the execution HAL. Standard Rust still owns files,
+sockets, thread creation, waiting and joins. Device-specific qualification stays
 under `tests/`.
 
 ## One platform selection
@@ -206,7 +206,7 @@ explicit fixture; unbound capabilities emit neither. These booleans express
 capability admission, not platform identity, and belong only in module/acquisition
 wiring. OS modules use Rust's `target_os` at that boundary. Do not add a second
 OS-valued cfg, per-OS Cargo features, or platform branches in shared algorithms.
-There is no runtime registry. The home camera entry depends only on its target-bound platform startup support.
+There is no runtime registry or platform dependency above the HAL.
 
 Keep conditional compilation at a small set of ownership boundaries:
 

@@ -25,6 +25,9 @@ impl Backend for Provider {
     fn secondary(&mut self) -> Result<Self::Slot, DeviceError> {
         ffi::Secondary::open()
     }
+    fn update_capacity(&mut self) -> Result<u32, DeviceError> {
+        ffi::Secondary::open().map(|slot| slot.update_capacity())
+    }
     fn state(&mut self) -> Result<State, DeviceError> {
         ffi::state()
     }

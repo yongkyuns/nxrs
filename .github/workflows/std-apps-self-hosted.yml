@@ -263,7 +263,17 @@ jobs:
           python3 tests/nuttx-std/test-patches.py
           for platform in mps2-an521-mock pico2-mock; do
             mkdir -p "target/firmware/$APP/$platform"
-            if test "$platform" = mps2-an521-mock; then
+            if test "$APP" = ao-stress; then
+              if test "$platform" = mps2-an521-mock; then
+                export NXRS_NUTTX_DIAGNOSTIC_UNWIND=1
+              else
+                unset NXRS_NUTTX_DIAGNOSTIC_UNWIND
+              fi
+              bash tools/build-nuttx-std-app.sh \
+                --app-manifest tests/nuttx-std/resources/Cargo.toml --app-package nxrs-std-resources \
+                --bin ao-stack-stress --command ao_stress --priority 100 --stack-size 65536 \
+                --platform "$platform" --out "target/firmware/$APP/$platform"
+            elif test "$platform" = mps2-an521-mock; then
               NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 firmware --app "$APP" --platform "$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
             else
               cargo +1.90.0 firmware --app "$APP" --platform "$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"

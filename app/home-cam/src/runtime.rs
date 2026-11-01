@@ -4,7 +4,7 @@ use crate::commissioning;
 use camera::{Camera, JpegQuality};
 use connectivity_service::Reconnector;
 use home_cam::{LiveCamera, TlsOptions, TlsOutput};
-use home_cam_platform::{self as platform, Resources, Worker};
+
 use std::{
     net::TcpListener,
     sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
@@ -104,18 +104,18 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
     origin: Instant,
     update: Option<&home_cam::update::Update>,
     trial: bool,
-    resources: Resources,
+    budget: Option<detector::ExecutionBudget>,
 ) -> Result<Outcome, String> {
     let operation: Result<bool, String> = (|| {
-        if let Some(budget) = resources.detector {
+        if let Some(budget) = budget {
             let worker = detection_service::Worker::spawn(
                 detection_service::WorkerOptions {
                     frame_capacity: BYTES,
-                    sample_interval_ms: budget.sample_ms,
+                    sample_interval_ms: budget.sample_interval_ms,
                     stack_bytes: budget.stack_bytes,
                 },
                 || {
-                    platform::initialize_worker(Worker::Detector)
+                    execution::configure_current(execution::Priority::Normal)
                         .map_err(|_| detection_service::Error::Worker)?;
                     detector::open(detector::Config::default()).map_err(Into::into)
                 },
@@ -195,23 +195,19 @@ pub(crate) fn run() -> Result<(), String> {
     let boot = boot::open().map_err(|e| format!("boot open {e:?}"))?;
     let mut trial =
         home_cam::startup::Trial::begin(boot, watchdog).map_err(|e| format!("startup {e:?}"))?;
-    let resources = platform::resources();
+    let budget = detector::execution_budget();
     let mut store = Some(config::open().map_err(|e| format!("config open {e:?}"))?);
-    let mut settings = commissioning::load(
-        store.as_mut().ok_or("missing store")?,
-        platform::Console::open,
-    )?;
+    let mut settings = commissioning::load(store.as_mut().ok_or("missing store")?, console::open)?;
     if !settings.save_wifi {
         drop(store.take());
     }
-    platform::initialize_network().map_err(|e| format!("network initialization {e:?}"))?;
     let origin = Instant::now();
     let mut listener = None;
     let mut retry_delay = 1;
     loop {
         let mut update = if trial.is_none() {
             Some(
-                home_cam::update::Update::new(resources.update_capacity, Duration::from_secs(120))
+                home_cam::update::Update::new(update_capacity()?, Duration::from_secs(120))
                     .map_err(|e| format!("update setup {e:?}"))?,
             )
         } else {
@@ -250,11 +246,11 @@ pub(crate) fn run() -> Result<(), String> {
                     std::array::from_fn(|_| vec![0; BYTES]),
                     stream_service::Options::default(),
                     TlsOptions {
-                        stack_bytes: resources.tls_stack_bytes,
-                        poll_interval: resources.tls_poll_interval,
+                        stack_bytes: 64 * 1024,
+                        poll_interval: Duration::from_millis(2),
                     },
                     move || {
-                        platform::initialize_worker(Worker::Tls)
+                        execution::configure_current(execution::Priority::Background)
                             .map_err(|_| home_cam::Error::Worker)?;
                         home_cam::bootstrap::initialize(commission)
                     },
@@ -282,7 +278,7 @@ pub(crate) fn run() -> Result<(), String> {
                     origin,
                     update.as_ref(),
                     trial.is_some(),
-                    resources,
+                    budget,
                 )? {
                     Outcome::Renew => {
                         update = update
@@ -345,4 +341,13 @@ pub(crate) fn run() -> Result<(), String> {
             Outcome::Renew => return Err("unretired renewal".into()),
         }
     }
+}
+
+fn update_capacity() -> Result<u32, String> {
+    use boot::Control;
+    let mut boot = boot::open().map_err(|e| format!("update capacity open {e:?}"))?;
+    // Bound reception RAM independently of the selected storage geometry.
+    boot.update_capacity()
+        .map(|bytes| bytes.min(2 * 1024 * 1024))
+        .map_err(|e| format!("update capacity {e:?}"))
 }

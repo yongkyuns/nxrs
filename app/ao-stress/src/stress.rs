@@ -11,7 +11,7 @@ const STACK_BYTES: usize = 32768;
 const TICK: Duration = Duration::from_millis(5);
 
 #[derive(Clone, Debug)]
-pub(super) struct Config {
+pub(crate) struct Config {
     pub duration: Duration,
     pub shutdown: Duration,
     pub deadline: Duration,
@@ -58,7 +58,7 @@ impl Config {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Scenario {
+pub(crate) enum Scenario {
     Steady,
     Burst,
     SlowConsumer,
@@ -66,7 +66,7 @@ pub(super) enum Scenario {
 }
 impl Scenario {
     pub const ALL: [Self; 4] = [Self::Steady, Self::Burst, Self::SlowConsumer, Self::CpuLoad];
-    pub(super) fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Steady => "steady",
             Self::Burst => "burst",
@@ -484,7 +484,7 @@ fn collect(
 }
 
 #[derive(Default, Debug)]
-pub(super) struct Report {
+pub(crate) struct Report {
     producers: Vec<Producer>,
     workers: Vec<Worker>,
     collector: Collector,
@@ -554,11 +554,10 @@ impl Report {
         let accepted: u64 = self.producers.iter().map(|p| p.accepted).sum();
         let handled: u64 = self.workers.iter().map(|w| w.handled).sum();
         let forwarded: u64 = self.workers.iter().map(|w| w.forwarded).sum();
-        println!("AO_CONFIG scenario={} producers={} workers={} capacity={} duration_ms={} deadline_us={} shutdown_budget_ms={} configured_work={} effective_work={} os={} arch={}",
+        println!("AO_CONFIG scenario={} producers={} workers={} capacity={} duration_ms={} deadline_us={} shutdown_budget_ms={} configured_work={} effective_work={}",
             scenario.name(), config.producers, config.workers, config.capacity, config.duration.as_millis(),
             config.deadline.as_micros(), config.shutdown.as_millis(), config.work,
-            if matches!(scenario, Scenario::CpuLoad) { config.work.max(4096) } else { config.work },
-            std::env::consts::OS, std::env::consts::ARCH);
+            if matches!(scenario, Scenario::CpuLoad) { config.work.max(4096) } else { config.work });
         let latency = &self.collector.latency;
         let throughput =
             self.collector.received.saturating_mul(1_000_000) / micros(self.elapsed).max(1);
@@ -590,12 +589,12 @@ impl Report {
     }
 }
 
-pub(super) fn run(config: &Config, scenario: Scenario) -> Result<Report, String> {
+pub(crate) fn run(config: &Config, scenario: Scenario) -> Result<Report, String> {
     run_inner(config, scenario, None)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) fn run_observed<F>(
+pub(crate) fn run_observed<F>(
     config: &Config,
     scenario: Scenario,
     observer: &mut F,
@@ -696,7 +695,7 @@ fn run_inner(
     Ok(report)
 }
 
-pub(super) fn transport_edges() -> Result<(), String> {
+pub(crate) fn transport_edges() -> Result<(), String> {
     // Deterministically prove overload/disconnect handling, even on hosts where
     // a scheduler happens to drain every offered message in a timed scenario.
     let (sender, inbox) = bounded(2);

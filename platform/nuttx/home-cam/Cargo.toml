@@ -1,7 +1,0 @@
-[package]
-name = "nxrs-home-cam-platform"
-version.workspace = true
-edition.workspace = true
-
-[lib]
-name = "home_cam_platform"

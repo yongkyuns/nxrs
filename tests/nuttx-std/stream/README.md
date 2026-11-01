@@ -5,8 +5,8 @@ ESP32-S3/OV3660 with NuttX 13.1.0, single-core at 240 MHz. The HTTP qualificatio
 below is a local-network prototype, not an authenticated home-monitoring product
 or a production-readiness claim.
 
-The signed product entry lives in
-[`platform/nuttx/home-cam`](../../../platform/nuttx/home-cam), built with its `build.sh`.
+The signed application entry lives in [`app/home-cam`](../../../app/home-cam).
+Build through the generic `cargo firmware --app home-cam --platform PLATFORM` frontend.
 This fixture always requires an explicit `--platform`; it owns timed runs,
 forced reconnects, metrics, model witnesses and trusted-USB TLS controls.
 

@@ -1,8 +1,7 @@
 //! OS selection is confined to this wiring module.
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
+#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
 #[path = "../quiescence.rs"]
 pub(crate) mod quiescence;
-#[cfg(hal_enabled)]
 pub mod acquisition {
     use crate::{Controller, CredentialStorage, Error, Event, EventSink, QuiescenceControl, Wifi};
 
@@ -59,7 +58,7 @@ pub(crate) mod linux;
 #[cfg(all(hal_enabled, target_os = "macos"))]
 #[allow(unsafe_code)]
 pub(crate) mod macos;
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
+#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
 pub mod nuttx;
 #[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 pub(crate) fn open<S>(
@@ -84,4 +83,18 @@ where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {
     nuttx::open(sink)
+}
+
+#[cfg(not(hal_enabled))]
+mod unbound;
+#[cfg(not(hal_enabled))]
+fn open<S>(_: S, _: crate::CredentialStorage) -> Result<impl crate::Wifi + Send, crate::Error>
+where
+    S: crate::EventSink<crate::Event> + Send + 'static,
+{
+    Err::<unbound::Unavailable, _>(crate::Error::Unsupported)
+}
+#[cfg(not(hal_enabled))]
+fn open_quiescence() -> Result<impl crate::QuiescenceControl, crate::Error> {
+    Err::<unbound::Unavailable, _>(crate::Error::Unsupported)
 }

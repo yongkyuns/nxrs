@@ -30,7 +30,7 @@ unsafe extern "C" {
     fn flash_area_get_sector(area: *const FlashArea, offset: i64, sector: *mut Sector) -> c_int;
     fn flash_area_erase(area: *const FlashArea, offset: u32, length: u32) -> c_int;
     fn flash_area_write(area: *const FlashArea, offset: u32, data: *const u8, length: u32)
-    -> c_int;
+        -> c_int;
     fn flash_area_read(area: *const FlashArea, offset: u32, data: *mut u8, length: u32) -> c_int;
     fn boot_trailer_sz(alignment: u32) -> u32;
     fn boot_swap_type_multi(image: c_int) -> c_int;
@@ -48,6 +48,7 @@ pub(super) struct Secondary {
     size: u32,
     capacity: u32,
     alignment: u32,
+    erase_size: u32,
 }
 impl Secondary {
     pub(super) fn open() -> Result<Self, DeviceError> {
@@ -64,6 +65,7 @@ impl Secondary {
                 area,
                 capacity: 0,
                 alignment: 0,
+                erase_size: 0,
             };
             let mut sector = Sector { offset: 0, size: 0 };
             result(flash_area_get_sector(area.as_ptr(), 0, &mut sector))?;
@@ -83,8 +85,12 @@ impl Secondary {
                 .ok_or(DeviceError::InvalidState)?
                 & !(alignment - 1);
             slot.alignment = alignment;
+            slot.erase_size = sector.size;
             Ok(slot)
         }
+    }
+    pub(super) fn update_capacity(&self) -> u32 {
+        self.capacity / self.erase_size * self.erase_size
     }
     fn checked(&self, offset: u32, length: usize) -> Result<u32, DeviceError> {
         let length = u32::try_from(length).map_err(|_| DeviceError::Capacity)?;

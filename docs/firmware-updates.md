@@ -1,7 +1,6 @@
 # Signed firmware updates
 
-The camera's `platform/nuttx/home-cam/build.sh` defaults to
-`esp32s3-camera-stream-startup`: a signed MCUboot camera/TLS/PICO image with
+Select `home-cam` with platform `esp32s3-camera-stream-startup` for a signed MCUboot camera/TLS/PICO image with
 TLS autostart and trial confirmation. Unsigned qualification builds require an
 explicit `--platform`; missing signing inputs fail before building.
 Its two 2 MiB slots and 256 KiB scratch region fit the 16 MiB camera flash.
@@ -16,7 +15,7 @@ The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix.
 `NXRS_FIRMWARE_VERSION` and `NXRS_FIRMWARE_SECURITY_COUNTER`, then run:
 
 ```sh
-bash platform/nuttx/home-cam/build.sh --out /private/tmp/camera-mcuboot
+cargo firmware --app home-cam --platform esp32s3-camera-stream-startup --out /private/tmp/camera-mcuboot
 ```
 
 The resulting `nuttx/nuttx.signed.bin` is signed and independently verified
@@ -171,7 +170,7 @@ the next pipeline's CSR for a new enrollment reader on the same serial connectio
 
 The signed startup camera accepts one bounded firmware upload from its approved
 mutual-TLS gateway peer on port 8443. Firmware reception allocates at most the
-product's 2 MiB minus 8 KiB limit in RAM; it never writes flash while receiving.
+boot HAL's metadata-excluding slot capacity, capped by the application's 2 MiB RAM budget in RAM; it never writes flash while receiving.
 After the sender acknowledges receipt, the camera joins capture, TLS, detection
 and Wi-Fi, quiesces the radio, stages through `hal/boot`, requests a trial and
 checks Pending. MCUboot authenticates the image after reset. A failed transfer
