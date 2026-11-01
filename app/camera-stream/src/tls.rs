@@ -411,7 +411,13 @@ fn run<
                 Err(error)
                     if matches!(
                         error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::Interrupted
+                            // A queued peer may disappear during enrollment
+                            // replacement. The listener itself remains usable.
+                            | std::io::ErrorKind::NotConnected
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::ConnectionReset
                     ) => {}
                 Err(_) => {
                     shared.failed.store(true, Ordering::Release);
