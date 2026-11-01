@@ -27,6 +27,7 @@ pub fn exchange(
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(1))
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => return Err(tls::Error::Time),
                 Err(_) => return Err(tls::Error::Authentication),
             }
         }

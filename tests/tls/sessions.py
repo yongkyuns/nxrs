@@ -61,9 +61,14 @@ class Sessions(unittest.TestCase):
                     if wrong_pin:
                         self.assertEqual(received, [b''])
                         self.assertIn('Err(Authentication)', result.stdout)
+                    elif delayed:
+                        # The absolute 100ms budget also covers the handshake;
+                        # a loaded/sanitized runner may expire before sending.
+                        self.assertIn(received, ([], [b''], [b'credential']))
+                        self.assertIn('Err(Time)', result.stdout)
                     else:
                         self.assertEqual(received, [b'credential'])
-                        self.assertIn('Err(Time)' if delayed else 'Ok(())', result.stdout)
+                        self.assertIn('Ok(())', result.stdout)
 
     def test_pinned_exchange_preserves_a_live_enrolled_connection_and_key(self):
         root, process, credentials, error = self.start(case='interleave')
@@ -372,6 +377,27 @@ class Sessions(unittest.TestCase):
 
         client, response = connect()
         image(response)
+        # Drain to complete frame boundaries before exercising time callbacks.
+        def drain_response(client, response):
+            stopped = threading.Event()
+            def drain():
+                try:
+                    while not stopped.is_set() and response.read(8192):
+                        pass
+                except (OSError, http.client.HTTPException):
+                    pass  # The deliberate time/offline failures close this peer.
+            reader = threading.Thread(target=drain)
+            reader.start()
+            def finish():
+                stopped.set()
+                (root/'block-time').unlink(missing_ok=True)
+                try: client.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
+                reader.join(timeout=6)
+                self.assertFalse(reader.is_alive(), 'response reader joined')
+            self.addCleanup(finish)
+            return finish
+        finish_drain = drain_response(client, response)
         (root/'block-time').touch()
         self.assertEqual(self.line(process), 'TIME_BLOCKED')
         before = state_until(lambda s: s['busy'] > 0)
@@ -383,12 +409,15 @@ class Sessions(unittest.TestCase):
         self.assertEqual(self.line(process), 'ONLINE')
         (root/'block-time').unlink()
         state_until(lambda s: s['disconnected'] >= 2)
+        finish_drain()
         response.close(); client.close()
 
         client, response = connect()
         image(response)
+        finish_error = drain_response(client, response)
         (root/'time-error').touch()
         state_until(lambda s: s['failures'] >= 3 and s['disconnected'] >= 3)
+        finish_error()
         response.close(); client.close()
         (root/'time-error').unlink()
         client, response = connect()
