@@ -221,8 +221,9 @@ once as the gateway user; it creates a private authority directory, stable keys,
 token and `commission.bin`, refusing a nonempty directory. The token-authenticated
 bootstrap peer supplies the camera IPv4 address, allowing DHCP changes; the
 configured camera port and approved names stay fixed. Back up this directory
-privately. Start the gateway normally with `--require-camera-tls`, then before the
-camera's first network-enabled boot run:
+privately. Start the gateway normally with `--require-camera-tls`. Stop and join
+any prior USB supervisor; the commissioning tool must be the sole serial owner.
+Before the camera's first network-enabled boot run:
 
 ```sh
 python3 tests/nuttx-std/stream/commission.py --port SERIAL_PORT \

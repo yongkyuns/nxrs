@@ -51,6 +51,7 @@ def main():
     console.port, console.baudrate, console.timeout = args.port, 115200, .1
     console.write_timeout = 5
     console.dtr = console.rts = False
+    console.exclusive = True
     console.open()
     with console:
         provision(console, packet)
