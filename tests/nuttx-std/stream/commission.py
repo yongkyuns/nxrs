@@ -7,31 +7,45 @@ import stat
 import struct
 import time
 
-from serve import RUN, Session
+from serve import RUN
 from tls_provision import _line
 
 
-def provision(console, packet):
+def provision(console, packet, credentials):
     if not 77 <= len(packet) <= 269 or packet[:4] != b'NXC1':
         raise ValueError('invalid commissioning packet')
     pending = bytearray()
     deadline = time.monotonic() + 120
-    while not _line(console, deadline, pending).startswith('NXRS_BOOTSTRAP_PROVISION_READY '):
-        pass
-    deadline = time.monotonic() + 25
-    if console.write(struct.pack('>H', len(packet))) != 2:
-        raise RuntimeError('incomplete commissioning header')
-    for offset in range(0, len(packet) + 32, 32):
-        offset = min(offset, len(packet))
-        expected = f'NXRS_BOOTSTRAP_INPUT_ACK offset={offset}'
-        if _line(console, deadline, pending) != expected:
-            raise RuntimeError('commissioning acknowledgement failed')
-        if offset == len(packet):
-            break
-        chunk = packet[offset:offset + 32]
-        if console.write(chunk) != len(chunk):
-            raise RuntimeError('incomplete commissioning write')
-        console.flush()
+    commissioned = False
+    while True:
+        line = _line(console, deadline, pending)
+        if line == 'NXRS_WIFI_CREDENTIALS_SAVED':
+            return
+        if line == 'NXRS_WIFI_CREDENTIALS_READY':
+            ssid, password = credentials
+            data = bytes((len(ssid), len(password))) + ssid + password
+            if console.write(data) != len(data):
+                raise RuntimeError('incomplete Wi-Fi write')
+            console.flush()
+            return
+        if line.startswith('NXRS_BOOTSTRAP_PROVISION_READY '):
+            if commissioned:
+                raise RuntimeError('repeated commissioning input')
+            commissioned = True
+            deadline = time.monotonic() + 25
+            if console.write(struct.pack('>H', len(packet))) != 2:
+                raise RuntimeError('incomplete commissioning header')
+            for offset in range(0, len(packet) + 32, 32):
+                offset = min(offset, len(packet))
+                expected = f'NXRS_BOOTSTRAP_INPUT_ACK offset={offset}'
+                if _line(console, deadline, pending) != expected:
+                    raise RuntimeError('commissioning acknowledgement failed')
+                if offset == len(packet):
+                    break
+                chunk = packet[offset:offset + 32]
+                if console.write(chunk) != len(chunk):
+                    raise RuntimeError('incomplete commissioning write')
+                console.flush()
 
 
 def main():
@@ -54,8 +68,7 @@ def main():
     console.exclusive = True
     console.open()
     with console:
-        provision(console, packet)
-        Session(console, credentials, None, lambda *_args, **_kwargs: None, tls=True).start(autostart=True)
+        provision(console, packet, credentials)
     print('Commissioning stored; further enrollment and time use the Rust gateway.')
 
 

@@ -7,7 +7,7 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
     init = platform.get("init")
     if init is None:
         return {}
-    if (not isinstance(init, dict) or set(init) != {"command", "args"}
+    if (not isinstance(init, dict) or set(init) not in ({"command", "args"}, {"command", "args", "console"})
             or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", command)
             or init["command"] != command):
         raise ValueError("init must name the built application command and its args")
@@ -25,6 +25,10 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
         "INIT_PRIORITY": str(priority),
         "INIT_STACKSIZE": str(stack),
     }
+    if "console" in init:
+        if init["console"] != "uart0":
+            raise ValueError("unsupported init console")
+        values.update(UART0_SERIAL_CONSOLE="y", OTHER_SERIAL_CONSOLE="n")
     if command == "stream_test" and args[:1] in (["boot-tls"], ["boot-network"]):
         hal = platform.get("hal", {})
         if ("mcuboot" not in platform or hal.get("boot") != "nuttx"

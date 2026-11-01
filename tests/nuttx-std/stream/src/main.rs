@@ -657,6 +657,7 @@ pub(crate) mod device {
             renew_after: network_mode.then_some(Duration::from_secs(45 * 60)),
             delivery_deadline: network_mode.then_some(Duration::from_secs(30)),
         };
+        let mut commissioning = None;
         let commission = if network_mode {
             let mut store = config::open().map_err(|e| format!("bootstrap store {e:?}"))?;
             let value = match camera_stream::bootstrap::load(&mut store)
@@ -664,8 +665,12 @@ pub(crate) mod device {
             {
                 Some(value) => value,
                 None => {
-                    let packet = super::console::commission()
+                    let mut input = super::console::Commissioning::open()
+                        .map_err(|e| format!("commissioning open {e:?}"))?;
+                    let packet = input
+                        .commission()
                         .map_err(|e| format!("bootstrap input {e:?}"))?;
+                    commissioning = Some(input);
                     camera_stream::bootstrap::provision(&mut store, &packet)
                         .map_err(|e| format!("bootstrap save {e:?}"))?
                 }
@@ -690,10 +695,26 @@ pub(crate) mod device {
         let profile = match saved {
             Some(profile) => {
                 println!("NXRS_WIFI_CREDENTIALS_SAVED");
+                if let Some(input) = &mut commissioning {
+                    input
+                        .saved_wifi()
+                        .map_err(|e| format!("commissioning saved {e:?}"))?;
+                }
                 profile
+            }
+            None if network_mode => {
+                let mut input = match commissioning.take() {
+                    Some(input) => input,
+                    None => super::console::Commissioning::open()
+                        .map_err(|e| format!("commissioning open {e:?}"))?,
+                };
+                input
+                    .wifi()
+                    .map_err(|e| format!("commissioning Wi-Fi {e:?}"))?
             }
             None => read_profile()?,
         };
+        drop(commissioning);
         if !provision {
             drop(profile_store.take());
         }

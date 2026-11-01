@@ -231,7 +231,12 @@ python3 tests/nuttx-std/stream/commission.py --port SERIAL_PORT \
 ```
 
 This bounded USB step supplies commissioning and Wi-Fi only once. Subsequent
-boots use saved records and renew through the gateway. Firmware erasure of the
+boots use saved records and renew through the gateway. The startup profile routes
+normal diagnostics/syslog to UART0, with flow control disabled; USB transmit can
+otherwise block without a reader. Rust opens `/dev/ttyACM0` only for missing
+commissioning/Wi-Fi input, restores its termios and closes it before networking.
+The tool also resumes Wi-Fi-only input after an interrupted first setup.
+Firmware erasure of the
 reserved config partition resets both records; keep ROM recovery available.
 With hardware flash encryption off, stored Wi-Fi/token data is readable from
 flash. This change performs no eFuse or protection provisioning.

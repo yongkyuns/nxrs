@@ -63,13 +63,18 @@ int nxrs_stream_worker_stack(uint32_t values[2])
 }
 
 /* Mechanical, fixture-only target pollfd/event translation. */
-int nxrs_stream_console_ready(void)
+int stream_console_ready(int descriptor)
 {
-  struct pollfd fd = { .fd = STDIN_FILENO, .events = POLLIN };
+  struct pollfd fd = { .fd = descriptor, .events = POLLIN };
   int result = poll(&fd, 1, 0);
   if (result < 0) return errno == EINTR ? 0 : -1;
   if (fd.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
   return (fd.revents & POLLIN) != 0;
+}
+
+int nxrs_stream_console_ready(void)
+{
+  return stream_console_ready(STDIN_FILENO);
 }
 
 int nxrs_stream_address(uint8_t address[4])
@@ -122,11 +127,11 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
 
 /* Serial-only fixture ABI: save/restore termios fields; Rust owns the session. */
 #include <termios.h>
-int nxrs_detector_console_mode(uint32_t saved[6], int raw)
+int stream_console_mode(int descriptor, uint32_t saved[6], int raw)
 {
   struct termios value;
   _Static_assert(sizeof(tcflag_t) <= sizeof(uint32_t), "termios flags");
-  if (tcgetattr(STDIN_FILENO, &value) < 0) return -1;
+  if (tcgetattr(descriptor, &value) < 0) return -1;
   if (raw)
     {
       saved[0] = value.c_iflag; saved[1] = value.c_oflag;
@@ -141,5 +146,10 @@ int nxrs_detector_console_mode(uint32_t saved[6], int raw)
       value.c_lflag = saved[2]; value.c_cflag = saved[3];
       value.c_cc[VMIN] = saved[4]; value.c_cc[VTIME] = saved[5];
     }
-  return tcsetattr(STDIN_FILENO, TCSANOW, &value);
+  return tcsetattr(descriptor, TCSANOW, &value);
+}
+
+int nxrs_detector_console_mode(uint32_t saved[6], int raw)
+{
+  return stream_console_mode(STDIN_FILENO, saved, raw);
 }

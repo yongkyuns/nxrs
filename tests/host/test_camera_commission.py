@@ -35,23 +35,29 @@ class CommissionTests(unittest.TestCase):
             with patch.dict(sys.modules, serial=SimpleNamespace(Serial=lambda: console)), \
                  patch.object(sys, 'argv', ['commission', '--port', 'fixture', '--commission', str(packet), '--wifi-file', 'fixture']), \
                  patch.object(commission.RUN, 'read_wifi_file', return_value=(b's', b'password')), \
-                 patch.object(commission, 'provision') as provisioned, patch.object(commission, 'Session'):
+                 patch.object(commission, 'provision') as provisioned:
                 commission.main()
-                provisioned.assert_called_once_with(console, packet.read_bytes())
+                provisioned.assert_called_once_with(console, packet.read_bytes(), (b's', b'password'))
         self.assertTrue(console.closed)
 
     def test_exact_acknowledgements_gate_chunks_and_final_completion(self):
         packet = b'NXC1'+bytes(96)
         lines = b'boot\nNXRS_BOOTSTRAP_PROVISION_READY max=269\n'+b''.join(
             f'NXRS_BOOTSTRAP_INPUT_ACK offset={n}\n'.encode() for n in [0, 32, 64, 96, 100])
+        lines += b'NXRS_WIFI_CREDENTIALS_SAVED\n'
         console = Console(lines)
-        provision(console, packet)
+        provision(console, packet, (b's', b'password'))
         self.assertEqual(console.output, len(packet).to_bytes(2, 'big')+packet)
         console = Console(lines.replace(b'offset=32', b'offset=31'))
         with self.assertRaises(RuntimeError):
-            provision(console, packet)
+            provision(console, packet, (b's', b'password'))
         self.assertEqual(len(console.output), 2+32)
         console = Console(b'')
         with self.assertRaises(ValueError):
-            provision(console, b'wrong')
+            provision(console, b'wrong', (b's', b'password'))
         self.assertFalse(console.output)
+        # A reset between the two records must resume only the missing phase.
+        for marker, expected in [(b'SAVED', b''), (b'READY', b'\x01\x08spassword')]:
+            console = Console(b'NXRS_WIFI_CREDENTIALS_'+marker+b'\n')
+            provision(console, packet, (b's', b'password'))
+            self.assertEqual(console.output, expected)

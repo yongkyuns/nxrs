@@ -418,6 +418,21 @@ async fn wait_upload(task: &mut Option<JoinHandle<Result<()>>>) -> Result<()> {
         None => std::future::pending().await,
     }
 }
+/// Retain ownership through cancellation; a concurrent commit must not replay.
+async fn cancel_upload(task: &mut Option<JoinHandle<Result<()>>>) -> Result<bool> {
+    let Some(owner) = task.as_mut() else {
+        return Ok(false);
+    };
+    owner.abort();
+    let result = owner.await;
+    *task = None;
+    match result {
+        Ok(Ok(())) => Ok(true),
+        Ok(Err(error @ (Error::Configuration | Error::Cleanup))) => Err(error),
+        Err(error) if !error.is_cancelled() => Err(Error::Cleanup),
+        _ => Ok(false),
+    }
+}
 fn start_upload(authority: &Authority, image: &Path) -> Result<JoinHandle<Result<()>>> {
     let config = authority.config_for(authority.generation)?;
     crate::check(&config)?;
@@ -470,6 +485,7 @@ async fn execute(
                 },
                 value=listener.accept()=>value?.0,
             };
+            let updating=image.is_some();
             let request=async {
                 let address=match socket.peer_addr()?.ip() {
                     std::net::IpAddr::V4(ip)=>ip,
@@ -487,8 +503,7 @@ async fn execute(
                 let certificate=if n==0 { vec![] } else {
                     // A reboot changes the volatile key. Join the obsolete
                     // uploader before publishing/retrying against a new grant.
-                    if let Some(task)=upload.as_mut() { task.abort();let _=task.await; }
-                    upload=None;
+                    if cancel_upload(&mut upload).await? { image=None; }
                     let certificate=authority.enroll(&csr,epoch,address).await?;
                     if let Some(image)=&image { upload=Some(start_upload(&authority,image)?); }
                     else { authority.resume()?; }
@@ -504,7 +519,7 @@ async fn execute(
             let result=tokio::select! {
                 biased;
                 _=stop.changed()=>return Ok(()),
-                _=tokio::time::sleep_until(upload_deadline), if image.is_some()=>return Err(Error::Timeout),
+                _=tokio::time::sleep_until(upload_deadline), if updating=>return Err(Error::Timeout),
                 value=timeout(Duration::from_secs(5),request)=>value,
             };
             if matches!(result,Ok(Err(Error::Cleanup|Error::Configuration))) { return Err(Error::Cleanup); }
@@ -622,6 +637,16 @@ mod tests {
         let (restarted, _) = Authority::load(config).unwrap();
         assert_eq!(restarted.generation, 1);
         drop(restarted);
+        for (outcome, expected) in [
+            (Ok(()), Ok(true)),
+            (Err(Error::Io), Ok(false)),
+            (Err(Error::Configuration), Err(Error::Configuration)),
+        ] {
+            let mut upload = Some(tokio::spawn(async move { outcome }));
+            tokio::task::yield_now().await; // Complete before the cancellation races it.
+            assert_eq!(cancel_upload(&mut upload).await, expected);
+            assert!(upload.is_none());
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }

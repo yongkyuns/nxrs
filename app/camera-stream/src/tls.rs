@@ -516,6 +516,13 @@ fn serve<
                 refreshed = Instant::now();
             }
             thread::park_timeout(resources.poll_interval);
+            // A network time refresh may itself consume the remaining budget.
+            if !current(shared, epoch) {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
             Ok(())
         });
         return match image {
