@@ -1,5 +1,5 @@
 //! OS selection is confined to this wiring module.
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
+#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
 #[path = "../quiescence.rs"]
 pub(crate) mod quiescence;
 pub mod acquisition {
@@ -58,7 +58,7 @@ pub(crate) mod linux;
 #[cfg(all(hal_enabled, target_os = "macos"))]
 #[allow(unsafe_code)]
 pub(crate) mod macos;
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
+#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
 pub mod nuttx;
 #[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 pub(crate) fn open<S>(
