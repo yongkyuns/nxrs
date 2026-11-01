@@ -15,7 +15,8 @@ use stream_service::{HttpSession, Metadata, Options, Progress, ServerStats};
 /// Product-owned, approved enrollment. Construct this on the TLS thread.
 /// `time` must be bounded and supply a currently authenticated observation,
 /// accounting for its original age; recreating a lease cannot renew stale UTC.
-/// It is called at startup, on admission and once per second while connected.
+/// Called at startup/admission and roughly once per second between complete
+/// media frames or during bounded firmware reception.
 pub struct TlsIdentity<T> {
     pub identity: ::tls::Identity,
     pub policy: ::tls::CertificatePolicy,
@@ -540,13 +541,24 @@ fn serve<
         if !current(shared, epoch) {
             break Ok(());
         }
-        if refreshed.elapsed() >= Duration::from_secs(1) {
+        if refreshed.elapsed() >= Duration::from_secs(1) && http.ready_for_frame() {
             let result = (context.time)(&context.identity)
                 .and_then(|time| http.transport_mut().unwrap().refresh_time(time));
             if let Err(error) = result {
                 break Err(error);
             }
             refreshed = Instant::now();
+            // The callback can perform network I/O. Finish the prior JPEG
+            // first, then return the queued capture rather than sending a
+            // frame held across that exchange. The producer supplies a fresh
+            // owned handoff on the next poll.
+            let mut state = lock(shared);
+            if let Some(packet) = state.pending.take() {
+                state.returned = Some(packet);
+            }
+            drop(state);
+            thread::park_timeout(resources.poll_interval);
+            continue;
         }
         if !current(shared, epoch) {
             break Ok(());

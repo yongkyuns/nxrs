@@ -43,7 +43,7 @@ jobs:
         working-directory: gateway
         run: |
           cargo test --locked -p nxrs-camera-ingest
-          cargo clippy --locked -p nxrs-camera-ingest --all-targets -- -D warnings
+          cargo clippy --locked -p nxrs-camera-ingest --all-targets --all-features -- -D warnings
           cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest
       - name: Compile actual camera contract and stream server from the PR merge
         run: |

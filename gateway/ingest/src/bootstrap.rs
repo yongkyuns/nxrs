@@ -487,11 +487,15 @@ async fn execute(
             };
             let updating=image.is_some();
             let request=async {
+                #[cfg(feature="probe")]
+                let handshake_started=tokio::time::Instant::now();
                 let address=match socket.peer_addr()?.ip() {
                     std::net::IpAddr::V4(ip)=>ip,
                     _=>return Err(Error::Authentication),
                 };
                 let mut tls=acceptor.accept(socket).await.map_err(|_|Error::Authentication)?;
+                #[cfg(feature="probe")]
+                eprintln!("nxrs-camera-ingest: bootstrap handshake ms={}",handshake_started.elapsed().as_millis());
                 let mut header=[0;38];tls.read_exact(&mut header).await?;
                 if &header[..4]!=enrollment::MAGIC || header[4..36].ct_eq(&authority.token).unwrap_u8()!=1 { return Err(Error::Authentication); }
                 let n=u16::from_be_bytes(header[36..].try_into().unwrap()) as usize;

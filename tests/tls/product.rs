@@ -11,6 +11,7 @@ struct Source {
     images: Option<[Vec<u8>; 2]>,
     paused: Rc<Cell<bool>>,
     next_ms: u64,
+    interval_ms: u64,
 }
 impl Drop for Source {
     fn drop(&mut self) {
@@ -27,7 +28,7 @@ impl Camera for Source {
         if self.paused.get() || now < self.next_ms {
             return Ok(None);
         }
-        self.next_ms = now + if self.images.is_some() { 100 } else { 0 };
+        self.next_ms = now + self.interval_ms;
         self.sequence += 1;
         let jpeg: &[u8] = if let Some(images) = &self.images {
             &images[((self.sequence - 1) % 2) as usize]
@@ -53,7 +54,8 @@ impl Camera for Source {
     }
 }
 pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) {
-    let network = matches!(case, Case::Network);
+    let network = matches!(case, Case::Network | Case::NetworkTimeStall);
+    let time_stall = matches!(case, Case::NetworkTimeStall);
     let port = if network {
         std::fs::read_to_string(directory.join("port"))
             .unwrap()
@@ -67,12 +69,28 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
     let address = listener.local_addr().unwrap();
     let root = directory.clone();
     let media = matches!(case, Case::Media);
-    let images = media.then(|| {
-        [
-            public(root.join("rust-frame-1.jpg")),
-            public(root.join("rust-frame-2.jpg")),
-        ]
-    });
+    let images = if time_stall {
+        Some(
+            [
+                include_bytes!("../nuttx-std/detection/background.jpg").as_slice(),
+                include_bytes!("../nuttx-std/detection/person.jpg").as_slice(),
+            ]
+            .map(|jpeg| {
+                // A valid COM segment makes each image exceed the4096B poll budget.
+                let mut bytes = vec![0xff, 0xd8, 0xff, 0xfe, 0x20, 0x02];
+                bytes.resize(6 + 8192, 0);
+                bytes.extend_from_slice(&jpeg[2..]);
+                bytes
+            }),
+        )
+    } else {
+        media.then(|| {
+            [
+                public(root.join("rust-frame-1.jpg")),
+                public(root.join("rust-frame-2.jpg")),
+            ]
+        })
+    };
     let paused = Rc::new(Cell::new(false));
     let live = LiveCamera::<_, 16384, _>::new_tls(
         Source {
@@ -82,13 +100,14 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
             images,
             paused: paused.clone(),
             next_ms: 0,
+            interval_ms: if media { 100 } else { 0 },
         },
         listener,
         std::array::from_fn(|_| vec![0; 16384]),
         stream_service::Options::default(),
         TlsOptions {
             stack_bytes,
-            poll_interval: Duration::from_millis(2),
+            poll_interval: Duration::from_millis(if time_stall { 20 } else { 2 }),
         },
         move || {
             if network {
@@ -96,7 +115,16 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                     root.join("commission.bin"),
                 ))
                 .map_err(|_| camera_stream::Error::Tls(tls::Error::InvalidInput))?;
-                return camera_stream::bootstrap::initialize(std::sync::Arc::new(commission));
+                let mut context =
+                    camera_stream::bootstrap::initialize(std::sync::Arc::new(commission))?;
+                if time_stall {
+                    let mut time = context.time;
+                    context.time = Box::new(move |identity| {
+                        std::thread::sleep(Duration::from_millis(1500));
+                        time(identity)
+                    });
+                }
+                return Ok(context);
             }
             let mut identity = tls::open().map_err(camera_stream::Error::Tls)?;
             let mut csr = [0; 1024];

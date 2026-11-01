@@ -18,7 +18,10 @@ impl Lag {
         let elapsed=now.duration_since(start).as_millis() as i128;
         let delta=elapsed-(i128::from(frame.capture_ms)-i128::from(device));
         self.best=self.best.min(delta);
-        if delta-self.best>1000 { return Err(Error::Stale); }
+        if delta-self.best>1000 {
+            eprintln!("nxrs-camera-ingest: source backlog exceeded freshness limit");
+            return Err(Error::Stale);
+        }
         Ok(())
     }
 }

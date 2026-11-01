@@ -34,6 +34,7 @@ fn completion_receipt_tracks_the_owned_frame_after_its_last_byte() {
     }
     let quota = Rc::new(Cell::new(usize::MAX));
     let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+    assert!(!http.ready_for_frame());
     assert!(http.accept_with_prefix(
         Transport {
             request: io::Cursor::new(b"/stream HTTP/1.1\r\n\r\n"),
@@ -43,15 +44,19 @@ fn completion_receipt_tracks_the_owned_frame_after_its_last_byte() {
         b"GET ",
     ));
     http.poll(100, None); // Request.
+    assert!(!http.ready_for_frame());
     http.poll(100, None); // HTTP response alone is not an image.
+    assert!(http.ready_for_frame());
     assert_eq!(http.stats().latest_completed, None);
     quota.set(5);
     assert!(http.poll(101, Some(frame(41, 99, JPEG))).frame_accepted);
+    assert!(!http.ready_for_frame());
     assert_eq!(http.stats().latest_completed, None);
     quota.set(usize::MAX);
     let progress = http.poll(110, Some(frame(42, 109, JPEG)));
     assert!(!progress.frame_accepted);
     assert_eq!(progress.frames_completed, 1);
+    assert!(http.ready_for_frame());
     let receipt = Some(stream_service::CompletedFrame {
         sequence: 41,
         captured_ms: 99,
@@ -62,6 +67,7 @@ fn completion_receipt_tracks_the_owned_frame_after_its_last_byte() {
     assert!(http.poll(111, Some(frame(43, 111, JPEG))).frame_accepted);
     assert_eq!(http.stats().latest_completed, receipt);
     assert!(!http.poll(3111, None).active); // Partial frame expires.
+    assert!(!http.ready_for_frame());
     assert_eq!(http.stats().frames_completed, 1);
     assert_eq!(http.stats().latest_completed, receipt);
     let http = http.retire::<io::Cursor<Vec<u8>>>();

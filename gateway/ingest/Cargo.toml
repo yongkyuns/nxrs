@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+probe = []
+
 [dependencies]
 nxrs-enrollment = { path = "../../service/enrollment" }
 rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "x509-parser"] }

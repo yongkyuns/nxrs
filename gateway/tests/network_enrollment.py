@@ -36,18 +36,18 @@ def wait(predicate, seconds=10):
     raise AssertionError('network enrollment progress deadline')
 
 
-def run(ingest, camera):
+def run(ingest, camera, case):
     with tempfile.TemporaryDirectory(prefix='nxrs-network-enrollment-') as temporary:
         root = Path(temporary)
         root.chmod(0o700)
         source_port, relay_port, bootstrap_port = port(), port(), port()
         private(root/'port', str(source_port))
         private(root/'publisher.token', '1'*64+'\n')
-        for name, code in [('encoder', 'import sys\nn=0\nwhile data:=sys.stdin.buffer.read(1):\n'
+        for name, code in [('encoder', 'import sys\nn=0\nwhile data:=sys.stdin.buffer.read1(4096):\n'
                 ' sys.stdout.buffer.write(data);sys.stdout.buffer.flush();n+=1\n'
                 ' print("frame="+str(n),file=sys.stderr,flush=True)\n'),
                 ('publisher', 'import sys\nassert sys.stdin.buffer.read(64)==b"1"*64\n'
-                 'n=0\nwhile data:=sys.stdin.buffer.read(1):\n n+=1;print("packet="+str(n),flush=True)\n')]:
+                 'n=0\nwhile data:=sys.stdin.buffer.read1(4096):\n n+=1;print("packet="+str(n),flush=True)\n')]:
             private(root/name, '#!'+sys.executable+'\n'+code)
             (root/name).chmod(0o700)
         configuration = dict(camera=f'127.0.0.1:{relay_port}', allow_insecure_camera_http=False,
@@ -124,13 +124,14 @@ def run(ingest, camera):
                 try: assert tls.recv(1) == b''
                 except (ssl.SSLError, ConnectionResetError): pass
             assert (root/'authority/generation').read_text().strip() == '0'
-            device = start([str(camera), str(root), '30000', 'network'], 'camera.log')
+            device = start([str(camera), str(root), '30000', case], 'camera.log')
             wait(lambda: frames() >= 5)
             baseline = frames()
             # Cross two refresh intervals and the initial lease's expiry.
             time.sleep(32)
             assert device.poll() is None and gateway.poll() is None
             assert frames() > baseline + 20
+            assert 'retired source/encoder (Stale)' not in (root/'gateway.log').read_text(), 'trusted-time refresh made media stale'
             stop(gateway)
             gateway = start(command, 'gateway-restarted.log')
             baseline = frames()
@@ -147,7 +148,7 @@ def run(ingest, camera):
             # The updater initially has an obsolete grant. A cold camera must
             # enroll its new volatile key without waiting for that transfer.
             time.sleep(.3)
-            device = start([str(camera), str(root), '30000', 'network'], 'camera-update.log')
+            device = start([str(camera), str(root), '30000', case], 'camera-update.log')
             assert device.wait(timeout=80) == 0, (root/'camera-update.log').read_text()
             assert time.monotonic() - started > 30
             assert 'UPDATE_RECEIVED' in (root/'camera-update.log').read_text()
@@ -170,5 +171,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ingest', type=Path, required=True)
     parser.add_argument('--camera-source', type=Path, required=True)
+    parser.add_argument('--case', choices=['network','network-time-stall'], default='network-time-stall')
     args = parser.parse_args()
-    run(args.ingest.resolve(), args.camera_source.resolve())
+    run(args.ingest.resolve(), args.camera_source.resolve(), args.case)

@@ -244,7 +244,10 @@ flash. This change performs no eFuse or protection provisioning.
 
 Pinned TLS proves the commissioned endpoint without requiring UTC. Its bounded
 exchange returns a 30-second trusted-time lease; the existing TLS worker refreshes
-it every 15 seconds while serving media/OTA. Requests have a 5-second total budget
+it after 15 seconds while serving media/OTA. Media refresh runs between complete
+multipart frames, then returns the queued handoff so capture can supply a fresh
+image. This keeps crypto/network delay out of a partially sent JPEG without
+relaxing the gateway's freshness limit. Requests have a 5-second total budget
 and measured delivery uncertainty. Cloning a lease preserves its original expiry;
 backward disjoint observations fail closed. Exact-peer mutual TLS still guards
 media and updates. The gateway host's UTC must be trustworthy. Camera sessions
@@ -252,7 +255,8 @@ renew before their one-hour grant expires and retry unavailable enrollment after
 joined Wi-Fi cleanup. Losing time closes the authenticated stream.
 
 `gateway/tests/network_enrollment.py` tests the actual SDK camera and Rust gateway
-with synthetic media: enrollment, time beyond the first lease, restart, paced OTA
+with synthetic media: enrollment, large JPEGs with a bounded clock-refresh stall,
+time beyond the first lease, restart, paced OTA
 and joined cleanup. Host results do not qualify ESP32-S3 heap/stack, physical flash,
 phone playback or power-loss recovery. Generated static systemd ingest units do
 not yet configure this writable authority directory; use the explicit Rust
