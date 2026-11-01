@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
-      - 'app/camera-stream/**'
+      - 'app/home-cam/**'
       - 'service/detection/**'
       - 'service/detection-wire/**'
       - 'service/firmware-update/**'
@@ -14,7 +14,7 @@ on:
       - 'platform/profiles/**'
       - 'platform/hal-build.rs'
       - 'platform/detector-build.rs'
-      - 'platform/nuttx/camera/**'
+      - 'platform/nuttx/home-cam/**'
       - 'platform/nuttx/platforms/esp32s3-camera-stream*.toml'
       - 'tools/build-nuttx-std-app.sh'
       - 'vendor/microflow/**'
@@ -86,9 +86,9 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Actual models, ownership, alerts and shutdown
         run: |
-          cargo test --locked -p nxrs-firmware-update -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream -p nxrs-camera-firmware \
+          cargo test --locked -p nxrs-firmware-update -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-home-cam-platform \
             --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe
-          cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream -p nxrs-camera-firmware \
+          cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-home-cam-platform \
             --all-targets --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe -- -D warnings
       - name: Native SDK ownership with AddressSanitizer
         run: python3 tests/detection/check_pico_asan.py

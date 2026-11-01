@@ -29,7 +29,7 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
         if init["console"] != "uart0":
             raise ValueError("unsupported init console")
         values.update(UART0_SERIAL_CONSOLE="y", OTHER_SERIAL_CONSOLE="n")
-    if command == "camera" or (command == "stream_test" and args[:1] == ["boot-tls"]):
+    if command == "home_cam" or (command == "stream_test" and args[:1] == ["boot-tls"]):
         hal = platform.get("hal", {})
         if ("mcuboot" not in platform or hal.get("boot") != "nuttx"
                 or hal.get("watchdog") != "nuttx"):

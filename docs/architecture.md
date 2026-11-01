@@ -20,7 +20,7 @@ handwritten Rust main(), product-level service composition, workflows, lifecycle
 and policy.
 
 An application may also expose a reusable composition library, such as
-`app/camera-stream`; the selected firmware binary owns the final `main()`.
+`app/home-cam`; the selected firmware binary owns the final `main()`.
 Application code may use ordinary Rust `std` facilities. Portability does not
 require every application composition to be `no_std`. APIs and shared HAL
 behavior follow the stricter implementation boundaries in the normative HAL
@@ -52,7 +52,9 @@ app/nxrs follows the same provider-hiding rule for its native replay
 profile. It acquires camera, storage and transport through `nxrs-camera`,
 `nxrs-storage`, and `nxrs-transport`, then moves those resources into
 CameraService, RecordingService and TelemetryService.
-The architecture checker has no app-specific provider-selection exception.
+HAL provider selection stays inside the HAL. The `home-cam` entry has a
+target-bound dependency on `platform/nuttx/home-cam` for bring-up, console
+access and execution resources, as defined in the normative architecture rules.
 
 There is no platform launcher, app registry, mandatory App trait, registration
 macro or service-graph configuration language.
@@ -92,7 +94,7 @@ connections.
 `hal/detector` owns the portable detector API, models and platform-specific
 execution. `service/detection` owns bounded inference scheduling and typed alert
 policy. The detector is separate from the camera capability.
-`app/camera-stream` can attach `SecurityDetection` before starting capture.
+`app/home-cam` can attach `SecurityDetection` before starting capture.
 
 ~~~text
 camera HAL -> CameraService -> MJPEG service

@@ -1,10 +1,10 @@
 //! One-time product input. Saved records never acquire the console.
 #![forbid(unsafe_code)]
-use camera_stream::{
+use config::Store;
+use home_cam::{
     bootstrap::{self, Commission},
     network::Profile,
 };
-use config::Store;
 use std::{
     io::{self, Read, Write},
     sync::Arc,

@@ -131,7 +131,7 @@ images. Python transitive test packages are not yet a fully hash-locked deployme
 ## Camera coordination and remaining qualification
 
 The parallel camera work landed on main at `c81f017` and was followed by HAL error
-isolation in #23 (`e5cdb1d`). Its current `app/camera-stream` / `service/stream`
+isolation in #23 (`e5cdb1d`). Its current `app/home-cam` / `service/stream`
 implementation and `tests/nuttx-std/stream/README.md` provide the device-side MJPEG
 handoff. The gateway should be its single device-side viewer and fan out after
 encoding/MediaMTX, rather than introduce a second capture owner or firmware

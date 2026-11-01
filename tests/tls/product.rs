@@ -1,7 +1,7 @@
 //! Real product composition with synthetic JPEG capture and fixture PKI/UTC.
 use super::*;
 use camera::{Camera, Capture, DeviceError, Format};
-use camera_stream::{LiveCamera, TlsIdentity, TlsOptions};
+use home_cam::{LiveCamera, TlsIdentity, TlsOptions};
 use std::{cell::Cell, rc::Rc};
 
 struct Source {
@@ -111,12 +111,12 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         },
         move || {
             if network {
-                let commission = camera_stream::bootstrap::Commission::decode(&public(
+                let commission = home_cam::bootstrap::Commission::decode(&public(
                     root.join("commission.bin"),
                 ))
-                .map_err(|_| camera_stream::Error::Tls(tls::Error::InvalidInput))?;
+                .map_err(|_| home_cam::Error::Tls(tls::Error::InvalidInput))?;
                 let mut context =
-                    camera_stream::bootstrap::initialize(std::sync::Arc::new(commission))?;
+                    home_cam::bootstrap::initialize(std::sync::Arc::new(commission))?;
                 if time_stall {
                     let mut time = context.time;
                     context.time = Box::new(move |identity| {
@@ -126,7 +126,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 }
                 return Ok(context);
             }
-            let mut identity = tls::open().map_err(camera_stream::Error::Tls)?;
+            let mut identity = tls::open().map_err(home_cam::Error::Tls)?;
             let mut csr = [0; 1024];
             let size = identity.request("fixture", &mut csr).unwrap();
             std::fs::write(root.join("request.csr"), &csr[..size]).unwrap();
@@ -165,7 +165,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                             .as_secs(),
                         Duration::from_millis(age),
                     )
-                }) as camera_stream::bootstrap::TimeSource,
+                }) as home_cam::bootstrap::TimeSource,
             })
         },
     );
@@ -178,7 +178,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         }
     };
     let update = network
-        .then(|| camera_stream::update::Update::new(65536, Duration::from_secs(90)).unwrap());
+        .then(|| home_cam::update::Update::new(65536, Duration::from_secs(90)).unwrap());
     if let Some(update) = &update {
         live.enable_updates(update.clone()).unwrap();
     }
@@ -221,14 +221,14 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         )
         .unwrap();
         live.attach_detection(
-            camera_stream::SecurityDetection::new(worker, detection_service::Policy::default())
+            home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
                 .unwrap(),
         )
         .unwrap();
     }
     let (width, height) = if media { (320, 240) } else { (96, 96) };
     live.start(width, height).unwrap();
-    assert!(!camera_stream::startup::healthy(&live, 0, 5000));
+    assert!(!home_cam::startup::healthy(&live, 0, 5000));
     println!("LISTEN {address}");
     std::io::stdout().flush().unwrap();
     let origin = Instant::now();
@@ -277,7 +277,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         }
         let now = origin.elapsed().as_millis() as u64;
         live.poll(now, online).unwrap();
-        if confirm && camera_stream::startup::healthy(&live, now, 5000) {
+        if confirm && home_cam::startup::healthy(&live, now, 5000) {
             break;
         }
         let stats = live.stats();
@@ -311,9 +311,9 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
     }
     if confirm {
         let now = origin.elapsed().as_millis() as u64;
-        assert!(camera_stream::startup::healthy(&live, now, 5000));
+        assert!(home_cam::startup::healthy(&live, now, 5000));
         report(&directory, live.stats(), peak);
-        let _health = camera_stream::startup::retire_healthy(live, now, 5000)
+        let _health = home_cam::startup::retire_healthy(live, now, 5000)
             .expect("real authenticated image and joined retirement");
         println!("STARTUP_RETIRED");
     } else {
@@ -333,7 +333,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
     std::io::stdout().flush().unwrap();
 }
 
-fn report(directory: &Path, stats: camera_stream::Stats, peak: u64) {
+fn report(directory: &Path, stats: home_cam::Stats, peak: u64) {
     let active = stats
         .stream
         .accepted

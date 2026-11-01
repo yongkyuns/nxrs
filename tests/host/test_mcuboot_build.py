@@ -23,9 +23,9 @@ class BootWiringTests(unittest.TestCase):
     def test_direct_startup_requires_coherent_boot_and_bounded_native_args(self):
         configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
-        config = configure(profile, "camera", 100, 32768)
+        config = configure(profile, "home_cam", 100, 32768)
         self.assertEqual(config["NETINIT_THREAD"], "n")
-        self.assertEqual(config["INIT_ENTRYPOINT"], '"camera_main"')
+        self.assertEqual(config["INIT_ENTRYPOINT"], '"home_cam_main"')
         self.assertEqual(config["INIT_STACKSIZE"], "32768")
         self.assertEqual(profile["init"]["args"], [])
         self.assertEqual(config["UART0_SERIAL_CONSOLE"], "y")
@@ -47,16 +47,16 @@ class BootWiringTests(unittest.TestCase):
                 BOOT.application_config({**profile, "mcuboot": {**profile["mcuboot"], **changed}})
         self.assertFalse(BOOT.protected(profile))
         self.assertNotEqual(profile["image-class"], resolve("esp32s3-camera-stream-mcuboot")["image-class"])
-        self.assertEqual(configure({}, "camera", 100, 32768), {})
+        self.assertEqual(configure({}, "home_cam", 100, 32768), {})
         for capability in ("boot", "watchdog"):
             with self.subTest(capability=capability), self.assertRaises(ValueError):
-                configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "camera", 100, 32768)
+                configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "home_cam", 100, 32768)
         for args in (None, "boot-tls", [True], ["x"] * 17, ["x" * 129], ['a"b'], ['a\\b'], ["a\nb"]):
             with self.subTest(args=args), self.assertRaises(ValueError):
-                configure({**profile, "init": {"command": "camera", "args": args}}, "camera", 100, 32768)
+                configure({**profile, "init": {"command": "home_cam", "args": args}}, "home_cam", 100, 32768)
         for command, priority, stack in (("other", 100, 32768), ("bad-name", 100, 32768),
-                                         ("camera", True, 32768), ("camera", 256, 32768),
-                                         ("camera", 100, 0)):
+                                         ("home_cam", True, 32768), ("home_cam", 256, 32768),
+                                         ("home_cam", 100, 0)):
             with self.subTest(command=command, priority=priority, stack=stack), self.assertRaises(ValueError):
                 configure(profile, command, priority, stack)
 
@@ -65,7 +65,7 @@ class BootWiringTests(unittest.TestCase):
         profile = resolve("esp32s3-camera-stream-startup")
         args = ["space test", "a,b", ""]
         profile["init"]["args"] = args
-        values = configure(profile, "camera", 100, 32768)
+        values = configure(profile, "home_cam", 100, 32768)
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             tools = ROOT / "external/nuttx/tools"
@@ -85,7 +85,7 @@ class BootWiringTests(unittest.TestCase):
             (work/"config.h").write_bytes(header)
             (work/"witness.c").write_text('''#include "config.h"
 #include <stdio.h>
-static int camera_main(int argc, const char *argv[]) {
+static int home_cam_main(int argc, const char *argv[]) {
   for (int i = 1; i < argc; ++i) puts(argv[i]);
   return 0;
 }
@@ -103,7 +103,7 @@ int main(void) {
             self.assertEqual(subprocess.check_output([str(work/"witness")], text=True).splitlines(), args)
             # Empty product args must survive the actual NuttX config writer/header tool.
             profile["init"]["args"] = []
-            values = configure(profile, "camera", 100, 32768)
+            values = configure(profile, "home_cam", 100, 32768)
             subprocess.run([sys.executable, "-c", writer, *[f"{key}={value}" for key, value in values.items()]],
                            cwd=work, check=True, capture_output=True)
             (work/"config.h").write_bytes(subprocess.check_output([str(work/"mkconfig"), str(work)]))

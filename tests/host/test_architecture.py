@@ -59,30 +59,27 @@ class ArchitectureTests(unittest.TestCase):
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
 
-    def test_product_composition_is_downward_and_controllers_stay_safe(self):
-        product = self.package('product', 'platform/nuttx/camera')
-        self.metadata['packages'].append(product)
-        self.metadata['workspace_members'].append('product')
-        directory = Path(product['manifest_path']).parent
+    def test_home_cam_can_use_only_its_target_bound_platform_startup(self):
+        app = self.package('home-cam', 'app/home-cam')
+        support = self.package('startup', 'platform/nuttx/home-cam')
+        for package in (app, support):
+            self.metadata['packages'].append(package)
+            self.metadata['workspace_members'].append(package['id'])
+        directory = Path(support['manifest_path']).parent
         (directory / 'src/lib.rs').write_text('#![deny(unsafe_code)]\n')
-        (directory / 'src/main.rs').write_text('#![forbid(unsafe_code)]\nfn main() {}\n')
-        for target in ('app', 'service', 'camera'):
-            self.add('product', target)
+        support['targets'] = [{'kind': ['lib']}]
+        self.add('home-cam', 'startup', target='cfg(target_os = "nuttx")')
         self.assertEqual(self.violations(), [])
-        for source, target in [('product', 'test'), ('app', 'product'), ('service', 'product'),
-                               ('camera', 'product'), ('platform', 'product')]:
-            for extra in ({}, {'optional': True}, {'kind': 'build'}, {'target': 'cfg(unix)'}):
-                with self.subTest(edge=(source, target), extra=extra):
-                    before = copy.deepcopy(self.packages[source]['dependencies'])
-                    self.add(source, target, **extra)
-                    self.assertTrue(self.violations())
-                    self.packages[source]['dependencies'] = before
-        controller = directory / 'src/runtime.rs'
-        controller.write_text('fn run() {}\n')
-        self.assertTrue(self.violations())
-        controller.write_text('#![forbid(unsafe_code)]\nfn run() {}\n')
-        self.assertEqual(self.violations(), [])
-        self.metadata['workspace_default_members'].append('product')
+        for extra in ({}, {'target': 'cfg(unix)'}, {'target': 'cfg(target_os = "nuttx")', 'kind': 'build'}):
+            app['dependencies'].clear()
+            self.add('home-cam', 'startup', **extra)
+            self.assertTrue(self.violations())
+        app['dependencies'].clear()
+        for source, target in [('app', 'startup'), ('service', 'startup'), ('camera', 'startup'), ('startup', 'home-cam')]:
+            self.add(source, target, target='cfg(target_os = "nuttx")')
+            self.assertTrue(self.violations())
+            self.packages[source]['dependencies'].clear()
+        self.metadata['workspace_default_members'].append('startup')
         self.assertTrue(self.violations())
 
     def test_shared_radio_delivery_contracts_are_only_reused_by_radio_hals(self):

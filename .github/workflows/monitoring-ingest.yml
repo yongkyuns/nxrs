@@ -4,7 +4,7 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
-      - 'app/camera-stream/**'
+      - 'app/home-cam/**'
       - 'service/camera/**'
       - 'service/detection/**'
       - 'hal/detector/src/api.rs'

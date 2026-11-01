@@ -6,7 +6,7 @@ below is a local-network prototype, not an authenticated home-monitoring product
 or a production-readiness claim.
 
 The signed product entry lives in
-[`platform/nuttx/camera`](../../../platform/nuttx/camera), built with its `build.sh`.
+[`platform/nuttx/home-cam`](../../../platform/nuttx/home-cam), built with its `build.sh`.
 This fixture always requires an explicit `--platform`; it owns timed runs,
 forced reconnects, metrics, model witnesses and trusted-USB TLS controls.
 
@@ -78,7 +78,7 @@ joined/Pending reboot handoff, then re-enrolls and supervises the new trial.
 Keep one USB owner. See [OTA delivery](../../../docs/firmware-updates.md#ota-delivery)
 for its RAM bound, prerequisites and receipt semantics.
 
-[`app/camera-stream`](../../../app/camera-stream) composes the camera service
+[`app/home-cam`](../../../app/home-cam) composes the camera service
 and caller-polled [`service/stream`](../../../service/stream) server.
 [`service/connectivity`](../../../service/connectivity) owns reconnect policy.
 These components contain no ESP pins, NuttX headers or platform feature flags.
@@ -246,7 +246,7 @@ installed SDK or tracked checkouts.
 
 ```sh
 cargo test --locked -p nxrs-camera -p nxrs-camera-service \
-  -p nxrs-camera-stream -p nxrs-stream-service -p nxrs-connectivity-service
+  -p nxrs-home-cam -p nxrs-stream-service -p nxrs-connectivity-service
 bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream
 ```
 

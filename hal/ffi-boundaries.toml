@@ -129,6 +129,6 @@ kind = "abi"
 reason = "NuttX config-data ioctl layout and errno translation. Rust owns files, keys, bounds and product-record validation."
 
 [[bridge]]
-path = "platform/nuttx/camera/src/platform/nuttx/ffi/startup.c"
+path = "platform/nuttx/home-cam/src/platform/nuttx/ffi/startup.c"
 kind = "abi"
 reason = "Product bootstrap only: target-header network init, calling-worker priority and commissioning termios/poll. Rust owns input, deadlines, resource lifetime and policy."

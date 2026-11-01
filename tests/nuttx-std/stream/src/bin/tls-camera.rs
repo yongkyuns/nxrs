@@ -7,7 +7,7 @@ mod console;
 #[cfg(target_os = "nuttx")]
 fn run() -> Result<(), String> {
     use camera::{Camera, JpegQuality};
-    use camera_stream::{LiveCamera, TlsOptions};
+    use home_cam::{LiveCamera, TlsOptions};
     use std::net::{Ipv4Addr, TcpListener};
     use std::sync::{
         atomic::{AtomicU8, Ordering},

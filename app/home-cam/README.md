@@ -1,4 +1,18 @@
-# Camera output
+# Home camera
+
+`home-cam` owns camera streaming, commissioning, TLS enrollment, detection,
+trial confirmation and OTA policy. `main()` and the lifecycle live here;
+NuttX bring-up, native startup operations and execution budgets live in
+[`platform/nuttx/home-cam`](../../platform/nuttx/home-cam).
+
+Build the signed ESP32-S3 application with that platform's `build.sh`; supply
+operator signing inputs from [signed updates](../../docs/firmware-updates.md).
+Saved records are loaded before network bring-up. USB opens only for missing
+first-time commissioning records; enrollment, trusted time and OTA then use
+Wi-Fi. Qualification controls remain in the
+[stream fixture](../../tests/nuttx-std/stream/README.md).
+
+## Streaming API
 
 `LiveCamera::new` retains the caller-polled plaintext development path.
 `LiveCamera::new_tls` uses the same HTTP/MJPEG implementation over Mbed TLS,
@@ -30,5 +44,3 @@ it is not a capture-loop operation. A stopped TLS output cannot restart.
 actual SDK peers, rejected clients, reconnect, time failure, blocked-worker
 capture progress and teardown. Its debug/sanitizer host worker uses 256 KiB;
 the target compile fixture requests 64 KiB. Neither is a device peak measurement.
-Product profiles remain disabled pending board
-entropy, provisioning and physical flash/heap/stack/latency qualification.

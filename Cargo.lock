@@ -226,46 +226,10 @@ name = "nxrs-camera"
 version = "0.1.0"
 
 [[package]]
-name = "nxrs-camera-firmware"
-version = "0.1.0"
-dependencies = [
- "nxrs-boot",
- "nxrs-camera",
- "nxrs-camera-stream",
- "nxrs-config",
- "nxrs-connectivity-service",
- "nxrs-detection-service",
- "nxrs-detector",
- "nxrs-stream-service",
- "nxrs-tls",
- "nxrs-watchdog",
- "nxrs-wifi",
-]
-
-[[package]]
 name = "nxrs-camera-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
-]
-
-[[package]]
-name = "nxrs-camera-stream"
-version = "0.1.0"
-dependencies = [
- "nxrs-boot",
- "nxrs-camera",
- "nxrs-camera-service",
- "nxrs-config",
- "nxrs-detection-service",
- "nxrs-detection-wire",
- "nxrs-detector",
- "nxrs-enrollment",
- "nxrs-firmware-update",
- "nxrs-stream-service",
- "nxrs-tls",
- "nxrs-watchdog",
- "nxrs-wifi",
 ]
 
 [[package]]
@@ -343,6 +307,31 @@ version = "0.1.0"
 
 [[package]]
 name = "nxrs-hal-common"
+version = "0.1.0"
+
+[[package]]
+name = "nxrs-home-cam"
+version = "0.1.0"
+dependencies = [
+ "nxrs-boot",
+ "nxrs-camera",
+ "nxrs-camera-service",
+ "nxrs-config",
+ "nxrs-connectivity-service",
+ "nxrs-detection-service",
+ "nxrs-detection-wire",
+ "nxrs-detector",
+ "nxrs-enrollment",
+ "nxrs-firmware-update",
+ "nxrs-home-cam-platform",
+ "nxrs-stream-service",
+ "nxrs-tls",
+ "nxrs-watchdog",
+ "nxrs-wifi",
+]
+
+[[package]]
+name = "nxrs-home-cam-platform"
 version = "0.1.0"
 
 [[package]]
@@ -466,12 +455,12 @@ version = "0.1.0"
 dependencies = [
  "nxrs-boot",
  "nxrs-camera",
- "nxrs-camera-stream",
  "nxrs-config",
  "nxrs-connectivity-service",
  "nxrs-detection-service",
  "nxrs-detector",
  "nxrs-enrollment",
+ "nxrs-home-cam",
  "nxrs-std-wifi",
  "nxrs-stream-service",
  "nxrs-tls",
@@ -484,9 +473,9 @@ name = "nxrs-std-tls-identity"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-camera-stream",
  "nxrs-detection-service",
  "nxrs-detector",
+ "nxrs-home-cam",
  "nxrs-stream-service",
  "nxrs-tls",
 ]

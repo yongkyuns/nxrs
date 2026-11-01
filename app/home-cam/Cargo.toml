@@ -1,12 +1,18 @@
 [package]
-name = "nxrs-camera-stream"
+name = "nxrs-home-cam"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "home-cam"
+path = "src/main.rs"
+
 [lib]
-name = "camera_stream"
+name = "home_cam"
 
 [dependencies]
+nxrs-detector = { path = "../../hal/detector" }
+nxrs-connectivity-service = { path = "../../service/connectivity" }
 nxrs-enrollment = { path = "../../service/enrollment" }
 nxrs-config = { path = "../../hal/config" }
 nxrs-camera = { path = "../../hal/camera" }
@@ -21,7 +27,7 @@ nxrs-watchdog = { path = "../../hal/watchdog" }
 nxrs-wifi = { path = "../../hal/wifi" }
 
 [package.metadata.nxrs]
-required-capabilities = ["camera"]
+required-capabilities = ["camera", "wifi", "tls", "config", "boot", "watchdog"]
 
-[dev-dependencies]
-nxrs-detector = { path = "../../hal/detector" }
+[target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-home-cam-platform = { path = "../../platform/nuttx/home-cam" }

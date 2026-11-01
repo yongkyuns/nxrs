@@ -1,7 +1,7 @@
 //! Trusted USB provisioning for the physical camera TLS qualification fixture.
 
-fn invalid() -> camera_stream::Error {
-    camera_stream::Error::Tls(tls::Error::InvalidInput)
+fn invalid() -> home_cam::Error {
+    home_cam::Error::Tls(tls::Error::InvalidInput)
 }
 
 struct Enrollment {
@@ -12,14 +12,14 @@ struct Enrollment {
     revocations: Vec<u8>,
 }
 
-fn parse_enrollment(blob: &[u8]) -> Result<Enrollment, camera_stream::Error> {
+fn parse_enrollment(blob: &[u8]) -> Result<Enrollment, home_cam::Error> {
     let value = enrollment::Enrollment::decode(blob).map_err(|_| invalid())?;
     let policy = tls::CertificatePolicy {
         issuer_sha256: value.issuer_sha256,
         own_uri: value.own_uri,
         peer_uri: value.peer_uri,
     };
-    policy.validate().map_err(camera_stream::Error::Tls)?;
+    policy.validate().map_err(home_cam::Error::Tls)?;
     Ok(Enrollment {
         policy,
         own: value.own,
@@ -55,7 +55,7 @@ fn parse_time_response(bytes: &[u8], sequence: u64) -> Result<Response, tls::Err
 #[cfg(target_os = "nuttx")]
 mod device {
     use super::*;
-    use camera_stream::TlsIdentity;
+    use home_cam::TlsIdentity;
     use enrollment::MAX_ENROLLMENT;
     use std::{
         io::{Read, Write},
@@ -68,15 +68,15 @@ mod device {
 
     struct Raw([u32; 6], i32);
     impl Raw {
-        fn enter() -> Result<Self, camera_stream::Error> {
+        fn enter() -> Result<Self, home_cam::Error> {
             Self::descriptor(0)
         }
-        fn descriptor(descriptor: i32) -> Result<Self, camera_stream::Error> {
+        fn descriptor(descriptor: i32) -> Result<Self, home_cam::Error> {
             let mut saved = Self([0; 6], descriptor);
             // SAFETY: target-header translation saves the six termios fields before
             // switching this TLS worker's standard input to raw mode.
             if unsafe { camera_console_mode(descriptor, saved.0.as_mut_ptr(), 1) } != 0 {
-                return Err(camera_stream::Error::Tls(tls::Error::Unsupported));
+                return Err(home_cam::Error::Tls(tls::Error::Unsupported));
             }
             Ok(saved)
         }
@@ -98,7 +98,7 @@ mod device {
         input: &mut impl Read,
         bytes: &mut [u8],
         deadline: Instant,
-    ) -> Result<(), camera_stream::Error> {
+    ) -> Result<(), home_cam::Error> {
         read_from(input, 0, bytes, deadline)
     }
     fn read_from(
@@ -106,28 +106,28 @@ mod device {
         descriptor: i32,
         bytes: &mut [u8],
         deadline: Instant,
-    ) -> Result<(), camera_stream::Error> {
+    ) -> Result<(), home_cam::Error> {
         let mut offset = 0;
         while offset < bytes.len() {
             if Instant::now() >= deadline {
-                return Err(camera_stream::Error::Tls(tls::Error::Time));
+                return Err(home_cam::Error::Tls(tls::Error::Time));
             }
             // SAFETY: target-header readiness observes this task's standard input.
             match unsafe { camera_console_ready(descriptor) } {
-                n if n < 0 => return Err(camera_stream::Error::Tls(tls::Error::Unsupported)),
+                n if n < 0 => return Err(home_cam::Error::Tls(tls::Error::Unsupported)),
                 0 => std::thread::sleep(Duration::from_millis(1)),
                 _ => match input.read(&mut bytes[offset..]) {
-                    Ok(0) => return Err(camera_stream::Error::Tls(tls::Error::Unsupported)),
+                    Ok(0) => return Err(home_cam::Error::Tls(tls::Error::Unsupported)),
                     Ok(n) => offset += n,
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(_) => return Err(camera_stream::Error::Tls(tls::Error::Unsupported)),
+                    Err(_) => return Err(home_cam::Error::Tls(tls::Error::Unsupported)),
                 },
             }
         }
         Ok(())
     }
 
-    pub fn prepare_reboot() -> Result<(), camera_stream::Error> {
+    pub fn prepare_reboot() -> Result<(), home_cam::Error> {
         use std::os::fd::AsFd;
         let _raw = Raw::enter()?;
         let descriptor = std::io::stdin()
@@ -151,15 +151,15 @@ mod device {
 
     pub fn initialize(
         stop: Arc<AtomicU8>,
-    ) -> Result<TlsIdentity<camera_stream::bootstrap::TimeSource>, camera_stream::Error> {
+    ) -> Result<TlsIdentity<home_cam::bootstrap::TimeSource>, home_cam::Error> {
         let _raw = Raw::enter()?;
         let mut input = std::io::stdin();
         let mut output = std::io::stdout();
-        let mut identity = tls::open().map_err(camera_stream::Error::Tls)?;
+        let mut identity = tls::open().map_err(home_cam::Error::Tls)?;
         let mut csr = [0; 1024];
         let csr_len = identity
             .request("camera", &mut csr)
-            .map_err(camera_stream::Error::Tls)?;
+            .map_err(home_cam::Error::Tls)?;
         write!(output, "NXRS_TLS_CSR bytes={csr_len}\n").map_err(|_| invalid())?;
         output.write_all(&csr[..csr_len]).map_err(|_| invalid())?;
         output.flush().map_err(|_| invalid())?;
