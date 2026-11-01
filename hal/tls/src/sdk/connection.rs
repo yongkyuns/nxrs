@@ -407,17 +407,42 @@ unsafe extern "C" fn recv(context: *mut c_void, output: *mut u8, size: usize) ->
     }
 }
 
-/// One nonblocking TLS1.2/1.3 server connection borrowing its signing key.
+enum Peer<'a> {
+    Enrolled {
+        enrollment: &'a Enrollment,
+        time: TimeLease,
+    },
+    Pinned {
+        config: Opaque,
+        sha256: [u8; 32],
+    },
+}
+impl Peer<'_> {
+    fn config(&self) -> &Opaque {
+        match self {
+            Self::Enrolled { enrollment, .. } => &enrollment.config,
+            Self::Pinned { config, .. } => config,
+        }
+    }
+    fn sample(&self) -> Result<(i64, i64, Instant), Error> {
+        match self {
+            Self::Enrolled { time, .. } => time.sample(),
+            // Exact-pin bootstrap has a monotonic deadline, not a UTC claim.
+            Self::Pinned { .. } => Ok((0, 0, Instant::now())),
+        }
+    }
+}
+
+/// One nonblocking enrolled server or exact-pin bootstrap client connection.
 /// Native crypto execution is synchronous; callers must qualify its CPU/source
 /// latency before placing it on a camera capture thread. No worker is implied.
 pub struct Connection<'a> {
     ssl: Opaque,
-    enrollment: &'a Enrollment,
+    peer: Peer<'a>,
     socket: Box<Socket>,
     pending: Box<[u8; RECORD]>,
     pending_size: usize,
     identity: &'a Identity,
-    time: TimeLease,
     until: Instant,
     handshake_until: Instant,
     last_epoch: i64,
@@ -436,13 +461,73 @@ fn io_error(error: Error) -> io::Error {
 }
 impl Identity {
     pub fn accept<'a>(
-        &'a mut self,
+        &'a self,
         stream: TcpStream,
         time: TimeLease,
     ) -> Result<Connection<'a>, Error> {
         let enrollment = self.enrollment.as_ref().ok_or(Error::InvalidInput)?;
-        let (lower, _, now) = time.sample()?;
         let until = enrollment.roots.cutoff(self, &time)?;
+        self.connection(stream, Peer::Enrolled { enrollment, time }, until)
+    }
+
+    /// Clock-independent TLS1.3 commissioning channel to an independently
+    /// provisioned exact DER certificate SHA-256. No CA/date authentication is
+    /// claimed. Handshake proof and the pin must pass before application I/O.
+    /// The certificate pin remains authoritative even if that certificate expires;
+    /// replace it only through an independently authorized commissioning path.
+    pub fn connect_pinned<'a>(
+        &'a self,
+        stream: TcpStream,
+        certificate_sha256: [u8; 32],
+        lifetime: Duration,
+    ) -> Result<Connection<'a>, Error> {
+        if lifetime.is_zero() || lifetime > Duration::from_secs(10) || certificate_sha256 == [0; 32]
+        {
+            return Err(Error::InvalidInput);
+        }
+        let until = Instant::now() + lifetime;
+        // SAFETY: actual SDK configuration layout and matching constructor/free.
+        let config = unsafe {
+            Opaque::new(
+                tls_config_size(),
+                tls_config_align(),
+                mbedtls_ssl_config_init,
+                mbedtls_ssl_config_free,
+            )?
+        };
+        self.sdk(|| unsafe {
+            mbedtls_ssl_config_defaults(
+                config.pointer(),
+                tls_client_endpoint(),
+                tls_stream_transport(),
+                tls_default_preset(),
+            )
+        })?;
+        // This channel authenticates the exact pinned certificate after TLS's
+        // CertificateVerify proof. Normal enrolled connections retain all PKI
+        // and UTC checks. Resumption, PSK and early data are not compiled in.
+        unsafe {
+            mbedtls_ssl_conf_authmode(config.pointer(), tls_verify_none());
+            tls_ssl_min_version(config.pointer(), tls_version13());
+            tls_ssl_max_version(config.pointer(), tls_version13());
+        }
+        self.connection(
+            stream,
+            Peer::Pinned {
+                config,
+                sha256: certificate_sha256,
+            },
+            until,
+        )
+    }
+
+    fn connection<'a>(
+        &'a self,
+        stream: TcpStream,
+        peer: Peer<'a>,
+        until: Instant,
+    ) -> Result<Connection<'a>, Error> {
+        let (lower, _, now) = peer.sample()?;
         stream.set_nonblocking(true).map_err(|_| Error::Io)?;
         let socket = try_boxed(Socket {
             stream: RefCell::new(stream),
@@ -461,7 +546,7 @@ impl Identity {
                 mbedtls_ssl_free,
             )?
         };
-        self.sdk(|| unsafe { mbedtls_ssl_setup(ssl.pointer(), enrollment.config.pointer()) })?;
+        self.sdk(|| unsafe { mbedtls_ssl_setup(ssl.pointer(), peer.config().pointer()) })?;
         // SAFETY: the box remains stable until BIO is detached and SSL freed.
         unsafe {
             mbedtls_ssl_set_bio(
@@ -474,12 +559,11 @@ impl Identity {
         }
         Ok(Connection {
             ssl,
-            enrollment,
+            peer,
             socket,
             pending,
             pending_size: 0,
             identity: self,
-            time,
             until,
             handshake_until: now + HANDSHAKE,
             last_epoch: lower,
@@ -500,7 +584,7 @@ impl Connection<'_> {
         if self.closed {
             return Err(Error::Poisoned);
         }
-        let (lower, upper, now) = self.time.sample().map_err(|e| self.fail(e))?;
+        let (lower, upper, now) = self.peer.sample().map_err(|e| self.fail(e))?;
         if lower < self.last_epoch
             || now < self.socket.last.get()
             || now >= self.until
@@ -532,7 +616,7 @@ impl Connection<'_> {
         }
         Ok(result)
     }
-    /// One SDK handshake step; returns true only after chain, CRL and pin checks.
+    /// One SDK handshake step; true only after the selected peer policy passes.
     pub fn poll(&mut self) -> Result<bool, Error> {
         self.epoch()?;
         if self.ready {
@@ -550,18 +634,37 @@ impl Connection<'_> {
         if unsafe { tls_handshake_over(self.ssl.pointer()) } == 0 {
             return Ok(false);
         }
-        let pin = match (
-            bytes(&self.ssl, tls_peer_raw),
-            bytes(&self.enrollment.roots.peer, tls_crt_raw),
-        ) {
-            (Ok(actual), Ok(approved)) => actual == approved,
-            _ => false,
-        };
-        if unsafe { mbedtls_ssl_get_verify_result(self.ssl.pointer()) } != 0 || !pin {
+        let pin = self.authenticated().map_err(|error| self.fail(error))?;
+        if !pin {
             return Err(self.fail(Error::Authentication));
         }
         self.ready = true;
         Ok(true)
+    }
+    fn authenticated(&self) -> Result<bool, Error> {
+        Ok(match &self.peer {
+            Peer::Enrolled { enrollment, .. } => {
+                (unsafe { mbedtls_ssl_get_verify_result(self.ssl.pointer()) }) == 0
+                    && matches!((bytes(&self.ssl, tls_peer_raw), bytes(&enrollment.roots.peer, tls_crt_raw)),
+                                (Ok(actual), Ok(approved)) if actual == approved)
+            }
+            Peer::Pinned { sha256, .. } => {
+                let actual = bytes(&self.ssl, tls_peer_raw)?;
+                let mut digest = [0; 32];
+                let mut length = 0;
+                self.identity.sdk(|| unsafe {
+                    psa_hash_compute(
+                        tls_sha256_algorithm(),
+                        actual.as_ptr(),
+                        actual.len(),
+                        digest.as_mut_ptr(),
+                        digest.len(),
+                        &mut length,
+                    )
+                })?;
+                length == digest.len() && digest == *sha256
+            }
+        })
     }
     /// Refresh before expiry; a closed connection cannot be revived.
     pub fn refresh_time(&mut self, time: TimeLease) -> Result<(), Error> {
@@ -570,12 +673,16 @@ impl Connection<'_> {
         if lower < self.last_epoch {
             return Err(self.fail(Error::Time));
         }
-        self.until = self
-            .enrollment
+        let Peer::Enrolled { enrollment, .. } = &self.peer else {
+            return Err(Error::InvalidInput);
+        };
+        self.until = enrollment
             .roots
             .cutoff(self.identity, &time)
             .map_err(|e| self.fail(e))?;
-        self.time = time;
+        if let Peer::Enrolled { time: current, .. } = &mut self.peer {
+            *current = time;
+        }
         self.last_epoch = lower;
         Ok(())
     }

@@ -63,6 +63,8 @@ unsafe extern "C" {
     pub(super) fn tls_crl_size() -> usize;
     pub(super) fn tls_crl_align() -> usize;
     pub(super) fn tls_server_endpoint() -> c_int;
+    pub(super) fn tls_client_endpoint() -> c_int;
+    pub(super) fn tls_verify_none() -> c_int;
     pub(super) fn tls_stream_transport() -> c_int;
     pub(super) fn tls_default_preset() -> c_int;
     pub(super) fn tls_verify_required() -> c_int;

@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod product;
+mod bootstrap;
 
 #[derive(Clone, Copy)]
 enum Case {
@@ -17,6 +18,7 @@ enum Case {
     Http,
     Product,
     Media,
+    Interleave,
 }
 
 fn public(path: PathBuf) -> Vec<u8> {
@@ -151,6 +153,10 @@ fn transaction(
         if &input != b"ping\n" {
             return Err(tls::Error::InvalidInput);
         }
+        if matches!(case, Case::Interleave) {
+            let directory = PathBuf::from(std::env::args_os().nth(1).unwrap());
+            bootstrap::exchange(identity, &directory, 3000)?;
+        }
         if matches!(case, Case::Rollback) {
             let rollback = tls::TimeLease::from_trusted(epoch - 10, Duration::from_secs(5))?;
             assert_eq!(connection.refresh_time(rollback), Err(tls::Error::Time));
@@ -242,6 +248,10 @@ fn main() {
         .unwrap_or_else(|| "30000".into())
         .parse()
         .unwrap();
+    if std::env::args().nth(3).as_deref() == Some("bootstrap") {
+        bootstrap::run(directory, age);
+        return;
+    }
     let case = match std::env::args().nth(3).as_deref() {
         None | Some("echo") => Case::Echo,
         Some("bulk") => Case::Bulk,
@@ -252,6 +262,7 @@ fn main() {
         Some("http") => Case::Http,
         Some("product") => Case::Product,
         Some("media") => Case::Media,
+        Some("interleave") => Case::Interleave,
         _ => panic!("unknown fixture case"),
     };
     if matches!(case, Case::Product | Case::Media) {

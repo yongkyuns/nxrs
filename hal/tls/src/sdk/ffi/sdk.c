@@ -27,13 +27,15 @@
 _Static_assert(sizeof(psa_driver_get_entropy_flags_t) == sizeof(uint32_t), "entropy flags ABI");
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
 _Static_assert(sizeof(mbedtls_svc_key_id_t) == sizeof(uint32_t), "PSA key identifier ABI");
-_Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 8, "bounded identity key slots");
+_Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 16, "bounded identity and two TLS contexts");
 _Static_assert(MBEDTLS_PSA_RNG_RESEED_INTERVAL == 1024, "identity reseed policy");
 _Static_assert(sizeof(mbedtls_time_t) == sizeof(int64_t) && (mbedtls_time_t)-1 < 0,
                "Rust SDK time callback requires signed 64-bit time");
 #if !defined(MBEDTLS_HAVE_TIME_DATE) || !defined(MBEDTLS_PLATFORM_TIME_MACRO) || \
     defined(MBEDTLS_PLATFORM_TIME_ALT) || defined(MBEDTLS_SSL_RENEGOTIATION) || \
     defined(MBEDTLS_SSL_SESSION_TICKETS) || defined(MBEDTLS_SSL_EARLY_DATA) || \
+    defined(MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_ENABLED) || \
+    defined(MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_EPHEMERAL_ENABLED) || \
     defined(MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH)
 #error "Unsupported TLS clock, renegotiation or resumption configuration"
 #endif
@@ -72,6 +74,8 @@ size_t tls_crt_align(void) { return _Alignof(mbedtls_x509_crt); }
 size_t tls_crl_size(void) { return sizeof(mbedtls_x509_crl); }
 size_t tls_crl_align(void) { return _Alignof(mbedtls_x509_crl); }
 int tls_server_endpoint(void) { return MBEDTLS_SSL_IS_SERVER; }
+int tls_client_endpoint(void) { return MBEDTLS_SSL_IS_CLIENT; }
+int tls_verify_none(void) { return MBEDTLS_SSL_VERIFY_NONE; }
 int tls_stream_transport(void) { return MBEDTLS_SSL_TRANSPORT_STREAM; }
 int tls_default_preset(void) { return MBEDTLS_SSL_PRESET_DEFAULT; }
 int tls_verify_required(void) { return MBEDTLS_SSL_VERIFY_REQUIRED; }

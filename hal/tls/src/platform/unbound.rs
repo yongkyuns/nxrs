@@ -26,7 +26,15 @@ impl Identity {
     pub fn configure(&mut self, _: Certificates<'_>, _: &TimeLease) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
-    pub fn accept<'a>(&'a mut self, _: TcpStream, _: TimeLease) -> Result<Connection<'a>, Error> {
+    pub fn accept<'a>(&'a self, _: TcpStream, _: TimeLease) -> Result<Connection<'a>, Error> {
+        Err(Error::Unsupported)
+    }
+    pub fn connect_pinned(
+        &self,
+        _: TcpStream,
+        _: [u8; 32],
+        _: std::time::Duration,
+    ) -> Result<Connection<'_>, Error> {
         Err(Error::Unsupported)
     }
 }
