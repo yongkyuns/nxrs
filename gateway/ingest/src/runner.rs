@@ -38,7 +38,7 @@ pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args(["-nostdin","-hide_banner","-loglevel","quiet","-nostats","-stats_period","0.5",
             "-xerror","-err_detect","explode","-progress","pipe:2",
-            "-threads","2","-f","image2pipe","-c:v","mjpeg",
+            "-threads","2","-filter_threads","2","-f","image2pipe","-c:v","mjpeg",
             // Input is already explicit MJPEG; do not accumulate a byte-sized probe
             // whose startup delay depends on scene size and camera cadence.
             "-framerate","30","-probesize","32","-analyzeduration","1"]);

@@ -1,5 +1,11 @@
 # nxrs camera MJPEG ingest
 
+Execution budgets are explicit: ingest uses one async event-loop thread and at
+most one Tokio blocking worker; control uses two async workers plus its main
+thread and at most one blocking worker. FFmpeg caps MJPEG decoding, H.264 encoding
+and filtering at two workers each. Media libraries can retain additional helper
+threads, so these pool limits are distinct from a whole-process thread census.
+
 This separate Rust process consumes the **existing** `service/stream` one-viewer
 `GET /stream` feed, validates its bounded frame envelope, and sends JPEGs to a
 supervised FFmpeg H.264 encoder and SDK publisher sending to local MediaMTX. The control API
