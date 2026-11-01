@@ -57,7 +57,6 @@ mod device {
     use super::*;
     use camera_stream::TlsIdentity;
     use enrollment::MAX_ENROLLMENT;
-    use std::os::fd::AsRawFd;
     use std::{
         io::{Read, Write},
         sync::{
@@ -76,7 +75,7 @@ mod device {
             let mut saved = Self([0; 6], descriptor);
             // SAFETY: target-header translation saves the six termios fields before
             // switching this TLS worker's standard input to raw mode.
-            if unsafe { stream_console_mode(descriptor, saved.0.as_mut_ptr(), 1) } != 0 {
+            if unsafe { camera_console_mode(descriptor, saved.0.as_mut_ptr(), 1) } != 0 {
                 return Err(camera_stream::Error::Tls(tls::Error::Unsupported));
             }
             Ok(saved)
@@ -85,13 +84,13 @@ mod device {
     impl Drop for Raw {
         fn drop(&mut self) {
             // SAFETY: restore only the termios fields captured by this owner.
-            let _ = unsafe { stream_console_mode(self.1, self.0.as_mut_ptr(), 0) };
+            let _ = unsafe { camera_console_mode(self.1, self.0.as_mut_ptr(), 0) };
         }
     }
 
     unsafe extern "C" {
-        fn stream_console_mode(descriptor: i32, saved: *mut u32, raw: i32) -> i32;
-        fn stream_console_ready(descriptor: i32) -> i32;
+        fn camera_console_mode(descriptor: i32, saved: *mut u32, raw: i32) -> i32;
+        fn camera_console_ready(descriptor: i32) -> i32;
         fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
@@ -114,7 +113,7 @@ mod device {
                 return Err(camera_stream::Error::Tls(tls::Error::Time));
             }
             // SAFETY: target-header readiness observes this task's standard input.
-            match unsafe { stream_console_ready(descriptor) } {
+            match unsafe { camera_console_ready(descriptor) } {
                 n if n < 0 => return Err(camera_stream::Error::Tls(tls::Error::Unsupported)),
                 0 => std::thread::sleep(Duration::from_millis(1)),
                 _ => match input.read(&mut bytes[offset..]) {
@@ -148,74 +147,6 @@ mod device {
             return Err(invalid());
         }
         Ok(())
-    }
-
-    /// The USB descriptor exists only while one-time input is required.
-    /// Restore termios before File drop; runtime/syslog keep the UART0 console.
-    pub struct Commissioning {
-        _raw: Raw,
-        file: std::fs::File,
-    }
-    impl Commissioning {
-        pub fn open() -> Result<Self, camera_stream::Error> {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open("/dev/ttyACM0")
-                .map_err(|_| invalid())?;
-            let raw = Raw::descriptor(file.as_raw_fd())?;
-            Ok(Self { _raw: raw, file })
-        }
-        pub fn commission(&mut self) -> Result<Vec<u8>, camera_stream::Error> {
-            let maximum = enrollment::Commission::MAX_BYTES;
-            writeln!(self.file, "NXRS_BOOTSTRAP_PROVISION_READY max={maximum}")
-                .map_err(|_| invalid())?;
-            let deadline = Instant::now() + Duration::from_secs(30);
-            let descriptor = self.file.as_raw_fd();
-            let input = &mut self.file;
-            let mut header = [0; 2];
-            read_from(input, descriptor, &mut header, deadline)?;
-            let length = u16::from_be_bytes(header) as usize;
-            if length == 0 || length > maximum {
-                return Err(invalid());
-            }
-            let mut bytes = vec![0; length];
-            let mut offset = 0;
-            loop {
-                writeln!(input, "NXRS_BOOTSTRAP_INPUT_ACK offset={offset}")
-                    .map_err(|_| invalid())?;
-                if offset == length {
-                    break;
-                }
-                let end = (offset + 32).min(length);
-                read_from(input, descriptor, &mut bytes[offset..end], deadline)?;
-                offset = end;
-            }
-            Ok(bytes)
-        }
-        pub fn saved_wifi(&mut self) -> Result<(), camera_stream::Error> {
-            writeln!(self.file, "NXRS_WIFI_CREDENTIALS_SAVED").map_err(|_| invalid())
-        }
-        pub fn wifi(&mut self) -> Result<camera_stream::network::Profile, camera_stream::Error> {
-            writeln!(self.file, "NXRS_WIFI_CREDENTIALS_READY").map_err(|_| invalid())?;
-            let deadline = Instant::now() + Duration::from_secs(30);
-            let descriptor = self.file.as_raw_fd();
-            let mut lengths = [0; 2];
-            read_from(&mut self.file, descriptor, &mut lengths, deadline)?;
-            let (ssid, password) = (lengths[0] as usize, lengths[1] as usize);
-            if !(1..=32).contains(&ssid) || password > 63 {
-                return Err(invalid());
-            }
-            let mut bytes = [0; 95];
-            read_from(
-                &mut self.file,
-                descriptor,
-                &mut bytes[..ssid + password],
-                deadline,
-            )?;
-            camera_stream::network::Profile::new(&bytes[..ssid], &bytes[ssid..ssid + password])
-                .map_err(|_| invalid())
-        }
     }
 
     pub fn initialize(
@@ -319,7 +250,7 @@ mod device {
 }
 
 #[cfg(target_os = "nuttx")]
-pub use device::{initialize, prepare_reboot, Commissioning};
+pub use device::{initialize, prepare_reboot};
 
 #[cfg(test)]
 mod tests {

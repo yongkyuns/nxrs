@@ -29,11 +29,11 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
         if init["console"] != "uart0":
             raise ValueError("unsupported init console")
         values.update(UART0_SERIAL_CONSOLE="y", OTHER_SERIAL_CONSOLE="n")
-    if command == "stream_test" and args[:1] in (["boot-tls"], ["boot-network"]):
+    if command == "camera" or (command == "stream_test" and args[:1] == ["boot-tls"]):
         hal = platform.get("hal", {})
         if ("mcuboot" not in platform or hal.get("boot") != "nuttx"
                 or hal.get("watchdog") != "nuttx"):
-            raise ValueError("boot-tls init requires MCUboot, boot control and inherited watchdog")
+            raise ValueError("camera startup requires MCUboot, boot control and inherited watchdog")
         values["NETINIT_THREAD"] = "n"
         values["NETUTILS_NETINIT"] = "y"
     return values

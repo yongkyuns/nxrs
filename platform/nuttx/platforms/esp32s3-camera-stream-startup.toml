@@ -7,5 +7,5 @@ image-class = "a098ebd6-f35f-4e43-babc-96f2d5ebc72e"
 
 [init]
 console = "uart0"
-command = "stream_test"
-args = ["boot-network", "continuous", "0"]
+command = "camera"
+args = []

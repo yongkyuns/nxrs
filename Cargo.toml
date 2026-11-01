@@ -9,6 +9,7 @@ members = [
     "app/ao-stress",
     "app/camera-stream",
     "platform/firmware",
+    "platform/nuttx/camera",
     "hal/detector",
     "service/camera",
     "service/detection",

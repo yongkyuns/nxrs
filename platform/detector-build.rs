@@ -2,6 +2,7 @@
 use std::{env, path::Path, process::Command};
 
 pub struct Config {
+    #[allow(dead_code)]
     pub model: String,
     #[allow(dead_code)]
     pub stack_bytes: usize,

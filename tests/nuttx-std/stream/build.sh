@@ -17,11 +17,8 @@ while (($#)); do
   esac
 done
 if [[ -z "$STREAM_PLATFORM" ]]; then
-  if [[ "$STREAM_BIN" == tls-camera ]]; then
-    echo '--tls is a bounded qualification fixture; choose its --platform explicitly.' >&2
-    exit 2
-  fi
-  STREAM_PLATFORM=esp32s3-camera-stream-startup
+  echo 'Qualification requires --platform; build the product with platform/nuttx/camera/build.sh.' >&2
+  exit 2
 fi
 exec bash tools/build-nuttx-std-app.sh \
   --app-manifest tests/nuttx-std/stream/Cargo.toml \
@@ -30,4 +27,5 @@ exec bash tools/build-nuttx-std-app.sh \
   --out target/camera-stream-device --abi-profile minimal \
   --target-c-source tests/nuttx-std/wifi/ffi/credentials.c \
   --target-c-source tests/nuttx-std/stream/ffi/platform.c \
+  --target-c-source platform/nuttx/camera/src/platform/nuttx/ffi/startup.c \
   --size-optimized --trace-only-backtrace --panic-immediate-abort ${STREAM_ARGS[@]+"${STREAM_ARGS[@]}"}

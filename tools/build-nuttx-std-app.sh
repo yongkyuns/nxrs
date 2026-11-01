@@ -129,6 +129,7 @@ python3 - "$PLATFORM_PATH" "$ROOT" "$NXRS_APP_MANIFEST" \
   "$NXRS_APP_COMMAND" "$NXRS_APP_PRIORITY" "$NXRS_APP_STACKSIZE" <<'PY_PLATFORM'
 import shlex
 import sys
+import tomllib
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
 from platform_config import model_features, native_helpers, resolve, validate_target
@@ -166,6 +167,9 @@ scalar("image", "NUTTX_IMAGE_NAME")
 # Native ABI helpers follow platform bindings; callers do not select providers.
 helpers = [str(path) for path in native_helpers(data)]
 array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
+manifest = tomllib.loads(Path(sys.argv[3]).read_text())
+product = manifest.get("package", {}).get("metadata", {}).get("nxrs", {}).get("firmware", {})
+array(product.get("target-c-sources", []), "product native helpers", "NXRS_PRODUCT_C_SOURCES")
 array(model_features(data, Path(sys.argv[3])), "model dependencies", "NXRS_MODEL_FEATURES")
 firmware = data.get("radio-firmware", "")
 if firmware not in ("", "cyw43439", "cyw43439-bluetooth"):
@@ -216,6 +220,7 @@ if test "$NUTTX_MCUBOOT" = y; then
 fi
 export NXRS_PLATFORM
 NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
+NXRS_TARGET_C_SOURCES+=(${NXRS_PRODUCT_C_SOURCES[@]+"${NXRS_PRODUCT_C_SOURCES[@]}"})
 for feature in ${NXRS_EXTRA_FEATURES[@]+"${NXRS_EXTRA_FEATURES[@]}"}; do
   case "$feature" in
     person-model|pico-model|*/person-model|*/pico-model)

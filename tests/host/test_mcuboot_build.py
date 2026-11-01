@@ -23,11 +23,11 @@ class BootWiringTests(unittest.TestCase):
     def test_direct_startup_requires_coherent_boot_and_bounded_native_args(self):
         configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
-        config = configure(profile, "stream_test", 100, 32768)
+        config = configure(profile, "camera", 100, 32768)
         self.assertEqual(config["NETINIT_THREAD"], "n")
-        self.assertEqual(config["INIT_ENTRYPOINT"], '"stream_test_main"')
+        self.assertEqual(config["INIT_ENTRYPOINT"], '"camera_main"')
         self.assertEqual(config["INIT_STACKSIZE"], "32768")
-        self.assertEqual(profile["init"]["args"][0], "boot-network")
+        self.assertEqual(profile["init"]["args"], [])
         self.assertEqual(config["UART0_SERIAL_CONSOLE"], "y")
         self.assertEqual(config["OTHER_SERIAL_CONSOLE"], "n")
         self.assertEqual(BOOT.application_config(profile)["ESP32S3_RWDT_INHERIT"], "y")
@@ -47,25 +47,25 @@ class BootWiringTests(unittest.TestCase):
                 BOOT.application_config({**profile, "mcuboot": {**profile["mcuboot"], **changed}})
         self.assertFalse(BOOT.protected(profile))
         self.assertNotEqual(profile["image-class"], resolve("esp32s3-camera-stream-mcuboot")["image-class"])
-        self.assertEqual(configure({}, "stream_test", 100, 32768), {})
+        self.assertEqual(configure({}, "camera", 100, 32768), {})
         for capability in ("boot", "watchdog"):
             with self.subTest(capability=capability), self.assertRaises(ValueError):
-                configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "stream_test", 100, 32768)
+                configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "camera", 100, 32768)
         for args in (None, "boot-tls", [True], ["x"] * 17, ["x" * 129], ['a"b'], ['a\\b'], ["a\nb"]):
             with self.subTest(args=args), self.assertRaises(ValueError):
-                configure({**profile, "init": {"command": "stream_test", "args": args}}, "stream_test", 100, 32768)
+                configure({**profile, "init": {"command": "camera", "args": args}}, "camera", 100, 32768)
         for command, priority, stack in (("other", 100, 32768), ("bad-name", 100, 32768),
-                                         ("stream_test", True, 32768), ("stream_test", 256, 32768),
-                                         ("stream_test", 100, 0)):
+                                         ("camera", True, 32768), ("camera", 256, 32768),
+                                         ("camera", 100, 0)):
             with self.subTest(command=command, priority=priority, stack=stack), self.assertRaises(ValueError):
                 configure(profile, command, priority, stack)
 
     def test_actual_nuttx_header_preserves_direct_entry_and_argument_boundaries(self):
         configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
-        args = ["boot-tls", "continuous", "0", "space test", "a,b", ""]
+        args = ["space test", "a,b", ""]
         profile["init"]["args"] = args
-        values = configure(profile, "stream_test", 100, 32768)
+        values = configure(profile, "camera", 100, 32768)
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             tools = ROOT / "external/nuttx/tools"
@@ -85,18 +85,31 @@ class BootWiringTests(unittest.TestCase):
             (work/"config.h").write_bytes(header)
             (work/"witness.c").write_text('''#include "config.h"
 #include <stdio.h>
-static int stream_test_main(int argc, const char *argv[]) {
+static int camera_main(int argc, const char *argv[]) {
   for (int i = 1; i < argc; ++i) puts(argv[i]);
   return 0;
 }
 int main(void) {
-  const char *args[] = {"init", CONFIG_INIT_ARGS};
+  const char *args[] = {"init",
+#ifdef CONFIG_INIT_ARGS
+    CONFIG_INIT_ARGS,
+#endif
+  };
   return CONFIG_INIT_ENTRYPOINT(sizeof(args)/sizeof(args[0]), args);
 }
 ''')
             subprocess.run(["cc", "-Wall", "-Wextra", "-Werror", str(work/"witness.c"),
                             "-o", str(work/"witness")], check=True, capture_output=True)
             self.assertEqual(subprocess.check_output([str(work/"witness")], text=True).splitlines(), args)
+            # Empty product args must survive the actual NuttX config writer/header tool.
+            profile["init"]["args"] = []
+            values = configure(profile, "camera", 100, 32768)
+            subprocess.run([sys.executable, "-c", writer, *[f"{key}={value}" for key, value in values.items()]],
+                           cwd=work, check=True, capture_output=True)
+            (work/"config.h").write_bytes(subprocess.check_output([str(work/"mkconfig"), str(work)]))
+            subprocess.run(["cc", "-Wall", "-Wextra", "-Werror", str(work/"witness.c"),
+                            "-o", str(work/"witness")], check=True, capture_output=True)
+            self.assertEqual(subprocess.check_output([str(work/"witness")], text=True), "")
 
     @unittest.skipUnless(importlib.util.find_spec("kconfiglib"), "install NuttX kconfiglib for driver selection")
     def test_encrypted_driver_selection_is_independent_of_psram(self):
