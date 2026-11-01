@@ -27,6 +27,7 @@ class BootWiringTests(unittest.TestCase):
         self.assertEqual(config["NETINIT_THREAD"], "n")
         self.assertEqual(config["INIT_ENTRYPOINT"], '"stream_test_main"')
         self.assertEqual(config["INIT_STACKSIZE"], "32768")
+        self.assertEqual(profile["init"]["args"][0], "boot-network")
         self.assertEqual(BOOT.application_config(profile)["ESP32S3_RWDT_INHERIT"], "y")
         self.assertEqual(BOOT.watchdog_timeout_ms(profile), 180000)
         storage = BOOT.application_config(profile)

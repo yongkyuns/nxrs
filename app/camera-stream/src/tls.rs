@@ -136,7 +136,7 @@ impl<B> Drop for Worker<B> {
     }
 }
 impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
-    pub fn spawn<T: FnMut() -> Result<::tls::TimeLease, ::tls::Error> + 'static>(
+    pub fn spawn<T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error> + 'static>(
         listener: TcpListener,
         mut outgoing: B,
         mut handoff: B,
@@ -182,7 +182,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
             .stack_size(resources.stack_bytes)
             .spawn(move || {
                 let context = initialize().and_then(|mut context| {
-                    let time = (context.time)().map_err(Error::Tls)?;
+                    let time = (context.time)(&context.identity).map_err(Error::Tls)?;
                     context
                         .identity
                         .configure(
@@ -374,7 +374,10 @@ fn publish<B, W: std::io::Read + std::io::Write>(
     state.stream.rejected_busy = state.stream.rejected_busy.saturating_add(counters.busy);
     state.tls = counters.tls;
 }
-fn run<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tls::Error>>(
+fn run<
+    B: AsRef<[u8]> + AsMut<[u8]>,
+    T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>,
+>(
     shared: &Shared<B>,
     listener: TcpListener,
     mut http: HttpSession<TcpStream, B>,
@@ -429,7 +432,10 @@ fn run<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tl
     }
 }
 #[allow(clippy::too_many_arguments)]
-fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::tls::Error>>(
+fn serve<
+    B: AsRef<[u8]> + AsMut<[u8]>,
+    T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>,
+>(
     shared: &Shared<B>,
     listener: &TcpListener,
     socket: TcpStream,
@@ -439,7 +445,8 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
     epoch: usize,
     counters: &mut Counters,
 ) -> (HttpSession<TcpStream, B>, Result<(), ::tls::Error>) {
-    let connection = (context.time)().and_then(|time| context.identity.accept(socket, time));
+    let connection =
+        (context.time)(&context.identity).and_then(|time| context.identity.accept(socket, time));
     let mut connection = match connection {
         Ok(v) => v,
         Err(e) => return (storage, Err(e)),
@@ -489,6 +496,9 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
             return (storage, Err(::tls::Error::InvalidInput));
         };
         let deadline = Instant::now() + update.timeout();
+        let Some(_receiving) = update.begin() else {
+            return (storage, Err(::tls::Error::Io));
+        };
         let mut refreshed = Instant::now();
         let image = firmware_update::receive(&mut connection, update.maximum(), |connection| {
             if !current(shared, epoch) {
@@ -498,7 +508,8 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
                 return Err(io::ErrorKind::TimedOut.into());
             }
             if refreshed.elapsed() >= Duration::from_secs(1) {
-                let time = (context.time)().map_err(|_| io::ErrorKind::PermissionDenied)?;
+                let time = (context.time)(&context.identity)
+                    .map_err(|_| io::ErrorKind::PermissionDenied)?;
                 connection
                     .refresh_time(time)
                     .map_err(|_| io::ErrorKind::PermissionDenied)?;
@@ -523,8 +534,8 @@ fn serve<B: AsRef<[u8]> + AsMut<[u8]>, T: FnMut() -> Result<::tls::TimeLease, ::
             break Ok(());
         }
         if refreshed.elapsed() >= Duration::from_secs(1) {
-            let result =
-                (context.time)().and_then(|time| http.transport_mut().unwrap().refresh_time(time));
+            let result = (context.time)(&context.identity)
+                .and_then(|time| http.transport_mut().unwrap().refresh_time(time));
             if let Err(error) = result {
                 break Err(error);
             }
@@ -583,22 +594,23 @@ mod tests {
     #[test]
     fn initializer_error_or_unwind_cannot_strand_startup() {
         for unwind in [false, true] {
-            let result = Worker::spawn::<fn() -> Result<::tls::TimeLease, ::tls::Error>>(
-                TcpListener::bind("127.0.0.1:0").unwrap(),
-                [0; 4],
-                [0; 4],
-                Options::default(),
-                TlsOptions {
-                    stack_bytes: 65536,
-                    poll_interval: Duration::from_millis(1),
-                },
-                move || {
-                    if unwind {
-                        panic!("initializer witness");
-                    }
-                    Err(Error::Tls(::tls::Error::Unsupported))
-                },
-            );
+            let result =
+                Worker::spawn::<fn(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>>(
+                    TcpListener::bind("127.0.0.1:0").unwrap(),
+                    [0; 4],
+                    [0; 4],
+                    Options::default(),
+                    TlsOptions {
+                        stack_bytes: 65536,
+                        poll_interval: Duration::from_millis(1),
+                    },
+                    move || {
+                        if unwind {
+                            panic!("initializer witness");
+                        }
+                        Err(Error::Tls(::tls::Error::Unsupported))
+                    },
+                );
             assert!(matches!(
                 result,
                 Err(Error::Worker) | Err(Error::Tls(::tls::Error::Unsupported))

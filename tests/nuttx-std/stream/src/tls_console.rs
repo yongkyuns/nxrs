@@ -1,8 +1,6 @@
 //! Trusted USB provisioning for the physical camera TLS qualification fixture.
 
 const MAX_ENROLLMENT: usize = 33_792;
-const MAX_FIELD: usize = 8_192;
-const MAX_NAME: usize = 256;
 
 fn invalid() -> camera_stream::Error {
     camera_stream::Error::Tls(tls::Error::InvalidInput)
@@ -17,60 +15,19 @@ struct Enrollment {
 }
 
 fn parse_enrollment(blob: &[u8]) -> Result<Enrollment, camera_stream::Error> {
-    if blob.len() < 36 || blob.len() > MAX_ENROLLMENT || &blob[..4] != b"NXTE" {
-        return Err(invalid());
-    }
-    let issuer_hash = blob[4..36].try_into().map_err(|_| invalid())?;
-    let mut offset: usize = 36;
-    let mut field = || -> Result<&[u8], camera_stream::Error> {
-        let end = offset.checked_add(2).ok_or_else(invalid)?;
-        let length = u16::from_be_bytes(
-            blob.get(offset..end)
-                .ok_or_else(invalid)?
-                .try_into()
-                .map_err(|_| invalid())?,
-        ) as usize;
-        offset = end;
-        if length == 0 || length > MAX_FIELD {
-            return Err(invalid());
-        }
-        let end = offset.checked_add(length).ok_or_else(invalid)?;
-        let value = blob.get(offset..end).ok_or_else(invalid)?;
-        offset = end;
-        Ok(value)
-    };
-    let own_uri = field()?;
-    let peer_uri = field()?;
-    for name in [own_uri, peer_uri] {
-        if name.len() > MAX_NAME || !name.iter().all(|b| (0x21..=0x7e).contains(b)) {
-            return Err(invalid());
-        }
-    }
-    let own_uri = std::str::from_utf8(own_uri)
-        .map_err(|_| invalid())?
-        .to_owned();
-    let peer_uri = std::str::from_utf8(peer_uri)
-        .map_err(|_| invalid())?
-        .to_owned();
-    let own = field()?.to_vec();
-    let issuer = field()?.to_vec();
-    let peer = field()?.to_vec();
-    let crl = field()?.to_vec();
-    if offset != blob.len() {
-        return Err(invalid());
-    }
+    let value = enrollment::Enrollment::decode(blob).map_err(|_| invalid())?;
     let policy = tls::CertificatePolicy {
-        issuer_sha256: issuer_hash,
-        own_uri,
-        peer_uri,
+        issuer_sha256: value.issuer_sha256,
+        own_uri: value.own_uri,
+        peer_uri: value.peer_uri,
     };
     policy.validate().map_err(camera_stream::Error::Tls)?;
     Ok(Enrollment {
         policy,
-        own,
-        issuer,
-        approved_peer: peer,
-        revocations: crl,
+        own: value.own,
+        issuer: value.issuer,
+        approved_peer: value.approved_peer,
+        revocations: value.revocations,
     })
 }
 
@@ -163,20 +120,56 @@ mod device {
     pub fn prepare_reboot() -> Result<(), camera_stream::Error> {
         use std::os::fd::AsFd;
         let _raw = Raw::enter()?;
-        let descriptor = std::io::stdin().as_fd().try_clone_to_owned().map_err(|_| invalid())?;
+        let descriptor = std::io::stdin()
+            .as_fd()
+            .try_clone_to_owned()
+            .map_err(|_| invalid())?;
         let mut input = std::fs::File::from(descriptor);
         println!("NXRS_UPDATE_REBOOT staged=1 joined=1 pending=1");
         std::io::stdout().flush().map_err(|_| invalid())?;
         let mut ack = [0; 4];
-        read_exact(&mut input, &mut ack, Instant::now() + Duration::from_secs(30))?;
-        if &ack != b"NXRB" { return Err(invalid()); }
+        read_exact(
+            &mut input,
+            &mut ack,
+            Instant::now() + Duration::from_secs(30),
+        )?;
+        if &ack != b"NXRB" {
+            return Err(invalid());
+        }
         Ok(())
+    }
+
+    pub fn commission() -> Result<Vec<u8>, camera_stream::Error> {
+        let _raw = Raw::enter()?;
+        let maximum = enrollment::Commission::MAX_BYTES;
+        println!("NXRS_BOOTSTRAP_PROVISION_READY max={maximum}");
+        std::io::stdout().flush().map_err(|_| invalid())?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut input = std::io::stdin();
+        let mut header = [0; 2];
+        read_exact(&mut input, &mut header, deadline)?;
+        let length = u16::from_be_bytes(header) as usize;
+        if length == 0 || length > maximum {
+            return Err(invalid());
+        }
+        let mut bytes = vec![0; length];
+        let mut offset = 0;
+        loop {
+            println!("NXRS_BOOTSTRAP_INPUT_ACK offset={offset}");
+            std::io::stdout().flush().map_err(|_| invalid())?;
+            if offset == length {
+                break;
+            }
+            let end = (offset + 32).min(length);
+            read_exact(&mut input, &mut bytes[offset..end], deadline)?;
+            offset = end;
+        }
+        Ok(bytes)
     }
 
     pub fn initialize(
         stop: Arc<AtomicU8>,
-    ) -> Result<TlsIdentity<impl FnMut() -> Result<tls::TimeLease, tls::Error>>, camera_stream::Error>
-    {
+    ) -> Result<TlsIdentity<camera_stream::bootstrap::TimeSource>, camera_stream::Error> {
         let _raw = Raw::enter()?;
         let mut input = std::io::stdin();
         let mut output = std::io::stdout();
@@ -214,7 +207,7 @@ mod device {
 
         let mut sequence = 0u64;
         let raw = _raw;
-        let time = move || {
+        let time = move |_: &tls::Identity| {
             let _keep_console_raw = &raw;
             sequence = sequence.checked_add(1).ok_or(tls::Error::Time)?;
             let started = Instant::now();
@@ -269,13 +262,13 @@ mod device {
             issuer: enrollment.issuer,
             approved_peer: enrollment.approved_peer,
             revocations: enrollment.revocations,
-            time,
+            time: Box::new(time),
         })
     }
 }
 
 #[cfg(target_os = "nuttx")]
-pub use device::{initialize, prepare_reboot};
+pub use device::{commission, initialize, prepare_reboot};
 
 #[cfg(test)]
 mod tests {

@@ -7,6 +7,7 @@ edition.workspace = true
 probe = ["nxrs-detector/probe"]
 
 [dependencies]
+nxrs-enrollment = { path = "../../../service/enrollment" }
 nxrs-config = { path = "../../../hal/config" }
 nxrs-boot = { path = "../../../hal/boot" }
 nxrs-watchdog = { path = "../../../hal/watchdog" }

@@ -53,7 +53,17 @@ impl Camera for Source {
     }
 }
 pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) {
-    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let network = matches!(case, Case::Network);
+    let port = if network {
+        std::fs::read_to_string(directory.join("port"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    } else {
+        0
+    };
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).unwrap();
     let address = listener.local_addr().unwrap();
     let root = directory.clone();
     let media = matches!(case, Case::Media);
@@ -81,6 +91,13 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
             poll_interval: Duration::from_millis(2),
         },
         move || {
+            if network {
+                let commission = camera_stream::bootstrap::Commission::decode(&public(
+                    root.join("commission.bin"),
+                ))
+                .map_err(|_| camera_stream::Error::Tls(tls::Error::InvalidInput))?;
+                return camera_stream::bootstrap::initialize(std::sync::Arc::new(commission));
+            }
             let mut identity = tls::open().map_err(camera_stream::Error::Tls)?;
             let mut csr = [0; 1024];
             let size = identity.request("fixture", &mut csr).unwrap();
@@ -100,7 +117,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 issuer: public(root.join("issuer.der")),
                 approved_peer: public(root.join("peer.der")),
                 revocations: public(root.join("revocations.der")),
-                time: move || {
+                time: Box::new(move |_: &tls::Identity| {
                     let _ = &local;
                     if time_root.join("block-time").exists() {
                         println!("TIME_BLOCKED");
@@ -120,7 +137,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                             .as_secs(),
                         Duration::from_millis(age),
                     )
-                },
+                }) as camera_stream::bootstrap::TimeSource,
             })
         },
     );
@@ -132,6 +149,11 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
             return;
         }
     };
+    let update = network
+        .then(|| camera_stream::update::Update::new(65536, Duration::from_secs(90)).unwrap());
+    if let Some(update) = &update {
+        live.enable_updates(update.clone()).unwrap();
+    }
     if media {
         // Exercise real publication/transport with a deliberately synthetic box.
         // This is not model-quality or compute-performance evidence.
@@ -187,7 +209,8 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
     let mut drop_only = false;
     let mut confirm = false;
     let mut peak = 0;
-    while origin.elapsed() < Duration::from_secs(if media { 120 } else { 30 }) {
+    let (mut completed, mut last_delivery) = (0, Instant::now());
+    while origin.elapsed() < Duration::from_secs(if media || network { 120 } else { 30 }) {
         match std::fs::read_to_string(directory.join("control"))
             .unwrap_or_default()
             .trim()
@@ -230,6 +253,21 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
             break;
         }
         let stats = live.stats();
+        if network {
+            if stats.stream.frames_completed > completed {
+                completed = stats.stream.frames_completed;
+                last_delivery = Instant::now();
+            }
+            let update = update.as_ref().unwrap();
+            if update.ready() {
+                println!("UPDATE_RECEIVED");
+                break;
+            }
+            // Exercise the product's30s media deadline against a longer upload.
+            if last_delivery.elapsed() >= Duration::from_secs(30) && update.retire_if_idle() {
+                panic!("media reconnect interrupted network upload");
+            }
+        }
         let active = stats
             .stream
             .accepted

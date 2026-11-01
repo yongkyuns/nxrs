@@ -25,7 +25,7 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
         "INIT_PRIORITY": str(priority),
         "INIT_STACKSIZE": str(stack),
     }
-    if command == "stream_test" and args[:1] == ["boot-tls"]:
+    if command == "stream_test" and args[:1] in (["boot-tls"], ["boot-network"]):
         hal = platform.get("hal", {})
         if ("mcuboot" not in platform or hal.get("boot") != "nuttx"
                 or hal.get("watchdog") != "nuttx"):

@@ -114,7 +114,7 @@ the deadline and its slow-clock source unchanged through the SDK's clock
 initialization, calibrates that source for SDK time/radio consumers without
 feeding, and relocks it. The SDK's user-owned cancellation setting also
 leaves the timer running. The startup profile selects a fixed 180-second budget
-and direct `stream_test boot-tls continuous 0` entry through its typed `[init]`
+and direct `stream_test boot-network continuous 0` entry through its typed `[init]`
 table. Board late initialization registers devices; the entry adopts first, then
 invokes synchronous network initialization. Stable boots cancel before USB
 credential/enrollment input; trial boots retain the deadline while waiting.
@@ -176,14 +176,14 @@ and Wi-Fi, quiesces the radio, stages through `hal/boot`, requests a trial and
 checks Pending. MCUboot authenticates the image after reset. A failed transfer
 does not request a trial; an unauthentic image is rejected by MCUboot.
 
-Install an OTA-enabled signed image once through the existing factory process.
-For subsequent updates, run the existing USB supervisor as the sole owner at
-the camera's next boot, adding `--autostart --firmware /path/to/nuttx.signed.bin`
-to its normal TLS arguments. It invokes the Rust gateway uploader before media
-ingest, acknowledges the joined/Pending reboot handoff, supplies credentials and
-fresh enrollment after reset, then supervises trial confirmation and video.
-The reboot acknowledgement has a 30-second deadline; missing acknowledgement
-leaves Pending without resetting. USB-assisted enrollment remains required.
+The default startup profile uses network enrollment below. Stop and join the
+normal ingest owner, then run `nxrs-camera-ingest INGEST_JSON --require-camera-tls
+--update SIGNED_IMAGE` with the same bootstrap configuration. This replacement
+process owns the bootstrap listener before uploading, supplies trusted time
+during transfer, and continues enrollment/media after the camera resets.
+An admitted upload keeps its fixed 120-second budget across media reconnects.
+The network mode needs no USB reboot acknowledgement. Explicit `tls`/`boot-tls`
+qualification modes retain the existing USB supervisor and `NXRB` handoff.
 
 The Rust operation is `nxrs-camera-ingest INGEST_JSON --require-camera-tls
 --update SIGNED_IMAGE`. Use it with the current enrollment and no active video
@@ -194,6 +194,62 @@ The versioned
 wire contract is shared in `service/firmware-update`: `NXU1`, receiver `NXRD` plus
 maximum length, sender length/image/`DONE`, receiver `NXOK`, then sender `CMIT`.
 No hardware protection setting or eFuse is changed.
+
+## Network enrollment and time
+
+One-time commissioning stores the gateway's literal private IPv4 endpoint, exact
+certificate SHA-256 pin, per-camera token and approved camera/site/gateway names
+in `hal/config`, beside the saved Wi-Fi profile. Device signing keys stay volatile
+and non-exportable. No USB certificate or clock service runs after commissioning.
+The existing Rust ingest process owns one TLS1.3 bootstrap listener, signs a
+verified P-256 CSR with server-assigned names/usages, and joins old ingest workers
+before publishing a replacement grant. No second daemon or device worker is added.
+
+Replace the ingest JSON's `camera_tls` block with, for example:
+
+```json
+"bootstrap": {
+  "listen": "192.168.1.2:8444",
+  "directory": "/var/lib/nxrs/camera-authority",
+  "site_id": "home", "camera_id": "camera", "gateway_id": "gateway"
+}
+```
+
+Keep `allow_insecure_camera_http: false` and the other media settings. The parent
+directory must already exist. Run `nxrs-camera-ingest INGEST_JSON --init-bootstrap`
+once as the gateway user; it creates a private authority directory, stable keys,
+token and `commission.bin`, refusing a nonempty directory. The token-authenticated
+bootstrap peer supplies the camera IPv4 address, allowing DHCP changes; the
+configured camera port and approved names stay fixed. Back up this directory
+privately. Start the gateway normally with `--require-camera-tls`, then before the
+camera's first network-enabled boot run:
+
+```sh
+python3 tests/nuttx-std/stream/commission.py --port SERIAL_PORT \
+  --commission /var/lib/nxrs/camera-authority/commission.bin --wifi-file WIFI_JSON
+```
+
+This bounded USB step supplies commissioning and Wi-Fi only once. Subsequent
+boots use saved records and renew through the gateway. Firmware erasure of the
+reserved config partition resets both records; keep ROM recovery available.
+With hardware flash encryption off, stored Wi-Fi/token data is readable from
+flash. This change performs no eFuse or protection provisioning.
+
+Pinned TLS proves the commissioned endpoint without requiring UTC. Its bounded
+exchange returns a 30-second trusted-time lease; the existing TLS worker refreshes
+it every 15 seconds while serving media/OTA. Requests have a 5-second total budget
+and measured delivery uncertainty. Cloning a lease preserves its original expiry;
+backward disjoint observations fail closed. Exact-peer mutual TLS still guards
+media and updates. The gateway host's UTC must be trustworthy. Camera sessions
+renew before their one-hour grant expires and retry unavailable enrollment after
+joined Wi-Fi cleanup. Losing time closes the authenticated stream.
+
+`gateway/tests/network_enrollment.py` tests the actual SDK camera and Rust gateway
+with synthetic media: enrollment, time beyond the first lease, restart, paced OTA
+and joined cleanup. Host results do not qualify ESP32-S3 heap/stack, physical flash,
+phone playback or power-loss recovery. Generated static systemd ingest units do
+not yet configure this writable authority directory; use the explicit Rust
+process until its deployment policy is supplied.
 
 These builds do **not** enable hardware secure boot or flash encryption,
 install the bootloader or advance a hardware monotonic counter.

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 /// A short-lived authenticated UTC observation, advanced by monotonic time.
 /// The caller must authenticate the source and bound delivery uncertainty before
 /// construction. This does not make an unqualified device clock trusted.
+#[derive(Clone)]
 pub struct TimeLease {
     pub(crate) epoch: i64,
     pub(crate) observed: Instant,
@@ -14,6 +15,24 @@ pub struct TimeLease {
     uncertainty: Duration,
 }
 impl TimeLease {
+    /// Preserve monotonic UTC across overlapping authenticated observations.
+    /// Delivery uncertainty can make the new raw timestamp lower even when
+    /// UTC advanced. Disjoint backward intervals are refused. Raising the
+    /// lower bound widens the upper bound conservatively; receipt and expiry
+    /// remain the original ones, including on Clone.
+    pub fn advance_from(&mut self, previous: &Self) -> Result<(), Error> {
+        self.raise_lower(previous.sample()?.0)
+    }
+    pub(crate) fn raise_lower(&mut self, minimum: i64) -> Result<(), Error> {
+        let (lower, upper, _) = self.sample()?;
+        if lower < minimum {
+            if upper <= minimum {
+                return Err(Error::Time);
+            }
+            self.epoch = self.epoch.checked_add(minimum - lower).ok_or(Error::Time)?;
+        }
+        Ok(())
+    }
     pub fn from_trusted(unix_seconds: u64, max_age: Duration) -> Result<Self, Error> {
         Self::from_trusted_with_uncertainty(unix_seconds, max_age, Instant::now(), Duration::ZERO)
     }
@@ -115,6 +134,31 @@ pub struct Certificates<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delayed_observations_overlap_without_renewing_their_receipt_or_expiry() {
+        let previous = TimeLease::from_trusted_with_uncertainty(
+            100,
+            Duration::from_secs(30),
+            Instant::now() - Duration::from_millis(16_100),
+            Duration::from_millis(10),
+        )
+        .unwrap();
+        let mut fresh = TimeLease::from_trusted_with_uncertainty(
+            115,
+            Duration::from_secs(30),
+            Instant::now(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+        let (observed, expires) = (fresh.observed, fresh.expires);
+        fresh.advance_from(&previous).unwrap();
+        assert_eq!(fresh.epoch, 116);
+        assert_eq!((fresh.observed, fresh.expires), (observed, expires));
+        let copy = fresh.clone();
+        assert_eq!((copy.observed, copy.expires), (observed, expires));
+        let mut rollback = TimeLease::from_trusted(100, Duration::from_secs(30)).unwrap();
+        assert_eq!(rollback.advance_from(&fresh), Err(Error::Time));
+    }
     #[test]
     fn time_observations_bound_uncertainty_and_expire() {
         const MAX_TIME_AGE: Duration = Duration::from_secs(60);

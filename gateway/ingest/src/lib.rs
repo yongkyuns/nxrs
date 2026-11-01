@@ -1,6 +1,7 @@
 //! Single-source nxrs MJPEG ingest. This is a separate process, not the control API.
 #![forbid(unsafe_code)]
 pub mod config;
+pub mod bootstrap;
 mod detections;
 mod video;
 mod tls;
@@ -38,6 +39,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Validate credentials without opening a source or starting an encoder.
 pub fn check(config: &config::Config) -> Result<()> {
     config.validate()?;
+    if config.bootstrap.is_some() { return bootstrap::check(config); }
     let _token = zeroize::Zeroizing::new(config.token()?);
     tls::Prepared::load(config)?;
     Ok(())

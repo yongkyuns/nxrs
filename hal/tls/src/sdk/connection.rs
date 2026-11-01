@@ -667,12 +667,11 @@ impl Connection<'_> {
         })
     }
     /// Refresh before expiry; a closed connection cannot be revived.
-    pub fn refresh_time(&mut self, time: TimeLease) -> Result<(), Error> {
+    pub fn refresh_time(&mut self, mut time: TimeLease) -> Result<(), Error> {
         self.epoch()?;
+        time.raise_lower(self.last_epoch)
+            .map_err(|e| self.fail(e))?;
         let (lower, _, _) = time.sample()?;
-        if lower < self.last_epoch {
-            return Err(self.fail(Error::Time));
-        }
         let Peer::Enrolled { enrollment, .. } = &self.peer else {
             return Err(Error::InvalidInput);
         };

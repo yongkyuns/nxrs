@@ -20,6 +20,7 @@ on:
       - 'Cargo.lock'
       - 'service/detection-wire/**'
       - 'service/firmware-update/**'
+      - 'service/enrollment/**'
       - 'docs/detection-protocol*'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
@@ -59,6 +60,8 @@ jobs:
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher --all-targets -- -D warnings
           python3 gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest \
+            --camera-source target/device-tls/debug/tls-endpoint
+          python3 gateway/tests/network_enrollment.py --ingest gateway/target/debug/nxrs-camera-ingest \
             --camera-source target/device-tls/debug/tls-endpoint
           python3 -m venv /tmp/nxrs-ingest-test
           /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt

@@ -243,6 +243,7 @@ dependencies = [
  "nxrs-detection-service",
  "nxrs-detection-wire",
  "nxrs-detector",
+ "nxrs-enrollment",
  "nxrs-firmware-update",
  "nxrs-stream-service",
  "nxrs-tls",
@@ -292,6 +293,10 @@ version = "0.1.0"
 dependencies = [
  "nxrs-navigation-services",
 ]
+
+[[package]]
+name = "nxrs-enrollment"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-event-demo"
@@ -449,6 +454,7 @@ dependencies = [
  "nxrs-connectivity-service",
  "nxrs-detection-service",
  "nxrs-detector",
+ "nxrs-enrollment",
  "nxrs-std-wifi",
  "nxrs-stream-service",
  "nxrs-tls",

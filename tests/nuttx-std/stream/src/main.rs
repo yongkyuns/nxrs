@@ -284,6 +284,14 @@ pub(crate) mod device {
         width: u16,
         height: u16,
         port: u16,
+        renew_after: Option<Duration>,
+        delivery_deadline: Option<Duration>,
+    }
+
+    enum RunOutcome {
+        Stopped,
+        Renew,
+        Healthy(camera_stream::startup::Health),
     }
 
     fn run_live<D, O, W, F>(
@@ -294,7 +302,7 @@ pub(crate) mod device {
         stop_control: Option<&AtomicU8>,
         origin: Instant,
         trial: bool,
-    ) -> Result<Option<camera_stream::startup::Health>, String>
+    ) -> Result<RunOutcome, String>
     where
         D: camera::Camera,
         O: StreamOutput,
@@ -378,7 +386,28 @@ pub(crate) mod device {
             let mut measurement = None;
             let mut control = super::session::Control::default();
             report(&live, 0, false, 0, 0, &mut measurement)?;
+            let renewing = Instant::now();
+            let (mut delivered, mut last_delivery) = (0, Instant::now());
             loop {
+                if let Some(flag) = stop_control {
+                    if live.stats().stream.frames_completed > delivered {
+                        delivered = live.stats().stream.frames_completed;
+                        last_delivery = Instant::now();
+                    }
+                    if (options
+                        .renew_after
+                        .is_some_and(|limit| renewing.elapsed() >= limit)
+                        || options
+                            .delivery_deadline
+                            .is_some_and(|limit| last_delivery.elapsed() >= limit))
+                        && options
+                            .update
+                            .as_ref()
+                            .is_none_or(camera_stream::update::Update::retire_if_idle)
+                    {
+                        flag.store(2, Ordering::Release);
+                    }
+                }
                 let elapsed = now(origin);
                 if options
                     .update
@@ -493,6 +522,11 @@ pub(crate) mod device {
             {
                 return Ok(());
             }
+            if options.renew_after.is_some()
+                && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2)
+            {
+                return Ok(());
+            }
             if stats.captured == 0 || stats.stream.frames_completed == 0 {
                 return Err("no delivered frames".into());
             }
@@ -507,13 +541,22 @@ pub(crate) mod device {
             Ok(())
         })();
         let stats = live.stats();
-        let stopped = if trial {
+        let renewal = result.is_ok()
+            && options.renew_after.is_some()
+            && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2);
+        let stopped = if trial && !renewal && result.is_ok() {
             camera_stream::startup::retire_healthy(live, now(origin), STARTUP_HEALTH_AGE_MS)
-                .map(Some)
+                .map(RunOutcome::Healthy)
                 .map_err(|error| format!("startup retirement {error:?}"))
         } else {
             live.stop()
-                .map(|()| None)
+                .map(|()| {
+                    if renewal {
+                        RunOutcome::Renew
+                    } else {
+                        RunOutcome::Stopped
+                    }
+                })
                 .map_err(|error| format!("camera stop {error:?}"))
         };
         result?;
@@ -529,7 +572,11 @@ pub(crate) mod device {
 
     pub fn run() -> Result<(), String> {
         let mut arguments: Vec<String> = std::env::args().skip(1).collect();
-        let startup_mode = arguments.first().is_some_and(|value| value == "boot-tls");
+        let network_mode = arguments
+            .first()
+            .is_some_and(|value| value == "boot-network");
+        let startup_mode =
+            network_mode || arguments.first().is_some_and(|value| value == "boot-tls");
         let mut startup = if startup_mode {
             let watchdog =
                 watchdog::adopt().map_err(|error| format!("watchdog adopt {error:?}"))?;
@@ -607,6 +654,25 @@ pub(crate) mod device {
             width,
             height,
             port,
+            renew_after: network_mode.then_some(Duration::from_secs(45 * 60)),
+            delivery_deadline: network_mode.then_some(Duration::from_secs(30)),
+        };
+        let commission = if network_mode {
+            let mut store = config::open().map_err(|e| format!("bootstrap store {e:?}"))?;
+            let value = match camera_stream::bootstrap::load(&mut store)
+                .map_err(|e| format!("bootstrap load {e:?}"))?
+            {
+                Some(value) => value,
+                None => {
+                    let packet = super::console::commission()
+                        .map_err(|e| format!("bootstrap input {e:?}"))?;
+                    camera_stream::bootstrap::provision(&mut store, &packet)
+                        .map_err(|e| format!("bootstrap save {e:?}"))?
+                }
+            };
+            Some(Arc::new(value))
+        } else {
+            None
         };
         stage("credential_reader");
         let mut profile_store = if startup_mode {
@@ -643,7 +709,9 @@ pub(crate) mod device {
         // Reuse the bound listener after confirmation; its TLS worker still
         // joins before Wi-Fi quiescence, leaving no active accept loop.
         let mut listener = None;
+        let mut retry_delay = 1u64;
         loop {
+            let mut retry_network = false;
             options.update = if startup_mode && startup.is_none() {
                 // Product resource budget: 2 MiB slots, 8 KiB trailer reserve.
                 Some(
@@ -691,7 +759,8 @@ pub(crate) mod device {
                             .map_err(|error| format!("JPEG quality {error:?}"))?;
                         stage("pipeline_setup");
                         let stop = tls_stop.clone();
-                        let mut live = LiveCamera::<_, BYTES, _>::new_tls(
+                        let commission = commission.clone();
+                        let live = LiveCamera::<_, BYTES, _>::new_tls(
                             device,
                             listener
                                 .try_clone()
@@ -708,15 +777,32 @@ pub(crate) mod device {
                                 if unsafe { nxrs_stream_worker_priority(80) } != 0 {
                                     return Err(camera_stream::Error::Worker);
                                 }
-                                super::console::initialize(stop)
+                                match commission {
+                                    Some(value) => camera_stream::bootstrap::initialize(value),
+                                    None => super::console::initialize(stop),
+                                }
                             },
-                        )
-                        .map_err(|error| format!("TLS composition {error:?}"))?;
+                        );
+                        let mut live = match live {
+                            Ok(live) => live,
+                            Err(error) => {
+                                retry_network = network_mode
+                                    && matches!(
+                                        &error,
+                                        camera_stream::Error::Tls(
+                                            tls::Error::Io
+                                                | tls::Error::Time
+                                                | tls::Error::Authentication
+                                        )
+                                    );
+                                return Err(format!("TLS composition {error:?}"));
+                            }
+                        };
                         if let Some(update) = &options.update {
                             live.enable_updates(update.clone())
                                 .map_err(|error| format!("update receiver {error:?}"))?;
                         }
-                        startup_health = run_live(
+                        let outcome = run_live(
                             live,
                             &mut network,
                             &receiver,
@@ -725,6 +811,10 @@ pub(crate) mod device {
                             origin,
                             startup.is_some(),
                         )?;
+                        startup_health = match outcome {
+                            RunOutcome::Healthy(health) => Some(health),
+                            RunOutcome::Stopped | RunOutcome::Renew => None,
+                        };
                         if startup_health.is_some()
                             || options
                                 .update
@@ -736,6 +826,12 @@ pub(crate) mod device {
                         match tls_stop.load(Ordering::Acquire) {
                             1 => break,
                             2 => {
+                                options.update = options
+                                    .update
+                                    .take()
+                                    .map(camera_stream::update::Update::renew)
+                                    .transpose()
+                                    .map_err(|error| format!("update renewal {error:?}"))?;
                                 tls_stop.store(0, Ordering::Release);
                                 println!("NXRS_TLS_SESSION_PASS stopped=1 joined=1");
                             }
@@ -779,9 +875,15 @@ pub(crate) mod device {
             let joined = network
                 .finish()
                 .map_err(|error| format!("wifi join {error:?}"));
+            if retry_network && stop_result.is_ok() && joined.is_ok() {
+                std::thread::sleep(Duration::from_secs(retry_delay));
+                retry_delay = (retry_delay * 2).min(30);
+                continue;
+            }
             operation?;
             stop_result?;
             joined?;
+            retry_delay = 1;
             if provision {
                 use wifi::QuiescenceControl;
                 let mut quiet = wifi::open_for_quiescence()
@@ -817,8 +919,10 @@ pub(crate) mod device {
                     .map_err(|error| format!("update stage {error:?}"))?;
                 drop(quiet);
                 // All data-plane owners have joined, and Pending was read back.
-                super::console::prepare_reboot()
-                    .map_err(|error| format!("update reboot handoff {error:?}"))?;
+                if !network_mode {
+                    super::console::prepare_reboot()
+                        .map_err(|error| format!("update reboot handoff {error:?}"))?;
+                }
                 let never = boot
                     .reboot()
                     .map_err(|error| format!("update reset {error:?}"))?;
@@ -848,7 +952,10 @@ pub(crate) mod device {
 #[cfg(target_os = "nuttx")]
 fn main() {
     if let Err(error) = device::run() {
-        if matches!(std::env::args().nth(1).as_deref(), Some("tls" | "boot-tls")) {
+        if matches!(
+            std::env::args().nth(1).as_deref(),
+            Some("tls" | "boot-tls" | "boot-network")
+        ) {
             eprintln!("NXRS_TLS_CAMERA_FAIL error={error}");
         } else {
             eprintln!("NXRS_STREAM_FAIL error={error}");
