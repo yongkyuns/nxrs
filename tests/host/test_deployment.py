@@ -42,6 +42,10 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn('cargo:rustc-env=CONSOLE_DEVICE=/dev/ttyACM0', console)
         self.assertIn('cargo:rustc-env=EXECUTION_BACKGROUND_PRIORITY=80', execution)
         self.assertFalse(any('CONSOLE_DEVICE' in item for item in execution))
+        for name, expected in [('esp32s3-camera-stream-startup', 'on-acquire'),
+                               ('esp32s3-camera-stream', 'external')]:
+            wifi = PLATFORM.cargo_output(PLATFORM.resolve(name), 'wifi', 'nuttx')
+            self.assertIn('cargo:rustc-env=WIFI_INITIALIZATION=' + expected, wifi)
         for settings in ({'background': 90, 'normal': 80}, {'background': True, 'normal': 90}, {}):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 PLATFORM.scheduling_config({**profile, 'scheduling': settings})

@@ -61,6 +61,7 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
     detector_config(data)
     scheduling_config(data)
     console_config(data)
+    network_initialization(data)
     return data
 
 
@@ -109,6 +110,13 @@ def console_config(platform: dict) -> str | None:
             or ".." in device.split("/")):
         raise ValueError("invalid console device path")
     return device
+
+
+def network_initialization(platform: dict) -> str:
+    init = platform.get("init", {})
+    if not isinstance(init, dict) or init.get("network", "external") not in ("external", "on-acquire"):
+        raise ValueError("invalid network initialization policy")
+    return init.get("network", "external")
 
 
 def uses_detector(manifest: Path, root: Path = ROOT, seen: set[Path] | None = None) -> bool:
@@ -176,6 +184,8 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     manifests = {root / "hal" / name / "Cargo.toml" for name in platform["hal"]}
     manifests.add(root / "hal" / capability / "Cargo.toml")
     resources = []
+    if capability == "wifi" and platform["hal"].get(capability) == "nuttx":
+        resources.append("cargo:rustc-env=WIFI_INITIALIZATION=" + network_initialization(platform))
     if capability == "console" and platform["hal"].get(capability, "none") != "none":
         resources.append("cargo:rustc-env=CONSOLE_DEVICE=" + console_config(platform))
     if capability == "execution" and platform["hal"].get(capability, "none") != "none":

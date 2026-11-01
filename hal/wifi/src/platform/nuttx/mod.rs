@@ -54,7 +54,12 @@ where
 #[cfg(not(test))]
 fn initialize_network() -> Result<(), Error> {
     static INITIALIZED: std::sync::Mutex<Option<Result<(), Error>>> = std::sync::Mutex::new(None);
-    initialize_once(&INITIALIZED, || {
+    let policy = match env!("WIFI_INITIALIZATION") {
+        "external" => Initialization::External,
+        "on-acquire" => Initialization::OnAcquire,
+        _ => return Err(Error::Protocol),
+    };
+    initialize_once(&INITIALIZED, policy, || {
         if native::initialize_network() == 0 {
             Ok(())
         } else {
@@ -63,10 +68,19 @@ fn initialize_network() -> Result<(), Error> {
     })
 }
 
+#[derive(Clone, Copy)]
+enum Initialization {
+    External,
+    OnAcquire,
+}
 fn initialize_once(
     state: &std::sync::Mutex<Option<Result<(), Error>>>,
+    policy: Initialization,
     initialize: impl FnOnce() -> Result<(), Error>,
 ) -> Result<(), Error> {
+    if matches!(policy, Initialization::External) {
+        return Ok(());
+    }
     let mut state = state.lock().map_err(|_| Error::Io)?;
     if let Some(result) = *state {
         return result;
@@ -85,22 +99,44 @@ mod initialization_tests {
     fn initialization_runs_once_and_retains_success_or_partial_failure() {
         for result in [Ok(()), Err(Error::Io)] {
             let state = std::sync::Mutex::new(None);
-            assert_eq!(initialize_once(&state, || result), result);
             assert_eq!(
-                initialize_once(&state, || panic!("must not repeat initialization")),
+                initialize_once(&state, Initialization::OnAcquire, || result),
+                result
+            );
+            assert_eq!(
+                initialize_once(&state, Initialization::OnAcquire, || panic!(
+                    "must not repeat initialization"
+                )),
                 result
             );
         }
     }
     #[test]
+    fn externally_initialized_network_never_calls_sdk_or_changes_admission() {
+        let state = std::sync::Mutex::new(None);
+        for _ in 0..2 {
+            assert_eq!(
+                initialize_once(&state, Initialization::External, || panic!(
+                    "shell owns bring-up"
+                )),
+                Ok(())
+            );
+        }
+        assert!(state.lock().unwrap().is_none());
+    }
+    #[test]
     fn initializer_unwind_prevents_reinitialization() {
         let state = std::sync::Mutex::new(None);
-        assert!(
-            std::panic::catch_unwind(|| initialize_once(&state, || panic!("partial native setup")))
-                .is_err()
-        );
+        assert!(std::panic::catch_unwind(|| initialize_once(
+            &state,
+            Initialization::OnAcquire,
+            || panic!("partial native setup")
+        ))
+        .is_err());
         assert_eq!(
-            initialize_once(&state, || panic!("must not repeat setup")),
+            initialize_once(&state, Initialization::OnAcquire, || panic!(
+                "must not repeat setup"
+            )),
             Err(Error::Io)
         );
     }

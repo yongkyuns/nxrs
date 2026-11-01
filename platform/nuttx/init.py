@@ -35,8 +35,9 @@ def application_config(platform: dict, command: str, priority: int, stack: int) 
         if "mcuboot" not in platform or hal.get("boot") != "nuttx" or hal.get("watchdog") != "nuttx":
             raise ValueError("inherited boot watchdog requires MCUboot and boot/watchdog control")
     if "network" in init:
-        if init["network"] != "on-acquire":
+        if init["network"] not in ("external", "on-acquire"):
             raise ValueError("unsupported network initialization policy")
-        values["NETINIT_THREAD"] = "n"
-        values["NETUTILS_NETINIT"] = "y"
+        if init["network"] == "on-acquire":
+            values["NETINIT_THREAD"] = "n"
+            values["NETUTILS_NETINIT"] = "y"
     return values
