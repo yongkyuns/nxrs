@@ -152,10 +152,10 @@ The canonical active entity is:
 ~~~text
 many producers
      |
-     | cloned EventSender<Event>
+     | cloned Sender<Event>
      v
 +-------------------------------+
-| one bounded EventInbox<Event> |
+| one bounded Inbox<Event> |
 +---------------+---------------+
                 |
          one blocking wait

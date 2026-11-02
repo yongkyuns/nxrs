@@ -86,7 +86,7 @@ a collector with a deliberate 1 ms blocking-I/O surrogate, and CPU-heavy worker
 handlers (at least 4096 iterations). `--work` sets the ordinary handler iterations;
 CPU-load uses `max(work, 4096)`. Effective settings and platform are printed.
 
-Workers use the existing `EventInbox::wait` as their single event/deadline wait
+Workers use the existing `Inbox::wait` as their single event/deadline wait
 point. They check a 5 ms owner timer before every receive, including when their
 inbox never empties. Missed timer periods are skipped rather than replayed without
 a bound. Only setup/cancellation is shared; no global mutable application-state
