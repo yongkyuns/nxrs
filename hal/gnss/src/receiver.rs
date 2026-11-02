@@ -1,5 +1,5 @@
 //! Bounded receiver ownership/configuration. UBX wire codecs live in `kinavis-ubx`.
-use crate::{DeviceError, Gnss, GnssFix};
+use crate::{DeviceError, GnssFix};
 use std::{
     io::{ErrorKind, Read, Write},
     time::{Duration, Instant},
@@ -9,7 +9,7 @@ mod ubx;
 use ubx::Event;
 
 pub(crate) struct Receiver<R> {
-    io: R,
+    pub(crate) io: R,
     decoder: ubx::Decoder,
     saved_rate: Option<u8>,
 }
@@ -113,28 +113,27 @@ fn check_deadline(deadline: Instant) -> Result<(), DeviceError> {
 fn pause() {
     std::thread::sleep(Duration::from_millis(1));
 }
-impl<R: Read + Write> Gnss for Receiver<R> {
-    fn fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
-        let mut latest = Err(DeviceError::Busy);
+impl<R: Read + Write> Receiver<R> {
+    pub(crate) fn read_events(
+        &mut self,
+        now_ms: u64,
+        mut emit: impl FnMut(Result<GnssFix, DeviceError>),
+    ) -> Result<(), DeviceError> {
         let mut bytes = [0; 128];
-        // Drain toward the most recently received record without unbounded work.
-        for _ in 0..32 {
-            match self.io.read(&mut bytes) {
-                Ok(0) => return Err(DeviceError::Io),
-                Ok(count) => self
-                    .decoder
-                    .consume(&bytes[..count], now_ms, |event| match event {
-                        Event::Fix(fix) => latest = fix,
-                        Event::Invalid => latest = Err(DeviceError::InvalidData),
+        match self.io.read(&mut bytes) {
+            Ok(0) => Err(DeviceError::Io),
+            Ok(n) => {
+                self.decoder
+                    .consume(&bytes[..n], now_ms, |event| match event {
+                        Event::Fix(fix) => emit(fix),
+                        Event::Invalid => emit(Err(DeviceError::InvalidData)),
                         _ => {}
-                    }),
-                Err(error) if error.kind() == ErrorKind::WouldBlock => return latest,
-                Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                Err(_) => return Err(DeviceError::Io),
+                    });
+                Ok(())
             }
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => Ok(()),
+            Err(_) => Err(DeviceError::Io),
         }
-        // Catch up on the next call instead of presenting an undrained backlog.
-        Err(DeviceError::Busy)
     }
 }
 

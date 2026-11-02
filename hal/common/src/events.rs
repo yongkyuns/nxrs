@@ -59,6 +59,15 @@ pub trait EventSink<E> {
     fn try_emit(&mut self, event: E) -> Result<(), Rejected<E, DeliveryError>>;
 }
 
+impl<E, F> EventSink<E> for F
+where
+    F: FnMut(E) -> Result<(), Rejected<E, DeliveryError>>,
+{
+    fn try_emit(&mut self, event: E) -> Result<(), Rejected<E, DeliveryError>> {
+        self(event)
+    }
+}
+
 /// Inline, bounded payload. Capacity is storage, not the current data length.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundedBytes<const N: usize> {

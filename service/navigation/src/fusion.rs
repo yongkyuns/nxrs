@@ -15,6 +15,8 @@ pub struct NavState {
     pub speed_mps: f32,
     pub heading_rad: f32,
     pub imu_sequence: u64,
+    /// Missing/reordered input intervals; integration skips these discontinuities.
+    pub imu_discontinuities: u64,
     pub gnss_sequence: u64,
 }
 
@@ -221,18 +223,22 @@ fn run(service: FusionService) -> FusionStats {
 #[derive(Default)]
 struct FusionCore {
     state: NavState,
-    last_imu_ms: Option<u64>,
+    last_imu_sequence: Option<u64>,
     origin: Option<(f64, f64)>,
 }
 
 impl FusionCore {
     fn on_imu(&mut self, sample: ImuSample) -> NavState {
-        if let Some(last) = self.last_imu_ms {
-            let dt = sample.timestamp_ms.saturating_sub(last) as f32 / 1000.0;
-            self.state.heading_rad += sample.gyro_rps[2] * dt;
-            self.state.speed_mps = (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
+        if let Some(last) = self.last_imu_sequence {
+            if sample.sequence == last.saturating_add(1) {
+                let dt = sample.sample_interval_us as f32 / 1_000_000.0;
+                self.state.heading_rad += sample.gyro_rps[2] * dt;
+                self.state.speed_mps = (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
+            } else {
+                self.state.imu_discontinuities = self.state.imu_discontinuities.saturating_add(1);
+            }
         }
-        self.last_imu_ms = Some(sample.timestamp_ms);
+        self.last_imu_sequence = Some(sample.sequence);
         self.state.timestamp_ms = sample.timestamp_ms;
         self.state.imu_sequence = sample.sequence;
         self.state
@@ -282,5 +288,33 @@ mod tests {
         assert!((state.north_m - 111.3195).abs() < 0.001);
         assert!((state.east_m - 157.4295).abs() < 0.001);
         assert_eq!(state.heading_rad, 0.8);
+    }
+}
+
+#[cfg(test)]
+mod fifo_timing_tests {
+    use super::*;
+    #[test]
+    fn batched_samples_use_cadence_but_gaps_never_extrapolate_unobserved_motion() {
+        let mut core = FusionCore::default();
+        let sample = ImuSample {
+            sequence: 1,
+            timestamp_ms: 123,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0, 0.0, 1.0],
+        };
+        core.on_imu(sample);
+        core.on_imu(ImuSample {
+            sequence: 2,
+            ..sample
+        });
+        let state = core.on_imu(ImuSample {
+            sequence: 4,
+            gyro_rps: [0.0, 0.0, 100.0],
+            ..sample
+        });
+        assert!((state.heading_rad - 0.01).abs() < 1e-6);
+        assert_eq!(state.imu_discontinuities, 1);
     }
 }

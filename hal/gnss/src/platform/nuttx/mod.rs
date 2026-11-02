@@ -1,5 +1,8 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
-use crate::{DeviceError, Gnss, GnssFix};
+use crate::acquisition::Worker;
+use crate::{DeviceError, Event, EventSink, Gnss};
+#[path = "../../../../../driver/nuttx/readiness.rs"]
+mod readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
 use std::{
     fs::{File, OpenOptions},
@@ -19,12 +22,23 @@ impl Drop for Lease {
 struct Port {
     file: File,
     saved: [u8; 64],
+    restored: bool,
+}
+impl Port {
+    fn restore(&mut self) -> Result<(), DeviceError> {
+        if self.restored {
+            return Ok(());
+        }
+        self.restored = true;
+        ffi::restore(self.file.as_raw_fd(), &self.saved).map_err(|_| {
+            OWNED.store(2, Ordering::Release);
+            DeviceError::Io
+        })
+    }
 }
 impl Drop for Port {
     fn drop(&mut self) {
-        if ffi::restore(self.file.as_raw_fd(), &self.saved).is_err() {
-            OWNED.store(2, Ordering::Release);
-        }
+        let _ = self.restore();
     }
 }
 struct Serial {
@@ -46,20 +60,28 @@ impl Write for Serial {
 }
 struct Device {
     receiver: crate::receiver::Receiver<Serial>,
+    cleaned: bool,
 }
-impl Gnss for Device {
-    fn fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
-        self.receiver.fix(now_ms)
+impl Device {
+    fn cleanup(&mut self) -> Result<(), DeviceError> {
+        if self.cleaned {
+            return Ok(());
+        }
+        self.cleaned = true;
+        let receiver = self.receiver.restore();
+        let port = self.receiver.io.port.restore();
+        if receiver.is_err() || port.is_err() {
+            OWNED.store(2, Ordering::Release);
+        }
+        receiver.and(port)
     }
 }
 impl Drop for Device {
     fn drop(&mut self) {
-        if self.receiver.restore().is_err() {
-            OWNED.store(2, Ordering::Release);
-        }
+        let _ = self.cleanup();
     }
 }
-pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
+fn acquire() -> Result<Device, DeviceError> {
     OWNED
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|state| {
@@ -82,7 +104,11 @@ pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
         .map_err(|_| DeviceError::Io)?;
     let mut saved = [0; 64];
     ffi::capture(file.as_raw_fd(), &mut saved).map_err(|_| DeviceError::Io)?;
-    let port = Port { file, saved };
+    let port = Port {
+        file,
+        saved,
+        restored: false,
+    };
     ffi::configure(port.file.as_raw_fd(), &port.saved, baud).map_err(|_| DeviceError::Io)?;
     // Port restores/closes before the lease can admit another receiver.
     let mut receiver = crate::receiver::Receiver::new(Serial {
@@ -95,5 +121,72 @@ pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
         }
         return Err(error);
     }
-    Ok(Device { receiver })
+    Ok(Device {
+        receiver,
+        cleaned: false,
+    })
+}
+
+struct Session(Worker<readiness::Cancel, DeviceError>);
+impl Gnss for Session {
+    fn request_stop(&mut self) -> Result<(), DeviceError> {
+        self.0.request_stop().map_err(|_| DeviceError::Io)
+    }
+    fn join(&mut self) -> Result<(), DeviceError> {
+        self.request_stop()?;
+        self.0.join(DeviceError::Io)
+    }
+    fn is_finished(&self) -> bool {
+        self.0.is_finished()
+    }
+    fn dropped(&self) -> u32 {
+        self.0.dropped()
+    }
+}
+pub fn open<S: EventSink<Event> + Send + 'static>(
+    sink: S,
+) -> Result<impl Gnss + Send + 'static, DeviceError> {
+    let mut device = acquire()?;
+    let cancel = readiness::Cancel::new().map_err(|_| DeviceError::Io)?;
+    let wake = cancel.reader.clone();
+    let stack = option_env!("GNSS_STACK_BYTES")
+        .and_then(|v| v.parse().ok())
+        .ok_or(DeviceError::Unsupported)?;
+    Worker::start(
+        "gnss-acquire",
+        stack,
+        cancel,
+        sink,
+        Event::Failed,
+        move |stop, emit| {
+            let origin = std::time::Instant::now();
+            let result = (|| {
+                while !stop.load(Ordering::Acquire) {
+                    if !readiness::wait(&device.receiver.io.port.file, &wake)
+                        .map_err(|_| DeviceError::Io)?
+                    {
+                        break;
+                    }
+                    let mut connected = true;
+                    let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+                    device.receiver.read_events(now, |fix| {
+                        if connected {
+                            connected = match fix {
+                                Ok(fix) => emit(Event::Fix(fix)),
+                                Err(DeviceError::Busy) => true,
+                                Err(_) => emit(Event::InvalidFrame),
+                            };
+                        }
+                    })?;
+                    if !connected {
+                        break;
+                    }
+                }
+                Ok(())
+            })();
+            device.cleanup().and(result)
+        },
+    )
+    .map(Session)
+    .map_err(|_| DeviceError::Io)
 }

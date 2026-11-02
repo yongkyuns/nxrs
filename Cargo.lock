@@ -354,6 +354,7 @@ name = "nxrs-gnss"
 version = "0.1.0"
 dependencies = [
  "kinavis-ubx",
+ "nxrs-hal-common",
 ]
 
 [[package]]
@@ -388,6 +389,7 @@ version = "0.1.0"
 dependencies = [
  "bmi2",
  "embedded-hal",
+ "nxrs-hal-common",
 ]
 
 [[package]]

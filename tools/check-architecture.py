@@ -107,9 +107,9 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             if target is not None:
                 source, destination = paths[identity].parts, paths[target].parts
                 if source == ('hal', 'common'):
-                    errors.append(f'{context}: shared radio delivery contracts must remain dependency-free')
-                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
-                    errors.append(f'{context}: device errors belong to the capability; common is radio delivery only')
+                    errors.append(f'{context}: shared event delivery contracts must remain dependency-free')
+                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble', 'gnss', 'imu'}:
+                    errors.append(f'{context}: device errors belong to the capability; common is explicit event delivery only')
                 if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:

@@ -92,9 +92,10 @@ class ArchitectureTests(unittest.TestCase):
         script.write_text('exec build --app-manifest "$selected_manifest"')
         self.assertEqual(self.violations(), [])
 
-    def test_shared_radio_delivery_contracts_are_only_reused_by_radio_hals(self):
-        for name in ('wifi', 'ble'):
+    def test_shared_delivery_contracts_require_explicit_consumers(self):
+        for name in ('wifi', 'ble', 'gnss', 'imu'):
             self.package(name, f'hal/{name}')
+            (self.root / 'hal' / name / 'src/lib.rs').write_text('#![no_std]\n#![deny(unsafe_code)]\n')
             self.metadata['packages'].append(self.packages[name])
             self.metadata['workspace_members'].append(name)
             self.add(name, 'common')

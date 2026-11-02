@@ -1,4 +1,4 @@
-//! Shared radio event-delivery protocol, without device errors or providers.
+//! Shared typed event-delivery protocol, without device errors or providers.
 #![no_std]
 #![forbid(unsafe_code)]
 

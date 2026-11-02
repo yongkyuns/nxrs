@@ -12,4 +12,5 @@ kind = "hal-capability"
 platforms = ["mock", "nuttx"]
 
 [dependencies]
+nxrs-hal-common = { path = "../common" }
 kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }

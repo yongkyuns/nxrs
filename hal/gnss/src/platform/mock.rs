@@ -1,16 +1,17 @@
 //! Deterministic synthetic GNSS for architecture demonstrations.
 #![forbid(unsafe_code)]
 
-use crate::{DeviceError, Gnss, GnssFix};
+use crate::mock_acquisition::Session;
+use crate::{DeviceError, Event, EventSink, Gnss, GnssFix};
 
 #[derive(Default)]
-pub struct SyntheticGnss {
+struct SyntheticGnss {
     sequence: u64,
     north_m: f32,
     east_m: f32,
 }
 
-impl Gnss for SyntheticGnss {
+impl SyntheticGnss {
     fn fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
         self.sequence = self.sequence.saturating_add(1);
         self.north_m += 0.05;
@@ -24,4 +25,27 @@ impl Gnss for SyntheticGnss {
             course_rad: Some(0.08),
         })
     }
+}
+
+impl Gnss for Session {
+    fn request_stop(&mut self) -> Result<(), DeviceError> {
+        Session::request_stop(self)
+    }
+    fn join(&mut self) -> Result<(), DeviceError> {
+        Session::join(self)
+    }
+    fn is_finished(&self) -> bool {
+        Session::is_finished(self)
+    }
+    fn dropped(&self) -> u32 {
+        Session::dropped(self)
+    }
+}
+pub fn open<S: EventSink<Event> + Send + 'static>(
+    sink: S,
+) -> Result<impl Gnss + Send + 'static, DeviceError> {
+    let mut model = SyntheticGnss::default();
+    Session::start(sink, std::time::Duration::from_millis(200), move |now| {
+        Event::Fix(model.fix(now).expect("synthetic sample"))
+    })
 }

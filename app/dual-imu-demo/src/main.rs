@@ -7,18 +7,18 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use navigation::{
-    FusionConfig, FusionHandle, FusionService, ImuConfig, ImuHandle, ImuService,
-};
+use navigation::{FusionConfig, FusionHandle, FusionService, ImuHandle, ImuService};
 
 fn first_state(fusion: &FusionHandle, name: &str) -> io::Result<u64> {
     fusion
         .recv_timeout(Duration::from_secs(1))
         .map(|state| state.imu_sequence)
-        .map_err(|error| io::Error::new(
-            io::ErrorKind::TimedOut,
-            format!("{name} did not publish an IMU state: {error}"),
-        ))
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("{name} did not publish an IMU state: {error}"),
+            )
+        })
 }
 
 fn wait_for_progress(
@@ -64,12 +64,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (fusion_a, inputs_a) = FusionService::with_config(fusion_config);
     let (fusion_b, inputs_b) = FusionService::with_config(fusion_config);
 
-    let imu_a = ImuService::new(inputs_a.imu).with_config(ImuConfig {
-        period: Duration::from_millis(10),
-    });
-    let imu_b = ImuService::new(inputs_b.imu).with_config(ImuConfig {
-        period: Duration::from_millis(15),
-    });
+    let imu_a = ImuService::new(inputs_a.imu);
+    let imu_b = ImuService::new(inputs_b.imu);
 
     let fusion_a = fusion_a.start()?;
     let fusion_b = fusion_b.start()?;
@@ -98,16 +94,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("pause leaked across IMU service instances".into());
     }
 
-    let b_after =
-        wait_for_progress(&imu_b, &fusion_b, b_before.stats.produced, "pipeline B")?;
+    let b_after = wait_for_progress(&imu_b, &fusion_b, b_before.stats.produced, "pipeline B")?;
     let still_paused_a = imu_a.status()?;
     if still_paused_a.stats.produced != paused_a.stats.produced {
         return Err("paused IMU instance continued producing".into());
     }
 
     imu_a.resume()?;
-    let resumed_a =
-        wait_for_progress(&imu_a, &fusion_a, still_paused_a.stats.produced, "pipeline A")?;
+    let resumed_a = wait_for_progress(
+        &imu_a,
+        &fusion_a,
+        still_paused_a.stats.produced,
+        "pipeline A",
+    )?;
 
     let stats_a = imu_a.stop()?;
     let stats_b = imu_b.stop()?;

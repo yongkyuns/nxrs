@@ -73,14 +73,21 @@ def gnss_config(platform: dict) -> dict | None:
         if config:
             raise ValueError("GNSS device configuration requires its NuttX binding")
         return None
-    if not isinstance(config, dict) or set(config) != {"device", "baud"}:
+    if not isinstance(config, dict) or set(config) - {"stack-bytes"} != {"device", "baud"}:
         raise ValueError("GNSS requires a UART device and baud")
     device = config["device"]
     if (not isinstance(device, str) or not re.fullmatch(r"/dev/[A-Za-z0-9_/.-]{1,120}", device)
             or ".." in device.split("/") or type(config["baud"]) is not int
             or config["baud"] not in {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600}):
         raise ValueError("invalid GNSS UART binding")
-    return config
+    return {**config, "stack-bytes": sensor_stack(config)}
+
+
+def sensor_stack(config: dict) -> int:
+    stack = config.get("stack-bytes", 16384)
+    if type(stack) is not int or not 8192 <= stack <= 262144:
+        raise ValueError("sensor stack-bytes must be between 8192 and 262144")
+    return stack
 
 
 def imu_config(platform: dict) -> dict | None:
@@ -89,7 +96,7 @@ def imu_config(platform: dict) -> dict | None:
         if config:
             raise ValueError("IMU device configuration requires its NuttX binding")
         return None
-    if not isinstance(config, dict) or set(config) != {"driver", "device", "address", "frequency"}:
+    if not isinstance(config, dict) or set(config) - {"stack-bytes", "irq-device"} != {"driver", "device", "address", "frequency"}:
         raise ValueError("IMU requires driver, I2C device, address and frequency")
     device = config["device"]
     if (config["driver"] != "bmi270" or not isinstance(device, str)
@@ -98,7 +105,12 @@ def imu_config(platform: dict) -> dict | None:
             or config["address"] not in {0x68, 0x69}
             or type(config["frequency"]) is not int or config["frequency"] not in {100000, 400000}):
         raise ValueError("invalid BMI270 I2C binding")
-    return config
+    irq = config.get("irq-device", "")
+    if irq and (not isinstance(irq, str) or not re.fullmatch(r"/dev/[A-Za-z0-9_/.-]{1,120}", irq) or ".." in irq.split("/")):
+        raise ValueError("invalid IMU interrupt device")
+    if not isinstance(irq, str):
+        raise ValueError("invalid IMU interrupt device")
+    return {**config, "stack-bytes": sensor_stack(config), "irq-device": irq}
 
 
 def detector_config(platform: dict) -> dict | None:
@@ -223,11 +235,12 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     if capability == "gnss" and platform["hal"].get(capability) == "nuttx":
         config = gnss_config(platform)
         resources.extend(["cargo:rustc-env=GNSS_DEVICE=" + config["device"],
-                          "cargo:rustc-env=GNSS_BAUD=" + str(config["baud"])])
+                          "cargo:rustc-env=GNSS_BAUD=" + str(config["baud"]),
+                          "cargo:rustc-env=GNSS_STACK_BYTES=" + str(config["stack-bytes"])])
     if capability == "imu" and platform["hal"].get(capability) == "nuttx":
         config = imu_config(platform)
-        resources.extend("cargo:rustc-env=IMU_" + key.upper() + "=" + str(config[key])
-                         for key in ("device", "address", "frequency"))
+        resources.extend("cargo:rustc-env=IMU_" + key.upper().replace("-", "_") + "=" + str(config[key])
+                         for key in ("device", "address", "frequency", "stack-bytes", "irq-device"))
     if capability == "wifi" and platform["hal"].get(capability) == "nuttx":
         resources.append("cargo:rustc-env=WIFI_INITIALIZATION=" + network_initialization(platform))
     if capability == "console" and platform["hal"].get(capability, "none") != "none":

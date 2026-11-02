@@ -5,24 +5,29 @@ pub(super) mod mock;
 #[path = "nuttx/mod.rs"]
 mod selected;
 #[cfg(hal_mock)]
-mod selected {
-    pub fn open() -> Result<impl crate::Imu + Send + 'static, crate::DeviceError> {
-        Ok(super::mock::SyntheticImu::default())
-    }
-}
+use mock as selected;
 #[cfg(not(any(hal_enabled, hal_mock)))]
 mod selected {
-    use crate::{DeviceError, Imu, ImuSample};
-    struct UnconfiguredImu;
-
-    impl Imu for UnconfiguredImu {
-        fn sample(&mut self, _now_ms: u64) -> Result<ImuSample, DeviceError> {
-            Err(DeviceError::Unsupported)
+    use crate::{DeviceError, Event, EventSink, Imu};
+    struct Unconfigured;
+    impl Imu for Unconfigured {
+        fn request_stop(&mut self) -> Result<(), DeviceError> {
+            Ok(())
+        }
+        fn join(&mut self) -> Result<(), DeviceError> {
+            Ok(())
+        }
+        fn is_finished(&self) -> bool {
+            true
+        }
+        fn dropped(&self) -> u32 {
+            0
         }
     }
-
-    pub fn open() -> Result<impl Imu + Send + 'static, DeviceError> {
-        Err::<UnconfiguredImu, _>(DeviceError::Unsupported)
+    pub fn open<S: EventSink<Event> + Send + 'static>(
+        _: S,
+    ) -> Result<impl Imu + Send + 'static, DeviceError> {
+        Err::<Unconfigured, _>(DeviceError::Unsupported)
     }
 }
 pub use selected::open;
