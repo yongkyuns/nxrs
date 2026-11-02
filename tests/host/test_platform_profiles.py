@@ -255,7 +255,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
             self.assertNotIn(counter, experiment['kconfig']['enable'])
             self.assertRegex('CONFIG_' + counter + '=y', experiment['kconfig']['forbid-regex'])
-        self.assertEqual(experiment['detector']['compute']['cores'], [1, 0])
+        self.assertEqual(experiment['detector']['compute']['cores'], [0, 1])
         for compute in ({'cores': [0, 0], 'stack-bytes': 32768, 'priority': 90},
                         {'cores': [1, 0], 'stack-bytes': 0, 'priority': 90}):
             with self.assertRaises(ValueError):

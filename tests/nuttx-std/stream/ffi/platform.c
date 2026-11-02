@@ -70,6 +70,7 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
 {
   irqstate_t flags;
   clock_t idle_runtime[CONFIG_SMP_NCPUS];
+  clock_t caller_runtime;
   uint64_t idle_us = 0;
   struct timespec wall;
   struct timespec idle_time;
@@ -81,6 +82,9 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
 
   flags = enter_critical_section();
   clock_t current = perf_gettime();
+  FAR struct tcb_s *caller = nxsched_get_tcb(gettid());
+  if (caller == NULL) { leave_critical_section(flags); return -1; }
+  caller_runtime = caller->run_time + current - caller->run_start;
   for (int cpu_index = 0; cpu_index < CONFIG_SMP_NCPUS; ++cpu_index)
     {
       FAR struct tcb_s *idle = nxsched_get_tcb(cpu_index);
@@ -90,14 +94,16 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
         idle_runtime[cpu_index] += current - idle->run_start;
     }
   leave_critical_section(flags);
-  if (clock_gettime(CLOCK_MONOTONIC, &wall) < 0 ||
-      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu) < 0)
+  if (clock_gettime(CLOCK_MONOTONIC, &wall) < 0)
     {
       return -1;
     }
 
   values[0] = mallinfo().uordblks;
   values[1] = kmm_mallinfo().uordblks;
+  /* NuttX CLOCK_THREAD_CPUTIME_ID calls up_perf_convert directly, which does
+   * not convert the shared tick fallback. Match perf_gettime with perf_convert. */
+  perf_convert(caller_runtime, &cpu);
   /* Mean idle time per CPU, including a currently running remote idle slice.
    * The Rust fixture computes utilization against one wall-time interval.
    * Thread CPU below observes only the caller, not the numerical helper. */

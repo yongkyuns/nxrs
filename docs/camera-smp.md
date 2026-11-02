@@ -2,7 +2,7 @@
 
 `esp32s3-camera-stream-smp` is an explicit, unsigned streaming experiment;
 the signed product default remains single-core. It selects two CPUs, caller
-core 1 and helper core 0, with a 32 KiB helper stack at priority 90. The detector
+core 0 and helper core 1, with a 32 KiB helper stack at priority 90. The detector
 API, model, weights, activation arena and 750 ms observation budget are unchanged.
 
 Rust owns one persistent helper and a bounded synchronous handoff. ESP-DL supplies

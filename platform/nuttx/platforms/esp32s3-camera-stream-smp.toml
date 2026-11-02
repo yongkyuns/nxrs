@@ -7,4 +7,4 @@ cpus = 2
 model = "pico"
 stack-bytes = 131072
 sample-ms = 750
-compute = { cores = [1, 0], stack-bytes = 32768, priority = 90 }
+compute = { cores = [0, 1], stack-bytes = 32768, priority = 90 }
