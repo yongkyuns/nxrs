@@ -59,10 +59,12 @@ Provider-internal device waits and cancellation remain behind HAL/target support
 No std/Crossbeam channel operation is assumed ISR-safe; use a qualified deferred
 path before invoking a service delivery endpoint.
 
-Production acquisition is signal-driven: IMU interrupt/FIFO notifications and
-GNSS UART readiness wake HAL-owned acquisition. Services never poll devices on
-sampling timers. A timer is appropriate for an explicit synthetic fixture or a
-health deadline, not as a silent substitute for missing interrupt wiring.
+Production acquisition is signal-driven: IMU IRQs or explicitly configured
+ODR-derived timer wakes, and GNSS UART readiness, wake HAL-owned acquisition.
+Services never poll devices on sampling timers. For an unwired IMU, a HAL timer
+feeds the same FIFO drain/normalization path as an IRQ. It is only a wake hint;
+actual FIFO contents admit samples. Missed ticks coalesce instead of generating
+backfilled measurements. A configured IRQ failure never silently selects a timer.
 ISR callbacks only use qualified OS notification; parsing, FIFO/UART I/O and
 bounded sink admission execute in task context. Queue-full measurements follow
 an explicit loss policy with observable counts/sequence gaps; terminal faults

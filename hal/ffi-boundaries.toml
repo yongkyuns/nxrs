@@ -162,4 +162,4 @@ reason = "Target pollfd layout and pipe2 flags only. Rust owns descriptor lifeti
 [[bridge]]
 path = "hal/imu/src/platform/nuttx/ffi/events.c"
 kind = "abi"
-reason = "Target pollfd/pipe2 ABI and individual GPIO interrupt ioctls only. NuttX owns ISR notifications; Rust owns FIFO draining, cancellation, event admission and shutdown."
+reason = "Target pollfd/pipe2 ABI, caller-supplied poll timeout and individual GPIO interrupt ioctls only. NuttX owns ISR notifications; Rust owns ODR-derived deadlines, FIFO draining, cancellation, event admission and shutdown."

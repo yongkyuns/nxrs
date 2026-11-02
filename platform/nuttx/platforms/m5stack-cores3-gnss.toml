@@ -21,9 +21,8 @@ device = "/dev/i2c0"
 address = 0x68
 frequency = 400000
 stack-bytes = 16384
-# Required logical endpoint. Stock M135 v1.0 leaves INT1/INT2 unwired;
-# the board deliberately does not register this node without real wiring.
-irq-device = "/dev/bmi270-int"
+# M135 v1.0 leaves INT1/INT2 unwired. Omit irq-device to select HAL-owned
+# ODR-derived FIFO wakes. Wired boards supply an actual rising-edge GPIO node.
 
 [kconfig]
 enable = [

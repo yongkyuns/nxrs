@@ -16,6 +16,7 @@ use std::{
 #[allow(unsafe_code)]
 mod ffi;
 mod irq;
+mod signal;
 static OWNED: AtomicU8 = AtomicU8::new(0);
 struct Lease;
 impl Drop for Lease {
@@ -61,7 +62,7 @@ impl I2c for Bus {
 }
 struct Device {
     sensor: crate::bmi270::Sensor<Bus, Delay>,
-    irq: irq::Irq,
+    signal: signal::Signal,
     cleaned: bool,
     _lease: Lease,
 }
@@ -72,7 +73,7 @@ impl Device {
         }
         self.cleaned = true;
         let stopped = self.sensor.stop();
-        let detached = self.irq.unregister();
+        let detached = self.signal.close();
         if stopped.is_err() || detached.is_err() {
             OWNED.store(2, Ordering::Release);
         }
@@ -85,10 +86,9 @@ impl Drop for Device {
     }
 }
 fn acquire() -> Result<Device, DeviceError> {
-    // Missing wiring is unsupported, never a timer-polling fallback.
-    let irq_path = option_env!("IMU_IRQ_DEVICE")
-        .filter(|v| !v.is_empty())
-        .ok_or(DeviceError::Unsupported)?;
+    // An omitted IRQ resource explicitly selects ODR-derived wakes. A configured
+    // IRQ that cannot be acquired remains an error; it never changes modes.
+    let irq_path = option_env!("IMU_IRQ_DEVICE").filter(|v| !v.is_empty());
     OWNED
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|state| {
@@ -106,22 +106,23 @@ fn acquire() -> Result<Device, DeviceError> {
     let frequency = option_env!("IMU_FREQUENCY")
         .and_then(|v| v.parse::<u32>().ok())
         .ok_or(DeviceError::Unsupported)?;
-    let irq = OpenOptions::new()
-        .read(true)
-        .open(irq_path)
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                DeviceError::Unsupported
-            } else {
-                DeviceError::Io
-            }
-        })?;
+    let irq = irq_path
+        .map(|path| {
+            let file = OpenOptions::new().read(true).open(path).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    DeviceError::Unsupported
+                } else {
+                    DeviceError::Io
+                }
+            })?;
+            irq::Irq::register(file)
+        })
+        .transpose()?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .map_err(|_| DeviceError::Io)?;
-    let irq = irq::Irq::register(irq)?;
     let sensor =
         crate::bmi270::Sensor::open(Bus { file, frequency }, address).map_err(|error| {
             // An interrupted configuration may have left the sensor active. Do not
@@ -131,7 +132,7 @@ fn acquire() -> Result<Device, DeviceError> {
         })?;
     Ok(Device {
         sensor,
-        irq,
+        signal: signal::Signal::new(irq, crate::bmi270::FIFO_WAKE_PERIOD),
         cleaned: false,
         _lease: lease,
     })
@@ -171,16 +172,10 @@ pub fn open<S: EventSink<Event> + Send + 'static>(
         move |stop, emit| {
             let origin = std::time::Instant::now();
             let result = (|| {
-                // Level check closes the race between sensor enable and initial poll.
-                let mut ready = device.irq.read()?;
                 while !stop.load(Ordering::Acquire) {
-                    if !ready
-                        && !readiness::wait(&device.irq.file, &wake).map_err(|_| DeviceError::Io)?
-                    {
+                    if !device.signal.wait(&wake)? {
                         break;
                     }
-                    // Acknowledge the GPIO notification before draining the sensor.
-                    device.irq.read()?;
                     let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
                     let Some(count) = device
                         .sensor
@@ -188,10 +183,7 @@ pub fn open<S: EventSink<Event> + Send + 'static>(
                     else {
                         break;
                     };
-                    ready = device.irq.read()?;
-                    if ready && count == 0 {
-                        return Err(DeviceError::Io);
-                    }
+                    device.signal.drained(count)?;
                 }
                 Ok(())
             })();

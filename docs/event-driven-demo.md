@@ -12,7 +12,7 @@ NXRS_PLATFORM=host-imu cargo run --locked -p nxrs-dual-imu-demo
 ## Ownership and delivery
 
 ```text
-IMU interrupt → HAL FIFO drain → typed Sample ─→ ImuService ──┐
+IMU IRQ/timer → HAL FIFO drain → typed Sample ─→ ImuService ──┐
 GNSS UART ready → HAL read/UBX → typed Fix ────→ GnssService ─┼→ FusionService
 commands ──────────────────────────────────→ service inboxes ┘
 ```
@@ -32,7 +32,8 @@ There are two sensor acquisition workers, two sensor service owners and one
 fusion owner in the full demonstration. The dual-IMU fixture creates two
 independent pipelines. This counts application workers, not OS/system tasks.
 Synthetic sources use timers solely as explicit mocks; production providers use
-UART readiness or IMU interrupt/FIFO notification without a polling fallback.
+UART readiness or IMU IRQ/ODR-derived wakes. The stock unwired M135 uses a HAL
+timer; a configured IRQ failure remains an error.
 
 ## Lifetime and overload
 
@@ -62,5 +63,5 @@ checks the actual demo transcript in existing NuttX simulator/QEMU runs.
 
 Host/mocked results do not establish physical interrupt latency, sample-clock
 accuracy, power use or FIFO throughput. See [CoreS3 constraints](m5stack-cores3.md)
-for the unwired M135 interrupt. See [communication requirements](concurrency-event-communication.md)
+for the unwired M135 interrupt and its HAL timer wake source. See [communication requirements](concurrency-event-communication.md)
 for the wider event-driven architecture and qualification requirements.

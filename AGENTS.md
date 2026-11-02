@@ -65,15 +65,17 @@ requirements, not aspirational guidance.
   app/service manifests. Explicit model features are for HAL qualification only.
   Model dependencies remain explicit in the detector HAL; benchmark choices use
   typed cases, never boolean cfg aliases or a feature for each measurement axis.
-- Hardware acquisition is event-driven. GNSS UART reads and IMU interrupt/FIFO
+- Hardware acquisition is event-driven. GNSS UART reads and IMU FIFO
   draining belong to HAL providers, never service polling timers. Services receive
   normalized typed messages through bounded channels. ISRs and interrupt-context callbacks only
   perform qualified bounded notification; never call service handlers, allocate,
   wait for queue capacity, or invoke std/Crossbeam channels from ISR context.
   Defer parsing and I/O to task context. Declare overload/loss policy, retain
   terminal faults independently of delivery, wake waits on cancellation, and
-  explicitly join acquisition before releasing resources. Missing interrupt
-  wiring is unsupported; do not silently add a polling fallback. See
+  explicitly join acquisition before releasing resources. An unwired sensor may
+  explicitly use an ODR-derived HAL timer feeding the same FIFO path; a timer is
+  only a wake hint, never proof of data readiness. A configured IRQ failure must
+  fail rather than silently switching modes. See
   `docs/concurrency-event-communication.md`.
 - Keep native callback registration, execution-context constraints, and lifetime
   barriers explicit. Moving behavior to Rust must preserve quiescence before

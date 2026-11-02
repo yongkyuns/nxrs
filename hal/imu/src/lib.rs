@@ -11,6 +11,8 @@ pub use hal_common::{DeliveryError, EventSink, Rejected};
 mod acquisition;
 #[cfg(any(test, hal_enabled))]
 mod bmi270;
+#[cfg(any(test, hal_enabled))]
+mod cadence;
 #[cfg(any(test, hal_mock))]
 #[path = "../../../driver/mock_acquisition.rs"]
 mod mock_acquisition;

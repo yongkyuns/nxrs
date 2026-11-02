@@ -108,3 +108,15 @@ pub(super) fn irq_check(fd: c_int) -> io::Result<()> {
 unsafe extern "C" {
     fn imu_irq_check(fd: c_int) -> c_int;
 }
+
+pub(super) fn tick(cancel: c_int, timeout_ms: c_int) -> io::Result<bool> {
+    // SAFETY: borrowed live descriptor and a bounded poll timeout, no retained data.
+    match unsafe { imu_event_tick(cancel, timeout_ms) } {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+unsafe extern "C" {
+    fn imu_event_tick(cancel: c_int, timeout_ms: c_int) -> c_int;
+}
