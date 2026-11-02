@@ -11,7 +11,7 @@ on:
       - 'app/event-demo/**'
       - 'app/dual-imu-demo/**'
       - 'service/navigation/**'
-      - 'service/event/**'
+      - 'shared/messaging/**'
       - 'hal/imu/**'
       - 'hal/gnss/**'
       - 'hal/common/**'
@@ -98,11 +98,11 @@ jobs:
       - name: Qualify workspace and active services
         run: |
           cargo +1.90.0 test --locked
-          cargo +1.90.0 test --locked -p nxrs-service-event
+          cargo +1.90.0 test --locked -p nxrs-messaging
           cargo +1.90.0 test --locked \
             -p nxrs-navigation-services --test unconfigured
           NXRS_PLATFORM=host-demo cargo +1.90.0 test --locked \
-            -p nxrs-navigation-services -p nxrs-service-event --test active
+            -p nxrs-navigation-services -p nxrs-messaging --test active
           cargo +1.90.0 check --locked \
             -p nxrs-imu -p nxrs-gnss \
             --target thumbv6m-none-eabi
@@ -161,10 +161,10 @@ jobs:
       - name: Lint demo layers
         run: |
           cargo +1.90.0 clippy --locked \
-            -p nxrs-navigation-services -p nxrs-service-event \
+            -p nxrs-navigation-services -p nxrs-messaging \
             -p nxrs-imu -p nxrs-gnss -- -D warnings
           NXRS_PLATFORM=host-demo cargo +1.90.0 clippy --locked \
-            -p nxrs-navigation-services -p nxrs-service-event \
+            -p nxrs-navigation-services -p nxrs-messaging \
             -p nxrs-imu -p nxrs-gnss -- -D warnings
           NXRS_PLATFORM=host-demo cargo +1.90.0 clippy --locked \
             -p nxrs-event-demo -p nxrs-imu -p nxrs-gnss --bin event-demo -- -D warnings

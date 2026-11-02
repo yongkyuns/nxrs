@@ -8,7 +8,7 @@ publish = false
 # destructive qualification image, never as a production app dependency.
 
 [dependencies]
-nxrs-service-event = { path = "../../../service/event" }
+nxrs-messaging = { path = "../../../shared/messaging" }
 
 # Borrowed portable app sources mention their own optional probe; this fixture does not enable it.
 [lints.rust]

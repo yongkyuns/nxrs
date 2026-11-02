@@ -12,6 +12,7 @@ name = "wifi"
 
 [dependencies]
 nxrs-hal-common = { path = "../common" }
+nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
 [package.metadata.nxrs]
 kind = "hal-capability"

@@ -35,10 +35,11 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::time::Instant;
 
 const WAIT: Duration = Duration::from_secs(2);
-struct Sink(SyncSender<Event>);
-impl EventSink<Event> for Sink {
-    fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
-        self.0.try_send(event).map_err(|error| match error {
+fn sink(
+    sender: SyncSender<Event>,
+) -> impl FnMut(Event) -> Result<(), Rejected<Event, DeliveryError>> {
+    move |event| {
+        sender.try_send(event).map_err(|error| match error {
             TrySendError::Full(value) => Rejected {
                 value,
                 error: DeliveryError::Full,
@@ -177,7 +178,7 @@ fn field(kind: u32, flags: u32, bytes: &[u8]) -> Field {
 }
 fn fixture(fake: Fake, capacity: usize) -> (Worker, Receiver<Event>) {
     let (tx, rx) = mpsc::sync_channel(capacity);
-    let device = Worker::start(fake, Sink(tx), ()).unwrap();
+    let device = Worker::start(fake, sink(tx), ()).unwrap();
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
         EventKind::Status(ProviderStatus::Ready)
@@ -193,7 +194,7 @@ fn blocking_initialization_runs_off_owner_and_failure_never_advertises_ready() {
         let mut native = Fake::new(vec![]);
         native.startup = Some((entered, gate, failure));
         let (tx, rx) = mpsc::sync_channel(4);
-        let mut device = Worker::start(native, Sink(tx), ()).unwrap();
+        let mut device = Worker::start(native, sink(tx), ()).unwrap();
         assert_ne!(started.recv_timeout(WAIT).unwrap(), thread::current().id());
         assert_eq!(device.status(), ProviderStatus::Starting);
         assert!(rx.try_recv().is_err());
@@ -678,7 +679,7 @@ fn drop_retries_abandoned_cleanup_without_releasing_guard_early() {
     let mut fake = Fake::new(vec![]);
     fake.close_failures.store(2, Ordering::Release);
     fake.close_calls = Some(calls_tx);
-    let mut device = Worker::start(fake, Sink(tx), Guard(released_tx)).unwrap();
+    let mut device = Worker::start(fake, sink(tx), Guard(released_tx)).unwrap();
     assert_eq!(
         rx.recv_timeout(WAIT).unwrap().kind,
         EventKind::Status(ProviderStatus::Ready)

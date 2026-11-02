@@ -231,7 +231,7 @@ name = "nxrs-ao-stress"
 version = "0.1.0"
 dependencies = [
  "nxrs-allocation-probe",
- "nxrs-service-event",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -251,6 +251,7 @@ name = "nxrs-ble"
 version = "0.1.0"
 dependencies = [
  "nxrs-hal-common",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -354,7 +355,7 @@ name = "nxrs-gnss"
 version = "0.1.0"
 dependencies = [
  "kinavis-ubx",
- "nxrs-hal-common",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -389,11 +390,15 @@ version = "0.1.0"
 dependencies = [
  "bmi2",
  "embedded-hal",
- "nxrs-hal-common",
+ "nxrs-messaging",
 ]
 
 [[package]]
 name = "nxrs-led"
+version = "0.1.0"
+
+[[package]]
+name = "nxrs-messaging"
 version = "0.1.0"
 
 [[package]]
@@ -414,7 +419,7 @@ version = "0.1.0"
 dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
- "nxrs-service-event",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -449,12 +454,8 @@ dependencies = [
 name = "nxrs-rt-bench"
 version = "0.1.0"
 dependencies = [
- "nxrs-service-event",
+ "nxrs-messaging",
 ]
-
-[[package]]
-name = "nxrs-service-event"
-version = "0.1.0"
 
 [[package]]
 name = "nxrs-simulator"
@@ -503,7 +504,7 @@ dependencies = [
 name = "nxrs-std-resources"
 version = "0.1.0"
 dependencies = [
- "nxrs-service-event",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -598,6 +599,7 @@ name = "nxrs-wifi"
 version = "0.1.0"
 dependencies = [
  "nxrs-hal-common",
+ "nxrs-messaging",
 ]
 
 [[package]]

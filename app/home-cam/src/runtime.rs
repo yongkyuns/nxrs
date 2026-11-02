@@ -10,7 +10,7 @@ use std::{
     sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
     time::{Duration, Instant},
 };
-use wifi::{Command, DeliveryError, Event, EventSink, LinkState, ProviderStatus, Rejected};
+use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
 
 const BYTES: usize = 320 * 240 * 2;
 const HEALTH_AGE_MS: u64 = 5000;
@@ -21,7 +21,7 @@ struct Sink {
     events: SyncSender<Event>,
     owner: std::thread::Thread,
 }
-impl EventSink<Event> for Sink {
+impl Sink {
     fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
         let result = self.events.try_send(event).map_err(|e| match e {
             TrySendError::Full(value) => Rejected {
@@ -214,9 +214,12 @@ pub(crate) fn run() -> Result<(), String> {
             None
         };
         let (sender, events) = sync_channel(8);
-        let controller = wifi::open(Sink {
-            events: sender,
-            owner: std::thread::current(),
+        let controller = wifi::open({
+            let mut sink = Sink {
+                events: sender,
+                owner: std::thread::current(),
+            };
+            move |event| sink.try_emit(event)
         })
         .map_err(|e| format!("Wi-Fi open {e:?}"))?;
         let mut network = Reconnector::new(controller, || settings.wifi.command());

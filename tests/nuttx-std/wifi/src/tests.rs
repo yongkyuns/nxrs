@@ -76,15 +76,11 @@ impl Wifi for FakeWifi {
         Ok(())
     }
 }
-
-struct ReportSink(mpsc::SyncSender<OwnerReport>);
-
-impl EventSink<OwnerReport> for ReportSink {
-    fn try_emit(
-        &mut self,
-        report: OwnerReport,
-    ) -> Result<(), Rejected<OwnerReport, DeliveryError>> {
-        self.0.try_send(report).map_err(|error| match error {
+fn report_sink(
+    sender: mpsc::SyncSender<OwnerReport>,
+) -> impl FnMut(OwnerReport) -> Result<(), Rejected<OwnerReport, DeliveryError>> {
+    move |report| {
+        sender.try_send(report).map_err(|error| match error {
             mpsc::TrySendError::Full(report) => Rejected {
                 value: report,
                 error: DeliveryError::Full,
@@ -99,7 +95,7 @@ impl EventSink<OwnerReport> for ReportSink {
 
 struct RejectingSink;
 
-impl EventSink<OwnerReport> for RejectingSink {
+impl RejectingSink {
     fn try_emit(
         &mut self,
         report: OwnerReport,
@@ -116,7 +112,11 @@ fn observer_failure_requires_explicit_stop_and_quiescence_before_finish() {
     let (mut owner, _stop, commands, _events, mut controller, shared) = fixture(1, 1);
     commands.try_submit(scan(), 100).unwrap();
     assert!(matches!(
-        owner.run(&mut controller, &mut RejectingSink, || 0),
+        owner.run(
+            &mut controller,
+            &mut |report| RejectingSink.try_emit(report),
+            || 0
+        ),
         Err(OwnerError::Observer(_))
     ));
     assert!(controller.is_busy());
@@ -126,21 +126,17 @@ fn observer_failure_requires_explicit_stop_and_quiescence_before_finish() {
     controller.request_stop().unwrap();
     let (tx, _reports) = mpsc::sync_channel(4);
     owner
-        .run(&mut controller, &mut ReportSink(tx), || 0)
+        .run(&mut controller, &mut report_sink(tx), || 0)
         .unwrap();
     assert_eq!(controller.status(), ProviderStatus::Stopped);
     assert_eq!(shared.finishes.load(Ordering::SeqCst), 0);
     controller.finish().unwrap();
     assert_eq!(shared.finishes.load(Ordering::SeqCst), 1);
 }
-
-struct RejectTimeoutSink(mpsc::SyncSender<OwnerReport>);
-
-impl EventSink<OwnerReport> for RejectTimeoutSink {
-    fn try_emit(
-        &mut self,
-        report: OwnerReport,
-    ) -> Result<(), Rejected<OwnerReport, DeliveryError>> {
+fn reject_timeout_sink(
+    sender: mpsc::SyncSender<OwnerReport>,
+) -> impl FnMut(OwnerReport) -> Result<(), Rejected<OwnerReport, DeliveryError>> {
+    move |report| {
         if matches!(
             &report,
             OwnerReport::Update(Update::Finished(outcome))
@@ -151,8 +147,8 @@ impl EventSink<OwnerReport> for RejectTimeoutSink {
                 error: DeliveryError::Full,
             });
         }
-        let mut sink = ReportSink(self.0.clone());
-        sink.try_emit(report)
+        let mut sink = report_sink(sender.clone());
+        sink(report)
     }
 }
 
@@ -219,7 +215,7 @@ fn spawn_owner(
     now: Arc<AtomicU64>,
 ) -> thread::JoinHandle<(Result<(), OwnerError>, Controller<FakeWifi>)> {
     thread::spawn(move || {
-        let mut observer = ReportSink(reports);
+        let mut observer = report_sink(reports);
         start.wait();
         let result = owner.run(&mut controller, &mut observer, || {
             now.load(Ordering::SeqCst)
@@ -419,7 +415,7 @@ fn stop_endpoint_disconnect_requests_stop_and_closes_event_sinks() {
     let (mut owner, stop, commands, mut events, mut controller, _) = fixture(2, 2);
     drop(stop);
     let (report_tx, _report_rx) = mpsc::sync_channel(8);
-    let mut observer = ReportSink(report_tx);
+    let mut observer = report_sink(report_tx);
     owner.run(&mut controller, &mut observer, || 0).unwrap();
     assert_eq!(
         events.try_emit(event(EventKind::LinkChanged(LinkState::Associated))),
@@ -463,7 +459,11 @@ fn observer_rejection_returns_report_and_keeps_owner_endpoints_open() {
         .try_emit(event(EventKind::LinkChanged(LinkState::Associated)))
         .unwrap();
     let error = owner
-        .run(&mut controller, &mut RejectingSink, || 0)
+        .run(
+            &mut controller,
+            &mut |report| RejectingSink.try_emit(report),
+            || 0,
+        )
         .unwrap_err();
     assert!(matches!(
         error,
@@ -482,7 +482,7 @@ fn observer_rejection_returns_report_and_keeps_owner_endpoints_open() {
         .unwrap();
     stop.request_stop().unwrap();
     let (report_tx, _report_rx) = mpsc::sync_channel(8);
-    let mut observer = ReportSink(report_tx);
+    let mut observer = report_sink(report_tx);
     owner.run(&mut controller, &mut observer, || 0).unwrap();
     controller.finish().unwrap();
 }
@@ -494,7 +494,7 @@ fn failed_stop_retains_loop_and_admission_for_retry() {
     stop.request_stop().unwrap();
 
     let (report_tx, _report_rx) = mpsc::sync_channel(8);
-    let mut observer = ReportSink(report_tx);
+    let mut observer = report_sink(report_tx);
     assert!(matches!(
         owner.run(&mut controller, &mut observer, || 0),
         Err(OwnerError::Stop(Error::Io))
@@ -667,7 +667,7 @@ fn completion_selected_at_deadline_survives_timeout_observer_rejection() {
         let now = now.clone();
         let clock_calls = clock_calls.clone();
         move || {
-            let mut first_observer = RejectTimeoutSink(report_tx.clone());
+            let mut first_observer = reject_timeout_sink(report_tx.clone());
             start.wait();
             let first_result = owner.run(&mut controller, &mut first_observer, || {
                 if clock_calls.fetch_add(1, Ordering::SeqCst) == 3 {
@@ -688,7 +688,7 @@ fn completion_selected_at_deadline_survives_timeout_observer_rejection() {
             first_result_tx.send(timeout_was_rejected).unwrap();
             resume_rx.recv().unwrap();
 
-            let mut observer = ReportSink(report_tx);
+            let mut observer = report_sink(report_tx);
             let resumed_result = owner.run(&mut controller, &mut observer, || 5);
             (resumed_result, controller)
         }

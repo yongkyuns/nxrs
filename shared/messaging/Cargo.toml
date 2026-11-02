@@ -1,0 +1,11 @@
+[package]
+name = "nxrs-messaging"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "messaging"
+
+[features]
+default = ["channels"]
+channels = []

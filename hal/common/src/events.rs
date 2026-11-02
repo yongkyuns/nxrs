@@ -39,35 +39,6 @@ pub struct RequestId {
     pub operation: OperationId,
 }
 
-/// Rejection transfers the original owned value back to the producer.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Rejected<T, E> {
-    pub value: T,
-    pub error: E,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeliveryError {
-    Full,
-    Closed,
-}
-
-/// Producer-side admission only: never call a receiving service inline.
-/// Providers retain/retry important rejected events with bounded storage, or
-/// expose a sticky terminal failure; they must not silently discard them.
-pub trait EventSink<E> {
-    fn try_emit(&mut self, event: E) -> Result<(), Rejected<E, DeliveryError>>;
-}
-
-impl<E, F> EventSink<E> for F
-where
-    F: FnMut(E) -> Result<(), Rejected<E, DeliveryError>>,
-{
-    fn try_emit(&mut self, event: E) -> Result<(), Rejected<E, DeliveryError>> {
-        self(event)
-    }
-}
-
 /// Inline, bounded payload. Capacity is storage, not the current data length.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundedBytes<const N: usize> {

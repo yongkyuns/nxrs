@@ -11,7 +11,7 @@ priority = 100
 stack-size = 65536
 
 [dependencies]
-nxrs-service-event = { path = "../../../service/event" }
+nxrs-messaging = { path = "../../../shared/messaging" }
 
 [[bin]]
 name = "rt-bench"

@@ -27,8 +27,8 @@ polling every millisecond. Ordinary execution timekeeping continues to use
 ## Dependency boundaries
 
 The camera API owns `camera::DeviceError`; storage and transport own separate
-error types. Camera does not depend on `hal/common`, which holds the shared radio
-delivery protocol. The video provider owns its `File` and DMA buffers in Rust.
+error types. Camera does not depend on `hal/common`, which holds radio
+request identities and bounded payload storage. The video provider owns its `File` and DMA buffers in Rust.
 Its private `close.c` binding reports close errors that `File` destruction cannot
 return; Rust consumes the descriptor before calling it. The legacy read-device
 adapter and its descriptor owner live only in `tests/nuttx/support`.

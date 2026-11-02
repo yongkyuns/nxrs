@@ -30,16 +30,16 @@ impl Mode {
 mod device {
     use super::Mode;
     use ble::{
-        Command, Completion, DeliveryError, Error, Event, EventKind, EventSink, ProviderStatus,
-        Rejected, Update,
+        Command, Completion, DeliveryError, Error, Event, EventKind, ProviderStatus, Rejected,
+        Update,
     };
     use std::sync::mpsc::{self, SyncSender, TrySendError};
     use std::time::{Duration, Instant};
-
-    struct Sink(SyncSender<Event>);
-    impl EventSink<Event> for Sink {
-        fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
-            self.0.try_send(event).map_err(|error| match error {
+    fn sink(
+        sender: SyncSender<Event>,
+    ) -> impl FnMut(Event) -> Result<(), Rejected<Event, DeliveryError>> {
+        move |event| {
+            sender.try_send(event).map_err(|error| match error {
                 TrySendError::Full(value) => Rejected {
                     value,
                     error: DeliveryError::Full,
@@ -54,7 +54,7 @@ mod device {
 
     pub(super) fn run(mode: Mode) -> Result<(u32, bool), Error> {
         let (sender, receiver) = mpsc::sync_channel(8);
-        let mut controller = ble::open(Sink(sender))?;
+        let mut controller = ble::open(sink(sender))?;
         let epoch = Instant::now();
         let now = || epoch.elapsed().as_millis() as u64;
         let mut scanning_until = None;

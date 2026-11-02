@@ -220,7 +220,7 @@ other backends separately from the minimal firmware build.
 ## 4. Event loops, messages, and resource bounds
 
 Keep service state and event handling in ordinary structs and methods. Active
-services use the shared `service/event` transport: a private service-specific
+services use the shared `shared/messaging` transport: a private service-specific
 event enum, cloneable senders, one unique bounded inbox, and one canonical wait
 operation backed by `std::sync::mpsc::sync_channel`.
 The intended threaded loop is conceptually:

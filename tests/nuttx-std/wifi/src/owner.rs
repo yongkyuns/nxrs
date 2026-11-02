@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use crossbeam_channel::{bounded, never, Receiver, Sender, TrySendError};
 use wifi::{
-    Command, Controller, ControllerError, DeliveryError, Error, Event, EventKind, EventSink,
-    LinkState, ProviderStatus, Rejected, RequestId, Update,
+    Command, Controller, ControllerError, DeliveryError, Error, Event, EventKind, LinkState,
+    ProviderStatus, Rejected, RequestId, Update,
 };
 
 const IMPORTANT_BURST: usize = 8;
@@ -116,8 +116,8 @@ pub struct WifiEventSink {
     ordinary: Sender<Event>,
 }
 
-impl EventSink<Event> for WifiEventSink {
-    fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
+impl WifiEventSink {
+    pub fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
         match event.kind {
             EventKind::ScanResult { .. } | EventKind::Completed { .. } => {
                 send_event(&self.ordinary, event)
@@ -206,7 +206,7 @@ impl OwnerLoop {
     ) -> Result<(), OwnerError>
     where
         D: wifi::Wifi,
-        O: EventSink<OwnerReport>,
+        O: FnMut(OwnerReport) -> Result<(), Rejected<OwnerReport, DeliveryError>>,
         C: FnMut() -> u64,
     {
         let mut stop_requested = false;
@@ -321,7 +321,10 @@ impl OwnerLoop {
     }
 }
 
-fn publish_update<D: wifi::Wifi, O: EventSink<OwnerReport>>(
+fn publish_update<
+    D: wifi::Wifi,
+    O: FnMut(OwnerReport) -> Result<(), Rejected<OwnerReport, DeliveryError>>,
+>(
     observer: &mut O,
     controller: &Controller<D>,
     update: Update,
@@ -341,11 +344,11 @@ fn publish_update<D: wifi::Wifi, O: EventSink<OwnerReport>>(
     Ok(())
 }
 
-fn publish<O: EventSink<OwnerReport>>(
+fn publish<O: FnMut(OwnerReport) -> Result<(), Rejected<OwnerReport, DeliveryError>>>(
     observer: &mut O,
     report: OwnerReport,
 ) -> Result<(), OwnerError> {
-    observer.try_emit(report).map_err(OwnerError::Observer)
+    observer(report).map_err(OwnerError::Observer)
 }
 
 fn select_ready(

@@ -25,9 +25,14 @@ fn main() {
         }
         Ok(())
     };
-    if !ble_client_fixture::run_with(mode, &mut observer, ble::open, |wake, recovery_ms| {
-        ble::gatt::open::<{ ble_client_fixture::CAPACITY }>(move || wake.notify(), recovery_ms)
-    }) {
+    if !ble_client_fixture::run_with(
+        mode,
+        &mut observer,
+        |mut sink: ble_client_fixture::ScanSink| ble::open(move |event| sink.try_emit(event)),
+        |wake, recovery_ms| {
+            ble::gatt::open::<{ ble_client_fixture::CAPACITY }>(move || wake.notify(), recovery_ms)
+        },
+    ) {
         std::process::exit(1);
     }
 }

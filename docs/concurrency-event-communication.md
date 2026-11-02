@@ -93,10 +93,12 @@ receiving service's handler, starts a forwarding thread, or adds an intermediate
 HAL-output queue. Rejected events remain owned by the caller. Admission means
 queued, not processed, acknowledged or durably stored. [Channel operations][cb]
 
-Contract types may remain `no_std`; std-backed delivery support belongs in a
-neutral support crate or provider/facade adapter, not a dependency from HAL up
-into a service implementation. Multi-instance identity uses local variants or
-bounded tags when needed. Explicit fan-out needs a partial-admission policy; a
+`shared/messaging` owns generic delivery results and the bounded `Sender<T>` /
+`Inbox<T>` wrapper. It has no HAL/service dependencies. Its default `channels`
+capability supplies std channels; HAL contracts disable that capability for
+core-only builds. Producers accept ordinary `FnMut(T) -> DeliveryResult<T>`
+callbacks; no sink trait or forwarding worker is needed. Multi-instance identity
+uses local variants or bounded tags when needed. Explicit fan-out needs a partial-admission policy; a
 sender clone is not a broadcast subscription.
 
 ## Dedicated capacity, one logical wait point

@@ -7,6 +7,7 @@ on:
       - 'hal/support/**'
       - 'app/**'
       - 'service/**'
+      - 'shared/messaging/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
       - 'tools/platform_config.py'

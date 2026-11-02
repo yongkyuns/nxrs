@@ -1,6 +1,6 @@
 # Architecture and source ownership
 
-The source hierarchy is app, service, hal, driver, and platform.
+The source hierarchy is app, service, hal, driver, platform, and layer-neutral shared libraries.
 
 The normative HAL/resource ownership rules are in
 [hal-platform-architecture.md](hal-platform-architecture.md). Physical NuttX
@@ -170,12 +170,12 @@ many producers
                 +----> same wait point
 ~~~
 
-`service/event` is the small shared implementation of this rule. It is only a
+`shared/messaging` is the small shared implementation of this rule. It is only a
 thin ownership wrapper around `std::sync::mpsc::sync_channel`:
 
-- `EventSender<E>` is cloneable so any number of producers can fan into one
+- `Sender<E>` is cloneable so any number of producers can fan into one
   entity;
-- `EventInbox<E>` is intentionally not cloneable, so one execution owner
+- `Inbox<E>` is intentionally not cloneable, so one execution owner
   serializes state changes;
 - every inbox has an explicit finite capacity;
 - `wait(Option<Duration>)` is the canonical owner wait operation and maps

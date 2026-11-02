@@ -7,6 +7,6 @@ edition.workspace = true
 name = "navigation"
 
 [dependencies]
-nxrs-service-event = { path = "../event" }
+nxrs-messaging = { path = "../../shared/messaging" }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-gnss = { path = "../../hal/gnss" }

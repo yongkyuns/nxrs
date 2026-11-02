@@ -3,7 +3,8 @@
 
 use core::fmt;
 use hal_common::BoundedBytes;
-pub use hal_common::{DeliveryError, EventSink, OperationId, Rejected, RequestId, SessionId};
+pub use hal_common::{OperationId, RequestId, SessionId};
+pub use messaging::{DeliveryError, Rejected};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

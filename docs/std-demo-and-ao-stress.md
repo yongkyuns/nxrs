@@ -3,7 +3,7 @@
 Two independent ordinary `main()` binaries. Each is a complete selected firmware
 app, not a plugin in another app, a platform launcher, or a new actor framework.
 Neither app depends on a HAL provider. `ao-stress` uses the existing
-`nxrs-service-event` bounded inbox unchanged. No new third-party dependencies.
+`nxrs-messaging` bounded inbox unchanged. No new third-party dependencies.
 
 ## Run on a host
 

@@ -1,6 +1,6 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
 use crate::acquisition::Worker;
-use crate::{DeviceError, Event, EventSink, Gnss};
+use crate::{DeviceError, Event, Gnss};
 #[path = "../../../../../driver/nuttx/readiness.rs"]
 mod readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -143,7 +143,7 @@ impl Gnss for Session {
         self.0.dropped()
     }
 }
-pub fn open<S: EventSink<Event> + Send + 'static>(
+pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Gnss + Send + 'static, DeviceError> {
     let mut device = acquire()?;

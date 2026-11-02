@@ -10,7 +10,7 @@ pub mod nuttx;
 #[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 pub(crate) fn open<S>(sink: S) -> Result<crate::worker::Worker, crate::Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     #[cfg(target_os = "linux")]
     type State = linux::State;

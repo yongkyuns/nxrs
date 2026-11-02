@@ -8,7 +8,7 @@ mod selected;
 use mock as selected;
 #[cfg(not(any(hal_enabled, hal_mock)))]
 mod selected {
-    use crate::{DeviceError, Event, EventSink, Gnss};
+    use crate::{DeviceError, Event, Gnss};
     struct Unconfigured;
     impl Gnss for Unconfigured {
         fn request_stop(&mut self) -> Result<(), DeviceError> {
@@ -24,7 +24,7 @@ mod selected {
             0
         }
     }
-    pub fn open<S: EventSink<Event> + Send + 'static>(
+    pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
         _: S,
     ) -> Result<impl Gnss + Send + 'static, DeviceError> {
         Err::<Unconfigured, _>(DeviceError::Unsupported)

@@ -95,7 +95,11 @@ pub(crate) struct Worker {
 
 impl Worker {
     #[cfg(test)]
-    pub(crate) fn start<N: Driver, S: EventSink<Event> + Send + 'static, G: Send + 'static>(
+    pub(crate) fn start<
+        N: Driver,
+        S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
+        G: Send + 'static,
+    >(
         native: N,
         sink: S,
         guard: G,
@@ -105,7 +109,7 @@ impl Worker {
 
     pub(crate) fn start_with_stack<
         N: Driver,
-        S: EventSink<Event> + Send + 'static,
+        S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
         G: Send + 'static,
     >(
         native: N,
@@ -276,16 +280,20 @@ pub(crate) trait Driver: Send + 'static {
     fn close(&mut self) -> Result<(), Error>;
 }
 
-fn emit<S: EventSink<Event>>(sink: &mut S, mut event: Event, state: &Shared) -> bool {
+fn emit<S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
+    sink: &mut S,
+    mut event: Event,
+    state: &Shared,
+) -> bool {
     loop {
         if state.stopping() {
             return false;
         }
-        match sink.try_emit(event) {
+        match sink(event) {
             Ok(()) => return true,
             Err(rejected) if rejected.error == DeliveryError::Full => {
                 event = rejected.value;
-                // EventSink has no capacity-notification API. Retain one item
+                // The callback has no capacity-notification API. Retain one item
                 // and retry here; this timer never enters the service loop.
                 thread::park_timeout(DELIVERY_RETRY);
             }
@@ -294,7 +302,7 @@ fn emit<S: EventSink<Event>>(sink: &mut S, mut event: Event, state: &Shared) -> 
     }
 }
 
-fn worker<N: Driver, S: EventSink<Event>>(
+fn worker<N: Driver, S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
     mut native: N,
     mut sink: S,
     session: SessionId,
@@ -471,7 +479,7 @@ fn worker<N: Driver, S: EventSink<Event>>(
             Ok(()) => break,
             Err(error) => {
                 state.set_status(ProviderStatus::Failed(error));
-                let _ = sink.try_emit(event(EventKind::Status(ProviderStatus::Failed(error))));
+                let _ = sink(event(EventKind::Status(ProviderStatus::Failed(error))));
                 while !state.abandoned.load(Ordering::Acquire)
                     && state.stop_generation.load(Ordering::Acquire) == generation
                 {
@@ -495,11 +503,11 @@ fn worker<N: Driver, S: EventSink<Event>>(
     state.set_status(ProviderStatus::Stopped);
     // Terminal snapshot + one wakeup. A full queue already has a wakeup; the
     // owner reconciles sticky state between dispatches, so no retry is needed.
-    let _ = sink.try_emit(event(EventKind::Status(ProviderStatus::Stopped)));
+    let _ = sink(event(EventKind::Status(ProviderStatus::Stopped)));
     drop(pending);
 }
 
-fn scan<N: Driver, S: EventSink<Event>>(
+fn scan<N: Driver, S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
     native: &mut N,
     sink: &mut S,
     session: SessionId,

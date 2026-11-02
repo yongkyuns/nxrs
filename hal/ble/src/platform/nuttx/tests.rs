@@ -18,11 +18,11 @@ fn serialized() -> MutexGuard<'static, ()> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
-
-struct Sink(SyncSender<Event>);
-impl EventSink<Event> for Sink {
-    fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
-        self.0.try_send(event).map_err(|error| match error {
+fn sink(
+    sender: SyncSender<Event>,
+) -> impl FnMut(Event) -> Result<(), Rejected<Event, DeliveryError>> {
+    move |event| {
+        sender.try_send(event).map_err(|error| match error {
             TrySendError::Full(value) => Rejected {
                 value,
                 error: DeliveryError::Full,
@@ -128,7 +128,7 @@ fn fixture(capacity: usize) -> (Worker, Receiver<Event>, Arc<Mutex<FakeState>>) 
     let (tx, rx) = mpsc::sync_channel(capacity);
     let device = Worker::start(
         Fake(Arc::clone(&state)),
-        Sink(tx),
+        sink(tx),
         Lease::acquire().unwrap(),
     )
     .unwrap();
@@ -197,7 +197,7 @@ fn failed_peer_registry_binding_does_not_publish_ready() {
         ..Default::default()
     }));
     let (tx, rx) = mpsc::sync_channel(8);
-    let mut device = Worker::start(Fake(state), Sink(tx), Lease::acquire().unwrap()).unwrap();
+    let mut device = Worker::start(Fake(state), sink(tx), Lease::acquire().unwrap()).unwrap();
     assert_eq!(
         rx.recv_timeout(WAIT).unwrap().kind,
         EventKind::Status(ProviderStatus::Failed(Error::Io))
@@ -535,7 +535,7 @@ fn stop_before_native_readiness_does_not_publish_ready_or_lose_stop() {
     }));
     let (tx, rx) = mpsc::sync_channel(1);
     let mut device =
-        Worker::start(Fake(state.clone()), Sink(tx), Lease::acquire().unwrap()).unwrap();
+        Worker::start(Fake(state.clone()), sink(tx), Lease::acquire().unwrap()).unwrap();
     entered_rx.recv_timeout(WAIT).unwrap();
     device.request_stop().unwrap();
     assert_eq!(device.finish(), Err(Error::Busy));

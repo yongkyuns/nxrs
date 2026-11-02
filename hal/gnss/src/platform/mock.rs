@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::mock_acquisition::Session;
-use crate::{DeviceError, Event, EventSink, Gnss, GnssFix};
+use crate::{DeviceError, Event, Gnss, GnssFix};
 
 #[derive(Default)]
 struct SyntheticGnss {
@@ -41,7 +41,7 @@ impl Gnss for Session {
         Session::dropped(self)
     }
 }
-pub fn open<S: EventSink<Event> + Send + 'static>(
+pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Gnss + Send + 'static, DeviceError> {
     let mut model = SyntheticGnss::default();

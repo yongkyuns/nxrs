@@ -59,7 +59,7 @@ pub(crate) fn open<B: Station, S>(
     storage: CredentialStorage,
 ) -> Result<crate::worker::Worker, Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     crate::worker::Worker::start_with_stack(
         Native::<B> {

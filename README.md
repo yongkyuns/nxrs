@@ -58,7 +58,8 @@ thread boundary.
 | `app/nxrs` | Normal binary, portable workflow modules and existing composition |
 | `service` | Reusable camera, recording and telemetry service modules |
 | `hal/<capability>` | One crate per capability; contracts in `src/api.rs`, private implementations in `src/platform/`, and minimal ABI glue beside each provider in its `ffi/` directory |
-| `hal/common` | Shared BLE/Wi-Fi delivery contracts; device errors belong to each HAL |
+| `hal/common` | Shared BLE/Wi-Fi request identities and bounded payload storage |
+| `shared/messaging` | Layer-neutral generic channels and owned delivery results |
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
 | `platform/firmware`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
 | [`upstream`](upstream/README.md) | Dependency patchsets, revision pins and upstreaming proposals; no vendored source trees |
@@ -92,7 +93,7 @@ the native desktop bindings. `ImuService::start()` and `GnssService::start()`
 acquire those capabilities internally and move the resources into owner
 threads. Selecting future physical providers does not change app/service source.
 
-IMU, GNSS, and fusion use the shared std-backed `nxrs-service-event`
+IMU, GNSS, and fusion use the shared std-backed `nxrs-messaging`
 transport: one bounded inbox and one wait point per active owner, cloned typed
 producers for fan-in, run-to-completion handlers, explicit overload behavior,
 and joined shutdown. `HealthService` remains synchronous. HAL contracts/facades remain `no_std`; active

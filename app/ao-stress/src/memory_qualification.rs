@@ -1,6 +1,6 @@
 //! Test-only probes: live event-buffer reuse and the real stress app lifecycle.
 use super::stress::{self, Config, Scenario};
-use event::{bounded, EventInbox, EventSender};
+use messaging::{bounded, Inbox, Sender};
 use nxrs_allocation_probe::{begin_measurement, Tracking};
 use std::alloc::System;
 use std::hint::black_box;
@@ -17,11 +17,7 @@ struct Buffer {
     bytes: Vec<u8>,
 }
 
-fn exchange(
-    sender: &EventSender<Buffer>,
-    inbox: &EventInbox<Buffer>,
-    mut buffer: Buffer,
-) -> Buffer {
+fn exchange(sender: &Sender<Buffer>, inbox: &Inbox<Buffer>, mut buffer: Buffer) -> Buffer {
     buffer.sequence += 1;
     buffer.bytes[0] = buffer.sequence as u8;
     sender.try_send(buffer).unwrap();

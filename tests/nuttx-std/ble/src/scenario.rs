@@ -121,9 +121,12 @@ pub enum Progress {
 /// qualification but never prevents callback retirement or worker cleanup.
 #[cfg(target_os = "nuttx")]
 pub fn run(mode: Mode, mut observer: impl FnMut(Progress) -> Result<(), &'static str>) -> bool {
-    device::run_with(mode, &mut observer, ble::open, |wake, recovery_ms| {
-        ble::gatt::open::<CAPACITY>(move || wake.notify(), recovery_ms)
-    })
+    device::run_with(
+        mode,
+        &mut observer,
+        |mut sink: ScanSink| ble::open(move |event| sink.try_emit(event)),
+        |wake, recovery_ms| ble::gatt::open::<CAPACITY>(move || wake.notify(), recovery_ms),
+    )
 }
 
 pub use device::{run_with, ScanSink, WakeContext};
@@ -170,7 +173,7 @@ mod device {
             Attribute, Client, Command as GattCommand, Completion as GattCompletion, Driver,
             Failure, Peer, State as GattState, Update as GattUpdate,
         },
-        Ble, Command, Completion, Controller, DeliveryError, Error, Event, EventKind, EventSink,
+        Ble, Command, Completion, Controller, DeliveryError, Error, Event, EventKind,
         ProviderStatus, Rejected, Update,
     };
     use std::{
@@ -217,8 +220,8 @@ mod device {
         overflowed: Arc<AtomicBool>,
     }
 
-    impl EventSink<Event> for ScanSink {
-        fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
+    impl ScanSink {
+        pub fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
             self.sender.try_send(event).map_err(|error| match error {
                 TrySendError::Full(value) => {
                     self.overflowed.store(true, Ordering::Release);

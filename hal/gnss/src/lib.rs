@@ -5,7 +5,7 @@
 extern crate std;
 mod api;
 pub use api::{DeviceError, Event, Gnss, GnssFix};
-pub use hal_common::{DeliveryError, EventSink, Rejected};
+pub use messaging::{DeliveryError, Rejected};
 #[cfg(any(test, hal_enabled, hal_mock))]
 #[path = "../../../driver/acquisition.rs"]
 mod acquisition;

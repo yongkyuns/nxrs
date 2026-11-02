@@ -6,7 +6,7 @@ on:
     paths:
       - 'app/std-demo/**'
       - 'app/ao-stress/**'
-      - 'service/event/**'
+      - 'shared/messaging/**'
       - 'tests/allocation-probe/**'
       - 'tests/host/test_memory_probes.py'
       - 'Cargo.toml'
@@ -17,7 +17,7 @@ on:
     paths:
       - 'app/std-demo/**'
       - 'app/ao-stress/**'
-      - 'service/event/**'
+      - 'shared/messaging/**'
       - 'tests/allocation-probe/**'
       - 'tests/host/test_memory_probes.py'
       - 'Cargo.toml'

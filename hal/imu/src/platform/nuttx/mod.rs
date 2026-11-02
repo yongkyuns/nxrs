@@ -1,6 +1,6 @@
 //! NuttX I2C resource binding. BMI270 protocol and units remain in Rust.
 use crate::acquisition::Worker;
-use crate::{DeviceError, Event, EventSink, Imu};
+use crate::{DeviceError, Event, Imu};
 #[path = "../../../../../driver/nuttx/readiness.rs"]
 mod readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -154,7 +154,7 @@ impl Imu for Session {
         self.0.dropped()
     }
 }
-pub fn open<S: EventSink<Event> + Send + 'static>(
+pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Imu + Send + 'static, DeviceError> {
     let mut device = acquire()?;

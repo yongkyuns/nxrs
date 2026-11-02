@@ -7,8 +7,8 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{ImuInput, Submit};
-use event::{bounded, EventInbox, EventSender};
 use imu::{DeliveryError, DeviceError, Imu, ImuSample, Rejected};
+use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
 
@@ -59,7 +59,7 @@ enum Event {
     Shutdown,
 }
 pub struct ImuHandle {
-    control: EventSender<Event>,
+    control: Sender<Event>,
     join: Option<JoinHandle<io::Result<ImuStats>>>,
     stopping: Arc<AtomicBool>,
 }
@@ -160,7 +160,7 @@ impl Drop for ImuHandle {
 fn run<D: Imu>(
     mut service: ImuService,
     mut device: D,
-    inbox: EventInbox<Event>,
+    inbox: Inbox<Event>,
     stopping: &AtomicBool,
 ) -> io::Result<ImuStats> {
     let mut stats = ImuStats::default();

@@ -17,18 +17,19 @@ import sys
 import tomllib
 
 ALLOWED = {
-    'app': {'service', 'api', 'hal'},
-    'service': {'service', 'api', 'hal'},
-    'hal': {'api', 'hal', 'driver', 'support'},
+    'app': {'service', 'api', 'hal', 'shared'},
+    'service': {'service', 'api', 'hal', 'shared'},
+    'hal': {'api', 'hal', 'driver', 'support', 'shared'},
     'api': {'api'},
     'backend': {'api', 'driver', 'support'},
     'support': {'api'},
     'mock': {'api'},
-    'driver': {'api', 'driver'},
-    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform'},
-    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test'},
+    'driver': {'api', 'driver', 'shared'},
+    'shared': {'shared'},
+    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
+    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test', 'shared'},
 }
-PORTABLE = {'app', 'service', 'hal', 'api'}
+PORTABLE = {'app', 'service', 'hal', 'api', 'shared'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
@@ -62,7 +63,7 @@ def layer(path: Path) -> str:
         if len(parts) == 2 and parts[1] not in {'common', 'support', 'platform'}:
             return 'hal'
         raise ValueError(f'HAL must be one capability crate, not a nested contract/provider package: {path}')
-    names = {'app': 'app', 'service': 'service', 'driver': 'driver',
+    names = {'app': 'app', 'service': 'service', 'driver': 'driver', 'shared': 'shared',
              'platform': 'platform', 'tests': 'test'}
     if parts[0] not in names:
         raise ValueError(f'unclassified package location: {path}')
@@ -107,9 +108,9 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             if target is not None:
                 source, destination = paths[identity].parts, paths[target].parts
                 if source == ('hal', 'common'):
-                    errors.append(f'{context}: shared event delivery contracts must remain dependency-free')
-                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble', 'gnss', 'imu'}:
-                    errors.append(f'{context}: device errors belong to the capability; common is explicit event delivery only')
+                    errors.append(f'{context}: shared radio identities must remain dependency-free')
+                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
+                    errors.append(f'{context}: common contains radio identities and bounded payloads only')
                 if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
@@ -168,7 +169,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             role = layer(directory.relative_to(root))
         except ValueError:
             continue
-        if role in {'app', 'service'}:
+        if role in {'app', 'service', 'shared'}:
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             manifest_text = (directory / 'Cargo.toml').read_text()
             if data.get('target') or re.search(r'["\'](?:nuttx|linux|macos|windows)["\']', manifest_text):
@@ -202,7 +203,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             continue
         text = source.read_text(encoding='utf-8') if source.is_file() else ''
         markers = ['#![deny(unsafe_code)]' if role == 'hal' else '#![forbid(unsafe_code)]']
-        if role in {'api', 'hal'}:
+        if role in {'api', 'hal', 'shared'}:
             markers.insert(0, '#![no_std]')
         for marker in markers:
             if marker not in text:

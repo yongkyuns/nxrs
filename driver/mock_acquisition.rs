@@ -1,6 +1,6 @@
 //! Explicit mock-only timer source. Production providers wait on device signals.
 use crate::acquisition::{Wake, Worker};
-use crate::{DeviceError, Event, EventSink};
+use crate::{DeviceError, Event};
 use std::{
     io,
     sync::{atomic::Ordering, Arc, Condvar, Mutex},
@@ -21,7 +21,7 @@ impl Wake for Cancel {
 }
 pub(crate) struct Session(Worker<Cancel, DeviceError>);
 impl Session {
-    pub(crate) fn start<S: EventSink<Event> + Send + 'static>(
+    pub(crate) fn start<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
         sink: S,
         period: Duration,
         mut next: impl FnMut(u64) -> Event + Send + 'static,
