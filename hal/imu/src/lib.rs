@@ -19,6 +19,6 @@ mod mock_acquisition;
 mod platform;
 pub use platform::*;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "platform/nuttx/irq_tests.rs"]
 mod irq_tests;
