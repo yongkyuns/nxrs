@@ -155,7 +155,7 @@ jobs:
           status=$?
           set -e
           test "$status" -ne 0
-          grep -q 'IMU HAL acquisition failed: Unsupported' \
+          grep -q 'Imu HAL: Unsupported' \
             target/event-demo/dual-unconfigured.log
 
       - name: Lint demo layers

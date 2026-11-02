@@ -1,5 +1,9 @@
 use std::io;
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError, TrySendError};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -104,7 +108,8 @@ pub struct FusionStats {
 pub struct FusionHandle {
     control: EventSender<Event>,
     output: EventInbox<NavState>,
-    join: JoinHandle<FusionStats>,
+    join: Option<JoinHandle<FusionStats>>,
+    stopping: Arc<AtomicBool>,
 }
 
 impl FusionService {
@@ -154,13 +159,16 @@ impl FusionService {
             .take()
             .expect("fusion output receiver already taken");
         let control = self.control.clone();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = stopping.clone();
         let join = thread::Builder::new()
             .name("fusion-service".into())
-            .spawn(move || run(self))?;
+            .spawn(move || run(self, &stop))?;
         Ok(FusionHandle {
             control,
             output,
-            join,
+            join: Some(join),
+            stopping,
         })
     }
 }
@@ -174,15 +182,26 @@ impl FusionHandle {
         self.output.try_recv()
     }
 
-    pub fn stop(self) -> io::Result<FusionStats> {
-        let _ = self.control.send(Event::Shutdown);
+    pub fn stop(mut self) -> io::Result<FusionStats> {
+        self.request_stop();
         self.join
+            .take()
+            .expect("owned join")
             .join()
             .map_err(|_| io::Error::other("fusion service panicked"))
     }
+    fn request_stop(&self) {
+        self.stopping.store(true, Ordering::Release);
+        let _ = self.control.try_send(Event::Shutdown);
+    }
+}
+impl Drop for FusionHandle {
+    fn drop(&mut self) {
+        self.request_stop();
+    }
 }
 
-fn run(service: FusionService) -> FusionStats {
+fn run(service: FusionService, stopping: &AtomicBool) -> FusionStats {
     let mut core = FusionCore::default();
     let mut stats = FusionStats::default();
     let mut imu_since_output = 0u8;
@@ -190,7 +209,10 @@ fn run(service: FusionService) -> FusionStats {
     // The owner has one wait point. IMU, GNSS and lifecycle producers all fan
     // into this one bounded inbox. Each event is handled to completion before
     // the next receive.
-    while let Ok(event) = service.inbox.wait(None) {
+    while !stopping.load(Ordering::Acquire) {
+        let Ok(event) = service.inbox.wait(None) else {
+            break;
+        };
         let state = match event {
             Event::Imu(sample) => {
                 stats.inputs = stats.inputs.saturating_add(1);
@@ -316,5 +338,28 @@ mod fifo_timing_tests {
         });
         assert!((state.heading_rad - 0.01).abs() < 1e-6);
         assert_eq!(state.imu_discontinuities, 1);
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[test]
+    fn dropped_fusion_handle_retires_its_inbox_after_partial_app_startup() {
+        let (fusion, inputs) = FusionService::new();
+        let handle = fusion.start().unwrap();
+        drop(handle);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let sample = ImuSample {
+            sequence: 1,
+            timestamp_ms: 0,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0; 3],
+        };
+        while !matches!(inputs.imu.submit(sample), Submit::Disconnected) {
+            assert!(std::time::Instant::now() < deadline, "fusion task leaked");
+            std::thread::yield_now();
+        }
     }
 }
