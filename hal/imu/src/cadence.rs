@@ -35,11 +35,11 @@ mod tests {
     fn early_wakes_keep_the_deadline_and_late_wakes_do_not_accumulate_ticks() {
         let start = Instant::now();
         let period = crate::bmi270::FIFO_WAKE_PERIOD;
-        assert_eq!(period, Duration::from_millis(40));
+        assert_eq!(period, Duration::from_millis(10));
         let mut clock = Cadence::new(start, period);
-        assert!(!clock.take_due(start + Duration::from_millis(39)));
+        assert!(!clock.take_due(start + Duration::from_millis(9)));
         assert_eq!(
-            clock.remaining(start + Duration::from_millis(39)),
+            clock.remaining(start + Duration::from_millis(9)),
             Duration::from_millis(1)
         );
         assert!(clock.take_due(start + period));

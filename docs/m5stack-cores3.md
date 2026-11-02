@@ -48,7 +48,9 @@ References: [CoreS3](https://docs.m5stack.com/en/core/CoreS3),
 
 GNSS waits on UART readiness and emits normalized UBX fixes from its HAL worker.
 BMI270 IRQ and timer wakes use the same FIFO drain and typed-event path. At the
-current verified 100 Hz ODR and four-frame batch, timer wakes occur every 40 ms.
+configured 100 Hz ODR and one-frame watermark, timer wakes are requested every
+10 ms so fusion can predict per sample. The profile uses a 1 ms OS tick to limit
+timeout quantization; scheduling and the sensor clock can still delay delivery.
 The timer does not assert data readiness or invent samples; FIFO contents and
 full/error status remain authoritative. Missed wake deadlines coalesce, and
 cancellation wakes the wait immediately.

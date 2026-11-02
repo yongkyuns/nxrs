@@ -219,6 +219,8 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def test_cores3_sensor_resources_and_invalid_bindings(self):
         data = PLATFORM_CONFIG.resolve("m5stack-cores3-gnss")
+        self.assertIn("USEC_PER_TICK=1000", data["kconfig"]["set"])
+        self.assertIn("CONFIG_USEC_PER_TICK=1000", data["kconfig"]["require"])
         self.assertEqual(PLATFORM_CONFIG.gnss_config(data),
                          {"device": "/dev/ttyS1", "baud": 38400, "stack-bytes": 16384})
         self.assertEqual(PLATFORM_CONFIG.imu_config(data),

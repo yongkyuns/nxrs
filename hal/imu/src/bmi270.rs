@@ -7,11 +7,11 @@ const BURST: u16 = 32;
 const ODR: Odr = Odr::Odr100;
 // BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
 const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (ODR as u8);
-const BATCH_FRAMES: u16 = 4;
 const FRAME_BYTES: u16 = 12;
-const WATERMARK_BYTES: u16 = FRAME_BYTES * BATCH_FRAMES;
+// Wake for each sample so fusion need not wait for a multi-frame batch.
+const WATERMARK_BYTES: u16 = FRAME_BYTES;
 pub(crate) const FIFO_WAKE_PERIOD: core::time::Duration =
-    core::time::Duration::from_micros(SAMPLE_INTERVAL_US as u64 * BATCH_FRAMES as u64);
+    core::time::Duration::from_micros(SAMPLE_INTERVAL_US as u64);
 pub(crate) struct Sensor<B: I2c, D: DelayNs> {
     bus: B,
     address: I2cAddr,
@@ -363,6 +363,9 @@ mod tests {
             ));
         }
         let mut sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr100 as u8);
+        assert_eq!(sensor.bus.registers[0x42] & 0x0f, Odr::Odr100 as u8);
+        assert_eq!(&sensor.bus.registers[0x46..0x48], &[12, 0]);
         assert_eq!(sensor.bus.registers[0x49], 0xc0);
         assert_eq!(sensor.bus.registers[0x58], 0x0b); // WM/full/error; no DRDY polling.
         sensor.stop().unwrap();
@@ -379,6 +382,30 @@ mod tests {
         ));
         let sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
         assert_eq!(sensor.bus.startup_reads, 4);
+    }
+    #[test]
+    fn each_available_frame_is_delivered_without_waiting_for_a_batch() {
+        let mut sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        for sequence in 1..=3 {
+            sensor.bus.fifo.extend_from_slice(&[0; 12]);
+            let mut samples = Vec::new();
+            assert_eq!(
+                sensor.drain(sequence * 10, |sample| {
+                    samples.push(sample);
+                    true
+                }),
+                Ok(Some(1))
+            );
+            assert_eq!(samples.len(), 1);
+            assert_eq!(
+                (samples[0].sequence, samples[0].sample_interval_us),
+                (sequence, 10_000)
+            );
+            assert_eq!(
+                sensor.drain(sequence * 10, |_| panic!("duplicate sample")),
+                Ok(Some(0))
+            );
+        }
     }
     #[test]
     fn fifo_bursts_preserve_all_samples_order_units_and_nominal_interval() {

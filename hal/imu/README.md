@@ -7,7 +7,7 @@ cancellation without a hidden join; the worker retains resources through cleanup
 
 The portable BMI270 adapter uses the pinned `bmi2` driver over `embedded-hal` I2C.
 It waits for both sensors to finish startup, then enables acquisition with equal 100 Hz ODR,
-a four-frame FIFO watermark, headerless combined
+a one-frame FIFO watermark, headerless combined
 gyro/accel frames and INT1 watermark/full/error notifications. FIFO format is
 verified before admission. The incomplete upstream FIFO reader is not used;
 Nxrs drains bounded, frame-aligned reads through the same I2C trait. Full FIFO or
@@ -21,9 +21,12 @@ rejections are counted by `dropped()`; terminal errors remain observable through
 The NuttX provider owns the I2C File and an optional platform-registered GPIO descriptor.
 NuttX handles interrupt notification; Rust channels are only used in task context.
 A configured IRQ uses its GPIO descriptor. With no IRQ resource, the provider
-explicitly selects an ODR-derived timer: four frames at 100 Hz give a 40 ms wake
-period. Both sources invoke the same FIFO drain and event sink. Empty FIFO reads
+explicitly selects an ODR-derived timer: 100 Hz gives a 10 ms wake period for
+fusion prediction without intentional batching. Both sources invoke the same
+FIFO drain and event sink. Empty FIFO reads
 emit nothing; missed ticks coalesce. A configured IRQ failure never changes modes.
 The same cancellation pipe wakes either wait without another thread or queue.
+OS scheduling and the unsynchronized sensor clock can delay delivery; late wakes
+drain all available frames without fabricating samples or losing their 10 ms interval.
 M135 v1.0 uses this timer path because its interrupts are unwired; see
 [CoreS3 acquisition](../../docs/m5stack-cores3.md).
