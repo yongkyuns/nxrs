@@ -1,0 +1,20 @@
+From: nxrs contributors
+Subject: [PATCH] sched: honor running-task affinity with an empty ready queue
+
+Affinity exclusion requires migration even when no task is waiting in the
+global ready queue. Keep the next-task guard on priority comparison only;
+the existing migration path already selects an idle task when necessary.
+
+--- a/sched/sched/sched_setpriority.c
++++ b/sched/sched/sched_setpriority.c
+@@ -84,8 +84,8 @@
+    */
+ 
+ #ifdef CONFIG_SMP
+-  if (nxttcb && (sched_priority <= nxttcb->sched_priority ||
+-      (tcb->affinity & (1 << tcb->cpu)) == 0))
++  if ((nxttcb && sched_priority <= nxttcb->sched_priority) ||
++      (tcb->affinity & (1 << tcb->cpu)) == 0)
+ #else
+   if (nxttcb && sched_priority <= nxttcb->sched_priority)
+ #endif
