@@ -28,10 +28,19 @@ deadline; uncertain restoration quarantines acquisition until reboot. Baud,
 protocol enables, navigation rate, BBR and flash settings are preserved. UART1
 must already accept/output UBX (the receiver’s default configuration).
 
-Each poll drains at most 32 × 128 bytes and reports `Busy` when unavailable or
-catching up. No worker thread or heap buffer is added. The explicit mock remains
-available. Host fixtures and native builds qualify software behavior/linking;
-physical receiver firmware, power, UART timing, RF, accuracy and peak task-stack
-usage remain unqualified.
+A HAL-owned worker reads bounded UART chunks after descriptor readiness. Protocol
+buffers remain fixed-size. Host fixtures and native builds qualify software
+behavior/linking; physical receiver firmware, power, UART timing, RF, accuracy
+and peak task-stack usage remain unqualified.
 
 Reference: [M9 SPG4.04 interface description, UBX-21022436 R02](https://content.u-blox.com/sites/default/files/u-blox-M9-SPG-4.04_InterfaceDescription_UBX-21022436.pdf).
+
+## Event-driven session
+
+`open(sink)` starts HAL-owned UART acquisition and delivers each normalized fix
+through a bounded task-context sink. Services do not poll the receiver. The
+worker waits on UART readiness and a cancellation pipe, parses fragmented input,
+and never waits for measurement queue capacity. Full rejections are counted by
+`dropped()`; terminal faults are retained in `join()` and retried with one pending
+event. `request_stop()` wakes the wait; explicitly `join()` before treating the
+resource as released. Drop requests cancellation without a hidden join.

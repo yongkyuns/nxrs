@@ -1,5 +1,8 @@
 //! NuttX I2C resource binding. BMI270 protocol and units remain in Rust.
-use crate::{DeviceError, Imu, ImuSample};
+use crate::acquisition::Worker;
+use crate::{DeviceError, Event, EventSink, Imu};
+#[path = "../../../../../driver/nuttx/readiness.rs"]
+mod readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embedded_hal::{
     delay::DelayNs,
@@ -12,6 +15,7 @@ use std::{
 };
 #[allow(unsafe_code)]
 mod ffi;
+mod irq;
 static OWNED: AtomicU8 = AtomicU8::new(0);
 struct Lease;
 impl Drop for Lease {
@@ -57,21 +61,34 @@ impl I2c for Bus {
 }
 struct Device {
     sensor: crate::bmi270::Sensor<Bus, Delay>,
+    irq: irq::Irq,
+    cleaned: bool,
     _lease: Lease,
 }
-impl Imu for Device {
-    fn sample(&mut self, now_ms: u64) -> Result<ImuSample, DeviceError> {
-        self.sensor.sample(now_ms)
+impl Device {
+    fn cleanup(&mut self) -> Result<(), DeviceError> {
+        if self.cleaned {
+            return Ok(());
+        }
+        self.cleaned = true;
+        let stopped = self.sensor.stop();
+        let detached = self.irq.unregister();
+        if stopped.is_err() || detached.is_err() {
+            OWNED.store(2, Ordering::Release);
+        }
+        stopped.and(detached)
     }
 }
 impl Drop for Device {
     fn drop(&mut self) {
-        if self.sensor.stop().is_err() {
-            OWNED.store(2, Ordering::Release);
-        }
+        let _ = self.cleanup();
     }
 }
-pub fn open() -> Result<impl Imu + Send + 'static, DeviceError> {
+fn acquire() -> Result<Device, DeviceError> {
+    // Missing wiring is unsupported, never a timer-polling fallback.
+    let irq_path = option_env!("IMU_IRQ_DEVICE")
+        .filter(|v| !v.is_empty())
+        .ok_or(DeviceError::Unsupported)?;
     OWNED
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|state| {
@@ -89,11 +106,22 @@ pub fn open() -> Result<impl Imu + Send + 'static, DeviceError> {
     let frequency = option_env!("IMU_FREQUENCY")
         .and_then(|v| v.parse::<u32>().ok())
         .ok_or(DeviceError::Unsupported)?;
+    let irq = OpenOptions::new()
+        .read(true)
+        .open(irq_path)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                DeviceError::Unsupported
+            } else {
+                DeviceError::Io
+            }
+        })?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .map_err(|_| DeviceError::Io)?;
+    let irq = irq::Irq::register(irq)?;
     let sensor =
         crate::bmi270::Sensor::open(Bus { file, frequency }, address).map_err(|error| {
             // An interrupted configuration may have left the sensor active. Do not
@@ -103,6 +131,73 @@ pub fn open() -> Result<impl Imu + Send + 'static, DeviceError> {
         })?;
     Ok(Device {
         sensor,
+        irq,
+        cleaned: false,
         _lease: lease,
     })
+}
+
+struct Session(Worker<readiness::Cancel, DeviceError>);
+impl Imu for Session {
+    fn request_stop(&mut self) -> Result<(), DeviceError> {
+        self.0.request_stop().map_err(|_| DeviceError::Io)
+    }
+    fn join(&mut self) -> Result<(), DeviceError> {
+        self.request_stop()?;
+        self.0.join(DeviceError::Io)
+    }
+    fn is_finished(&self) -> bool {
+        self.0.is_finished()
+    }
+    fn dropped(&self) -> u32 {
+        self.0.dropped()
+    }
+}
+pub fn open<S: EventSink<Event> + Send + 'static>(
+    sink: S,
+) -> Result<impl Imu + Send + 'static, DeviceError> {
+    let mut device = acquire()?;
+    let cancel = readiness::Cancel::new().map_err(|_| DeviceError::Io)?;
+    let wake = cancel.reader.clone();
+    let stack = option_env!("IMU_STACK_BYTES")
+        .and_then(|v| v.parse().ok())
+        .ok_or(DeviceError::Unsupported)?;
+    Worker::start(
+        "imu-acquire",
+        stack,
+        cancel,
+        sink,
+        Event::Failed,
+        move |stop, emit| {
+            let origin = std::time::Instant::now();
+            let result = (|| {
+                // Level check closes the race between sensor enable and initial poll.
+                let mut ready = device.irq.read()?;
+                while !stop.load(Ordering::Acquire) {
+                    if !ready
+                        && !readiness::wait(&device.irq.file, &wake).map_err(|_| DeviceError::Io)?
+                    {
+                        break;
+                    }
+                    // Acknowledge the GPIO notification before draining the sensor.
+                    device.irq.read()?;
+                    let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+                    let Some(count) = device
+                        .sensor
+                        .drain(now, |sample| emit(Event::Sample(sample)))?
+                    else {
+                        break;
+                    };
+                    ready = device.irq.read()?;
+                    if ready && count == 0 {
+                        return Err(DeviceError::Io);
+                    }
+                }
+                Ok(())
+            })();
+            device.cleanup().and(result)
+        },
+    )
+    .map(Session)
+    .map_err(|_| DeviceError::Io)
 }

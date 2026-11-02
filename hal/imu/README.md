@@ -1,17 +1,24 @@
-# IMU capability
+# IMU
 
-`nxrs-imu` owns communication, device configuration and conversion into hardware-
-independent acceleration (m/s²) and angular velocity (rad/s). Services receive
-only `ImuSample`. The explicit mock remains available; unset builds acquire none.
+`open(sink)` creates an owned acquisition session; services receive typed
+`Event::Sample` messages and never read the bus. Call `request_stop()` and `join()`
+to wake acquisition, disable the sensor/IRQ and reclaim its worker. Drop requests
+cancellation without a hidden join; the worker retains resources through cleanup.
 
-The NuttX provider owns an I²C descriptor and uses the pinned no-std `bmi2`
-protocol driver for BMI270. The profile supplies its bus, address and frequency.
-Reads require both data-ready flags and a new sensor counter; no new sample is
-`Busy`. The timestamp is the owner’s monotonic reception time. There are no
-provider worker threads. Drop disables sensing and verifies it before closing;
-failed initialization or shutdown quarantines acquisition.
+The portable BMI270 adapter uses the pinned `bmi2` driver over `embedded-hal` I2C.
+It waits for both sensors to finish startup, then enables acquisition with equal 100 Hz ODR,
+a four-frame FIFO watermark, headerless combined
+gyro/accel frames and INT1 watermark/full/error notifications. FIFO format is
+verified before admission. The incomplete upstream FIFO reader is not used;
+Nxrs drains bounded, frame-aligned reads through the same I2C trait. Full FIFO or
+malformed framing terminates acquisition rather than hiding an unknown gap.
 
-The adapter uses a fixed 32-byte initialization burst, requires the exact
-successful initialization status, and avoids the dependency’s reserved-value
-panic decoders. Host tests cover those guards and SI conversion, not physical
-sensor timing, axes/mounting calibration or I²C electrical behavior.
+Samples carry SI units, sequence, host reception time and nominal sample interval.
+Batch delivery time is not a measured hardware sample timestamp. Queue-full
+rejections are counted by `dropped()`; terminal errors remain observable through
+`join()` and are retried as a bounded single pending fault event.
+
+The NuttX provider owns the I2C File and a platform-registered GPIO descriptor.
+NuttX handles interrupt notification; Rust channels are only used in task context.
+No timer-polling fallback is provided. M135 v1.0 leaves the interrupt unwired;
+see [CoreS3 wiring limitations](../../docs/m5stack-cores3.md).

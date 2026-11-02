@@ -1,5 +1,9 @@
 use std::io;
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError, TrySendError};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -15,6 +19,8 @@ pub struct NavState {
     pub speed_mps: f32,
     pub heading_rad: f32,
     pub imu_sequence: u64,
+    /// Missing/reordered input intervals; integration skips these discontinuities.
+    pub imu_discontinuities: u64,
     pub gnss_sequence: u64,
 }
 
@@ -102,7 +108,8 @@ pub struct FusionStats {
 pub struct FusionHandle {
     control: EventSender<Event>,
     output: EventInbox<NavState>,
-    join: JoinHandle<FusionStats>,
+    join: Option<JoinHandle<FusionStats>>,
+    stopping: Arc<AtomicBool>,
 }
 
 impl FusionService {
@@ -152,13 +159,16 @@ impl FusionService {
             .take()
             .expect("fusion output receiver already taken");
         let control = self.control.clone();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = stopping.clone();
         let join = thread::Builder::new()
             .name("fusion-service".into())
-            .spawn(move || run(self))?;
+            .spawn(move || run(self, &stop))?;
         Ok(FusionHandle {
             control,
             output,
-            join,
+            join: Some(join),
+            stopping,
         })
     }
 }
@@ -172,15 +182,28 @@ impl FusionHandle {
         self.output.try_recv()
     }
 
-    pub fn stop(self) -> io::Result<FusionStats> {
+    pub fn stop(mut self) -> io::Result<FusionStats> {
+        // Explicit teardown drains inputs admitted before this marker. Only
+        // abandoned handles use immediate, nonblocking cancellation in Drop.
         let _ = self.control.send(Event::Shutdown);
         self.join
+            .take()
+            .expect("owned join")
             .join()
             .map_err(|_| io::Error::other("fusion service panicked"))
     }
+    fn request_stop(&self) {
+        self.stopping.store(true, Ordering::Release);
+        let _ = self.control.try_send(Event::Shutdown);
+    }
+}
+impl Drop for FusionHandle {
+    fn drop(&mut self) {
+        self.request_stop();
+    }
 }
 
-fn run(service: FusionService) -> FusionStats {
+fn run(service: FusionService, stopping: &AtomicBool) -> FusionStats {
     let mut core = FusionCore::default();
     let mut stats = FusionStats::default();
     let mut imu_since_output = 0u8;
@@ -188,7 +211,10 @@ fn run(service: FusionService) -> FusionStats {
     // The owner has one wait point. IMU, GNSS and lifecycle producers all fan
     // into this one bounded inbox. Each event is handled to completion before
     // the next receive.
-    while let Ok(event) = service.inbox.wait(None) {
+    while !stopping.load(Ordering::Acquire) {
+        let Ok(event) = service.inbox.wait(None) else {
+            break;
+        };
         let state = match event {
             Event::Imu(sample) => {
                 stats.inputs = stats.inputs.saturating_add(1);
@@ -221,18 +247,22 @@ fn run(service: FusionService) -> FusionStats {
 #[derive(Default)]
 struct FusionCore {
     state: NavState,
-    last_imu_ms: Option<u64>,
+    last_imu_sequence: Option<u64>,
     origin: Option<(f64, f64)>,
 }
 
 impl FusionCore {
     fn on_imu(&mut self, sample: ImuSample) -> NavState {
-        if let Some(last) = self.last_imu_ms {
-            let dt = sample.timestamp_ms.saturating_sub(last) as f32 / 1000.0;
-            self.state.heading_rad += sample.gyro_rps[2] * dt;
-            self.state.speed_mps = (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
+        if let Some(last) = self.last_imu_sequence {
+            if sample.sequence == last.saturating_add(1) {
+                let dt = sample.sample_interval_us as f32 / 1_000_000.0;
+                self.state.heading_rad += sample.gyro_rps[2] * dt;
+                self.state.speed_mps = (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
+            } else {
+                self.state.imu_discontinuities = self.state.imu_discontinuities.saturating_add(1);
+            }
         }
-        self.last_imu_ms = Some(sample.timestamp_ms);
+        self.last_imu_sequence = Some(sample.sequence);
         self.state.timestamp_ms = sample.timestamp_ms;
         self.state.imu_sequence = sample.sequence;
         self.state
@@ -282,5 +312,73 @@ mod tests {
         assert!((state.north_m - 111.3195).abs() < 0.001);
         assert!((state.east_m - 157.4295).abs() < 0.001);
         assert_eq!(state.heading_rad, 0.8);
+    }
+}
+
+#[cfg(test)]
+mod fifo_timing_tests {
+    use super::*;
+    #[test]
+    fn batched_samples_use_cadence_but_gaps_never_extrapolate_unobserved_motion() {
+        let mut core = FusionCore::default();
+        let sample = ImuSample {
+            sequence: 1,
+            timestamp_ms: 123,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0, 0.0, 1.0],
+        };
+        core.on_imu(sample);
+        core.on_imu(ImuSample {
+            sequence: 2,
+            ..sample
+        });
+        let state = core.on_imu(ImuSample {
+            sequence: 4,
+            gyro_rps: [0.0, 0.0, 100.0],
+            ..sample
+        });
+        assert!((state.heading_rad - 0.01).abs() < 1e-6);
+        assert_eq!(state.imu_discontinuities, 1);
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[test]
+    fn explicit_stop_drains_previously_admitted_inputs() {
+        let (fusion, inputs) = FusionService::new();
+        for sequence in 1..=5 {
+            assert_eq!(
+                inputs.imu.submit(ImuSample {
+                    sequence,
+                    timestamp_ms: 0,
+                    sample_interval_us: 10_000,
+                    accel_mps2: [0.0; 3],
+                    gyro_rps: [0.0; 3],
+                }),
+                Submit::Accepted
+            );
+        }
+        assert_eq!(fusion.start().unwrap().stop().unwrap().inputs, 5);
+    }
+    #[test]
+    fn dropped_fusion_handle_retires_its_inbox_after_partial_app_startup() {
+        let (fusion, inputs) = FusionService::new();
+        let handle = fusion.start().unwrap();
+        drop(handle);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let sample = ImuSample {
+            sequence: 1,
+            timestamp_ms: 0,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0; 3],
+        };
+        while !matches!(inputs.imu.submit(sample), Submit::Disconnected) {
+            assert!(std::time::Instant::now() < deadline, "fusion task leaked");
+            std::thread::yield_now();
+        }
     }
 }

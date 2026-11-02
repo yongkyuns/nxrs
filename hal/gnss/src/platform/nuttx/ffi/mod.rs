@@ -29,3 +29,32 @@ pub(super) fn restore(fd: c_int, saved: &[u8; 64]) -> io::Result<()> {
     // SAFETY: same live descriptor and saved target-header representation.
     status(unsafe { gnss_serial_restore(fd, saved.as_ptr()) })
 }
+
+/// Own newly created descriptors immediately; native code retains neither.
+pub(super) fn event_pipe() -> io::Result<(std::fs::File, std::fs::File)> {
+    use std::os::fd::FromRawFd;
+    let mut descriptors = [-1; 2];
+    // SAFETY: two writable int slots for this synchronous pipe2 call.
+    if unsafe { gnss_event_pipe(descriptors.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: pipe2 transferred two fresh, distinct owned descriptors.
+    Ok(unsafe {
+        (
+            std::fs::File::from_raw_fd(descriptors[0]),
+            std::fs::File::from_raw_fd(descriptors[1]),
+        )
+    })
+}
+pub(super) fn wait(device: c_int, cancel: c_int) -> io::Result<bool> {
+    // SAFETY: descriptors remain borrowed/alive through the synchronous poll.
+    match unsafe { gnss_event_wait(device, cancel) } {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+unsafe extern "C" {
+    fn gnss_event_pipe(descriptors: *mut c_int) -> c_int;
+    fn gnss_event_wait(device: c_int, cancel: c_int) -> c_int;
+}

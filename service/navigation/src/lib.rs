@@ -13,9 +13,7 @@ mod gnss;
 mod health;
 mod imu;
 
-pub use fusion::{
-    FusionConfig, FusionHandle, FusionInputs, FusionService, FusionStats, NavState,
-};
-pub use gnss::{GnssConfig, GnssHandle, GnssProcessor, GnssService, GnssStats, GnssStatus};
+pub use fusion::{FusionConfig, FusionHandle, FusionInputs, FusionService, FusionStats, NavState};
+pub use gnss::{GnssHandle, GnssProcessor, GnssService, GnssStats, GnssStatus};
 pub use health::{HealthService, HealthSnapshot};
-pub use imu::{ImuConfig, ImuHandle, ImuProcessor, ImuService, ImuStats, ImuStatus};
+pub use imu::{ImuHandle, ImuProcessor, ImuService, ImuStats, ImuStatus};

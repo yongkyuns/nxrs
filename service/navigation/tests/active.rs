@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use navigation::{
-    FusionConfig, FusionService, GnssConfig, GnssService, HealthService, ImuConfig, ImuService,
-};
+use navigation::{FusionConfig, FusionService, GnssService, HealthService, ImuService};
 
 fn start_services() -> (
     navigation::FusionHandle,
@@ -15,12 +13,8 @@ fn start_services() -> (
         publish_every_imu: 2,
     });
 
-    let imu = ImuService::new(inputs.imu).with_config(ImuConfig {
-        period: Duration::from_millis(5),
-    });
-    let gnss = GnssService::new(inputs.gnss).with_config(GnssConfig {
-        period: Duration::from_millis(20),
-    });
+    let imu = ImuService::new(inputs.imu);
+    let gnss = GnssService::new(inputs.gnss);
 
     (
         fusion.start().unwrap(),
@@ -58,10 +52,13 @@ fn active_services_own_hal_threads_and_lifecycle() {
 fn sensor_commands_are_processed_inside_the_service_loops() {
     let (fusion, imu, gnss) = start_services();
 
-    std::thread::sleep(Duration::from_millis(35));
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while gnss.status().unwrap().stats.produced == 0 {
+        assert!(std::time::Instant::now() < deadline);
+        let _ = fusion.recv_timeout(Duration::from_millis(50));
+    }
     let before = imu.status().unwrap();
     assert!(before.sampling);
-    assert_eq!(before.period, Duration::from_millis(5));
     assert!(before.stats.produced > 0);
 
     imu.pause().unwrap();
@@ -71,28 +68,20 @@ fn sensor_commands_are_processed_inside_the_service_loops() {
     std::thread::sleep(Duration::from_millis(25));
     assert_eq!(imu.status().unwrap().stats.produced, paused_count);
 
-    imu.set_period(Duration::from_millis(2)).unwrap();
     imu.resume().unwrap();
     let resumed = imu.status().unwrap();
     assert!(resumed.sampling);
-    assert_eq!(resumed.period, Duration::from_millis(2));
     std::thread::sleep(Duration::from_millis(20));
     assert!(imu.status().unwrap().stats.produced > paused_count);
-    assert_eq!(
-        imu.set_period(Duration::ZERO).unwrap_err().kind(),
-        std::io::ErrorKind::InvalidInput
-    );
 
     let gnss_before = gnss.status().unwrap();
     gnss.pause().unwrap();
     let gnss_paused = gnss.status().unwrap();
     assert!(!gnss_paused.sampling);
     assert!(gnss_paused.stats.produced >= gnss_before.stats.produced);
-    gnss.set_period(Duration::from_millis(8)).unwrap();
     gnss.resume().unwrap();
     let gnss_resumed = gnss.status().unwrap();
     assert!(gnss_resumed.sampling);
-    assert_eq!(gnss_resumed.period, Duration::from_millis(8));
 
     let imu_stats = imu.stop().unwrap();
     let gnss_stats = gnss.stop().unwrap();

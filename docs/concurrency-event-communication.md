@@ -1,9 +1,8 @@
 # Concurrency and event communication architecture
 
-> **Status: architecture baseline proposed for review; implementation qualification
-> is pending.** The ownership and queue directions below replace the earlier
-> single-physical-inbox default. Public helper APIs can evolve through a small
-> qualification fixture. This document alone changes no production behavior.
+> **Status:** the acquisition/ownership principles are requirements. Platform
+> implementations still require target ABI and physical qualification; channel
+> allocation, timing and footprint claims require measurements.
 
 ## Architectural decisions
 
@@ -59,6 +58,15 @@ device or parser, and no additional service whose only job is relaying HAL data.
 Provider-internal device waits and cancellation remain behind HAL/target support.
 No std/Crossbeam channel operation is assumed ISR-safe; use a qualified deferred
 path before invoking a service delivery endpoint.
+
+Production acquisition is signal-driven: IMU interrupt/FIFO notifications and
+GNSS UART readiness wake HAL-owned acquisition. Services never poll devices on
+sampling timers. A timer is appropriate for an explicit synthetic fixture or a
+health deadline, not as a silent substitute for missing interrupt wiring.
+ISR callbacks only use qualified OS notification; parsing, FIFO/UART I/O and
+bounded sink admission execute in task context. Queue-full measurements follow
+an explicit loss policy with observable counts/sequence gaps; terminal faults
+remain available through the session result even if notification is rejected.
 
 Application processing remains ordinary `&mut self` methods. Do not default to
 `Arc<Mutex<Service>>`; move state to the one execution owner. Thread creation

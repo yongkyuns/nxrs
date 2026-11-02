@@ -15,15 +15,27 @@ pub enum DeviceError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImuSample {
     pub sequence: u64,
+    /// Monotonic host reception time; shared by samples delivered in one batch.
     pub timestamp_ms: u64,
+    /// Nominal hardware sampling interval, independent of delivery batching.
+    pub sample_interval_us: u32,
     pub accel_mps2: [f32; 3],
     pub gyro_rps: [f32; 3],
 }
 
+/// Normalized task-context delivery. Faults also remain observable through join().
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event {
+    Sample(ImuSample),
+    Failed(DeviceError),
+}
+
+/// Owns acquisition execution. Request cancellation, then explicitly join.
+/// Drop requests cancellation without blocking; the worker retains resources.
 pub trait Imu {
-    /// Produce the sample available at the owner-selected monotonic timestamp.
-    ///
-    /// The caller decides when/how this method is scheduled. A real provider may
-    /// instead return Busy until device readiness is signaled.
-    fn sample(&mut self, now_ms: u64) -> Result<ImuSample, DeviceError>;
+    fn request_stop(&mut self) -> Result<(), DeviceError>;
+    fn join(&mut self) -> Result<(), DeviceError>;
+    fn is_finished(&self) -> bool;
+    /// Events rejected because the destination was full, saturated at u32::MAX.
+    fn dropped(&self) -> u32;
 }

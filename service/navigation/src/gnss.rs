@@ -1,28 +1,17 @@
 use std::f32::consts::PI;
 use std::io;
-use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
-
-use event::{bounded, EventInbox, EventSender};
-use gnss::{DeviceError, Gnss, GnssFix};
 
 use crate::fusion::{GnssInput, Submit};
+use event::{bounded, EventInbox, EventSender};
+use gnss::{DeliveryError, DeviceError, Gnss, GnssFix, Rejected};
 
-const INBOX_CAPACITY: usize = 4;
-
-#[derive(Clone, Copy, Debug)]
-pub struct GnssConfig {
-    pub period: Duration,
-}
-
-impl Default for GnssConfig {
-    fn default() -> Self {
-        Self {
-            period: Duration::from_millis(200),
-        }
-    }
-}
+const INBOX_CAPACITY: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
 pub struct GnssProcessor {
@@ -62,119 +51,113 @@ fn wrap_pi(mut value: f32) -> f32 {
 }
 
 pub struct GnssService {
-    config: GnssConfig,
     processor: GnssProcessor,
     output: GnssInput,
 }
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GnssStats {
     pub produced: u64,
     pub dropped: u64,
     pub errors: u64,
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GnssStatus {
+    /// Processing enabled; HAL acquisition keeps draining while paused.
     pub sampling: bool,
-    pub period: Duration,
     pub stats: GnssStats,
 }
-
 enum Event {
-    SetPeriod(Duration, SyncSender<()>),
+    Device(gnss::Event),
     Pause(SyncSender<()>),
     Resume(SyncSender<()>),
     Status(SyncSender<GnssStatus>),
-    FixDeadline,
     Shutdown,
 }
-
 pub struct GnssHandle {
     control: EventSender<Event>,
-    join: JoinHandle<GnssStats>,
+    join: Option<JoinHandle<io::Result<GnssStats>>>,
+    stopping: Arc<AtomicBool>,
 }
-
 impl GnssService {
     pub fn new(output: GnssInput) -> Self {
         Self {
-            config: GnssConfig::default(),
             processor: GnssProcessor::default(),
             output,
         }
     }
-
-    pub fn with_config(mut self, config: GnssConfig) -> Self {
-        assert!(!config.period.is_zero(), "GNSS period must be nonzero");
-        self.config = config;
-        self
-    }
-
     pub fn with_processor(mut self, processor: GnssProcessor) -> Self {
         self.processor = processor;
         self
     }
-
     pub fn start(self) -> io::Result<GnssHandle> {
-        let device = gnss::open().map_err(|error| hal_error("GNSS", error))?;
         let (control, inbox) = bounded(INBOX_CAPACITY);
+        let sender = control.clone();
+        // This endpoint only admits messages; acquisition invokes it in task context.
+        let sink = move |value: gnss::Event| {
+            sender
+                .try_send(Event::Device(value))
+                .map_err(|error| Rejected {
+                    value,
+                    error: match error {
+                        TrySendError::Full(_) => DeliveryError::Full,
+                        TrySendError::Disconnected(_) => DeliveryError::Closed,
+                    },
+                })
+        };
+        let device = gnss::open(sink).map_err(hal_error)?;
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = stopping.clone();
         let join = thread::Builder::new()
             .name("gnss-service".into())
-            .spawn(move || run(self, device, inbox))?;
-        Ok(GnssHandle { control, join })
+            .spawn(move || run(self, device, inbox, &stop))?;
+        Ok(GnssHandle {
+            control,
+            join: Some(join),
+            stopping,
+        })
     }
 }
-
 impl GnssHandle {
-    pub fn set_period(&self, period: Duration) -> io::Result<()> {
-        if period.is_zero() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "GNSS period must be nonzero",
-            ));
-        }
-        self.request(|reply| Event::SetPeriod(period, reply))
-    }
-
     pub fn pause(&self) -> io::Result<()> {
         self.request(Event::Pause)
     }
-
     pub fn resume(&self) -> io::Result<()> {
         self.request(Event::Resume)
     }
-
     pub fn status(&self) -> io::Result<GnssStatus> {
         let (reply, response) = sync_channel(1);
         self.send(Event::Status(reply))?;
         response
             .recv()
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "GNSS status reply closed"))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "gnss status reply closed"))
     }
-
-    pub fn stop(self) -> io::Result<GnssStats> {
-        let _ = self.control.send(Event::Shutdown);
+    pub fn stop(mut self) -> io::Result<GnssStats> {
+        self.request_stop();
         self.join
+            .take()
+            .expect("owned join")
             .join()
-            .map_err(|_| io::Error::other("GNSS service panicked"))
+            .map_err(|_| io::Error::other("gnss service panicked"))?
     }
-
+    fn request_stop(&self) {
+        // Shutdown has independent admission. A full inbox already wakes its owner.
+        self.stopping.store(true, Ordering::Release);
+        let _ = self.control.try_send(Event::Shutdown);
+    }
     fn request(&self, event: impl FnOnce(SyncSender<()>) -> Event) -> io::Result<()> {
         let (reply, response) = sync_channel(1);
         self.send(event(reply))?;
         response
             .recv()
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "GNSS command reply closed"))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "gnss command reply closed"))
     }
-
     fn send(&self, event: Event) -> io::Result<()> {
         self.control
             .send(event)
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "GNSS service stopped"))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "gnss service stopped"))
     }
 }
-
-fn hal_error(capability: &'static str, error: DeviceError) -> io::Error {
+fn hal_error(error: DeviceError) -> io::Error {
     let kind = match error {
         DeviceError::Unsupported => io::ErrorKind::Unsupported,
         DeviceError::Busy | DeviceError::Full => io::ErrorKind::WouldBlock,
@@ -182,111 +165,73 @@ fn hal_error(capability: &'static str, error: DeviceError) -> io::Error {
         DeviceError::Io => io::ErrorKind::Other,
         DeviceError::InvalidData => io::ErrorKind::InvalidData,
     };
-    io::Error::new(
-        kind,
-        format!("{capability} HAL acquisition failed: {error:?}"),
-    )
+    io::Error::new(kind, format!("Gnss HAL: {error:?}"))
 }
-
-fn run<D>(mut service: GnssService, mut device: D, inbox: EventInbox<Event>) -> GnssStats
-where
-    D: Gnss,
-{
-    let origin = Instant::now();
+impl Drop for GnssHandle {
+    fn drop(&mut self) {
+        self.request_stop();
+    }
+}
+fn run<D: Gnss>(
+    mut service: GnssService,
+    mut device: D,
+    inbox: EventInbox<Event>,
+    stopping: &AtomicBool,
+) -> io::Result<GnssStats> {
     let mut stats = GnssStats::default();
-    let mut period = service.config.period;
     let mut sampling = true;
-    let mut next_fix = Instant::now() + period;
-
-    loop {
-        // One logical wait point. Commands and deadline expiry are serialized
-        // through one event-dispatch path.
-        let wait = sampling.then(|| next_fix.saturating_duration_since(Instant::now()));
-        let event = match inbox.wait(wait) {
-            Ok(event) => event,
-            Err(RecvTimeoutError::Timeout) => Event::FixDeadline,
-            Err(RecvTimeoutError::Disconnected) => break,
+    let mut fault = None;
+    while !stopping.load(Ordering::Acquire) {
+        let Ok(event) = inbox.wait(None) else {
+            break;
         };
-
-        // Run this event to completion before returning to the wait point.
         match event {
-            Event::SetPeriod(value, reply) => {
-                period = value;
-                if sampling {
-                    next_fix = Instant::now() + period;
-                }
-                let _ = reply.send(());
-            }
             Event::Pause(reply) => {
                 sampling = false;
                 let _ = reply.send(());
             }
             Event::Resume(reply) => {
-                if !sampling {
-                    sampling = true;
-                    next_fix = Instant::now() + period;
-                }
+                sampling = true;
                 let _ = reply.send(());
             }
             Event::Status(reply) => {
+                let mut snapshot = stats;
+                snapshot.dropped = snapshot.dropped.saturating_add(u64::from(device.dropped()));
                 let _ = reply.send(GnssStatus {
                     sampling,
-                    period,
-                    stats,
+                    stats: snapshot,
                 });
             }
-            Event::FixDeadline => {
-                let now_ms = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
-                match device.fix(now_ms) {
-                    Ok(fix) => {
-                        let fix = service.processor.process(fix);
-                        stats.produced = stats.produced.saturating_add(1);
-                        match service.output.submit(fix) {
-                            Submit::Accepted => {}
-                            Submit::Dropped => {
-                                stats.dropped = stats.dropped.saturating_add(1);
-                            }
-                            Submit::Disconnected => break,
-                        }
-                    }
-                    Err(DeviceError::Busy) => {}
-                    Err(_) => stats.errors = stats.errors.saturating_add(1),
+            Event::Device(gnss::Event::Fix(value)) => {
+                if !sampling {
+                    stats.dropped = stats.dropped.saturating_add(1);
+                    continue;
                 }
-
-                let now = Instant::now();
-                next_fix += period;
-                if next_fix <= now {
-                    next_fix = now + period;
+                let value = service.processor.process(value);
+                stats.produced = stats.produced.saturating_add(1);
+                match service.output.submit(value) {
+                    Submit::Accepted => {}
+                    Submit::Dropped => stats.dropped = stats.dropped.saturating_add(1),
+                    Submit::Disconnected => break,
                 }
+            }
+            Event::Device(gnss::Event::InvalidFrame) => {
+                stats.errors = stats.errors.saturating_add(1);
+            }
+            Event::Device(gnss::Event::Failed(error)) => {
+                fault = Some(error);
+                break;
             }
             Event::Shutdown => break,
         }
     }
-    stats
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    struct Pending(bool);
-    impl Gnss for Pending {
-        fn fix(&mut self, _: u64) -> Result<GnssFix, DeviceError> {
-            let first = core::mem::replace(&mut self.0, false);
-            Err(if first {
-                DeviceError::Busy
-            } else {
-                DeviceError::Io
-            })
-        }
+    // Teardown is outside normal event dispatch. The source never waits for queue capacity.
+    let stop = device.request_stop();
+    let joined = device.join();
+    stats.dropped = stats.dropped.saturating_add(u64::from(device.dropped()));
+    stop.and(joined).map_err(hal_error)?;
+    if let Some(error) = fault {
+        return Err(hal_error(error));
     }
-    #[test]
-    fn pending_data_is_normal_but_io_failure_is_counted() {
-        let (_, inputs) = crate::FusionService::with_config(crate::FusionConfig::default());
-        let (control, inbox) = bounded(4);
-        control.send(Event::FixDeadline).unwrap();
-        control.send(Event::FixDeadline).unwrap();
-        control.send(Event::Shutdown).unwrap();
-        let stats = run(GnssService::new(inputs.gnss), Pending(true), inbox);
-        assert_eq!((stats.produced, stats.errors), (0, 1));
-    }
+    Ok(stats)
 }

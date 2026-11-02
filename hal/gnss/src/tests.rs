@@ -127,6 +127,16 @@ impl Write for Stream {
         Ok(())
     }
 }
+impl Receiver<Stream> {
+    // Collect the finite scripted input through the production event-read path.
+    fn fixture_fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
+        let mut latest = Err(DeviceError::Busy);
+        while !self.io.input.is_empty() {
+            self.read_events(now_ms, |event| latest = event)?;
+        }
+        latest
+    }
+}
 fn receiver_with(payload: &[u8]) -> Receiver<Stream> {
     let mut stream = Stream::default();
     stream.input.extend(frame(1, 7, payload));
@@ -146,18 +156,18 @@ fn fragmented_nav_pvt_normalizes_units_and_never_replays_an_epoch() {
         assert_eq!(produced, 1);
     }
     let mut receiver = receiver_with(&pvt(1000));
-    let fix = receiver.fix(123).unwrap();
+    let fix = receiver.fixture_fix(123).unwrap();
     assert_eq!((fix.sequence, fix.timestamp_ms), (1, 123));
     assert!((fix.latitude_deg - 48.1173).abs() < 1e-7);
     assert!((fix.longitude_deg + 11.5166667).abs() < 1e-7);
     assert!((fix.speed_mps - 5.144).abs() < 1e-6);
     assert!((fix.course_rad.unwrap() - core::f32::consts::FRAC_PI_2).abs() < 1e-6);
     receiver.io.input.extend(frame(1, 7, &pvt(1000)));
-    assert_eq!(receiver.fix(124), Err(DeviceError::Busy));
+    assert_eq!(receiver.fixture_fix(124), Err(DeviceError::Busy));
     let mut still = pvt(2000);
     still[60..64].fill(0);
     receiver.io.input.extend(frame(1, 7, &still));
-    let fix = receiver.fix(125).unwrap();
+    let fix = receiver.fixture_fix(125).unwrap();
     assert_eq!(fix.sequence, 2);
     assert_eq!(fix.course_rad, None);
     assert!(core::mem::size_of::<ubx::Decoder>() <= 160);
@@ -167,7 +177,7 @@ fn rejects_unusable_fixes_and_bad_coordinates() {
     for (offset, value) in [(20, 0), (20, 1), (20, 5), (20, 0xff), (21, 0), (78, 1)] {
         let mut payload = pvt(1);
         payload[offset] = value;
-        assert!(receiver_with(&payload).fix(1).is_err());
+        assert!(receiver_with(&payload).fixture_fix(1).is_err());
     }
     // Invalid/unavailable fix fields need not be meaningful coordinates.
     let mut invalid = pvt(2);
@@ -177,32 +187,38 @@ fn rejects_unusable_fixes_and_bad_coordinates() {
     for (offset, value) in [(20, 0), (21, 0), (78, 1)] {
         let mut payload = invalid;
         payload[offset] = value;
-        assert_eq!(receiver_with(&payload).fix(1), Err(DeviceError::Busy));
+        assert_eq!(
+            receiver_with(&payload).fixture_fix(1),
+            Err(DeviceError::Busy)
+        );
     }
     for (offset, value) in [(24, 1_800_000_001i32), (28, -900_000_001), (60, -1)] {
         let mut payload = pvt(1);
         payload[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         assert_eq!(
-            receiver_with(&payload).fix(1),
+            receiver_with(&payload).fixture_fix(1),
             Err(DeviceError::InvalidData)
         );
     }
 }
 #[test]
-fn checksum_length_noise_and_backlog_are_bounded_and_resynchronize() {
+fn checksum_length_noise_resynchronize_and_each_event_read_is_bounded() {
     let mut receiver = receiver_with(&pvt(1));
     *receiver.io.input.back_mut().unwrap() ^= 1;
-    assert_eq!(receiver.fix(1), Err(DeviceError::InvalidData));
+    assert_eq!(receiver.fixture_fix(1), Err(DeviceError::InvalidData));
     receiver.io.input.extend([0xb5, 0x62, 1, 7, 0xff, 0xff]);
     receiver.io.input.extend(frame(1, 7, &[0; 91]));
     receiver.io.input.extend(b"$GNRMC,ignored*00\r\n");
     receiver.io.input.extend(frame(1, 7, &pvt(2)));
-    assert_eq!(receiver.fix(2).unwrap().sequence, 1);
-    assert_eq!(receiver.fix(3), Err(DeviceError::Busy));
+    assert_eq!(receiver.fixture_fix(2).unwrap().sequence, 1);
+    assert_eq!(receiver.fixture_fix(3), Err(DeviceError::Busy));
     receiver.io.input.extend(core::iter::repeat_n(b'x', 1000));
     let before = receiver.io.reads;
-    assert_eq!(receiver.fix(4), Err(DeviceError::Busy));
-    assert_eq!(receiver.io.reads - before, 32);
+    receiver
+        .read_events(4, |_| panic!("noise produced a fix"))
+        .unwrap();
+    assert_eq!(receiver.io.reads - before, 1);
+    assert_eq!(receiver.io.input.len(), 989);
 }
 #[test]
 fn malformed_or_unrequested_configuration_values_are_rejected() {
@@ -267,4 +283,42 @@ fn failed_restoration_stays_pending_until_it_is_verified() {
     receiver.restore().unwrap();
     assert_eq!(receiver.io.rate, 7);
     assert_eq!(receiver.saved_rate, None);
+}
+
+#[test]
+fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
+    let mut receiver = Receiver::new(Stream::default());
+    for epoch in 1..=3 {
+        receiver.io.input.extend(frame(1, 7, &pvt(epoch)));
+    }
+    let mut fixes = Vec::new();
+    while !receiver.io.input.is_empty() {
+        receiver
+            .read_events(123, |fix| fixes.push(fix.unwrap()))
+            .unwrap();
+    }
+    assert_eq!(
+        fixes.iter().map(|fix| fix.sequence).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert!(fixes.iter().all(|fix| fix.timestamp_ms == 123));
+    receiver
+        .read_events(124, |_| panic!("replayed fix"))
+        .unwrap();
+}
+
+#[test]
+fn corrupt_event_frame_is_reported_then_next_valid_fix_is_delivered() {
+    let mut receiver = Receiver::new(Stream::default());
+    let mut wire = frame(1, 7, &pvt(1));
+    *wire.last_mut().unwrap() ^= 1;
+    receiver.io.input.extend(wire);
+    receiver.io.input.extend(frame(1, 7, &pvt(2)));
+    let mut events = Vec::new();
+    while !receiver.io.input.is_empty() {
+        receiver.read_events(0, |event| events.push(event)).unwrap();
+    }
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0], Err(DeviceError::InvalidData));
+    assert_eq!(events[1].unwrap().sequence, 1);
 }

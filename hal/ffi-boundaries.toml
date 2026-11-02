@@ -153,3 +153,13 @@ reason = "Calling-thread scheduler ABI only; portable scheduling intent and prof
 path = "hal/wifi/src/platform/nuttx/ffi/network.c"
 kind = "abi"
 reason = "Synchronous netinit SDK operation; Rust serializes once-only acquisition and retains partial failures."
+
+[[bridge]]
+path = "hal/gnss/src/platform/nuttx/ffi/events.c"
+kind = "abi"
+reason = "Target pollfd layout and pipe2 flags only. Rust owns descriptor lifetime, cancellation, UART reads and normalized event admission."
+
+[[bridge]]
+path = "hal/imu/src/platform/nuttx/ffi/events.c"
+kind = "abi"
+reason = "Target pollfd/pipe2 ABI and individual GPIO interrupt ioctls only. NuttX owns ISR notifications; Rust owns FIFO draining, cancellation, event admission and shutdown."

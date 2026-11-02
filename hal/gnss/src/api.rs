@@ -24,6 +24,21 @@ pub struct GnssFix {
     pub course_rad: Option<f32>,
 }
 
+/// Normalized task-context delivery. Faults also remain observable through join().
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event {
+    Fix(GnssFix),
+    /// Recoverable rejected wire frame; parsing continues at the next frame.
+    InvalidFrame,
+    Failed(DeviceError),
+}
+
+/// Owns acquisition execution. Request cancellation, then explicitly join.
+/// Drop requests cancellation without blocking; the worker retains resources.
 pub trait Gnss {
-    fn fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError>;
+    fn request_stop(&mut self) -> Result<(), DeviceError>;
+    fn join(&mut self) -> Result<(), DeviceError>;
+    fn is_finished(&self) -> bool;
+    /// Events rejected because the destination was full, saturated at u32::MAX.
+    fn dropped(&self) -> u32;
 }

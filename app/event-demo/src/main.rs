@@ -6,9 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use navigation::{
-    FusionService, GnssService, HealthService, ImuService,
-};
+use navigation::{FusionService, GnssService, HealthService, ImuService};
 
 fn duration_from_args() -> Result<Duration, Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
@@ -37,19 +35,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let gnss = gnss.start()?;
 
     println!("EVENT_DEMO topology:");
-    println!("  ImuService  owns HAL resource + processing + thread/event loop");
-    println!("  GnssService owns HAL resource + processing + thread/event loop");
+    println!("  ImuService  owns HAL session + processing/event loop; HAL owns acquisition");
+    println!("  GnssService owns HAL session + processing/event loop; HAL owns acquisition");
     println!("  FusionService owns one bounded inbox + fusion state + owner thread");
     println!("  active services use one wait point and run each event to completion");
-    println!("  app has no provider dependency; build selects providers inside each HAL capability");
+    println!(
+        "  app has no provider dependency; build selects providers inside each HAL capability"
+    );
     println!("  app orchestration = create -> connect -> start -> command -> stop");
 
     let started = Instant::now();
     let deadline = started + duration;
     let total_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
     let phase1_at = started + Duration::from_millis((total_ms / 3).max(1));
-    let phase2_at =
-        started + Duration::from_millis((total_ms.saturating_mul(2) / 3).max(2));
+    let phase2_at = started + Duration::from_millis((total_ms.saturating_mul(2) / 3).max(2));
 
     let mut phase1_done = false;
     let mut phase2_done = false;
@@ -60,13 +59,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let now = Instant::now();
 
         if !phase1_done && now >= phase1_at {
-            imu.set_period(Duration::from_millis(10))?;
             gnss.pause()?;
             let imu_status = imu.status()?;
             let gnss_status = gnss.status()?;
             println!(
-                "CONTROL phase=1 imu_period_ms={} imu_sampling={} gnss_sampling={} imu_produced={} gnss_produced={}",
-                imu_status.period.as_millis(),
+                "CONTROL phase=1 imu_sampling={} gnss_sampling={} imu_produced={} gnss_produced={}",
                 imu_status.sampling,
                 gnss_status.sampling,
                 imu_status.stats.produced,
@@ -76,17 +73,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if !phase2_done && now >= phase2_at {
-            gnss.set_period(Duration::from_millis(100))?;
             gnss.resume()?;
             let imu_status = imu.status()?;
             let gnss_status = gnss.status()?;
             println!(
-                "CONTROL phase=2 imu_period_ms={} gnss_period_ms={} gnss_sampling={} imu_produced={} gnss_produced={}",
-                imu_status.period.as_millis(),
-                gnss_status.period.as_millis(),
-                gnss_status.sampling,
-                imu_status.stats.produced,
-                gnss_status.stats.produced,
+                "CONTROL phase=2 gnss_sampling={} imu_produced={} gnss_produced={}",
+                gnss_status.sampling, imu_status.stats.produced, gnss_status.stats.produced,
             );
             phase2_done = true;
         }

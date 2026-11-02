@@ -1,27 +1,16 @@
 use std::io;
-use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
-
-use imu::{DeviceError, Imu, ImuSample};
-use event::{bounded, EventInbox, EventSender};
 
 use crate::fusion::{ImuInput, Submit};
+use event::{bounded, EventInbox, EventSender};
+use imu::{DeliveryError, DeviceError, Imu, ImuSample, Rejected};
 
-const INBOX_CAPACITY: usize = 4;
-
-#[derive(Clone, Copy, Debug)]
-pub struct ImuConfig {
-    pub period: Duration,
-}
-
-impl Default for ImuConfig {
-    fn default() -> Self {
-        Self {
-            period: Duration::from_millis(20),
-        }
-    }
-}
+const INBOX_CAPACITY: usize = 32;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ImuProcessor {
@@ -47,119 +36,113 @@ impl ImuProcessor {
 }
 
 pub struct ImuService {
-    config: ImuConfig,
     processor: ImuProcessor,
     output: ImuInput,
 }
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ImuStats {
     pub produced: u64,
     pub dropped: u64,
     pub errors: u64,
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ImuStatus {
+    /// Processing enabled; HAL acquisition keeps draining while paused.
     pub sampling: bool,
-    pub period: Duration,
     pub stats: ImuStats,
 }
-
 enum Event {
-    SetPeriod(Duration, SyncSender<()>),
+    Device(imu::Event),
     Pause(SyncSender<()>),
     Resume(SyncSender<()>),
     Status(SyncSender<ImuStatus>),
-    SampleDeadline,
     Shutdown,
 }
-
 pub struct ImuHandle {
     control: EventSender<Event>,
-    join: JoinHandle<ImuStats>,
+    join: Option<JoinHandle<io::Result<ImuStats>>>,
+    stopping: Arc<AtomicBool>,
 }
-
 impl ImuService {
     pub fn new(output: ImuInput) -> Self {
         Self {
-            config: ImuConfig::default(),
             processor: ImuProcessor::default(),
             output,
         }
     }
-
-    pub fn with_config(mut self, config: ImuConfig) -> Self {
-        assert!(!config.period.is_zero(), "IMU period must be nonzero");
-        self.config = config;
-        self
-    }
-
     pub fn with_processor(mut self, processor: ImuProcessor) -> Self {
         self.processor = processor;
         self
     }
-
     pub fn start(self) -> io::Result<ImuHandle> {
-        let device = imu::open().map_err(|error| hal_error("IMU", error))?;
         let (control, inbox) = bounded(INBOX_CAPACITY);
+        let sender = control.clone();
+        // This endpoint only admits messages; acquisition invokes it in task context.
+        let sink = move |value: imu::Event| {
+            sender
+                .try_send(Event::Device(value))
+                .map_err(|error| Rejected {
+                    value,
+                    error: match error {
+                        TrySendError::Full(_) => DeliveryError::Full,
+                        TrySendError::Disconnected(_) => DeliveryError::Closed,
+                    },
+                })
+        };
+        let device = imu::open(sink).map_err(hal_error)?;
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = stopping.clone();
         let join = thread::Builder::new()
             .name("imu-service".into())
-            .spawn(move || run(self, device, inbox))?;
-        Ok(ImuHandle { control, join })
+            .spawn(move || run(self, device, inbox, &stop))?;
+        Ok(ImuHandle {
+            control,
+            join: Some(join),
+            stopping,
+        })
     }
 }
-
 impl ImuHandle {
-    pub fn set_period(&self, period: Duration) -> io::Result<()> {
-        if period.is_zero() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "IMU period must be nonzero",
-            ));
-        }
-        self.request(|reply| Event::SetPeriod(period, reply))
-    }
-
     pub fn pause(&self) -> io::Result<()> {
         self.request(Event::Pause)
     }
-
     pub fn resume(&self) -> io::Result<()> {
         self.request(Event::Resume)
     }
-
     pub fn status(&self) -> io::Result<ImuStatus> {
         let (reply, response) = sync_channel(1);
         self.send(Event::Status(reply))?;
         response
             .recv()
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "IMU status reply closed"))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "imu status reply closed"))
     }
-
-    pub fn stop(self) -> io::Result<ImuStats> {
-        let _ = self.control.send(Event::Shutdown);
+    pub fn stop(mut self) -> io::Result<ImuStats> {
+        self.request_stop();
         self.join
+            .take()
+            .expect("owned join")
             .join()
-            .map_err(|_| io::Error::other("IMU service panicked"))
+            .map_err(|_| io::Error::other("imu service panicked"))?
     }
-
+    fn request_stop(&self) {
+        // Shutdown has independent admission. A full inbox already wakes its owner.
+        self.stopping.store(true, Ordering::Release);
+        let _ = self.control.try_send(Event::Shutdown);
+    }
     fn request(&self, event: impl FnOnce(SyncSender<()>) -> Event) -> io::Result<()> {
         let (reply, response) = sync_channel(1);
         self.send(event(reply))?;
         response
             .recv()
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "IMU command reply closed"))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "imu command reply closed"))
     }
-
     fn send(&self, event: Event) -> io::Result<()> {
         self.control
             .send(event)
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "IMU service stopped"))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "imu service stopped"))
     }
 }
-
-fn hal_error(capability: &'static str, error: DeviceError) -> io::Error {
+fn hal_error(error: DeviceError) -> io::Error {
     let kind = match error {
         DeviceError::Unsupported => io::ErrorKind::Unsupported,
         DeviceError::Busy | DeviceError::Full => io::ErrorKind::WouldBlock,
@@ -167,104 +150,134 @@ fn hal_error(capability: &'static str, error: DeviceError) -> io::Error {
         DeviceError::Io => io::ErrorKind::Other,
         DeviceError::InvalidData => io::ErrorKind::InvalidData,
     };
-    io::Error::new(kind, format!("{capability} HAL acquisition failed: {error:?}"))
+    io::Error::new(kind, format!("Imu HAL: {error:?}"))
 }
-
-fn run<D>(mut service: ImuService, mut device: D, inbox: EventInbox<Event>) -> ImuStats
-where
-    D: Imu,
-{
-    let origin = Instant::now();
+impl Drop for ImuHandle {
+    fn drop(&mut self) {
+        self.request_stop();
+    }
+}
+fn run<D: Imu>(
+    mut service: ImuService,
+    mut device: D,
+    inbox: EventInbox<Event>,
+    stopping: &AtomicBool,
+) -> io::Result<ImuStats> {
     let mut stats = ImuStats::default();
-    let mut period = service.config.period;
     let mut sampling = true;
-    let mut next_sample = Instant::now() + period;
-
-    loop {
-        // One logical wait point. Commands arrive through the inbox; expiration
-        // of the same recv_timeout becomes a private timer event.
-        let wait = sampling.then(|| next_sample.saturating_duration_since(Instant::now()));
-        let event = match inbox.wait(wait) {
-            Ok(event) => event,
-            Err(RecvTimeoutError::Timeout) => Event::SampleDeadline,
-            Err(RecvTimeoutError::Disconnected) => break,
+    let mut fault = None;
+    while !stopping.load(Ordering::Acquire) {
+        let Ok(event) = inbox.wait(None) else {
+            break;
         };
-
-        // Run this event to completion before returning to the wait point.
         match event {
-            Event::SetPeriod(value, reply) => {
-                period = value;
-                if sampling {
-                    next_sample = Instant::now() + period;
-                }
-                let _ = reply.send(());
-            }
             Event::Pause(reply) => {
                 sampling = false;
                 let _ = reply.send(());
             }
             Event::Resume(reply) => {
-                if !sampling {
-                    sampling = true;
-                    next_sample = Instant::now() + period;
-                }
+                sampling = true;
                 let _ = reply.send(());
             }
             Event::Status(reply) => {
+                let mut snapshot = stats;
+                snapshot.dropped = snapshot.dropped.saturating_add(u64::from(device.dropped()));
                 let _ = reply.send(ImuStatus {
                     sampling,
-                    period,
-                    stats,
+                    stats: snapshot,
                 });
             }
-            Event::SampleDeadline => {
-                let now_ms = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
-                match device.sample(now_ms) {
-                    Ok(sample) => {
-                        let sample = service.processor.process(sample);
-                        stats.produced = stats.produced.saturating_add(1);
-                        match service.output.submit(sample) {
-                            Submit::Accepted => {}
-                            Submit::Dropped => {
-                                stats.dropped = stats.dropped.saturating_add(1);
-                            }
-                            Submit::Disconnected => break,
-                        }
-                    }
-                    Err(DeviceError::Busy) => {},
-                    Err(_) => stats.errors = stats.errors.saturating_add(1),
+            Event::Device(imu::Event::Sample(value)) => {
+                if !sampling {
+                    stats.dropped = stats.dropped.saturating_add(1);
+                    continue;
                 }
-
-                let now = Instant::now();
-                next_sample += period;
-                if next_sample <= now {
-                    next_sample = now + period;
+                let value = service.processor.process(value);
+                stats.produced = stats.produced.saturating_add(1);
+                match service.output.submit(value) {
+                    Submit::Accepted => {}
+                    Submit::Dropped => stats.dropped = stats.dropped.saturating_add(1),
+                    Submit::Disconnected => break,
                 }
+            }
+            Event::Device(imu::Event::Failed(error)) => {
+                fault = Some(error);
+                break;
             }
             Event::Shutdown => break,
         }
     }
-    stats
+    // Teardown is outside normal event dispatch. The source never waits for queue capacity.
+    let stop = device.request_stop();
+    let joined = device.join();
+    stats.dropped = stats.dropped.saturating_add(u64::from(device.dropped()));
+    stop.and(joined).map_err(hal_error)?;
+    if let Some(error) = fault {
+        return Err(hal_error(error));
+    }
+    Ok(stats)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    struct Pending(bool);
-    impl Imu for Pending {
-        fn sample(&mut self, _: u64) -> Result<ImuSample, DeviceError> {
-            let first = core::mem::replace(&mut self.0, false);
-            Err(if first { DeviceError::Busy } else { DeviceError::Io })
+    use std::time::Duration;
+    struct Source {
+        stopped: bool,
+        joined: SyncSender<()>,
+    }
+    impl Imu for Source {
+        fn request_stop(&mut self) -> Result<(), DeviceError> {
+            self.stopped = true;
+            Ok(())
+        }
+        fn join(&mut self) -> Result<(), DeviceError> {
+            assert!(self.stopped);
+            self.joined.try_send(()).unwrap();
+            Ok(())
+        }
+        fn is_finished(&self) -> bool {
+            false
+        }
+        fn dropped(&self) -> u32 {
+            0
         }
     }
     #[test]
-    fn pending_data_is_normal_but_io_failure_is_counted() {
-        let (_, inputs) = crate::FusionService::with_config(crate::FusionConfig::default());
-        let (control, inbox) = bounded(4);
-        control.send(Event::SampleDeadline).unwrap();
-        control.send(Event::SampleDeadline).unwrap();
-        control.send(Event::Shutdown).unwrap();
-        let stats = run(ImuService::new(inputs.imu), Pending(true), inbox);
-        assert_eq!((stats.produced, stats.errors), (0, 1));
+    fn dropping_handle_requests_stop_even_when_measurements_fill_the_inbox() {
+        let (_, inputs) = crate::FusionService::new();
+        let (control, inbox) = bounded(1);
+        let admitted = control.try_send(Event::Device(imu::Event::Sample(ImuSample {
+            sequence: 1,
+            timestamp_ms: 0,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0; 3],
+        })));
+        assert!(admitted.is_ok());
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = stopping.clone();
+        let (begin, started) = sync_channel(1);
+        let (joined, retired) = sync_channel(1);
+        let join = thread::spawn(move || {
+            started.recv().unwrap();
+            run(
+                ImuService::new(inputs.imu),
+                Source {
+                    stopped: false,
+                    joined,
+                },
+                inbox,
+                &stop,
+            )
+        });
+        let handle = ImuHandle {
+            control,
+            stopping,
+            join: Some(join),
+        };
+        drop(handle); // Shutdown cannot consume a queue slot or block this owner.
+        begin.send(()).unwrap();
+        retired.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 }

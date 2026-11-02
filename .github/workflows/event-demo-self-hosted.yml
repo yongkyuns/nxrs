@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'refactor/**'
+      - 'codex/**'
       - 'demo/**'
       - 'build/**'
     paths:
@@ -13,6 +14,10 @@ on:
       - 'service/event/**'
       - 'hal/imu/**'
       - 'hal/gnss/**'
+      - 'hal/common/**'
+      - 'driver/acquisition.rs'
+      - 'driver/mock_acquisition.rs'
+      - 'driver/nuttx/**'
       - 'platform/nuttx/std-app/**'
       - 'platform/firmware/**'
       - '.cargo/config.toml'
@@ -150,7 +155,7 @@ jobs:
           status=$?
           set -e
           test "$status" -ne 0
-          grep -q 'IMU HAL acquisition failed: Unsupported' \
+          grep -q 'Imu HAL: Unsupported' \
             target/event-demo/dual-unconfigured.log
 
       - name: Lint demo layers

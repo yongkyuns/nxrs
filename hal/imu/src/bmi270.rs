@@ -1,14 +1,14 @@
 //! Private BMI270 protocol adapter. No OS, device paths or service scheduling.
-use crate::{DeviceError, Imu, ImuSample};
-use bmi2::{interface::I2cInterface, types::*, Bmi2, I2cAddr};
+use crate::{DeviceError, ImuSample};
+use bmi2::{types::*, Bmi2, I2cAddr};
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 
 const BURST: u16 = 32;
-type Driver<B, D> = Bmi2<I2cInterface<B>, D, 64>;
 pub(crate) struct Sensor<B: I2c, D: DelayNs> {
-    driver: Driver<B, D>,
+    bus: B,
+    address: I2cAddr,
+    _delay: core::marker::PhantomData<D>,
     sequence: u64,
-    last_time: Option<u32>,
 }
 fn error<E>(error: bmi2::types::Error<E>) -> DeviceError {
     match error {
@@ -41,7 +41,8 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
         if status != [1] {
             return Err(DeviceError::InvalidData);
         }
-        let mut driver = Bmi2::new_i2c(bus, D::default(), address, Burst::new(BURST));
+        let mut driver =
+            Bmi2::<_, D, 64>::new_i2c(&mut bus, D::default(), address, Burst::new(BURST));
         driver.disable_power_save().map_err(error)?;
         driver.set_acc_range(AccRange::Range4g).map_err(error)?;
         driver
@@ -73,14 +74,123 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
                 temp_en: false,
             })
             .map_err(error)?;
+        // Startup is bounded initialization, not a periodic acquisition path.
+        // Different accel/gyro startup times must not enter a headerless FIFO.
+        let mut startup_delay = D::default();
+        let mut ready = false;
+        for _ in 0..100 {
+            let status = driver.get_status().map_err(error)?;
+            if status.acc_data_ready && status.gyr_data_ready {
+                ready = true;
+                break;
+            }
+            startup_delay.delay_ms(1);
+        }
+        if !ready {
+            return Err(DeviceError::Timeout);
+        }
+        driver
+            .set_fifo_downs(FifoDowns {
+                gyr_downs: 0,
+                gyr_filt_data: FilterData::Filtered,
+                acc_downs: 0,
+                acc_filt_data: FilterData::Filtered,
+            })
+            .map_err(error)?;
+        driver
+            .set_fifo_conf(FifoConf {
+                stop_on_full: true,
+                time_enable: false,
+                tag_int1_en: FifoTagIntEnable::IntEdge,
+                tag_int2_en: FifoTagIntEnable::IntEdge,
+                header_enable: false,
+                aux_enable: false,
+                acc_enable: true,
+                gyr_enable: true,
+            })
+            .map_err(error)?;
+        driver.set_fifo_wtm(48).map_err(error)?; // Four 100 Hz combined frames.
+        driver.send_cmd(Cmd::FifoFlush).map_err(error)?;
+        driver.set_int_latch(IntLatch::None).map_err(error)?;
+        driver
+            .set_int1_io_ctrl(IntIoCtrl {
+                level: OutputLevel::ActiveHigh,
+                od: OutputBehavior::PushPull,
+                output_en: true,
+                input_en: false,
+            })
+            .map_err(error)?;
+        driver
+            .set_int_map_data(IntMapData {
+                int1: MapData {
+                    ffull: true,
+                    fwm: true,
+                    drdy: false,
+                    err: true,
+                },
+                int2: MapData {
+                    ffull: false,
+                    fwm: false,
+                    drdy: false,
+                    err: false,
+                },
+            })
+            .map_err(error)?;
+        // Decoder assumptions must match the configuration actually accepted.
+        for (register, expected, mask) in [
+            (0x40, 8, 0x0f),
+            (0x42, 8, 0x0f),
+            (0x45, 0x88, 0xff),
+            (0x46, 48, 0xff),
+            (0x47, 0, 0xff),
+            (0x48, 1, 0xff),
+            (0x49, 0xc0, 0xff),
+            (0x53, 0x0a, 0xff),
+            (0x55, 0, 1),
+            (0x58, 0x0b, 0xff),
+        ] {
+            let mut value = [0];
+            bus.write_read(address.addr(), &[register], &mut value)
+                .map_err(|_| DeviceError::Io)?;
+            if value[0] & mask != expected {
+                return Err(DeviceError::InvalidData);
+            }
+        }
         Ok(Self {
-            driver,
+            bus,
+            address,
+            _delay: core::marker::PhantomData,
             sequence: 0,
-            last_time: None,
         })
     }
     pub(crate) fn stop(&mut self) -> Result<(), DeviceError> {
-        self.driver
+        let mut driver =
+            Bmi2::<_, D, 64>::new_i2c(&mut self.bus, D::default(), self.address, Burst::new(BURST));
+        driver
+            .set_int_map_data(IntMapData {
+                int1: MapData {
+                    ffull: false,
+                    fwm: false,
+                    drdy: false,
+                    err: false,
+                },
+                int2: MapData {
+                    ffull: false,
+                    fwm: false,
+                    drdy: false,
+                    err: false,
+                },
+            })
+            .map_err(error)?;
+        driver
+            .set_int1_io_ctrl(IntIoCtrl {
+                level: OutputLevel::ActiveHigh,
+                od: OutputBehavior::PushPull,
+                output_en: false,
+                input_en: false,
+            })
+            .map_err(error)?;
+        driver
             .set_pwr_ctrl(PwrCtrl {
                 aux_en: false,
                 gyr_en: false,
@@ -88,34 +198,65 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
                 temp_en: false,
             })
             .map_err(error)?;
-        let state = self.driver.get_pwr_ctrl().map_err(error)?;
+        let state = driver.get_pwr_ctrl().map_err(error)?;
         if state.aux_en || state.gyr_en || state.acc_en || state.temp_en {
             return Err(DeviceError::Io);
         }
         Ok(())
     }
 }
-impl<B: I2c, D: DelayNs> Imu for Sensor<B, D> {
-    fn sample(&mut self, now_ms: u64) -> Result<ImuSample, DeviceError> {
-        let status = self.driver.get_status().map_err(error)?;
-        if !status.acc_data_ready || !status.gyr_data_ready {
-            return Err(DeviceError::Busy);
+impl<B: I2c, D: DelayNs> Sensor<B, D> {
+    /// Called only after an IRQ notification. Never polls latest-value registers.
+    pub(crate) fn drain(
+        &mut self,
+        now_ms: u64,
+        mut emit: impl FnMut(ImuSample) -> bool,
+    ) -> Result<Option<usize>, DeviceError> {
+        let mut status = [0];
+        self.bus
+            .write_read(self.address.addr(), &[0x1d], &mut status)
+            .map_err(|_| DeviceError::Io)?;
+        if status[0] & 1 != 0 {
+            return Err(DeviceError::Full);
         }
-        // One contiguous read owns both vectors and the sensor counter.
-        let data = self.driver.get_data().map_err(error)?;
-        if self.last_time == Some(data.time) {
-            return Err(DeviceError::Busy);
+        if status[0] & 4 != 0 {
+            return Err(DeviceError::Io);
         }
-        self.last_time = Some(data.time);
-        self.sequence = self.sequence.saturating_add(1);
-        let accel = 9.80665 / 8192.0; // ±4g / signed 16-bit range.
-        let gyro = core::f32::consts::PI / 180.0 * 2000.0 / 32768.0;
-        Ok(ImuSample {
-            sequence: self.sequence,
-            timestamp_ms: now_ms,
-            accel_mps2: [data.acc.x, data.acc.y, data.acc.z].map(|v| f32::from(v) * accel),
-            gyro_rps: [data.gyr.x, data.gyr.y, data.gyr.z].map(|v| f32::from(v) * gyro),
-        })
+        let mut length = [0; 2];
+        self.bus
+            .write_read(self.address.addr(), &[0x24], &mut length)
+            .map_err(|_| DeviceError::Io)?;
+        let count = usize::from(u16::from_le_bytes(length));
+        // Headerless frames contain gyro XYZ followed by accel XYZ (12 bytes).
+        // Equal ODR, no auxiliary data/tags/time, and no downsampling are required.
+        if count > 2048 || count % 12 != 0 {
+            return Err(DeviceError::InvalidData);
+        }
+        let mut remaining = count;
+        let mut bytes = [0; 60];
+        while remaining != 0 {
+            let n = remaining.min(bytes.len());
+            self.bus
+                .write_read(self.address.addr(), &[0x26], &mut bytes[..n])
+                .map_err(|_| DeviceError::Io)?;
+            for frame in bytes[..n].chunks_exact(12) {
+                self.sequence = self.sequence.saturating_add(1);
+                let axis = |i| f32::from(i16::from_le_bytes([frame[i], frame[i + 1]]));
+                let accel = 9.80665 / 8192.0;
+                let gyro = core::f32::consts::PI / 180.0 * 2000.0 / 32768.0;
+                if !emit(ImuSample {
+                    sequence: self.sequence,
+                    timestamp_ms: now_ms,
+                    sample_interval_us: 10_000,
+                    accel_mps2: [axis(6) * accel, axis(8) * accel, axis(10) * accel],
+                    gyro_rps: [axis(0) * gyro, axis(2) * gyro, axis(4) * gyro],
+                }) {
+                    return Ok(None);
+                }
+            }
+            remaining -= n;
+        }
+        Ok(Some(count / 12))
     }
 }
 
@@ -123,93 +264,159 @@ impl<B: I2c, D: DelayNs> Imu for Sensor<B, D> {
 mod tests {
     use super::*;
     use embedded_hal::i2c::{ErrorKind, ErrorType, Operation};
+    use std::vec::Vec;
     #[derive(Default)]
     struct Delay;
     impl DelayNs for Delay {
         fn delay_ns(&mut self, _: u32) {}
     }
     struct Bus {
-        status: u8,
-        power: u8,
+        registers: [u8; 128],
+        fifo: Vec<u8>,
+        cursor: usize,
         fail_data: bool,
+        startup_reads: usize,
+        ready_after: usize,
+    }
+    impl Bus {
+        fn new() -> Self {
+            let mut registers = [0; 128];
+            registers[0] = 0x24;
+            registers[0x21] = 1;
+            Self {
+                registers,
+                fifo: Vec::new(),
+                cursor: 0,
+                fail_data: false,
+                startup_reads: 0,
+                ready_after: 3,
+            }
+        }
     }
     impl ErrorType for Bus {
         type Error = ErrorKind;
     }
     impl I2c for Bus {
-        fn transaction(&mut self, _: u8, ops: &mut [Operation<'_>]) -> Result<(), Self::Error> {
-            match ops {
+        fn transaction(
+            &mut self,
+            _: u8,
+            operations: &mut [Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            match operations {
                 [Operation::Write(bytes)] => {
-                    if bytes[0] == 0x7d {
-                        self.power = bytes[1];
+                    let reg = usize::from(bytes[0]);
+                    if reg == 0x49 && bytes[1] & 0xc0 != 0 {
+                        assert!(
+                            self.startup_reads > self.ready_after,
+                            "FIFO enabled before both sensors ready"
+                        );
+                    }
+                    if reg != 0x5e {
+                        self.registers[reg..reg + bytes.len() - 1].copy_from_slice(&bytes[1..]);
                     }
                 }
-                [Operation::Write(reg), Operation::Read(bytes)] => {
-                    bytes.fill(0);
-                    match reg[0] {
-                        0x00 => bytes[0] = 0x24,
-                        0x21 => bytes[0] = self.status,
-                        0x03 => bytes[0] = 0xc0,
-                        0x7d => bytes[0] = self.power,
-                        0x0c => {
-                            if self.fail_data {
-                                return Err(ErrorKind::Other);
-                            }
-                            bytes[0..2].copy_from_slice(&8192_i16.to_le_bytes());
-                            bytes[6..8].copy_from_slice(&16384_i16.to_le_bytes());
-                            bytes[12] = 1;
+                [Operation::Write(reg), Operation::Read(bytes)] => match reg[0] {
+                    0x03 => {
+                        self.startup_reads += 1;
+                        bytes[0] = if self.startup_reads > self.ready_after {
+                            0xc0
+                        } else {
+                            0x80
+                        };
+                    }
+                    0x24 => bytes.copy_from_slice(
+                        &(self.fifo.len() as u16 - self.cursor as u16).to_le_bytes(),
+                    ),
+                    0x26 => {
+                        if self.fail_data {
+                            return Err(ErrorKind::Other);
                         }
-                        _ => {}
+                        assert!(bytes.len() <= 60 && bytes.len() % 12 == 0);
+                        bytes.copy_from_slice(&self.fifo[self.cursor..self.cursor + bytes.len()]);
+                        self.cursor += bytes.len();
                     }
-                }
+                    _ => bytes.copy_from_slice(
+                        &self.registers[usize::from(reg[0])..usize::from(reg[0]) + bytes.len()],
+                    ),
+                },
                 _ => return Err(ErrorKind::Other),
             }
             Ok(())
         }
     }
     #[test]
-    fn rejects_error_initialization_status_including_odd_values() {
+    fn initialization_requires_exact_status_and_configures_only_fifo_interrupts() {
         for status in [0, 2, 3, 5, 7, 8, 9, 0xff] {
+            let mut bus = Bus::new();
+            bus.registers[0x21] = status;
             assert!(matches!(
-                Sensor::<_, Delay>::open(
-                    Bus {
-                        status,
-                        power: 0,
-                        fail_data: false
-                    },
-                    0x68
-                ),
+                Sensor::<_, Delay>::open(bus, 0x68),
                 Err(DeviceError::InvalidData)
             ));
         }
+        let mut sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        assert_eq!(sensor.bus.registers[0x49], 0xc0);
+        assert_eq!(sensor.bus.registers[0x58], 0x0b); // WM/full/error; no DRDY polling.
+        sensor.stop().unwrap();
+        assert_eq!(sensor.bus.registers[0x58], 0);
+        assert_eq!(sensor.bus.registers[0x7d], 0);
     }
     #[test]
-    fn converts_one_fresh_burst_and_propagates_failed_reads() {
-        let mut sensor = Sensor::<_, Delay>::open(
-            Bus {
-                status: 1,
-                power: 0,
-                fail_data: false,
-            },
-            0x68,
-        )
-        .unwrap();
-        let sample = sensor.sample(100).unwrap();
-        assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
-        assert!((sample.gyro_rps[0] - 17.453293).abs() < 1e-5);
-        assert_eq!((sample.sequence, sample.timestamp_ms), (1, 100));
-        assert_eq!(sensor.sample(101), Err(DeviceError::Busy));
-        sensor.stop().unwrap();
-        let mut failed = Sensor::<_, Delay>::open(
-            Bus {
-                status: 1,
-                power: 0,
-                fail_data: true,
-            },
-            0x68,
-        )
-        .unwrap();
-        assert_eq!(failed.sample(0), Err(DeviceError::Io));
-        assert_eq!(failed.sequence, 0);
+    fn fifo_requires_both_sensors_ready_and_initialization_has_a_deadline() {
+        let mut bus = Bus::new();
+        bus.ready_after = 100;
+        assert!(matches!(
+            Sensor::<_, Delay>::open(bus, 0x68),
+            Err(DeviceError::Timeout)
+        ));
+        let sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        assert_eq!(sensor.bus.startup_reads, 4);
+    }
+    #[test]
+    fn fifo_bursts_preserve_all_samples_order_units_and_nominal_interval() {
+        let mut sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        for _ in 0..7 {
+            for axis in [0_i16, 0, 16384, 8192, -8192, 0] {
+                sensor.bus.fifo.extend_from_slice(&axis.to_le_bytes());
+            }
+        }
+        let mut samples = Vec::new();
+        assert_eq!(
+            sensor.drain(123, |sample| {
+                samples.push(sample);
+                true
+            }),
+            Ok(Some(7))
+        );
+        assert_eq!(samples.len(), 7);
+        for (i, sample) in samples.iter().enumerate() {
+            assert_eq!(
+                (
+                    sample.sequence,
+                    sample.timestamp_ms,
+                    sample.sample_interval_us
+                ),
+                (i as u64 + 1, 123, 10_000)
+            );
+            assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
+            assert!((sample.accel_mps2[1] + 9.80665).abs() < 1e-5);
+            assert!((sample.gyro_rps[2] - 17.453293).abs() < 1e-5);
+        }
+        assert_eq!(sensor.drain(124, |_| panic!("replayed FIFO")), Ok(Some(0)));
+    }
+    #[test]
+    fn overflow_partial_frames_io_and_closed_consumers_are_explicit() {
+        let mut sensor = Sensor::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        sensor.bus.registers[0x1d] = 1;
+        assert_eq!(sensor.drain(0, |_| true), Err(DeviceError::Full));
+        sensor.bus.registers[0x1d] = 0;
+        sensor.bus.fifo.push(0);
+        assert_eq!(sensor.drain(0, |_| true), Err(DeviceError::InvalidData));
+        sensor.bus.fifo.resize(24, 0);
+        sensor.bus.fail_data = true;
+        assert_eq!(sensor.drain(0, |_| true), Err(DeviceError::Io));
+        sensor.bus.fail_data = false;
+        assert_eq!(sensor.drain(0, |_| false), Ok(None));
+        assert_eq!(sensor.sequence, 1);
     }
 }

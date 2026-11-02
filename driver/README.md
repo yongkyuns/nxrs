@@ -19,3 +19,11 @@ It owns opaque GIO resources and call/reply mechanics. Each provider owns its
 radio-specific D-Bus schemas, control sequencing and error policy. It uses Rust
 std for memory, strings, clocks, sleeping and callback ownership; the remaining
 FFI expresses SDK operations unavailable in std.
+
+`acquisition.rs` shares the task-context lifecycle of GNSS/IMU event producers:
+bounded sink admission, loss counts, terminal-fault retention, explicit stop/join,
+and resource ownership through worker completion. Each HAL supplies its device
+wait, cleanup and error type. `mock_acquisition.rs` is compiled only for explicit
+synthetic fixtures. `nuttx/readiness.rs` shares Rust descriptor ownership and
+cancellation; native ABI glue remains beside each provider. These helpers do not
+create a registry, service dependency, or generic peripheral API.

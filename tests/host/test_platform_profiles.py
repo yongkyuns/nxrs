@@ -220,15 +220,18 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_cores3_sensor_resources_and_invalid_bindings(self):
         data = PLATFORM_CONFIG.resolve("m5stack-cores3-gnss")
         self.assertEqual(PLATFORM_CONFIG.gnss_config(data),
-                         {"device": "/dev/ttyS1", "baud": 38400})
+                         {"device": "/dev/ttyS1", "baud": 38400, "stack-bytes": 16384})
         self.assertEqual(PLATFORM_CONFIG.imu_config(data),
                          {"driver": "bmi270", "device": "/dev/i2c0",
-                          "address": 0x68, "frequency": 400000})
+                          "address": 0x68, "frequency": 400000, "stack-bytes": 16384, "irq-device": "/dev/bmi270-int"})
         for function, key, invalid in (
                 (PLATFORM_CONFIG.gnss_config, "gnss", {"baud": True}),
                 (PLATFORM_CONFIG.gnss_config, "gnss", {"device": "/dev/../ttyS1"}),
                 (PLATFORM_CONFIG.imu_config, "imu", {"address": 0x70}),
-                (PLATFORM_CONFIG.imu_config, "imu", {"frequency": 0})):
+                (PLATFORM_CONFIG.imu_config, "imu", {"frequency": 0}),
+                (PLATFORM_CONFIG.imu_config, "imu", {"irq-device": "/dev/../gpio0"}),
+                (PLATFORM_CONFIG.imu_config, "imu", {"irq-device": False}),
+                (PLATFORM_CONFIG.gnss_config, "gnss", {"stack-bytes": 1})):
             with self.subTest(key=key, invalid=invalid):
                 with self.assertRaises(ValueError):
                     function({**data, key: {**data[key], **invalid}})

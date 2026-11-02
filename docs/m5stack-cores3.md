@@ -43,3 +43,18 @@ References: [CoreS3](https://docs.m5stack.com/en/core/CoreS3),
 [Module GNSS](https://docs.m5stack.com/en/module/Module_GNSS),
 [vendor sensor example](https://github.com/m5stack/M5Module-GNSS/blob/main/examples/getSensorData/getSensorData.ino),
 [Stamp CatM](https://docs.m5stack.com/en/stamp/Stamp_CatM).
+
+### Event-driven acquisition limitation
+
+GNSS acquisition waits on UART readiness and emits normalized UBX fixes from a
+HAL worker. BMI270 acquisition uses INT1 FIFO watermark/full/error notification
+and drains complete combined frames at 100 Hz; service timers do not read either
+device. Host receive timestamps are distinct from the nominal IMU sample interval.
+
+The [M135 v1.0 schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/561/SCH_Module_GNSS_V1.0.pdf)
+shows U3 INT1/INT2 unconnected to the M-Bus. The stock profile therefore cannot
+start IMU acquisition: it returns `Unsupported`, with no polling fallback.
+The profile names the required logical endpoint `/dev/bmi270-int`; the stock
+board deliberately does not register it. A physically wired INT1 and a
+platform-registered rising-edge GPIO node supplied as `imu.irq-device` are required. No GPIO assignment or board modification is
+assumed. Physical FIFO/IRQ throughput, timing and power qualification remain open.
