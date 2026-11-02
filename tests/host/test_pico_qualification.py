@@ -99,6 +99,10 @@ class PicoQualification(unittest.TestCase):
             BUILD.qualify_compute_context(root)
             config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n')
             BUILD.qualify_compute_context(root)
+            for flag in ('ARCH_PERF_EVENTS', 'TIMER_ARCH', 'ALARM_ARCH', 'PERF_OVERFLOW_CORRECTION'):
+                config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_' + flag + ' 1\n')
+                with self.assertRaisesRegex(ValueError, 'SMP-safe perf clock'):
+                    BUILD.qualify_compute_context(root)
             for content in (qualified + '#define CONFIG_SMP 1\n',
                             qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_ARCH_PERF_EVENTS 1\n',
                             qualified.replace('CONFIG_ARCH_CHIP_ESP32S3', 'CONFIG_OTHER_CPU'),
