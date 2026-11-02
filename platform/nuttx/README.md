@@ -19,6 +19,9 @@ Developers select a platform through Cargo:
 cargo firmware --app event-demo --platform pico2-mock
 ~~~
 
+The [CoreS3 navigation profile](../../docs/m5stack-cores3.md) adds raw UART/I²C
+resources for Module GNSS M135; physical qualification is pending.
+
 App entry settings come from the app's existing `Cargo.toml`; there is no
 separate deployment file.
 

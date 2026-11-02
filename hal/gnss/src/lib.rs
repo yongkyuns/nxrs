@@ -1,9 +1,13 @@
 //! GNSS contract and capability-local acquisition.
 #![no_std]
 #![deny(unsafe_code)]
+#[cfg(any(test, hal_enabled))]
+extern crate std;
 mod api;
 pub use api::{DeviceError, Gnss, GnssFix};
 mod platform;
+#[cfg(any(test, hal_enabled))]
+mod receiver;
 pub use platform::*;
 
 #[cfg(test)]
@@ -17,6 +21,6 @@ mod tests {
         let second = gnss.fix(20).unwrap();
         assert_eq!((first.sequence, second.sequence), (1, 2));
         assert_eq!((first.timestamp_ms, second.timestamp_ms), (10, 20));
-        assert!(second.east_m > first.east_m);
+        assert!(second.longitude_deg > first.longitude_deg);
     }
 }

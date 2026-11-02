@@ -18,10 +18,10 @@ impl Gnss for SyntheticGnss {
         Ok(GnssFix {
             sequence: self.sequence,
             timestamp_ms: now_ms,
-            north_m: self.north_m,
-            east_m: self.east_m,
+            latitude_deg: f64::from(self.north_m) / 111_319.490_793,
+            longitude_deg: f64::from(self.east_m) / 111_319.490_793,
             speed_mps: 4.0,
-            course_rad: 0.08,
+            course_rad: Some(0.08),
         })
     }
 }

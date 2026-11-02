@@ -16,10 +16,12 @@ pub enum DeviceError {
 pub struct GnssFix {
     pub sequence: u64,
     pub timestamp_ms: u64,
-    pub north_m: f32,
-    pub east_m: f32,
+    /// WGS84 geodetic coordinates. Local map projection belongs to navigation.
+    pub latitude_deg: f64,
+    pub longitude_deg: f64,
     pub speed_mps: f32,
-    pub course_rad: f32,
+    /// Movement course, absent when the receiver cannot determine it.
+    pub course_rad: Option<f32>,
 }
 
 pub trait Gnss {

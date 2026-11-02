@@ -46,6 +46,7 @@ PLATFORM_NAMES = {
     "esp32s3-camera-stream-video",
     "esp32s3-camera-tls",
     "pico2w-radio",
+    "m5stack-cores3-gnss",
 }
 
 APP_OWNED = (
@@ -183,7 +184,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 features = data.get("hal")
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
-                expected = {"esp32s3-service-footprint": {},
+                expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
+                            "esp32s3-service-footprint": {},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
@@ -214,6 +216,26 @@ class FirmwareFrontendTests(unittest.TestCase):
                 text = platform.read_text()
                 for name in APP_OWNED:
                     self.assertNotIn(name, text, f"{platform} owns app policy {name}")
+
+    def test_cores3_sensor_resources_and_invalid_bindings(self):
+        data = PLATFORM_CONFIG.resolve("m5stack-cores3-gnss")
+        self.assertEqual(PLATFORM_CONFIG.gnss_config(data),
+                         {"device": "/dev/ttyS1", "baud": 38400})
+        self.assertEqual(PLATFORM_CONFIG.imu_config(data),
+                         {"driver": "bmi270", "device": "/dev/i2c0",
+                          "address": 0x68, "frequency": 400000})
+        for function, key, invalid in (
+                (PLATFORM_CONFIG.gnss_config, "gnss", {"baud": True}),
+                (PLATFORM_CONFIG.gnss_config, "gnss", {"device": "/dev/../ttyS1"}),
+                (PLATFORM_CONFIG.imu_config, "imu", {"address": 0x70}),
+                (PLATFORM_CONFIG.imu_config, "imu", {"frequency": 0})):
+            with self.subTest(key=key, invalid=invalid):
+                with self.assertRaises(ValueError):
+                    function({**data, key: {**data[key], **invalid}})
+        for function, key in ((PLATFORM_CONFIG.gnss_config, "gnss"),
+                              (PLATFORM_CONFIG.imu_config, "imu")):
+            with self.assertRaises(ValueError):
+                function({**data, "hal": {**data["hal"], key: "mock"}})
 
     def test_cargo_frontend_help_is_successful(self):
         output = self.cargo_firmware("--help").stdout

@@ -231,6 +231,7 @@ where
                             Submit::Disconnected => break,
                         }
                     }
+                    Err(DeviceError::Busy) => {},
                     Err(_) => stats.errors = stats.errors.saturating_add(1),
                 }
 
@@ -244,4 +245,26 @@ where
         }
     }
     stats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Pending(bool);
+    impl Imu for Pending {
+        fn sample(&mut self, _: u64) -> Result<ImuSample, DeviceError> {
+            let first = core::mem::replace(&mut self.0, false);
+            Err(if first { DeviceError::Busy } else { DeviceError::Io })
+        }
+    }
+    #[test]
+    fn pending_data_is_normal_but_io_failure_is_counted() {
+        let (_, inputs) = crate::FusionService::with_config(crate::FusionConfig::default());
+        let (control, inbox) = bounded(4);
+        control.send(Event::SampleDeadline).unwrap();
+        control.send(Event::SampleDeadline).unwrap();
+        control.send(Event::Shutdown).unwrap();
+        let stats = run(ImuService::new(inputs.imu), Pending(true), inbox);
+        assert_eq!((stats.produced, stats.errors), (0, 1));
+    }
 }
