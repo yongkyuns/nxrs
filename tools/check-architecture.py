@@ -38,6 +38,10 @@ PORTABLE_EXTERNAL: set[str] = set()
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
+    # Pinned no_std register driver and its I2C/delay traits. The IMU HAL admits
+    # only bounded configuration and nonpanicking operations, with an exact
+    # post-init status check; no Linux backend or driver runtime is selected.
+    'nxrs-imu': {'bmi2', 'embedded-hal'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.

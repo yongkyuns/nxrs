@@ -62,7 +62,43 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
     scheduling_config(data)
     console_config(data)
     network_initialization(data)
+    gnss_config(data)
+    imu_config(data)
     return data
+
+
+def gnss_config(platform: dict) -> dict | None:
+    config = platform.get("gnss", {})
+    if platform["hal"].get("gnss") != "nuttx":
+        if config:
+            raise ValueError("GNSS device configuration requires its NuttX binding")
+        return None
+    if not isinstance(config, dict) or set(config) != {"device", "baud"}:
+        raise ValueError("GNSS requires a UART device and baud")
+    device = config["device"]
+    if (not isinstance(device, str) or not re.fullmatch(r"/dev/[A-Za-z0-9_/.-]{1,120}", device)
+            or ".." in device.split("/") or type(config["baud"]) is not int
+            or config["baud"] not in {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600}):
+        raise ValueError("invalid GNSS UART binding")
+    return config
+
+
+def imu_config(platform: dict) -> dict | None:
+    config = platform.get("imu", {})
+    if platform["hal"].get("imu") != "nuttx":
+        if config:
+            raise ValueError("IMU device configuration requires its NuttX binding")
+        return None
+    if not isinstance(config, dict) or set(config) != {"driver", "device", "address", "frequency"}:
+        raise ValueError("IMU requires driver, I2C device, address and frequency")
+    device = config["device"]
+    if (config["driver"] != "bmi270" or not isinstance(device, str)
+            or not re.fullmatch(r"/dev/[A-Za-z0-9_/.-]{1,120}", device)
+            or ".." in device.split("/") or type(config["address"]) is not int
+            or config["address"] not in {0x68, 0x69}
+            or type(config["frequency"]) is not int or config["frequency"] not in {100000, 400000}):
+        raise ValueError("invalid BMI270 I2C binding")
+    return config
 
 
 def detector_config(platform: dict) -> dict | None:
@@ -184,6 +220,14 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     manifests = {root / "hal" / name / "Cargo.toml" for name in platform["hal"]}
     manifests.add(root / "hal" / capability / "Cargo.toml")
     resources = []
+    if capability == "gnss" and platform["hal"].get(capability) == "nuttx":
+        config = gnss_config(platform)
+        resources.extend(["cargo:rustc-env=GNSS_DEVICE=" + config["device"],
+                          "cargo:rustc-env=GNSS_BAUD=" + str(config["baud"])])
+    if capability == "imu" and platform["hal"].get(capability) == "nuttx":
+        config = imu_config(platform)
+        resources.extend("cargo:rustc-env=IMU_" + key.upper() + "=" + str(config[key])
+                         for key in ("device", "address", "frequency"))
     if capability == "wifi" and platform["hal"].get(capability) == "nuttx":
         resources.append("cargo:rustc-env=WIFI_INITIALIZATION=" + network_initialization(platform))
     if capability == "console" and platform["hal"].get(capability, "none") != "none":

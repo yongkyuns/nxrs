@@ -2,6 +2,16 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "hal/imu/src/platform/nuttx/ffi/i2c.c"
+kind = "abi"
+reason = "Constructs target I2C transfer ioctl/messages for borrowed Rust buffers. Rust and the private portable BMI270 driver own sensor protocol, initialization admission, conversion, freshness and descriptor lifecycle."
+
+[[bridge]]
+path = "hal/gnss/src/platform/nuttx/ffi/serial.c"
+kind = "abi"
+reason = "Target O_NONBLOCK and termios representation/control translation. Rust owns the UART descriptor, restoration order, exclusive admission, bounded reads and all receiver protocol decoding."
+
+[[bridge]]
 path = "hal/watchdog/src/platform/nuttx/ffi/watchdog.c"
 kind = "abi"
 reason = "Target watchdog status fields and individual GETSTATUS/STOP ioctls. Rust owns descriptor admission, cancellation verification and sticky failure; the bridge never arms or feeds."

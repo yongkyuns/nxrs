@@ -9,4 +9,8 @@ name = "imu"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-platforms = ["mock"]
+platforms = ["mock", "nuttx"]
+
+[dependencies]
+bmi2 = "=0.1.2"
+embedded-hal = "=1.0.0"

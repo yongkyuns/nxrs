@@ -3,9 +3,9 @@ use std::sync::mpsc::{RecvTimeoutError, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use event::{bounded, EventInbox, EventSender};
 use gnss::GnssFix;
 use imu::ImuSample;
-use event::{bounded, EventInbox, EventSender};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NavState {
@@ -111,9 +111,18 @@ impl FusionService {
     }
 
     pub fn with_config(config: FusionConfig) -> (Self, FusionInputs) {
-        assert!(config.inbox_capacity > 0, "fusion inbox capacity must be nonzero");
-        assert!(config.output_capacity > 0, "fusion output capacity must be nonzero");
-        assert!(config.publish_every_imu > 0, "fusion publish cadence must be nonzero");
+        assert!(
+            config.inbox_capacity > 0,
+            "fusion inbox capacity must be nonzero"
+        );
+        assert!(
+            config.output_capacity > 0,
+            "fusion output capacity must be nonzero"
+        );
+        assert!(
+            config.publish_every_imu > 0,
+            "fusion publish cadence must be nonzero"
+        );
 
         let (sender, inbox) = bounded(config.inbox_capacity);
         let (output, output_rx) = bounded(config.output_capacity);
@@ -213,6 +222,7 @@ fn run(service: FusionService) -> FusionStats {
 struct FusionCore {
     state: NavState,
     last_imu_ms: Option<u64>,
+    origin: Option<(f64, f64)>,
 }
 
 impl FusionCore {
@@ -220,8 +230,7 @@ impl FusionCore {
         if let Some(last) = self.last_imu_ms {
             let dt = sample.timestamp_ms.saturating_sub(last) as f32 / 1000.0;
             self.state.heading_rad += sample.gyro_rps[2] * dt;
-            self.state.speed_mps =
-                (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
+            self.state.speed_mps = (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
         }
         self.last_imu_ms = Some(sample.timestamp_ms);
         self.state.timestamp_ms = sample.timestamp_ms;
@@ -230,12 +239,48 @@ impl FusionCore {
     }
 
     fn on_gnss(&mut self, fix: GnssFix) -> NavState {
+        let (latitude, longitude) = *self
+            .origin
+            .get_or_insert((fix.latitude_deg, fix.longitude_deg));
+        let radius = 6_378_137.0;
+        // Local tangent approximation, anchored at the first accepted fix.
+        let north = (fix.latitude_deg - latitude).to_radians() * radius;
+        let delta_lon = (fix.longitude_deg - longitude + 180.0).rem_euclid(360.0) - 180.0;
+        let east = delta_lon.to_radians() * radius * latitude.to_radians().cos();
         self.state.timestamp_ms = fix.timestamp_ms;
-        self.state.north_m = fix.north_m;
-        self.state.east_m = fix.east_m;
+        self.state.north_m = north as f32;
+        self.state.east_m = east as f32;
         self.state.speed_mps = fix.speed_mps;
-        self.state.heading_rad = fix.course_rad;
+        if let Some(course) = fix.course_rad {
+            self.state.heading_rad = course;
+        }
         self.state.gnss_sequence = fix.sequence;
         self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn projects_relative_to_first_fix_and_preserves_heading_when_course_is_unknown() {
+        let mut core = FusionCore::default();
+        let mut fix = GnssFix {
+            sequence: 1,
+            timestamp_ms: 0,
+            latitude_deg: 45.0,
+            longitude_deg: 179.999,
+            speed_mps: 1.0,
+            course_rad: Some(0.8),
+        };
+        let state = core.on_gnss(fix);
+        assert_eq!((state.north_m, state.east_m), (0.0, 0.0));
+        fix.latitude_deg += 0.001;
+        fix.longitude_deg = -179.999;
+        fix.course_rad = None;
+        let state = core.on_gnss(fix);
+        assert!((state.north_m - 111.3195).abs() < 0.001);
+        assert!((state.east_m - 157.4295).abs() < 0.001);
+        assert_eq!(state.heading_rad, 0.8);
     }
 }

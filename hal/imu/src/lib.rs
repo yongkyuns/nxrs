@@ -1,8 +1,12 @@
 //! IMU contract and capability-local acquisition.
 #![no_std]
 #![deny(unsafe_code)]
+#[cfg(any(test, hal_enabled))]
+extern crate std;
 mod api;
 pub use api::{DeviceError, Imu, ImuSample};
+#[cfg(any(test, hal_enabled))]
+mod bmi270;
 mod platform;
 pub use platform::*;
 

@@ -37,6 +37,7 @@ jobs:
         run: |
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+          python -m unittest discover -s tests/host -p test_imu_i2c_ffi.py -v
       - name: Editor configuration regressions
         run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
       - name: Ubuntu package setup failure controls
@@ -180,6 +181,7 @@ jobs:
           NXRS_PLATFORM: mock
         run: |
           cargo test --locked -p nxrs-simulator
+          cargo test --locked -p nxrs-navigation-services --lib --test active
           cargo run --locked -p nxrs-simulator --bin nxrs-simulator
       - name: App-owned CLI with independently decoded disk and UDP outputs
         run: python tests/host/test-native-runner.py

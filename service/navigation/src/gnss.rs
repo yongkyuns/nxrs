@@ -4,8 +4,8 @@ use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use gnss::{DeviceError, Gnss, GnssFix};
 use event::{bounded, EventInbox, EventSender};
+use gnss::{DeviceError, Gnss, GnssFix};
 
 use crate::fusion::{GnssInput, Submit};
 
@@ -44,7 +44,9 @@ impl GnssProcessor {
 
     pub fn process(&mut self, mut fix: GnssFix) -> GnssFix {
         fix.speed_mps = fix.speed_mps.max(0.0);
-        fix.course_rad = wrap_pi(fix.course_rad + self.course_offset_rad);
+        fix.course_rad = fix
+            .course_rad
+            .map(|course| wrap_pi(course + self.course_offset_rad));
         fix
     }
 }
@@ -180,7 +182,10 @@ fn hal_error(capability: &'static str, error: DeviceError) -> io::Error {
         DeviceError::Io => io::ErrorKind::Other,
         DeviceError::InvalidData => io::ErrorKind::InvalidData,
     };
-    io::Error::new(kind, format!("{capability} HAL acquisition failed: {error:?}"))
+    io::Error::new(
+        kind,
+        format!("{capability} HAL acquisition failed: {error:?}"),
+    )
 }
 
 fn run<D>(mut service: GnssService, mut device: D, inbox: EventInbox<Event>) -> GnssStats
@@ -244,6 +249,7 @@ where
                             Submit::Disconnected => break,
                         }
                     }
+                    Err(DeviceError::Busy) => {}
                     Err(_) => stats.errors = stats.errors.saturating_add(1),
                 }
 
@@ -257,4 +263,30 @@ where
         }
     }
     stats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Pending(bool);
+    impl Gnss for Pending {
+        fn fix(&mut self, _: u64) -> Result<GnssFix, DeviceError> {
+            let first = core::mem::replace(&mut self.0, false);
+            Err(if first {
+                DeviceError::Busy
+            } else {
+                DeviceError::Io
+            })
+        }
+    }
+    #[test]
+    fn pending_data_is_normal_but_io_failure_is_counted() {
+        let (_, inputs) = crate::FusionService::with_config(crate::FusionConfig::default());
+        let (control, inbox) = bounded(4);
+        control.send(Event::FixDeadline).unwrap();
+        control.send(Event::FixDeadline).unwrap();
+        control.send(Event::Shutdown).unwrap();
+        let stats = run(GnssService::new(inputs.gnss), Pending(true), inbox);
+        assert_eq!((stats.produced, stats.errors), (0, 1));
+    }
 }
