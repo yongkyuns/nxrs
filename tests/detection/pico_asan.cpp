@@ -9,7 +9,8 @@
 
 extern "C" void *pico_create();
 extern "C" void pico_destroy(void *);
-extern "C" void pico_run(void *, const int8_t *, int8_t *);
+extern "C" int pico_run(void *, const int8_t *, int8_t *,
+                        int (*)(void *, void *, void *, void *), void *);
 
 // The sanitizer build renames only the SDK's allocator calls. Product objects
 // retain the ordinary allocator; this witness export exists only under tests.
@@ -46,12 +47,12 @@ int main()
     assert(first && second);
     for (int i = 0; i < 20; ++i) {
         input[i] = i;
-        pico_run(first, input.data(), first_output.data());
-        pico_run(second, input.data(), second_output.data());
+        assert(pico_run(first, input.data(), first_output.data(), nullptr, nullptr) == 0);
+        assert(pico_run(second, input.data(), second_output.data(), nullptr, nullptr) == 0);
         assert(first_output == second_output);
     }
     pico_destroy(first);
-    pico_run(second, input.data(), first_output.data());
+    assert(pico_run(second, input.data(), first_output.data(), nullptr, nullptr) == 0);
     assert(first_output == second_output);
     pico_destroy(second);
     // macOS ASan has no LeakSanitizer. Check live allocations explicitly too.
