@@ -101,8 +101,9 @@ fn batch() -> Result<(), String> {
         {
             let t = detector::qualification::Profiled::timings(&model);
             println!(
-                "NXRS_DETECT_PROFILE index={index} decode_us={} resize_us={} kernel_us={} postprocess_us={} total_us={}",
-                t.decode_us, t.resize_us, t.kernel_us, t.postprocess_us, t.total_us
+                "NXRS_DETECT_PROFILE index={index} decode_us={} resize_us={} kernel_us={} postprocess_us={} total_us={} output_hash={:016x}",
+                t.decode_us, t.resize_us, t.kernel_us, t.postprocess_us, t.total_us,
+                detector::qualification::Profiled::fingerprint(&model)
             );
         }
         count += 1;

@@ -2,8 +2,9 @@
 //! confidence decoding and bounded box postprocessing; a supplied kernel owns
 //! only synchronous quantized numerical execution.
 #[allow(unsafe_code)]
+#[allow(dead_code, reason = "Provider factories select sequential or parallel numerical execution.")]
 #[path = "../compute/esp_dl/ffi/mod.rs"]
-mod compute;
+pub(crate) mod compute;
 use super::image;
 use crate::{Bounds, Detection, Detections, DeviceError as Error, Score};
 pub(crate) use compute::Engine;
@@ -39,6 +40,12 @@ pub struct Pico<K> {
     threshold: Score,
 }
 impl<K: Kernel> Pico<K> {
+    #[cfg(feature = "probe")]
+    pub(crate) fn fingerprint(&self) -> u64 {
+        self.output.iter().fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(*byte as u8)).wrapping_mul(0x100000001b3)
+        })
+    }
     pub fn new(kernel: K) -> Result<Self, Error> {
         let mut input = Vec::new();
         input
@@ -221,8 +228,7 @@ impl Kernel for Engine {
         input: &[i8; INPUT_BYTES],
         output: &mut [i8; OUTPUT_BYTES],
     ) -> core::result::Result<(), crate::DeviceError> {
-        self.run(input, output);
-        Ok(())
+        self.run(input, output).map_err(|_| Error::Model)
     }
 }
 pub(crate) fn with_kernel<K: Kernel>(

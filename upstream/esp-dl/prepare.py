@@ -34,13 +34,26 @@ def prepare(destination, checkout=None):
             path = staged / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        # Exclude SDK-owned task launching. Rust supplies the single worker;
-        # a future attempt to split SDK work must fail instead of emulating an RTOS.
+        # Exclude SDK task launching. Only Conv may synchronously dispatch its
+        # SDK-generated row partitions through the Rust-owned callback below.
         path = staged / 'esp-dl/dl/module/include/dl_module_base.hpp'
         text = path.read_text()
         start = text.index('/**\n * @brief The data struct of module task.')
         end = text.index('#pragma GCC diagnostic pop', start) + len('#pragma GCC diagnostic pop')
         path.write_text(text[:start] + 'static void module_forward_dual_core(Module *, void *, void *) { abort(); }\n' + text[end:])
+        context = staged / 'esp-dl/dl/model/include/dl_model_context.hpp'
+        context.write_text(context.read_text().replace('class ModelContext {\npublic:', '''class ModelContext {
+public:
+    // Borrowed only during one synchronous numerical call; Rust joins both
+    // partitions before returning. No native task or callback retains storage.
+    int (*parallel)(void *, void *, void *, void *) = nullptr;
+    void *parallel_context = nullptr;
+    bool parallel_failed = false;'''))
+        conv = staged / 'esp-dl/dl/module/include/dl_module_conv.hpp'
+        conv.write_text(conv.read_text().replace(
+            'module_forward_dual_core(this, (void *)&m_args[0], (void *)&m_args[1]);',
+            '''if (!context->parallel || context->parallel(context->parallel_context,
+                    this, &m_args[0], &m_args[1]) != 0) context->parallel_failed = true;'''))
         # This private SDK port serves only the fixed S8 graph. A constant
         # precision lets ordinary dead-code elimination drop unused S16/float
         # dispatch and kernels, without changing the selected S8 operations.

@@ -1,0 +1,10 @@
+# Detector/streaming SMP experiment. TLS entropy and OTA maintenance remain
+# unqualified on SMP; signed product defaults retain their single-core profile.
+extends = "esp32s3-camera-stream"
+cpus = 2
+
+[detector]
+model = "pico"
+stack-bytes = 131072
+sample-ms = 750
+compute = { cores = [1, 0], stack-bytes = 32768, priority = 90 }

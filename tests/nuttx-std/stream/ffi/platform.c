@@ -68,9 +68,9 @@ int nxrs_stream_address(uint8_t address[4])
 
 int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
 {
-  FAR struct tcb_s *idle;
   irqstate_t flags;
-  clock_t idle_runtime;
+  clock_t idle_runtime[CONFIG_SMP_NCPUS];
+  uint64_t idle_us = 0;
   struct timespec wall;
   struct timespec idle_time;
   struct timespec cpu;
@@ -80,10 +80,17 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
     }
 
   flags = enter_critical_section();
-  idle = nxsched_get_tcb(0);
-  idle_runtime = idle ? idle->run_time : 0;
+  clock_t current = perf_gettime();
+  for (int cpu_index = 0; cpu_index < CONFIG_SMP_NCPUS; ++cpu_index)
+    {
+      FAR struct tcb_s *idle = nxsched_get_tcb(cpu_index);
+      if (idle == NULL) { leave_critical_section(flags); return -1; }
+      idle_runtime[cpu_index] = idle->run_time;
+      if (idle->task_state == TSTATE_TASK_RUNNING)
+        idle_runtime[cpu_index] += current - idle->run_start;
+    }
   leave_critical_section(flags);
-  if (!idle || clock_gettime(CLOCK_MONOTONIC, &wall) < 0 ||
+  if (clock_gettime(CLOCK_MONOTONIC, &wall) < 0 ||
       clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu) < 0)
     {
       return -1;
@@ -91,12 +98,16 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
 
   values[0] = mallinfo().uordblks;
   values[1] = kmm_mallinfo().uordblks;
-  /* This task is running, so the idle thread's last slice is already charged.
-   * Use full run-time precision, not per-switch integer scheduler ticks. ISR
-   * time remains attributed to the interrupted task by this accounting. */
-  perf_convert(idle_runtime, &idle_time);
+  /* Mean idle time per CPU, including a currently running remote idle slice.
+   * The Rust fixture computes utilization against one wall-time interval.
+   * Thread CPU below observes only the caller, not the numerical helper. */
+  for (int cpu_index = 0; cpu_index < CONFIG_SMP_NCPUS; ++cpu_index)
+    {
+      perf_convert(idle_runtime[cpu_index], &idle_time);
+      idle_us += (uint64_t)idle_time.tv_sec * 1000000 + idle_time.tv_nsec / 1000;
+    }
   times[0] = (uint64_t)wall.tv_sec * 1000000 + wall.tv_nsec / 1000;
-  times[1] = (uint64_t)idle_time.tv_sec * 1000000 + idle_time.tv_nsec / 1000;
+  times[1] = idle_us / CONFIG_SMP_NCPUS;
   times[2] = (uint64_t)cpu.tv_sec * 1000000 + cpu.tv_nsec / 1000;
   return 0;
 }

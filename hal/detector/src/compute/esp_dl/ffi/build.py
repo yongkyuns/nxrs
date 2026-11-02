@@ -8,8 +8,9 @@ def module(name,path):
 def qualify_compute_context(header):
     config = (pathlib.Path(header)/'nuttx/config.h').read_text()
     enabled = lambda name: re.search(r'^\s*#\s*define\s+'+name+r'\s+1\b', config, re.M) is not None
-    if not enabled('CONFIG_ARCH_CHIP_ESP32S3') or not enabled('CONFIG_BUILD_FLAT') or enabled('CONFIG_SMP'):
-        raise ValueError('PICO compute-context lease requires the qualified ESP32-S3 single-core flat NuttX profile')
+    if (not enabled('CONFIG_ARCH_CHIP_ESP32S3') or not enabled('CONFIG_BUILD_FLAT')
+            or (enabled('CONFIG_SMP') and not re.search(r'^\s*#\s*define\s+CONFIG_SMP_NCPUS\s+2\b', config, re.M))):
+        raise ValueError('PICO compute-context lease requires ESP32-S3 flat NuttX with one or two CPUs')
 
 def build(sdk,out,target):
     module('prepare',ROOT/'upstream/esp-dl/prepare.py').verify(sdk)

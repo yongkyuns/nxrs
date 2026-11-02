@@ -76,18 +76,25 @@ worker's `cop_ai` context only during numerical execution; context switches
 preserve that state. A Rust lease serializes kernels and restores the prior
 enabled state before releasing ownership, including unwind. JPEG/box processing
 and idle time do not retain a newly enabled SIMD context. This adapter requires
-the qualified single-core flat NuttX profile. Shared Rust behavior contains no platform/provider flags.
+the selected flat NuttX profile. Production remains single-core; the named SMP
+experiment pins caller/helper execution and restores affinity and SIMD state.
+Shared Rust behavior contains no platform/provider flags.
 
 ## Numerical SDK scope and ownership
 
 `upstream/esp-dl/source.json` pins source revision, model bytes and every retained
-source before and after the narrow SDK port. Preparation removes SDK dual-core
-task launching and unused iostream initialization, and corrects a host pointer
+source before and after the narrow SDK port. Preparation removes SDK task
+launching and unused iostream initialization, and corrects a host pointer
 alignment check. Module precision is fixed to S8 so unused S16/float dispatch
 and kernels can be discarded. Generation rejects other precisions, and the
 private SDK constructor rejects non-S8 modules. Weights and S8 kernels remain
-unchanged. An attempted SDK dual-core path aborts; all generated calls
-explicitly request single-core execution on the Rust-owned worker.
+unchanged. The default graph runs synchronously on its Rust owner. Explicit
+compute resources enable SDK Conv row partitioning through a synchronous callback
+and one persistent Rust helper. Only `forward_args` runs concurrently; graph
+mutation remains on the caller. Every dispatch waits for both halves, including
+failures, before releasing argument storage. The graph, weights and activation
+arena remain shared; the helper adds its configured stack and bounded handoff.
+Other SDK task-launch paths still abort. No FreeRTOS execution layer is linked.
 
 A fixed graph is generated from the pinned FlatBuffer at build time. The target
 contains numerical operators and weights, with a 401,408-byte aligned activation

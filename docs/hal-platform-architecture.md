@@ -265,6 +265,11 @@ selected `[hal]` bindings. `host-demo` and `host-imu` explicitly select syntheti
 sensors without inheriting a fictitious runtime platform. Core-only compilation
 checks are legacy contract tests, not a bare-metal product platform.
 
+An optional NuttX profile `cpus = 1` or `2` derives the SMP enablement, CPU count
+and checked requirements; it does not introduce CPU identity into shared code.
+Detector compute resources may supply caller/helper cores, helper stack and
+priority. Factories validate the actual CPU capabilities before acquisition.
+
 Bindings merge by capability; `"none"` explicitly removes an inherited
 binding. Other fields/tables replace the parent's value. In particular,
 Kconfig lists are not silently concatenated. Git records platform history;
