@@ -42,7 +42,8 @@ fault has one retained retry event and a sticky join result. The acquisition
 worker never waits for a consumer to free measurement capacity.
 
 Explicit teardown wakes blocked acquisition, joins it, and verifies cleanup
-before reporting resource release. Drop requests cancellation without joining;
+before reporting resource release. Explicit fusion stop drains previously
+admitted inputs; abandoned handles cancel immediately. Drop requests cancellation without joining;
 the detached worker retains resources until its cleanup completes. Terminal
 cleanup failures quarantine the corresponding native capability until reboot.
 

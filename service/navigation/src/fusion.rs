@@ -183,7 +183,9 @@ impl FusionHandle {
     }
 
     pub fn stop(mut self) -> io::Result<FusionStats> {
-        self.request_stop();
+        // Explicit teardown drains inputs admitted before this marker. Only
+        // abandoned handles use immediate, nonblocking cancellation in Drop.
+        let _ = self.control.send(Event::Shutdown);
         self.join
             .take()
             .expect("owned join")
@@ -344,6 +346,23 @@ mod fifo_timing_tests {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+    #[test]
+    fn explicit_stop_drains_previously_admitted_inputs() {
+        let (fusion, inputs) = FusionService::new();
+        for sequence in 1..=5 {
+            assert_eq!(
+                inputs.imu.submit(ImuSample {
+                    sequence,
+                    timestamp_ms: 0,
+                    sample_interval_us: 10_000,
+                    accel_mps2: [0.0; 3],
+                    gyro_rps: [0.0; 3],
+                }),
+                Submit::Accepted
+            );
+        }
+        assert_eq!(fusion.start().unwrap().stop().unwrap().inputs, 5);
+    }
     #[test]
     fn dropped_fusion_handle_retires_its_inbox_after_partial_app_startup() {
         let (fusion, inputs) = FusionService::new();
