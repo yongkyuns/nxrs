@@ -16,6 +16,9 @@ Build with the existing stream fixture and `--platform esp32s3-camera-stream-smp
 all output fingerprints, scores and boxes must match. Report kernel/pipeline
 wall time separately from decoded video FPS, heap and stack use. Fixture CPU
 utilization averages both cores; detector thread CPU time excludes the helper.
+SMP uses the shared 1 ms scheduler clock for CPU accounting. Independent Xtensa
+CCOUNT registers and global overflow correction are explicitly disabled; these
+coarse CPU measurements are distinct from pipeline wall-clock timing.
 
 Physical SMP results are pending. TLS entropy and Wi-Fi shutdown/OTA maintenance
 remain explicitly unqualified on SMP; their admission gates are preserved.

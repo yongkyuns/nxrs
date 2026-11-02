@@ -252,6 +252,9 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertIn('SMP', experiment['kconfig']['enable'])
         self.assertNotIn('SMP', experiment['kconfig']['disable'])
         self.assertIn('CONFIG_SMP_NCPUS=2', experiment['kconfig']['require'])
+        for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
+            self.assertNotIn(counter, experiment['kconfig']['enable'])
+            self.assertIn('# CONFIG_' + counter + ' is not set', experiment['kconfig']['require'])
         self.assertEqual(experiment['detector']['compute']['cores'], [1, 0])
         for compute in ({'cores': [0, 0], 'stack-bytes': 32768, 'priority': 90},
                         {'cores': [1, 0], 'stack-bytes': 0, 'priority': 90}):

@@ -498,8 +498,7 @@ pub(crate) mod device {
             {
                 return Ok(());
             }
-            if options.renew_after.is_some()
-                && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2)
+            if stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2)
             {
                 return Ok(());
             }
@@ -518,7 +517,6 @@ pub(crate) mod device {
         })();
         let stats = live.stats();
         let renewal = result.is_ok()
-            && options.renew_after.is_some()
             && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2);
         let stopped = if trial && !renewal && result.is_ok() {
             home_cam::startup::retire_healthy(live, now(origin), STARTUP_HEALTH_AGE_MS)

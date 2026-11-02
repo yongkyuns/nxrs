@@ -100,6 +100,7 @@ class PicoQualification(unittest.TestCase):
             config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n')
             BUILD.qualify_compute_context(root)
             for content in (qualified + '#define CONFIG_SMP 1\n',
+                            qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_ARCH_PERF_EVENTS 1\n',
                             qualified.replace('CONFIG_ARCH_CHIP_ESP32S3', 'CONFIG_OTHER_CPU'),
                             qualified.replace('CONFIG_BUILD_FLAT', 'CONFIG_BUILD_PROTECTED')):
                 config.write_text(content)
