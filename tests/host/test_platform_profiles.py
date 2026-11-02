@@ -254,7 +254,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertIn('CONFIG_SMP_NCPUS=2', experiment['kconfig']['require'])
         for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
             self.assertNotIn(counter, experiment['kconfig']['enable'])
-            self.assertIn('# CONFIG_' + counter + ' is not set', experiment['kconfig']['require'])
+            self.assertRegex('CONFIG_' + counter + '=y', experiment['kconfig']['forbid-regex'])
         self.assertEqual(experiment['detector']['compute']['cores'], [1, 0])
         for compute in ({'cores': [0, 0], 'stack-bytes': 32768, 'priority': 90},
                         {'cores': [1, 0], 'stack-bytes': 0, 'priority': 90}):

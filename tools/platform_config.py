@@ -85,7 +85,10 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
             config["enable"] = [s for s in config["enable"] if s not in counters]
             config["disable"] = [s for s in config["disable"] if s not in counters] + sorted(counters)
             config["require"] = [s for s in config["require"] if s not in {f"CONFIG_{c}=y" for c in counters}]
-            config["require"] += [f"# CONFIG_{c} is not set" for c in sorted(counters)]
+            # Hidden disabled Kconfig symbols may be omitted, rather than
+            # printed as '# ... is not set'. Reject enabled selectors directly.
+            config["forbid-regex"] = ("(?:" + config["forbid-regex"] +
+                ")|^CONFIG_(ARCH_PERF_EVENTS|PERF_OVERFLOW_CORRECTION|TIMER_ARCH|ALARM_ARCH)=y$")
         data["kconfig"] = config
     return data
 
