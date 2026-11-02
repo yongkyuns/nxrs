@@ -1,9 +1,9 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
-use crate::{DeviceError, Gnss};
+use crate::{DeviceError, Gnss, GnssFix};
 use core::sync::atomic::{AtomicU8, Ordering};
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Read},
+    io::{self, Read, Write},
     os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
 };
 #[allow(unsafe_code)]
@@ -36,6 +36,29 @@ impl Read for Serial {
         self.port.file.read(bytes)
     }
 }
+impl Write for Serial {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.port.file.write(bytes)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.port.file.flush()
+    }
+}
+struct Device {
+    receiver: crate::receiver::Receiver<Serial>,
+}
+impl Gnss for Device {
+    fn fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
+        self.receiver.fix(now_ms)
+    }
+}
+impl Drop for Device {
+    fn drop(&mut self) {
+        if self.receiver.restore().is_err() {
+            OWNED.store(2, Ordering::Release);
+        }
+    }
+}
 pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
     OWNED
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
@@ -62,8 +85,15 @@ pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
     let port = Port { file, saved };
     ffi::configure(port.file.as_raw_fd(), &port.saved, baud).map_err(|_| DeviceError::Io)?;
     // Port restores/closes before the lease can admit another receiver.
-    Ok(crate::receiver::Receiver::new(Serial {
+    let mut receiver = crate::receiver::Receiver::new(Serial {
         port,
         _lease: lease,
-    }))
+    });
+    if let Err(error) = receiver.configure() {
+        if receiver.restore().is_err() {
+            OWNED.store(2, Ordering::Release);
+        }
+        return Err(error);
+    }
+    Ok(Device { receiver })
 }

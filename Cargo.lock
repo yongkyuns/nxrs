@@ -92,6 +92,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "kinavis-kernel"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97beb57d2555372851dc711fca1323bc1403e54f6033afde729c2471e5920e4d"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "kinavis-ubx"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1806d6a36c0f7254de47525c6f8f4533d5d6f114f7574a803345e6d0f1a54696"
+dependencies = [
+ "kinavis-kernel",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -334,6 +352,9 @@ dependencies = [
 [[package]]
 name = "nxrs-gnss"
 version = "0.1.0"
+dependencies = [
+ "kinavis-ubx",
+]
 
 [[package]]
 name = "nxrs-hal-common"

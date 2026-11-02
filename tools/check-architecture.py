@@ -42,6 +42,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     # only bounded configuration and nonpanicking operations, with an exact
     # post-init status check; no Linux backend or driver runtime is selected.
     'nxrs-imu': {'bmi2', 'embedded-hal'},
+    # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
+    'nxrs-gnss': {'kinavis-ubx'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.

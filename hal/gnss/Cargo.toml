@@ -10,3 +10,6 @@ name = "gnss"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx"]
+
+[dependencies]
+kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }

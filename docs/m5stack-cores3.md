@@ -9,7 +9,7 @@ It does not inherit the camera board’s flash layout or security deployment.
 cargo firmware --app event-demo --platform m5stack-cores3-gnss
 ```
 
-The board registers raw buses. GNSS owns UART/NMEA decoding; IMU owns I²C,
+The board registers raw buses. GNSS owns UART/UBX configuration and decoding; IMU owns I²C,
 BMI270 initialization and SI conversion. Navigation projects WGS84 fixes into
 local coordinates. Services and apps contain no board or OS selection. Neither
 HAL adds a worker thread; the existing services own their polling schedule.
@@ -23,6 +23,8 @@ HAL adds a worker thread; the existing services own their polling schedule.
 
 M-Bus silkscreen uses legacy ESP32 pin numbers, not CoreS3 GPIO numbers. Set
 M135’s GNSS UART routing to legacy TX17/RX16, corresponding to CoreS3 TX17/RX18.
+The GNSS HAL enables NAV-PVT in receiver RAM and restores its previous rate
+on release; the receiver UART1 must retain its default UBX input/output support.
 Select the module IMU’s alternate **0x68** address to avoid the onboard sensor.
 The vendor documentation lists 0x69 while its sensor example uses 0x68; verify
 the module address switch before applying power. Leave PPS disconnected.

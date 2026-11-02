@@ -7,6 +7,9 @@ image = "nuttx.bin"
 requires-qemu = false
 hal = { gnss = "nuttx", imu = "nuttx" }
 
+[build]
+size-optimized = true
+
 [gnss]
 device = "/dev/ttyS1"
 baud = 38400
