@@ -119,6 +119,15 @@ class ArchitectureTests(unittest.TestCase):
         source.write_text('#![no_std]\n#![forbid(unsafe_code)]\n#[cfg(unix)] fn f() {}\n')
         self.assertTrue(self.violations())
 
+    def test_shared_manifests_cannot_bypass_inventory_or_feature_policy(self):
+        manifest = self.root / 'shared/messaging/Cargo.toml'
+        manifest.write_text('[package]\nname="messaging"\n[features]\nchannels=[]\n')
+        self.assertEqual(self.violations(), [])
+        manifest.write_text(manifest.read_text() + 'std=[]\n')
+        self.assertTrue(any('unexpected features' in error for error in self.violations()))
+        self.package('hidden', 'shared/hidden')
+        self.assertTrue(any('package omitted' in error for error in self.violations()))
+
     def test_reverse_edges_and_optional_build_target_backdoors(self):
         for source, target in [('service', 'app'), ('camera', 'service'), ('common', 'camera'),
                                ('camera', 'support'), ('app', 'test'), ('driver', 'platform')]:

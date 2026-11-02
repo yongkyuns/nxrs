@@ -133,7 +133,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
     errors: list[str] = inspect_dependency_capsule(root)
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
-    for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests']:
+    for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests', 'shared']:
         for directory, children, files in os.walk(root / name):
             children[:] = [child for child in children if child not in {'target', '.git'}]
             if 'Cargo.toml' not in files:
@@ -143,6 +143,8 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             allowed_features = {'default', 'probe'}
             if manifest.relative_to(root).as_posix() == 'hal/detector/Cargo.toml':
                 allowed_features |= {'person-model', 'pico-model'}
+            if manifest.relative_to(root).as_posix() == 'shared/messaging/Cargo.toml':
+                allowed_features.add('channels')
             extra_features = set(data.get('features', {})) - allowed_features
             if extra_features:
                 errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics and typed cases for experiments; unexpected features {sorted(extra_features)}')
