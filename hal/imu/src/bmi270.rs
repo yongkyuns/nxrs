@@ -4,6 +4,14 @@ use bmi2::{types::*, Bmi2, I2cAddr};
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 
 const BURST: u16 = 32;
+const ODR: Odr = Odr::Odr100;
+// BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
+const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (ODR as u8);
+const BATCH_FRAMES: u16 = 4;
+const FRAME_BYTES: u16 = 12;
+const WATERMARK_BYTES: u16 = FRAME_BYTES * BATCH_FRAMES;
+pub(crate) const FIFO_WAKE_PERIOD: core::time::Duration =
+    core::time::Duration::from_micros(SAMPLE_INTERVAL_US as u64 * BATCH_FRAMES as u64);
 pub(crate) struct Sensor<B: I2c, D: DelayNs> {
     bus: B,
     address: I2cAddr,
@@ -53,14 +61,14 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
             .map_err(error)?;
         driver
             .set_acc_conf(AccConf {
-                odr: Odr::Odr100,
+                odr: ODR,
                 bwp: AccBwp::NormAvg4,
                 filter_perf: PerfMode::Perf,
             })
             .map_err(error)?;
         driver
             .set_gyr_conf(GyrConf {
-                odr: Odr::Odr100,
+                odr: ODR,
                 bwp: GyrBwp::Norm,
                 noise_perf: PerfMode::Perf,
                 filter_perf: PerfMode::Perf,
@@ -109,7 +117,7 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
                 gyr_enable: true,
             })
             .map_err(error)?;
-        driver.set_fifo_wtm(48).map_err(error)?; // Four 100 Hz combined frames.
+        driver.set_fifo_wtm(WATERMARK_BYTES).map_err(error)?;
         driver.send_cmd(Cmd::FifoFlush).map_err(error)?;
         driver.set_int_latch(IntLatch::None).map_err(error)?;
         driver
@@ -138,11 +146,11 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
             .map_err(error)?;
         // Decoder assumptions must match the configuration actually accepted.
         for (register, expected, mask) in [
-            (0x40, 8, 0x0f),
-            (0x42, 8, 0x0f),
+            (0x40, ODR as u8, 0x0f),
+            (0x42, ODR as u8, 0x0f),
             (0x45, 0x88, 0xff),
-            (0x46, 48, 0xff),
-            (0x47, 0, 0xff),
+            (0x46, WATERMARK_BYTES as u8, 0xff),
+            (0x47, (WATERMARK_BYTES >> 8) as u8, 0xff),
             (0x48, 1, 0xff),
             (0x49, 0xc0, 0xff),
             (0x53, 0x0a, 0xff),
@@ -206,7 +214,7 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
     }
 }
 impl<B: I2c, D: DelayNs> Sensor<B, D> {
-    /// Called only after an IRQ notification. Never polls latest-value registers.
+    /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
     pub(crate) fn drain(
         &mut self,
         now_ms: u64,
@@ -247,7 +255,7 @@ impl<B: I2c, D: DelayNs> Sensor<B, D> {
                 if !emit(ImuSample {
                     sequence: self.sequence,
                     timestamp_ms: now_ms,
-                    sample_interval_us: 10_000,
+                    sample_interval_us: SAMPLE_INTERVAL_US,
                     accel_mps2: [axis(6) * accel, axis(8) * accel, axis(10) * accel],
                     gyro_rps: [axis(0) * gyro, axis(2) * gyro, axis(4) * gyro],
                 }) {

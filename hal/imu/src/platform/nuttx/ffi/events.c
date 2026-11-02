@@ -24,6 +24,20 @@ int imu_event_wait(int device, int cancel)
   return -1;
 }
 
+/* One descriptor and a caller-supplied timeout; Rust owns the cadence. */
+int imu_event_tick(int cancel, int timeout_ms)
+{
+  struct pollfd fd = { .fd = cancel, .events = POLLIN };
+  int result = poll(&fd, 1, timeout_ms);
+  if (result < 0) return -1;
+  if (fd.revents & POLLIN) return 0;
+  if (fd.revents & (POLLERR | POLLHUP | POLLNVAL))
+    { errno = EIO; return -1; }
+  if (result == 0) return 1;
+  errno = EINTR;
+  return -1;
+}
+
 #include <nuttx/ioexpander/gpio.h>
 #include <stdbool.h>
 #include <stdint.h>

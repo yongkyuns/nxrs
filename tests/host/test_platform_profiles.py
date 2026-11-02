@@ -223,7 +223,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                          {"device": "/dev/ttyS1", "baud": 38400, "stack-bytes": 16384})
         self.assertEqual(PLATFORM_CONFIG.imu_config(data),
                          {"driver": "bmi270", "device": "/dev/i2c0",
-                          "address": 0x68, "frequency": 400000, "stack-bytes": 16384, "irq-device": "/dev/bmi270-int"})
+                          "address": 0x68, "frequency": 400000, "stack-bytes": 16384, "irq-device": ""})
         for function, key, invalid in (
                 (PLATFORM_CONFIG.gnss_config, "gnss", {"baud": True}),
                 (PLATFORM_CONFIG.gnss_config, "gnss", {"device": "/dev/../ttyS1"}),

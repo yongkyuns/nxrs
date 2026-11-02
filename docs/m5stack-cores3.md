@@ -11,8 +11,8 @@ cargo firmware --app event-demo --platform m5stack-cores3-gnss
 
 The board registers raw buses. GNSS owns UART/UBX configuration and decoding; IMU owns I²C,
 BMI270 initialization and SI conversion. Navigation projects WGS84 fixes into
-local coordinates. Services and apps contain no board or OS selection. Neither
-HAL adds a worker thread; the existing services own their polling schedule.
+local coordinates. Services and apps contain no board or OS selection.
+HAL-owned workers acquire data and publish bounded typed events to services.
 
 | Resource | CoreS3 GPIO / setting |
 | --- | --- |
@@ -44,17 +44,18 @@ References: [CoreS3](https://docs.m5stack.com/en/core/CoreS3),
 [vendor sensor example](https://github.com/m5stack/M5Module-GNSS/blob/main/examples/getSensorData/getSensorData.ino),
 [Stamp CatM](https://docs.m5stack.com/en/stamp/Stamp_CatM).
 
-### Event-driven acquisition limitation
+### Acquisition wakes
 
-GNSS acquisition waits on UART readiness and emits normalized UBX fixes from a
-HAL worker. BMI270 acquisition uses INT1 FIFO watermark/full/error notification
-and drains complete combined frames at 100 Hz; service timers do not read either
-device. Host receive timestamps are distinct from the nominal IMU sample interval.
+GNSS waits on UART readiness and emits normalized UBX fixes from its HAL worker.
+BMI270 IRQ and timer wakes use the same FIFO drain and typed-event path. At the
+current verified 100 Hz ODR and four-frame batch, timer wakes occur every 40 ms.
+The timer does not assert data readiness or invent samples; FIFO contents and
+full/error status remain authoritative. Missed wake deadlines coalesce, and
+cancellation wakes the wait immediately.
 
 The [M135 v1.0 schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/561/SCH_Module_GNSS_V1.0.pdf)
-shows U3 INT1/INT2 unconnected to the M-Bus. The stock profile therefore cannot
-start IMU acquisition: it returns `Unsupported`, with no polling fallback.
-The profile names the required logical endpoint `/dev/bmi270-int`; the stock
-board deliberately does not register it. A physically wired INT1 and a
-platform-registered rising-edge GPIO node supplied as `imu.irq-device` are required. No GPIO assignment or board modification is
-assumed. Physical FIFO/IRQ throughput, timing and power qualification remain open.
+leaves INT1/INT2 unconnected to the M-Bus. The stock profile omits `imu.irq-device`
+and explicitly uses ODR-derived wakes. A wired board can supply a registered
+rising-edge GPIO node; failure to acquire that configured IRQ remains an error.
+Services contain neither timing nor device-wiring knowledge. Physical FIFO
+throughput, timing, power and memory qualification remain open.

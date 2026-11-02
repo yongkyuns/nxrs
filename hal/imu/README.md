@@ -18,7 +18,12 @@ Batch delivery time is not a measured hardware sample timestamp. Queue-full
 rejections are counted by `dropped()`; terminal errors remain observable through
 `join()` and are retried as a bounded single pending fault event.
 
-The NuttX provider owns the I2C File and a platform-registered GPIO descriptor.
+The NuttX provider owns the I2C File and an optional platform-registered GPIO descriptor.
 NuttX handles interrupt notification; Rust channels are only used in task context.
-No timer-polling fallback is provided. M135 v1.0 leaves the interrupt unwired;
-see [CoreS3 wiring limitations](../../docs/m5stack-cores3.md).
+A configured IRQ uses its GPIO descriptor. With no IRQ resource, the provider
+explicitly selects an ODR-derived timer: four frames at 100 Hz give a 40 ms wake
+period. Both sources invoke the same FIFO drain and event sink. Empty FIFO reads
+emit nothing; missed ticks coalesce. A configured IRQ failure never changes modes.
+The same cancellation pipe wakes either wait without another thread or queue.
+M135 v1.0 uses this timer path because its interrupts are unwired; see
+[CoreS3 acquisition](../../docs/m5stack-cores3.md).

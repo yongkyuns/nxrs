@@ -112,6 +112,7 @@ int gnss_event_pipe(int[2]);
 int imu_event_pipe(int[2]);
 int gnss_event_wait(int, int);
 int imu_event_wait(int, int);
+int imu_event_tick(int, int);
 int imu_irq_check(int);
 int imu_irq_register(int);
 int imu_irq_unregister(int);
@@ -157,9 +158,21 @@ static void check(int (*create)(int[2]), int (*wait)(int,int)) {
   assert(wait(device[0], cancel[0]) == 0); /* cancellation wins */
   for (int i = 0; i < 2; i++) { close(device[i]); close(cancel[i]); }
 }
+static int tick_wait(int unused, int cancel) {
+  (void)unused;
+  return imu_event_tick(cancel, 5000);
+}
 int main(void) {
   check(gnss_event_pipe, gnss_event_wait);
   check(imu_event_pipe, imu_event_wait);
+  int timer[2]; assert(imu_event_pipe(timer) == 0);
+  assert(imu_event_tick(timer[0], 0) == 1); /* expiry is just a wake hint */
+  pthread_t thread; struct waiting w = {-1, timer[0], tick_wait};
+  assert(pthread_create(&thread, NULL, waiter, &w) == 0);
+  assert(write(timer[1], "s", 1) == 1);
+  assert(pthread_join(thread, NULL) == 0); /* cancels the five-second wait */
+  assert(imu_event_tick(timer[0], 0) == 0); /* cancellation wins expiry */
+  close(timer[0]); close(timer[1]);
   assert(imu_irq_check(42) == 0);
   type = GPIO_OUTPUT_PIN;
   assert(imu_irq_check(42) == -1 && errno == EINVAL);
