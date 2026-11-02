@@ -23,6 +23,7 @@ class ArchitectureTests(unittest.TestCase):
         for name, location in [('app', 'app/demo'), ('service', 'service/demo'),
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
                                ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
+                               ('messaging', 'shared/messaging'),
                                ('driver', 'driver/demo'), ('platform', 'platform/firmware'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
             self.package(name, location)
@@ -92,8 +93,8 @@ class ArchitectureTests(unittest.TestCase):
         script.write_text('exec build --app-manifest "$selected_manifest"')
         self.assertEqual(self.violations(), [])
 
-    def test_shared_delivery_contracts_require_explicit_consumers(self):
-        for name in ('wifi', 'ble', 'gnss', 'imu'):
+    def test_shared_radio_contracts_require_explicit_consumers(self):
+        for name in ('wifi', 'ble'):
             self.package(name, f'hal/{name}')
             (self.root / 'hal' / name / 'src/lib.rs').write_text('#![no_std]\n#![deny(unsafe_code)]\n')
             self.metadata['packages'].append(self.packages[name])
@@ -105,6 +106,27 @@ class ArchitectureTests(unittest.TestCase):
                 self.add(name, 'common')
                 self.assertTrue(self.violations())
                 self.packages[name]['dependencies'].clear()
+
+    def test_messaging_is_portable_and_cannot_depend_on_upper_layers(self):
+        for name in ('app', 'service', 'camera', 'driver'):
+            self.add(name, 'messaging')
+        self.assertEqual(self.violations(), [])
+        for name in ('app', 'service', 'camera', 'driver', 'platform', 'common'):
+            self.add('messaging', name)
+            self.assertTrue(self.violations())
+            self.packages['messaging']['dependencies'].clear()
+        source = self.root / 'shared/messaging/src/lib.rs'
+        source.write_text('#![no_std]\n#![forbid(unsafe_code)]\n#[cfg(unix)] fn f() {}\n')
+        self.assertTrue(self.violations())
+
+    def test_shared_manifests_cannot_bypass_inventory_or_feature_policy(self):
+        manifest = self.root / 'shared/messaging/Cargo.toml'
+        manifest.write_text('[package]\nname="messaging"\n[features]\nchannels=[]\n')
+        self.assertEqual(self.violations(), [])
+        manifest.write_text(manifest.read_text() + 'std=[]\n')
+        self.assertTrue(any('unexpected features' in error for error in self.violations()))
+        self.package('hidden', 'shared/hidden')
+        self.assertTrue(any('package omitted' in error for error in self.violations()))
 
     def test_reverse_edges_and_optional_build_target_backdoors(self):
         for source, target in [('service', 'app'), ('camera', 'service'), ('common', 'camera'),

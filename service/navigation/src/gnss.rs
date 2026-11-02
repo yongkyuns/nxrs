@@ -8,8 +8,8 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{GnssInput, Submit};
-use event::{bounded, EventInbox, EventSender};
 use gnss::{DeliveryError, DeviceError, Gnss, GnssFix, Rejected};
+use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
 
@@ -74,7 +74,7 @@ enum Event {
     Shutdown,
 }
 pub struct GnssHandle {
-    control: EventSender<Event>,
+    control: Sender<Event>,
     join: Option<JoinHandle<io::Result<GnssStats>>>,
     stopping: Arc<AtomicBool>,
 }
@@ -175,7 +175,7 @@ impl Drop for GnssHandle {
 fn run<D: Gnss>(
     mut service: GnssService,
     mut device: D,
-    inbox: EventInbox<Event>,
+    inbox: Inbox<Event>,
     stopping: &AtomicBool,
 ) -> io::Result<GnssStats> {
     let mut stats = GnssStats::default();

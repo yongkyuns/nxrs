@@ -7,9 +7,9 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use event::{bounded, EventInbox, EventSender};
 use gnss::GnssFix;
 use imu::ImuSample;
+use messaging::{bounded, Inbox, Sender};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NavState {
@@ -33,12 +33,12 @@ enum Event {
 
 #[derive(Clone)]
 pub struct ImuInput {
-    sender: EventSender<Event>,
+    sender: Sender<Event>,
 }
 
 #[derive(Clone)]
 pub struct GnssInput {
-    sender: EventSender<Event>,
+    sender: Sender<Event>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,7 +60,7 @@ impl GnssInput {
     }
 }
 
-fn submit(sender: &EventSender<Event>, event: Event) -> Submit {
+fn submit(sender: &Sender<Event>, event: Event) -> Submit {
     match sender.try_send(event) {
         Ok(()) => Submit::Accepted,
         Err(TrySendError::Full(_)) => Submit::Dropped,
@@ -92,10 +92,10 @@ impl Default for FusionConfig {
 
 pub struct FusionService {
     config: FusionConfig,
-    inbox: EventInbox<Event>,
-    control: EventSender<Event>,
-    output: EventSender<NavState>,
-    output_rx: Option<EventInbox<NavState>>,
+    inbox: Inbox<Event>,
+    control: Sender<Event>,
+    output: Sender<NavState>,
+    output_rx: Option<Inbox<NavState>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -106,8 +106,8 @@ pub struct FusionStats {
 }
 
 pub struct FusionHandle {
-    control: EventSender<Event>,
-    output: EventInbox<NavState>,
+    control: Sender<Event>,
+    output: Inbox<NavState>,
     join: Option<JoinHandle<FusionStats>>,
     stopping: Arc<AtomicBool>,
 }

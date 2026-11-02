@@ -12,6 +12,6 @@ kind = "hal-capability"
 platforms = ["mock", "nuttx"]
 
 [dependencies]
-nxrs-hal-common = { path = "../common" }
+nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"

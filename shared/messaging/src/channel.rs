@@ -1,14 +1,13 @@
 //! Minimal bounded event transport for active Nxrs entities.
 //!
 //! This is intentionally a thin ownership wrapper around
-//! `std::sync::mpsc::sync_channel`: many producers clone an `EventSender<E>`,
-//! exactly one owner holds the `EventInbox<E>`, and that owner has one blocking
+//! `std::sync::mpsc::sync_channel`: many producers clone a `Sender<E>`,
+//! exactly one owner holds the `Inbox<E>`, and that owner has one blocking
 //! wait point.
 #![forbid(unsafe_code)]
 
 use std::sync::mpsc::{
-    sync_channel, Receiver, RecvTimeoutError, SendError, SyncSender, TryRecvError,
-    TrySendError,
+    sync_channel, Receiver, RecvTimeoutError, SendError, SyncSender, TryRecvError, TrySendError,
 };
 use std::time::Duration;
 
@@ -17,21 +16,18 @@ use std::time::Duration;
 /// Capacity is explicit because an active service must have a finite event
 /// backlog. Clone the returned sender to connect additional producers to the
 /// same owner inbox.
-pub fn bounded<E>(capacity: usize) -> (EventSender<E>, EventInbox<E>) {
+pub fn bounded<E>(capacity: usize) -> (Sender<E>, Inbox<E>) {
     assert!(capacity > 0, "event inbox capacity must be nonzero");
     let (sender, receiver) = sync_channel(capacity);
-    (
-        EventSender { sender },
-        EventInbox { receiver },
-    )
+    (Sender { sender }, Inbox { receiver })
 }
 
 /// Producer endpoint for one active entity's private event type.
-pub struct EventSender<E> {
+pub struct Sender<E> {
     sender: SyncSender<E>,
 }
 
-impl<E> Clone for EventSender<E> {
+impl<E> Clone for Sender<E> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
@@ -39,7 +35,7 @@ impl<E> Clone for EventSender<E> {
     }
 }
 
-impl<E> EventSender<E> {
+impl<E> Sender<E> {
     /// Reliable/blocking admission. Use only where waiting for capacity is
     /// explicitly acceptable (for example top-level lifecycle/control code).
     pub fn send(&self, event: E) -> Result<(), SendError<E>> {
@@ -54,13 +50,13 @@ impl<E> EventSender<E> {
 
 /// Unique consumer endpoint owned by the active entity.
 ///
-/// `EventInbox` is intentionally not Clone: one execution owner serializes all
+/// `Inbox` is intentionally not Clone: one execution owner serializes all
 /// mutations of the entity's private state.
-pub struct EventInbox<E> {
+pub struct Inbox<E> {
     receiver: Receiver<E>,
 }
 
-impl<E> EventInbox<E> {
+impl<E> Inbox<E> {
     /// Canonical active-entity wait point.
     ///
     /// `None` waits only for an event. `Some(timeout)` waits for either an

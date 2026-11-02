@@ -6,8 +6,7 @@ use wifi_scan_owner::station;
 
 use std::time::Instant;
 use wifi::{
-    Command, Completion, ControllerError, DeliveryError, Error, EventSink, ProviderStatus,
-    Rejected, Update,
+    Command, Completion, ControllerError, DeliveryError, Error, ProviderStatus, Rejected, Update,
 };
 use wifi_scan_owner::{channels, CommandSender, OwnerReport, StopAdmissionError, StopHandle};
 
@@ -59,7 +58,7 @@ impl Observer {
     }
 }
 
-impl EventSink<OwnerReport> for Observer {
+impl Observer {
     fn try_emit(
         &mut self,
         report: OwnerReport,
@@ -75,7 +74,7 @@ impl EventSink<OwnerReport> for Observer {
 
 struct DrainReports;
 
-impl EventSink<OwnerReport> for DrainReports {
+impl DrainReports {
     fn try_emit(&mut self, _: OwnerReport) -> Result<(), Rejected<OwnerReport, DeliveryError>> {
         Ok(())
     }
@@ -100,8 +99,8 @@ fn main() {
         Some("fail") => true,
         _ => panic!("usage: wifi_test [fail | station MAC_IPV4:PORT]"),
     };
-    let (mut owner, stop, commands, events) = channels(4, 4).expect("owner channels");
-    let mut controller = wifi::open(events).unwrap_or_else(|error| {
+    let (mut owner, stop, commands, mut events) = channels(4, 4).expect("owner channels");
+    let mut controller = wifi::open(move |event| events.try_emit(event)).unwrap_or_else(|error| {
         eprintln!("NXRS_WIFI_SCAN_FAIL acquisition={error:?}");
         std::process::exit(1);
     });
@@ -118,13 +117,21 @@ fn main() {
     }
     let start = Instant::now();
     let mut clock = || start.elapsed().as_millis().try_into().unwrap();
-    let result = owner.run(&mut controller, &mut observer, &mut clock);
+    let result = owner.run(
+        &mut controller,
+        &mut |report| observer.try_emit(report),
+        &mut clock,
+    );
     if result.is_err() {
         // A rejected report is not quiescence. Close native admission and keep
         // driving shutdown before joining; preserve the original run error.
         controller.request_stop().expect("recovery stop");
         owner
-            .run(&mut controller, &mut DrainReports, &mut clock)
+            .run(
+                &mut controller,
+                &mut |report| DrainReports.try_emit(report),
+                &mut clock,
+            )
             .expect("recovery quiescence");
     }
     let reclaimed = controller.finish();

@@ -9,18 +9,17 @@
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::time::{Duration, Instant};
 use wifi::{
-    self, Command, Completion, Credentials, DeliveryError, Error, Event, EventSink, LinkState,
-    Passphrase, ProviderStatus, Rejected, Ssid, Update, Wifi,
+    self, Command, Completion, Credentials, DeliveryError, Error, Event, LinkState, Passphrase,
+    ProviderStatus, Rejected, Ssid, Update, Wifi,
 };
 
 const OPERATION_TIMEOUT_MS: u64 = 20_000;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
-
-struct Sink(SyncSender<Event>);
-
-impl EventSink<Event> for Sink {
-    fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
-        self.0.try_send(event).map_err(|error| match error {
+fn sink(
+    sender: SyncSender<Event>,
+) -> impl FnMut(Event) -> Result<(), Rejected<Event, DeliveryError>> {
+    move |event| {
+        sender.try_send(event).map_err(|error| match error {
             TrySendError::Full(value) => Rejected {
                 value,
                 error: DeliveryError::Full,
@@ -111,7 +110,7 @@ fn station_owner() {
 
     let (sender, events) = mpsc::sync_channel(32);
     let start = Instant::now();
-    let mut controller = wifi::open(Sink(sender)).expect("private fake NetworkManager opens");
+    let mut controller = wifi::open(sink(sender)).expect("private fake NetworkManager opens");
     wait_ready(&mut controller, &events, start);
 
     let request = controller
@@ -162,7 +161,7 @@ fn station_owner() {
             assert!(!cleanup_failed, "cleanup must recover on explicit retry");
             assert_eq!(controller.finish(), Err(Error::Busy));
             let (other_sender, _other_events) = mpsc::sync_channel(1);
-            assert!(matches!(wifi::open(Sink(other_sender)), Err(Error::Busy)));
+            assert!(matches!(wifi::open(sink(other_sender)), Err(Error::Busy)));
             cleanup_failed = true;
             controller
                 .request_stop()

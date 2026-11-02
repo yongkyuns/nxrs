@@ -23,7 +23,7 @@ mod worker;
 #[cfg(hal_enabled)]
 pub fn open<S>(sink: S) -> Result<Controller<impl Ble + Send>, Error>
 where
-    S: EventSink<Event> + Send + 'static,
+    S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
 {
     platform::open(sink).map(Controller::new)
 }

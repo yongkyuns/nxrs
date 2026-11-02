@@ -7,7 +7,7 @@ use crate::worker::Worker;
 #[cfg(not(test))]
 use crate::Error;
 #[cfg(not(test))]
-use crate::{Event, EventSink};
+use crate::Event;
 
 mod native;
 #[cfg_attr(test, allow(dead_code))]
@@ -16,7 +16,9 @@ mod peers;
 mod tests;
 
 #[cfg(not(test))]
-pub(crate) fn open<S: EventSink<Event> + Send + 'static>(sink: S) -> Result<Worker, Error> {
+pub(crate) fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+    sink: S,
+) -> Result<Worker, Error> {
     Worker::start_with_stack(native::Native::new(), sink, Lease::acquire()?, 8192)
 }
 

@@ -12,5 +12,5 @@ kind = "hal-capability"
 platforms = ["mock", "nuttx"]
 
 [dependencies]
-nxrs-hal-common = { path = "../common" }
+nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }

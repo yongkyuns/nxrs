@@ -1,6 +1,6 @@
 //! Shared task-context execution for bounded sensor event producers.
 //! Device waits, cancellation mechanisms, errors and cleanup belong to the HAL.
-use hal_common::{DeliveryError, EventSink};
+use messaging::DeliveryError;
 use std::{
     io,
     sync::{
@@ -22,7 +22,10 @@ pub(crate) struct Worker<C: Wake, E: Copy> {
     result: Option<Result<(), E>>,
 }
 impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
-    pub(crate) fn start<T: Send + 'static, S: EventSink<T> + Send + 'static>(
+    pub(crate) fn start<
+        T: Send + 'static,
+        S: FnMut(T) -> messaging::DeliveryResult<T> + Send + 'static,
+    >(
         name: &str,
         stack_bytes: usize,
         cancel: C,
@@ -38,7 +41,7 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
             .name(name.into())
             .stack_size(stack_bytes)
             .spawn(move || {
-                let mut emit = |event| match sink.try_emit(event) {
+                let mut emit = |event| match sink(event) {
                     Ok(()) => true,
                     Err(rejected) if rejected.error == DeliveryError::Full => {
                         let _ = losses.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
@@ -54,7 +57,7 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
                     // The join result independently retains the failure.
                     let mut pending = failure(error);
                     while !stop.load(Ordering::Acquire) {
-                        match sink.try_emit(pending) {
+                        match sink(pending) {
                             Ok(()) => break,
                             Err(rejected) if rejected.error == DeliveryError::Full => {
                                 pending = rejected.value;

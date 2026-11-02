@@ -43,7 +43,7 @@ const SCAN_READ_POLL: Duration = Duration::from_millis(20);
 #[cfg(not(test))]
 pub(crate) fn open<S>(sink: S) -> Result<crate::worker::Worker, Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     let lease = Lease::acquire()?;
     initialize_network()?;

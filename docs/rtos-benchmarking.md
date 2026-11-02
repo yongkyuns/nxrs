@@ -10,7 +10,7 @@ platform profiles and the existing event transport are unchanged.
 1. **C/NuttX:** pinned, unmodified Thread-Metric loops and our own NuttX adapter;
    also a standalone C executable for the matched primitive experiments.
 2. **Matched implementations:** C caller loop -> Rust caller of the same C/POSIX
-   shim -> raw Rust `sync_channel` -> existing `EventSender`/`EventInbox`.
+   shim -> raw Rust `sync_channel` -> existing `Sender`/`Inbox`.
 3. **Report correspondence:** factual reference data and unresolved prerequisites,
    never a computed cross-architecture score.
 

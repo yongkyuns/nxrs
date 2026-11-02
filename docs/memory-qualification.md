@@ -50,7 +50,7 @@ reallocation. Static capacity assertions alone cannot satisfy these probes.
    operation must show no further net growth. There is no arbitrary byte allowance,
    subtraction of unexplained retention, or warm-until-the-check-passes loop.
 2. A scoped owner moves one 256-byte Vec payload through the existing production
-   EventSender/EventInbox APIs. Queue/thread setup and 16 warm-up exchanges precede
+   Sender/Inbox APIs. Queue/thread setup and 16 warm-up exchanges precede
    1,024 measured round trips. The warmed window must show zero allocator calls;
    dropping the buffer, closing queues and joining the owner must return tracked
    live bytes/blocks to the pre-owner baseline. This is a focused transport and

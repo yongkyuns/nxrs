@@ -3,11 +3,11 @@
 #[path = "../quiescence.rs"]
 pub(crate) mod quiescence;
 pub mod acquisition {
-    use crate::{Controller, CredentialStorage, Error, Event, EventSink, QuiescenceControl, Wifi};
+    use crate::{Controller, CredentialStorage, Error, Event, QuiescenceControl, Wifi};
 
     pub fn open<S>(sink: S) -> Result<Controller<impl Wifi + Send>, Error>
     where
-        S: EventSink<Event> + Send + 'static,
+        S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     {
         open_with_storage(sink, CredentialStorage::Volatile)
     }
@@ -18,7 +18,7 @@ pub mod acquisition {
         storage: CredentialStorage,
     ) -> Result<Controller<impl Wifi + Send>, Error>
     where
-        S: EventSink<Event> + Send + 'static,
+        S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     {
         super::open(sink, storage).map(Controller::new)
     }
@@ -66,7 +66,7 @@ pub(crate) fn open<S>(
     storage: crate::CredentialStorage,
 ) -> Result<crate::worker::Worker, crate::Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     #[cfg(target_os = "linux")]
     type State = linux::State;
@@ -80,7 +80,7 @@ pub(crate) fn open<S>(
     _: crate::CredentialStorage,
 ) -> Result<crate::worker::Worker, crate::Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     nuttx::open(sink)
 }
@@ -90,7 +90,7 @@ mod unbound;
 #[cfg(not(hal_enabled))]
 fn open<S>(_: S, _: crate::CredentialStorage) -> Result<impl crate::Wifi + Send, crate::Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     Err::<unbound::Unavailable, _>(crate::Error::Unsupported)
 }

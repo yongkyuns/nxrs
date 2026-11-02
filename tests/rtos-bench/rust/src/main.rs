@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! Matched implementation experiments, NOT Thread-Metric replacements.
-use event::{bounded, EventInbox, EventSender};
+use messaging::{bounded, Inbox as MessagingInbox, Sender as MessagingSender};
 use std::{ffi::c_void, sync::mpsc, thread};
 type Message = [u32; 4];
 const CAPACITY: usize = 8;
@@ -130,7 +130,7 @@ impl Inbox for mpsc::Receiver<Message> {
         self.try_recv().map_err(|e| e.to_string())
     }
 }
-impl Sender for EventSender<Message> {
+impl Sender for MessagingSender<Message> {
     fn put(&self, m: Message) -> Result<(), String> {
         self.send(m).map_err(|e| e.to_string())
     }
@@ -138,7 +138,7 @@ impl Sender for EventSender<Message> {
         self.try_send(m).map_err(|e| e.to_string())
     }
 }
-impl Inbox for EventInbox<Message> {
+impl Inbox for MessagingInbox<Message> {
     fn take(&self) -> Result<Message, String> {
         self.wait(None).map_err(|e| e.to_string())
     }
@@ -163,8 +163,8 @@ impl Transport for Raw {
     }
 }
 impl Transport for Ao {
-    type Tx = EventSender<Message>;
-    type Rx = EventInbox<Message>;
+    type Tx = MessagingSender<Message>;
+    type Rx = MessagingInbox<Message>;
     const NAME: &'static str = "rust-ao";
     fn channel() -> (Self::Tx, Self::Rx) {
         bounded(CAPACITY)

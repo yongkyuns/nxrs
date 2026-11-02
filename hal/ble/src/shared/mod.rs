@@ -37,7 +37,7 @@ impl<B: ScanBackend> Native<B> {
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn open<B: ScanBackend, S>(sink: S) -> Result<crate::worker::Worker, Error>
 where
-    S: crate::EventSink<crate::Event> + Send + 'static,
+    S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     crate::worker::Worker::start_with_stack(
         Native::<B> {

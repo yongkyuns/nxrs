@@ -9,9 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 #[cfg(target_os = "nuttx")]
 use wifi::{Command, Completion, Credentials, Passphrase, Ssid, Update};
-use wifi::{
-    DeliveryError, Error, Event, EventKind, EventSink, LinkState, ProviderStatus, Rejected,
-};
+use wifi::{DeliveryError, Error, Event, EventKind, LinkState, ProviderStatus, Rejected};
 
 #[cfg(target_os = "nuttx")]
 unsafe extern "C" {
@@ -98,7 +96,7 @@ struct Sink {
     observation: Observation,
     owner: std::thread::Thread,
 }
-impl EventSink<Event> for Sink {
+impl Sink {
     fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
         // Record attempts even if delivery is backpressured. Keep its result intact.
         self.observation.record(event.kind);
@@ -238,10 +236,13 @@ pub fn with_connection_reactor<T>(
     let command = credentials()?;
     let (tx, rx) = bounded(8);
     let observation = Observation::new();
-    let mut controller = wifi::open(Sink {
-        events: tx,
-        observation: observation.clone(),
-        owner: std::thread::current(),
+    let mut controller = wifi::open({
+        let mut sink = Sink {
+            events: tx,
+            observation: observation.clone(),
+            owner: std::thread::current(),
+        };
+        move |event| sink.try_emit(event)
     })?;
     let start = Instant::now();
     let clock = || u64::try_from(start.elapsed().as_millis()).unwrap();

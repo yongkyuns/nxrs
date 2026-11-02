@@ -12,9 +12,11 @@ ROOT = Path(__file__).resolve().parents[2]
 def static_backend(directory, source, *, test=False, capability=None):
     extra = []
     if capability:
+        messaging = directory / "libmessaging.rlib"
+        subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--crate-name=messaging", "--crate-type=rlib", str(ROOT / "shared/messaging/src/lib.rs"), "-o", str(messaging)], check=True, capture_output=True)
         common = directory / "libhal_common.rlib"
         subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--crate-name=hal_common", "--crate-type=rlib", str(ROOT / "hal/common/src/lib.rs"), "-o", str(common)], check=True, capture_output=True)
-        extra = ["--extern", "hal_common=" + str(common)]
+        extra = ["--extern", "hal_common=" + str(common), "--extern", "messaging=" + str(messaging)]
         source = f'#[path = {json.dumps(str(ROOT / ("hal/" + capability + "/src/api.rs")))}] mod api; pub use api::*;\n' + source
     if capability == 'ble':
         controller = json.dumps(str(ROOT / 'hal/ble/src/controller.rs'))

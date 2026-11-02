@@ -12,8 +12,8 @@ mod model {
 #[cfg(target_os = "nuttx")]
 pub(crate) mod device {
     use camera::{Camera, JpegQuality};
-    use home_cam::{LiveCamera, StreamOutput, TlsOptions};
     use connectivity_service::Reconnector;
+    use home_cam::{LiveCamera, StreamOutput, TlsOptions};
     use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
     use std::sync::{
@@ -22,7 +22,7 @@ pub(crate) mod device {
         Arc,
     };
     use std::time::{Duration, Instant};
-    use wifi::{Command, DeliveryError, Event, EventSink, LinkState, ProviderStatus, Rejected};
+    use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
 
     const BYTES: usize = 320 * 240 * 2;
     const STARTUP_HEALTH_AGE_MS: u64 = 5000;
@@ -69,7 +69,7 @@ pub(crate) mod device {
         events: SyncSender<Event>,
         owner: std::thread::Thread,
     }
-    impl EventSink<Event> for Sink {
+    impl Sink {
         fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
             let result = self.events.try_send(event).map_err(|error| match error {
                 TrySendError::Full(value) => Rejected {
@@ -666,9 +666,12 @@ pub(crate) mod device {
             };
             let (sender, receiver) = sync_channel(8);
             stage("wifi_open");
-            let controller = wifi::open(Sink {
-                events: sender,
-                owner: std::thread::current(),
+            let controller = wifi::open({
+                let mut sink = Sink {
+                    events: sender,
+                    owner: std::thread::current(),
+                };
+                move |event| sink.try_emit(event)
             })
             .map_err(|error| format!("wifi open {error:?}"))?;
             let mut network = Reconnector::new(controller, || profile.command());
@@ -722,7 +725,8 @@ pub(crate) mod device {
                                 super::console::initialize(stop)
                             },
                         );
-                        let mut live = live.map_err(|error| format!("TLS composition {error:?}"))?;
+                        let mut live =
+                            live.map_err(|error| format!("TLS composition {error:?}"))?;
                         if let Some(update) = &options.update {
                             live.enable_updates(update.clone())
                                 .map_err(|error| format!("update receiver {error:?}"))?;
@@ -869,10 +873,7 @@ pub(crate) mod device {
 #[cfg(target_os = "nuttx")]
 fn main() {
     if let Err(error) = device::run() {
-        if matches!(
-            std::env::args().nth(1).as_deref(),
-            Some("tls" | "boot-tls")
-        ) {
+        if matches!(std::env::args().nth(1).as_deref(), Some("tls" | "boot-tls")) {
             eprintln!("NXRS_TLS_CAMERA_FAIL error={error}");
         } else {
             eprintln!("NXRS_STREAM_FAIL error={error}");

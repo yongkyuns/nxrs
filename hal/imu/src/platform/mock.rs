@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::mock_acquisition::Session;
-use crate::{DeviceError, Event, EventSink, Imu, ImuSample};
+use crate::{DeviceError, Event, Imu, ImuSample};
 
 #[derive(Default)]
 struct SyntheticImu {
@@ -37,7 +37,7 @@ impl Imu for Session {
         Session::dropped(self)
     }
 }
-pub fn open<S: EventSink<Event> + Send + 'static>(
+pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Imu + Send + 'static, DeviceError> {
     let mut model = SyntheticImu::default();

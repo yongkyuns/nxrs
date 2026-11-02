@@ -2,8 +2,8 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, EventSink,
-    PeerId, ProviderStatus, Rejected, Request, SessionId, Uuid,
+    Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, PeerId,
+    ProviderStatus, Rejected, Request, SessionId, Uuid,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -50,7 +50,11 @@ pub(crate) struct Worker {
 
 impl Worker {
     #[cfg(test)]
-    pub(crate) fn start<N: Scanner, S: EventSink<Event> + Send + 'static, G: Send + 'static>(
+    pub(crate) fn start<
+        N: Scanner,
+        S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
+        G: Send + 'static,
+    >(
         native: N,
         sink: S,
         guard: G,
@@ -60,7 +64,7 @@ impl Worker {
 
     pub(crate) fn start_with_stack<
         N: Scanner,
-        S: EventSink<Event> + Send + 'static,
+        S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
         G: Send + 'static,
     >(
         native: N,
@@ -333,7 +337,7 @@ impl<G> Drop for QuietGuard<G> {
     }
 }
 
-fn run<N: Scanner, S: EventSink<Event>, G: Send + 'static>(
+fn run<N: Scanner, S: FnMut(Event) -> messaging::DeliveryResult<Event>, G: Send + 'static>(
     mut native: N,
     mut sink: S,
     session: SessionId,
@@ -550,10 +554,10 @@ fn run<N: Scanner, S: EventSink<Event>, G: Send + 'static>(
     }
     drop(guard.0.take());
     state.set_status(ProviderStatus::Stopped);
-    let _ = sink.try_emit(event(EventKind::Status(ProviderStatus::Stopped)));
+    let _ = sink(event(EventKind::Status(ProviderStatus::Stopped)));
 }
 
-fn fail<S: EventSink<Event>>(
+fn fail<S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
     sink: &mut S,
     state: &Shared,
     event: &impl Fn(EventKind) -> Event,
@@ -577,12 +581,16 @@ fn has_stop_request(state: &Shared) -> bool {
         .and_then(|slot| slot.request)
         .is_some_and(|r| matches!(r.command, Command::StopScan))
 }
-fn emit<S: EventSink<Event>>(sink: &mut S, mut event: Event, state: &Shared) -> bool {
+fn emit<S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
+    sink: &mut S,
+    mut event: Event,
+    state: &Shared,
+) -> bool {
     loop {
         if state.stop_requested() || has_stop_request(state) {
             return false;
         }
-        match sink.try_emit(event) {
+        match sink(event) {
             Ok(()) => return true,
             Err(rejected) if rejected.error == DeliveryError::Full => {
                 event = rejected.value;
@@ -592,7 +600,7 @@ fn emit<S: EventSink<Event>>(sink: &mut S, mut event: Event, state: &Shared) -> 
         }
     }
 }
-fn emit_start_completion<S: EventSink<Event>>(
+fn emit_start_completion<S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
     sink: &mut S,
     mut event: Event,
     state: &Shared,
@@ -601,7 +609,7 @@ fn emit_start_completion<S: EventSink<Event>>(
         if state.stop_requested() {
             return false;
         }
-        match sink.try_emit(event) {
+        match sink(event) {
             Ok(()) => return true,
             Err(rejected) if rejected.error == DeliveryError::Full => {
                 event = rejected.value;

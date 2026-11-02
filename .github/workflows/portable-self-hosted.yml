@@ -9,6 +9,7 @@ on:
       - 'Cargo.lock'
       - 'app/nxrs/**'
       - 'hal/**'
+      - 'shared/messaging/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
       - 'tools/platform_config.py'

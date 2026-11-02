@@ -89,8 +89,10 @@ def run(out, capabilities=CAPABILITIES):
     for capability in capabilities:
         package = f"nxrs-{capability}"
         expected = {package}
-        if capability in {"wifi", "ble"}:
-            expected.add("nxrs-hal-common")
+        if capability in {"wifi", "ble", "imu", "gnss"}:
+            expected.add("nxrs-messaging")
+            if capability in {"wifi", "ble"}:
+                expected.add("nxrs-hal-common")
         if capability == "storage":
             expected.add("nxrs-camera")
         cases = [("contract-core", None, "none", "thumbv6m-none-eabi", None),

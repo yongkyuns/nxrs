@@ -9,7 +9,9 @@ retain the `nxrs-` prefix.
 The capability API and implementation are Rust. Rust owns validation, resource
 ownership, queues, synchronization, state transitions, retries, cancellation,
 recovery, deadlines, and error policy. Each capability owns its errors; shared
-delivery contracts do not imply a shared device-error enum.
+delivery contracts do not imply a shared device-error enum. Generic channels and
+owned delivery results live in `shared/messaging`, below HAL and services. A
+producer accepts a typed callback; it never depends on a service inbox type.
 
 Use ordinary qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and
 `std::sync` operations directly wherever available. One standard-library

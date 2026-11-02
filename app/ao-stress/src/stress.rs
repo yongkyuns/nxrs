@@ -1,5 +1,5 @@
 //! App-owned active objects over the existing event inbox, not a new runtime.
-use event::{bounded, EventInbox, EventSender};
+use messaging::{bounded, Inbox, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
@@ -327,7 +327,7 @@ impl Drop for Threads {
 
 fn produce(
     id: usize,
-    inputs: Vec<EventSender<Message>>,
+    inputs: Vec<Sender<Message>>,
     config: &Config,
     scenario: Scenario,
     start: Instant,
@@ -375,8 +375,8 @@ fn produce(
 
 fn work(
     id: usize,
-    inbox: EventInbox<Message>,
-    output: EventSender<Message>,
+    inbox: Inbox<Message>,
+    output: Sender<Message>,
     config: &Config,
     scenario: Scenario,
     start: Instant,
@@ -445,7 +445,7 @@ fn work(
 }
 
 fn collect(
-    inbox: EventInbox<Message>,
+    inbox: Inbox<Message>,
     config: &Config,
     scenario: Scenario,
     cancel: &AtomicBool,
