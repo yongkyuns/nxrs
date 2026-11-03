@@ -56,8 +56,12 @@ def execute(scanner, mode, source, config):
                    "--report-format", "json", "--report-path", str(report), "--timeout", "120"]
         if mode == "git":
             command += ["--log-opts=--all"]
-        command.append(str(source))
-        result = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=150)
+        # Directory controls must use repository-relative paths, like git mode.
+        # Absolute source arguments bypass anchored allowlist paths and would
+        # make exclusion tests pass without actually exercising the exclusions.
+        command.append("." if mode == "dir" else str(source))
+        result = subprocess.run(command, cwd=source if mode == "dir" else directory,
+                                capture_output=True, text=True, timeout=150)
         # Never print scanner stdout/stderr or match/secret/line fields, even on errors.
         if result.returncode not in (0, 1) or not report.is_file():
             raise ValueError("scanner infrastructure failure; raw output withheld")
@@ -96,18 +100,50 @@ def self_test(scanner):
             raise ValueError("synthetic-secret detection/redaction control failed")
         # Every source-hash exclusion must still detect actual-shaped tokens.
         path.unlink()
+        channel_evidence = [
+            'tests/std-channel-perf/results/2026-11-02-qemu/after-clock-fix/witness-reserved/build.json',
+            'tests/std-channel-perf/results/2026-11-02-qemu/after-clock-fix/witness-reserved/run/analysis.json',
+            'tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-reserved-1/build.json',
+            'tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-reserved-1/analysis.json',
+        ]
         for relative in ['tests/rtos-bench/upstream.json','tests/detection/results/control/provenance.json',
                          'tests/detection/results/control/firmware.json','tests/detection/results/control/validation.json',
-                         'tests/csi-radio/results/control.json']:
+                         'tests/csi-radio/results/control.json', *channel_evidence]:
             path = source / relative
             path.parent.mkdir(parents=True,exist_ok=True)
             for field, value, rule in [('access_token', token, 'github-pat'),
                                        ('api_key', alphabet * 4, 'generic-api-key')]:
-                path.write_text(field + ' = "' + value + '"\n')
+                path.write_text(json.dumps({field: value}, indent=2) + '\n')
                 findings, output = execute(scanner, "dir", source, config)
                 if not any(item.get("RuleID") == rule for item in findings) or value in output:
                     raise ValueError("hash-field exclusion hides a token or redaction failed")
             path.write_text('{"description":"synthetic clean file"}\n')
+        # The reviewed exception must admit precisely the source-hash line,
+        # without suppressing sensitive fields on the same line or nearby files.
+        source_field = 'upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch'
+        source_hash = alphabet * 4
+        for relative in channel_evidence:
+            path = source / relative
+            path.write_text(json.dumps({source_field: source_hash}, indent=2) + '\n')
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ValueError("reviewed source-hash exclusion control failed")
+            path.write_text(json.dumps({source_field: source_hash, 'api_key': source_hash}) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
+                raise ValueError("source-hash line exclusion hides another field or redaction failed")
+            path.write_text('{"description":"synthetic clean file"}\n')
+        for relative in [
+            'tests/std-channel-perf/results/2026-11-02-qemu/after-clock-fix/witness-reserved/credentials.json',
+            'tests/std-channel-perf/results/2026-11-03-qemu/after-clock-fix/witness-reserved/build.json',
+        ]:
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({source_field: source_hash}, indent=2) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
+                raise ValueError("source-hash exclusion escaped its evidence path or redaction failed")
+            path.unlink()
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")
