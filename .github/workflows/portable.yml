@@ -75,7 +75,6 @@ jobs:
         run: |
           python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
           python -m unittest discover -s tests/host -p test_upstream_layout.py -v
-          python -m unittest discover -s tests/host -p test_radio_firmware.py -v
           python -m unittest discover -s tests/host -p test_esp_mbedtls_allocators.py -v
           python -m unittest discover -s tests/host -p test_arc4random_entropy.py -v
           python -m unittest discover -s tests/host -p test_rng_entropy.py -v
@@ -124,7 +123,9 @@ jobs:
           git rev-parse HEAD
           rustc --version --verbose
       - name: Portable applications, mocks and actual native adapters
-        run: cargo test --locked
+        run: |
+          cargo test --locked
+          cargo test --locked -p nxrs-build
       - name: Event-driven native owner unit tests
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}

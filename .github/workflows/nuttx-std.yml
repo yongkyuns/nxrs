@@ -11,6 +11,7 @@ on:
       - 'hal/support/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
+      - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tests/browser-threads/src/main.rs'
       - 'tests/browser-threads/Cargo.toml'

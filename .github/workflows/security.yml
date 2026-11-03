@@ -64,7 +64,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" != pull_request ]] || ! git diff --quiet HEAD^ HEAD -- \
             Cargo.toml gateway/ingest gateway/fuzz gateway/Cargo.toml gateway/Cargo.lock \
             service/stream service/detection-wire hal/camera platform/hal-build.rs \
-            tools/platform_config.py .github/workflows/security.yml; then
+            platform/build/ tools/platform_config.py .github/workflows/security.yml; then
             echo 'required=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Install pinned test compiler

@@ -10,3 +10,6 @@ name = "led"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx"]
+
+[build-dependencies]
+nxrs-build = { path = "../../platform/build" }

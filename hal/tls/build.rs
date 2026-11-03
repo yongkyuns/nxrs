@@ -1,6 +1,7 @@
+mod build_sdk;
 #[path = "../../platform/hal-build.rs"]
 mod selection;
-use std::{env, path::PathBuf, process::Command};
+use std::{env, path::PathBuf};
 fn main() {
     if selection::configure() == "none" {
         return;
@@ -18,24 +19,13 @@ fn main() {
     }
     for path in [
         directory.join("src/sdk/ffi"),
-        directory.join("build-sdk.py"),
+        directory.join("build_sdk.rs"),
         directory.join("../../upstream/mbedtls/source.json"),
         directory.join("../../tests/tls/ffi"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    let output = Command::new(env::var_os("NXRS_PYTHON").unwrap_or_else(|| "python3".into()))
-        .arg(directory.join("build-sdk.py"))
-        .arg("--out")
-        .arg(env::var_os("OUT_DIR").unwrap())
-        .arg("--target")
-        .arg(env::var("TARGET").unwrap())
-        .output()
-        .expect("TLS SDK build requires Python 3.12+ and CMake");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    print!("{}", String::from_utf8(output.stdout).unwrap());
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    build_sdk::build(&directory, &out, &env::var("TARGET").unwrap())
+        .unwrap_or_else(|e| panic!("TLS SDK build: {e}"));
 }

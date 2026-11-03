@@ -23,3 +23,6 @@ nxrs-std-wifi = { path = "../wifi" }
 
 [package.metadata.nxrs]
 required-capabilities = ["camera", "wifi"]
+
+[build-dependencies]
+nxrs-build = { path = "../../../platform/build" }

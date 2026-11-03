@@ -197,9 +197,11 @@ def run(out, target=TARGET, target_spec=None):
     poll_fixed = patch.get('libc', {}).get('pollfd_abi') == 'nuttx-13.1'
     rows = fields(poll_fixed)
     records = [json.loads(line) for line in (out / 'cargo-messages.jsonl').read_text().splitlines()]
+    target_artifacts = (Path(os.environ.get('CARGO_TARGET_DIR', out / 'cargo')) / target).resolve()
     libs = [m for m in records if m.get('reason') == 'compiler-artifact'
             and m['target']['name'] == 'libc'
-            and any(p.endswith('.rlib') for p in m['filenames'])]
+            and any(p.endswith('.rlib') and Path(p).resolve().is_relative_to(target_artifacts)
+                    for p in m['filenames'])]
     assert len(libs) == 1, 'ambiguous libc artifact'
     library = [Path(p) for p in libs[0]['filenames'] if p.endswith('.rlib')]
     assert len(library) == 1 and library[0].is_file(), 'missing compiled libc'

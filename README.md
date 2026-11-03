@@ -61,7 +61,7 @@ thread boundary.
 | `hal/common` | Shared BLE/Wi-Fi request identities and bounded payload storage |
 | `shared/messaging` | Layer-neutral generic channels and owned delivery results |
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
-| `platform/firmware`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
+| `platform/build`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
 | [`upstream`](upstream/README.md) | Dependency patchsets, revision pins and upstreaming proposals; no vendored source trees |
 | [`tests`](tests/README.md) | Guide to portable scenarios, shared comparison tools and isolated qualification images |
 | `tools`, `docs`, `external` | Focused scripts, documentation and pinned upstream sources |
@@ -138,36 +138,36 @@ selected product-platform profile.
 
 ~~~sh
 # Discover buildable firmware apps and platforms.
-cargo firmware --list-apps
-cargo firmware --list-platforms
+cargo nxrs apps
+cargo nxrs platforms
 
 # Raspberry Pi Pico 2
-cargo firmware --app event-demo --platform pico2-mock
+cargo nxrs build --app event-demo --profile pico2-mock
 
 # ESP32-S3 QEMU profile (install the pinned ESP/QEMU tools once first)
 bash tools/install-qemu-tools.sh
-cargo firmware --app event-demo --platform esp32s3-qemu-mock
+cargo nxrs build --app event-demo --profile esp32s3-qemu-mock
 
 # ARMv8-M / Cortex-M33 QEMU proxy
-cargo firmware --app event-demo --platform mps2-an521-mock
+cargo nxrs build --app event-demo --profile mps2-an521-mock
 ~~~
 
 The default artifacts are under:
 
 ~~~text
-target/firmware/<app>/<platform>/
+target/build/<binary>/<profile>/
 ~~~
 
 For example:
 
 ~~~text
-target/firmware/event-demo/pico2-mock/nuttx/nuttx.bin
-target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
-target/firmware/event-demo/mps2-an521-mock/nuttx/nuttx
+target/build/event-demo/pico2-mock/nuttx/nuttx.bin
+target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
+target/build/event-demo/mps2-an521-mock/nuttx/nuttx
 ~~~
 
-`cargo firmware` is a repository Cargo alias backed by the small
-`nxrs-firmware` host tool. It resolves:
+`cargo nxrs build` is a repository Cargo alias backed by the host-only
+`nxrs-build` Rust controller. It resolves:
 
 ~~~text
 app Cargo metadata
@@ -203,13 +203,13 @@ For direct QEMU execution after a build:
 source target/qemu-tools/environment.sh
 python3 tests/host/test-event-demo-nuttx.py "$(command -v qemu-system-xtensa)" \
   --machine esp32s3 \
-  --image target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
-  --log target/firmware/event-demo/esp32s3-qemu-mock/console.log
+  --image target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
+  --log target/build/event-demo/esp32s3-qemu-mock/console.log
 
 python3 tests/host/test-event-demo-nuttx.py "$(command -v qemu-system-arm)" \
   --machine mps2-an521 \
-  --image target/firmware/event-demo/mps2-an521-mock/nuttx/nuttx \
-  --log target/firmware/event-demo/mps2-an521-mock/console.log
+  --image target/build/event-demo/mps2-an521-mock/nuttx/nuttx \
+  --log target/build/event-demo/mps2-an521-mock/console.log
 ~~~
 
 See [HAL capability architecture](docs/hal-platform-architecture.md),

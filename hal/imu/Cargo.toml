@@ -15,3 +15,6 @@ platforms = ["mock", "nuttx"]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"
+
+[build-dependencies]
+nxrs-build = { path = "../../platform/build" }

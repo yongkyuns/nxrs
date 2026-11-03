@@ -245,6 +245,8 @@ if grep -qx 'CONFIG_SIG_DEFAULT=y' .config; then
   echo 'This SDK profile requires SIG_DFL=SIG_IGN=0; default signal actions are unqualified' >&2; exit 1
 fi
 cd "$ROOT"
+# Build the Rust qualification linker before entering the target Cargo build.
+cargo +1.90.0 build --locked -p nxrs-build --target-dir "$ROOT/target"
 # Opt in explicitly: these are target std fixes, not an unmodified-upstream claim.
 export NUTTX_STD_SYSROOT="$("$SOURCE_RUSTC" --print sysroot)"
 case "${NUTTX_STD_COMPAT_FIXES:-0}" in

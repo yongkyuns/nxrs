@@ -1,6 +1,7 @@
 """Exercise actual product/build-script wiring without native SDKs or devices."""
 from pathlib import Path
 import os
+import json
 import subprocess
 import tempfile
 import unittest
@@ -14,10 +15,18 @@ class DetectorCompositionTests(unittest.TestCase):
         cls.temporary = tempfile.TemporaryDirectory()
         cls.directory = Path(cls.temporary.name)
         cls.executables = {}
+        result = subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-build', '--lib',
+                                 '--message-format=json'], cwd=ROOT, check=True,
+                                capture_output=True, text=True, timeout=120)
+        library = next(Path(path) for line in result.stdout.splitlines()
+                       if (record := json.loads(line)).get('reason') == 'compiler-artifact'
+                       and record['target']['name'] == 'nxrs_build'
+                       for path in record['filenames'] if path.endswith('.rlib'))
         for name, path in [('hal', 'hal/detector/build.rs'),
                            ('stream', 'tests/nuttx-std/stream/build.rs')]:
             executable = cls.directory / (name + ('.exe' if os.name == 'nt' else ''))
-            subprocess.run(['rustc', '--edition=2024', str(ROOT / path), '-o', str(executable)],
+            subprocess.run(['rustc', '--edition=2024', str(ROOT / path), '-o', str(executable),
+                            '--extern', 'nxrs_build=' + str(library), '-L', 'dependency=' + str(library.parent / 'deps'), '-Cpanic=abort'],
                            cwd=ROOT, check=True, capture_output=True, text=True, timeout=60)
             cls.executables[name] = executable
 
@@ -68,34 +77,23 @@ class DetectorCompositionTests(unittest.TestCase):
                     self.assertEqual('mod batch;' in text, suffix == '' and features == ('PROBE',))
                     self.assertIn('esp32s3-camera-stream.toml', result.stdout)
 
-    @unittest.skipIf(os.name == 'nt', 'NuttX frontend requires bash')
     def test_backend_derives_features_before_any_native_build(self):
-        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
-        # Execute the real argument validation and composition phase, then stop
-        # before native tools, downloads or output-tree mutations.
-        preflight = script[:script.index('if [[ "$(uname -s)" != Linux')]
-        preflight += '\nprintf "%s\\n" "${NXRS_EXTRA_FEATURES[@]}"\n'
         for suffix, expected in [('', ['nxrs-detector/pico-model']),
                                  ('-vww', ['nxrs-detector/person-model']), ('-video', [])]:
             for manifest, dependencies in [('tests/nuttx-std/stream/Cargo.toml', expected),
                                            ('app/std-demo/Cargo.toml', [])]:
                 with self.subTest(suffix=suffix, manifest=manifest):
-                    args = ['--app-manifest', manifest, '--app-package', 'fixture', '--bin', 'fixture',
-                            '--command', 'fixture', '--priority', '100', '--stack-size', '32768',
-                            '--platform', 'esp32s3-camera-stream' + suffix, '--out', str(self.directory / 'firmware'),
-                            '--feature', 'probe']
-                    result = subprocess.run(['bash', '-c', preflight,
-                                             str(ROOT / 'tools/build-nuttx-std-app.sh'), *args],
-                                            cwd=ROOT, capture_output=True, text=True, timeout=15)
+                    args = ['cargo', 'nxrs', 'build', '--dry-run', '--manifest-path', manifest,
+                            '--profile', 'esp32s3-camera-stream' + suffix,
+                            '--out', str(self.directory / 'firmware'), '--feature', 'probe']
+                    result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=120)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(result.stdout.splitlines(), ['probe', *dependencies])
+                    self.assertEqual(json.loads(result.stdout)['deployment']['model_features'], dependencies)
                     self.assertFalse((self.directory / 'firmware').exists())
-                    rejected = subprocess.run(['bash', '-c', preflight,
-                                               str(ROOT / 'tools/build-nuttx-std-app.sh'),
-                                               *args, '--feature', 'nxrs-detector/pico-model'],
-                                              cwd=ROOT, capture_output=True, text=True, timeout=15)
+                    rejected = subprocess.run([*args, '--feature', 'nxrs-detector/pico-model'],
+                                              cwd=ROOT, capture_output=True, text=True, timeout=120)
                     self.assertNotEqual(rejected.returncode, 0)
-                    self.assertIn('remove the manual model feature', rejected.stderr)
+                    self.assertIn('remove manual model features', rejected.stderr)
 
 
 if __name__ == '__main__':

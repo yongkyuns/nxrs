@@ -6,7 +6,7 @@ below is a local-network prototype, not an authenticated home-monitoring product
 or a production-readiness claim.
 
 The signed application entry lives in [`app/home-cam`](../../../app/home-cam).
-Build through the generic `cargo firmware --app home-cam --platform PLATFORM` frontend.
+Build through the generic `cargo nxrs build --app home-cam --platform wroom` frontend.
 This fixture always requires an explicit `--platform`; it owns timed runs,
 forced reconnects, metrics, model witnesses and trusted-USB TLS controls.
 

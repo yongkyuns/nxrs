@@ -1,2 +1,2 @@
 # Patch context deliberately preserves upstream whitespace byte-for-byte.
-upstream/**/*.patch -whitespace
+upstream/**/*.patch -text -whitespace

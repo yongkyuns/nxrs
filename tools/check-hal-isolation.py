@@ -20,7 +20,7 @@ def packages(text, names):
     assert records[-1]["success"], "Cargo build failed"
     artifacts = [r for r in records if r.get("reason") == "compiler-artifact"]
     assert artifacts, "no compiler-artifact evidence"
-    return {names[r["package_id"]] for r in artifacts}
+    return {names[r["package_id"]] for r in artifacts if r["package_id"] in names}
 
 
 def check(text, names, expected):
@@ -32,7 +32,7 @@ def check(text, names, expected):
 def check_selection(text, names, package, provider):
     reports = [r for line in text.splitlines() if line.strip()
                if (r := json.loads(line)).get("reason") == "build-script-executed"
-               and names[r["package_id"]] == package]
+               and names.get(r["package_id"]) == package]
     assert len(reports) == 1, "missing/duplicate platform build-script evidence"
     cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("hal_", "nxrs_hal_"))]
     expected = [] if provider == "none" else ["hal_mock" if provider == "mock" else "hal_enabled"]
@@ -55,7 +55,7 @@ def self_test():
             {"reason": "build-script-executed", "package_id": "hal", "cfgs": ([] if provider == "none" else ["hal_mock" if provider == "mock" else "hal_enabled"])},
             {"reason": "build-finished", "success": success}])
     expected = {"nxrs-camera"}
-    check(fixture(["hal"]), names, expected)
+    check(fixture(["hal", "registry-build-dependency"]), names, expected)
     check_selection(fixture(["hal"]), names, "nxrs-camera", "none")
     for value in (fixture(["common"]), fixture(["hal", "common"]), fixture(["hal", "bad"]),
                   fixture(["hal"], success=False), ""):
@@ -118,7 +118,7 @@ def run(out, capabilities=CAPABILITIES):
                 (out / (label + ".jsonl")).write_text(result.stdout)
                 (out / (label + ".stderr")).write_text(result.stderr)
                 assert result.returncode == 0, result.stderr
-                compiled = set(expected)
+                compiled = expected | {"nxrs-build"}  # Workspace host-only build dependency.
                 check(result.stdout, names, compiled)
                 check_selection(result.stdout, names, package, provider)
                 records = [json.loads(line) for line in result.stdout.splitlines()]

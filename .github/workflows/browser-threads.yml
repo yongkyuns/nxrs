@@ -52,11 +52,11 @@ jobs:
           persist-credentials: false
           repository: emscripten-core/emsdk
           ref: 389a68bc35dcff7ebae4614e1615099dafda00d1
-          path: target/browser-threads/emsdk
+          path: target/emsdk
       - name: Build matched pthread std and ordinary main
         shell: bash
         run: |
-          SDK="$PWD/target/browser-threads/emsdk"
+          SDK="$PWD/target/emsdk"
           "$SDK/emsdk" install 4.0.15
           "$SDK/emsdk" activate 4.0.15
           source "$SDK/emsdk_env.sh"

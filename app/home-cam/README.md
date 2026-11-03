@@ -5,7 +5,7 @@ confirmation and OTA policy. Its entry and lifecycle use only portable HAL APIs;
 console access, scheduling and device admission stay below the HAL boundary.
 Target configuration and generic entry wiring belong to `platform/`.
 
-Build through `cargo firmware --app home-cam --platform PLATFORM`; supply
+Build through `cargo nxrs build --app home-cam --platform wroom`; supply
 operator signing inputs as described in [signed updates](../../docs/firmware-updates.md).
 Saved records are loaded before network bring-up. USB opens only for missing
 first-time commissioning records; enrollment, trusted time and OTA then use

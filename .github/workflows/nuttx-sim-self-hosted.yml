@@ -10,6 +10,7 @@ on:
       - 'hal/support/nuttx/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
+      - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tests/nuttx/**'
       - 'platform/nuttx/qualification/**'

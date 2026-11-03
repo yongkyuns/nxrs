@@ -1,0 +1,12 @@
+--- a/lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs
++++ b/lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs
+@@ -70,6 +70,9 @@
+             target_os = "horizon",
+             target_os = "vita",
+             target_os = "rtems",
++            // NuttX pollfd has extra fields absent from this libc binding.
++            // Use the existing fcntl fallback; do not skip fd sanitization.
++            target_os = "nuttx",
+             // The poll on Darwin doesn't set POLLNVAL for closed fds.
+             target_vendor = "apple",
+         )))]

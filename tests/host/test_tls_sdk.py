@@ -2,12 +2,10 @@
 import ctypes
 import os
 from pathlib import Path
-import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -16,19 +14,6 @@ class TlsSdkTests(unittest.TestCase):
     def test_trusted_usb_supervisor_controls(self):
         subprocess.run([sys.executable, str(ROOT/'tests/nuttx-std/stream/tls_provision.py')],
                        check=True, capture_output=True, timeout=10)
-
-    def test_archive_is_verified_before_native_build_or_extraction(self):
-        build = runpy.run_path(str(ROOT/'hal/tls/build-sdk.py'))['build']
-        with tempfile.TemporaryDirectory() as temporary:
-            work = Path(temporary)
-            archive = work/'release.tar.bz2'
-            with patch.dict(os.environ, NXRS_TLS_ARCHIVE=str(archive)):
-                for content in [None, b'corrupt release']:
-                    if content is not None:
-                        archive.write_bytes(content)
-                    with self.assertRaisesRegex(ValueError, 'Verified TLS source archive required'):
-                        build(work/'out', 'x86_64-unknown-linux-gnu')
-                    self.assertFalse((work/'out').exists())
 
     def test_nuttx_factory_rejects_unqualified_sources_and_uses_nonblocking(self):
         rp = {'BUILD_FLAT', 'ARCH_CHIP_RP23XX', 'RP23XX_RNG',

@@ -13,3 +13,6 @@ probe = []
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["linux", "macos", "nuttx"]
+
+[build-dependencies]
+nxrs-build = { path = "../../platform/build" }
