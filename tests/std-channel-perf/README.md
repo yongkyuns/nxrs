@@ -208,6 +208,69 @@ image digest. Use a new capture directory and fresh boot for every repeat.
 This also avoids treating repeated NSH invocations as a qualified std-runtime
 restart scenario. No std or Crossbeam channel is invoked from an ISR.
 
+### P0 timing qualification contract (implementation in progress)
+
+The latency image now holds its receiver behind a final native semaphore gate,
+after recording the last payload and **before** thread exit. The sender releases
+that gate only after its final send-return timestamp and records whether the
+terminal receiver actually entered NuttX `TSTATE_WAIT_SEM`. Prior physical
+captures lacked this gate: they remain readable historical behavioral evidence,
+but cannot qualify the corrected timing boundary. Cleanup releases both the
+ordinary arm and terminal gates before joining, including partial failures.
+
+A complete physical capture and a qualified physical **time** measurement are
+separate outcomes. `capture_complete` attests the returned fixture records,
+while `physical_timing_qualified` now additionally requires a structured
+independent counter calibration, the verified terminal gate and no boot ROM
+SHA-256 mismatch warning. The old free-text `clock_verification` field is
+retained for historical sessions but is **not a calibration credential**.
+
+A session may include the following additional `clock_calibration` object
+(all `REPLACE` values must come from a genuine independently timed capture,
+not from nominal CPU configuration):
+
+```json
+{
+  "clock_calibration": {
+    "schema": "std-channel-clock-calibration-v1",
+    "method": "paired-independent-timebase",
+    "reference_type": "external-instrument",
+    "reference_identity": "REPLACE-with-instrument-and-timebase-identification",
+    "measurement_session": "REPLACE-with-session-id",
+    "build_id": "REPLACE-with-runtime-build-id",
+    "image_sha256": "REPLACE-with-flashed-image-sha256",
+    "reference_hz": 1000000,
+    "reference_accuracy_ppm": 100,
+    "reference_start_ticks": 0,
+    "reference_end_ticks": 0,
+    "cpu_counter_bits": 32,
+    "cpu_start_ticks": 0,
+    "cpu_end_ticks": 0,
+    "evidence_file": "REPLACE-with-relative-original-trace-file",
+    "evidence_sha256": "REPLACE-with-trace-sha256"
+  }
+}
+```
+
+The example is a **schema illustration, not measured evidence**. Start/end
+CPU values must refer to the same two events as the reference start/end
+values; independent reference timing requires an actual separate oscillator
+or instrument, not a second frequency derived from the configured CPU clock.
+The analyzer checks a 0.25–5 second reference interval, positive unambiguous
+CPU delta (less than half a 32-bit wrap), reference accuracy at most 1000 ppm,
+agreement with configured CPU frequency within the declared tolerance,
+matching build/session/image identity and a hash-verified local trace file.
+It cannot independently authenticate the operator, timebase, or claimed
+simultaneity. Retain the supporting trace alongside session, firmware
+identities and raw capture before publishing calibrated results.
+
+When independent calibration is absent or rejected, the analyzer still
+retains valid per-sample counter ticks and explains the failing qualification
+gate in `timing_qualification_blockers`. The existing ESP32-S3 archive is
+unchanged and remains **unqualified for absolute timing**. The ROM warning
+`SHA-256 comparison failed:` is also retained as a separate blocker;
+successful flash-byte verification does not resolve that ROM check.
+
 ### Clock and interpretation limits
 
 The baseline clock is the native NuttX performance accessor, which may use

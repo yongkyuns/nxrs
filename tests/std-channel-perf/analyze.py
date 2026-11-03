@@ -344,7 +344,7 @@ def qualify(summary, receipt, session, *, fresh_boot_observed=False,
                   boot_rom_digest_warning_observed=bool(boot_digest_warning),
                   physical_execution_verified=(runtime == 'physical' and bool(fresh_boot_observed)))
     if runtime == 'physical':
-        for key in ['measurement_session', 'board', 'board_serial', 'clock_verification',
+        for key in ['measurement_session', 'board', 'board_serial',
                     'cache_state', 'memory_placement', 'power_management', 'external_load',
                     'flash_verification']:
             value = session.get(key)

@@ -281,7 +281,8 @@ struct Metadata<'a> {
 impl Metadata<'_> {
     fn print(&self) {
         let (samples, warmup) = self.mode.counts();
-        println!(concat!("STD_CHANNEL_PERF {{\"schema\":\"std-channel-perf-v1\",\"record\":\"metadata\",",
+        println!(
+            concat!("STD_CHANNEL_PERF {{\"schema\":\"std-channel-perf-v1\",\"record\":\"metadata\",",
             "\"run_id\":\"{}\",\"build_id\":\"{}\",\"runtime\":\"{}\",\"mode\":\"{}\",\"hook_stage\":{},",
             "\"capacity\":{},\"payload_bytes\":16,\"samples\":{},\"warmup\":{},",
             "\"clock_source\":\"{}\",\"clock_hz\":{},\"counter_bits\":32,\"native_counter_bits\":{},",
@@ -292,15 +293,48 @@ impl Metadata<'_> {
             "\"observer_policy\":{},\"observer_priority\":{},\"watchdog_policy\":{},\"watchdog_priority\":{},",
             "\"physical_measurement\":false,\"single_core_tcb_witness\":{},\"blocked_observation_scope\":\"WAIT_SEM-inside-recv\","
             "\"terminal_quiescence_protocol\":\"{}\"}}"),
-            self.run_id, env!("NXRS_STD_CHANNEL_BUILD_ID"), if native::is_nuttx() { "nuttx" } else { "linux-functional" },
-            self.mode.label(), self.mode.stage(), CAPACITY, samples, warmup,
-            self.clock.source, self.clock.hz, self.clock.native_bits,
-            env!("NXRS_STD_CHANNEL_CLOCK_SOURCE"), self.clock.frequency_basis, self.clock.accessor,
-            if self.mode.stage() == 0 { "recv" } else { "try_recv" },
-            self.clock.monotonic_resolution_ns, self.clock.probe_ticks, self.clock.probe_ns, self.clock.counter_validated,
-            self.sender.policy, self.sender.priority, self.receiver.policy, self.receiver.priority,
-            self.observer.policy, self.observer.priority, self.watchdog.policy, self.watchdog.priority, native::is_nuttx(),
-            if self.mode.stage() == 0 { "final-gate-native-wait-v1" } else { "not-applicable" });
+            self.run_id,
+            env!("NXRS_STD_CHANNEL_BUILD_ID"),
+            if native::is_nuttx() {
+                "nuttx"
+            } else {
+                "linux-functional"
+            },
+            self.mode.label(),
+            self.mode.stage(),
+            CAPACITY,
+            samples,
+            warmup,
+            self.clock.source,
+            self.clock.hz,
+            self.clock.native_bits,
+            env!("NXRS_STD_CHANNEL_CLOCK_SOURCE"),
+            self.clock.frequency_basis,
+            self.clock.accessor,
+            if self.mode.stage() == 0 {
+                "recv"
+            } else {
+                "try_recv"
+            },
+            self.clock.monotonic_resolution_ns,
+            self.clock.probe_ticks,
+            self.clock.probe_ns,
+            self.clock.counter_validated,
+            self.sender.policy,
+            self.sender.priority,
+            self.receiver.policy,
+            self.receiver.priority,
+            self.observer.policy,
+            self.observer.priority,
+            self.watchdog.policy,
+            self.watchdog.priority,
+            native::is_nuttx(),
+            if self.mode.stage() == 0 {
+                "final-gate-native-wait-v1"
+            } else {
+                "not-applicable"
+            }
+        );
     }
 }
 

@@ -252,7 +252,7 @@ class EvidenceTests(unittest.TestCase):
         summary = analyze.analyze(transcript(*fixture()))
         with self.assertRaisesRegex(ValueError, 'fresh boot'):
             analyze.qualify(summary, self.receipt, self.session)
-        for field in ['clock_verification', 'board_serial', 'flash_verification']:
+        for field in ['board_serial', 'flash_verification']:
             session = copy.deepcopy(self.session)
             del session[field]
             with self.subTest(field=field), self.assertRaises(ValueError):
@@ -269,6 +269,7 @@ class EvidenceTests(unittest.TestCase):
         summary = analyze.analyze(transcript(*fixture()))
         session = copy.deepcopy(self.session)
         del session['clock_calibration']
+        session['clock_verification'] = 'claimed independently calibrated but no raw evidence'
         result = analyze.qualify(summary, self.receipt, session, fresh_boot_observed=True,
                                  calibration_directory=self.root)
         self.assertTrue(result['physical_execution_verified'])
@@ -335,7 +336,7 @@ class EvidenceTests(unittest.TestCase):
         metadata.update(clock_source_request='native-counter', clock_source='xtensa-ccount')
         summary = analyze.analyze(transcript(metadata, samples, result))
         receipt = dict(self.receipt, clock_request='native-counter')
-        for field, value in [('clock_verification', 'REPLACE-with-calibration'), ('cpu_clock_hz', 80_000_000)]:
+        for field, value in [('board', 'REPLACE-with-board'), ('cpu_clock_hz', 80_000_000)]:
             session = dict(self.session, **{field: value})
             with self.subTest(field=field), self.assertRaises(ValueError):
                 analyze.qualify(summary, receipt, session, fresh_boot_observed=True)
