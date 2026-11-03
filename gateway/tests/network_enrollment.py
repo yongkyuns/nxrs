@@ -58,6 +58,8 @@ class RogueHints:
                 except socket.timeout: continue
                 except OSError: return
                 if packet == b'NXDQ'+pin:
+                    # Wi-Fi broadcast delivery can exceed the old 100 ms window.
+                    if self.closed.wait(.15): return
                     for sock in offers: sock.sendto(b'NXDR'+pin, peer)
         def serve(listener, index):
             try:

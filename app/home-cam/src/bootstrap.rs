@@ -13,7 +13,7 @@ const KEY: &str = "camera.bootstrap";
 const REQUEST: Duration = Duration::from_secs(5);
 const LEASE: Duration = Duration::from_secs(30);
 const REFRESH: Duration = Duration::from_secs(15);
-const LOOKUP: Duration = Duration::from_millis(100);
+const LOOKUP: Duration = Duration::from_millis(500);
 pub type TimeSource = Box<dyn FnMut(&tls::Identity) -> Result<tls::TimeLease, tls::Error>>;
 
 pub fn load(store: &mut impl Store) -> Result<Option<Commission>, config::Error> {
@@ -143,11 +143,48 @@ fn endpoints(commission: &Commission, until: Instant) -> Vec<SocketAddrV4> {
     }
     peers
 }
+fn connect_at<'a>(
+    identity: &'a tls::Identity,
+    pin: [u8; 32],
+    peer: SocketAddrV4,
+    budget: Duration,
+    until: Instant,
+) -> Result<Bounded<'a>, tls::Error> {
+    let deadline = until.min(Instant::now() + budget);
+    let socket =
+        TcpStream::connect_timeout(&SocketAddr::V4(peer), budget).map_err(|_| tls::Error::Io)?;
+    let remaining = until
+        .checked_duration_since(Instant::now())
+        .ok_or(tls::Error::Time)?;
+    let mut connection = identity.connect_pinned(socket, pin, remaining)?;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(tls::Error::Time);
+        }
+        if connection.poll()? {
+            return Ok(Bounded { connection, until });
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
 fn connect<'a>(
     identity: &'a tls::Identity,
     commission: &Commission,
+    preferred: &mut Option<SocketAddrV4>,
     until: Instant,
 ) -> Result<Bounded<'a>, tls::Error> {
+    if let Some(peer) = preferred.take() {
+        let budget = until
+            .checked_duration_since(Instant::now())
+            .ok_or(tls::Error::Time)?
+            / 2;
+        if let Ok(connection) =
+            connect_at(identity, commission.certificate_sha256, peer, budget, until)
+        {
+            *preferred = Some(peer);
+            return Ok(connection);
+        }
+    }
     let peers = endpoints(commission, until);
     for (index, peer) in peers.iter().enumerate() {
         let remaining = until
@@ -155,27 +192,15 @@ fn connect<'a>(
             .ok_or(tls::Error::Time)?;
         // A stalled/forged locator cannot consume the original endpoint's share.
         let budget = remaining / (peers.len() - index) as u32;
-        let attempt = || -> Result<Bounded<'a>, tls::Error> {
-            let deadline = Instant::now() + budget;
-            let socket = TcpStream::connect_timeout(&SocketAddr::V4(*peer), budget)
-                .map_err(|_| tls::Error::Io)?;
-            let remaining = until
-                .checked_duration_since(Instant::now())
-                .ok_or(tls::Error::Time)?;
-            let mut connection =
-                identity.connect_pinned(socket, commission.certificate_sha256, remaining)?;
-            loop {
-                if Instant::now() >= deadline {
-                    return Err(tls::Error::Time);
-                }
-                if connection.poll()? {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            Ok(Bounded { connection, until })
-        };
-        if let Ok(connection) = attempt() {
+        if let Ok(connection) = connect_at(
+            identity,
+            commission.certificate_sha256,
+            *peer,
+            budget,
+            until,
+        ) {
+            // Volatile locator only; every reuse still authenticates the TLS pin.
+            *preferred = Some(*peer);
             return Ok(connection);
         }
     }
@@ -184,11 +209,12 @@ fn connect<'a>(
 fn exchange(
     identity: &tls::Identity,
     commission: &Commission,
+    preferred: &mut Option<SocketAddrV4>,
     csr: &[u8],
 ) -> Result<(Observation, Vec<u8>), tls::Error> {
     let started = Instant::now();
     let until = started + REQUEST;
-    let mut transport = connect(identity, commission, until)?;
+    let mut transport = connect(identity, commission, preferred, until)?;
     enrollment::request(&mut transport, &commission.token, csr).map_err(|_| tls::Error::Io)?;
     let (epoch, bytes) = enrollment::read_response(&mut transport).map_err(|_| tls::Error::Io)?;
     let observed = Instant::now();
@@ -209,8 +235,9 @@ pub fn initialize(commission: Arc<Commission>) -> Result<TlsIdentity<TimeSource>
     let size = identity
         .request("camera", &mut csr)
         .map_err(crate::Error::Tls)?;
-    let (mut time, bytes) =
-        exchange(&identity, &commission, &csr[..size]).map_err(crate::Error::Tls)?;
+    let mut preferred = None;
+    let (mut time, bytes) = exchange(&identity, &commission, &mut preferred, &csr[..size])
+        .map_err(crate::Error::Tls)?;
     let certificates = enrollment::Enrollment::decode(&bytes)
         .map_err(|_| crate::Error::Tls(tls::Error::InvalidInput))?;
     if certificates.own_uri != commission.own_uri()
@@ -220,7 +247,7 @@ pub fn initialize(commission: Arc<Commission>) -> Result<TlsIdentity<TimeSource>
     }
     let clock = move |identity: &tls::Identity| {
         if time.observed.elapsed() >= REFRESH {
-            let (mut fresh, bytes) = exchange(identity, &commission, &[])?;
+            let (mut fresh, bytes) = exchange(identity, &commission, &mut preferred, &[])?;
             if !bytes.is_empty() {
                 return Err(tls::Error::Time);
             }

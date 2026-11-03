@@ -236,6 +236,8 @@ address with exact-pin TLS before sending any token/CSR or accepting time. Looku
 and bounded candidate handshakes share the original five-second request deadline;
 the saved endpoint remains a fallback. Discovery adds no application thread or
 dependency. It supports private IPv4 peers on the same LAN, not routed discovery.
+Authenticated addresses are cached in RAM for time renewals; failed cached
+connections trigger discovery again.
 Static listener addresses retain their existing binding scope.
 
 Existing `NXC1` commissioning records remain valid; no Wi-Fi or trust reset is
