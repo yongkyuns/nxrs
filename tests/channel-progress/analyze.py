@@ -54,8 +54,9 @@ PINS = {
         "0.8.23", "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"),
 }
 FAILURE = re.compile(
-    r"CHANNEL_PROGRESS FAIL|panicked at|Assertion failed|HardFault|"
-    r"arm_hardfault:|qemu: fatal:|Lockup:"
+    r'CHANNEL_PROGRESS FAIL|PANIC|ASSERTION|HardFault|UsageFault|BusFault|'
+    r'qemu: fatal:|Lockup:|"record"\s*:\s*"(?:fatal|failure)"',
+    re.IGNORECASE,
 )
 HEX256 = re.compile(r"[0-9a-f]{64}\Z")
 HEX160 = re.compile(r"[0-9a-f]{40}\Z")

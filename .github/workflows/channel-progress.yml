@@ -122,6 +122,21 @@ jobs:
           python3 -m venv target/channel-progress-venv
           target/channel-progress-venv/bin/pip install kconfiglib==14.1.0
           echo "$GITHUB_WORKSPACE/target/channel-progress-venv/bin" >> "$GITHUB_PATH"
+      - name: Equal FIFO reservation contract, six fresh boots of one exact image
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/channel-progress/fifo/mps2"
+          python3 tests/channel-progress/build.py --platform mps2-an521-mock --mode fifo-channel-suite --out "$out"
+          for mode in fifo-try-recv-reserved fifo-try-recv-published fifo-select-reserved fifo-select-published fifo-try-send-reserved fifo-try-send-reclaimed; do
+            run="$out/cases/$mode/run"
+            python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$run"
+            python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
+              --output "$run/acceptance.json" --require-no-repair
+          done
+          python3 tests/channel-progress/fifo_cohort.py "$out/cases" \
+            --output "$out/cohort.json" --require-no-repair
+          rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
       - name: Six exact-source cases, each on a fresh single-core NuttX boot
         shell: bash
         run: |
@@ -160,21 +175,6 @@ jobs:
             python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
               --output "$run/acceptance.json" --require-no-repair
           done
-          rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
-      - name: Equal FIFO reservation contract, six fresh boots of one exact image
-        shell: bash
-        run: |
-          set -euo pipefail
-          out="target/channel-progress/fifo/mps2"
-          python3 tests/channel-progress/build.py --platform mps2-an521-mock --mode fifo-channel-suite --out "$out"
-          for mode in fifo-try-recv-reserved fifo-try-recv-published fifo-select-reserved fifo-select-published fifo-try-send-reserved fifo-try-send-reclaimed; do
-            run="$out/cases/$mode/run"
-            python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$run"
-            python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
-              --output "$run/acceptance.json" --require-no-repair
-          done
-          python3 tests/channel-progress/fifo_cohort.py "$out/cases" \
-            --output "$out/cohort.json" --require-no-repair
           rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

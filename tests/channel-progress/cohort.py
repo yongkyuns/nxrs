@@ -31,7 +31,7 @@ IDENTITY_FIELDS = (
 )
 CAPTURE_FILES = ("console.log", "build.json", "capture.json", "session.json", "analysis.json")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-FAULT = re.compile(r"\bPANIC\b|ASSERTION|HardFault|UsageFault|BusFault")
+FAULT = evidence.FAILURE
 BOOT_BANNERS = ("NuttShell", "*** Booting NuttX ***")
 MAX_CONSOLE_BYTES = 2 * 1024 * 1024
 

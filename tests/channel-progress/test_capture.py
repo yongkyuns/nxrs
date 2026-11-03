@@ -56,6 +56,34 @@ class StreamTests(unittest.TestCase):
                 if write_fd is not None:
                     os.close(write_fd)
 
+    def test_native_faults_fail_on_the_first_read_even_with_a_boot_prompt(self):
+        for fault in evidence.FAULT_LINES:
+            for variant in (fault, fault.lower(), fault.upper()):
+                for suffix in (b"", b"NuttShell\r\nnsh> "):
+                    payload = variant.encode() + suffix
+                    transcript = bytearray()
+                    with self.subTest(fault=variant, prompt=bool(suffix)), \
+                            mock.patch.object(capture.select, "select", return_value=([7], [], [])) as ready, \
+                            mock.patch.object(capture.os, "read", side_effect=[payload]) as read, \
+                            mock.patch.object(capture.time, "monotonic", return_value=0):
+                        with self.assertRaisesRegex(RuntimeError, "kernel fault"):
+                            capture.read_until(7, transcript, capture.fresh_boot, 120)
+                        ready.assert_called_once()
+                        read.assert_called_once_with(7, 65536)
+                        self.assertEqual(transcript, payload)
+
+    def test_native_fault_signature_split_across_reads_is_retained_and_refused(self):
+        payload = evidence.NUTTX_BOOT_FAULT.encode()
+        boundary = payload.index(b"Assertion") + len(b"Assert")
+        transcript = bytearray()
+        with mock.patch.object(capture.select, "select", return_value=([7], [], [])), \
+                mock.patch.object(capture.os, "read", side_effect=[payload[:boundary], payload[boundary:]]) as read, \
+                mock.patch.object(capture.time, "monotonic", return_value=0):
+            with self.assertRaisesRegex(RuntimeError, "kernel fault"):
+                capture.read_until(7, transcript, capture.fresh_boot, 120)
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual(transcript, payload)
+
     def test_only_named_progress_commands_are_allowed(self):
         for mode in capture.MODES:
             self.assertEqual(capture.command_for(mode), "channel_progress " + mode)
@@ -161,6 +189,37 @@ class CaptureLifecycleTests(unittest.TestCase):
         self.assertEqual((self.args.output / "console.log").read_bytes(), b"partial rejected boot\r\n")
         process.terminate.assert_called_once()
         process.wait.assert_called_once_with(timeout=3)
+        self.assertTrue((self.args.output / "session.json").is_file())
+        self.assertFalse((self.args.output / "analysis.json").exists())
+
+    def test_native_boot_fault_is_retained_without_sending_a_command_or_retrying(self):
+        self.args.runtime = "qemu"
+        self.args.session = self.args.port = None
+        self.args.timeout = 120
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        payload = evidence.NUTTX_BOOT_FAULT.encode()
+        read_fd, write_fd = os.pipe()
+
+        def start(*args, **kwargs):
+            os.write(kwargs["stdout"], payload)
+            return process
+
+        with mock.patch.object(capture.pty, "openpty", return_value=(read_fd, write_fd)), \
+                mock.patch.object(capture.subprocess, "Popen", side_effect=start) as launch, \
+                mock.patch.object(capture, "write_command") as command:
+            result = capture.capture(self.args)
+        self.assertFalse(result["capture_complete"])
+        self.assertEqual(result["failure_stage"], "fresh-boot")
+        self.assertEqual(result["error"], "RuntimeError: guest fixture failure or kernel fault")
+        self.assertNotIn("fresh_boot_observed", result)
+        command.assert_not_called()
+        launch.assert_called_once()
+        process.terminate.assert_called_once()
+        process.wait.assert_called_once_with(timeout=3)
+        self.assertEqual((self.args.output / "console.log").read_bytes(), payload)
+        self.assertEqual(evidence.analyze.read_json(self.args.output / "capture.json"), result)
         self.assertTrue((self.args.output / "session.json").is_file())
         self.assertFalse((self.args.output / "analysis.json").exists())
 

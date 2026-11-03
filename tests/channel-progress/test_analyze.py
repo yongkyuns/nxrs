@@ -12,6 +12,15 @@ import unittest
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
+# Exact diagnostic from the rejected ARM boot in run 41708475163. This is a
+# transcript fixture, not evidence that the synthetic test ran on NuttX.
+NUTTX_BOOT_FAULT = (
+    "dump_assert_info: Assertion failed panic: at file: armv8-m/arm_hardfault.c:147 "
+    "task: Idle_Task process: Kernel 0x100029c9\r\r\n"
+)
+FAULT_LINES = (NUTTX_BOOT_FAULT, "arm_hardfault.c:147\n", "arm_hardfault: exception\n",
+               "PANIC\n", "UsageFault\n", "BusFault\n", "panicked at witness.rs:10\n",
+               'CHANNEL_PROGRESS {"record":"fatal"}\n', "qemu: fatal: Lockup:\n")
 
 
 def module(name, path):
@@ -117,6 +126,14 @@ class TranscriptTests(unittest.TestCase):
                        text.replace('"record": "metadata"', '"record": "result"', 1)):
             with self.subTest(broken=broken[-100:]), self.assertRaises(ValueError):
                 analyze.analyze(broken)
+
+    def test_native_faults_before_or_after_valid_records_are_refused_in_any_case(self):
+        text = transcript(*fixture("direct-published", stalled=False))
+        for fault in FAULT_LINES:
+            for variant in (fault, fault.lower(), fault.upper()):
+                for broken in (variant + text, text + variant):
+                    with self.subTest(fault=variant), self.assertRaisesRegex(ValueError, "failure or kernel fault"):
+                        analyze.analyze(broken)
 
     def test_duplicate_keys_nonfinite_json_and_unknown_schema_refused(self):
         text = transcript(*fixture())

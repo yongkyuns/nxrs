@@ -16,14 +16,16 @@ import subprocess
 import termios
 import time
 
-from analyze import (FIFO_MODES, STD_TRANSFER_MODES, analyze, attach_execution,
+from analyze import (FAILURE, FIFO_MODES, STD_TRANSFER_MODES, analyze, attach_execution,
                      bind_build, build_receipt, decode_json)
 
 MODES = ("direct-reserved", "direct-published", "select-reserved", "select-published",
          "send-reserved", "send-reclaimed", *STD_TRANSFER_MODES, *FIFO_MODES)
 PROMPT = b"nsh> "
 BOOT_BANNERS = (b"NuttShell", b"*** Booting NuttX ***")
-FAULT = re.compile(rb'PANIC|ASSERTION|HardFault|UsageFault|BusFault|"record"\s*:\s*"(?:fatal|failure)"')
+# Share failure signatures with offline replay. NuttX emits mixed-case
+# "Assertion failed panic" and lowercase arm_hardfault.c before a boot banner.
+FAULT = re.compile(FAILURE.pattern.encode("ascii"), re.IGNORECASE)
 MAX_LOG = 2 * 1024 * 1024
 
 

@@ -126,6 +126,15 @@ class CohortTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no-repair gate refused"):
             cohort.require_no_repair(report)
 
+    def test_native_faults_in_otherwise_complete_captures_are_refused_in_any_case(self):
+        mode = "direct-published"
+        raw = (self.run_directory(mode) / "console.log").read_bytes()
+        for fault in fixtures.FAULT_LINES:
+            for variant in (fault, fault.lower(), fault.upper()):
+                for broken in (variant.encode() + raw, raw + variant.encode()):
+                    with self.subTest(fault=variant), self.assertRaisesRegex(ValueError, "fault in raw capture"):
+                        cohort.capture_structure(broken, mode)
+
     def test_six_no_repair_cases_pass_only_the_scoped_experiment_gate(self):
         for mode in cohort.MODES:
             self.stalled[mode] = False
