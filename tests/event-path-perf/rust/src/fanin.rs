@@ -17,16 +17,24 @@ use crate::{
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU8, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const ADMITTED: u8 = 1;
 const REJECTED_FULL: u8 = 2;
 const RECEIVE_WAIT: Duration = Duration::from_millis(10);
 const TERMINAL_WAIT_MS: u32 = 30_000;
+pub const NORMAL_PERIOD_NS: u64 = 1_000_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Unpaced,
+    Normal,
+    Saturation,
+}
 
 #[derive(Default)]
 struct Attempt {
@@ -35,6 +43,8 @@ struct Attempt {
     receive: AtomicU32,
     admission: AtomicU8,
     seen: AtomicBool,
+    planned_release_offset_ns: AtomicU32,
+    release_observed_offset_ns: AtomicU32,
 }
 
 struct Worker {
@@ -84,6 +94,7 @@ struct Shared {
     owner: Worker,
     cancelled: AtomicBool,
     failed: AtomicBool,
+    release_epoch_ns: OnceLock<u64>,
 }
 impl Shared {
     fn new(config: Config, providers: usize) -> Self {
@@ -95,6 +106,7 @@ impl Shared {
             owner: Worker::new(),
             cancelled: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            release_epoch_ns: OnceLock::new(),
         }
     }
 
@@ -145,7 +157,17 @@ pub fn run<T: Transport, P: Payload>(
     capacity: usize,
     providers: usize,
 ) -> Result<Report> {
-    run_with_start::<T, P>(config, clock, capacity, providers, Start::Concurrent)
+    run_with_mode::<T, P>(config, clock, capacity, providers, Mode::Unpaced)
+}
+
+pub fn run_with_mode<T: Transport, P: Payload>(
+    config: Config,
+    clock: &Clock,
+    capacity: usize,
+    providers: usize,
+    mode: Mode,
+) -> Result<Report> {
+    run_with_start::<T, P>(config, clock, capacity, providers, mode, Start::Concurrent)
 }
 
 fn run_with_start<T: Transport, P: Payload>(
@@ -153,6 +175,7 @@ fn run_with_start<T: Transport, P: Payload>(
     clock: &Clock,
     capacity: usize,
     providers: usize,
+    mode: Mode,
     start: Start,
 ) -> Result<Report> {
     if !matches!(providers, 1 | 4)
@@ -163,9 +186,12 @@ fn run_with_start<T: Transport, P: Payload>(
     {
         return Err("fanin-bounded-case-parameters");
     }
+    if mode == Mode::Saturation && config.total() as usize * providers <= capacity {
+        return Err("fanin-saturation-requires-excess-attempts");
+    }
     let previous = native::schedule(native::tid())?;
     support::configure(OBSERVER_PRIORITY)?;
-    let outcome = execute::<T, P>(config, clock, capacity, providers, start);
+    let outcome = execute::<T, P>(config, clock, capacity, providers, mode, start);
     if native::is_nuttx() {
         native::set_schedule(native::tid(), previous)?;
     }
@@ -177,6 +203,7 @@ fn execute<T: Transport, P: Payload>(
     clock: &Clock,
     capacity: usize,
     providers: usize,
+    mode: Mode,
     start: Start,
 ) -> Result<Report> {
     let shared = Arc::new(Shared::new(config, providers));
@@ -242,11 +269,24 @@ fn execute<T: Transport, P: Payload>(
                             let attempt = &worker.attempts
                                 [provider * config.total() as usize + sequence as usize - 1];
                             let payload = P::new(sequence, provider as u32);
+                            let release = if mode == Mode::Unpaced {
+                                None
+                            } else {
+                                Some(release_attempt(&worker, mode, sequence)?)
+                            };
                             let before = native::counter();
                             let outcome = sender.try_send(payload);
                             let after = native::counter();
                             attempt.start.store(before, Ordering::Relaxed);
                             attempt.end.store(after, Ordering::Relaxed);
+                            if let Some((planned, observed)) = release {
+                                attempt
+                                    .planned_release_offset_ns
+                                    .store(planned, Ordering::Relaxed);
+                                attempt
+                                    .release_observed_offset_ns
+                                    .store(observed, Ordering::Relaxed);
+                            }
                             let admitted = match outcome {
                                 Ok(()) => {
                                     identity.admitted.fetch_add(1, Ordering::Relaxed);
@@ -287,15 +327,42 @@ fn execute<T: Transport, P: Payload>(
             report.provider_schedules.push(identity);
         }
         (report.sender_tid, report.sender) = report.provider_schedules[0];
+        if mode == Mode::Saturation {
+            report.owner_hold_verified =
+                support::blocked(report.receiver_tid, report.receiver, || {
+                    !shared.owner.done.load(Ordering::Acquire)
+                })?;
+        }
         let begin_ns = native::monotonic_ns()?;
-        if matches!(start, Start::Concurrent) {
+        if mode != Mode::Unpaced {
+            shared
+                .release_epoch_ns
+                .set(begin_ns)
+                .map_err(|_| "fanin-release-epoch-already-set")?;
+            report.release_epoch_ns = Some(begin_ns);
+        }
+        if mode != Mode::Saturation && matches!(start, Start::Concurrent) {
             owner_start.post()?;
         }
         for _ in 0..providers {
             provider_start.post()?;
         }
+        if mode == Mode::Saturation {
+            support::wait_until(|| {
+                shared.providers_done() || shared.failed.load(Ordering::Acquire)
+            })?;
+            if shared.failed.load(Ordering::Acquire) {
+                return Err("fanin-worker-failed");
+            }
+            report.owner_hold_verified &=
+                support::blocked(report.receiver_tid, report.receiver, || {
+                    !shared.owner.done.load(Ordering::Acquire) && shared.providers_done()
+                })?;
+            report.owner_release_ticks = Some(native::counter());
+            owner_start.post()?;
+        }
         #[cfg(test)]
-        if matches!(start, Start::AfterProviders) {
+        if mode != Mode::Saturation && matches!(start, Start::AfterProviders) {
             support::wait_until(|| {
                 shared.providers_done() || shared.failed.load(Ordering::Acquire)
             })?;
@@ -357,7 +424,54 @@ fn execute<T: Transport, P: Payload>(
         handled?,
         &mut report,
     )?;
+    if mode == Mode::Saturation
+        && (report.counts.admitted as usize != capacity
+            || report.counts.rejected as usize != config.total() as usize * providers - capacity)
+    {
+        return Err("fanin-saturation-counts");
+    }
     Ok(report)
+}
+
+/// All providers use the same epoch, never a chain of relative sleeps. An
+/// overdue release still produces its original attempt and records lateness.
+/// Coarse native timers may therefore coalesce slots; that is retained evidence.
+fn release_attempt(shared: &Shared, mode: Mode, sequence: u32) -> Result<(u32, u32)> {
+    let epoch = *shared
+        .release_epoch_ns
+        .get()
+        .ok_or("fanin-release-epoch-missing")?;
+    let planned_offset = match mode {
+        Mode::Normal => u64::from(sequence - 1)
+            .checked_mul(NORMAL_PERIOD_NS)
+            .ok_or("fanin-release-overflow")?,
+        Mode::Saturation => 0,
+        Mode::Unpaced => return Err("fanin-unpaced-release-marker"),
+    };
+    let planned = epoch
+        .checked_add(planned_offset)
+        .ok_or("fanin-release-overflow")?;
+    let deadline = Instant::now() + Duration::from_millis(WAIT_MS.into());
+    let observed = loop {
+        if shared.cancelled.load(Ordering::Acquire) {
+            return Err("fanin-cancelled");
+        }
+        let now = native::monotonic_ns()?;
+        if now >= planned {
+            break now;
+        }
+        if Instant::now() >= deadline {
+            return Err("fanin-release-deadline");
+        }
+        thread::sleep(Duration::from_nanos((planned - now).min(NORMAL_PERIOD_NS)));
+    };
+    let observed_offset = observed
+        .checked_sub(epoch)
+        .ok_or("fanin-release-clock-reversed")?;
+    Ok((
+        u32::try_from(planned_offset).map_err(|_| "fanin-release-offset-overflow")?,
+        u32::try_from(observed_offset).map_err(|_| "fanin-release-offset-overflow")?,
+    ))
 }
 
 fn consume<P: Payload, R: ReceiveEndpoint<P>>(
@@ -457,6 +571,25 @@ fn reconcile<P: Payload>(
                 },
             ];
             let window_ns = clock.window(begin_ns, end_ns, &deltas)?;
+            let (planned_release_ns, release_observed_ns) =
+                if let Some(epoch) = report.release_epoch_ns {
+                    let planned = epoch
+                        .checked_add(u64::from(
+                            attempt.planned_release_offset_ns.load(Ordering::Relaxed),
+                        ))
+                        .ok_or("fanin-release-overflow")?;
+                    let observed = epoch
+                        .checked_add(u64::from(
+                            attempt.release_observed_offset_ns.load(Ordering::Relaxed),
+                        ))
+                        .ok_or("fanin-release-overflow")?;
+                    if observed < planned || observed > end_ns {
+                        return Err("fanin-release-outside-active-window");
+                    }
+                    (Some(planned), Some(observed))
+                } else {
+                    (None, None)
+                };
             report.counts.attempted += 1;
             if accepted {
                 report.counts.admitted += 1;
@@ -479,6 +612,8 @@ fn reconcile<P: Payload>(
                     receive,
                     window_ns,
                     accepted,
+                    planned_release_ns,
+                    release_observed_ns,
                     ..Sample::default()
                 });
             }
@@ -521,6 +656,12 @@ mod tests {
             );
             assert_eq!(report.counts.admitted, report.counts.handled);
             assert!(report.counts.handled > 0);
+            assert!(report.release_epoch_ns.is_none());
+            assert!(report.owner_release_ticks.is_none());
+            assert!(!report.owner_hold_verified);
+            assert!(report.samples.iter().all(|sample| {
+                sample.planned_release_ns.is_none() && sample.release_observed_ns.is_none()
+            }));
             for provider in 0..providers as u32 {
                 let samples: Vec<_> = report
                     .samples
@@ -553,6 +694,7 @@ mod tests {
             &Clock::new().unwrap(),
             1,
             4,
+            Mode::Unpaced,
             Start::AfterProviders,
         )
         .unwrap();
@@ -578,17 +720,20 @@ mod tests {
 
     #[test]
     fn partial_provider_start_rolls_back_the_owner_and_existing_provider() {
-        let outcome = run_with_start::<RawStd, Bytes16>(
-            Config::new(8, 2).unwrap(),
-            &Clock::new().unwrap(),
-            1,
-            4,
-            Start::FailAfterOneProvider,
-        );
-        assert!(matches!(
-            outcome,
-            Err("fanin-injected-provider-spawn-failure")
-        ));
+        for mode in [Mode::Unpaced, Mode::Normal, Mode::Saturation] {
+            let outcome = run_with_start::<RawStd, Bytes16>(
+                Config::new(8, 2).unwrap(),
+                &Clock::new().unwrap(),
+                1,
+                4,
+                mode,
+                Start::FailAfterOneProvider,
+            );
+            assert!(matches!(
+                outcome,
+                Err("fanin-injected-provider-spawn-failure")
+            ));
+        }
     }
 
     struct FailingOwner;
@@ -622,9 +767,111 @@ mod tests {
 
     #[test]
     fn owner_failure_cancels_providers_and_joins_despite_full_data_capacity() {
-        let outcome =
-            run::<FailingOwner, Bytes16>(Config::new(64, 2).unwrap(), &Clock::new().unwrap(), 1, 4);
-        assert!(matches!(outcome, Err("fanin-worker-failed")));
+        for mode in [Mode::Unpaced, Mode::Normal, Mode::Saturation] {
+            let outcome = run_with_mode::<FailingOwner, Bytes16>(
+                Config::new(64, 2).unwrap(),
+                &Clock::new().unwrap(),
+                1,
+                4,
+                mode,
+            );
+            assert!(matches!(outcome, Err("fanin-worker-failed")));
+        }
+    }
+
+    #[test]
+    fn normal_schedule_preserves_absolute_slots_and_every_attempt() {
+        let config = Config::new(8, 2).unwrap();
+        for providers in [1, 4] {
+            let report = run_with_mode::<Messaging, Bytes16>(
+                config,
+                &Clock::new().unwrap(),
+                8,
+                providers,
+                Mode::Normal,
+            )
+            .unwrap();
+            let epoch = report.release_epoch_ns.unwrap();
+            assert_eq!(report.counts.attempted, config.total() * providers as u32);
+            assert_eq!(report.samples.len(), config.samples as usize * providers);
+            assert_eq!(report.counts.admitted, report.counts.handled);
+            assert!(report.owner_release_ticks.is_none());
+            let mut last_observed = [epoch; 4];
+            for sample in &report.samples {
+                let planned = sample.planned_release_ns.unwrap();
+                let observed = sample.release_observed_ns.unwrap();
+                assert_eq!(
+                    planned,
+                    epoch + u64::from(sample.sequence - 1) * NORMAL_PERIOD_NS
+                );
+                assert!(observed >= planned);
+                assert!(observed >= last_observed[sample.provider as usize]);
+                last_observed[sample.provider as usize] = observed;
+            }
+        }
+    }
+
+    #[test]
+    fn executable_saturation_guarantees_full_rejection_and_records_owner_release() {
+        let config = Config::new(12, 2).unwrap();
+        for providers in [1, 4] {
+            let report = run_with_mode::<Messaging, Bytes16>(
+                config,
+                &Clock::new().unwrap(),
+                8,
+                providers,
+                Mode::Saturation,
+            )
+            .unwrap();
+            assert_eq!(report.counts.attempted, config.total() * providers as u32);
+            assert_eq!(report.counts.admitted, 8);
+            assert_eq!(report.counts.rejected, report.counts.attempted - 8);
+            assert_eq!(report.counts.handled, 8);
+            assert_eq!(report.samples.len(), config.samples as usize * providers);
+            assert_eq!(report.owner_hold_verified, native::is_nuttx());
+            let release = report.owner_release_ticks.unwrap();
+            let epoch = report.release_epoch_ns.unwrap();
+            let mut full_seen = [false; 4];
+            for sample in &report.samples {
+                assert_eq!(sample.planned_release_ns, Some(epoch));
+                assert!(sample.release_observed_ns.unwrap() >= epoch);
+                assert!(release.wrapping_sub(sample.admission_end) < 1 << 31);
+                if sample.accepted {
+                    assert!(!full_seen[sample.provider as usize]);
+                    assert!(sample.receive.wrapping_sub(release) < 1 << 31);
+                } else {
+                    assert_eq!(sample.receive, 0);
+                    full_seen[sample.provider as usize] = true;
+                }
+            }
+        }
+        assert!(matches!(
+            run_with_mode::<Messaging, Bytes16>(
+                Config::new(8, 0).unwrap(),
+                &Clock::new().unwrap(),
+                8,
+                1,
+                Mode::Saturation,
+            ),
+            Err("fanin-saturation-requires-excess-attempts")
+        ));
+    }
+
+    #[test]
+    fn overdue_release_is_observed_and_cancellation_never_waits_for_its_slot() {
+        let _clock = Clock::new().unwrap();
+        let shared = Shared::new(Config::new(1, 0).unwrap(), 1);
+        let now = native::monotonic_ns().unwrap();
+        let epoch = now.saturating_sub(2 * NORMAL_PERIOD_NS);
+        shared.release_epoch_ns.set(epoch).unwrap();
+        let (planned, observed) = release_attempt(&shared, Mode::Normal, 1).unwrap();
+        assert_eq!(planned, 0);
+        assert!(u64::from(observed) >= now - epoch);
+        shared.cancelled.store(true, Ordering::Release);
+        assert_eq!(
+            release_attempt(&shared, Mode::Normal, 100),
+            Err("fanin-cancelled")
+        );
     }
 
     #[test]

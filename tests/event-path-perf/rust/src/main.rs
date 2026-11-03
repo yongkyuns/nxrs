@@ -113,6 +113,18 @@ impl Case {
             "fanin-messaging-4" => ("fanin-messaging-4", Fanin, Messaging, TrySend, 4),
             "fanin-crossbeam-1" => ("fanin-crossbeam-1", Fanin, Crossbeam, TrySend, 1),
             "fanin-crossbeam-4" => ("fanin-crossbeam-4", Fanin, Crossbeam, TrySend, 4),
+            "fanin-messaging-1-normal" => {
+                ("fanin-messaging-1-normal", Fanin, Messaging, TrySend, 1)
+            }
+            "fanin-messaging-4-normal" => {
+                ("fanin-messaging-4-normal", Fanin, Messaging, TrySend, 4)
+            }
+            "fanin-messaging-1-saturation" => {
+                ("fanin-messaging-1-saturation", Fanin, Messaging, TrySend, 1)
+            }
+            "fanin-messaging-4-saturation" => {
+                ("fanin-messaging-4-saturation", Fanin, Messaging, TrySend, 4)
+            }
             _ => return Err("unknown-case"),
         };
         Ok(Self {
@@ -146,6 +158,22 @@ impl Case {
             },
         }
     }
+    fn fanin_mode(self) -> fanin::Mode {
+        match self.name {
+            "fanin-messaging-1-normal" | "fanin-messaging-4-normal" => fanin::Mode::Normal,
+            "fanin-messaging-1-saturation" | "fanin-messaging-4-saturation" => {
+                fanin::Mode::Saturation
+            }
+            _ => fanin::Mode::Unpaced,
+        }
+    }
+    fn release_schedule(self) -> &'static str {
+        match self.fanin_mode() {
+            fanin::Mode::Unpaced => "finite-closed-loop-or-unscheduled-fanin",
+            fanin::Mode::Normal => "finite-absolute-1ms",
+            fanin::Mode::Saturation => "finite-held-owner-burst",
+        }
+    }
 }
 
 fn run_transport<T: Transport, P: Payload>(
@@ -163,7 +191,10 @@ fn run_transport<T: Transport, P: Payload>(
             case.family == Family::Full,
         ),
         Family::Blocked => ladder::blocked::<T, P>(config, clock, capacity, case.call),
-        Family::Fanin => fanin::run::<T, P>(config, clock, capacity, case.providers),
+        Family::Fanin => match case.fanin_mode() {
+            fanin::Mode::Unpaced => fanin::run::<T, P>(config, clock, capacity, case.providers),
+            mode => fanin::run_with_mode::<T, P>(config, clock, capacity, case.providers, mode),
+        },
         _ => Err("transport-case-family"),
     }
 }
@@ -212,6 +243,15 @@ fn print_experiment<P: Payload>(
     } else {
         (0, 0)
     };
+    let release_period_ns = match case.fanin_mode() {
+        fanin::Mode::Normal => fanin::NORMAL_PERIOD_NS,
+        _ => 0,
+    };
+    let warmup_scope = if case.family == Family::Fanin {
+        "per-provider-prefix"
+    } else {
+        "sequential-prefix"
+    };
     println!(concat!("EVENT_PATH_PERF {{\"schema\":\"event-path-perf-v1\",\"record\":\"experiment\",",
         "\"run_id\":\"{}\",\"case\":\"{}\",\"family\":\"{}\",\"transport\":\"{}\",\"admission\":\"{}\",",
         "\"payload\":\"{}\",\"payload_bytes\":{},\"payload_alignment\":{},\"capacity\":{},\"provider_count\":{},",
@@ -220,11 +260,18 @@ fn print_experiment<P: Payload>(
         "\"clock_hz\":{},\"clock_source\":{},\"counter_native_bits\":{},\"monotonic_resolution_ns\":{},",
         "\"counter_bits\":32,\"clock_source_request\":\"{}\",\"receive_api\":\"{}\",",
         "\"crossbeam_version\":\"0.5.17\",\"witness_hooks\":false,\"worker_stack\":{},\"blocked_state_name\":\"{}\",",
-        "\"release_schedule\":\"finite-closed-loop-or-unscheduled-fanin\",\"counts_include_warmup\":true}}"),
+        "\"release_schedule\":\"{}\",\"release_period_ns\":{},\"warmup_scope\":\"{}\",\"counts_include_warmup\":true}}"),
         run_id, case.name, case.family.name(), case.backend.name(), case.admission(), payload, bytes, alignment,
         capacity, case.providers, case.backend.arms(), stop_capacity, important_capacity,
         config.samples, config.warmup, runtime, env!("NXRS_EVENT_PATH_BUILD_ID"), clock.hz, clock.source, clock.bits,
-        clock.resolution_ns, env!("NXRS_STD_CHANNEL_CLOCK_SOURCE"), case.receive_api(), support::WORKER_STACK, native::State::WaitSem.label());
+        clock.resolution_ns, env!("NXRS_STD_CHANNEL_CLOCK_SOURCE"), case.receive_api(), support::WORKER_STACK, native::State::WaitSem.label(),
+        case.release_schedule(), release_period_ns, warmup_scope);
+}
+
+fn optional_stamp(value: Option<u64>) -> String {
+    value
+        .map(|stamp| stamp.to_string())
+        .unwrap_or_else(|| "null".into())
 }
 
 fn print_report(run_id: &str, report: &Report) {
@@ -244,17 +291,21 @@ fn print_report(run_id: &str, report: &Report) {
         println!(concat!("EVENT_PATH_PERF {{\"schema\":\"event-path-perf-v1\",\"record\":\"sample\",\"run_id\":\"{}\",",
             "\"index\":{},\"sequence\":{},\"provider\":{},\"start_ticks\":{},\"admission_return_ticks\":{},",
             "\"receive_start_ticks\":{},\"receive_return_ticks\":{},\"elapsed_upper_ns\":{},\"blocked_verified\":{},",
-            "\"peer_tid\":{},\"park_returns\":{},\"accepted\":{},\"payload_valid\":true}}"), run_id, index,
+            "\"peer_tid\":{},\"park_returns\":{},\"accepted\":{},\"payload_valid\":true,",
+            "\"planned_release_ns\":{},\"release_observed_ns\":{}}}"), run_id, index,
             sample.sequence, sample.provider, sample.start, sample.admission_end, receive_start, sample.receive, sample.window_ns,
-            sample.blocked, sample.peer_tid, sample.park_returns, sample.accepted);
+            sample.blocked, sample.peer_tid, sample.park_returns, sample.accepted,
+            optional_stamp(sample.planned_release_ns), optional_stamp(sample.release_observed_ns));
     }
     println!(concat!("EVENT_PATH_PERF {{\"schema\":\"event-path-perf-v1\",\"record\":\"result\",\"run_id\":\"{}\",",
         "\"success\":true,\"sample_count\":{},\"attempted\":{},\"admitted\":{},\"rejected\":{},\"handled\":{},\"checksum\":{},\"retained_checksum\":{},",
         "\"park_returns\":{},\"threads_joined\":true,\"terminal_quiescence_verified\":{},",
         "\"structural_valid\":true,\"timing_qualified\":false,\"priority_progress_qualified\":false,",
-        "\"physical_execution_verified\":false,\"clock_qualified\":false,\"actual_switch_count\":null}}"),
+        "\"physical_execution_verified\":false,\"clock_qualified\":false,\"actual_switch_count\":null,\"release_epoch_ns\":{},",
+        "\"owner_release_ticks\":{},\"owner_hold_verified\":{}}}"),
         run_id, report.samples.len(), report.counts.attempted, report.counts.admitted, report.counts.rejected,
-        report.counts.handled, report.checksum, report.retained_checksum, report.park_returns, report.terminal_quiescence_verified);
+        report.counts.handled, report.checksum, report.retained_checksum, report.park_returns, report.terminal_quiescence_verified,
+        optional_stamp(report.release_epoch_ns), optional_stamp(report.owner_release_ticks.map(u64::from)), report.owner_hold_verified);
 }
 
 pub fn fatal(reason: &'static str) -> ! {
@@ -332,6 +383,23 @@ mod tests {
             3
         );
         assert_eq!(Case::parse("fanin-std-4").unwrap().providers, 4);
+        assert_eq!(
+            Case::parse("fanin-messaging-4-normal").unwrap().providers,
+            4
+        );
+        assert_eq!(
+            Case::parse("fanin-messaging-1-normal")
+                .unwrap()
+                .release_schedule(),
+            "finite-absolute-1ms"
+        );
+        assert_eq!(
+            Case::parse("fanin-messaging-4-saturation")
+                .unwrap()
+                .release_schedule(),
+            "finite-held-owner-burst"
+        );
+        assert!(Case::parse("fanin-crossbeam-4-normal").is_err());
         assert!(Case::parse("yield-alone").is_err());
         assert!(Case::parse("context-switch").is_err());
     }

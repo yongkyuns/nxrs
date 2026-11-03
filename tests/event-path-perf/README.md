@@ -16,14 +16,20 @@ provider/sequence identity. IMU padding is never hashed or interpreted.
 
 | Family / command | Measured operation and controls |
 | --- | --- |
-| `ready-{std,messaging,crossbeam}-{try,send}` | Same-thread accepted admission followed by receive. Record admission and receive boundaries separately. `send` and `try_send` are distinct experiments. |
+| `ready-{std,messaging,crossbeam}-{try,send}` | Same-thread accepted admission into a nonfull queue followed by receive. Record admission and receive boundaries separately. `send` and `try_send` are distinct experiments. |
 | `full-{std,messaging,crossbeam}` | Fill exactly to capacity outside the timed call, time `try_send`, require the original rejected value, then verify every retained queue entry and FIFO order. Only the rejected call enters the admission counts. |
 | `blocked-{std,messaging,crossbeam}-{try,send}` | Empty receive followed by one admission; same worker stack and scheduling relationship. Fresh native `WAIT_SEM` proof for every target iteration, including warmup. |
 | `ready-select-{one,three}`, `blocked-select-{one,three}` | Compare Crossbeam direct receive with one-arm and three-arm `select_biased!`. The ordinary queue is active; idle stop/important arms stay connected. |
 | `semaphore` | Sequence publication plus native semaphore post, ending at return from `sem_clockwait`. This has zero message payload and is a notification control. |
 | `park` | Sequence publication plus `unpark`, ending at the actual `park` return that satisfies the predicate. Count park returns separately from useful completions. |
 | `fixed-peer` | Known-peer marker after sequence publication and `yield_now`, with two distinct equal-priority FIFO tasks and a native peer-ready observation. Host execution refuses this contract. |
-| `fanin-{std,messaging,crossbeam}-{1,4}` | One/four task-context providers issue finite nonblocking bursts into one shared class queue. Retain accepted and rejected attempts and reconcile actual handling. |
+| `fanin-{std,messaging,crossbeam}-{1,4}` | One/four task-context providers issue finite unpaced `try_send` attempts while the owner drains one shared class queue. Retain accepted and rejected attempts and reconcile actual handling; these six cases do not guarantee saturation. |
+| `fanin-messaging-{1,4}-normal` | One/four providers share an epoch and attempt one admission per 1 ms absolute slot. Retain each scheduled attempt and release lateness while the owner drains concurrently. |
+| `fanin-messaging-{1,4}-saturation` | Hold the owner until all provider admissions finish. Require more attempts than queue capacity, exactly capacity admissions, and rejection of every excess attempt before draining. |
+
+All current `*-send` cases admit into nonfull queues. They measure the blocking
+API on a path with available capacity; they do not exercise a producer blocked
+on a full queue or its later release.
 
 The selector follows the Wi-Fi fixture's stop → important → ordinary ordering.
 One-arm selection and direct receive use the same one-queue topology. Three-arm
@@ -71,15 +77,41 @@ including during parallel host tests. Raw 32-bit timestamps have conservative
 monotonic bounds and wrap/ordering checks; these are not clock calibration.
 
 Finite fan-in preallocates a record for each attempted sequence. The owner
-drains concurrently with `recv_timeout(10 ms)` to observe completion/cancellation
+uses `recv_timeout(10 ms)` to observe completion/cancellation
 without requiring a sentinel slot or dropping worker resources during active
 timing. Its exact receive API is recorded. Admission is published after
 `try_send` returns, so the higher-priority owner does not wait for a preempted
 producer's completion flag. Every provider's TID/policy/priority is recorded.
 Duplicate, corrupt, missing and unadmitted delivery fail reconciliation. Workers
-hold at terminal gates until active work is complete. The finite case is capped
-at 256 retained attempts and 64 warmups per provider; it is not a sustained
-offered-load or coordinated-omission benchmark.
+hold at terminal gates until active work is complete. Every fan-in case is capped
+at 256 retained attempts and 64 warmups per provider.
+
+The six original fan-in cases have no release pacing or guaranteed saturation:
+providers run their finite attempt loops while the owner drains concurrently.
+The four scheduled messaging cases use one shared monotonic epoch. In `normal`,
+provider sequence `s` has planned release `epoch + (s - 1) * 1_000_000 ns`.
+Providers wait only until that absolute slot, outside timed admission. A late
+slot is still attempted; it is not skipped or moved to a new schedule. Coarse
+native timer ticks can make multiple releases occur together. Each retained
+attempt records `planned_release_ns` and `release_observed_ns`, and analysis
+reports release lateness separately from transport latency. This records what
+the scheduler achieved without claiming ideal 1 ms cadence.
+
+In `saturation`, every planned release is the shared epoch. The owner remains
+behind its start gate until all providers finish their unpaced admission loops.
+The total attempts across providers, including warmup, must exceed capacity.
+Exactly capacity attempts must be admitted and all excess attempts rejected;
+the owner then drains and validates the admitted work. Admission still measures
+`try_send` entry to return. Delivery latency includes the deliberate owner hold
+and must be interpreted with that schedule.
+
+Warmup exclusion is a prefix of each provider's sequence in every fan-in mode,
+not a common barrier between providers. One provider can enter retained work
+while another is still warming up. Saturation warmups can occupy every queue
+slot, leaving only rejected retained attempts. Whole-run counts include these
+warmups; retained records and checksums describe only the retained attempts.
+These are finite scheduling and overload controls, not sustained offered-load,
+coordinated-omission, fairness or deadline qualification.
 
 ## Build and run
 
@@ -93,14 +125,17 @@ CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_LTO=false cargo +1.90.0 
 python3 tests/event-path-perf/run-host.py --binary target/release/event-path-perf --output target/event-path-host
 ```
 
-The host corpus executes all 27 supported named cases, eight normalized IMU
-controls and the expected fixed-peer refusal. Every run gets a new directory
+The host corpus checks 40 expectations: all 31 supported named cases, eight
+normalized IMU controls and the expected fixed-peer refusal. This includes all
+four normal/saturation messaging fan-in cases. Every run gets a new directory
 with raw stdout/stderr, a capture receipt and analysis. Reusing an output
 directory is rejected. Individual runs accept `CASE SAMPLES WARMUP PROFILE`:
 
 ```sh
 target/release/event-path-perf blocked-messaging-try 128 16 bytes16
 target/release/event-path-perf ready-messaging-try 128 16 imu16
+target/release/event-path-perf fanin-messaging-4-normal 128 16 bytes16
+target/release/event-path-perf fanin-messaging-1-saturation 16 4 bytes16
 python3 tests/event-path-perf/capture.py host --binary target/release/event-path-perf --case park --samples 128 --warmup 16 --output target/event-path-park
 ```
 
@@ -122,8 +157,10 @@ changed source refuses the build. Compiler, configuration, source and image
 identities are retained in `event-path-build-v1`.
 
 The [dedicated workflow](../../.github/workflows/event-path-perf.yml) runs the
-host corpus, builds ARM, runs representative cases in separate fresh QEMU boots,
-and builds the ESP32-S3 image. It does not flash or take physical-board ownership.
+host corpus, builds ARM, runs 15 representative cases in separate fresh QEMU
+boots, and builds the ESP32-S3 image. The QEMU corpus includes one and four
+providers in both normal and saturation modes. It does not flash or take
+physical-board ownership.
 
 ## Evidence and pending acceptance
 
@@ -149,10 +186,21 @@ All executable timing/progress qualification fields remain false. Raw-tick
 distributions are characterization, not a speedup, WCET or production acceptance
 claim. Physical captures still require P0's corrected independently calibrated,
 phase-covered cohort and resource/placement review. P1's no-repair progress gate
-is required before production transport adoption. P3 owns full selected-owner
-behavior, P4 owns correlated native switch/IRQ attribution, and P5 owns sustained
-offered-load and resource/product budgets. The IRQ/timer-to-provider acquisition
-boundary remains unqualified; synthetic task-context fan-in is not IRQ evidence.
+is required before production transport adoption.
+
+The following P2 work remains unimplemented:
+
+- A qualified native IRQ/timer notification → provider task → typed admission →
+  owner-handler experiment. The current synthetic providers begin in task
+  context and do not exercise hardware acquisition, its native notification,
+  or the full provider-to-handler path. This remains a P2 implementation gap.
+- A blocked-producer release control, if the selected production call site
+  permits blocking and requires that control. Current `send` cases use nonfull
+  queues and cannot satisfy it.
+
+P3 owns full selected-owner behavior, P4 owns correlated native switch/IRQ
+attribution, and P5 owns sustained offered-load and resource/product budgets.
+Those later stages do not replace the pending P2 acquisition experiment.
 
 This work owns `tests/event-path-perf`, its dedicated workflow, and the minimal
 workspace member/lock entry. Existing P0 capture/timing code, P1 source hooks,

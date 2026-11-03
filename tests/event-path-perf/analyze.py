@@ -30,6 +30,14 @@ HALF = 1 << 31
 CONTROL_FAMILIES = {"semaphore", "park", "fixed-peer"}
 WAIT_FAMILIES = {"blocked", "semaphore", "park"}
 THREAD_FAMILIES = WAIT_FAMILIES | {"fixed-peer", "finite-fanin"}
+SCHEDULED_FANIN = {
+    f"fanin-messaging-{providers}-{mode}": (schedule, period)
+    for providers in (1, 4)
+    for mode, schedule, period in (
+        ("normal", "finite-absolute-1ms", 1_000_000),
+        ("saturation", "finite-held-owner-burst", 0),
+    )
+}
 
 
 def case_contracts() -> dict:
@@ -44,6 +52,10 @@ def case_contracts() -> dict:
         for providers in (1, 4):
             cases[f"fanin-{label}-{providers}"] = (
                 "finite-fanin", transport, "try-send", "recv-timeout-10ms", 0, providers)
+    for providers in (1, 4):
+        for mode in ("normal", "saturation"):
+            cases[f"fanin-messaging-{providers}-{mode}"] = (
+                "finite-fanin", "messaging", "try-send", "recv-timeout-10ms", 0, providers)
     for family in ("ready", "blocked"):
         cases[f"{family}-select-one"] = (
             family, "crossbeam-select-one", "try-send", "select-biased-one", 1, 1)
@@ -105,16 +117,16 @@ def records(text: str):
     return rows[0], providers, scheduling, samples, rows[-1]
 
 
-def raw_distribution(values: list[int]):
+def raw_distribution(values: list[int], unit: str = "ticks"):
     if not values:
         return None
     ordered = sorted(values)
     return {
-        "count": len(ordered), "min_ticks": ordered[0],
-        "p50_ticks": ordered[math.ceil(len(ordered) * .50) - 1],
-        "p95_ticks": ordered[math.ceil(len(ordered) * .95) - 1],
-        "p99_ticks": ordered[math.ceil(len(ordered) * .99) - 1],
-        "max_ticks": ordered[-1], "percentile_method": "nearest-rank",
+        "count": len(ordered), f"min_{unit}": ordered[0],
+        f"p50_{unit}": ordered[math.ceil(len(ordered) * .50) - 1],
+        f"p95_{unit}": ordered[math.ceil(len(ordered) * .95) - 1],
+        f"p99_{unit}": ordered[math.ceil(len(ordered) * .99) - 1],
+        f"max_{unit}": ordered[-1], "percentile_method": "nearest-rank",
     }
 
 
@@ -163,8 +175,19 @@ def validate_experiment(metadata: dict):
     require(integer(metadata, "worker_stack") == 16384, "unmatched worker stack")
     require(metadata.get("blocked_state_name") == "wait_sem", "unexpected native wait-state proof")
     require(metadata.get("active_arm") == "ordinary", "unexpected selected arm")
-    require(metadata.get("release_schedule") == "finite-closed-loop-or-unscheduled-fanin",
+    release = SCHEDULED_FANIN.get(case)
+    require(metadata.get("release_schedule") == (
+        release[0] if release else "finite-closed-loop-or-unscheduled-fanin"),
             "unexpected workload release schedule")
+    # Older captures of the original cases did not emit these fields. Missing
+    # fields never reinterpret an old run as a scheduled workload.
+    if release or "release_period_ns" in metadata:
+        require(integer(metadata, "release_period_ns", 0, U64) == (release[1] if release else 0),
+                "unexpected workload release period")
+    if release or "warmup_scope" in metadata:
+        require(metadata.get("warmup_scope") == (
+            "per-provider-prefix" if family == "finite-fanin" else "sequential-prefix"),
+                "unexpected warmup scope")
     payload = metadata.get("payload")
     capacity = integer(metadata, "capacity", 0, 16)
     size = integer(metadata, "payload_bytes", 0, 48)
@@ -262,8 +285,31 @@ def analyze(text: str) -> dict:
         require((admitted, rejected) == (0, total), "full case admitted an event")
     elif family != "finite-fanin":
         require((admitted, rejected) == (total, 0), "delivery case lost or rejected work")
+    release = SCHEDULED_FANIN.get(metadata["case"])
+    saturation = release is not None and release[1] == 0
+    epoch = integer(result, "release_epoch_ns", 0, U64) if release else None
+    if release:
+        require(epoch + (count + warmup - 1) * release[1] <= U64,
+                "absolute release schedule overflows u64")
+    if not release:
+        require(result.get("release_epoch_ns") is None, "unscheduled case claims a release epoch")
+    if release or "owner_hold_verified" in result:
+        require(boolean(result, "owner_hold_verified") == (native and saturation),
+                "missing or fabricated saturation owner-hold proof")
+    owner_release = integer(result, "owner_release_ticks", 0, U32) if saturation else None
+    if not saturation:
+        require(result.get("owner_release_ticks") is None
+                and (not release or "owner_release_ticks" in result),
+                "non-saturation case claims an owner release marker")
+    if saturation:
+        capacity = metadata["capacity"]
+        require(total > capacity and (admitted, rejected) == (capacity, total - capacity),
+                "saturation must fill the held-owner queue and reject every remaining attempt")
 
     admission_ticks, accepted_ticks, rejected_ticks, delivery_ticks, receive_ticks = [], [], [], [], []
+    release_lateness = []
+    last_release = [0] * provider_count
+    provider_full = [False] * provider_count
     retained_admitted = 0
     retained_checksum = 0
     retained_returns = 0
@@ -281,6 +327,23 @@ def analyze(text: str) -> dict:
             require(not accepted, "full rejection sample claims admission")
         elif family != "finite-fanin":
             require(accepted, "delivery sample claims rejection")
+        if release:
+            planned = integer(sample, "planned_release_ns", 0, U64)
+            observed = integer(sample, "release_observed_ns", 0, U64)
+            require(planned == epoch + (sequence - 1) * release[1],
+                    "planned release disagrees with epoch, sequence or period")
+            require(observed >= planned and observed >= last_release[provider],
+                    "observed release is early or decreases within a provider")
+            last_release[provider] = observed
+            release_lateness.append(observed - planned)
+            if saturation:
+                require(not accepted or not provider_full[provider],
+                        "held-owner queue admitted work after a full rejection")
+                provider_full[provider] |= not accepted
+        else:
+            require(sample.get("planned_release_ns") is None
+                    and sample.get("release_observed_ns") is None,
+                    "unscheduled case claims planned or observed releases")
         require(boolean(sample, "blocked_verified") == (native and family in WAIT_FAMILIES),
                 "missing or fabricated blocked-wait proof")
         peer = integer(sample, "peer_tid", 0, (1 << 31) - 1)
@@ -297,6 +360,10 @@ def analyze(text: str) -> dict:
         receive = integer(sample, "receive_return_ticks", 0, U32)
         admission = (admission_end - start) & U32
         deltas = [admission]
+        if saturation:
+            owner_release_delta = (owner_release - start) & U32
+            require(admission <= owner_release_delta, "admission returned after owner release")
+            deltas.append(owner_release_delta)
         admission_ticks.append(admission)
         (accepted_ticks if accepted else rejected_ticks).append(admission)
         receive_start = sample.get("receive_start_ticks")
@@ -316,12 +383,17 @@ def analyze(text: str) -> dict:
             delivery_ticks.append(delivery)
             retained_admitted += 1
             retained_checksum = (retained_checksum + payload_checksum(metadata["payload"], sequence, provider)) & U64
+            if saturation:
+                require(owner_release_delta <= delivery, "owner received before the held-owner release")
             if family == "fixed-peer":
                 require(delivery <= admission, "peer marker occurred after yielding sender resumed")
         else:
             require(receive == 0, "rejected attempt has a receive timestamp")
         window = integer(sample, "elapsed_upper_ns", 1, U64)
         require(window >= resolution * 2, "monotonic window omits its resolution guard")
+        if release:
+            require(observed - epoch <= window - resolution * 2,
+                    "observed release exceeds the active monotonic window")
         require(max(deltas) < HALF and window * frequency < HALF * 1_000_000_000,
                 "ambiguous counter wrap or reversed timestamp")
         require(max(deltas) * 1_000_000_000 <= window * frequency,
@@ -364,6 +436,11 @@ def analyze(text: str) -> dict:
         "physical_execution_verified": False, "clock_qualified": False,
         "total_checksum_reconstructed": total_checksum is not None,
         "retained_admitted": retained_admitted, "retained_rejected": expected_count - retained_admitted,
+        "release_lateness": ({
+            "scope": "Retained attempts only; unqualified monotonic observations before admission.",
+            "timing_qualified": False,
+            "observed_ns": raw_distribution(release_lateness, "ns"),
+        } if release else None),
         "raw_ticks": {
             "admission_call": raw_distribution(admission_ticks),
             "accepted_admission_call": raw_distribution(accepted_ticks),

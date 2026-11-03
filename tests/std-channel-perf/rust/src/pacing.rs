@@ -153,7 +153,9 @@ mod tests {
         let mut values = [u32::MAX - 10, 5].into_iter();
         let observation = wait_counter(15, 1, || values.next().unwrap(), || Ok(100)).unwrap();
         assert_eq!(
-            observation.return_ticks.wrapping_sub(observation.start_ticks),
+            observation
+                .return_ticks
+                .wrapping_sub(observation.start_ticks),
             16
         );
         let mut values = [100, 99].into_iter();

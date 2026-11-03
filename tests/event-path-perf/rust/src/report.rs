@@ -13,6 +13,8 @@ pub struct Sample {
     pub peer_tid: i32,
     pub park_returns: u32,
     pub accepted: bool,
+    pub planned_release_ns: Option<u64>,
+    pub release_observed_ns: Option<u64>,
 }
 
 impl Default for Sample {
@@ -29,6 +31,8 @@ impl Default for Sample {
             peer_tid: 0,
             park_returns: 0,
             accepted: true,
+            planned_release_ns: None,
+            release_observed_ns: None,
         }
     }
 }
@@ -54,6 +58,9 @@ pub struct Report {
     pub park_returns: u32,
     pub peer_ready_verified: bool,
     pub provider_schedules: Vec<(i32, Schedule)>,
+    pub release_epoch_ns: Option<u64>,
+    pub owner_release_ticks: Option<u32>,
+    pub owner_hold_verified: bool,
 }
 impl Report {
     pub fn new(config: Config) -> Self {
@@ -70,6 +77,9 @@ impl Report {
             park_returns: 0,
             peer_ready_verified: false,
             provider_schedules: Vec::new(),
+            release_epoch_ns: None,
+            owner_release_ticks: None,
+            owner_hold_verified: false,
         }
     }
 }

@@ -110,7 +110,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for case in ready-messaging-try full-messaging blocked-std-try blocked-messaging-try blocked-crossbeam-try blocked-select-one blocked-select-three semaphore park fixed-peer fanin-messaging-4; do
+          for case in \
+            ready-messaging-try full-messaging \
+            blocked-std-try blocked-messaging-try blocked-crossbeam-try \
+            blocked-select-one blocked-select-three semaphore park fixed-peer \
+            fanin-messaging-4 \
+            fanin-messaging-1-normal fanin-messaging-4-normal \
+            fanin-messaging-1-saturation fanin-messaging-4-saturation; do
             python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --case "$case" --samples 16 --warmup 4 --output "target/event-path-arm/runs/$case"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -16,8 +16,13 @@ def encode(rows):
         analysis.PREFIX + json.dumps(row) for row in rows) + "\n"
 
 
-def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=3, warmup=1):
+def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=None, warmup=1):
     family, transport, admission, receive_api, arms, providers = analysis.CASES[case]
+    normal, saturation = case.endswith("-normal"), case.endswith("-saturation")
+    scheduled = normal or saturation
+    count = (9 if saturation else 3) if count is None else count
+    epoch = 8_000_000 if scheduled else None
+    period = 1_000_000 if normal else 0
     control = family in analysis.CONTROL_FAMILIES
     payload = "none" if control else payload
     capacity = 0 if control else 8 if payload == "bytes16" else 16
@@ -38,7 +43,11 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=3, 
         "clock_source_request": "native-counter" if native else "baseline",
         "crossbeam_version": "0.5.17", "witness_hooks": False, "worker_stack": 16384,
         "blocked_state_name": "wait_sem",
-        "release_schedule": "finite-closed-loop-or-unscheduled-fanin", "counts_include_warmup": True,
+        "release_schedule": ("finite-absolute-1ms" if normal else "finite-held-owner-burst"
+                             if saturation else "finite-closed-loop-or-unscheduled-fanin"),
+        "release_period_ns": period,
+        "warmup_scope": "per-provider-prefix" if family == "finite-fanin" else "sequential-prefix",
+        "counts_include_warmup": True,
     }
     threaded = family in analysis.THREAD_FAMILIES
     sender_tid, receiver_tid = 101, 102 if threaded else 101
@@ -57,10 +66,15 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=3, 
                                   "tid": sender_tid if provider == 0 else 200 + provider,
                                   "policy": 1 if native else 0, "priority": sender_priority})
     samples = []
+    owner_release = 100_000 + (count + warmup) * 1000 + providers * 10_000 if saturation else None
     total_checksum = retained_checksum = admitted = rejected = park_returns = 0
     for provider in range(providers):
         for sequence in range(1, count + warmup + 1):
-            accepted = family != "full-rejection" and not (family == "finite-fanin" and sequence % 2 == 0)
+            if saturation:
+                accepted = provider * (count + warmup) + sequence <= capacity
+            else:
+                accepted = (family != "full-rejection"
+                            and not (family == "finite-fanin" and not normal and sequence % 2 == 0))
             if accepted:
                 admitted += 1
                 checksum = analysis.payload_checksum(payload, sequence, provider)
@@ -78,13 +92,20 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=3, 
             admission_return = start + 100
             if family == "fixed-peer":
                 receive = start + 50
+            elif saturation:
+                receive = owner_release + sequence * 100 if accepted else 0
             else:
                 receive = start + 180 if accepted else 0
+            planned = epoch + (sequence - 1) * period if scheduled else None
             samples.append({
                 **common, "record": "sample", "index": len(samples), "sequence": sequence,
                 "provider": provider, "start_ticks": start, "admission_return_ticks": admission_return,
                 "receive_start_ticks": start + 120 if family == "ready" else None,
-                "receive_return_ticks": receive, "elapsed_upper_ns": 2000,
+                "receive_return_ticks": receive,
+                "elapsed_upper_ns": ((count + warmup) * 1_000_000 if normal
+                                     else 1_000_000 if saturation else 2000),
+                "planned_release_ns": planned,
+                "release_observed_ns": planned + sequence * 3 + provider * 10 if scheduled else None,
                 "blocked_verified": native and family in analysis.WAIT_FAMILIES,
                 "peer_tid": receiver_tid if control else 0, "park_returns": returns,
                 "accepted": accepted, "payload_valid": True,
@@ -97,6 +118,8 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=3, 
         "terminal_quiescence_verified": native and threaded, "structural_valid": True,
         "timing_qualified": False, "priority_progress_qualified": False,
         "physical_execution_verified": False, "clock_qualified": False, "actual_switch_count": None,
+        "release_epoch_ns": epoch, "owner_release_ticks": owner_release,
+        "owner_hold_verified": native and saturation,
     }
     return [metadata, *provider_rows, scheduling, *samples, result]
 
@@ -143,6 +166,50 @@ class ValidSpecimens(unittest.TestCase):
         self.assertEqual(fanin["retained_rejected"], 4)
         self.assertFalse(fanin["total_checksum_reconstructed"])
 
+    def test_scheduled_normal_and_saturation_preserve_all_attempts_and_lateness(self):
+        for providers in (1, 4):
+            for mode in ("normal", "saturation"):
+                for native in (False, True):
+                    with self.subTest(providers=providers, mode=mode, native=native):
+                        case = f"fanin-messaging-{providers}-{mode}"
+                        result = analysis.analyze(encode(specimen(
+                            case, native=native, payload="imu-sample", count=18, warmup=2)))
+                        lateness = result["release_lateness"]
+                        self.assertFalse(lateness["timing_qualified"])
+                        self.assertEqual(lateness["observed_ns"]["count"], 18 * providers)
+                        self.assertEqual(lateness["observed_ns"]["min_ns"], 9)
+                        self.assertEqual(lateness["observed_ns"]["max_ns"], 60 + 10 * (providers - 1))
+                        self.assertFalse(result["timing_qualified"])
+                        self.assertFalse(result["priority_progress_qualified"])
+                        self.assertEqual(result["result"]["admitted"],
+                                         16 if mode == "saturation" else 20 * providers)
+
+    def test_original_captures_remain_unscheduled_when_new_fields_are_absent(self):
+        for case in analysis.CASES:
+            if case.endswith(("-normal", "-saturation")):
+                continue
+            with self.subTest(case=case):
+                rows = specimen(case, native=case == "fixed-peer")
+                for row in rows:
+                    for key in ("release_period_ns", "warmup_scope", "release_epoch_ns",
+                                "planned_release_ns", "release_observed_ns",
+                                "owner_release_ticks", "owner_hold_verified"):
+                        row.pop(key, None)
+                result = analysis.analyze(encode(rows))
+                self.assertIsNone(result["release_lateness"])
+
+    def test_saturation_owner_release_order_survives_a_valid_counter_wrap(self):
+        rows = specimen("fanin-messaging-1-saturation", native=True)
+        offset = analysis.U32 - 115_000
+        for row in rows:
+            if row["record"] == "sample":
+                for key in ("start_ticks", "admission_return_ticks", "receive_return_ticks"):
+                    if key != "receive_return_ticks" or row["accepted"]:
+                        row[key] = (row[key] + offset) & analysis.U32
+        result = first(rows, "result")
+        result["owner_release_ticks"] = (result["owner_release_ticks"] + offset) & analysis.U32
+        self.assertTrue(analysis.analyze(encode(rows))["structural_valid"])
+
 
 class CorruptionControls(unittest.TestCase):
     def reject_mutation(self, case, kind, key, value, *, native=False):
@@ -162,6 +229,96 @@ class CorruptionControls(unittest.TestCase):
                            ("counts_include_warmup", False), ("witness_hooks", True)):
             with self.subTest(key=key, value=value):
                 self.reject_mutation("ready-std-try", "experiment", key, value)
+
+    def test_new_fanin_modes_require_their_exact_release_and_warmup_contract(self):
+        for mode in ("normal", "saturation"):
+            case = f"fanin-messaging-4-{mode}"
+            for key, value in (("release_schedule", "finite-closed-loop-or-unscheduled-fanin"),
+                               ("release_period_ns", 1), ("release_period_ns", True),
+                               ("warmup_scope", "sequential-prefix")):
+                with self.subTest(case=case, key=key):
+                    self.reject_mutation(case, "experiment", key, value)
+            for kind, key in (("experiment", "release_period_ns"), ("experiment", "warmup_scope"),
+                              ("result", "release_epoch_ns"), ("result", "owner_release_ticks"),
+                              ("result", "owner_hold_verified"), ("sample", "planned_release_ns"),
+                              ("sample", "release_observed_ns")):
+                with self.subTest(case=case, missing=key):
+                    rows = specimen(case)
+                    del first(rows, kind)[key]
+                    with self.assertRaises(ValueError):
+                        analysis.analyze(encode(rows))
+
+    def test_release_markers_refuse_early_drift_reordering_and_fabricated_windows(self):
+        for mode in ("normal", "saturation"):
+            case = f"fanin-messaging-4-{mode}"
+            rows = specimen(case)
+            sample = first(rows, "sample")
+            for key, value in (("planned_release_ns", sample["planned_release_ns"] + 1),
+                               ("release_observed_ns", sample["planned_release_ns"] - 1),
+                               ("release_observed_ns", analysis.U64),
+                               ("release_observed_ns", True)):
+                with self.subTest(case=case, key=key, value=value):
+                    self.reject_mutation(case, "sample", key, value)
+            samples = [row for row in rows if row["record"] == "sample"]
+            samples[0]["release_observed_ns"] = samples[1]["release_observed_ns"] + 1
+            with self.assertRaisesRegex(ValueError, "decreases within a provider"):
+                analysis.analyze(encode(rows))
+        rows = specimen("fanin-messaging-1-normal")
+        first(rows, "result")["release_epoch_ns"] = analysis.U64
+        with self.assertRaisesRegex(ValueError, "release schedule overflows u64"):
+            analysis.analyze(encode(rows))
+        self.reject_mutation("fanin-messaging-1-normal", "result", "release_epoch_ns", 1 << 64)
+        self.reject_mutation("fanin-messaging-1-normal", "experiment", "release_period_ns", 1 << 64)
+
+    def test_saturation_requires_capacity_admissions_and_a_full_rejection_suffix(self):
+        case = "fanin-messaging-1-saturation"
+        rows = specimen(case, count=8, warmup=0)
+        with self.assertRaisesRegex(ValueError, "saturation must fill"):
+            analysis.analyze(encode(rows))
+        rows = specimen(case)
+        result = first(rows, "result")
+        result["admitted"] -= 1
+        result["handled"] -= 1
+        result["rejected"] += 1
+        with self.assertRaisesRegex(ValueError, "saturation must fill"):
+            analysis.analyze(encode(rows))
+        rows = specimen(case)
+        samples = [row for row in rows if row["record"] == "sample"]
+        accepted = next(row for row in samples if row["accepted"])
+        rejected = next(row for row in samples if not row["accepted"])
+        accepted["accepted"], rejected["accepted"] = False, True
+        accepted["receive_return_ticks"], rejected["receive_return_ticks"] = (
+            0, first(rows, "result")["owner_release_ticks"] + 100)
+        with self.assertRaisesRegex(ValueError, "after a full rejection"):
+            analysis.analyze(encode(rows))
+
+    def test_saturation_owner_hold_proof_and_raw_release_order_are_required(self):
+        case = "fanin-messaging-1-saturation"
+        self.reject_mutation(case, "result", "owner_hold_verified", False, native=True)
+        self.reject_mutation(case, "result", "owner_hold_verified", True)
+        self.reject_mutation("fanin-messaging-1-normal", "result", "owner_hold_verified", True, native=True)
+        self.reject_mutation(case, "result", "owner_release_ticks", None)
+        self.reject_mutation(case, "result", "owner_release_ticks", True)
+        rows = specimen(case)
+        sample, result = first(rows, "sample"), first(rows, "result")
+        for marker in (sample["admission_return_ticks"] - 1, sample["receive_return_ticks"] + 1,
+                       (sample["start_ticks"] + (1 << 31)) & analysis.U32):
+            with self.subTest(marker=marker):
+                self.reject_mutation(case, "result", "owner_release_ticks", marker)
+        result["owner_release_ticks"] = sample["admission_return_ticks"]
+        with self.assertRaisesRegex(ValueError, "owner.*release"):
+            analysis.analyze(encode(rows))
+
+    def test_original_cases_cannot_gain_scheduled_claims_from_new_fields(self):
+        for kind, key, value in (("experiment", "release_period_ns", 1_000_000),
+                                 ("experiment", "warmup_scope", "sequential-prefix"),
+                                 ("result", "release_epoch_ns", 1),
+                                 ("result", "owner_release_ticks", 1),
+                                 ("result", "owner_hold_verified", True),
+                                 ("sample", "planned_release_ns", 1),
+                                 ("sample", "release_observed_ns", 1)):
+            with self.subTest(key=key):
+                self.reject_mutation("fanin-messaging-1", kind, key, value)
 
     def test_missing_rejected_raw_attempt_and_duplicate_provider_sequence_fail(self):
         rows = specimen("fanin-std-4")
