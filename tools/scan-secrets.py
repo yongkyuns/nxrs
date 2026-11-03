@@ -98,7 +98,9 @@ def self_test(scanner):
         path.unlink()
         for relative in ['tests/rtos-bench/upstream.json','tests/detection/results/control/provenance.json',
                          'tests/detection/results/control/firmware.json','tests/detection/results/control/validation.json',
-                         'tests/csi-radio/results/control.json']:
+                         'tests/csi-radio/results/control.json',
+                         'tests/std-channel-perf/results/control/build.json',
+                         'tests/std-channel-perf/results/control/run/analysis.json']:
             path = source / relative
             path.parent.mkdir(parents=True,exist_ok=True)
             for field, value, rule in [('access_token', token, 'github-pat'),
