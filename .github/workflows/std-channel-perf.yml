@@ -75,6 +75,14 @@ jobs:
         with:
           toolchain: 1.90.0
           components: rustfmt, clippy
+      - name: Preserve exact checked-out source for offline reproduction
+        run: |
+          mkdir -p target/std-channel-host
+          git archive --format=tar.gz --output=target/std-channel-host/source.tar.gz HEAD
+          git rev-parse HEAD > target/std-channel-host/source-revision.txt
+          sha256sum target/std-channel-host/source.tar.gz > target/std-channel-host/source.sha256
+          # git archive includes tracked superproject files only; toolchains and
+          # external submodule contents still require their pinned sources.
       - name: Evidence, private source isolation, and architecture negative controls
         run: |
           python3 -m unittest discover -s tests/std-channel-perf -p 'test_*.py' -v
