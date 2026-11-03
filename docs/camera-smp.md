@@ -31,8 +31,9 @@ At 320×240, quality 81, the final 60-second comparison of source `48f187d0` mea
 
 | Measurement | Single core | SMP, one numerical worker |
 | --- | ---: | ---: |
-| Mean JPEG-to-detections wall time | 589.0 ms | 460.4 ms |
-| Mean caller CPU time | 287.2 ms | 396.1 ms |
+| Mean JPEG-to-detections wall time, startup included | 589.0 ms | 460.4 ms |
+| Mean wall time, last 40 recorded calls | 584.2 ms | 493.0 ms |
+| Mean caller CPU time, startup included | 287.2 ms | 396.1 ms |
 | Decoded video FPS | 17.79 | 17.79 |
 | Completed detections | 79 | 79 |
 | Detection failures | 0 | 0 |
@@ -44,10 +45,12 @@ User heap stays about 2.26 MiB; both runs use 53,632 bytes of the 128 KiB detect
 stack. These are probe/profile costs, not signed production image measurements.
 
 Two extra-helper/Conv-partition placements regressed live latency to 587–590 ms;
-that implementation was removed. The final probe lowers detection wall latency
-about 22%, while measured caller CPU time increases under concurrent load.
-Earlier controls showed video variability and some discards. These short runs
-do not establish sustained video continuity, thermal, power or maximum throughput.
+that implementation was removed. Whole-run means include unequal viewer startup
+periods: SMP initially captured without delivering to a viewer for longer. The
+last 40 recorded calls occur after both viewers are active; their lower SMP
+mean is descriptive evidence from one short run with unmatched live inputs,
+not a controlled speedup. Earlier controls showed video variability and some
+discards. Sustained video, thermal, power and maximum throughput remain unqualified.
 
 The signed product remains single-core. TLS entropy and Wi-Fi shutdown/OTA are
 still unqualified on SMP and their admission gates remain closed. Physical
