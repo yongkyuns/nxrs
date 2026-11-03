@@ -49,6 +49,10 @@ static SELECT_REGISTERED_ARMS: AtomicU32 = AtomicU32::new(0);
 // witness. It is absent from ordinary Crossbeam sources and production images.
 #[no_mangle]
 pub extern "C" fn nxrs_crossbeam_progress_hook(stage: u32) {
+    if crate::fifo_witness::active() {
+        crate::fifo_witness::hook(stage);
+        return;
+    }
     if stage >= 0x100 {
         if native::tid() == SELECT_OWNER.load(Ordering::Acquire) {
             SELECT_REGISTERED_ARMS.store(stage - 0x100, Ordering::Release);

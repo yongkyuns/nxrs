@@ -98,13 +98,19 @@ def _stored_analysis(stored, replay):
     return claimed_physical
 
 
-def replay_case(run, mode):
+def replay_capture(run, mode, *, schema=CHANNEL_SCHEMA):
+    """Replay one source-bound capture without imposing a cohort's case set.
+
+    Both Crossbeam scheduling families use the same raw shell, firmware and
+    execution-session checks. Their analyzers and aggregate acceptance rules
+    remain separate; callers still compare the stored family-specific analysis.
+    """
     files = {name: evidence.checked_file(run, name) for name in CAPTURE_FILES}
     raw = files["console.log"].read_bytes()
     structure = capture_structure(raw, mode)
     summary = evidence.analyze(raw.decode("utf-8", errors="strict"))
     metadata = summary["metadata"]
-    require(metadata.get("schema") == CHANNEL_SCHEMA and metadata.get("transport") == "crossbeam-channel"
+    require(metadata.get("schema") == schema and metadata.get("transport") == "crossbeam-channel"
             and summary.get("mode") == mode, "cohort only accepts its named Crossbeam experiment")
     receipt = evidence.build_receipt(files["build.json"], mode)
     require(receipt.get("source_dirty") is False, "cohort requires clean frozen source")
@@ -156,6 +162,13 @@ def replay_case(run, mode):
                 and command[machine_index] == "mps2-an521"
                 and Path(command[image_index]).as_posix().endswith("/" + receipt["elf_file"]),
                 "emulator launch does not name the expected target image")
+    return summary, receipt, files
+
+
+def replay_case(run, mode):
+    summary, receipt, files = replay_capture(run, mode)
+    metadata = summary["metadata"]
+    session = summary["session"]
     stored = evidence.read_json(files["analysis.json"])
     legacy_physical_claim = _stored_analysis(stored, summary)
     result = summary["result"]

@@ -92,6 +92,10 @@ jobs:
             echo 'Host primitive witness must refuse target qualification' >&2
             exit 1
           fi
+          if target/release/channel-progress fifo-select-reserved > target/channel-progress-host/refused-fifo-target.log 2>&1; then
+            echo 'Host FIFO witness must refuse target qualification' >&2
+            exit 1
+          fi
           git archive --format=tar.gz --output=target/channel-progress-host/source.tar.gz HEAD
           git rev-parse HEAD > target/channel-progress-host/source-revision.txt
           sha256sum target/channel-progress-host/source.tar.gz > target/channel-progress-host/source.sha256
@@ -157,6 +161,21 @@ jobs:
               --output "$run/acceptance.json" --require-no-repair
           done
           rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
+      - name: Equal FIFO reservation contract, six fresh boots of one exact image
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/channel-progress/fifo/mps2"
+          python3 tests/channel-progress/build.py --platform mps2-an521-mock --mode fifo-channel-suite --out "$out"
+          for mode in fifo-try-recv-reserved fifo-try-recv-published fifo-select-reserved fifo-select-published fifo-try-send-reserved fifo-try-send-reclaimed; do
+            run="$out/cases/$mode/run"
+            python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$run"
+            python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
+              --output "$run/acceptance.json" --require-no-repair
+          done
+          python3 tests/channel-progress/fifo_cohort.py "$out/cases" \
+            --output "$out/cohort.json" --require-no-repair
+          rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -166,12 +185,14 @@ jobs:
             target/channel-progress/**/build.log
             target/channel-progress/mps2/cohort.json
             target/channel-progress/mps2/acceptance.json
+            target/channel-progress/fifo/mps2/cohort.json
             target/channel-progress/**/run/
             target/channel-progress/**/crossbeam/*.json
             target/channel-progress/**/crossbeam/*.toml
             target/channel-progress/**/crossbeam/*.patch
             target/channel-progress/**/crossbeam/original/*.crate
             target/channel-progress/**/prepared/*.json
+            target/channel-progress/**/prepared/fifo-kernel/
             target/channel-progress/**/firmware/*.json
             target/channel-progress/**/firmware/*.config
             target/channel-progress/**/firmware/*.txt
@@ -200,11 +221,11 @@ jobs:
           key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
       - name: Hash-pinned Xtensa SDK
         run: bash tools/install-qemu-tools.sh
-      - name: Three-arm and std primitive ESP32-S3 images (build only)
+      - name: Three-arm, std primitive and equal FIFO ESP32-S3 images (build only)
         shell: bash
         run: |
           set -euo pipefail
-          for mode in select-reserved select-published std-mutex-suite; do
+          for mode in select-reserved select-published std-mutex-suite fifo-channel-suite; do
             out="target/channel-progress/esp32s3/$mode"
             python3 tests/channel-progress/build.py --platform esp32s3-service-footprint --mode "$mode" --out "$out"
             rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
@@ -221,6 +242,7 @@ jobs:
             target/channel-progress/**/crossbeam/*.patch
             target/channel-progress/**/crossbeam/original/*.crate
             target/channel-progress/**/prepared/*.json
+            target/channel-progress/**/prepared/fifo-kernel/
             target/channel-progress/**/firmware/*.json
             target/channel-progress/**/firmware/*.config
             target/channel-progress/**/firmware/*.txt

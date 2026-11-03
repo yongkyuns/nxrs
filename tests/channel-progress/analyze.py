@@ -19,6 +19,13 @@ PREFIX = "CHANNEL_PROGRESS "
 SCHEMA = "channel-progress-v1"
 STD_TRANSFER_SCHEMA = "std-transfer-progress-v1"
 STD_TRANSFER_BUILD_MODE = "std-mutex-suite"
+FIFO_SCHEMA = "fifo-channel-progress-v1"
+FIFO_BUILD_MODE = "fifo-channel-suite"
+FIFO_MODES = (
+    "fifo-try-recv-reserved", "fifo-try-recv-published",
+    "fifo-select-reserved", "fifo-select-published",
+    "fifo-try-send-reserved", "fifo-try-send-reclaimed",
+)
 STD_TRANSFER_MODES = (
     "mutex-admit-held", "mutex-admit-released",
     "mutex-take-held", "mutex-take-released",
@@ -35,9 +42,10 @@ MODES = {
 }
 CHANNEL_MODES = frozenset(MODES)
 MODES.update({mode: 0 for mode in STD_TRANSFER_MODES})
+MODES.update({mode: 5 for mode in FIFO_MODES})
 SOURCE_MODES = {
     0: "clean", 1: "send-reserved", 2: "send-published",
-    3: "recv-reserved", 4: "recv-reclaimed",
+    3: "recv-reserved", 4: "recv-reclaimed", 5: "fifo-ordered",
 }
 PINS = {
     "crossbeam-channel": (
@@ -56,6 +64,11 @@ IDENTITY_FIELDS = (
     "kernel_revision", "apps_revision", "build_nonce", "crossbeam_receipt",
     "compiler_identity", "std_library_tree_sha256", "staged_inputs_sha256",
 )
+
+
+def identity_fields(mode):
+    return IDENTITY_FIELDS + (("fifo_kernel_source_sha256",)
+                              if expected_build_mode(mode) == FIFO_BUILD_MODE else ())
 
 
 def canonical(value):
@@ -166,6 +179,22 @@ def std_transfer_validator():
     return validator
 
 
+def fifo_validator():
+    spec = importlib.util.spec_from_file_location(
+        "channel_progress_fifo_validation", Path(__file__).with_name("fifo_analyze.py"))
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    return validator
+
+
+def kernel_source_validator():
+    spec = importlib.util.spec_from_file_location(
+        "channel_progress_fifo_sources_validation", Path(__file__).with_name("fifo_sources.py"))
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    return validator
+
+
 def analyze(text):
     # The primitive contract has its own schema and validator. Its one-attempt
     # contention result must never be confused with channel delivery or with
@@ -176,6 +205,9 @@ def analyze(text):
             if isinstance(first, dict) and first.get("schema") == STD_TRANSFER_SCHEMA:
                 metadata, result = records(text, STD_TRANSFER_SCHEMA)
                 return std_transfer_validator().analyze(metadata, result)
+            if isinstance(first, dict) and first.get("schema") == FIFO_SCHEMA:
+                metadata, result = records(text, FIFO_SCHEMA)
+                return fifo_validator().analyze(metadata, result)
             break
     metadata, result = records(text)
     mode = metadata.get("mode")
@@ -320,12 +352,17 @@ def _hash_inventory(value, label):
 
 
 def expected_build_mode(mode):
-    require(mode in MODES or mode == STD_TRANSFER_BUILD_MODE, "unknown experiment mode")
-    return STD_TRANSFER_BUILD_MODE if mode in STD_TRANSFER_MODES else mode
+    require(mode in MODES or mode in {STD_TRANSFER_BUILD_MODE, FIFO_BUILD_MODE},
+            "unknown experiment mode")
+    if mode in STD_TRANSFER_MODES:
+        return STD_TRANSFER_BUILD_MODE
+    return FIFO_BUILD_MODE if mode in FIFO_MODES else mode
 
 
 def hook_stage(mode):
-    return 0 if mode == STD_TRANSFER_BUILD_MODE else MODES[mode]
+    if mode == STD_TRANSFER_BUILD_MODE:
+        return 0
+    return 5 if mode == FIFO_BUILD_MODE else MODES[mode]
 
 
 def build_receipt(path, mode):
@@ -339,7 +376,7 @@ def build_receipt(path, mode):
             "unknown build receipt")
     require(receipt.get("status") == "complete", "incomplete build receipt")
     require(receipt.get("mode") == expected_build_mode(mode)
-            and integer(receipt, "hook_stage", 0, 4) == hook_stage(mode), "wrong firmware experiment")
+            and integer(receipt, "hook_stage", 0, 5) == hook_stage(mode), "wrong firmware experiment")
     require(receipt.get("runtime_kind") == "unmeasured", "build cannot certify execution")
     hash_string(receipt.get("build_id"), "build identity")
     require(isinstance(receipt.get("source_revision"), str)
@@ -351,8 +388,9 @@ def build_receipt(path, mode):
     string(receipt["compiler_identity"], "version")
     hash_string(receipt["compiler_identity"].get("rustc_sha256"), "compiler executable")
     hash_string(receipt.get("std_library_tree_sha256"), "std library identity")
-    require(all(key in receipt for key in IDENTITY_FIELDS), "incomplete build identity inputs")
-    require(canonical({key: receipt[key] for key in IDENTITY_FIELDS}) == receipt["build_id"],
+    fields = identity_fields(mode)
+    require(all(key in receipt for key in fields), "incomplete build identity inputs")
+    require(canonical({key: receipt[key] for key in fields}) == receipt["build_id"],
             "build identity does not match frozen inputs")
     artifacts = _hash_inventory(receipt.get("artifacts_sha256"), "retained artifact inventory")
     for relative, digest in artifacts.items():
@@ -403,7 +441,7 @@ def _source_receipts(root, receipt, artifacts, mode):
     require(source == receipt.get("crossbeam_receipt"), "source receipt differs from build ledger")
     require(source.get("schema") == "crossbeam-progress-source-v1"
             and source.get("mode") == SOURCE_MODES[hook_stage(mode)]
-            and integer(source, "hook_stage", 0, 4) == hook_stage(mode)
+            and integer(source, "hook_stage", 0, 5) == hook_stage(mode)
             and boolean(source, "instrumented") == (hook_stage(mode) != 0),
             "wrong private source instrumentation")
     cargo = read_json(checked_file(root, receipt["crossbeam_source_proof"]))
@@ -481,8 +519,29 @@ def _source_receipts(root, receipt, artifacts, mode):
     ledger = read_json(checked_file(root, "firmware/std-patch.json"))
     require(isinstance(ledger, dict) and ledger.get("channel_qualification") == std_hook,
             "compiled std ledger differs from prepared source")
-    if expected_build_mode(mode) == STD_TRANSFER_BUILD_MODE:
+    if expected_build_mode(mode) in {STD_TRANSFER_BUILD_MODE, FIFO_BUILD_MODE}:
         std_transfer_validator().validate_std_sources(library, receipt["sdk"])
+    if expected_build_mode(mode) == FIFO_BUILD_MODE:
+        kernel = kernel_source_validator()
+        kernel.validate_std_sources(library, receipt["sdk"])
+        pinned = _hash_inventory(receipt.get("fifo_kernel_source_sha256"),
+                                 "FIFO kernel source inventory")
+        kernel.validate_retained_kernel(root / "prepared/fifo-kernel", pinned,
+                                        receipt["kernel_revision"])
+        for name, digest in pinned.items():
+            require(artifacts.get("prepared/fifo-kernel/" + name) == digest,
+                    "unbound retained FIFO kernel source")
+        relative = receipt.get("fifo_kernel_source_proof")
+        require(relative == "firmware/fifo-kernel-source.json" and relative in artifacts,
+                "unbound compiled FIFO kernel source proof")
+        proof = read_json(checked_file(root, relative))
+        require(isinstance(proof, dict) and proof.get("schema") == "fifo-kernel-source-v1"
+                and proof.get("kernel_revision") == kernel.KERNEL_REVISION
+                and proof.get("source_sha256") == pinned
+                and proof.get("selected_source_matches") is True
+                and proof.get("source_root") == proof.get("expected_source_root")
+                == str(build_root / "firmware/nuttx"),
+                "compiled FIFO kernel differs from audited build sources")
 
 
 def bind_build(summary, receipt):

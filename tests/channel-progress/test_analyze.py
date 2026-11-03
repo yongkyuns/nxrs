@@ -298,7 +298,8 @@ class BuildEvidenceTests(unittest.TestCase):
             for parent in ("crossbeam", "firmware", "prepared")
             for p in (self.root / parent).rglob("*") if p.is_file() and "/sources/" not in str(p)
         }
-        self.receipt["build_id"] = analyze.canonical({key: self.receipt[key] for key in analyze.IDENTITY_FIELDS})
+        self.receipt["build_id"] = analyze.canonical({
+            key: self.receipt[key] for key in analyze.identity_fields(self.receipt["mode"])})
         self.write("build.json", self.receipt)
 
     def summary(self):

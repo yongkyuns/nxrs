@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 import tempfile
@@ -15,6 +16,17 @@ HERE = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("progress_private_crossbeam", HERE / "prepare-crossbeam.py")
 prep = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(prep)
+
+# Frozen before adding fifo-ordered, using the published 0bc150ce recipe.
+# The optional real-archive test authenticates every byte before comparison;
+# this pins the whole legacy receipt, not only the visible hook locations.
+LEGACY_AUTHENTIC_RECEIPTS = {
+    "clean": "72867ae12ba8c32f6b792e0e396016261d87024aba0557fd104ac638a750066f",
+    "send-reserved": "e1af9444e0c8a23e22309ac553502ad9c81d943223ad9eb7b14e837a9a6a1f8b",
+    "send-published": "d50dd81375f035bf6d2447cdf6d1a7c9b75ddcfbfbc56054e9e7b3a8d4e1b475",
+    "recv-reserved": "6dd5ad7b8ac3deaf228160ba67f368df03dc5aea6bf9bc527e8335d08886d63d",
+    "recv-reclaimed": "a5c7c820317dc4e93a18171c612e32fc7148429d34c71fec576e20833f0c2ccf",
+}
 
 
 def synthetic_array() -> bytes:
@@ -52,7 +64,7 @@ class HookTransformTests(unittest.TestCase):
 
     def test_each_stage_has_one_correct_boundary(self):
         for mode, stage in prep.MODES.items():
-            if stage == 0:
+            if stage not in (1, 2, 3, 4):
                 continue
             with self.subTest(mode=mode):
                 text = prep.transform_array(synthetic_array(), mode).decode()
@@ -67,6 +79,48 @@ class HookTransformTests(unittest.TestCase):
                     position = text.index(invocation)
                     self.assertLess(text.rfind("slot.stamp.store", 0, position), position)
                     self.assertLess(position, text.index(f"Wake a sleeping {operation}"))
+
+    def test_legacy_transform_bytes_unchanged(self):
+        array_hashes = {
+            "clean": "dd02f035223a37046113c734be45d451072e60f0d0346cca0a9a00e3a04249f7",
+            "send-reserved": "6a3987424026b17a055e0ddff224c7bb483c46fe8506418397239b75d1a16414",
+            "send-published": "645f6d84dce116c643f4074171615e20411729ad0a29a33940297a0a543d0ef8",
+            "recv-reserved": "5b3eff71278259e632f5e5d95780f5411d2dbd779dfcc864e33318d8fd4b8276",
+            "recv-reclaimed": "b5984622db722e7db629083bd43e4ccf00dff5e118a2c25decaaf669489152ce",
+        }
+        for mode, expected in array_hashes.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(prep.digest(prep.transform_array(synthetic_array(), mode)), expected)
+                selected = "ab98c735d97a30561ad370c801180a646235f76217a06c0f0eaf06ef69d30b2e" \
+                    if mode == "clean" else "24eec257e37b39772464764707c8d0992db0c67338bbb8098714d9a37be2ab96"
+                self.assertEqual(prep.digest(prep.transform_select(synthetic_select(), mode)), selected)
+
+    def test_fifo_records_all_four_actual_slot_boundaries(self):
+        text = prep.transform_array(synthetic_array(), "fifo-ordered").decode()
+        markers = [f"{prep.HOOK}(0x{stage:x});" for stage in range(0x301, 0x305)]
+        self.assertTrue(all(text.count(marker) == 1 for marker in markers))
+        positions = [text.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertLess(positions[0], text.index("call to `write`"))
+        self.assertLess(positions[2], text.index("call to `read`"))
+        for position, role in ((positions[1], "receiver"), (positions[3], "sender")):
+            store = text.rfind("slot.stamp.store", 0, position)
+            self.assertGreaterEqual(store, 0)
+            self.assertLess(store, position)
+            self.assertLess(position, text.index(f"Wake a sleeping {role}"))
+        self.assertEqual(text.count(f"fn {prep.HOOK}(stage: u32);"), 1)
+        self.assertEqual(text.count('#[cfg(target_os = "nuttx")]'), 5)
+
+    def test_fifo_wait_return_marker_is_after_wait_only_in_run_select(self):
+        text = prep.transform_select(synthetic_select(), "fifo-ordered").decode()
+        before = f"{prep.HOOK}(0x100 + registered_count as u32);"
+        after = f"{prep.HOOK}(0x200);"
+        self.assertEqual(text.count(before), 1)
+        self.assertEqual(text.count(after), 1)
+        self.assertLess(text.index(before), text.index("sel = cx.wait_until(deadline)"))
+        self.assertLess(text.index("sel = cx.wait_until(deadline)"), text.index(after))
+        self.assertLess(text.index(after), text.index("fn run_ready("))
+        self.assertNotIn(after, text[text.index("fn run_ready("):])
 
     def test_marker_uses_actual_registration_count_only_in_run_select(self):
         text = prep.transform_select(synthetic_select(), "send-reserved").decode()
@@ -87,14 +141,16 @@ class HookTransformTests(unittest.TestCase):
         invalid[2] = original.replace(prep.RESERVE_SEND, "SWAP").replace(
             prep.RESERVE_RECV, prep.RESERVE_SEND).replace("SWAP", prep.RESERVE_RECV)
         for text in invalid:
-            with self.subTest(text=text):
-                with self.assertRaises(ValueError):
-                    prep.transform_array(text.encode(), "send-reserved")
+            for mode in ("send-reserved", "fifo-ordered"):
+                with self.subTest(text=text, mode=mode):
+                    with self.assertRaises(ValueError):
+                        prep.transform_array(text.encode(), mode)
         for text in (synthetic_select().replace(prep.SELECT_WAIT.encode(), b""),
                      synthetic_select() + b"\nfn run_select(\n",
                      synthetic_select() + prep.HOOK.encode()):
-            with self.assertRaises(ValueError):
-                prep.transform_select(text, "send-reserved")
+            for mode in ("send-reserved", "fifo-ordered"):
+                with self.assertRaises(ValueError):
+                    prep.transform_select(text, mode)
 
     def test_refuses_unknown_mode(self):
         with self.assertRaises(ValueError):
@@ -104,6 +160,17 @@ class HookTransformTests(unittest.TestCase):
 
     def test_real_lock_identity_is_pinned(self):
         prep.verify_lock()
+
+    @unittest.skipUnless(os.environ.get("CHANNEL_PROGRESS_AUTHENTIC_ARCHIVES"),
+                         "set CHANNEL_PROGRESS_AUTHENTIC_ARCHIVES to retained original crate directory")
+    def test_legacy_receipts_match_authenticated_published_sources(self):
+        root = Path(os.environ["CHANNEL_PROGRESS_AUTHENTIC_ARCHIVES"])
+        archives = {name: (root / f"{name}-{pin['version']}.crate").read_bytes()
+                    for name, pin in prep.PINS.items()}
+        for mode, expected in LEGACY_AUTHENTIC_RECEIPTS.items():
+            with self.subTest(mode=mode):
+                record = prep.expected_receipt(Path("/isolated/crossbeam"), mode, archives)
+                self.assertEqual(prep.digest((json.dumps(record, indent=2) + "\n").encode()), expected)
 
 
 class PreparationTests(unittest.TestCase):
@@ -149,6 +216,10 @@ class PreparationTests(unittest.TestCase):
             self.assertEqual(self.source("crossbeam-utils", "src/backoff.rs").read_bytes(),
                              self.files["crossbeam-utils"]["src/backoff.rs"])
             self.assertEqual(record["instrumented"], stage != 0)
+            if mode == "fifo-ordered":
+                self.assertEqual(record["fifo_order_hooks"]["markers"], prep.FIFO_MARKERS)
+            else:
+                self.assertNotIn("fifo_order_hooks", record)
             if stage == 0:
                 self.assertEqual(record["crates"]["crossbeam-channel"]["original_files"],
                                  record["crates"]["crossbeam-channel"]["selected_files"])
@@ -252,6 +323,20 @@ class PreparationTests(unittest.TestCase):
         next((self.out / "original").glob("*.crate")).write_bytes(b"changed original")
         with self.assertRaisesRegex(ValueError, "checksum"):
             prep.validate_receipt(self.out)
+
+    def test_fifo_marker_receipt_cannot_be_resealed_or_downgraded(self):
+        self.prepare("fifo-ordered")
+        path = self.out / "crossbeam-hook.json"
+        record = json.loads(path.read_text())
+        record["fifo_order_hooks"]["markers"]["send_published"] = 0x303
+        path.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError, "authenticated reconstruction"):
+            prep.validate_receipt(self.out, "fifo-ordered")
+        record["mode"] = "send-reserved"
+        record["hook_stage"] = 1
+        path.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError, "mode mismatch"):
+            prep.validate_receipt(self.out, "fifo-ordered")
 
 
 if __name__ == "__main__":

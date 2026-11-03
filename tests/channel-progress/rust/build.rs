@@ -11,7 +11,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NXRS_CHANNEL_PROGRESS_HOOK_STAGE");
     let stage = env::var("NXRS_CHANNEL_PROGRESS_HOOK_STAGE").unwrap_or_else(|_| "0".into());
     assert!(
-        matches!(stage.as_str(), "0" | "1" | "2" | "3" | "4"),
+        matches!(stage.as_str(), "0" | "1" | "2" | "3" | "4" | "5"),
         "invalid hook stage"
     );
     println!("cargo:rustc-env=NXRS_CHANNEL_PROGRESS_HOOK_STAGE={stage}");

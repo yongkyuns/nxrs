@@ -2,6 +2,7 @@
 //!
 //! The shared native module is only mechanical scheduler/semaphore translation.
 //! Counter helpers are deliberately unused: this fixture makes no timing claim.
+mod fifo_witness;
 mod mutex_witness;
 #[allow(dead_code)]
 #[path = "../../../std-channel-perf/rust/src/native.rs"]
@@ -227,6 +228,9 @@ fn run() -> Result<()> {
     if args.len() != 1 {
         return Err("usage-channel-progress-one-named-case");
     }
+    if fifo_witness::recognizes(&args[0]) {
+        return fifo_witness::run(&args[0]);
+    }
     if mutex_witness::recognizes(&args[0]) {
         return mutex_witness::run(&args[0]);
     }
@@ -266,6 +270,11 @@ fn main() -> std::process::ExitCode {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(reason) => {
             let schema = if std::env::args()
+                .nth(1)
+                .is_some_and(|mode| fifo_witness::recognizes(&mode))
+            {
+                "fifo-channel-progress-v1"
+            } else if std::env::args()
                 .nth(1)
                 .is_some_and(|mode| mutex_witness::recognizes(&mode))
             {

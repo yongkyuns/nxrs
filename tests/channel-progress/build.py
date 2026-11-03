@@ -37,12 +37,25 @@ MODES = {
     "select-reserved": "send-reserved", "select-published": "send-published",
     "send-reserved": "recv-reserved", "send-reclaimed": "recv-reclaimed",
     "std-mutex-suite": "clean",
+    "fifo-channel-suite": "fifo-ordered",
 }
 PACKAGE = "nxrs-channel-progress"
 BINARY = "channel-progress"
 COMMAND = "channel_progress"
 SHARED_FILES = ("native.c", "native.h", "rust/src/native.rs")
 UNSAFE_OVERRIDES = (*baseline.UNSAFE_OVERRIDES, "CARGO_BUILD_RUSTC", "RUSTC")
+IDENTITY_FIELDS = (
+    "mode", "hook_stage", "platform", "target", "sdk", "source_sha256",
+    "kernel_revision", "apps_revision", "build_nonce", "crossbeam_receipt",
+    "compiler_identity", "std_library_tree_sha256", "staged_inputs_sha256",
+)
+
+
+def identity_fields(mode):
+    # Keep historical build identities unchanged. The FIFO source proof is an
+    # additional frozen input only for the new scheduling contract.
+    return IDENTITY_FIELDS + (("fifo_kernel_source_sha256",)
+                              if mode == "fifo-channel-suite" else ())
 
 
 def sha(path):
@@ -229,10 +242,18 @@ def build(args):
     try:
         hooks = private.prepare(*archives, out / "crossbeam", MODES[args.mode])
         std = baseline.private_std.prepare(source, out / "prepared", sdk, "latency")
-        if args.mode == "std-mutex-suite":
+        if args.mode in {"std-mutex-suite", "fifo-channel-suite"}:
             primitive = module("channel_progress_std_sources", HERE / "mutex_analyze.py")
             primitive.validate_std_sources(json.loads(
                 (out / "prepared/std-library-sources.json").read_text()), sdk)
+        if args.mode == "fifo-channel-suite":
+            kernel = module("channel_progress_fifo_sources", HERE / "fifo_sources.py")
+            kernel.validate_std_sources(json.loads(
+                (out / "prepared/std-library-sources.json").read_text()), sdk)
+            if record["kernel_revision"] != kernel.KERNEL_REVISION:
+                raise ValueError("FIFO scheduling requires the audited kernel revision")
+            record["fifo_kernel_source_sha256"] = kernel.prepare_kernel(
+                ROOT / "external/nuttx", out / "prepared/fifo-kernel")
         manifest = stage_workspace(out, profile)
         baseline.run(["cargo", "+1.90.0", "--config", out / "crossbeam/cargo-config.toml",
                       "generate-lockfile", "--offline", "--manifest-path", manifest], env=env)
@@ -245,12 +266,7 @@ def build(args):
             std_array_original_sha256=std["original"]["sha256"],
             staged_inputs_sha256=staged_inputs,
         )
-        identity_fields = (
-            "mode", "hook_stage", "platform", "target", "sdk", "source_sha256",
-            "kernel_revision", "apps_revision", "build_nonce", "crossbeam_receipt",
-            "compiler_identity", "std_library_tree_sha256", "staged_inputs_sha256",
-        )
-        record["build_id"] = canonical({key: record[key] for key in identity_fields})
+        record["build_id"] = canonical({key: record[key] for key in identity_fields(args.mode)})
         env["NXRS_CHANNEL_PROGRESS_BUILD_ID"] = record["build_id"]
         command = firmware_command(args.platform, out, manifest)
         record["build_command"] = [str(p) for p in command]
@@ -259,6 +275,26 @@ def build(args):
         private.validate_receipt(out / "crossbeam", MODES[args.mode])
         cargo_source_proof(out, hooks)
         firmware = out / "firmware"
+        if args.mode == "fifo-channel-suite":
+            # The private target tree is the one compiled against the resolved
+            # configuration. Check it after all normal platform patches, not
+            # just the submodule that supplied it.
+            selected = kernel.verify_kernel(firmware / "nuttx")
+            kernel.validate_retained_kernel(out / "prepared/fifo-kernel",
+                                            record["fifo_kernel_source_sha256"],
+                                            record["kernel_revision"])
+            if selected != record["fifo_kernel_source_sha256"]:
+                raise ValueError("compiled FIFO scheduler differs from frozen sources")
+            kernel_proof = {
+                "schema": "fifo-kernel-source-v1",
+                "kernel_revision": record["kernel_revision"],
+                "source_sha256": selected, "selected_source_matches": True,
+                "source_root": str((firmware / "nuttx").resolve()),
+                "expected_source_root": str((out / "firmware/nuttx").resolve()),
+            }
+            record["fifo_kernel_source_proof"] = "firmware/fifo-kernel-source.json"
+            (out / record["fifo_kernel_source_proof"]).write_text(
+                json.dumps(kernel_proof, indent=2) + "\n")
         image, elf, config = firmware / "nuttx" / profile["image"], firmware / "nuttx/nuttx", firmware / "resolved.config"
         for path in (image, elf, config):
             if not path.is_file() or path.stat().st_size == 0:
@@ -279,6 +315,10 @@ def build(args):
                           out / "crossbeam/crossbeam-hook.json", out / "crossbeam/cargo-config.toml"]
         artifact_paths += list((out / "crossbeam").glob("*.patch"))
         artifact_paths += list((out / "crossbeam/original").glob("*.crate"))
+        if args.mode == "fifo-channel-suite":
+            artifact_paths += [out / record["fifo_kernel_source_proof"]]
+            artifact_paths += [out / "prepared/fifo-kernel" / name
+                               for name in record["fifo_kernel_source_sha256"]]
         record["artifacts_sha256"] = {baseline.relative(p, out): sha(p) for p in artifact_paths}
         if inventory(profile) != before:
             raise ValueError("progress inputs changed during compilation")

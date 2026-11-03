@@ -11,11 +11,16 @@ and their retained physical results remain separate. P0 owns their latency,
 capture, clock and calibration changes. This fixture reuses only the mechanical
 native ABI and common build/source preparation helpers, without editing them.
 
-There are two distinct experiment families: six exact-source Crossbeam cases
-and seven single-item std mutex/condition-variable cases. The latter evaluates
-an existing primitive transfer pattern and retains its own schema and acceptance
-scope. It is not a new three-class queue or a claim that Crossbeam's reserved-slot
-failures have been repaired.
+There are three experiment families, each with its own acceptance scope:
+
+| Family | Cases | Contract under observation |
+| --- | --- | --- |
+| Unequal-priority Crossbeam | Six | Whether a high-priority peer can finish while a lower-priority participant has reserved an unpublished or unreclaimed slot |
+| Single-item std primitives | Seven | One-attempt ownership transfer under mutex contention, condition waiting, publication and closure |
+| Equal-priority FIFO Crossbeam | Six | Whether the original slot holder commits before a newly ready equal-priority peer resumes under the audited one-core FIFO contract |
+
+The additional suites retain the earlier negative results. They do not introduce
+a queue implementation or certify a production three-class owner.
 
 ## Recorded progress results — 2026-11-03
 
@@ -236,10 +241,98 @@ production-transport, timing and general priority-progress qualification flags
 remain false. It does not establish a latency bound under intervening runnable
 priorities or a priority-inheritance guarantee.
 
-The new suite's target requirements above are an acceptance procedure, not a
-recorded successful target cohort. Retain and validate fresh CI or hardware
-captures with their own source/build identity before reporting target success.
-The recorded six-case results earlier in this document remain unchanged.
+All seven std primitive cases passed these checks in
+[CI run 41680413250](https://github.com/yongkyuns/nxrs/actions/runs/41680413250)
+at head `0bc150ce28b3710da31525615e3daa0a4672a0a7` (merge checkout
+`2cfb7f4593863abaa3857500cf9631558b07f9d1`). Independent replay of the retained
+[ARM artifact](https://github.com/yongkyuns/nxrs/actions/runs/41680413250/artifacts/13253305906)
+confirmed the seven primitive results and the original six Crossbeam outcomes.
+These are virtual NuttX observations with the narrow primitive scope above.
+
+## Equal-priority FIFO reservation suite
+
+The [FIFO scheduling audit](FIFO-SCHEDULING-AUDIT.md) defines
+`equal-fifo-run-to-block-v1`. All channel participants use the same **effective
+FIFO priority 180** on one core. The observer runs at 220 and the independent
+watchdog at 240. Channel endpoints remain live throughout the experiment.
+
+The source argument is specific: at the pinned NuttX revision, a newly ready
+equal-priority FIFO task is inserted behind the existing preempted task. The
+audited direct try operations and receive-only biased selection finish an
+acquired slot before invoking user code. A participant must not block, yield,
+change its effective priority or perform arbitrary code while holding a reserved
+slot. The contract also requires bounded runnable work between actual blocking
+points and bounded interfering work; equal priorities alone do not establish
+those application-level conditions.
+
+| Case | Holder boundary | Peer path that must follow the actual release store |
+| --- | --- | --- |
+| `fifo-try-recv-reserved` | Producer owns an unpublished slot | The receiver's single `try_recv` entry |
+| `fifo-try-recv-published` | Producer has published, before notifying | The receiver's single `try_recv` entry |
+| `fifo-select-reserved` | Important producer owns an unpublished slot | The selected owner's return from its native context wait |
+| `fifo-select-published` | Important producer has published, before notifying | The selected owner's return from its native context wait |
+| `fifo-try-send-reserved` | Consumer owns an unreclaimed slot in a full ring | The sender's single `try_send` entry |
+| `fifo-try-send-reclaimed` | Consumer has reclaimed, before notifying | The sender's single `try_send` entry |
+
+Each case creates a real scheduling opportunity. At the selected source boundary,
+the holder's hook wakes the higher-priority observer. For direct and reverse
+cases the observer makes the peer runnable; it then verifies that both actors
+are actually `READY` at 180 while the holder is still in its callback. The peer
+has not entered its conflicting operation. In reserved cases the actual slot
+release marker must still be absent.
+
+For selected cases the owner first registers all three receive arms, in the order
+**stop → important → ordinary**, and enters an observed native `WAIT_SEM` at 180.
+The observer checks that this wait still exists when the producer reaches its
+hook. It then performs a finite, capped polling episode with interrupts enabled,
+without sleeping or yielding, until the kernel deadline makes the owner ready.
+There is no higher-priority channel waker. Both equal-priority actors must be
+ready before the observer relinquishes the CPU.
+
+The observer blocks on a distinct, initially empty completion gate. On resuming,
+the holder independently verifies that the observer is actually `WAIT_SEM` at
+220. The real source markers must show publication or reclamation before the
+peer enters its try operation or returns from the selected context wait. Thus
+a sequential run with no ready competitor cannot satisfy the validator.
+
+A kernel timeout makes the selected task runnable; it does not force Crossbeam's
+default arm to win. The producer can publish and select the important operation
+before the owner resumes. The suite records and checks the actual important
+payload outcome, including explicit timeout counts. It never counts a timeout,
+retry or ordinary-arm wake as important delivery. The reverse cases check the
+entire nine-message sequence, including the initial eight messages.
+
+Final native holds keep both actors alive for scheduling readback after their
+operations return, followed by complete joins. No case invokes priority repair.
+A failed setup, ordering check, deadline, payload or join is invalid evidence;
+the watchdog and external capture deadline preserve failures without turning
+cleanup into a positive result.
+
+The `fifo-channel-progress-v1` records dispatch to
+[`fifo_analyze.py`](fifo_analyze.py). Its scope is
+`equal-fifo-reservation-progress`, with `build_mode: "fifo-channel-suite"` and
+hook stage 5. [`fifo_cohort.py`](fifo_cohort.py) requires exactly these six cases,
+each on a fresh boot of **one identical suite image and build receipt**. It
+replays raw records, the echoed command, fresh boot, final prompt, build sources,
+capture/session data and stored analysis; missing or mixed evidence is rejected.
+The original unequal-priority cohort keeps its separate six-build contract.
+
+The builder and replay require ten exact scheduler/semaphore source files from
+the audited kernel revision. Independent retained copies are part of the
+firmware's build identity. The builder checks the actual prepared kernel again
+after compilation, and retains that source-selection proof. The prepared std
+library must also match the nine primitive source pins and two SDK-specific
+parker/dispatch pins. All older Crossbeam source recipes and build identities
+retain their existing interpretation.
+
+These requirements define the new suite's acceptance procedure. Report success
+only with a retained target cohort from the corresponding source/build revision.
+Passing the suite does not establish general wait-freedom, a latency bound,
+production admission or physical execution. Crossbeam's notification locks run
+after slot release and can still delay method return. Manual selected tokens,
+selected-send expressions, ISR/signal reentry and unaudited endpoint or priority
+changes are outside this contract. Owner fairness, overload, cancellation and
+the complete work-to-block budget remain separate qualification obligations.
 
 ## Host validation
 
@@ -254,8 +347,8 @@ python3 tests/channel-progress/analyze.py host.log
 python3 tools/check-architecture.py
 ```
 
-Host execution refuses all **13 native cases**: the six Crossbeam modes and the
-seven std primitive modes. Its existing `host-functional` smoke result cannot
+Host execution refuses all **19 native cases**: the six original Crossbeam modes,
+seven std primitive modes and six equal-FIFO modes. Its `host-functional` smoke result cannot
 pass `--require-no-repair`. Host primitive tests check retained ownership,
 publication at the wait boundary, publication before waiting and sticky close;
 they do not qualify NuttX progress. Negative controls cover altered source bytes,
@@ -304,6 +397,29 @@ commands test the actual std primitives in that one image.
 They are analyzed individually and are not inputs to the fixed six-case
 Crossbeam cohort gate.
 
+Build the FIFO suite once and capture its six cases on fresh boots:
+
+```sh
+out="target/channel-progress/fifo/mps2"
+python3 tests/channel-progress/build.py \
+  --platform mps2-an521-mock --mode fifo-channel-suite --out "$out"
+for mode in fifo-try-recv-reserved fifo-try-recv-published fifo-select-reserved fifo-select-published fifo-try-send-reserved fifo-try-send-reclaimed; do
+  run="$out/cases/$mode/run"
+  python3 tests/channel-progress/capture.py qemu \
+    --build-directory "$out" --mode "$mode" --output "$run"
+  python3 tests/channel-progress/analyze.py "$run/console.log" \
+    --build-receipt "$run/build.json" --output "$run/acceptance.json" --require-no-repair
+done
+python3 tests/channel-progress/fifo_cohort.py "$out/cases" \
+  --output "$out/cohort.json" --require-no-repair
+```
+
+`fifo-channel-suite` is a build mode, not a runnable command. Its private
+`fifo-ordered` Crossbeam recipe marks all four slot boundaries, selected
+registration and the return from the context wait. The FIFO cohort also offers
+`--require-physical`, which refuses operator-only labels just as the original
+cohort does. Keep all three families in their separate output roots.
+
 `build.py` copies the fixture, its native ABI and selected platform metadata into
 a new minimal Cargo workspace. Only that workspace gets a generated patch
 lockfile. Private Crossbeam and Rust std trees, compiler selection, Cargo
@@ -320,7 +436,7 @@ QEMU is explicitly reported as virtual execution; it is not a physical run.
 
 For the physical ESP32-S3, build with `--platform esp32s3-service-footprint`.
 The current ESP CI job is configured to build exactly `select-reserved`,
-`select-published` and `std-mutex-suite`, retaining those three images for later
+`select-published`, `std-mutex-suite` and `fifo-channel-suite`, retaining four images for later
 hardware sessions. It does not flash or execute a physical board. The historical
 ESP artifact identified above still contains only its original two selected-owner
 images. Other Crossbeam cases use the same build command with their own named

@@ -21,7 +21,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 HOOK = "nxrs_crossbeam_progress_hook"
 MODES = {"clean": 0, "send-reserved": 1, "send-published": 2,
-         "recv-reserved": 3, "recv-reclaimed": 4}
+         "recv-reserved": 3, "recv-reclaimed": 4, "fifo-ordered": 5}
 PINS = {
     "crossbeam-channel": {
         "version": "0.5.17",
@@ -35,6 +35,13 @@ PINS = {
 ARRAY = "src/flavors/array.rs"
 SELECT = "src/select.rs"
 REGISTRATION_BASE = 0x100
+FIFO_MARKERS = {
+    "send_reserved": 0x301,
+    "send_published": 0x302,
+    "recv_reserved": 0x303,
+    "recv_reclaimed": 0x304,
+    "selection_wait_returned": 0x200,
+}
 DECLARATION = (
     '\n// Private nxrs progress witness only; never a production dependency.\n'
     '#[cfg(target_os = "nuttx")]\n'
@@ -139,6 +146,25 @@ def transform_array(data: bytes, mode: str) -> bytes:
     positions = [text.index(anchor) for anchor in anchors[1:]]
     if positions != sorted(positions):
         raise ValueError("Crossbeam array operation order changed")
+    if mode == "fifo-ordered":
+        # One isolated image records both sides of each actual slot interval.
+        # The runtime chooses which boundary posts its native observer; neither
+        # these calls nor the recipe introduce a reservation-holding wait.
+        for anchor, marker, reserved in (
+            (RESERVE_SEND, "send_reserved", True),
+            (PUBLISH_SEND, "send_published", False),
+            (RESERVE_RECV, "recv_reserved", True),
+            (RECLAIM_RECV, "recv_reclaimed", False),
+        ):
+            if reserved:
+                first, remainder = anchor.split("\n", 1)
+                replacement = first + "\n" + call(hex(FIFO_MARKERS[marker]), " " * 24) + remainder
+            else:
+                first, remainder = anchor.split("\n\n", 1)
+                replacement = first + "\n\n" + call(
+                    hex(FIFO_MARKERS[marker]), " " * 8) + "\n" + remainder
+            text = text.replace(anchor, replacement, 1)
+        return text.replace(ARRAY_IMPORT, ARRAY_IMPORT + DECLARATION, 1).encode()
     stage = MODES[mode]
     if stage in (1, 3):
         anchor = RESERVE_SEND if stage == 1 else RESERVE_RECV
@@ -172,9 +198,10 @@ def transform_select(data: bytes, mode: str) -> bytes:
     # This encodes the count that run_select actually registered, before its
     # Context wait. A callback is not proof of parking: the fixture separately
     # requires a target TCB WAIT_SEM observation while this call is outstanding.
-    selected = selected.replace(
-        SELECT_WAIT,
-        call("0x100 + registered_count as u32", " " * 16) + SELECT_WAIT, 1)
+    replacement = call("0x100 + registered_count as u32", " " * 16) + SELECT_WAIT
+    if mode == "fifo-ordered":
+        replacement += call(hex(FIFO_MARKERS["selection_wait_returned"]), " " * 16)
+    selected = selected.replace(SELECT_WAIT, replacement, 1)
     text = text[:start] + selected + text[end:]
     return text.replace(SELECT_IMPORT, SELECT_IMPORT + DECLARATION, 1).encode()
 
@@ -237,7 +264,7 @@ def expected_receipt(output: Path, mode: str, archives: dict[str, bytes]) -> dic
                     selected[path].decode().splitlines(True),
                     fromfile=f"{name}/{path}", tofile=f"{name}/{path}")).encode()
                 patches[f"{Path(path).stem}-witness.patch"] = digest(patch)
-    return {
+    record = {
         "schema": "crossbeam-progress-source-v1", "mode": mode,
         "hook_stage": MODES[mode], "instrumented": mode != "clean",
         "hook_symbol": HOOK if mode != "clean" else None,
@@ -250,6 +277,12 @@ def expected_receipt(output: Path, mode: str, archives: dict[str, bytes]) -> dic
         "patches_sha256": patches,
         "note": "Private source identity only; no execution, progress or timing claim.",
     }
+    if mode == "fifo-ordered":
+        record["fifo_order_hooks"] = {
+            "markers": dict(FIFO_MARKERS),
+            "scope": "array-slot-reservation-release-and-run_select-wait-return",
+        }
+    return record
 
 
 def validate_receipt(output: Path, mode: str | None = None) -> dict:
