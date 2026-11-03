@@ -176,6 +176,8 @@ four normal/saturation messaging fan-in cases and the timer-provider case with
 both payload profiles. Every run gets a new directory
 with raw stdout/stderr, a capture receipt and analysis. The corpus retains one
 shared executable and replays each saved result, including the expected refusal.
+It also requires all seven fixed comparison groups to match and retains each
+group report under `comparisons/`.
 Reusing an output directory is rejected. Individual runs accept
 `CASE SAMPLES WARMUP PROFILE`:
 
@@ -206,8 +208,10 @@ changed source refuses the build. Compiler, configuration, source and image
 identities are retained in `event-path-build-v1`.
 
 The [dedicated workflow](../../.github/workflows/event-path-perf.yml) runs the
-host corpus, builds ARM, runs 17 representative captures in separate fresh QEMU
-boots, and builds the ESP32-S3 image. The QEMU corpus includes one and four
+host corpus, builds ARM, runs 29 captures in separate fresh QEMU boots, and
+builds the ESP32-S3 image. Nineteen of those captures cover every member of the
+seven comparison groups on the 16-byte/capacity-eight baseline. The other ten
+retain the notification, fixed-peer, fan-in and timer controls. The QEMU corpus includes one and four
 providers in both normal and saturation modes and the timer-provider case with
 both payload profiles. It does not flash or take
 physical-board ownership.
@@ -233,6 +237,13 @@ canonical source/compiler/build inputs, and cross-checks the compiler and std
 library identities against the retained source proofs. Clock rejection and ROM
 digest warnings remain visible without erasing valid functional data. Raw output and failed receipts survive
 console deadlines, fixture refusal and serial-cleanup errors.
+
+Physical session labels remain operator assertions. A matching image receipt,
+observed boot banner and accepted clock calibration do not independently prove
+the execution location, board identity or exclusive access. Capture keeps
+`physical_execution_verified` false while retaining those separate facts.
+Replay rejects unsupported true claims, including in failed captures, without
+rewriting the original evidence.
 
 ### Retention and independent replay
 
@@ -278,6 +289,56 @@ grows with the requested run; an explicitly shorter deadline is rejected, and
 the maximum is 600 seconds. Host and QEMU retain their 30-second default. These
 capture budgets include console transmission and are not timing measurements.
 
+### Matched comparison groups
+
+`compare.py` validates exactly three explicitly supplied, completed captures for
+one of seven fixed groups. Each capture must pass offline replay first. The
+groups share 19 named cases; direct Crossbeam receive is reused in the transport
+and selection comparisons.
+
+| Group | Required cases |
+| --- | --- |
+| `ready-try` | `ready-std-try`, `ready-messaging-try`, `ready-crossbeam-try` |
+| `ready-send` | `ready-std-send`, `ready-messaging-send`, `ready-crossbeam-send` |
+| `blocked-try` | `blocked-std-try`, `blocked-messaging-try`, `blocked-crossbeam-try` |
+| `blocked-send` | `blocked-std-send`, `blocked-messaging-send`, `blocked-crossbeam-send` |
+| `full-rejection` | `full-std`, `full-messaging`, `full-crossbeam` |
+| `ready-selection` | `ready-crossbeam-try`, `ready-select-one`, `ready-select-three` |
+| `blocked-selection` | `blocked-crossbeam-try`, `blocked-select-one`, `blocked-select-three` |
+
+For example, after the ARM corpus has completed:
+
+```sh
+python3 tests/event-path-perf/compare.py ready-try \
+  target/event-path-arm/runs/ready-std-try \
+  target/event-path-arm/runs/ready-messaging-try \
+  target/event-path-arm/runs/ready-crossbeam-try \
+  --artifact-root target/event-path-arm
+```
+
+Inputs must share the same executable, or the exact target build receipt,
+image, ELF and configuration. Payload/layout/capacity, counts and warmups,
+clock properties, release schedule, worker stacks and logical scheduling roles
+must agree. Actual thread IDs and run IDs may differ across fresh boots.
+Physical comparisons match the declared board and operating conditions while
+retaining each boot's measurement-session identity and calibration separately.
+QEMU comparisons check the recorded board and command options, substituting the
+verified ELF hash for its original path.
+
+The JSON result retains each case's hashes, counts and raw distributions in a
+canonical order. It does not pool samples, subtract percentiles, calculate
+speedup, or rank transports. `matched: true` establishes the retained artifact
+and declared-input match. It does not independently identify the emulator
+binary or execution host, and operator labels do not verify physical identity;
+`execution_context_verified`, physical-execution, timing and progress
+qualification remain false. This gate compares cases within one build, not
+separately optimized candidate builds.
+
+The two selection groups explicitly retain the direct-receive macro control and
+the additional idle queues in the three-arm topology. Their whole difference
+cannot be labeled pure selector overhead. Notification and fixed-peer controls
+remain separately reported because they do not transfer the same payload.
+
 All executable timing/progress qualification fields remain false. Raw-tick
 distributions are characterization, not a speedup, WCET or production acceptance
 claim. Physical captures still require P0's corrected independently calibrated,
@@ -286,8 +347,8 @@ is required before production transport adoption.
 
 ### P1 progress results and the P2 paths
 
-[P1 PR #255](https://github.com/yongkyuns/nxrs/pull/255), at head `8fb40e9`,
-records the following [final ARM/NuttX cohort](https://github.com/yongkyuns/nxrs/actions/runs/41664483288)
+[P1 PR #255](https://github.com/yongkyuns/nxrs/pull/255), at head `0bc150c`,
+records the following [ARM/NuttX cohort](https://github.com/yongkyuns/nxrs/actions/runs/41680413250)
 for Crossbeam 0.5.17 with crossbeam-utils 0.8.23. Each case used a fresh
 single-core QEMU boot, capacity eight and a checked 16-byte payload.
 
@@ -303,6 +364,15 @@ CI diagnosis preserves a **failed no-repair contract**. The three controls
 passed only their named interleavings. P1's ESP32-S3 images are build-only;
 physical Crossbeam replication and a production contract requiring no repair
 remain open.
+
+That P1 revision also passes seven prewarmed std mutex/condition-variable
+witnesses without repair on ARM/QEMU: held/released single-item admission and
+retrieval, blocked publication, publication before waiting, and blocked closure.
+The held cases make one `try_lock` attempt, return Busy, preserve ownership and
+transfer no value. These are primitive contracts with one item; they do not
+define a bounded queue's overload, retry, fairness or multi-class owner policy.
+Their ESP32-S3 evidence is build-only. The three Crossbeam reservation failures
+remain failures in the complete cohort.
 
 P2's passing functional corpus establishes completion and conservation for its
 named schedules. Its direct Crossbeam adapter calls the same `recv` path, and
@@ -330,6 +400,12 @@ synthetic control; their acceptance requires the chosen source path and physical
 evidence. A full-queue blocked-producer release control remains conditional on
 a selected production call site that permits blocking and requires that control.
 Current `send` cases use nonfull queues and cannot satisfy that separate control.
+
+[P0's paired digest image/loader candidate (#257)](https://github.com/yongkyuns/nxrs/pull/257)
+has its own opt-in build profile and provenance contract. P2's current ESP image
+uses the existing baseline profile. Consuming that candidate requires deliberate
+P2 build/profile/receipt integration and P0's physical boot and calibration
+qualification; its published build results do not qualify the current P2 image.
 
 P3 owns full selected-owner behavior, P4 owns correlated native switch/IRQ
 attribution, and P5 owns sustained offered-load and resource/product budgets.

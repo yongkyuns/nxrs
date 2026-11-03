@@ -292,7 +292,7 @@ def retained_session(session, evidence):
 
 
 def associate(summary, receipt, session, evidence_directory, fresh_boot, digest_warning):
-    """Keep execution identity/calibration facts separate from P2 acceptance."""
+    """Associate operator identity and clock evidence without certifying execution."""
     metadata = summary["metadata"]
     require(receipt["build_id"] == metadata["build_id"], "running build identity mismatch")
     require(receipt["clock_request"] == metadata["clock_source_request"], "running clock request mismatch")
@@ -314,7 +314,9 @@ def associate(summary, receipt, session, evidence_directory, fresh_boot, digest_
         clock = calibration.independent_clock_calibration(summary, receipt, session, evidence_directory)
     return {
         "runtime_kind": runtime,
-        "physical_execution_verified": runtime == "physical",
+        # Matching session/image/clock records remain operator-supplied evidence;
+        # they do not independently establish where the transcript was executed.
+        "physical_execution_verified": False,
         "hardware_identity_origin": "operator-supplied-session-and-image-receipt" if runtime == "physical" else "emulator-command",
         "fresh_boot_observed": True,
         "boot_rom_digest_warning_observed": bool(digest_warning),

@@ -117,6 +117,8 @@ def replay(directory: Path, artifact_root: Path | None = None) -> dict:
     require(report.get("console_sha256") == files["console.log"], "capture console identity mismatch")
     for key in ("physical_timing_qualified", "priority_progress_qualified"):
         require(report.get(key) is False, "retained capture attempted qualification promotion")
+    require(report.get("physical_execution_verified", False) is False,
+            "retained capture attempted physical-execution promotion")
     if complete:
         require(report.get("failure_stage") is None and report.get("error") is None
                 and not report.get("cleanup_errors") and "analysis.json" in files,

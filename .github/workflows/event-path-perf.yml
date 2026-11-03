@@ -111,8 +111,12 @@ jobs:
         run: |
           set -euo pipefail
           for case in \
-            ready-messaging-try full-messaging \
+            ready-std-try ready-messaging-try ready-crossbeam-try \
+            ready-std-send ready-messaging-send ready-crossbeam-send \
+            full-std full-messaging full-crossbeam \
             blocked-std-try blocked-messaging-try blocked-crossbeam-try \
+            blocked-std-send blocked-messaging-send blocked-crossbeam-send \
+            ready-select-one ready-select-three \
             blocked-select-one blocked-select-three semaphore park fixed-peer \
             fanin-messaging-4 \
             fanin-messaging-1-normal fanin-messaging-4-normal \
@@ -128,6 +132,23 @@ jobs:
           for run in target/event-path-arm/runs/*; do
             python3 tests/event-path-perf/replay.py "$run" --artifact-root target/event-path-arm
           done
+      - name: Validate seven matched comparison groups
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("event_path_ci_compare", "tests/event-path-perf/compare.py")
+          comparison = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(comparison)
+          root = Path("target/event-path-arm")
+          output = root / "comparisons"
+          output.mkdir()
+          for group, cases in comparison.GROUPS.items():
+              result = comparison.compare(group, [root / "runs" / case for case in cases], artifact_root=root)
+              (output / f"{group}.json").write_text(json.dumps(result, indent=2) + "\n")
+              print(f"P2 {group}: {len(result['members'])} matched complete captures")
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -136,6 +157,7 @@ jobs:
             target/event-path-arm/*.json
             target/event-path-arm/*.log
             target/event-path-arm/runs/
+            target/event-path-arm/comparisons/
             target/event-path-arm/prepared/*.json
             target/event-path-arm/firmware/*.json
             target/event-path-arm/firmware/*.jsonl

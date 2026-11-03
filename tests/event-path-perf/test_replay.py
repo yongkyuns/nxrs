@@ -215,6 +215,56 @@ class ReplayControls(unittest.TestCase):
         self.assertTrue(result["stored_analysis_verified"])
         self.assertFalse(result["clock_calibration_qualified"])
 
+    def test_operator_session_and_calibration_cannot_certify_physical_execution(self):
+        output, _, _ = self.physical_capture()
+        result = replay_module.replay(output)
+        self.assertTrue(result["clock_calibration_qualified"])
+        report_path = output / "capture.json"
+        analysis_path = output / "analysis.json"
+        report = json.loads(report_path.read_text())
+        analysis = json.loads(analysis_path.read_text())
+        self.assertIs(report["physical_execution_verified"], False)
+        self.assertIs(analysis["capture_qualification"]["physical_execution_verified"], False)
+        report["physical_execution_verified"] = True
+        analysis["capture_qualification"]["physical_execution_verified"] = True
+        report_path.write_text(json.dumps(report))
+        analysis_path.write_text(json.dumps(analysis))
+        self.rewrite_manifest_hash(output, "capture.json")
+        self.rewrite_manifest_hash(output, "analysis.json")
+        original_claims = (report_path.read_bytes(), analysis_path.read_bytes())
+        with self.assertRaisesRegex(ValueError, "physical-execution promotion"):
+            replay_module.replay(output)
+        self.assertEqual((report_path.read_bytes(), analysis_path.read_bytes()), original_claims)
+
+        report["physical_execution_verified"] = False
+        report_path.write_text(json.dumps(report))
+        self.rewrite_manifest_hash(output, "capture.json")
+        with self.assertRaisesRegex(ValueError, "stored analysis differs"):
+            replay_module.replay(output)
+
+    def test_incomplete_capture_allows_only_absent_or_false_physical_execution_claim(self):
+        binary, _ = self.fixture.executable("refusal", records="EVENT_PATH_PERF FAIL synthetic-refusal\n",
+                                            exit_code=1)
+        args = self.fixture.arguments("refused-capture", binary=binary)
+        report = capture.capture(args)
+        self.assertFalse(report["capture_complete"])
+        self.assertFalse((args.output / "analysis.json").exists())
+        self.assertNotIn("physical_execution_verified", report)
+        self.assertTrue(replay_module.replay(args.output)["evidence_valid"])
+        report_path = args.output / "capture.json"
+        for value in (False, True, 0, 1, None, "false"):
+            with self.subTest(value=value):
+                report["physical_execution_verified"] = value
+                report_path.write_text(json.dumps(report))
+                self.rewrite_manifest_hash(args.output, "capture.json")
+                if value is False:
+                    result = replay_module.replay(args.output)
+                    self.assertTrue(result["evidence_valid"])
+                    self.assertFalse(result["capture_complete"])
+                else:
+                    with self.assertRaisesRegex(ValueError, "physical-execution promotion"):
+                        replay_module.replay(args.output)
+
     def test_unavailable_calibration_does_not_follow_the_original_path_during_replay(self):
         output, source, trace = self.physical_capture("unavailable")
         trace.write_text("a new original file must never repair old evidence")
