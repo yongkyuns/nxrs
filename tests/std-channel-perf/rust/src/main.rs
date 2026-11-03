@@ -291,7 +291,7 @@ impl Metadata<'_> {
             "\"monotonic_resolution_ns\":{},\"counter_probe_ticks\":{},\"counter_probe_ns\":{},\"counter_validated\":{},",
             "\"sender_policy\":{},\"sender_priority\":{},\"receiver_policy\":{},\"receiver_priority\":{},",
             "\"observer_policy\":{},\"observer_priority\":{},\"watchdog_policy\":{},\"watchdog_priority\":{},",
-            "\"physical_measurement\":false,\"single_core_tcb_witness\":{},\"blocked_observation_scope\":\"WAIT_SEM-inside-recv\","
+            "\"physical_measurement\":false,\"single_core_tcb_witness\":{},\"blocked_observation_scope\":\"WAIT_SEM-inside-recv\",",
             "\"terminal_quiescence_protocol\":\"{}\"}}"),
             self.run_id,
             env!("NXRS_STD_CHANNEL_BUILD_ID"),
