@@ -279,6 +279,8 @@ mod tests {
     #[test]
     fn libc_override_accepts_both_supported_manifest_endings() {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        crate::run(source::git(&temp.0).args(["init", "--quiet"])).unwrap();
+        crate::run(source::git(&temp.0).args(["config", "core.autocrlf", "true"])).unwrap();
         let manifest = temp.0.join(LIBRARY).join("Cargo.toml");
         fs::create_dir_all(manifest.parent().unwrap()).unwrap();
         let patches = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../upstream/rust-std/patches");

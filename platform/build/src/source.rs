@@ -77,7 +77,12 @@ pub fn patch(source: &Path, patch: &Path) -> Result<Value> {
     // A file handle also works with Windows canonical paths that Git's argv parser rejects.
     let apply = |args: &[&str]| -> Result<String> {
         let input = fs::File::open(&patch).map_err(|e| e.to_string())?;
-        output(git(&source).arg("apply").args(args).stdin(input))
+        output(
+            git(&source)
+                .args(["-c", "core.autocrlf=false", "apply"])
+                .args(args)
+                .stdin(input),
+        )
     };
     let stats = apply(&["--numstat"])?;
     let paths = stats
