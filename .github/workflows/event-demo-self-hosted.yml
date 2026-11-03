@@ -252,7 +252,8 @@ jobs:
   nuttx-armv8m:
     needs: demo
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: ubuntu-24.04
+    # QEMU 8.2 in Noble has swapped MPS2 UART IRQs; match the corrected std-app runner.
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - name: Verify GitHub-hosted Linux runner

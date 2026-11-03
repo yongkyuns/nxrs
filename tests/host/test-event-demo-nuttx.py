@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import pty
 import re
 import select
 import signal
@@ -97,15 +98,18 @@ def run(qemu: Path, image: Path, log_path: Path, machine: str) -> None:
             ]
         else:
             raise ValueError(f"unsupported QEMU machine: {machine}")
-        # Match the std qualification runner: serial bytes must not pass through
-        # a host terminal's line discipline before reaching the emulated UART.
-        process = subprocess.Popen(
-            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, cwd=image.parent, start_new_session=True,
-            bufsize=0,
-        )
-        reader = process.stdout.fileno()
-        writer = process.stdin.fileno()
+        master, slave = pty.openpty()
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                cwd=image.parent,
+                start_new_session=True,
+            )
+        finally:
+            os.close(slave)
 
         pending = ""
         transcript: list[str] = []
@@ -118,8 +122,8 @@ def run(qemu: Path, image: Path, log_path: Path, machine: str) -> None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError(f"NuttX did not produce {marker!r}; exit={process.poll()}")
-                if select.select([reader], [], [], min(remaining, 0.2))[0]:
-                    data = os.read(reader, 65536)
+                if select.select([master], [], [], min(remaining, 0.2))[0]:
+                    data = os.read(master, 65536)
                     if not data:
                         raise RuntimeError("NuttX console EOF")
                     total += len(data)
@@ -145,10 +149,10 @@ def run(qemu: Path, image: Path, log_path: Path, machine: str) -> None:
                 # affects only the QEMU test transport, never firmware timing.
                 time.sleep(0.02)
                 for byte in data:
-                    os.write(writer, bytes((byte,)))
+                    os.write(master, bytes((byte,)))
                     time.sleep(0.01)
             else:
-                os.write(writer, data)
+                os.write(master, data)
 
         try:
             until("nsh>")
@@ -196,8 +200,7 @@ def run(qemu: Path, image: Path, log_path: Path, machine: str) -> None:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
-            process.stdin.close()
-            process.stdout.close()
+            os.close(master)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_path.write_text("".join(transcript), encoding="utf-8")
 
