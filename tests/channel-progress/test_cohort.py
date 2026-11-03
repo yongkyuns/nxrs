@@ -135,6 +135,44 @@ class CohortTests(unittest.TestCase):
                     with self.subTest(fault=variant), self.assertRaisesRegex(ValueError, "fault in raw capture"):
                         cohort.capture_structure(broken, mode)
 
+    def test_complete_final_prompt_allows_only_its_known_eof_display_prefixes(self):
+        for mode in ("direct-reserved", "select-published"):
+            path = self.run_directory(mode) / "console.log"
+            original = path.read_bytes()
+            self.assertTrue(original.endswith(b"nsh> "))
+            for decoration in (b"", b"\x1b", b"\x1b[", b"\x1b[K"):
+                raw = original + decoration
+                path.write_bytes(raw)
+                with self.subTest(mode=mode, decoration=decoration):
+                    case, _ = cohort.replay_case(path.parent, mode)
+                    self.assertEqual(case["mode"], mode)
+                    self.assertEqual(path.read_bytes(), raw)
+                    self.assertEqual(case["evidence_sha256"]["console.log"], evidence.sha256(path))
+            path.write_bytes(original)
+
+    def test_partial_controls_unknown_suffixes_and_additional_commands_remain_invalid(self):
+        mode = "direct-published"
+        raw = (self.run_directory(mode) / "console.log").read_bytes()
+        broken = [raw + tail for tail in (
+            b"\x1b[0", b"\x1b]", b"\x1b[\n", b"\x1b[ ", b"\x1b\n", b"\x1b\x1b[",
+            b"\x1b[\r", b"\x1b\r[", b"\x1b\r",
+            b"another_command\r\nnsh> \x1b[", b"\r\nNuttShell\r\nnsh> \x1b[",
+            b"\x1b[\nAssertion failed panic\n", b"unexpected text",
+        )]
+        broken += [
+            raw[:-1] + b"\x1b[",  # Missing the completed literal prompt's space.
+            raw[:-1] + b"\r \x1b[",  # CR normalization cannot fabricate that prompt.
+            b"\x1b[\n" + raw,
+            raw.replace(b"channel_progress", b"\x1b[\nchannel_progress", 1),
+            raw.replace(b"CHANNEL_PROGRESS", b"\x1b\nCHANNEL_PROGRESS", 1),
+            raw.replace(b'"record": "result"', b'"record": \x1b[\n"result"', 1),
+            raw.replace(b'"record": "result"', b'"record": "result"\x1b\n', 1),
+            raw.replace(b"CHANNEL_PROGRESS", b"nsh> second_command\r\nCHANNEL_PROGRESS", 1) + b"\x1b[",
+        ]
+        for payload in broken:
+            with self.subTest(payload=payload[-100:]), self.assertRaises(ValueError):
+                cohort.capture_structure(payload, mode)
+
     def test_six_no_repair_cases_pass_only_the_scoped_experiment_gate(self):
         for mode in cohort.MODES:
             self.stalled[mode] = False

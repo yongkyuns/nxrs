@@ -59,7 +59,19 @@ def capture_structure(raw, mode):
     require(not FAULT.search(text), "fault in raw capture")
     matches = list(re.finditer(r"(?m)^CHANNEL_PROGRESS [^\n]*(?:\n|$)", text))
     require(len(matches) == 2, "capture needs exactly two Crossbeam records")
+    # Capture stops on the complete prompt. NSH's optional ESC[K erase-line
+    # decoration can be split at that read boundary. Accept only its two exact
+    # EOF prefixes after the final prompt, never partial controls elsewhere.
+    terminal = text[matches[-1].end():]
+    for fragment in ("\x1b[", "\x1b"):
+        if (raw.endswith(("nsh> " + fragment).encode("ascii"))
+                and terminal.endswith("nsh> " + fragment)):
+            require(terminal[:-len(fragment)].strip() == "nsh>",
+                    "unexpected content before terminal display fragment")
+            text = text[:-len(fragment)]
+            break
     shell_text = ANSI.sub("", text)
+    require("\x1b" not in shell_text, "malformed terminal control in raw capture")
     prefix = ANSI.sub("", text[:matches[0].start()])
     suffix = ANSI.sub("", text[matches[-1].end():]).strip()
     commands = list(re.finditer(r"(?m)^nsh>[ \t]*(\S[^\n]*)$", shell_text))
