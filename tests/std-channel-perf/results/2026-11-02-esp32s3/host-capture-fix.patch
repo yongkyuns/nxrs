@@ -1,0 +1,102 @@
+diff --git a/tests/std-channel-perf/README.md b/tests/std-channel-perf/README.md
+index b3c83edd..561a8def 100644
+--- a/tests/std-channel-perf/README.md
++++ b/tests/std-channel-perf/README.md
+@@ -127,8 +127,8 @@ for mode in latency witness-reserved witness-published; do
+ done
+ ```
+ 
+-The runner owns one emulator and sends one command after each fresh NuttShell
+-banner. It requires the complete result and return to the prompt. Once preflight
++The runner owns one emulator and sends one command after a fresh NuttX startup
++or NuttShell banner and shell prompt. It requires the complete result and return to the prompt. Once preflight
+ checks pass and capture begins, it retains `console.log` and `capture.json` even
+ on failure; successful analysis is in `analysis.json`.
+ A captured reservation stall is intentional negative evidence for the channel's
+@@ -193,7 +193,8 @@ python3 tests/std-channel-perf/capture.py physical \
+ ```
+ 
+ Reset the board **after** the runner says it is ready; it requires a new boot
+-banner. Run each witness with its matching firmware, `--mode`, and updated session
++banner and shell prompt. The NuttX startup banner also works when the optional
++NuttShell greeting is disabled. Run each witness with its matching firmware, `--mode`, and updated session
+ image digest. Use a new capture directory and fresh boot for every repeat.
+ This also avoids treating repeated NSH invocations as a qualified std-runtime
+ restart scenario. No std or Crossbeam channel is invoked from an ISR.
+diff --git a/tests/std-channel-perf/capture.py b/tests/std-channel-perf/capture.py
+index 467b8397..f949745d 100644
+--- a/tests/std-channel-perf/capture.py
++++ b/tests/std-channel-perf/capture.py
+@@ -15,10 +15,14 @@ import time
+ from analyze import FAILURE, MODES, analyze, build_receipt, checked_file, qualify, read_json, require
+ 
+ PROMPT = b'nsh> '
+-BANNER = b'NuttShell'
++BOOT_BANNERS = (b'NuttShell', b'*** Booting NuttX ***')
+ MAX_LOG_BYTES = 16 * 1024 * 1024
+ 
+ 
++def fresh_boot(data):
++    return PROMPT in data and any(banner in data for banner in BOOT_BANNERS)
++
++
+ def command_for(mode, samples, warmup):
+     require(mode in MODES, 'unknown mode')
+     require(type(samples) is int and 1 <= samples <= 4096, 'invalid sample count')
+@@ -120,8 +124,8 @@ def capture(args):
+             print('Serial capture ready. Reset the test board now; waiting for a new NuttShell banner.', flush=True)
+         deadline = time.monotonic() + args.timeout
+         report['failure_stage'] = 'fresh-boot'
+-        boot = read_until(fd, transcript, lambda data: BANNER in data and PROMPT in data, deadline, process)
+-        require(BANNER in boot, 'fresh boot banner missing')
++        boot = read_until(fd, transcript, fresh_boot, deadline, process)
++        require(fresh_boot(boot), 'fresh boot banner missing')
+         report['fresh_boot_observed'] = True
+         report['failure_stage'] = 'command'
+         write_command(fd, command, deadline)
+diff --git a/tests/std-channel-perf/test_capture.py b/tests/std-channel-perf/test_capture.py
+index 1806b38b..ab70d9fb 100644
+--- a/tests/std-channel-perf/test_capture.py
++++ b/tests/std-channel-perf/test_capture.py
+@@ -36,8 +36,11 @@ signal.signal(signal.SIGTERM, terminate)
+ save()
+ if config['behavior'] == 'missing-banner':
+     print('FAKE boot without a required banner\nnsh> ', end='', flush=True)
++elif config['behavior'] == 'missing-prompt':
++    print('*** Booting NuttX *** (FAKE subprocess, no firmware)', flush=True)
+ else:
+-    print('NuttShell (FAKE subprocess, no firmware)\nnsh> ', end='', flush=True)
++    banner = '*** Booting NuttX ***' if config['behavior'] == 'nuttx-banner' else 'NuttShell'
++    print(banner + ' (FAKE subprocess, no firmware)\nnsh> ', end='', flush=True)
+     state['commands'].append(sys.stdin.readline().rstrip('\r\n'))
+     save()
+     if config['behavior'] == 'timeout':
+@@ -98,7 +101,7 @@ class CaptureProtocolTests(unittest.TestCase):
+             records=transcript(*fixture()) if records is None else records,
+         )))
+         output = directory / 'capture'
+-        deadline = '1' if behavior in {'missing-banner', 'timeout'} else '3'
++        deadline = '1' if behavior in {'missing-banner', 'missing-prompt', 'timeout'} else '3'
+         completed = subprocess.run([
+             sys.executable, str(HERE / 'capture.py'), 'qemu',
+             '--build-directory', str(self.build), '--mode', 'latency',
+@@ -141,6 +144,19 @@ class CaptureProtocolTests(unittest.TestCase):
+         self.assertEqual(state['commands'], ['std_channel_perf latency 2 1'])
+         self.assertFalse((output / 'analysis.json').exists())
+ 
++    def test_nuttx_boot_banner_without_optional_shell_greeting(self):
++        completed, report, _, state = self.run_capture('nuttx-banner', 'nuttx-banner')
++        self.assertEqual(completed.returncode, 0)
++        self.assertTrue(report['fresh_boot_observed'])
++        self.assertEqual(state['commands'], ['std_channel_perf latency 2 1'])
++
++    def test_boot_banner_without_prompt_never_sends_a_command(self):
++        completed, report, _, state = self.run_capture('missing-prompt', 'missing-prompt')
++        self.assertEqual(completed.returncode, 1)
++        self.assertEqual(report['failure_stage'], 'fresh-boot')
++        self.assertNotIn('fresh_boot_observed', report)
++        self.assertEqual(state['commands'], [])
++
+     def test_missing_banner_never_sends_a_command(self):
+         completed, report, output, state = self.run_capture('missing-banner', 'missing-banner')
+         self.assertEqual(completed.returncode, 1)

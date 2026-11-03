@@ -1,0 +1,590 @@
+{
+  "schema": "std-channel-evidence-archive-v1",
+  "date": "2026-11-02",
+  "date_timezone": "America/Toronto",
+  "scope": "QEMU protocol evidence and physical-target build receipts; no physical execution",
+  "current_analyzer_sha256": "357706eca7a34e5a53d31d3beba4f0c7a69e5bcee2ad96aa1745bd14c7b35dea",
+  "records": [
+    {
+      "cohort": "before-clock-fix",
+      "archive_path": "before-clock-fix/latency",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/latency",
+      "platform": "mps2-an521-mock",
+      "mode": "latency",
+      "build_id": "aba0738222142ddb577ab122b7c0ce6f5b24c91dcd7029bfb129b98d676c54db",
+      "image_sha256": "db731bf630f15e623196ebebab0ac47667c58aa803fa24e138d3cd42a37a6c2c",
+      "elf_sha256": "db731bf630f15e623196ebebab0ac47667c58aa803fa24e138d3cd42a37a6c2c",
+      "config_sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "baseline",
+      "original_systick_patch_present_in_source_inventory": false,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": [
+        {
+          "archive_path": "before-clock-fix/latency/run",
+          "command": "std_channel_perf latency 64 8",
+          "outcome": "rejected-monotonic-reversed"
+        },
+        {
+          "archive_path": "before-clock-fix/latency/run-02",
+          "command": "std_channel_perf latency 64 8",
+          "outcome": "rejected-monotonic-reversed"
+        }
+      ]
+    },
+    {
+      "cohort": "before-clock-fix",
+      "archive_path": "before-clock-fix/witness-reserved",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/witness-reserved",
+      "platform": "mps2-an521-mock",
+      "mode": "witness-reserved",
+      "build_id": "5633130b7b532e86e116ce44d62de4def17cddc9b04538c04cdefdf54e5cb61b",
+      "image_sha256": "e331c05184a9799c25d99b34a2f8fb8336d24c46a28dc8603801aa2419c9d33c",
+      "elf_sha256": "e331c05184a9799c25d99b34a2f8fb8336d24c46a28dc8603801aa2419c9d33c",
+      "config_sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "baseline",
+      "original_systick_patch_present_in_source_inventory": false,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": [
+        {
+          "archive_path": "before-clock-fix/witness-reserved/run",
+          "command": "std_channel_perf witness-reserved",
+          "outcome": "reservation-stall-observed"
+        }
+      ]
+    },
+    {
+      "cohort": "before-clock-fix",
+      "archive_path": "before-clock-fix/witness-published",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/witness-published",
+      "platform": "mps2-an521-mock",
+      "mode": "witness-published",
+      "build_id": "7bd86c94298c50df978adc0fb0771d1eeeeacd0dd6c83cdfa4a6c318fe959253",
+      "image_sha256": "338cd3483e0f4059c9fba99be36514101fd021f194b9a2a4ef607880e7892662",
+      "elf_sha256": "338cd3483e0f4059c9fba99be36514101fd021f194b9a2a4ef607880e7892662",
+      "config_sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "baseline",
+      "original_systick_patch_present_in_source_inventory": false,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": [
+        {
+          "archive_path": "before-clock-fix/witness-published/run",
+          "command": "std_channel_perf witness-published",
+          "outcome": "published-slot-control-completed"
+        }
+      ]
+    },
+    {
+      "cohort": "after-clock-fix",
+      "archive_path": "after-clock-fix/latency",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/final-check/mps2/latency",
+      "platform": "mps2-an521-mock",
+      "mode": "latency",
+      "build_id": "06d8e7336d79bf9fef9e32cd752a65ff208cdb77081a66d93e383f1c7a0f7e22",
+      "image_sha256": "f2fc0fd0e62edb2f51eb2383afc6f2e42cd8dd346c4780836fd02701ee228c61",
+      "elf_sha256": "f2fc0fd0e62edb2f51eb2383afc6f2e42cd8dd346c4780836fd02701ee228c61",
+      "config_sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "baseline",
+      "original_systick_patch_present_in_source_inventory": true,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": [
+        {
+          "archive_path": "after-clock-fix/latency/run",
+          "command": "std_channel_perf latency 64 8",
+          "outcome": "blocked-receiver-measurement"
+        }
+      ]
+    },
+    {
+      "cohort": "after-clock-fix",
+      "archive_path": "after-clock-fix/witness-reserved",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/final-check/mps2/witness-reserved",
+      "platform": "mps2-an521-mock",
+      "mode": "witness-reserved",
+      "build_id": "7abf15895eb2ac0c21d2343f7d6dbd31222cfe8738cdd86540676474d2d5a262",
+      "image_sha256": "0fe7a94d8fa3b001847e80dd997e74303352ce0f49b3242254d952f7eed3e4da",
+      "elf_sha256": "0fe7a94d8fa3b001847e80dd997e74303352ce0f49b3242254d952f7eed3e4da",
+      "config_sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "baseline",
+      "original_systick_patch_present_in_source_inventory": true,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": [
+        {
+          "archive_path": "after-clock-fix/witness-reserved/run",
+          "command": "std_channel_perf witness-reserved",
+          "outcome": "reservation-stall-observed"
+        }
+      ]
+    },
+    {
+      "cohort": "after-clock-fix",
+      "archive_path": "after-clock-fix/witness-published",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/final-check/mps2/witness-published",
+      "platform": "mps2-an521-mock",
+      "mode": "witness-published",
+      "build_id": "1d05d926fed95e0e8843be6fc8f3121aebe693c605b1a9a190822fb90359d3c8",
+      "image_sha256": "60828c4a1f07f3362975b4bdf15216f12d7d6527764d17c09a2ca4e8e069ed2b",
+      "elf_sha256": "60828c4a1f07f3362975b4bdf15216f12d7d6527764d17c09a2ca4e8e069ed2b",
+      "config_sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "baseline",
+      "original_systick_patch_present_in_source_inventory": true,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": [
+        {
+          "archive_path": "after-clock-fix/witness-published/run",
+          "command": "std_channel_perf witness-published",
+          "outcome": "published-slot-control-completed"
+        }
+      ]
+    },
+    {
+      "cohort": "physical-build-only",
+      "archive_path": "physical-build-only/esp32s3/latency",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/esp32s3/latency",
+      "platform": "esp32s3-service-footprint",
+      "mode": "latency",
+      "build_id": "2ee5e3e0ebfea55e378c91fe7415dd98607b877d7ed88833f57458b0b35719ee",
+      "image_sha256": "e4ca2b913767804e16b06875d737f86db5b7113855844a75d546061d7a3eff8a",
+      "elf_sha256": "9381a89098bea1e5ade02d1a2dbc52102429b14600dfad243c8321f3722b0e06",
+      "config_sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "native-counter",
+      "original_systick_patch_present_in_source_inventory": false,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": []
+    },
+    {
+      "cohort": "physical-build-only",
+      "archive_path": "physical-build-only/esp32s3/witness-reserved",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/esp32s3/witness-reserved",
+      "platform": "esp32s3-service-footprint",
+      "mode": "witness-reserved",
+      "build_id": "f0fe800096d6c76e586f0175f84e98cf81d35208e180b07d75688b8d155aeaf4",
+      "image_sha256": "9f0dd041f997b79397705453f7e94bdac9ba5cf54a9eb4daff5c83305af1bcb2",
+      "elf_sha256": "99c12afd6cdf26903474b5fd7efc94748bb1cdc34d180638d8c1d60de50c862c",
+      "config_sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "native-counter",
+      "original_systick_patch_present_in_source_inventory": false,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": []
+    },
+    {
+      "cohort": "physical-build-only",
+      "archive_path": "physical-build-only/esp32s3/witness-published",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/esp32s3/witness-published",
+      "platform": "esp32s3-service-footprint",
+      "mode": "witness-published",
+      "build_id": "3d7d183076ba2ba567dd325af2d5eb6a8eed338d1937207137136f582f0db7c0",
+      "image_sha256": "5580488fef0b03dac7a25bd89e3a9b36fe969d41a9cfb007775faf1b5024ed79",
+      "elf_sha256": "e2d0834631d6a27832ed15a98c1466a1f45418dd70890e5e390e58c2f7c0f351",
+      "config_sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "native-counter",
+      "original_systick_patch_present_in_source_inventory": false,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": []
+    },
+    {
+      "cohort": "physical-build-only",
+      "archive_path": "physical-build-only/pico2/latency",
+      "original_build_directory": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/final-check/pico2/latency",
+      "platform": "pico2-mock",
+      "mode": "latency",
+      "build_id": "141970efb6135411e254dcc69a9d0e492f8df8b2398a737779604bd8fa44b53f",
+      "image_sha256": "83dd104c8bf8e63c5fe0e9edce3d0fa4ee8de8acacf45606ef59ffbad620a4f8",
+      "elf_sha256": "74066ec2282264f0b26cd39b7a67a89ba79bd7bb67b871da8024d55d730d390c",
+      "config_sha256": "d475b0ca06e53f68026b3772e1490f744df29135abcc2b35b8bb99ea5a246ce7",
+      "source_revision": "c03ac02ff1443da34acc6022ea4d38246e7c1417",
+      "source_dirty": true,
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "clock_request": "native-counter",
+      "original_systick_patch_present_in_source_inventory": true,
+      "executable_hashes_checked_during_archiving": true,
+      "executables_in_archive": false,
+      "captures": []
+    }
+  ],
+  "files": {
+    "before-clock-fix/latency/build.json": {
+      "sha256": "6894e5e7d3e812b55c3aabc174b1468d13600f56cccad2f8bc8c8f42edd29e45",
+      "bytes": 21791
+    },
+    "before-clock-fix/latency/resolved.config": {
+      "sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "bytes": 46502
+    },
+    "before-clock-fix/latency/provenance.txt": {
+      "sha256": "2a3a771400057fd2ad8a2db5d0e816eccd5cde4ebee1bab58855c44921206b99",
+      "bytes": 1036
+    },
+    "before-clock-fix/latency/std-patch.json": {
+      "sha256": "62bac3c50d25ed3992d34c892c5b3dc0a9db936301b03d4e1dec1bb3788ad02d",
+      "bytes": 4820
+    },
+    "before-clock-fix/latency/std-source.json": {
+      "sha256": "66c0a40151521820a2c030343edf29feadc9286d337b45466832aa92c3864e79",
+      "bytes": 499
+    },
+    "before-clock-fix/latency/abi-report.json": {
+      "sha256": "e066fdc358dcdc958d24b18f34d18a893d170c8454f02d38ba8aa94adf26f908",
+      "bytes": 20590
+    },
+    "before-clock-fix/latency/run/console.log": {
+      "sha256": "d1316dcae39748522226718f87b4b44f6b02373e0ccead5ad6e5f6e4e14950f0",
+      "bytes": 249
+    },
+    "before-clock-fix/latency/run/capture.json": {
+      "sha256": "ef0ae1d10fff05f8c5210fcebd24a7a2051dcbc6aead8111b9aeb2f629d732c2",
+      "bytes": 824
+    },
+    "before-clock-fix/latency/run/build.json": {
+      "sha256": "6894e5e7d3e812b55c3aabc174b1468d13600f56cccad2f8bc8c8f42edd29e45",
+      "bytes": 21791
+    },
+    "before-clock-fix/latency/run-02/console.log": {
+      "sha256": "d1316dcae39748522226718f87b4b44f6b02373e0ccead5ad6e5f6e4e14950f0",
+      "bytes": 249
+    },
+    "before-clock-fix/latency/run-02/capture.json": {
+      "sha256": "ef0ae1d10fff05f8c5210fcebd24a7a2051dcbc6aead8111b9aeb2f629d732c2",
+      "bytes": 824
+    },
+    "before-clock-fix/latency/run-02/build.json": {
+      "sha256": "6894e5e7d3e812b55c3aabc174b1468d13600f56cccad2f8bc8c8f42edd29e45",
+      "bytes": 21791
+    },
+    "before-clock-fix/witness-reserved/build.json": {
+      "sha256": "bbaecdeaca5cf64ead973302d3e4bf146536cd5ea66197a44049bbb870d0eda2",
+      "bytes": 21809
+    },
+    "before-clock-fix/witness-reserved/resolved.config": {
+      "sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "bytes": 46502
+    },
+    "before-clock-fix/witness-reserved/provenance.txt": {
+      "sha256": "2a3a771400057fd2ad8a2db5d0e816eccd5cde4ebee1bab58855c44921206b99",
+      "bytes": 1036
+    },
+    "before-clock-fix/witness-reserved/std-patch.json": {
+      "sha256": "0a4d902fab5ec955df049485e405f78abb9d80a393de4778391aad7524e8885d",
+      "bytes": 4929
+    },
+    "before-clock-fix/witness-reserved/std-source.json": {
+      "sha256": "1e0c128dd2eb31d652738d731eb9f54d0062725596009eed7f9578794a5f1df1",
+      "bytes": 526
+    },
+    "before-clock-fix/witness-reserved/abi-report.json": {
+      "sha256": "dc3af5d5cd94bf16045028ab7a419a30ef97dc7edfef5750b531bf267865d988",
+      "bytes": 20756
+    },
+    "before-clock-fix/witness-reserved/run/console.log": {
+      "sha256": "85d251a6f00493c5720f8e3ab6ee040f1a9c9d3ed21190ccf0c205ef0b2e1973",
+      "bytes": 1968
+    },
+    "before-clock-fix/witness-reserved/run/capture.json": {
+      "sha256": "915867d950da247ba3428b9cd65474180e5b420dc6deacb71ab429e1178197f5",
+      "bytes": 839
+    },
+    "before-clock-fix/witness-reserved/run/build.json": {
+      "sha256": "bbaecdeaca5cf64ead973302d3e4bf146536cd5ea66197a44049bbb870d0eda2",
+      "bytes": 21809
+    },
+    "before-clock-fix/witness-reserved/run/analysis.json": {
+      "sha256": "2b496953cba0a25055313aaddd92cf4b56d697367436f2edc829d0604250df94",
+      "bytes": 25200
+    },
+    "before-clock-fix/witness-published/build.json": {
+      "sha256": "1e8f94bbe6be923b45cdfdfdacb27fdbaa2986baa67b944d2a67019053d10429",
+      "bytes": 21811
+    },
+    "before-clock-fix/witness-published/resolved.config": {
+      "sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "bytes": 46502
+    },
+    "before-clock-fix/witness-published/provenance.txt": {
+      "sha256": "2a3a771400057fd2ad8a2db5d0e816eccd5cde4ebee1bab58855c44921206b99",
+      "bytes": 1036
+    },
+    "before-clock-fix/witness-published/std-patch.json": {
+      "sha256": "ecbb0964faa1f20967e9e0364b7cb43eed91cab10f36e0ac00ee7249fac362d4",
+      "bytes": 4930
+    },
+    "before-clock-fix/witness-published/std-source.json": {
+      "sha256": "30dc1feb95593ba2bdde75f44e1ffab2479c1efa6841ab234458af3e20509eaf",
+      "bytes": 529
+    },
+    "before-clock-fix/witness-published/abi-report.json": {
+      "sha256": "800d3e10403adc6b28d29c57e226a7eca7bede1fec07646dfc60bdc3691499f2",
+      "bytes": 20772
+    },
+    "before-clock-fix/witness-published/run/console.log": {
+      "sha256": "af3753c3e3ac6be5ffd82fc293db6238de78f37649ccaec43f5ed0d3749f2cc0",
+      "bytes": 1969
+    },
+    "before-clock-fix/witness-published/run/capture.json": {
+      "sha256": "98045ea46711f2088e18f95105d400d19b879ba57df8ca9110949e5b3ad8ef85",
+      "bytes": 848
+    },
+    "before-clock-fix/witness-published/run/build.json": {
+      "sha256": "1e8f94bbe6be923b45cdfdfdacb27fdbaa2986baa67b944d2a67019053d10429",
+      "bytes": 21811
+    },
+    "before-clock-fix/witness-published/run/analysis.json": {
+      "sha256": "af5b040900db101752187e3a6a542cbd85991a8811fabc1f7cae54fec41f2c6e",
+      "bytes": 25208
+    },
+    "after-clock-fix/latency/build.json": {
+      "sha256": "ca77064c5f70754e39d73094ca68b5b1613672670abc83645fb18a786775bbaa",
+      "bytes": 21936
+    },
+    "after-clock-fix/latency/resolved.config": {
+      "sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "bytes": 46502
+    },
+    "after-clock-fix/latency/provenance.txt": {
+      "sha256": "2a3a771400057fd2ad8a2db5d0e816eccd5cde4ebee1bab58855c44921206b99",
+      "bytes": 1036
+    },
+    "after-clock-fix/latency/std-patch.json": {
+      "sha256": "62bac3c50d25ed3992d34c892c5b3dc0a9db936301b03d4e1dec1bb3788ad02d",
+      "bytes": 4820
+    },
+    "after-clock-fix/latency/std-source.json": {
+      "sha256": "10afce6ec9977bdccfae512c221a51706167bd18a5860d17cd58ba53b5a1169b",
+      "bytes": 508
+    },
+    "after-clock-fix/latency/abi-report.json": {
+      "sha256": "d873a3b53b32a9948d007c0f65ed15a3eef55ff2c8e80595dfeada295989fad7",
+      "bytes": 20638
+    },
+    "after-clock-fix/latency/run/console.log": {
+      "sha256": "97754ce76507c90a771952f18588b5bc34bb416e49cb29839d580bd03cb9b382",
+      "bytes": 18711
+    },
+    "after-clock-fix/latency/run/capture.json": {
+      "sha256": "d15b044422d14c41049bc7479595816ebc75718b1fba077115b8c6bd68a4bfd8",
+      "bytes": 822
+    },
+    "after-clock-fix/latency/run/build.json": {
+      "sha256": "ca77064c5f70754e39d73094ca68b5b1613672670abc83645fb18a786775bbaa",
+      "bytes": 21936
+    },
+    "after-clock-fix/latency/run/analysis.json": {
+      "sha256": "4235e0cdcc243aea8d502b86c0c602a2e2002c9986bfd96a97d9a7f217338e54",
+      "bytes": 25744
+    },
+    "after-clock-fix/witness-reserved/build.json": {
+      "sha256": "a953b332071ba024ef7a64e04661c89f291e13cc5f2ced293be0325b3a988704",
+      "bytes": 21954
+    },
+    "after-clock-fix/witness-reserved/resolved.config": {
+      "sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "bytes": 46502
+    },
+    "after-clock-fix/witness-reserved/provenance.txt": {
+      "sha256": "2a3a771400057fd2ad8a2db5d0e816eccd5cde4ebee1bab58855c44921206b99",
+      "bytes": 1036
+    },
+    "after-clock-fix/witness-reserved/std-patch.json": {
+      "sha256": "0a4d902fab5ec955df049485e405f78abb9d80a393de4778391aad7524e8885d",
+      "bytes": 4929
+    },
+    "after-clock-fix/witness-reserved/std-source.json": {
+      "sha256": "399df81074ee2646ff413b7f03ad3344f6a097d6cc8a0be7741bd49aa7bcf11e",
+      "bytes": 535
+    },
+    "after-clock-fix/witness-reserved/abi-report.json": {
+      "sha256": "9c6fd0bdf2f87a7dc2f851701355bfb44457924453cc20e883a63cd9a981dac7",
+      "bytes": 20804
+    },
+    "after-clock-fix/witness-reserved/run/console.log": {
+      "sha256": "7e85d28414965b51ac4f7276611e8e47ced2ccb03699dea3ce4ef9caff3a484c",
+      "bytes": 1967
+    },
+    "after-clock-fix/witness-reserved/run/capture.json": {
+      "sha256": "fac60b445218e290dc3b445dc19a0cf32dfb252f8c9ff088a873c07719ae69cf",
+      "bytes": 842
+    },
+    "after-clock-fix/witness-reserved/run/build.json": {
+      "sha256": "a953b332071ba024ef7a64e04661c89f291e13cc5f2ced293be0325b3a988704",
+      "bytes": 21954
+    },
+    "after-clock-fix/witness-reserved/run/analysis.json": {
+      "sha256": "497d59a0e496c7bd85d3b82cfc0665e937b2ff40d06ab951b652fff47f278fb4",
+      "bytes": 25346
+    },
+    "after-clock-fix/witness-published/build.json": {
+      "sha256": "bc91c7b18c74ea3fe00005de7c7a8e60629b913c7dfa99973795f75d7b99ba7b",
+      "bytes": 21956
+    },
+    "after-clock-fix/witness-published/resolved.config": {
+      "sha256": "7d9e273cd233a5393c45bbc936777ad638b9f2d83fdfdc2434f0bfc8636fea68",
+      "bytes": 46502
+    },
+    "after-clock-fix/witness-published/provenance.txt": {
+      "sha256": "2a3a771400057fd2ad8a2db5d0e816eccd5cde4ebee1bab58855c44921206b99",
+      "bytes": 1036
+    },
+    "after-clock-fix/witness-published/std-patch.json": {
+      "sha256": "ecbb0964faa1f20967e9e0364b7cb43eed91cab10f36e0ac00ee7249fac362d4",
+      "bytes": 4930
+    },
+    "after-clock-fix/witness-published/std-source.json": {
+      "sha256": "bc9b85d29e633c7527ac9e5a56088ff03cfcb328aadefae55990a2f6d89e2d2f",
+      "bytes": 538
+    },
+    "after-clock-fix/witness-published/abi-report.json": {
+      "sha256": "7dc0f62df0558be1c4535d9366e8d77a1b1500405b5e8be5a3ea8a55fc411ce2",
+      "bytes": 20820
+    },
+    "after-clock-fix/witness-published/run/console.log": {
+      "sha256": "0db08bad2128b25635b1a936bedf381d141f47532573ebc8db400a832f495aa9",
+      "bytes": 1968
+    },
+    "after-clock-fix/witness-published/run/capture.json": {
+      "sha256": "27f0f4fdda95bfd7beddfe3e9d516e46a42917f914ab230b418714e93f3295a2",
+      "bytes": 851
+    },
+    "after-clock-fix/witness-published/run/build.json": {
+      "sha256": "bc91c7b18c74ea3fe00005de7c7a8e60629b913c7dfa99973795f75d7b99ba7b",
+      "bytes": 21956
+    },
+    "after-clock-fix/witness-published/run/analysis.json": {
+      "sha256": "aef32dffce64f30d385357d6820494a23b2b8097ecf45c3a2b3fe8fb33146c75",
+      "bytes": 25354
+    },
+    "physical-build-only/esp32s3/latency/build.json": {
+      "sha256": "833650963574a691d67cb1fe9236a16c86ce76f188f98ec812563f705166589b",
+      "bytes": 21965
+    },
+    "physical-build-only/esp32s3/latency/resolved.config": {
+      "sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "bytes": 51553
+    },
+    "physical-build-only/esp32s3/latency/provenance.txt": {
+      "sha256": "a1cbeaa95761e1ffea4ae19ed63011055e06f535068a1949ce5fac38b5d99187",
+      "bytes": 1087
+    },
+    "physical-build-only/esp32s3/latency/std-patch.json": {
+      "sha256": "27e39bbc02fec40746481ffbaf58ffd19bcc77ea33bd16a6d97da2740fc304bd",
+      "bytes": 4819
+    },
+    "physical-build-only/esp32s3/latency/std-source.json": {
+      "sha256": "726b08c10222e259fbaa57efdefbf651085820a80a57d0f9b034caed921c7bc6",
+      "bytes": 508
+    },
+    "physical-build-only/esp32s3/latency/abi-report.json": {
+      "sha256": "39176361a9f86c7183491eacd3352a6f3a57b2c85c2c05bb3f0b9445c0468508",
+      "bytes": 20806
+    },
+    "physical-build-only/esp32s3/witness-reserved/build.json": {
+      "sha256": "5ab430ce377c5731b4654417c5119869d2bd32a1742c884a979c619dc2462351",
+      "bytes": 21983
+    },
+    "physical-build-only/esp32s3/witness-reserved/resolved.config": {
+      "sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "bytes": 51553
+    },
+    "physical-build-only/esp32s3/witness-reserved/provenance.txt": {
+      "sha256": "a1cbeaa95761e1ffea4ae19ed63011055e06f535068a1949ce5fac38b5d99187",
+      "bytes": 1087
+    },
+    "physical-build-only/esp32s3/witness-reserved/std-patch.json": {
+      "sha256": "8f1227ffe1f8e1f099d0d4baa5460a203e3a875b105c2b34b30ab56025967cc5",
+      "bytes": 4928
+    },
+    "physical-build-only/esp32s3/witness-reserved/std-source.json": {
+      "sha256": "785cce00a410ddbbc1dd9fd457575794354a57f543b3e72d38d5f3e737d7d5fc",
+      "bytes": 535
+    },
+    "physical-build-only/esp32s3/witness-reserved/abi-report.json": {
+      "sha256": "22395fe5e9c76c7d36634505a7ddf3414b809fc6aa7418895217876cfe9b4c4a",
+      "bytes": 20981
+    },
+    "physical-build-only/esp32s3/witness-published/build.json": {
+      "sha256": "639355312dd1753dea2626c8431c4e983d76a973678a554a7b110b3c778d9c6e",
+      "bytes": 21985
+    },
+    "physical-build-only/esp32s3/witness-published/resolved.config": {
+      "sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "bytes": 51553
+    },
+    "physical-build-only/esp32s3/witness-published/provenance.txt": {
+      "sha256": "a1cbeaa95761e1ffea4ae19ed63011055e06f535068a1949ce5fac38b5d99187",
+      "bytes": 1087
+    },
+    "physical-build-only/esp32s3/witness-published/std-patch.json": {
+      "sha256": "0a9ca6d9a7c1b8947dcd241d1326a25794bdbeb7f0310ad84db277450d004382",
+      "bytes": 4929
+    },
+    "physical-build-only/esp32s3/witness-published/std-source.json": {
+      "sha256": "1d6dc1633f556bdfc5c614edc1c2608da0d4dbc90700f518a23632bcd87120d0",
+      "bytes": 538
+    },
+    "physical-build-only/esp32s3/witness-published/abi-report.json": {
+      "sha256": "a66545e75b21fdd495d23233c72b8057cf597467b5f210ac0919f1524d204ed1",
+      "bytes": 20998
+    },
+    "physical-build-only/pico2/latency/build.json": {
+      "sha256": "edeca9b3025aae556e39713fc4d5feb35510dd0021e175fe9317317d51ced202",
+      "bytes": 22092
+    },
+    "physical-build-only/pico2/latency/resolved.config": {
+      "sha256": "d475b0ca06e53f68026b3772e1490f744df29135abcc2b35b8bb99ea5a246ce7",
+      "bytes": 44599
+    },
+    "physical-build-only/pico2/latency/provenance.txt": {
+      "sha256": "9684208ee815730b9a4f13ac39b82aefc82045ec2637afde8b7af56541fdb965",
+      "bytes": 1061
+    },
+    "physical-build-only/pico2/latency/std-patch.json": {
+      "sha256": "62bac3c50d25ed3992d34c892c5b3dc0a9db936301b03d4e1dec1bb3788ad02d",
+      "bytes": 4820
+    },
+    "physical-build-only/pico2/latency/std-source.json": {
+      "sha256": "d9439d00bb0cc458529c312f18643e6c5e369d29ce5cd9718f92f63698e55ddb",
+      "bytes": 511
+    },
+    "physical-build-only/pico2/latency/abi-report.json": {
+      "sha256": "c73d9ed00681d5fef59d84aa43843282527f4d9ad52fea836c0753935af6f5ec",
+      "bytes": 20654
+    },
+    "inputs/0105-armv8m-systick-coherent-snapshot.patch": {
+      "sha256": "d6780827ef8cfc715c05bff6580df6d733bf9eb2861f68c12bcb5f3137fc6aa3",
+      "bytes": 2920
+    }
+  }
+}

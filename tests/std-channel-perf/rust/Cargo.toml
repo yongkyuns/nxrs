@@ -1,0 +1,16 @@
+[package]
+name = "nxrs-std-channel-perf"
+version.workspace = true
+edition.workspace = true
+publish = false
+build = "build.rs"
+
+[package.metadata.nxrs.firmware]
+bin = "std-channel-perf"
+command = "std_channel_perf"
+priority = 100
+stack-size = 65536
+
+[[bin]]
+name = "std-channel-perf"
+path = "src/main.rs"

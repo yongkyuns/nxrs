@@ -1,0 +1,74 @@
+Subject: [PATCH] armv8-m: preserve SysTick time across counter boundaries
+
+Base: apache/nuttx 2b5c0de5e933281c209f954a63b99cf10c132346 (13.1.0)
+
+SysTick continues counting while its interrupt is masked. Sampling CURRENT
+before the pending bit can combine a pre-wrap count with a post-wrap pending
+interrupt, making CLOCK_MONOTONIC regress after the ISR advances the timebase.
+Take a stable pending/current snapshot before converting the counter.
+
+Keep the raw count for the zero tests: a positive sub-microsecond count rounds
+to zero microseconds but is near expiry, not a newly reset counter. Correct
+both pending and nonpending elapsed-time calculations without clamping time.
+The existing single-pending-bit limitation after multiple masked wraps remains.
+
+The native regression extracts the original and patched functions and injects
+MMIO transitions. The original fails the three wrap/rounding cases; the patch
+preserves all five normal/reset/callback controls. Fresh MPS2 QEMU runs exercise
+the clock through actual blocked std channel transfers. This is a correctness
+fix, not evidence of physical timing or a performance improvement.
+
+diff --git a/arch/arm/src/armv8-m/arm_systick.c b/arch/arm/src/armv8-m/arm_systick.c
+--- a/arch/arm/src/armv8-m/arm_systick.c
++++ b/arch/arm/src/armv8-m/arm_systick.c
+@@ -155,19 +155,32 @@
+ {
+   struct systick_lowerhalf_s *lower = (struct systick_lowerhalf_s *)lower_;
+   irqstate_t flags = up_irq_save();
++  uint32_t current;
++  bool pending;
+ 
+   status->flags    = lower->callback ? TCFLAGS_HANDLER : 0;
+   status->flags   |= systick_is_running() ? TCFLAGS_ACTIVE : 0;
+   status->timeout  = usec_from_count(
+     RELOAD2TIMEOUT(getreg32(NVIC_SYSTICK_RELOAD)), lower->freq);
+-  status->timeleft = usec_from_count(getreg32(NVIC_SYSTICK_CURRENT),
+-                                     lower->freq);
++  /* The counter keeps running while interrupts are masked.  If it wraps
++   * between sampling CURRENT and the pending bit, a pre-wrap count must not
++   * be combined with a post-wrap pending interrupt.  Retry that transition.
++   */
+ 
+-  if (systick_irq_pending(lower))
++  do
++    {
++      pending = systick_irq_pending(lower);
++      current = getreg32(NVIC_SYSTICK_CURRENT);
++    }
++  while (pending != systick_irq_pending(lower));
++
++  status->timeleft = usec_from_count(current, lower->freq);
++
++  if (pending)
+     {
+       /* Interrupt is pending and the timer wrap happen? */
+ 
+-      if (status->timeleft)
++      if (current != 0)
+         {
+           /* Make timeout-timeleft equal the real elapsed time */
+ 
+@@ -175,8 +188,12 @@
+           status->timeleft = 0;
+         }
+     }
+-  else if (status->timeleft == 0)
++  else if (current == 0)
+     {
++      /* Only raw zero denotes a reset counter.  A nonzero sub-microsecond
++       * count also rounds to zero, but is near the end of the interval.
++       */
++
+       status->timeleft = status->timeout;
+     }
+ 

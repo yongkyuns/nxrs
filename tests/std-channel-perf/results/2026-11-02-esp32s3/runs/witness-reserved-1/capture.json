@@ -1,0 +1,14 @@
+{
+  "schema": "std-channel-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "physical",
+  "mode": "witness-reserved",
+  "command": "std_channel_perf witness-reserved",
+  "image_sha256": "c32350e779a77ba7e96d588bce82eb8311793687729da539c75838541f5092dd",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "fresh_boot_observed": true,
+  "outcome": "reservation-stall-observed"
+}

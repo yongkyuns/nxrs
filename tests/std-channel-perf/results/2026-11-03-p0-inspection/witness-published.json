@@ -1,0 +1,67 @@
+{
+  "schema": "std-channel-esp-image-diagnostic-v1",
+  "image_sha256": "9f6a6a0fffcc36e407c641564dc57724e64e0ffe4d311efb62d910947aa75c0b",
+  "image_bytes": 16777216,
+  "chip_id": 9,
+  "visible_segment_count": 3,
+  "digest_appended_flag": false,
+  "visible_segments": [
+    {
+      "header_offset": 24,
+      "load_address": 1070140112,
+      "bytes": 12300
+    },
+    {
+      "header_offset": 12332,
+      "load_address": 1077362688,
+      "bytes": 36848
+    },
+    {
+      "header_offset": 49188,
+      "load_address": 1342177280,
+      "bytes": 36
+    }
+  ],
+  "checksum_byte_verified": true,
+  "ram_checksum_end_offset": 49248,
+  "calculated_ram_prefix_sha256": "8389f013277f49cf33f0216eecf3eeaa28b1f12b759e29619ffaebd1a6894fd6",
+  "bytes_at_rom_expected_digest_offset": "00000000903f0000000000000000000000000000000000000000000000000000",
+  "hidden_segments": [
+    {
+      "header_offset": 49248,
+      "load_address": 0,
+      "bytes": 16272,
+      "kind": "padding"
+    },
+    {
+      "header_offset": 65528,
+      "load_address": 1107361792,
+      "bytes": 360056,
+      "kind": "mapped"
+    },
+    {
+      "header_offset": 425592,
+      "load_address": 0,
+      "bytes": 33144,
+      "kind": "padding"
+    },
+    {
+      "header_offset": 458744,
+      "load_address": 1007157248,
+      "bytes": 66336,
+      "kind": "mapped"
+    }
+  ],
+  "rom_warning_observed": true,
+  "rom_warning_matches_image_layout": true,
+  "diagnosis": "ROM printed hash of RAM-visible prefix and interpreted hidden padding header/payload as expected digest; image declares no appended hash",
+  "boot_warning_resolved": false,
+  "physical_timing_qualified": false,
+  "limitations": "Offline byte attribution only; no clean-boot, secure-boot or hardware qualification",
+  "build_id": "8e75edbe140165498540d617956c3fcaeb27466e2c0bf832b6f9a47d2dcec896",
+  "source_revision": "93856f7f0b102a366254e3bebaa452befc9541f1",
+  "transcript_sha256": "f4ce85b568c4190a8b9e7c3d0980812238459ddae9ff04d70b65df383d8ece7e",
+  "artifact_id": 13198576947,
+  "artifact_zip_sha256": "ccb825d9b83d0d7727770fb1596eead6839728d345e7840723caf6c46d71b2aa",
+  "original_capture_path": "tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-published-1/console.log"
+}
