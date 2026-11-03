@@ -74,7 +74,12 @@ fn safe_path(source: &Path, path: &str) -> Result<std::path::PathBuf> {
 pub fn patch(source: &Path, patch: &Path) -> Result<Value> {
     let source = source.canonicalize().map_err(|e| e.to_string())?;
     let patch = patch.canonicalize().map_err(|e| e.to_string())?;
-    let stats = output(git(&source).args(["apply", "--numstat"]).arg(&patch))?;
+    // A file handle also works with Windows canonical paths that Git's argv parser rejects.
+    let apply = |args: &[&str]| -> Result<String> {
+        let input = fs::File::open(&patch).map_err(|e| e.to_string())?;
+        output(git(&source).arg("apply").args(args).stdin(input))
+    };
+    let stats = apply(&["--numstat"])?;
     let paths = stats
         .lines()
         .map(|line| line.splitn(3, '\t').nth(2).ok_or("invalid patch numstat"))
@@ -90,16 +95,8 @@ pub fn patch(source: &Path, patch: &Path) -> Result<Value> {
             json!({"before":if p.is_file(){Some(hash(&p)?)}else{None},"after":null}),
         );
     }
-    output(
-        git(&source)
-            .args(["apply", "--check", "--whitespace=error"])
-            .arg(&patch),
-    )?;
-    output(
-        git(&source)
-            .args(["apply", "--whitespace=error"])
-            .arg(&patch),
-    )?;
+    apply(&["--check", "--whitespace=error"])?;
+    apply(&["--whitespace=error"])?;
     for path in paths {
         let p = safe_path(&source, path)?;
         files[path]["after"] = json!(if p.is_file() { Some(hash(&p)?) } else { None });

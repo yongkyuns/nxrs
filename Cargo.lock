@@ -643,6 +643,7 @@ name = "nxrs-std-stream"
 version = "0.1.0"
 dependencies = [
  "nxrs-boot",
+ "nxrs-build",
  "nxrs-camera",
  "nxrs-config",
  "nxrs-connectivity-service",
