@@ -26,7 +26,8 @@ class BuildIsolationTests(unittest.TestCase):
             for key in ("NXRS_SHARED_NUTTX_STD_SYSROOT", "NXRS_SHARED_CARGO_TARGET_DIR", "NXRS_CARGO_CONFIG"):
                 self.assertTrue(Path(env[key]).is_relative_to(out))
             directories.add(env["NXRS_SHARED_CARGO_TARGET_DIR"])
-        self.assertEqual(len(directories), 6)
+        self.assertEqual(len(directories), 7)
+        self.assertEqual(build.MODES["std-mutex-suite"], "clean")
         with self.assertRaises(ValueError):
             build.build_environment(Path("/private"), "latency", {})
 

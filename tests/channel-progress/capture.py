@@ -16,10 +16,11 @@ import subprocess
 import termios
 import time
 
-from analyze import analyze, attach_execution, bind_build, build_receipt, decode_json
+from analyze import (STD_TRANSFER_MODES, analyze, attach_execution,
+                     bind_build, build_receipt, decode_json)
 
 MODES = ("direct-reserved", "direct-published", "select-reserved", "select-published",
-         "send-reserved", "send-reclaimed")
+         "send-reserved", "send-reclaimed", *STD_TRANSFER_MODES)
 PROMPT = b"nsh> "
 BOOT_BANNERS = (b"NuttShell", b"*** Booting NuttX ***")
 FAULT = re.compile(rb'PANIC|ASSERTION|HardFault|UsageFault|BusFault|"record"\s*:\s*"(?:fatal|failure)"')
@@ -144,7 +145,8 @@ def capture(args):
                     or session.get("image_sha256") != receipt["image_sha256"]):
                 raise ValueError("physical session does not identify the selected firmware")
             fd, saved = serial_open(args.port)
-            print("Serial capture ready; reset the exclusively held board for a fresh boot.", flush=True)
+            print("Serial capture ready; reset the board after arranging exclusive access for this session.",
+                  flush=True)
         deadline = time.monotonic() + args.timeout
         report["failure_stage"] = "fresh-boot"
         boot = read_until(fd, transcript, fresh_boot, deadline, process)
@@ -154,7 +156,10 @@ def capture(args):
         write_command(fd, report["command"], deadline)
         read_until(fd, transcript, lambda data: PROMPT in data, deadline, process)
         report["failure_stage"] = "analysis"
-        summary = bind_build(analyze(transcript.decode("utf-8", errors="strict")), receipt)
+        summary = analyze(transcript.decode("utf-8", errors="strict"))
+        if summary["mode"] != args.mode:
+            raise ValueError("runtime case differs from requested capture mode")
+        summary = bind_build(summary, receipt)
         summary = attach_execution(summary, session, fresh_boot_observed=True)
         (args.output / "analysis.json").write_text(json.dumps(summary, indent=2) + "\n")
         report.update(capture_complete=True, failure_stage=None,

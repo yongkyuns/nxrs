@@ -11,6 +11,12 @@ and their retained physical results remain separate. P0 owns their latency,
 capture, clock and calibration changes. This fixture reuses only the mechanical
 native ABI and common build/source preparation helpers, without editing them.
 
+There are two distinct experiment families: six exact-source Crossbeam cases
+and seven single-item std mutex/condition-variable cases. The latter evaluates
+an existing primitive transfer pattern and retains its own schema and acceptance
+scope. It is not a new three-class queue or a claim that Crossbeam's reserved-slot
+failures have been repaired.
+
 ## Recorded progress results — 2026-11-03
 
 All six cases executed on fresh single-core ARM/NuttX QEMU boots from clean
@@ -50,7 +56,7 @@ they do not qualify production progress. Physical-device replication and an
 admitted scheduling or transfer contract that needs no priority repair remain
 outstanding. These results make no latency, clock-calibration or WCET claim.
 
-## Experiment contract
+## Crossbeam experiment contract
 
 Crossbeam is exactly `crossbeam-channel 0.5.17` with `crossbeam-utils 0.8.23`.
 The [source audit](SOURCE-AUDIT.md) identifies the actual slot reservation,
@@ -68,7 +74,7 @@ reconstructs the selected bytes from authenticated original archives.
 | `send-reserved` | `Sender::send` into a full ring | Consumer head reservation, before slot reclamation | Sender 180; consumer 120 |
 | `send-reclaimed` | `Sender::send` into a full ring | Reclaimed-slot control | Sender 180; consumer 120 |
 
-All native cases require one-core, flat NuttX, actual FIFO scheduling readback,
+All six Crossbeam cases require one-core, flat NuttX, actual FIFO scheduling readback,
 capacity eight, and a 16-byte checked payload. The observer runs at priority 220;
 an independent watchdog runs at 240. FIFO policy is verified regardless of the
 kernel's global round-robin setting. The reverse cases retain and check all nine
@@ -88,7 +94,7 @@ a substitute queue, force a fake busy loop, wait for the observer, or alter
 scheduling priorities. The hook's borrowed gate storage remains live until all
 workers have joined.
 
-## What a result means
+## What a Crossbeam result means
 
 `CHANNEL_PROGRESS` emits one `channel-progress-v1` metadata record and one result.
 The analyzer derives the outcome from their observations:
@@ -127,6 +133,114 @@ python3 tests/channel-progress/analyze.py OUT/run/console.log \
 That command writes a valid negative diagnosis before returning exit status 2
 for a recovered stall. Invalid evidence returns failure separately.
 
+## Fixed six-case cohort gate
+
+[`cohort.py`](cohort.py) replays all six required Crossbeam captures together.
+Its root must contain exactly the six case directories named in the experiment
+table, each with a `run/` capture. Keep the std primitive suite outside that root.
+Each run must retain its raw console, build receipt, capture/session records and
+stored analysis. The validator checks a fresh boot, one echoed command, exactly
+two records and the final prompt; it revalidates the firmware/source artifacts
+and compares the stored observations with a fresh analysis.
+
+Build the cohort from one clean, frozen source revision. The cases must match
+the complete resolved configuration, source and staged-input identities, platform,
+target, SDK/compiler, NuttX/apps revisions, prepared std source and original
+Crossbeam dependencies. The required mode-specific hook stage and image identity
+remain distinct. Matching only a board label, a few configuration fields or
+successful control cases is insufficient. Missing cases, extra case directories,
+mixed source/configuration, duplicate builds and incomplete capture cleanup are
+invalid evidence.
+
+After the six-case build/capture loop below, retain the diagnostic and separately
+apply the no-repair gate:
+
+```sh
+python3 tests/channel-progress/cohort.py target/channel-progress/mps2 \
+  --output target/channel-progress/mps2/cohort.json
+python3 tests/channel-progress/cohort.py target/channel-progress/mps2 \
+  --output target/channel-progress/mps2/acceptance.json --require-no-repair
+```
+
+Both the individual analyzer and the cohort command distinguish these exits:
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Valid diagnostic evidence; any explicitly requested gate also passed. Without `--require-no-repair`, a demonstrated progress failure can still be a valid diagnostic. |
+| `2` | Valid evidence was written, but a requested acceptance gate refused it. A recovered reserved-slot stall therefore remains a valid negative result. |
+| `1` | Evidence is missing, invalid, inconsistent or incomplete; no acceptance conclusion is available. |
+
+The cohort no-repair gate requires **every required case** to complete without
+repair. Published/reclaimed controls cannot erase a reserved-slot failure or
+stand in for the missing reservation cases. CI retains a valid negative cohort
+while treating invalid evidence as a workflow failure; it also requires the
+three publication/reclamation controls to complete without repair.
+
+A separate physical gate is available:
+
+```sh
+python3 tests/channel-progress/cohort.py PHYSICAL_COHORT_ROOT \
+  --output PHYSICAL_COHORT_ROOT/physical-acceptance.json --require-physical
+```
+
+Current physical session records are **operator-asserted**. The validator cannot
+independently authenticate device identity, flash/readback or exclusive ownership,
+so `physical_execution_verified` and `physical_progress_qualified` remain false.
+The physical gate therefore returns `2` for a structurally valid operator-declared
+cohort, including one labelled `runtime_kind: "physical"`. A label never verifies
+hardware execution. Historical session records remain readable with that limit
+explicit; their stored bytes are not rewritten.
+
+## Single-item std primitive suite
+
+The [standard primitive source audit](STD-TRANSFER-AUDIT.md) describes the pinned
+pthread-backed std mutex, condition variable and parker, and the existing
+single-item ownership pattern being tested. The fixture uses a prewarmed
+`Mutex<State { value: Option<OwnedMessage>, closed: bool }>` and one `Condvar`.
+`OwnedMessage` wraps the checked 16-byte payload without `Copy` or `Clone`.
+There is one slot; this suite does not implement a multi-queue selector.
+
+| Case | Required acceptance observation |
+| --- | --- |
+| `mutex-admit-held` | The priority-180 caller attempts `try_lock` exactly once while the priority-120 holder owns the guard. It returns Busy before release and retains the original input. Accepted and transferred counts are both zero. |
+| `mutex-admit-released` | Guard release precedes the single attempt; one input is accepted and transferred once. |
+| `mutex-take-held` | A single attempt returns Busy before guard release; the complete protected value remains in the slot. Accepted and transferred counts are both zero. |
+| `mutex-take-released` | Guard release precedes the single attempt; the previously stored value transfers once. |
+| `condvar-wait-publish` | The caller enters an actual native condition wait before the producer publishes under the same mutex and notifies; one value transfers. |
+| `condvar-publish-before-wait` | Publication precedes the caller's predicate check; the value transfers with zero condition-wait calls. |
+| `condvar-close-wait` | An actual native condition wait precedes protected sticky closure and notification; the caller observes closure and joins without a fabricated transfer. |
+
+Busy means the bounded primitive operation returned with ownership preserved.
+It does not mean accepted, delivered or processed, and the fixture never retries
+that attempt in a spin or yield loop. This result alone does not define a caller's
+retention, overload or subsequent retry policy.
+
+All seven native cases require one-core flat NuttX and actual FIFO policy and
+priority readback: caller 180, holder 120, observer 220 and an independent watchdog
+at 240. Mutex and condition-variable initialization precede worker release.
+Recorded event ordering proves which operation returned before or after guard
+release. For the two blocked condition-wait cases, a pre-wait marker alone cannot
+pass: the observer must also see the caller's native `TSTATE_WAIT_SEM` before
+allowing publication or closure. Notification follows guard release, and the
+predicate is checked under that same mutex. Setup failure cancels the predicate
+wait, releases setup gates and joins workers; the watchdog stays live through
+the joins. A successful case performs no priority repair.
+
+The suite emits two `CHANNEL_PROGRESS` records using
+`std-transfer-progress-v1`, with the actual case in `mode` and
+`build_mode: "std-mutex-suite"`. The common analyzer dispatches to
+[`mutex_analyze.py`](mutex_analyze.py), which validates the one-attempt counts,
+ownership, ordering, native wait evidence, unchanged priorities and complete
+cleanup. A valid result can satisfy its named primitive contract while all
+production-transport, timing and general priority-progress qualification flags
+remain false. It does not establish a latency bound under intervening runnable
+priorities or a priority-inheritance guarantee.
+
+The new suite's target requirements above are an acceptance procedure, not a
+recorded successful target cohort. Retain and validate fresh CI or hardware
+captures with their own source/build identity before reporting target success.
+The recorded six-case results earlier in this document remain unchanged.
+
 ## Host validation
 
 ```sh
@@ -140,17 +254,21 @@ python3 tests/channel-progress/analyze.py host.log
 python3 tools/check-architecture.py
 ```
 
-Host execution refuses the six NuttX witness modes. Its smoke result cannot
-pass `--require-no-repair`. Negative controls cover altered source bytes,
-configuration and artifacts, fabricated progress labels, wrong schedules,
-missing registered-wait evidence, mixed builds, truncated captures and cleanup.
+Host execution refuses all **13 native cases**: the six Crossbeam modes and the
+seven std primitive modes. Its existing `host-functional` smoke result cannot
+pass `--require-no-repair`. Host primitive tests check retained ownership,
+publication at the wait boundary, publication before waiting and sticky close;
+they do not qualify NuttX progress. Negative controls cover altered source bytes,
+configuration and artifacts, fabricated progress/ownership labels, repeated
+try-lock counts, wrong schedules, missing registered/native wait evidence, mixed
+builds, incomplete cohorts, truncated captures and cleanup.
 
 ## Build and run on NuttX
 
 Use the existing nxrs ARM or ESP tool prerequisites. The ARM SDK is
 `nightly-2025-09-15`; ESP uses the existing hash-pinned `esp-1.90.0.0` SDK.
-Check out the pinned NuttX and apps submodules. Each mode needs a **new** output
-directory. Build and capture the six ARM cases sequentially:
+Check out the pinned NuttX and apps submodules. Each Crossbeam mode needs a
+**new** output directory. Build and capture the six ARM cases sequentially:
 
 ```sh
 for mode in direct-reserved direct-published select-reserved select-published send-reserved send-reclaimed; do
@@ -159,6 +277,32 @@ for mode in direct-reserved direct-published select-reserved select-published se
   python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$out/run"
 done
 ```
+
+Build the std primitive suite once, then capture each of its seven commands on
+a separate fresh boot. Each capture retains the same clean suite image/build
+identity and its own case-specific transcript:
+
+```sh
+out="target/channel-progress/std-transfer/mps2"
+python3 tests/channel-progress/build.py \
+  --platform mps2-an521-mock --mode std-mutex-suite --out "$out"
+for mode in mutex-admit-held mutex-admit-released mutex-take-held mutex-take-released condvar-wait-publish condvar-publish-before-wait condvar-close-wait; do
+  run="$out/cases/$mode/run"
+  python3 tests/channel-progress/capture.py qemu \
+    --build-directory "$out" --mode "$mode" --output "$run"
+  python3 tests/channel-progress/analyze.py "$run/console.log" \
+    --build-receipt "$run/build.json" --output "$run/acceptance.json" --require-no-repair
+done
+```
+
+`std-mutex-suite` is a build mode, not an executable case name. Its Crossbeam
+hook stage is zero and its Crossbeam source is clean; it adds no std source
+hooks. The prepared std library is checked against the audited primitive source
+hashes for the selected SDK before the firmware build and again on receipt
+replay; changed or missing required source files are rejected. The seven
+commands test the actual std primitives in that one image.
+They are analyzed individually and are not inputs to the fixed six-case
+Crossbeam cohort gate.
 
 `build.py` copies the fixture, its native ABI and selected platform metadata into
 a new minimal Cargo workspace. Only that workspace gets a generated patch
@@ -175,15 +319,21 @@ configuration and firmware. Raw logs and failure receipts survive rejection.
 QEMU is explicitly reported as virtual execution; it is not a physical run.
 
 For the physical ESP32-S3, build with `--platform esp32s3-service-footprint`.
-The CI target job builds the two selected-owner images and preserves them for
-later hardware sessions; it does not flash or execute a physical board. Other
-cases use the same build command with their own named modes.
+The current ESP CI job is configured to build exactly `select-reserved`,
+`select-published` and `std-mutex-suite`, retaining those three images for later
+hardware sessions. It does not flash or execute a physical board. The historical
+ESP artifact identified above still contains only its original two selected-owner
+images. Other Crossbeam cases use the same build command with their own named
+modes; all seven primitive cases share the suite build mode.
 
 Only one workstream may own the board at a time. After exclusive ownership and
 flashing the verified selected image, record a `channel-progress-session-v1`
-JSON with `runtime_kind: "physical"`, the actual `board`, exact `build_id` and
-`image_sha256` from the build receipt, and retained flash-verification details.
-Then capture one command after a fresh reset:
+JSON with `runtime_kind: "physical"`, the `board`, `board_serial`,
+`measurement_session`, `active_cores: 1`, exact `build_id` and `image_sha256` from
+the build receipt, and retained `flash_verification` details. These hardware and
+ownership descriptions are operator assertions; neither the session validator
+nor matching labels independently verify them. Then capture one command after
+a fresh reset:
 
 ```sh
 python3 tests/channel-progress/capture.py physical \
@@ -194,13 +344,17 @@ python3 tests/channel-progress/capture.py physical \
 The physical session bytes are frozen before opening the port and retained even
 when capture fails. Boot ROM digest warnings are recorded. Such a warning must
 be resolved in the broader firmware/physical qualification; neither this fixture
-nor a user-supplied session label certifies a production image.
+nor a user-supplied session label certifies a production image. The analysis
+records `execution_evidence: "operator-asserted"` and keeps
+`physical_execution_verified: false` even for a correctly bound physical-session
+record. QEMU remains explicitly virtual.
 
 ## Scope and outstanding qualification
 
-The implementation supplies the P1 source witnesses, exact-path experiments,
-bounded recovery and acceptance checks. Source audits and host tests alone do
-not establish target progress. Archive concrete target observations with their
-own build/source identity; retain physical qualification as a separate gate.
-No changes to the intended production transport or scheduling contract are
-authorized by a diagnostic stall alone.
+The implementation supplies the P1 Crossbeam source witnesses, complete-cohort
+checks and narrow std primitive ownership/wait witnesses. Source audits and host
+tests alone do not establish target progress. Archive concrete target observations
+with their own build/source identity; retain physical qualification as a separate
+gate. A valid Busy retention result is not a delivery result or a remedy for the
+three-class selected owner. No changes to the intended production transport or
+scheduling contract are authorized by a diagnostic stall alone.

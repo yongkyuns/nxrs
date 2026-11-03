@@ -17,6 +17,13 @@ import sys
 
 PREFIX = "CHANNEL_PROGRESS "
 SCHEMA = "channel-progress-v1"
+STD_TRANSFER_SCHEMA = "std-transfer-progress-v1"
+STD_TRANSFER_BUILD_MODE = "std-mutex-suite"
+STD_TRANSFER_MODES = (
+    "mutex-admit-held", "mutex-admit-released",
+    "mutex-take-held", "mutex-take-released",
+    "condvar-wait-publish", "condvar-publish-before-wait", "condvar-close-wait",
+)
 MODES = {
     "host-functional": 0,
     "direct-reserved": 1,
@@ -26,6 +33,8 @@ MODES = {
     "send-reserved": 3,
     "send-reclaimed": 4,
 }
+CHANNEL_MODES = frozenset(MODES)
+MODES.update({mode: 0 for mode in STD_TRANSFER_MODES})
 SOURCE_MODES = {
     0: "clean", 1: "send-reserved", 2: "send-published",
     3: "recv-reserved", 4: "recv-reclaimed",
@@ -106,13 +115,13 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def records(text):
+def records(text, schema=SCHEMA):
     require(not FAILURE.search(text), "failure or kernel fault in transcript")
     rows = []
     for line in text.replace("\r", "").splitlines():
         if line.startswith(PREFIX):
             row = decode_json(line[len(PREFIX):])
-            require(isinstance(row, dict) and row.get("schema") == SCHEMA,
+            require(isinstance(row, dict) and row.get("schema") == schema,
                     "unknown record schema")
             require(row.get("record") not in {"failure", "fatal"},
                     f"target failed: {row.get('reason', 'unspecified')}")
@@ -148,10 +157,29 @@ def _state(result, role, expected_priority, *, host=False):
     return state
 
 
+def std_transfer_validator():
+    spec = importlib.util.spec_from_file_location(
+        "channel_progress_std_transfer_validation",
+        Path(__file__).with_name("mutex_analyze.py"))
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    return validator
+
+
 def analyze(text):
+    # The primitive contract has its own schema and validator. Its one-attempt
+    # contention result must never be confused with channel delivery or with
+    # qualification of the three-arm Crossbeam owner.
+    for line in text.replace("\r", "").splitlines():
+        if line.startswith(PREFIX):
+            first = decode_json(line[len(PREFIX):])
+            if isinstance(first, dict) and first.get("schema") == STD_TRANSFER_SCHEMA:
+                metadata, result = records(text, STD_TRANSFER_SCHEMA)
+                return std_transfer_validator().analyze(metadata, result)
+            break
     metadata, result = records(text)
     mode = metadata.get("mode")
-    require(mode in MODES, "unknown experiment mode")
+    require(mode in CHANNEL_MODES, "unknown channel experiment mode")
     stage = integer(metadata, "hook_stage", 0, 4)
     require(stage == MODES[mode], "instrumentation/mode mismatch")
     host = mode == "host-functional"
@@ -291,6 +319,15 @@ def _hash_inventory(value, label):
     return value
 
 
+def expected_build_mode(mode):
+    require(mode in MODES or mode == STD_TRANSFER_BUILD_MODE, "unknown experiment mode")
+    return STD_TRANSFER_BUILD_MODE if mode in STD_TRANSFER_MODES else mode
+
+
+def hook_stage(mode):
+    return 0 if mode == STD_TRANSFER_BUILD_MODE else MODES[mode]
+
+
 def build_receipt(path, mode):
     """Check retained compiler/source evidence and exact firmware/config bytes."""
     path = Path(path)
@@ -301,8 +338,8 @@ def build_receipt(path, mode):
     require(isinstance(receipt, dict) and receipt.get("schema") == "channel-progress-build-v1",
             "unknown build receipt")
     require(receipt.get("status") == "complete", "incomplete build receipt")
-    require(mode in MODES and receipt.get("mode") == mode
-            and integer(receipt, "hook_stage", 0, 4) == MODES[mode], "wrong firmware experiment")
+    require(receipt.get("mode") == expected_build_mode(mode)
+            and integer(receipt, "hook_stage", 0, 4) == hook_stage(mode), "wrong firmware experiment")
     require(receipt.get("runtime_kind") == "unmeasured", "build cannot certify execution")
     hash_string(receipt.get("build_id"), "build identity")
     require(isinstance(receipt.get("source_revision"), str)
@@ -365,9 +402,9 @@ def _source_receipts(root, receipt, artifacts, mode):
     require(isinstance(source, dict), "invalid private source receipt")
     require(source == receipt.get("crossbeam_receipt"), "source receipt differs from build ledger")
     require(source.get("schema") == "crossbeam-progress-source-v1"
-            and source.get("mode") == SOURCE_MODES[MODES[mode]]
-            and integer(source, "hook_stage", 0, 4) == MODES[mode]
-            and boolean(source, "instrumented") == (MODES[mode] != 0),
+            and source.get("mode") == SOURCE_MODES[hook_stage(mode)]
+            and integer(source, "hook_stage", 0, 4) == hook_stage(mode)
+            and boolean(source, "instrumented") == (hook_stage(mode) != 0),
             "wrong private source instrumentation")
     cargo = read_json(checked_file(root, receipt["crossbeam_source_proof"]))
     require(isinstance(cargo, dict) and cargo.get("schema") == "channel-progress-cargo-sources-v1",
@@ -403,7 +440,7 @@ def _source_receipts(root, receipt, artifacts, mode):
         require(artifacts.get(relative) == digest, "unbound original Crossbeam archive")
         archives[package] = checked_file(root, relative).read_bytes()
     reconstructed = private.expected_receipt(
-        original_prepared_root, SOURCE_MODES[MODES[mode]], archives)
+        original_prepared_root, SOURCE_MODES[hook_stage(mode)], archives)
     require(source == reconstructed, "source ledger differs from pinned archive reconstruction")
     config_relative = (source_directory / "cargo-config.toml").as_posix()
     require(artifacts.get(config_relative) == source["patch_config_sha256"]
@@ -444,6 +481,8 @@ def _source_receipts(root, receipt, artifacts, mode):
     ledger = read_json(checked_file(root, "firmware/std-patch.json"))
     require(isinstance(ledger, dict) and ledger.get("channel_qualification") == std_hook,
             "compiled std ledger differs from prepared source")
+    if expected_build_mode(mode) == STD_TRANSFER_BUILD_MODE:
+        std_transfer_validator().validate_std_sources(library, receipt["sdk"])
 
 
 def bind_build(summary, receipt):
@@ -451,7 +490,8 @@ def bind_build(summary, receipt):
     metadata = summary["metadata"]
     require(receipt.get("schema") == "channel-progress-build-v1"
             and receipt.get("status") == "complete", "unvalidated build receipt")
-    require(receipt.get("mode") == summary["mode"]
+    require(receipt.get("mode") == expected_build_mode(summary["mode"])
+            and metadata.get("build_mode", summary["mode"]) == receipt.get("mode")
             and receipt.get("hook_stage") == metadata["hook_stage"]
             and receipt.get("build_id") == metadata["build_id"],
             "runtime and build identities differ")
@@ -462,7 +502,13 @@ def bind_build(summary, receipt):
 
 
 def attach_execution(summary, session, fresh_boot_observed=False):
-    """Attach external execution provenance without making a timing claim."""
+    """Associate execution records without authenticating operator hardware labels.
+
+    A matching build ID and serial transcript bind the experiment's firmware.
+    User-entered board/flash strings do not prove a physical device, readback or
+    exclusive ownership. Keep historical physical sessions readable with that
+    limitation explicit; no physical verification is granted by this API.
+    """
     require(summary.get("build_bound") is True, "execution requires a bound firmware build")
     require(isinstance(session, dict) and session.get("schema") == "channel-progress-session-v1",
             "unknown execution session")
@@ -481,7 +527,12 @@ def attach_execution(summary, session, fresh_boot_observed=False):
                 "physical execution must use the stated one-core contract")
     result = dict(summary)
     result.update(runtime_kind=kind, session=session,
-                  physical_execution_verified=kind == "physical")
+                  physical_execution_verified=False,
+                  execution_evidence="virtual" if kind == "qemu" else "operator-asserted")
+    if kind == "physical":
+        result["physical_evidence_scope"] = (
+            "Operator-declared physical session; device identity, flash/readback and "
+            "exclusive ownership are not independently verified.")
     return result
 
 

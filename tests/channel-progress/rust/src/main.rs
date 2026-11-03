@@ -2,6 +2,7 @@
 //!
 //! The shared native module is only mechanical scheduler/semaphore translation.
 //! Counter helpers are deliberately unused: this fixture makes no timing claim.
+mod mutex_witness;
 #[allow(dead_code)]
 #[path = "../../../std-channel-perf/rust/src/native.rs"]
 mod native;
@@ -226,6 +227,9 @@ fn run() -> Result<()> {
     if args.len() != 1 {
         return Err("usage-channel-progress-one-named-case");
     }
+    if mutex_witness::recognizes(&args[0]) {
+        return mutex_witness::run(&args[0]);
+    }
     let mode = Mode::parse(&args[0])?;
     let built_stage: u32 = env!("NXRS_CHANNEL_PROGRESS_HOOK_STAGE")
         .parse()
@@ -261,7 +265,15 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(reason) => {
-            eprintln!("CHANNEL_PROGRESS {{\"schema\":\"channel-progress-v1\",\"record\":\"failure\",\"reason\":\"{reason}\",\"success\":false}}");
+            let schema = if std::env::args()
+                .nth(1)
+                .is_some_and(|mode| mutex_witness::recognizes(&mode))
+            {
+                "std-transfer-progress-v1"
+            } else {
+                "channel-progress-v1"
+            };
+            eprintln!("CHANNEL_PROGRESS {{\"schema\":\"{schema}\",\"record\":\"failure\",\"reason\":\"{reason}\",\"success\":false}}");
             std::process::ExitCode::FAILURE
         }
     }

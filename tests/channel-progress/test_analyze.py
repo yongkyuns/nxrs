@@ -82,7 +82,7 @@ def transcript(metadata, result):
 
 class TranscriptTests(unittest.TestCase):
     def test_all_six_native_cases_accept_observed_stall_and_completion_separately(self):
-        for mode in set(analyze.MODES) - {"host-functional"}:
+        for mode in analyze.CHANNEL_MODES - {"host-functional"}:
             for stalled in (True, False):
                 with self.subTest(mode=mode, stalled=stalled):
                     result = analyze.analyze(transcript(*fixture(mode, stalled=stalled)))
@@ -398,10 +398,17 @@ class BuildEvidenceTests(unittest.TestCase):
         qemu = analyze.attach_execution(bound, session, True)
         self.assertEqual(qemu["runtime_kind"], "qemu")
         self.assertFalse(qemu["physical_execution_verified"])
+        self.assertEqual(qemu["execution_evidence"], "virtual")
         session.update(runtime_kind="physical", measurement_session="synthetic-physical-session",
                        board_serial="unit-test", flash_verification="synthetic-readback", active_cores=1)
         physical = analyze.attach_execution(bound, session, True)
-        self.assertTrue(physical["physical_execution_verified"])
+        # The same MPS2 emulator build/transcript cannot become hardware proof
+        # merely because the caller supplies physical-looking session labels.
+        self.assertEqual(bound["build"]["platform"], "mps2-an521-mock")
+        self.assertEqual(physical["runtime_kind"], "physical")
+        self.assertFalse(physical["physical_execution_verified"])
+        self.assertEqual(physical["execution_evidence"], "operator-asserted")
+        self.assertIn("not independently verified", physical["physical_evidence_scope"])
         self.assertFalse(physical["physical_timing_qualified"])
         self.assertFalse(physical["priority_progress_qualified"])
         session["image_sha256"] = "0" * 64

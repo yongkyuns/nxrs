@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one private Crossbeam progress image, without editing P0 or Cargo's cache.
+"""Build a private progress image, without editing P0 or Cargo's cache.
 
 The staged workspace and source patches are diagnostic inputs. Ordinary nxrs
 dependencies, the root lockfile, and the installed SDK remain unchanged.
@@ -36,6 +36,7 @@ MODES = {
     "direct-reserved": "send-reserved", "direct-published": "send-published",
     "select-reserved": "send-reserved", "select-published": "send-published",
     "send-reserved": "recv-reserved", "send-reclaimed": "recv-reclaimed",
+    "std-mutex-suite": "clean",
 }
 PACKAGE = "nxrs-channel-progress"
 BINARY = "channel-progress"
@@ -223,11 +224,15 @@ def build(args):
         "kernel_revision": baseline.run(["git", "rev-parse", ":external/nuttx"]),
         "apps_revision": baseline.run(["git", "rev-parse", ":external/nuttx-apps"]),
         "build_nonce": secrets.token_hex(16), "command": COMMAND,
-        "measurement_claim": "none; instrumented progress diagnostic, never timing evidence",
+        "measurement_claim": "source-bound progress diagnostic, never timing evidence",
     }
     try:
         hooks = private.prepare(*archives, out / "crossbeam", MODES[args.mode])
         std = baseline.private_std.prepare(source, out / "prepared", sdk, "latency")
+        if args.mode == "std-mutex-suite":
+            primitive = module("channel_progress_std_sources", HERE / "mutex_analyze.py")
+            primitive.validate_std_sources(json.loads(
+                (out / "prepared/std-library-sources.json").read_text()), sdk)
         manifest = stage_workspace(out, profile)
         baseline.run(["cargo", "+1.90.0", "--config", out / "crossbeam/cargo-config.toml",
                       "generate-lockfile", "--offline", "--manifest-path", manifest], env=env)
