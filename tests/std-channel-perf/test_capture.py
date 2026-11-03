@@ -90,7 +90,7 @@ class CaptureProtocolTests(unittest.TestCase):
                     except ProcessLookupError:
                         pass
 
-    def run_capture(self, name, behavior='records', records=None):
+    def run_capture(self, name, behavior='records', records=None, phase_seed=None):
         directory = self.root / name
         directory.mkdir()
         fake = directory / 'fake-qemu'
@@ -109,7 +109,7 @@ class CaptureProtocolTests(unittest.TestCase):
             '--build-directory', str(self.build), '--mode', 'latency',
             '--output', str(output), '--samples', '2', '--warmup', '1',
             '--timeout', deadline, '--qemu', str(fake),
-        ], capture_output=True, text=True, timeout=10)
+        ] + ([] if phase_seed is None else ['--phase-seed', str(phase_seed)]), capture_output=True, text=True, timeout=10)
         self.assertTrue((output / 'capture.json').is_file(), completed.stderr)
         report = json.loads((output / 'capture.json').read_text())
         self.assertEqual(json.loads(completed.stdout), report)
@@ -135,6 +135,32 @@ class CaptureProtocolTests(unittest.TestCase):
         self.assertEqual(summary['send_to_receive_return']['count'], 2)
         self.assertFalse(summary['physical_timing_qualified'])
         self.assertFalse(summary['priority_progress_qualified'])
+
+    def test_phase_seed_command_and_recorded_profile_must_match(self):
+        from test_phase_analysis import paced_fixture
+        completed, report, _, state = self.run_capture(
+            'paced', records=transcript(*paced_fixture()), phase_seed=1)
+        self.assertEqual(completed.returncode, 0)
+        self.assertTrue(report['capture_complete'])
+        self.assertEqual(state['commands'], ['std_channel_perf latency 2 1 1'])
+        completed, report, _, _ = self.run_capture(
+            'wrong-seed', records=transcript(*paced_fixture()), phase_seed=2)
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn('wrong captured phase schedule', report['error'])
+        completed, report, _, _ = self.run_capture(
+            'unrequested-phase', records=transcript(*paced_fixture()))
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn('unexpected paced workload', report['error'])
+
+    def test_phase_configuration_is_bounded_before_capture(self):
+        from capture import command_for
+        for mode, samples, warmup, seed in [
+            ('latency', 2, 1, 0), ('latency', 2, 1, True),
+            ('latency', 2, 1, 1 << 32), ('latency', 1025, 1, 1),
+            ('latency', 2, 129, 1), ('witness-reserved', 2, 1, 1),
+        ]:
+            with self.subTest(seed=seed), self.assertRaises(ValueError):
+                command_for(mode, samples, warmup, seed)
 
     def test_returning_without_a_result_preserves_failure_evidence(self):
         completed, report, output, state = self.run_capture('no-result', 'no-result')

@@ -24,12 +24,17 @@ def fresh_boot(data):
     return PROMPT in data and any(banner in data for banner in BOOT_BANNERS)
 
 
-def command_for(mode, samples, warmup):
+def command_for(mode, samples, warmup, phase_seed=None):
     require(mode in MODES, 'unknown mode')
     require(type(samples) is int and 1 <= samples <= 4096, 'invalid sample count')
     require(type(warmup) is int and 0 <= warmup <= 1024, 'invalid warmup count')
+    if phase_seed is not None:
+        require(mode == 'latency', 'phase pacing is only a latency case')
+        require(type(phase_seed) is int and 1 <= phase_seed <= 0xffffffff, 'invalid phase seed')
+        require(samples <= 1024 and warmup <= 128, 'phase count exceeds watchdog budget')
     if mode == 'latency':
-        return f'std_channel_perf latency {samples} {warmup}'
+        suffix = '' if phase_seed is None else f' {phase_seed}'
+        return f'std_channel_perf latency {samples} {warmup}{suffix}'
     return f'std_channel_perf {mode}'
 
 
@@ -93,9 +98,9 @@ def serial_open(port):
 
 def capture(args):
     receipt = build_receipt(args.build_directory, args.mode)
+    command = command_for(args.mode, args.samples, args.warmup, args.phase_seed)
     require(not args.output.exists(), 'output directory must be new; preserve previous runs')
     args.output.mkdir(parents=True)
-    command = command_for(args.mode, args.samples, args.warmup)
     transcript = bytearray()
     fd = slave = process = serial_saved = None
     report = {
@@ -138,6 +143,13 @@ def capture(args):
         if args.mode == 'latency':
             require(summary['metadata']['samples'] == args.samples and
                     summary['metadata']['warmup'] == args.warmup, 'wrong command sample count')
+            sampling = summary['sampling']
+            if args.phase_seed is not None:
+                require(sampling.get('profile') == 'setup-counter-delay-v1' and
+                        sampling.get('seed') == args.phase_seed, 'wrong captured phase schedule')
+            else:
+                require(sampling.get('profile') in {'historical-unrecorded', 'tight-v1'},
+                        'unexpected paced workload')
         summary = qualify(
             summary, receipt, session, fresh_boot_observed=True,
             calibration_directory=(args.session.parent if args.runtime == 'physical' else None),
@@ -186,6 +198,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--warmup', type=int, default=100)
+    parser.add_argument('--phase-seed', type=int, help='enable bounded seeded setup delay')
     parser.add_argument('--timeout', type=float, default=120)
     parser.add_argument('--qemu', default='qemu-system-arm')
     parser.add_argument('--port')

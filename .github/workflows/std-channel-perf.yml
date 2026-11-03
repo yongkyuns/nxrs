@@ -99,6 +99,9 @@ jobs:
           mkdir -p target/std-channel-host
           timeout 30 target/release/std-channel-perf latency 64 8 > target/std-channel-host/console.log
           python3 tests/std-channel-perf/analyze.py target/std-channel-host/console.log --expect-outcome host-functional-only --output target/std-channel-host/analysis.json
+          # Separate process: a different release profile is a distinct experiment.
+          timeout 30 target/release/std-channel-perf latency 64 8 1 > target/std-channel-host/phase-console.log
+          python3 tests/std-channel-perf/analyze.py target/std-channel-host/phase-console.log --expect-outcome host-functional-only --output target/std-channel-host/phase-analysis.json
           if target/release/std-channel-perf witness-reserved > target/std-channel-host/rejected-witness.log 2>&1; then
             echo 'Host witness must refuse fixed-priority qualification' >&2
             exit 1

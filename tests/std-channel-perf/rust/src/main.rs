@@ -1,6 +1,7 @@
 //! Isolated std-channel qualification; never a production transport backend.
 mod latency;
 mod native;
+mod pacing;
 mod witness;
 
 use native::{Gate, Result, Schedule};
@@ -35,7 +36,11 @@ impl Message {
 
 #[derive(Clone, Copy)]
 enum Mode {
-    Latency { samples: u32, warmup: u32 },
+    Latency {
+        samples: u32,
+        warmup: u32,
+        phase_seed: Option<u32>,
+    },
     Reserved,
     Published,
 }
@@ -56,7 +61,9 @@ impl Mode {
     }
     fn counts(self) -> (u32, u32) {
         match self {
-            Self::Latency { samples, warmup } => (samples, warmup),
+            Self::Latency {
+                samples, warmup, ..
+            } => (samples, warmup),
             _ => (0, 0),
         }
     }
@@ -65,7 +72,7 @@ impl Mode {
 fn parse() -> Result<Mode> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("latency") if args.len() <= 3 => {
+        Some("latency") if args.len() <= 4 => {
             let samples = match args.get(1) {
                 Some(v) => v.parse().map_err(|_| "invalid-samples")?,
                 None => 128,
@@ -77,7 +84,17 @@ fn parse() -> Result<Mode> {
             if !(1..=4096).contains(&samples) || warmup > 1024 {
                 return Err("count-out-of-bounds");
             }
-            Ok(Mode::Latency { samples, warmup })
+            let phase_seed = args
+                .get(3)
+                .map(|value| value.parse::<u32>())
+                .transpose()
+                .map_err(|_| "invalid-phase-seed")?;
+            pacing::Pacing::new(phase_seed, samples, warmup)?;
+            Ok(Mode::Latency {
+                samples,
+                warmup,
+                phase_seed,
+            })
         }
         Some("witness-reserved") if args.len() == 1 => Ok(Mode::Reserved),
         Some("witness-published") if args.len() == 1 => Ok(Mode::Published),
@@ -355,7 +372,11 @@ fn run() -> Result<()> {
     let watchdog = Watchdog::start()?;
     let watchdog_schedule = watchdog.schedule;
     let result = match mode {
-        Mode::Latency { samples, warmup } => latency::run(samples, warmup, &clock).map(|report| {
+        Mode::Latency {
+            samples,
+            warmup,
+            phase_seed,
+        } => latency::run(samples, warmup, phase_seed, &clock).map(|report| {
             (
                 report.sender,
                 report.receiver,

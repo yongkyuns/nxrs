@@ -1,5 +1,6 @@
 use crate::{
     native::{self, Gate, Result, Schedule, State},
+    pacing::{Observation, Pacing},
     Clock, Message, CAPACITY, RECEIVER_PRIORITY, SENDER_PRIORITY, WAIT_MS, WORKER_STACK,
 };
 use std::{
@@ -30,6 +31,7 @@ struct Sample {
     receive_return: u32,
     elapsed_upper_ns: u64,
     blocked_verified: bool,
+    pacing: Observation,
 }
 
 pub struct Report {
@@ -38,9 +40,27 @@ pub struct Report {
     pub observer: Schedule,
     samples: Vec<Sample>,
     pub terminal_quiescence_verified: bool,
+    release_profile: &'static str,
+    release_seed: u32,
+    retained_window_ns: u64,
+    counter_read_min_ticks: u32,
+    counter_read_max_ticks: u32,
 }
 
-pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
+pub fn run(samples: u32, warmup: u32, phase_seed: Option<u32>, clock: &Clock) -> Result<Report> {
+    let mut pacing = Pacing::new(phase_seed, samples, warmup)?;
+    let mut counter_read_min_ticks = u32::MAX;
+    let mut counter_read_max_ticks = 0;
+    // Separate observation, never subtracted from sample latencies.
+    for _ in 0..64 {
+        let before = native::counter();
+        let delta = native::counter().wrapping_sub(before);
+        if delta >= (1 << 31) {
+            return Err("counter-probe-reversed");
+        }
+        counter_read_min_ticks = counter_read_min_ticks.min(delta);
+        counter_read_max_ticks = counter_read_max_ticks.max(delta);
+    }
     let sender = if native::is_nuttx() {
         native::fifo(native::tid(), SENDER_PRIORITY)?
     } else {
@@ -124,7 +144,13 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
             policy: shared.policy.load(Ordering::Relaxed),
             priority: shared.priority.load(Ordering::Relaxed),
         };
+        let mut retained_begin = None;
         for sequence in 1..=total {
+            if sequence == warmup + 1 {
+                retained_begin = Some(native::monotonic_ns()?);
+            }
+            // Setup-only pacing precedes the per-sample blocked-state proof.
+            let pacing_sample = pacing.wait(clock)?;
             arm.post()?;
             crate::wait_until(|| shared.announced.load(Ordering::Acquire) == sequence)?;
             let blocked_verified = if native::is_nuttx() {
@@ -173,9 +199,13 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
                     receive_return,
                     elapsed_upper_ns,
                     blocked_verified,
+                    pacing: pacing_sample,
                 });
             }
         }
+        let retained_window_ns = native::monotonic_ns()?
+            .checked_sub(retained_begin.ok_or("missing-retained-window")?)
+            .ok_or("monotonic-reversed")?;
         crate::wait_until(|| shared.terminal_gate_ready.load(Ordering::Acquire))?;
         // Host cannot observe the native scheduler's WaitSem state.
         let terminal_quiescence_verified = if native::is_nuttx() {
@@ -189,7 +219,7 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
         } else {
             false
         };
-        Ok((receiver, terminal_quiescence_verified))
+        Ok((receiver, terminal_quiescence_verified, retained_window_ns))
     })();
 
     // Also clean up a partial run: close recv's channel and release a worker
@@ -201,7 +231,7 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
     let terminal_released = terminal.post();
     let released = arm.post();
     let joined = crate::join_bounded(handle);
-    let (receiver, terminal_quiescence_verified) = measurement?;
+    let (receiver, terminal_quiescence_verified, retained_window_ns) = measurement?;
     terminal_released?;
     released?;
     joined?;
@@ -211,6 +241,11 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
         observer: sender,
         samples: measured,
         terminal_quiescence_verified,
+        release_profile: pacing.profile(),
+        release_seed: pacing.seed(),
+        retained_window_ns,
+        counter_read_min_ticks,
+        counter_read_max_ticks,
     })
 }
 
@@ -224,17 +259,23 @@ impl Report {
                 && sample.send_return.wrapping_sub(sample.send_start) > 0;
             println!(concat!("STD_CHANNEL_PERF {{\"schema\":\"std-channel-perf-v1\",\"record\":\"sample\",",
                 "\"run_id\":\"{}\",\"index\":{},\"send_start_ticks\":{},\"send_return_ticks\":{},\"receive_return_ticks\":{},",
-                "\"elapsed_upper_ns\":{},\"blocked_verified\":{},\"sequence_valid\":true}}"),
-                run_id, sample.index, sample.send_start, sample.send_return, sample.receive_return, sample.elapsed_upper_ns, sample.blocked_verified);
+                "\"elapsed_upper_ns\":{},\"blocked_verified\":{},\"sequence_valid\":true,",
+                "\"pacing_requested_ticks\":{},\"pacing_start_ticks\":{},\"pacing_return_ticks\":{},\"pacing_elapsed_upper_ns\":{}}}"),
+                run_id, sample.index, sample.send_start, sample.send_return, sample.receive_return, sample.elapsed_upper_ns, sample.blocked_verified,
+                sample.pacing.requested_ticks, sample.pacing.start_ticks, sample.pacing.return_ticks,
+                sample.pacing.elapsed_upper_ns);
         }
         println!(concat!("STD_CHANNEL_PERF {{\"schema\":\"std-channel-perf-v1\",\"record\":\"result\",",
             "\"run_id\":\"{}\",\"success\":true,\"count\":{},\"blocked_verified_count\":{},",
             "\"threads_joined\":true,\"deadline_hit\":false,\"counter_resolved\":{},",
             "\"timing_qualified\":false,\"priority_progress_qualified\":false,",
             "\"terminal_quiescence_verified\":{},",
+            "\"release_profile\":\"{}\",\"release_seed\":{},\"retained_window_ns\":{},",
+            "\"counter_read_probe_count\":64,\"counter_read_min_ticks\":{},\"counter_read_max_ticks\":{},",
             "\"measurement_boundary\":\"send-start-to-recv-return\",\"send_duration_includes_receiver_preemption\":{}}}"),
             run_id, self.samples.len(), verified, nonzero && clock.counter_validated,
-            self.terminal_quiescence_verified, native::is_nuttx());
+            self.terminal_quiescence_verified, self.release_profile, self.release_seed, self.retained_window_ns,
+            self.counter_read_min_ticks, self.counter_read_max_ticks, native::is_nuttx());
         Ok(())
     }
 }

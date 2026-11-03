@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 import re
 
+from phase_analysis import analyze_phase
+
 PREFIX = 'STD_CHANNEL_PERF '
 SCHEMA = 'std-channel-perf-v1'
 MODES = {'latency': 0, 'witness-reserved': 1, 'witness-published': 2}
@@ -190,6 +192,7 @@ def analyze(text):
             timing_includes='counter accessor, channel publication, wake, scheduling, and receiver return; send may be preempted by receiver',
             timing_excludes='pre-send blocked-state observation, setup, warmup, serialization and UART output',
             pure_context_switch_latency=False,
+            sampling=analyze_phase(metadata, samples, result),
         )
     else:
         require(not samples, 'witness must not contain timing samples')
@@ -279,7 +282,8 @@ def independent_clock_calibration(summary, receipt, session, evidence_directory)
                 'unqualified reference type')
         reference_identity = record.get('reference_identity')
         require(isinstance(reference_identity, str) and bool(reference_identity.strip()) and
-                reference_identity.strip().lower() not in {'unknown', 'todo'},
+                reference_identity.strip().lower() not in {'unknown', 'todo', 'unmeasured'} and
+                not reference_identity.strip().lower().startswith(('replace', '<')),
                 'missing independent reference identity')
         require(record.get('measurement_session') == session.get('measurement_session') and
                 record.get('build_id') == receipt.get('build_id') and
@@ -302,8 +306,12 @@ def independent_clock_calibration(summary, receipt, session, evidence_directory)
         require(0 < cpu_ticks < (1 << 31), 'ambiguous calibration counter wrap')
         observed_hz = cpu_ticks * reference_hz // reference_ticks
         nominal_hz = integer(summary['metadata'], 'clock_hz', 1)
-        mismatch_ppm = abs(observed_hz - nominal_hz) * 1_000_000 // nominal_hz
-        require(mismatch_ppm <= max(1000, 3 * accuracy_ppm),
+        require(reference_ticks * nominal_hz < (1 << 31) * reference_hz,
+                'reference window permits ambiguous CPU counter wrap')
+        numerator = abs(cpu_ticks * reference_hz - nominal_hz * reference_ticks) * 1_000_000
+        denominator = nominal_hz * reference_ticks
+        mismatch_ppm = (numerator + denominator - 1) // denominator
+        require(numerator <= max(1000, 3 * accuracy_ppm) * denominator,
                 'CPU frequency disagrees with independent calibration')
         require(evidence_directory is not None,
                 'calibration supporting file directory unavailable')
