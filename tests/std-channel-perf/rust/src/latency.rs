@@ -20,6 +20,7 @@ struct Shared {
     receive_ticks: AtomicU32,
     sequence_valid: AtomicBool,
     cancelled: AtomicBool,
+    terminal_gate_ready: AtomicBool,
 }
 
 struct Sample {
@@ -36,6 +37,7 @@ pub struct Report {
     pub receiver: Schedule,
     pub observer: Schedule,
     samples: Vec<Sample>,
+    pub terminal_quiescence_verified: bool,
 }
 
 pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
@@ -53,14 +55,21 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
         receive_ticks: AtomicU32::new(0),
         sequence_valid: AtomicBool::new(false),
         cancelled: AtomicBool::new(false),
+        terminal_gate_ready: AtomicBool::new(false),
     });
     let ready = Gate::new()?;
     let arm = Gate::new()?;
     let done = Gate::new()?;
+    let terminal = Gate::new()?;
     let (tx, rx) = sync_channel::<Message>(CAPACITY);
     let mut measured = Vec::with_capacity(samples as usize);
-    let (worker, ready_worker, arm_worker, done_worker) =
-        (shared.clone(), ready.clone(), arm.clone(), done.clone());
+    let (worker, ready_worker, arm_worker, done_worker, terminal_worker) = (
+        shared.clone(),
+        ready.clone(),
+        arm.clone(),
+        done.clone(),
+        terminal.clone(),
+    );
     let total = samples + warmup;
     let handle = thread::Builder::new()
         .stack_size(WORKER_STACK)
@@ -96,6 +105,11 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
                 worker.completed.store(sequence, Ordering::Release);
                 done_worker.post()?;
             }
+            // Hold the final receiver behind a gate until after the sender
+            // records its final return timestamp. Otherwise receiver teardown
+            // can preempt and contaminate the final send-call measurement.
+            worker.terminal_gate_ready.store(true, Ordering::Release);
+            terminal_worker.wait(WAIT_MS)?;
             Ok(())
         })
         .map_err(|_| "receiver-spawn")?;
@@ -162,16 +176,33 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
                 });
             }
         }
-        Ok(receiver)
+        crate::wait_until(|| shared.terminal_gate_ready.load(Ordering::Acquire))?;
+        // Host cannot observe the native scheduler's WaitSem state.
+        let terminal_quiescence_verified = if native::is_nuttx() {
+            crate::wait_until(|| {
+                let (state, priority) = native::state(tid);
+                state == State::WaitSem
+                    && priority == receiver.priority
+                    && shared.terminal_gate_ready.load(Ordering::Acquire)
+            })?;
+            true
+        } else {
+            false
+        };
+        Ok((receiver, terminal_quiescence_verified))
     })();
 
     // Also clean up a partial run: close recv's channel and release a worker
     // that is still at the per-iteration gate. No detached live owner on error.
     shared.cancelled.store(true, Ordering::Release);
     drop(tx);
+    // Release both wait sites, even on partial errors. Do not join the worker
+    // while the terminal quiescence gate is still closed.
+    let terminal_released = terminal.post();
     let released = arm.post();
     let joined = crate::join_bounded(handle);
-    let receiver = measurement?;
+    let (receiver, terminal_quiescence_verified) = measurement?;
+    terminal_released?;
     released?;
     joined?;
     Ok(Report {
@@ -179,6 +210,7 @@ pub fn run(samples: u32, warmup: u32, clock: &Clock) -> Result<Report> {
         receiver,
         observer: sender,
         samples: measured,
+        terminal_quiescence_verified,
     })
 }
 
@@ -199,8 +231,10 @@ impl Report {
             "\"run_id\":\"{}\",\"success\":true,\"count\":{},\"blocked_verified_count\":{},",
             "\"threads_joined\":true,\"deadline_hit\":false,\"counter_resolved\":{},",
             "\"timing_qualified\":false,\"priority_progress_qualified\":false,",
+            "\"terminal_quiescence_verified\":{},",
             "\"measurement_boundary\":\"send-start-to-recv-return\",\"send_duration_includes_receiver_preemption\":{}}}"),
-            run_id, self.samples.len(), verified, nonzero && clock.counter_validated, native::is_nuttx());
+            run_id, self.samples.len(), verified, nonzero && clock.counter_validated,
+            self.terminal_quiescence_verified, native::is_nuttx());
         Ok(())
     }
 }

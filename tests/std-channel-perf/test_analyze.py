@@ -28,6 +28,8 @@ def fixture(mode='latency', runtime='nuttx'):
                     monotonic_resolution_ns=1000, counter_probe_ns=20_000_000,
                     counter_probe_ticks=2_000_000, counter_validated=True)
     metadata['counter_probe_kind'] = 'active-monotonic-plausibility'
+    if mode == 'latency':
+        metadata['terminal_quiescence_protocol'] = 'final-gate-native-wait-v1'
     samples = [dict(common, record='sample', index=i, send_start_ticks=1000 + i * 100,
                     send_return_ticks=1040 + i * 100, receive_return_ticks=1030 + i * 100,
                     sequence_valid=True, elapsed_upper_ns=10000,
@@ -35,6 +37,8 @@ def fixture(mode='latency', runtime='nuttx'):
     result = dict(common, record='result', success=True, threads_joined=True, deadline_hit=False,
                   count=2, blocked_verified_count=2 if runtime == 'nuttx' else 0,
                   counter_resolved=True)
+    if mode == 'latency':
+        result['terminal_quiescence_verified'] = runtime == 'nuttx'
     if mode != 'latency':
         samples = []
         metadata.update(samples=0, warmup=0)
@@ -104,7 +108,8 @@ class TranscriptTests(unittest.TestCase):
             ('sample', 'index', 4), ('sample', 'send_return_ticks', 999),
             ('sample', 'send_return_ticks', True), ('metadata', 'hook_stage', 1),
             ('result', 'threads_joined', False), ('result', 'deadline_hit', True),
-            ('result', 'blocked_verified_count', 0), ('metadata', 'samples', 3),
+            ('result', 'blocked_verified_count', 0), ('result', 'terminal_quiescence_verified', False),
+            ('metadata', 'samples', 3),
             ('sample', 'elapsed_upper_ns', 100_000_000_000),
             ('sample', 'elapsed_upper_ns', 1), ('metadata', 'counter_validated', False),
             ('metadata', 'receiver_policy', 2), ('metadata', 'single_core_tcb_witness', False),
@@ -133,6 +138,31 @@ class TranscriptTests(unittest.TestCase):
         result['counter_resolved'] = False
         measured = analyze.analyze(transcript(metadata, samples, result))
         self.assertFalse(measured['timing_resolution_sufficient'])
+
+    def test_historical_no_final_gate_retains_samples_without_timing_qualification(self):
+        metadata, samples, result = fixture()
+        metadata.pop('terminal_quiescence_protocol')
+        result.pop('terminal_quiescence_verified')
+        summary = analyze.analyze(transcript(metadata, samples, result))
+        self.assertTrue(summary['receiver_blocked_verified'])
+        self.assertFalse(summary['terminal_quiescence_verified'])
+        self.assertEqual(summary['terminal_gate_protocol'], 'historical-no-final-gate')
+        # An old log remains readable but cannot become physically timing-qualified.
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            image = base / 'image'
+            config = base / 'config'
+            image.write_bytes(b'firmware')
+            config.write_bytes(b'config')
+            receipt = dict(mode='latency', clock_request='baseline', build_id='b' * 64,
+                           image_sha256=analyze.sha256(image))
+            session = dict(schema='std-channel-session-v1', runtime_kind='physical',
+                           image_sha256=receipt['image_sha256'], active_cores=1, cpu_clock_hz=100_000_000,
+                           measurement_session='historical', board='test', board_serial='test',
+                           clock_verification='historical', cache_state='on', memory_placement='test',
+                           power_management='off', external_load='none', flash_verification='test')
+            qualified = analyze.qualify(summary, receipt, session, fresh_boot_observed=True)
+            self.assertFalse(qualified['physical_timing_qualified'])
 
     def test_counter_probe_boolean_cannot_hide_wrong_frequency(self):
         metadata, samples, result = fixture()

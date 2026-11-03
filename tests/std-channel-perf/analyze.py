@@ -164,6 +164,14 @@ def analyze(text):
             receive.append(receive_delta)
         require(verified == integer(result, 'blocked_verified_count', 0, count), 'blocked count disagrees with samples')
         require(metadata['runtime'] != 'nuttx' or verified == count, 'NuttX receiver was not independently observed blocked')
+        terminal_protocol = metadata.get('terminal_quiescence_protocol')
+        require(terminal_protocol in {None, 'final-gate-native-wait-v1'},
+                'unknown terminal receiver quiescence protocol')
+        terminal_verified = (boolean(result, 'terminal_quiescence_verified')
+                             if terminal_protocol is not None else False)
+        require(not terminal_verified or native, 'host cannot claim native receiver gate')
+        if native and terminal_protocol is not None:
+            require(terminal_verified, 'final receiver not verified quiescent')
         high_resolution = metadata.get('clock_source') in {
             'nuttx-arch-perf', 'nuttx-arch-timer', 'xtensa-ccount', 'arm-dwt-cyccnt'}
         counter_resolved = boolean(result, 'counter_resolved')
@@ -174,6 +182,8 @@ def analyze(text):
             receiver_blocked_verified=verified == count,
             timing_resolution_sufficient=high_resolution and counter_resolved and min(receive) >= 10 and min(send) >= 1,
             warmup_completed=warmup > 0,
+            terminal_quiescence_verified=terminal_verified,
+            terminal_gate_protocol=terminal_protocol or 'historical-no-final-gate',
             send_call=distribution(send, frequency),
             send_to_receive_return=distribution(receive, frequency),
             timing_boundary='sender timestamp immediately before send to receiver timestamp immediately after recv returns',
@@ -281,7 +291,8 @@ def qualify(summary, receipt, session, *, fresh_boot_observed=False):
         result['hardware_identity_origin'] = 'operator-supplied session and flashing/calibration evidence'
         if summary['mode'] == 'latency':
             result['physical_timing_qualified'] = bool(summary['receiver_blocked_verified'] and
-                summary['timing_resolution_sufficient'] and summary['warmup_completed'])
+                summary['timing_resolution_sufficient'] and summary['warmup_completed'] and
+                summary['terminal_quiescence_verified'])
     return result
 
 
