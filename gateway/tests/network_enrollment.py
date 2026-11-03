@@ -41,6 +41,7 @@ class RogueHints:
     def __init__(self, root, port, pin):
         self.closed = threading.Event()
         self.errors, self.connections, self.sockets, self.threads = [], [0, 0], [], []
+        self.wrong_cert_handshakes = 0
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
         context.load_cert_chain(root/'authority/ca.pem', root/'authority/ca.key')
@@ -72,6 +73,7 @@ class RogueHints:
                         else:
                             try:
                                 with context.wrap_socket(connection, server_side=True) as tls:
+                                    self.wrong_cert_handshakes += 1
                                     assert tls.recv(1) == b'', 'credentials reached a forged locator'
                             except (ssl.SSLError, ConnectionResetError): pass
             except OSError as error:
@@ -198,6 +200,7 @@ def run(ingest, camera, case, require_rogue_hints=False):
             if rogue:
                 rogue.stop()
                 assert all(rogue.connections), 'camera did not authenticate and reject both forged hints'
+                assert rogue.wrong_cert_handshakes, 'wrong-certificate TLS handshake was not exercised'
                 rogue = None
             baseline = frames()
             # Cross two refresh intervals and the initial lease's expiry.
@@ -239,16 +242,19 @@ def run(ingest, camera, case, require_rogue_hints=False):
             stop(gateway)
             print('PASS: SDK network enrollment, >30s trusted time, gateway restart, paced OTA and joined cleanup')
         finally:
-            if rogue: rogue.stop()
-            for process in processes:
-                if process.poll() is None:
-                    process.terminate()
-                    try: process.wait(timeout=8)
-                    except subprocess.TimeoutExpired: process.kill();process.wait()
-            closed.set();relay.close();acceptor.join(timeout=3)
-            for thread in threads: thread.join(timeout=6)
-            assert not acceptor.is_alive() and not any(thread.is_alive() for thread in threads)
-            for log in logs: log.close()
+            try:
+                if rogue: rogue.stop()
+            finally:
+                for process in processes:
+                    if process.poll() is None:
+                        process.terminate()
+                        try: process.wait(timeout=8)
+                        except subprocess.TimeoutExpired: process.kill();process.wait()
+                closed.set();relay.close();acceptor.join(timeout=3)
+                for thread in threads: thread.join(timeout=6)
+                assert not acceptor.is_alive() and not any(thread.is_alive() for thread in threads)
+                for log in logs: log.close()
+
 
 
 if __name__ == '__main__':
