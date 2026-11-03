@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import secrets
 import subprocess
 import sys
@@ -40,6 +41,12 @@ REGISTRY_PINS = {
     "crossbeam-utils": (
         "0.8.23", "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"),
 }
+IDENTITY_FIELDS = (
+    "package", "binary", "command", "mode", "hook_stage", "platform", "target", "sdk",
+    "source_sha256", "kernel_revision", "apps_revision", "optimization", "std_array_sha256",
+    "std_library_tree_sha256", "compiler_identity", "crossbeam", "build_nonce",
+    "build_environment", "clock_request",
+)
 
 # Keep P0's implementation rather than a divergent copy of its configuration,
 # compiler, artifact-path and selected-std checks.
@@ -49,6 +56,69 @@ relative = baseline.relative
 validate_configuration = baseline.validate_configuration
 verify_selected_std = baseline.verify_selected_std
 resolve_platform = baseline.resolve_platform
+
+
+def build_identity(record: dict) -> str:
+    """Reconstruct the existing runtime identity from its exact frozen inputs."""
+    if not isinstance(record, dict) or any(key not in record for key in IDENTITY_FIELDS):
+        raise ValueError("incomplete event-path build identity")
+
+    def string(value, label):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"invalid build identity {label}")
+
+    def hexadecimal(value, length, label):
+        if not isinstance(value, str) or re.fullmatch(f"[0-9a-f]{{{length}}}", value) is None:
+            raise ValueError(f"invalid build identity {label}")
+
+    def hashes(value, label, *, empty=False):
+        if not isinstance(value, dict) or (not value and not empty):
+            raise ValueError(f"invalid build identity {label}")
+        for name, digest_value in value.items():
+            string(name, label + " path")
+            path = PurePosixPath(name)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError(f"invalid build identity {label} path")
+            hexadecimal(digest_value, 64, label + " digest")
+
+    for key in ("package", "binary", "command", "mode", "platform", "target", "sdk", "clock_request"):
+        string(record[key], key)
+    if type(record["hook_stage"]) is not int or record["hook_stage"] != 0:
+        raise ValueError("invalid build identity hook_stage")
+    hashes(record["source_sha256"], "source_sha256")
+    for key in ("kernel_revision", "apps_revision"):
+        hexadecimal(record[key], 40, key)
+    for key in ("std_array_sha256", "std_library_tree_sha256"):
+        hexadecimal(record[key], 64, key)
+    hexadecimal(record["build_nonce"], 32, "build_nonce")
+    compiler = record["compiler_identity"]
+    if not isinstance(compiler, dict):
+        raise ValueError("invalid build identity compiler_identity")
+    string(compiler.get("version"), "compiler version")
+    hexadecimal(compiler.get("rustc_sha256"), 64, "compiler digest")
+    hashes(compiler.get("driver_sha256"), "compiler drivers", empty=True)
+    optimization = record["optimization"]
+    if (not isinstance(optimization, dict)
+            or optimization.get("rust_opt_level") not in ("2", "3", "s", "z")
+            or optimization.get("kernel_request") not in ("baseline", "o2")):
+        raise ValueError("invalid build identity optimization")
+    environment = record["build_environment"]
+    if not isinstance(environment, dict):
+        raise ValueError("invalid build identity build_environment")
+    for key, value in environment.items():
+        string(key, "environment key")
+        if not isinstance(value, str):
+            raise ValueError("invalid build identity environment value")
+    registry = record["crossbeam"]
+    if (not isinstance(registry, dict) or registry.get("schema") != "event-path-registry-sources-v1"
+            or not isinstance(registry.get("packages"), list)):
+        raise ValueError("invalid build identity Crossbeam source receipt")
+    identity = {key: record[key] for key in IDENTITY_FIELDS}
+    try:
+        encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid build identity JSON") from error
+    return private_std.digest(encoded)
 
 
 def inventory(profile: dict) -> dict:
@@ -294,14 +364,7 @@ def build(args) -> dict:
             crossbeam_source_receipt="crossbeam-source.json",
             crossbeam=registry,
         )
-        identity = {key: record[key] for key in (
-            "package", "binary", "command", "mode", "hook_stage", "platform", "target", "sdk",
-            "source_sha256", "kernel_revision", "apps_revision", "optimization", "std_array_sha256",
-            "std_library_tree_sha256", "compiler_identity", "crossbeam", "build_nonce",
-            "build_environment", "clock_request",
-        )}
-        record["build_id"] = private_std.digest(json.dumps(
-            identity, sort_keys=True, separators=(",", ":")).encode())
+        record["build_id"] = build_identity(record)
         env["NXRS_EVENT_PATH_BUILD_ID"] = record["build_id"]
         command = firmware_command(args.platform, out, args.kernel_optimization, args.clock_source)
         record["build_command"] = [str(value) for value in command]

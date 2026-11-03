@@ -78,8 +78,8 @@ jobs:
           git archive --format=tar.gz --output=target/event-path-host/source.tar.gz HEAD
           git rev-parse HEAD > target/event-path-host/source-revision.txt
           sha256sum target/event-path-host/source.tar.gz > target/event-path-host/source.sha256
-          if test -f target/release/event-path-perf; then
-            sha256sum target/release/event-path-perf > target/event-path-host/executable.sha256
+          if test -f target/event-path-host/binary/event-path-perf; then
+            sha256sum target/event-path-host/binary/event-path-perf > target/event-path-host/executable.sha256
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -118,9 +118,16 @@ jobs:
             fanin-messaging-1-normal fanin-messaging-4-normal \
             fanin-messaging-1-saturation fanin-messaging-4-saturation \
             timer-provider-messaging; do
-            python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --case "$case" --samples 16 --warmup 4 --output "target/event-path-arm/runs/$case"
+            python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --artifact-root target/event-path-arm --case "$case" --samples 16 --warmup 4 --output "target/event-path-arm/runs/$case"
           done
-          python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --case timer-provider-messaging --samples 16 --warmup 4 --payload imu16 --output target/event-path-arm/runs/timer-provider-messaging-imu16
+          python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --artifact-root target/event-path-arm --case timer-provider-messaging --samples 16 --warmup 4 --payload imu16 --output target/event-path-arm/runs/timer-provider-messaging-imu16
+      - name: Replay retained QEMU evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in target/event-path-arm/runs/*; do
+            python3 tests/event-path-perf/replay.py "$run" --artifact-root target/event-path-arm
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

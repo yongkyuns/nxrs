@@ -2,8 +2,10 @@
 //!
 //! One or four producers share one class queue. Every attempt is retained in
 //! preallocated correlation storage; the payload remains the actual measured
-//! type. The owner's bounded receive timeout permits completion/cancellation
-//! after a last rejected attempt without adding a sentinel to the data path.
+//! type. The owner requests a 10 ms receive timeout to revisit completion or
+//! cancellation after a last rejected attempt without a data-path sentinel.
+//! This cannot bound a reserved-slot spin before the channel's deadline check;
+//! the independent watchdog and external capture deadline contain that failure.
 use crate::{
     native::{self, Gate, Result, Schedule},
     payload::Payload,

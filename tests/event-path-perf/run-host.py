@@ -4,12 +4,14 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("event_path_host_capture", HERE / "capture.py")
 capture = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(capture)
+replay = capture.load("event_path_host_replay", HERE / "replay.py")
 
 NORMALIZED = (
     "ready-std-try", "ready-messaging-try", "ready-crossbeam-try", "full-messaging",
@@ -40,12 +42,19 @@ def main():
     if len(cases) != EXPECTED_RUNS:
         parser.error(f"expected {EXPECTED_RUNS} host corpus runs; found {len(cases)}")
     args.output.mkdir(parents=True)
+    source = args.binary.resolve(strict=True)
+    source_sha256 = capture.digest(source)
+    binary = args.output.resolve() / "binary/event-path-perf"
+    binary.parent.mkdir()
+    shutil.copy2(source, binary)
+    if capture.digest(binary) != source_sha256 or capture.digest(source) != source_sha256:
+        parser.error("executable changed while retaining the corpus binary")
     results = []
     for case, payload in cases:
         out = args.output / f"{case}-{payload}"
         result = capture.capture(SimpleNamespace(
-            runtime="host", binary=args.binary, case=case, samples=16, warmup=4,
-            payload=payload, output=out, timeout=30,
+            runtime="host", binary=binary, case=case, samples=16, warmup=4,
+            payload=payload, output=out, timeout=30, artifact_root=args.output.resolve(),
         ))
         expected_refusal = case == "fixed-peer"
         if expected_refusal:
@@ -53,10 +62,22 @@ def main():
                         and "fixed-peer-requires-single-core-fifo" in (out / "console.log").read_text())
         else:
             accepted = result["capture_complete"] is True
+        replay_error = None
+        try:
+            checked = replay.replay(out, artifact_root=args.output)
+            evidence_replayed = (checked["evidence_valid"] is True
+                                 and checked["capture_complete"] == result["capture_complete"])
+        except (OSError, ValueError, RuntimeError) as error:
+            evidence_replayed = False
+            replay_error = f"{type(error).__name__}: {error}"
+        accepted = accepted and evidence_replayed
         results.append({"case": case, "payload": payload, "expected_refusal": expected_refusal,
-                        "accepted": accepted, "capture": str(out.relative_to(args.output) / "capture.json")})
+                        "accepted": accepted, "evidence_replayed": evidence_replayed,
+                        "replay_error": replay_error,
+                        "capture": str(out.relative_to(args.output) / "capture.json")})
     summary = {"schema": "event-path-host-corpus-v1", "runtime_kind": "host-functional-only",
                "expected_runs": EXPECTED_RUNS,
+               "binary_file": "binary/event-path-perf", "binary_sha256": source_sha256,
                "success": all(item["accepted"] for item in results), "cases": results,
                "timing_qualified": False, "priority_progress_qualified": False}
     (args.output / "corpus.json").write_text(json.dumps(summary, indent=2) + "\n")

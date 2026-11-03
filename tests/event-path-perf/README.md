@@ -33,11 +33,15 @@ API on a path with available capacity; they do not exercise a producer blocked
 on a full queue or its later release.
 
 The selector follows the Wi-Fi fixture's stop → important → ordinary ordering.
-One-arm selection and direct receive use the same one-queue topology. Three-arm
-selection has additional stop capacity one and important capacity N, alongside
-ordinary capacity N. That topology cost must not be described as selector-only
-overhead. This P2 adapter does not claim the complete P3 owner, fairness,
-deadline, closed-arm disabling or registration-race qualification.
+One-arm selection and direct receive use the same one-queue topology. In pinned
+Crossbeam 0.5.17, the [single-receive macro expansion](https://github.com/crossbeam-rs/crossbeam/blob/2920c984290229ab4e0ca0452ef09e48a82063f3/crossbeam-channel/src/select_macro.rs#L559-L573)
+calls `Receiver::recv()` directly. The `*-select-one` cases therefore measure
+the macro's direct receive path; they do not independently measure the selector's
+registration engine. Three-arm selection has additional stop capacity one and
+important capacity N, alongside ordinary capacity N. That topology cost must
+not be described as selector-only overhead. This P2 adapter does not claim the
+complete P3 owner, fairness, deadline, closed-arm disabling or registration-race
+qualification.
 
 All target notification/blocked cases use FIFO sender 120, receiver 180 and
 16 KiB worker stacks. The fixed-peer workers both use FIFO 120. The observer
@@ -78,7 +82,7 @@ including during parallel host tests. Raw 32-bit timestamps have conservative
 monotonic bounds and wrap/ordering checks; these are not clock calibration.
 
 Finite fan-in preallocates a record for each attempted sequence. The owner
-uses `recv_timeout(10 ms)` to observe completion/cancellation
+requests `recv_timeout(10 ms)` to revisit completion/cancellation
 without requiring a sentinel slot or dropping worker resources during active
 timing. Its exact receive API is recorded. Admission is published after
 `try_send` returns, so the higher-priority owner does not wait for a preempted
@@ -86,6 +90,13 @@ producer's completion flag. Every provider's TID/policy/priority is recorded.
 Duplicate, corrupt, missing and unadmitted delivery fail reconciliation. Workers
 hold at terminal gates until active work is complete. Every fan-in case is capped
 at 256 retained attempts and 64 warmups per provider.
+
+The requested timeout is not a bound on the complete receive operation. In the
+pinned Crossbeam path, the deadline is checked after `start_recv` returns; a
+reserved-slot spin can prevent that check and the next cancellation check.
+The independent watchdog and external capture deadline contain such a failure.
+Neither a timeout parameter nor a `try_send`/`try_recv` method name establishes
+bounded progress under fixed priorities.
 
 The six original fan-in cases have no release pacing or guaranteed saturation:
 providers run their finite attempt loops while the owner drains concurrently.
@@ -163,8 +174,10 @@ The host corpus checks 42 expectations: all 32 supported named cases, nine
 normalized IMU controls and the expected fixed-peer refusal. This includes all
 four normal/saturation messaging fan-in cases and the timer-provider case with
 both payload profiles. Every run gets a new directory
-with raw stdout/stderr, a capture receipt and analysis. Reusing an output
-directory is rejected. Individual runs accept `CASE SAMPLES WARMUP PROFILE`:
+with raw stdout/stderr, a capture receipt and analysis. The corpus retains one
+shared executable and replays each saved result, including the expected refusal.
+Reusing an output directory is rejected. Individual runs accept
+`CASE SAMPLES WARMUP PROFILE`:
 
 ```sh
 target/release/event-path-perf blocked-messaging-try 128 16 bytes16
@@ -215,15 +228,101 @@ editing P0. Serial sessions use schema `event-path-session-v1` with the same
 physical identity/calibration fields described in the
 [P0 fixture](../std-channel-perf/README.md). Build ID, image hash, clock request,
 CPU frequency and source receipts must agree. Artifact hashes are checked before
-and after execution. Clock rejection and ROM digest warnings remain visible
-without erasing valid functional data. Raw output and failed receipts survive
+and after execution. Capture reconstructs the runtime build ID from the original
+canonical source/compiler/build inputs, and cross-checks the compiler and std
+library identities against the retained source proofs. Clock rejection and ROM
+digest warnings remain visible without erasing valid functional data. Raw output and failed receipts survive
 console deadlines, fixture refusal and serial-cleanup errors.
+
+### Retention and independent replay
+
+A standalone capture retains the executable or the target build's exact receipt
+and hashed artifact inventory. Target captures store these under `build/`;
+compiler caches and SDK trees are not copied. Physical sessions retain their
+original JSON bytes and any safely readable calibration trace, including a trace
+whose hash disagrees with the session. `evidence.json` binds the retained files
+and records missing or rejected calibration evidence. Replay uses the retained
+trace without rewriting the operator's original session.
+
+```sh
+python3 tests/event-path-perf/replay.py target/event-path-park
+python3 tests/event-path-perf/replay.py target/event-path-arm/runs/fixed-peer
+```
+
+Replay checks file hashes, rebuilds the build identity, reanalyzes the raw
+transcript and compares the stored analysis and capture facts. It runs no
+executable and opens no device. A zero exit status means the retained evidence
+is internally consistent; the returned `capture_complete` remains false for a
+failed or refused capture. The host corpus separately checks its one expected
+refusal and requires every other run to complete.
+
+For a corpus, `capture.py --artifact-root DIR` can retain one shared build or
+executable already inside `DIR`; the capture output must also be inside it.
+Replay then requires the explicit root and resolves only normalized relative
+paths within it. Archive the entire declared artifact inventory and the run
+directories together. The host runner and target CI use this mode to avoid
+duplicating an executable or firmware image for every run:
+
+```sh
+python3 tests/event-path-perf/replay.py target/event-path-host/park-bytes16 --artifact-root target/event-path-host
+python3 tests/event-path-perf/replay.py target/event-path-arm/runs/fixed-peer --artifact-root target/event-path-arm
+```
+
+Capture validates named cases and their storage limits before opening a device.
+Timer runs are limited to 128 samples and 32 warmups; fan-in remains limited to
+256 samples and 64 warmups per provider. Saturation controls require enough total
+attempts, including warmups, to exceed the selected payload's queue capacity.
+Serial capture computes a conservative deadline from the case's retained output volume
+at 115200 baud, reset/command allowance and fixture watchdog budget. Its default
+grows with the requested run; an explicitly shorter deadline is rejected, and
+the maximum is 600 seconds. Host and QEMU retain their 30-second default. These
+capture budgets include console transmission and are not timing measurements.
 
 All executable timing/progress qualification fields remain false. Raw-tick
 distributions are characterization, not a speedup, WCET or production acceptance
 claim. Physical captures still require P0's corrected independently calibrated,
 phase-covered cohort and resource/placement review. P1's no-repair progress gate
 is required before production transport adoption.
+
+### P1 progress results and the P2 paths
+
+[P1 PR #255](https://github.com/yongkyuns/nxrs/pull/255), at head `8fb40e9`,
+records the following [final ARM/NuttX cohort](https://github.com/yongkyuns/nxrs/actions/runs/41664483288)
+for Crossbeam 0.5.17 with crossbeam-utils 0.8.23. Each case used a fresh
+single-core QEMU boot, capacity eight and a checked 16-byte payload.
+
+| Reservation witness: no-repair gate refused | Matching control: no-repair gate passed | Tested interleaving |
+| --- | --- | --- |
+| `direct-reserved` | `direct-published` | Receiver at FIFO 180 enters `recv` while producer at FIFO 120 is reserved but unpublished; the control publishes first. |
+| `select-reserved` | `select-published` | Three arms are registered and the owner is blocked. An independent ordinary-arm wake makes owner at FIFO 180 reenter selection while producer at FIFO 120 holds an important-arm reservation; the control publishes first. |
+| `send-reserved` | `send-reclaimed` | Sender at FIFO 180 enters `send` on a full ring while consumer at FIFO 120 has reserved but not reclaimed a slot; the control reclaims first. |
+
+All three reservation cases recorded a stall at the original priorities, then
+delivered and joined only after diagnostic priority recovery. Their successful
+CI diagnosis preserves a **failed no-repair contract**. The three controls
+passed only their named interleavings. P1's ESP32-S3 images are build-only;
+physical Crossbeam replication and a production contract requiring no repair
+remain open.
+
+P2's passing functional corpus establishes completion and conservation for its
+named schedules. Its direct Crossbeam adapter calls the same `recv` path, and
+the one-arm macro expands to that call. Its three-arm case keeps stop and
+important idle and sends only on ordinary; it does not force P1's important
+reservation plus independent wake. P2's nonfull `send` cases also do not exercise
+P1's reverse full-ring interleaving. The `imu16` capacity and four-provider
+topologies require their own contract justification.
+
+The existing [actual-std witness](../std-channel-perf/README.md) separately
+records a reserve-before-publication `try_recv` stall. P2's raw std adapter and
+the actual [`messaging` facade](../../shared/messaging/src/channel.rs) use that
+bounded std queue; the facade delegates admission and receive to it. This
+source-path mapping does not represent a separately executed facade witness.
+Keep instrumented witnesses and recovery out of P2 timing images and
+distributions. Completed P2 samples remain useful characterization; production
+adoption still requires the applicable no-repair progress contract and P0's
+independent physical/clock gates.
+
+### Remaining scope
 
 The provider-to-handler case implements P2's native timer path. Physical sensor
 acquisition and a device-specific IRQ notification source remain outside this

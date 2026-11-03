@@ -26,7 +26,8 @@ HOOK = {
     "channel_instrumented": False,
     "original": {"sha256": "a" * 64}, "selected": {"sha256": "a" * 64},
     "library_tree_sha256": "b" * 64,
-    "compiler": {"version": "synthetic test compiler", "rustc_sha256": "c" * 64},
+    "compiler": {"version": "synthetic test compiler", "rustc_sha256": "c" * 64,
+                 "driver_sha256": {}},
 }
 
 
@@ -344,6 +345,71 @@ class BuildReceiptControls(unittest.TestCase):
             self.assertEqual(record["image_sha256"], build.digest(out / record["image_file"]))
             self.assertEqual(record["std_array_sha256"], record["std_array_original_sha256"])
             self.assertIn("crossbeam-source.json", record["artifacts_sha256"])
+
+    def test_identity_reconstruction_preserves_the_original_hash_contract(self):
+        original_fields = (
+            "package", "binary", "command", "mode", "hook_stage", "platform", "target", "sdk",
+            "source_sha256", "kernel_revision", "apps_revision", "optimization", "std_array_sha256",
+            "std_library_tree_sha256", "compiler_identity", "crossbeam", "build_nonce",
+            "build_environment", "clock_request",
+        )
+        self.assertEqual(build.IDENTITY_FIELDS, original_fields)
+        with tempfile.TemporaryDirectory() as temporary:
+            _, record = self.run_fixture(Path(temporary))
+            original = hashlib.sha256(json.dumps(
+                {key: record[key] for key in original_fields},
+                sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            self.assertEqual(record["build_id"], original)
+            self.assertEqual(build.build_identity(record), original)
+            reordered = dict(reversed(list(record.items())))
+            reordered["compiler_identity"] = dict(reversed(list(record["compiler_identity"].items())))
+            self.assertEqual(build.build_identity(reordered), original)
+
+    def test_identity_refuses_missing_or_malformed_frozen_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, record = self.run_fixture(Path(temporary))
+        for key in build.IDENTITY_FIELDS:
+            with self.subTest(missing=key):
+                changed = copy.deepcopy(record)
+                del changed[key]
+                with self.assertRaisesRegex(ValueError, "build identity"):
+                    build.build_identity(changed)
+        invalid = {
+            "package": "", "binary": None, "command": 1, "mode": False,
+            "hook_stage": False, "platform": [], "target": {}, "sdk": " ",
+            "source_sha256": {"../outside": "a" * 64}, "kernel_revision": "a" * 64,
+            "apps_revision": "unknown", "optimization": {"rust_opt_level": 2, "kernel_request": "o2"},
+            "std_array_sha256": "a" * 63, "std_library_tree_sha256": None,
+            "compiler_identity": {"version": "synthetic", "rustc_sha256": "c" * 64},
+            "crossbeam": {"schema": "event-path-registry-sources-v1", "packages": {}},
+            "build_nonce": "a" * 31, "build_environment": {"CARGO_INCREMENTAL": False},
+            "clock_request": None,
+        }
+        for key, value in invalid.items():
+            with self.subTest(invalid=key):
+                changed = copy.deepcopy(record)
+                changed[key] = value
+                with self.assertRaisesRegex(ValueError, "build identity"):
+                    build.build_identity(changed)
+
+    def test_frozen_provenance_mutations_change_the_runtime_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, record = self.run_fixture(Path(temporary))
+        mutations = {
+            "source_sha256": {"fixture": "d" * 64},
+            "kernel_revision": "2" * 40, "apps_revision": "3" * 40,
+            "optimization": {"rust_opt_level": "3", "kernel_request": "o2"},
+            "std_array_sha256": "d" * 64, "std_library_tree_sha256": "e" * 64,
+            "compiler_identity": {**record["compiler_identity"], "version": "other compiler"},
+            "crossbeam": {**record["crossbeam"], "packages": [{"different_source": True}]},
+            "build_environment": {**record["build_environment"], "CARGO_INCREMENTAL": "1"},
+            "build_nonce": "0" * 32, "clock_request": "native-counter",
+        }
+        for key, value in mutations.items():
+            with self.subTest(key=key):
+                changed = copy.deepcopy(record)
+                changed[key] = value
+                self.assertNotEqual(build.build_identity(changed), record["build_id"])
 
     def test_compile_instrumentation_and_source_drift_retain_failed_receipts(self):
         for failure in ("compile", "inputs", "registry", "instrumented"):
