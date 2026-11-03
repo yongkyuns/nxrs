@@ -53,6 +53,7 @@ members = [
     "tests/nuttx-std/camera",
     "tests/nuttx-std/stream",
     "tests/rtos-bench/rust",
+    "tests/std-channel-perf/rust",
 ]
 default-members = [
     "app/nxrs",

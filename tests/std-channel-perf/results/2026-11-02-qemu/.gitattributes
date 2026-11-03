@@ -1,0 +1,5 @@
+# Preserve the exact bytes covered by SHA256SUMS, including UART line endings.
+* -text
+# Raw serial whitespace and unified-diff context are part of the evidence.
+*.log -whitespace
+inputs/*.patch -whitespace

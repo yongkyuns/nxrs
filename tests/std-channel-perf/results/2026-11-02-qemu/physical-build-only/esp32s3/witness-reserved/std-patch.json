@@ -1,0 +1,112 @@
+{
+  "mode": "nuttx-parker-fcntl-sigign-and-libc-socket-align",
+  "sdk": "esp-1.90.0.0",
+  "files": [
+    {
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/pthread.rs",
+      "original_blob": "14bc793c15de254594778b59ad045006b58fd845",
+      "patched_blob": "516295f19c2642b3014a7e3e1542f51e2d41d7ec",
+      "patches": [
+        "std-parker.patch"
+      ]
+    },
+    {
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs",
+      "original_blob": "ba9e14b8009cd918cd9681dabe518ebf3c3a0a3a",
+      "patched_blob": "0f3a2df6c6e8c5b07b461e6561119eb23a424058",
+      "patches": [
+        "std-fd-sanitization.patch",
+        "std-sigign.patch"
+      ]
+    },
+    {
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/net/connection/socket/unix.rs",
+      "original_blob": "cc111f3521bc1516db00b69c510436060da844f8",
+      "patched_blob": "a1f8478e494ed9a69cab5901c21d8ca9c1604ea4",
+      "patches": [
+        "std-pollfd-init.patch"
+      ]
+    }
+  ],
+  "libc": {
+    "libc_version": "0.2.174",
+    "crate_sha256": "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776",
+    "source_blob": "69732d845b400e9b8781724d5a9dc3d5f3856913",
+    "patched_blob": "a51e6a32051603203da797489a9638015fdf8580",
+    "alignment": 8,
+    "open_flags_abi": "nuttx-13.1",
+    "path": "lib/rustlib/src/rust/library/libc-nuttx",
+    "pollfd_abi": "nuttx-13.1",
+    "directory_abi": "nuttx-13.1",
+    "poll_sources": [
+      {
+        "path": "src/unix/mod.rs",
+        "original_blob": "96209e7e72cd7bc4f14cb3811330ad94793c8f09",
+        "patched_blob": "444457a7e74c0621b0fd269c51d22f9d5c6d692c"
+      },
+      {
+        "path": "src/unix/nuttx/mod.rs",
+        "original_blob": "bf330eded642c5c2ab32d119db50b95743344f17",
+        "patched_blob": "f54eac0313cc94c852a7799793524b417422a9df"
+      }
+    ],
+    "directory_sources": [
+      {
+        "path": "src/unix/nuttx/mod.rs",
+        "original_blob": "f54eac0313cc94c852a7799793524b417422a9df",
+        "patched_blob": "a51e6a32051603203da797489a9638015fdf8580"
+      }
+    ],
+    "patches": [
+      "libc-sockaddr-storage.patch",
+      "libc-nuttx-13-open-flags.patch",
+      "std-libc-override.patch",
+      "std-libc-lock.patch",
+      "libc-nuttx-poll.patch",
+      "libc-nuttx-directory.patch"
+    ]
+  },
+  "patchset_sha256": {
+    "libc-sockaddr-storage.patch": "e60185a97f18310c4a18e2b198da6438e24a040128b91b6ff1e4c97ed0ba09da",
+    "libc-nuttx-13-open-flags.patch": "5a13d80af504e6276015ce242b4f99d151d4db0f914d7f396e2e9de5590b547f",
+    "std-libc-override.patch": "3c701e419307dff0237696c3c73cbe846ebeca57610879105bda2807bf75dcaf",
+    "std-libc-lock.patch": "733877d0043ad27e823622d8522551ce2e8d646bcf63ae6a724e6c8302515734",
+    "libc-nuttx-poll.patch": "436e39dfeed7dc32bea0f2ea3cd3c53f5f793931028a7e501103abc51d706f25",
+    "libc-nuttx-directory.patch": "78dd8a4bc2ac7098ce4de911788c72418e72d045d66b49833d87a24fd6870313",
+    "std-parker.patch": "0b5caaa2bd57e409bf75ea9ef264b27bae01637586c71eaf09839cacae5162ef",
+    "std-fd-sanitization.patch": "bb9bd12cd3784ae152db09dc3ee24d4d50da62fe464519a5f60c19ad59b832d4",
+    "std-sigign.patch": "07fd85af8d5027ac719c2e329343f96c650a285e5066b3c2744afcc970ac1fb3",
+    "std-pollfd-init.patch": "7c54623c9a11048b48542556bca74c125f72bad10f3614559494e8591837adac",
+    "std-channel-witness.patch": "f01d864a9ff60fb7e337194d8f63c74c7fdff972fa7e73e1ab57051a40b08454"
+  },
+  "startup_sig_ign": 0,
+  "libc_sockaddr_storage_alignment": 8,
+  "installed_toolchain_unchanged": true,
+  "channel_qualification": {
+    "schema": "std-channel-hook-v1",
+    "sdk": "esp-1.90.0.0",
+    "mode": "witness-reserved",
+    "hook_stage": 1,
+    "source_path": "lib/rustlib/src/rust/library/std/src/sync/mpmc/array.rs",
+    "original": {
+      "git_blob_sha1": "880d8b5f57cf4ef1c2a55a54e92c24fc86879489",
+      "sha256": "3b7cce4fa348ff357658c44fa9def9bffe7ed6ff97a6ab4be74da3a0350e804c"
+    },
+    "selected": {
+      "git_blob_sha1": "265376006cecd2e1c4cd7fbc266ef537e8f6d554",
+      "sha256": "76a45161b3c892e92e83de408ea6f950483f798ebc6a800aedaf58e1383fe1cd"
+    },
+    "library_tree_sha256": "b2a509bc515cf15df9259cb31d9b9e72050e872f8b07aaccf00deb8e973e022f",
+    "compiler": {
+      "version": "rustc 1.90.0-nightly (abf50ae2e 2025-09-16) (1.90.0.0)\nbinary: rustc\ncommit-hash: abf50ae2e46066e67e29fe856f9764c23aa9a3ca\ncommit-date: 2025-09-16\nhost: x86_64-unknown-linux-gnu\nrelease: 1.90.0-nightly\nLLVM version: 20.1.1",
+      "rustc_sha256": "f0d8f649e65056b8ca2df89c6f0ef9e75c7fa81d81d1ea5a671ceaeb5c1497c9",
+      "driver_sha256": {
+        "librustc_driver-65bd09221933f149.so": "d161041f053282d68904163f07a5fd82d75c4226d46d8b778c479e39bd57d214"
+      }
+    },
+    "installed_array_unchanged": true,
+    "channel_instrumented": true,
+    "common_abi_patches": "std-patch.json",
+    "note": "Private qualification image; witness timing is not latency evidence."
+  }
+}

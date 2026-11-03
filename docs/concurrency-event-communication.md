@@ -154,6 +154,30 @@ Simple services with only one queue may use `recv`/`recv_timeout`. Existing
 standard receivers cannot be passed to Crossbeam's selector. Neither path
 requires Rust async. There is no generic service-side descriptor reactor.
 
+## Scheduling and channel progress
+
+Queue admission preference and CPU scheduling priority are separate contracts.
+In the audited bounded std array channel, a producer reserves a slot before
+publishing its contents. A receiver can retry while that reservation is
+unpublished. An independently awakened higher-priority receiver on one FIFO
+core can therefore prevent the lower-priority producer from completing; a
+`try_recv` name alone does not prove bounded progress. Normal channel notification
+follows publication, so ordinary ping-pong may not expose this interleaving.
+
+Qualify the actual pinned channel and scheduling policy before assigning such
+priorities. Include an independent higher-priority wake source, evidence of the
+reserve-before-publish interval and an external watchdog. A synthetic witness
+demonstrates the mechanism; it does not qualify std or Crossbeam. Neither an ISR
+channel call nor a busy-wait fallback is an acceptable shortcut.
+
+The [std channel performance plan](std-channel-performance.md) records the source
+audit and [isolated qualification fixture](../tests/std-channel-perf). NuttX's std
+parker uses pthread mutex/condition machinery, while std stores messages in its
+own array. Shared pthread/semaphore/scheduler improvements can benefit blocked
+channels; mqueue pool or priority-list changes do not improve that array path.
+Measure verified blocking, throughput, latency tails, allocation and footprint
+before changing the production transport.
+
 ## Admission and lifecycle contracts
 
 Independent queues prevent ordinary traffic consuming important-event slots;

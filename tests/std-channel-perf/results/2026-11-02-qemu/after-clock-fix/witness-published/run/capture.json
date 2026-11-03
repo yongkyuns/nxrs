@@ -1,0 +1,31 @@
+{
+  "schema": "std-channel-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "qemu",
+  "mode": "witness-published",
+  "command": "std_channel_perf witness-published",
+  "image_sha256": "60828c4a1f07f3362975b4bdf15216f12d7d6527764d17c09a2ca4e8e069ed2b",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "emulator_command": [
+    "qemu-system-arm",
+    "-machine",
+    "mps2-an521",
+    "-kernel",
+    "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/final-check/mps2/witness-published/firmware/nuttx/nuttx",
+    "-display",
+    "none",
+    "-serial",
+    "stdio",
+    "-monitor",
+    "none",
+    "-nic",
+    "none",
+    "-no-reboot"
+  ],
+  "fresh_boot_observed": true,
+  "outcome": "published-slot-control-completed",
+  "emulator_returncode_before_cleanup": null
+}

@@ -225,6 +225,29 @@ The earlier `NUTTX_STD_PARKER_FIX` variable is replaced by
 
 ## Remaining boundaries
 
+### Performance and scheduling
+
+The functional and ABI results above do not establish channel throughput,
+physical wakeup latency or progress under every priority assignment. The
+[std channel performance plan](std-channel-performance.md) and
+[`tests/std-channel-perf`](../tests/std-channel-perf) qualify those separately,
+retaining the private SDK fixes and source/configuration ledger.
+
+The audited positive-capacity std channel stores messages in an atomic array;
+blocking reaches NuttX through its pthread parker, not POSIX mqueue. Prioritize
+measured pthread mutex/condition, semaphore and scheduling costs when improving
+the std path. Mqueue allocation, priority insertion and descriptor improvements
+benefit native mq callers but do not change std's message storage.
+
+An independently awakened high-priority receiver can encounter a lower-priority
+producer's reserved but unpublished slot. Qualify that fixed-priority progress
+case independently of ordinary ping-pong and round-robin preemption tests. Host
+and QEMU witnesses remain mechanism/functional evidence, not MCU latency or
+physical watchdog qualification. The October native-API physical comparison is
+also a distinct cohort; it does not establish std channel performance.
+
+### Runtime and integration
+
 The SDK fixes need review before production adoption. Recoverable heap pressure,
 oversized-thread-stack rejection/recovery, and all standard-descriptor close
 combinations are now exercised by the separate RV32 resource image. Broader
