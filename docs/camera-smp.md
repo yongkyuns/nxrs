@@ -3,7 +3,7 @@
 `esp32s3-camera-stream-smp` is an explicit, unsigned experiment. It enables two
 NuttX CPUs and pins synchronous PICO numerical execution to core 1 through the
 profile's `compute-core` resource. Capture and detection keep their existing
-Rust workers. No extra thread, graph, weight copy or activation arena is added;
+Rust workers. No extra application thread, graph, weight copy or arena is added;
 the detector API, model, thresholds and 750 ms observation budget are unchanged.
 
 The NuttX factory validates placement before enabling SIMD. Rust serializes
@@ -20,26 +20,34 @@ Build the existing stream fixture with `--platform esp32s3-camera-stream-smp
 --probe`; use `esp32s3-camera-stream --probe` for the single-core control.
 SMP accounting uses the common 1 ms scheduler clock. Independent CCOUNT and
 overflow correction are disabled. Fixture CPU observations use `perf_convert`
-with the caller's current active slice; CPU busy averages both cores. Wall
+with the caller's current active slice, including attributed interrupts; CPU
+busy averages both cores. Wall
 latency, CPU time, observation cadence and decoded video FPS are separate metrics.
 
 On the Freenove ESP32-S3 N16R8/OV3660, eight calls alternating the two committed
 96×96 witnesses preserve all numerical output fingerprints, scores and box
 counts. This is a regression/performance probe, not an accuracy corpus.
-At 320×240, quality 81, a 60-second live comparison measured:
+At 320×240, quality 81, the final 60-second comparison of source `48f187d0` measured:
 
 | Measurement | Single core | SMP, one numerical worker |
 | --- | ---: | ---: |
-| Mean JPEG-to-detections wall time | 555.4 ms | 488.3 ms |
-| Decoded video FPS | 17.78 | 17.12 |
+| Mean JPEG-to-detections wall time | 589.0 ms | 460.4 ms |
+| Mean caller CPU time | 287.2 ms | 396.1 ms |
+| Decoded video FPS | 17.79 | 17.79 |
 | Completed detections | 79 | 79 |
 | Detection failures | 0 | 0 |
-| Driver frame discards | 0 | 16 |
+| Driver frame discards | 0 | 0 |
+
+The probe image grows from 1,704,372 to 1,705,020 bytes. SMP adds 2,304 bytes of
+linked IRAM, 8,528 bytes of linked DRAM and 3,332 bytes of median kernel heap.
+User heap stays about 2.26 MiB; both runs use 53,632 bytes of the 128 KiB detector
+stack. These are probe/profile costs, not signed production image measurements.
 
 Two extra-helper/Conv-partition placements regressed live latency to 587–590 ms;
-that implementation was removed. The selected topology improves detector latency
-about 12% in this probe, with lower measured video FPS and some driver discards.
-These short runs do not establish sustained thermal, power or maximum throughput.
+that implementation was removed. The final probe lowers detection wall latency
+about 22%, while measured caller CPU time increases under concurrent load.
+Earlier controls showed video variability and some discards. These short runs
+do not establish sustained video continuity, thermal, power or maximum throughput.
 
 The signed product remains single-core. TLS entropy and Wi-Fi shutdown/OTA are
 still unqualified on SMP and their admission gates remain closed. Physical
