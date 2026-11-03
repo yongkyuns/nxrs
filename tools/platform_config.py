@@ -157,13 +157,16 @@ def detector_config(platform: dict) -> dict | None:
             raise ValueError(f"{platform['name']}: detector {key} must be a positive 32-bit integer")
     if "compute" in config:
         compute = config["compute"]
-        if (not isinstance(compute, dict) or set(compute) != {"cores", "stack-bytes", "priority"}
+        if (not isinstance(compute, dict) or "cores" not in compute
                 or config["model"] != "pico"
-                or not isinstance(compute["cores"], list) or len(compute["cores"]) != 2
+                or not isinstance(compute["cores"], list) or len(compute["cores"]) not in (1, 2)
                 or any(type(c) is not int or not 0 <= c < 32 for c in compute["cores"])
-                or len(set(compute["cores"])) != 2
-                or type(compute["stack-bytes"]) is not int or not 16384 <= compute["stack-bytes"] <= 262144
-                or type(compute["priority"]) is not int or not 1 <= compute["priority"] <= 255):
+                or len(set(compute["cores"])) != len(compute["cores"])):
+            raise ValueError("invalid detector compute resources")
+        parallel = len(compute["cores"]) == 2
+        if (set(compute) != ({"cores", "stack-bytes", "priority"} if parallel else {"cores"})
+                or parallel and (type(compute["stack-bytes"]) is not int or not 16384 <= compute["stack-bytes"] <= 262144
+                                 or type(compute["priority"]) is not int or not 1 <= compute["priority"] <= 255)):
             raise ValueError("invalid detector compute resources")
     return config
 
@@ -272,8 +275,9 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
         config = detector_config(platform)
         if config and "compute" in config:
             compute = config["compute"]
-            resources += ["cargo:rustc-env=DETECTOR_CALLER_CORE=" + str(compute["cores"][0]),
-                          "cargo:rustc-env=DETECTOR_HELPER_CORE=" + str(compute["cores"][1]),
+            resources += ["cargo:rustc-env=DETECTOR_CALLER_CORE=" + str(compute["cores"][0])]
+            if len(compute["cores"]) == 2:
+                resources += ["cargo:rustc-env=DETECTOR_HELPER_CORE=" + str(compute["cores"][1]),
                           "cargo:rustc-env=DETECTOR_HELPER_STACK=" + str(compute["stack-bytes"]),
                           "cargo:rustc-env=DETECTOR_HELPER_PRIORITY=" + str(compute["priority"])]
     if capability == "gnss" and platform["hal"].get(capability) == "nuttx":

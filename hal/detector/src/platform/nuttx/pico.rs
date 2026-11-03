@@ -35,10 +35,14 @@ pub(crate) fn kernel() -> Result<impl crate::model::pico::Kernel, crate::DeviceE
     if ffi::cpus() > 1 && core.is_none() {
         return Err(crate::DeviceError::Unsupported);
     }
-    let engine = if let Some(core) = core {
-        let helper = option_env!("DETECTOR_HELPER_CORE")
-            .and_then(|v| v.parse::<u32>().ok())
-            .ok_or(crate::DeviceError::Model)?;
+    if core.is_some_and(|core| core >= ffi::cpus()) {
+        return Err(crate::DeviceError::Unsupported);
+    }
+    let engine = if let Some(helper) = option_env!("DETECTOR_HELPER_CORE") {
+        let core = core.ok_or(crate::DeviceError::Model)?;
+        let helper = helper
+            .parse::<u32>()
+            .map_err(|_| crate::DeviceError::Model)?;
         let stack = option_env!("DETECTOR_HELPER_STACK")
             .and_then(|v| v.parse::<usize>().ok())
             .ok_or(crate::DeviceError::Model)?;
