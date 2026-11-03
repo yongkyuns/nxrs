@@ -39,6 +39,12 @@ pub struct Pico<K> {
     threshold: Score,
 }
 impl<K: Kernel> Pico<K> {
+    #[cfg(feature = "probe")]
+    pub(crate) fn fingerprint(&self) -> u64 {
+        self.output.iter().fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(*byte as u8)).wrapping_mul(0x100000001b3)
+        })
+    }
     pub fn new(kernel: K) -> Result<Self, Error> {
         let mut input = Vec::new();
         input

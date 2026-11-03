@@ -17,7 +17,7 @@ import sys
 import time
 
 RESULT = re.compile(rb'^NXRS_DETECT_RESULT index=(\d+) score=(\d+) inference_us=(\d+) boxes=(\d+) truncated=([01])$')
-PROFILE = re.compile(rb'^NXRS_DETECT_PROFILE index=(\d+) decode_us=(\d+) resize_us=(\d+) kernel_us=(\d+) postprocess_us=(\d+) total_us=(\d+)$')
+PROFILE = re.compile(rb'^NXRS_DETECT_PROFILE index=(\d+) decode_us=(\d+) resize_us=(\d+) kernel_us=(\d+) postprocess_us=(\d+) total_us=(\d+)(?: output_hash=([0-9a-f]{16}))?$')
 
 
 def line_until(port, predicate, timeout=35):
@@ -64,10 +64,13 @@ def parse_profile(line, index, elapsed):
     match = PROFILE.fullmatch(line)
     if match is None:
         raise ValueError('malformed native stage profile')
-    actual, *times = map(int, match.groups())
+    actual, *times = map(int, match.groups()[:6])
     if actual != index or not times[2] or not 0 < sum(times[:4]) <= times[4] <= elapsed:
         raise ValueError('inconsistent native stage profile')
-    return dict(zip(('decode_us', 'resize_us', 'kernel_us', 'postprocess_us', 'total_us'), times))
+    result = dict(zip(('decode_us', 'resize_us', 'kernel_us', 'postprocess_us', 'total_us'), times))
+    if match[7] is not None:
+        result['output_hash'] = match[7].decode('ascii')
+    return result
 
 
 def run(args):

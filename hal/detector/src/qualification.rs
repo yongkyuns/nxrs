@@ -16,6 +16,8 @@ pub struct Timings {
 pub trait Profiled: Detector {
     /// Last attempted call. Consumers must also check the detection result.
     fn timings(&self) -> Timings;
+    /// Digest of all numerical output bytes from the last successful call.
+    fn fingerprint(&self) -> u64;
 }
 
 pub fn open(config: Config) -> Result<impl Profiled, DeviceError> {
@@ -67,5 +69,8 @@ impl<K: Kernel> Detector for Measured<K> {
 impl<K: Kernel> Profiled for Measured<K> {
     fn timings(&self) -> Timings {
         self.last
+    }
+    fn fingerprint(&self) -> u64 {
+        self.model.fingerprint()
     }
 }

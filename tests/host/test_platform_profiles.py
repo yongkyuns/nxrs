@@ -36,6 +36,7 @@ PLATFORM_NAMES = {
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
+    "esp32s3-camera-stream-smp",
     "esp32s3-camera",
     "esp32s3-camera-stream",
     "esp32s3-camera-stream-tls",
@@ -189,6 +190,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
+                            "esp32s3-camera-stream-smp": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-tls": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx"},
                             "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx"},
                             "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx", "console": "nuttx", "execution": "nuttx"},
@@ -241,6 +243,22 @@ class FirmwareFrontendTests(unittest.TestCase):
                               (PLATFORM_CONFIG.imu_config, "imu")):
             with self.assertRaises(ValueError):
                 function({**data, "hal": {**data["hal"], key: "mock"}})
+
+    def test_detector_smp_experiment_keeps_product_single_core(self):
+        product = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
+        experiment = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-smp')
+        self.assertIn('# CONFIG_SMP is not set', product['kconfig']['require'])
+        self.assertNotIn('compute-core', product['detector'])
+        self.assertIn('SMP', experiment['kconfig']['enable'])
+        self.assertNotIn('SMP', experiment['kconfig']['disable'])
+        self.assertIn('CONFIG_SMP_NCPUS=2', experiment['kconfig']['require'])
+        for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
+            self.assertNotIn(counter, experiment['kconfig']['enable'])
+            self.assertRegex('CONFIG_' + counter + '=y', experiment['kconfig']['forbid-regex'])
+        self.assertEqual(experiment['detector']['compute-core'], 1)
+        for core in (-1, 32, True):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.detector_config({**experiment, 'detector': {**experiment['detector'], 'compute-core': core}})
 
     def test_cargo_frontend_help_is_successful(self):
         output = self.cargo_firmware("--help").stdout

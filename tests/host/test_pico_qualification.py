@@ -97,12 +97,20 @@ class PicoQualification(unittest.TestCase):
             qualified = '#define CONFIG_ARCH_CHIP_ESP32S3 1\n#define CONFIG_BUILD_FLAT 1\n'
             config.write_text(qualified)
             BUILD.qualify_compute_context(root)
+            config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n')
+            BUILD.qualify_compute_context(root)
+            for flag in ('ARCH_PERF_EVENTS', 'TIMER_ARCH', 'ALARM_ARCH', 'PERF_OVERFLOW_CORRECTION'):
+                config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_' + flag + ' 1\n')
+                with self.assertRaisesRegex(ValueError, 'SMP-safe perf clock'):
+                    BUILD.qualify_compute_context(root)
             for content in (qualified + '#define CONFIG_SMP 1\n',
+                            qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_ARCH_PERF_EVENTS 1\n',
                             qualified.replace('CONFIG_ARCH_CHIP_ESP32S3', 'CONFIG_OTHER_CPU'),
                             qualified.replace('CONFIG_BUILD_FLAT', 'CONFIG_BUILD_PROTECTED')):
                 config.write_text(content)
-                with self.assertRaisesRegex(ValueError, 'single-core flat'):
+                with self.assertRaisesRegex(ValueError, 'flat NuttX'):
                     BUILD.qualify_compute_context(root)
+
 
     def test_localization_matching_is_one_to_one_and_crowd_images_are_excluded(self):
         box = (0, 0, 1000, 1000)
@@ -226,6 +234,7 @@ class PicoQualification(unittest.TestCase):
     def test_stage_profiles_reject_wrong_sequence_and_inconsistent_clock_totals(self):
         row = b'NXRS_DETECT_PROFILE index=4 decode_us=1000 resize_us=2000 kernel_us=3000 postprocess_us=0 total_us=6000'
         self.assertEqual(DEVICE.parse_profile(row, 4, 7000)['kernel_us'], 3000)
+        self.assertEqual(DEVICE.parse_profile(row + b' output_hash=0123456789abcdef', 4, 7000)['output_hash'], '0123456789abcdef')
         for bad, index, elapsed in ((row, 3, 7000), (row, 4, 5000),
                                     (row.replace(b'total_us=6000', b'total_us=5999'), 4, 7000),
                                     (row.replace(b'kernel_us=3000', b'kernel_us=0'), 4, 7000)):

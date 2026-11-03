@@ -64,6 +64,32 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
     network_initialization(data)
     gnss_config(data)
     imu_config(data)
+    cpus = data.get("cpus")
+    if cpus is not None:
+        if type(cpus) is not int or cpus not in (1, 2) or "kconfig" not in data:
+            raise ValueError("cpus requires a NuttX profile and one or two CPUs")
+        config = dict(data["kconfig"])
+        config["enable"] = [s for s in config["enable"] if s != "SMP"]
+        config["disable"] = [s for s in config["disable"] if s != "SMP"]
+        config["set"] = [s for s in config["set"] if not s.startswith("SMP_NCPUS=")]
+        config["require"] = [s for s in config["require"] if s not in
+                             ("CONFIG_SMP=y", "# CONFIG_SMP is not set") and not s.startswith("CONFIG_SMP_NCPUS=")]
+        config["enable" if cpus == 2 else "disable"].append("SMP")
+        config["require"].append("CONFIG_SMP=y" if cpus == 2 else "# CONFIG_SMP is not set")
+        if cpus == 2:
+            config["set"].append("SMP_NCPUS=2")
+            config["require"].append("CONFIG_SMP_NCPUS=2")
+            # Use the common scheduler clock for SMP accounting. Xtensa's
+            # CCOUNT is per-core and cannot feed NuttX's global wrap tracker.
+            counters = {"ARCH_PERF_EVENTS", "PERF_OVERFLOW_CORRECTION"}
+            config["enable"] = [s for s in config["enable"] if s not in counters]
+            config["disable"] = [s for s in config["disable"] if s not in counters] + sorted(counters)
+            config["require"] = [s for s in config["require"] if s not in {f"CONFIG_{c}=y" for c in counters}]
+            # Hidden disabled Kconfig symbols may be omitted, rather than
+            # printed as '# ... is not set'. Reject enabled selectors directly.
+            config["forbid-regex"] = ("(?:" + config["forbid-regex"] +
+                ")|^CONFIG_(ARCH_PERF_EVENTS|PERF_OVERFLOW_CORRECTION|TIMER_ARCH|ALARM_ARCH)=y$")
+        data["kconfig"] = config
     return data
 
 
@@ -122,13 +148,17 @@ def detector_config(platform: dict) -> dict | None:
         return None
     if platform["hal"].get("detector", "none") == "none":
         raise ValueError(f"{platform['name']}: detector configuration requires a detector HAL binding")
-    if set(config) != {"model", "stack-bytes", "sample-ms"}:
+    if set(config) - {"compute-core"} != {"model", "stack-bytes", "sample-ms"}:
         raise ValueError(f"{platform['name']}: detector requires model, stack-bytes and sample-ms")
     if not isinstance(config["model"], str) or config["model"] not in MODEL_FEATURES:
         raise ValueError(f"{platform['name']}: unknown detector model: {config['model']}")
     for key in ("stack-bytes", "sample-ms"):
         if type(config[key]) is not int or not 0 < config[key] <= 0x7fffffff:
             raise ValueError(f"{platform['name']}: detector {key} must be a positive 32-bit integer")
+    if "compute-core" in config and (
+            config["model"] != "pico" or platform["hal"].get("detector") != "nuttx"
+            or type(config["compute-core"]) is not int or not 0 <= config["compute-core"] < 32):
+        raise ValueError("invalid detector compute core")
     return config
 
 
@@ -232,6 +262,10 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     manifests = {root / "hal" / name / "Cargo.toml" for name in platform["hal"]}
     manifests.add(root / "hal" / capability / "Cargo.toml")
     resources = []
+    if capability == "detector":
+        config = detector_config(platform)
+        if config and "compute-core" in config:
+            resources.append("cargo:rustc-env=DETECTOR_COMPUTE_CORE=" + str(config["compute-core"]))
     if capability == "gnss" and platform["hal"].get(capability) == "nuttx":
         config = gnss_config(platform)
         resources.extend(["cargo:rustc-env=GNSS_DEVICE=" + config["device"],
