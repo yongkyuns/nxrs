@@ -73,7 +73,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if self.bootstrap.as_ref().is_some_and(|b| self.camera_tls.is_some() || self.allow_insecure_camera_http
             || !identifier(&b.site_id) || !identifier(&b.camera_id) || !identifier(&b.gateway_id)
-            || !(b.listen.ip().is_private() || b.listen.ip().is_loopback())
+            || !(b.listen.ip().is_unspecified() || b.listen.ip().is_private() || b.listen.ip().is_loopback())
             || b.listen.port() == 0 || b.listen == self.camera || b.listen == self.rtsp
             || !absolute(&b.directory)) { return Err(Error::Configuration); }
         if self.detections.as_ref().is_some_and(|v| {

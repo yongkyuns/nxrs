@@ -36,11 +36,78 @@ def wait(predicate, seconds=10):
     raise AssertionError('network enrollment progress deadline')
 
 
-def run(ingest, camera, case):
+class RogueHints:
+    """Two untrusted locators: stalled TCP, then TLS with the wrong certificate."""
+    def __init__(self, root, port, pin):
+        self.closed = threading.Event()
+        self.errors, self.connections, self.sockets, self.threads = [], [0, 0], [], []
+        self.wrong_cert_handshakes = 0
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
+        context.load_cert_chain(root/'authority/ca.pem', root/'authority/ca.key')
+        def bind(ip, kind):
+            sock = socket.socket(socket.AF_INET, kind)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((ip, port));sock.settimeout(.2);self.sockets.append(sock)
+            return sock
+        offers = [bind(ip, socket.SOCK_DGRAM) for ip in ('127.0.0.1', '127.0.0.3')]
+        query = bind('127.0.0.2', socket.SOCK_DGRAM)
+        def advertise():
+            while not self.closed.is_set():
+                try: packet, peer = query.recvfrom(37)
+                except socket.timeout: continue
+                except OSError: return
+                if packet == b'NXDQ'+pin:
+                    # Wi-Fi broadcast delivery can exceed the old 100 ms window.
+                    if self.closed.wait(.15): return
+                    for sock in offers: sock.sendto(b'NXDR'+pin, peer)
+        def serve(listener, index):
+            try:
+                while not self.closed.is_set():
+                    try: connection, _ = listener.accept()
+                    except socket.timeout: continue
+                    self.connections[index] += 1
+                    with connection:
+                        connection.settimeout(4)
+                        if index == 0:
+                            # No ServerHello, so no application data can be sent.
+                            while connection.recv(4096): pass
+                        else:
+                            try:
+                                with context.wrap_socket(connection, server_side=True) as tls:
+                                    self.wrong_cert_handshakes += 1
+                                    assert tls.recv(1) == b'', 'credentials reached a forged locator'
+                            except (ssl.SSLError, ConnectionResetError): pass
+            except OSError as error:
+                if not self.closed.is_set(): self.errors.append(type(error).__name__)
+            except BaseException as error: self.errors.append(str(error))
+        for index, ip in enumerate(('127.0.0.1', '127.0.0.3')):
+            listener = bind(ip, socket.SOCK_STREAM);listener.listen()
+            self.threads.append(threading.Thread(target=serve, args=(listener, index)))
+        self.threads.append(threading.Thread(target=advertise))
+        for thread in self.threads: thread.start()
+
+    def stop(self):
+        self.closed.set()
+        for sock in self.sockets: sock.close()
+        for thread in self.threads: thread.join(timeout=5)
+        assert not any(thread.is_alive() for thread in self.threads), 'rogue fixture failed to join'
+        assert not self.errors, self.errors
+
+
+def run(ingest, camera, case, require_rogue_hints=False):
     with tempfile.TemporaryDirectory(prefix='nxrs-network-enrollment-') as temporary:
         root = Path(temporary)
         root.chmod(0o700)
         source_port, relay_port, bootstrap_port = port(), port(), port()
+        gateway_ip = '127.0.0.1'
+        try:
+            for ip in ('127.0.0.2', '127.0.0.3'):
+                with socket.socket() as check: check.bind((ip, 0))
+            gateway_ip = '127.0.0.2'
+        except OSError:
+            assert not require_rogue_hints, 'loopback alias support required for rogue-locator proof'
+            print('SKIP: rogue-locator cases require additional loopback addresses')
         private(root/'port', str(source_port))
         private(root/'publisher.token', '1'*64+'\n')
         for name, code in [('encoder', 'import sys\nn=0\nwhile data:=sys.stdin.buffer.read1(4096):\n'
@@ -54,7 +121,7 @@ def run(ingest, camera, case):
             rtsp='127.0.0.1:8554', stream_path='camera', publisher_user='publisher',
             publisher_token_file=str(root/'publisher.token'), ffmpeg=str(root/'encoder'),
             publisher=str(root/'publisher'), width=96, height=96, frame_timeout_ms=3000,
-            bootstrap=dict(listen=f'127.0.0.1:{bootstrap_port}', directory=str(root/'authority'),
+            bootstrap=dict(listen=f'{gateway_ip}:{bootstrap_port}', directory=str(root/'authority'),
                            site_id='site', camera_id='camera', gateway_id='gateway'))
         private(root/'config.json', json.dumps(configuration))
         command = [str(ingest), str(root/'config.json'), '--require-camera-tls']
@@ -62,6 +129,7 @@ def run(ingest, camera, case):
         private(root/'commission.bin', (root/'authority/commission.bin').read_bytes())
         subprocess.run([*command, '--check-config'], check=True, capture_output=True, timeout=10)
         processes, logs, threads = [], [], []
+        rogue = None
         paced, closed = threading.Event(), threading.Event()
         relay = socket.socket()
         relay.bind(('127.0.0.1', relay_port));relay.listen();relay.settimeout(.2)
@@ -115,17 +183,27 @@ def run(ingest, camera, case):
             context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
             def ready():
                 try:
-                    with socket.create_connection(('127.0.0.1', bootstrap_port), timeout=.1): return True
+                    with socket.create_connection((gateway_ip, bootstrap_port), timeout=.1): return True
                 except OSError: return False
             wait(ready)
-            with socket.create_connection(('127.0.0.1', bootstrap_port), timeout=3) as raw, context.wrap_socket(raw) as tls:
+            with socket.create_connection((gateway_ip, bootstrap_port), timeout=3) as raw, context.wrap_socket(raw) as tls:
                 assert hashlib.sha256(tls.getpeercert(binary_form=True)).digest() == (root/'commission.bin').read_bytes()[10:42]
                 tls.sendall(b'NXB1'+b'\0'*32+b'\0\0')
                 try: assert tls.recv(1) == b''
                 except (ssl.SSLError, ConnectionResetError): pass
             assert (root/'authority/generation').read_text().strip() == '0'
+            if gateway_ip == '127.0.0.2':
+                rogue = RogueHints(root, bootstrap_port, (root/'commission.bin').read_bytes()[10:42])
             device = start([str(camera), str(root), '30000', case], 'camera.log')
-            wait(lambda: frames() >= 5)
+            try: wait(lambda: frames() >= 5)
+            except AssertionError as error:
+                raise AssertionError((root/'camera.log').read_text()[-2048:] +
+                                     (root/'gateway.log').read_text()[-2048:]) from error
+            if rogue:
+                rogue.stop()
+                assert all(rogue.connections), 'camera did not authenticate and reject both forged hints'
+                assert rogue.wrong_cert_handshakes, 'wrong-certificate TLS handshake was not exercised'
+                rogue = None
             baseline = frames()
             # Cross two refresh intervals and the initial lease's expiry.
             time.sleep(32)
@@ -133,7 +211,17 @@ def run(ingest, camera, case):
             assert frames() > baseline + 20
             assert 'retired source/encoder (Stale)' not in (root/'gateway.log').read_text(), 'trusted-time refresh made media stale'
             stop(gateway)
+            # The same authority/commission survives a move to a wildcard listener.
+            configuration['bootstrap']['listen'] = f'0.0.0.0:{bootstrap_port}'
+            private(root/'config.json', json.dumps(configuration))
             gateway = start(command, 'gateway-restarted.log')
+            wait(ready)
+            pin = (root/'commission.bin').read_bytes()[10:42]
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as lookup:
+                lookup.settimeout(2)
+                lookup.sendto(b'NXDQ'+pin, ('127.0.0.1', bootstrap_port))
+                packet, source = lookup.recvfrom(37)
+                assert packet == b'NXDR'+pin and source == ('127.0.0.1', bootstrap_port)
             baseline = frames()
             wait(lambda: frames() > baseline + 5)
             # The stopped owner releases its listener and children before upload.
@@ -156,15 +244,19 @@ def run(ingest, camera, case):
             stop(gateway)
             print('PASS: SDK network enrollment, >30s trusted time, gateway restart, paced OTA and joined cleanup')
         finally:
-            for process in processes:
-                if process.poll() is None:
-                    process.terminate()
-                    try: process.wait(timeout=8)
-                    except subprocess.TimeoutExpired: process.kill();process.wait()
-            closed.set();relay.close();acceptor.join(timeout=3)
-            for thread in threads: thread.join(timeout=6)
-            assert not acceptor.is_alive() and not any(thread.is_alive() for thread in threads)
-            for log in logs: log.close()
+            try:
+                if rogue: rogue.stop()
+            finally:
+                for process in processes:
+                    if process.poll() is None:
+                        process.terminate()
+                        try: process.wait(timeout=8)
+                        except subprocess.TimeoutExpired: process.kill();process.wait()
+                closed.set();relay.close();acceptor.join(timeout=3)
+                for thread in threads: thread.join(timeout=6)
+                assert not acceptor.is_alive() and not any(thread.is_alive() for thread in threads)
+                for log in logs: log.close()
+
 
 
 if __name__ == '__main__':
@@ -172,5 +264,6 @@ if __name__ == '__main__':
     parser.add_argument('--ingest', type=Path, required=True)
     parser.add_argument('--camera-source', type=Path, required=True)
     parser.add_argument('--case', choices=['network','network-time-stall'], default='network-time-stall')
+    parser.add_argument('--require-rogue-hints', action='store_true')
     args = parser.parse_args()
-    run(args.ingest.resolve(), args.camera_source.resolve(), args.case)
+    run(args.ingest.resolve(), args.camera_source.resolve(), args.case, args.require_rogue_hints)

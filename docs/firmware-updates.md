@@ -197,7 +197,7 @@ No hardware protection setting or eFuse is changed.
 
 ## Network enrollment and time
 
-One-time commissioning stores the gateway's literal private IPv4 endpoint, exact
+One-time commissioning stores the gateway's last-known private IPv4 endpoint, exact
 certificate SHA-256 pin, per-camera token and approved camera/site/gateway names
 in `hal/config`, beside the saved Wi-Fi profile. Device signing keys stay volatile
 and non-exportable. No USB certificate or clock service runs after commissioning.
@@ -209,7 +209,7 @@ Replace the ingest JSON's `camera_tls` block with, for example:
 
 ```json
 "bootstrap": {
-  "listen": "192.168.1.2:8444",
+  "listen": "0.0.0.0:8444",
   "directory": "/var/lib/nxrs/camera-authority",
   "site_id": "home", "camera_id": "camera", "gateway_id": "gateway"
 }
@@ -229,6 +229,22 @@ Before the camera's first network-enabled boot run:
 python3 tests/nuttx-std/stream/commission.py --port SERIAL_PORT \
   --commission /var/lib/nxrs/camera-authority/commission.bin --wifi-file WIFI_JSON
 ```
+
+A wildcard bootstrap listener also answers bounded LAN UDP discovery on the same
+port. Cameras send only the public certificate pin, then authenticate the returned
+address with exact-pin TLS before sending any token/CSR or accepting time. Lookup
+and bounded candidate handshakes share the original five-second request deadline;
+the saved endpoint remains a fallback. Discovery adds no application thread or
+dependency. It supports private IPv4 peers on the same LAN, not routed discovery.
+Authenticated addresses are cached in RAM for time renewals; failed cached
+connections trigger discovery again.
+Static listener addresses retain their existing binding scope.
+
+Existing `NXC1` commissioning records remain valid; no Wi-Fi or trust reset is
+needed when upgrading. A newly created wildcard commission uses `0.0.0.0` as a
+discovery-only hint. To upgrade an existing gateway, change only `bootstrap.listen`
+to `0.0.0.0:PORT` and restart with the same authority directory. Preserve its keys,
+token and commissioning record; do not rerun `--init-bootstrap`.
 
 This bounded USB step supplies commissioning and Wi-Fi only once. Subsequent
 boots use saved records and renew through the gateway. The startup profile routes
