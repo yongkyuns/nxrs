@@ -100,7 +100,12 @@ pub fn patch(source: &Path, patch: &Path) -> Result<Value> {
             json!({"before":if p.is_file(){Some(hash(&p)?)}else{None},"after":null}),
         );
     }
-    apply(&["--check", "--whitespace=error"])?;
+    apply(&["--check", "--whitespace=error"]).map_err(|error| {
+        format!(
+            "patch {} is incompatible or already applied: {error}",
+            patch.display()
+        )
+    })?;
     apply(&["--whitespace=error"])?;
     for path in paths {
         let p = safe_path(&source, path)?;
