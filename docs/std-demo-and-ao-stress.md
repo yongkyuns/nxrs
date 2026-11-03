@@ -26,13 +26,13 @@ on a browser UI thread.
 ## Build exactly one firmware app with the existing Cargo interface
 
 ```sh
-cargo firmware --list-apps
-cargo firmware --app std-demo --platform pico2-mock
-cargo firmware --app ao-stress --platform pico2-mock
-cargo firmware --app std-demo --platform esp32s3-qemu-mock
-cargo firmware --app ao-stress --platform esp32s3-qemu-mock
-cargo firmware --app std-demo --platform mps2-an521-mock
-cargo firmware --app ao-stress --platform mps2-an521-mock
+cargo nxrs apps
+cargo nxrs build --app std-demo --profile pico2-mock
+cargo nxrs build --app ao-stress --profile pico2-mock
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock
+cargo nxrs build --app ao-stress --profile esp32s3-qemu-mock
+cargo nxrs build --app std-demo --profile mps2-an521-mock
+cargo nxrs build --app ao-stress --profile mps2-an521-mock
 ```
 
 Use the repository's existing pinned NuttX/toolchain prerequisite setup. Images

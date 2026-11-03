@@ -8,6 +8,7 @@ on:
       - 'hal/common/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
+      - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'Cargo.toml'
       - 'Cargo.lock'

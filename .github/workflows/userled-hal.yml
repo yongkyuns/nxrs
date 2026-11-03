@@ -7,6 +7,7 @@ on:
       - 'hal/common/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
+      - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tools/check-hal-isolation.py'
       - 'Cargo.toml'

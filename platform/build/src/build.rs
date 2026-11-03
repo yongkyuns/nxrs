@@ -1,0 +1,318 @@
+//! Application descriptors are platform-free; this host controller supplies build wiring.
+use crate::{
+    deployment,
+    profile::{manifest, Profile},
+    run,
+    target::Target,
+    write_json, Result,
+};
+use serde_json::{json, Value};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
+#[derive(Debug)]
+pub struct App {
+    pub manifest: PathBuf,
+    pub package: String,
+    pub bin: String,
+    pub command: String,
+    pub priority: u32,
+    pub stack: u32,
+}
+impl App {
+    pub fn load(path: &Path, bin: Option<&str>) -> Result<Self> {
+        let path = path.canonicalize().map_err(|e| e.to_string())?;
+        let data = manifest(&path)?;
+        let package = data["package"]["name"]
+            .as_str()
+            .ok_or("missing package name")?
+            .to_owned();
+        let meta = data
+            .pointer("/package/metadata/nxrs/firmware")
+            .unwrap_or(&Value::Null);
+        let bin = bin
+            .or_else(|| meta["bin"].as_str())
+            .or_else(|| {
+                data["bin"]
+                    .as_array()
+                    .filter(|b| b.len() == 1)
+                    .and_then(|b| b[0]["name"].as_str())
+            })
+            .unwrap_or(&package)
+            .to_owned();
+        let command = meta["command"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| bin.replace('-', "_"));
+        let number = |key: &str, default| match meta.get(key) {
+            None => Ok(default),
+            Some(v) => v
+                .as_u64()
+                .filter(|n| *n > 0 && *n <= u32::MAX as u64)
+                .map(|n| n as u32)
+                .ok_or_else(|| format!("invalid firmware {key}")),
+        };
+        if !name(&package) || !name(&bin) || !name(&command) {
+            return Err("invalid application build identity".into());
+        }
+        Ok(Self {
+            manifest: path,
+            package,
+            bin,
+            command,
+            priority: number("priority", 100)?,
+            stack: number("stack-size", 32768)?,
+        })
+    }
+}
+pub fn name(value: &str) -> bool {
+    value
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+}
+#[derive(Debug, Default)]
+pub struct Options {
+    pub features: Vec<String>,
+    pub helpers: Vec<PathBuf>,
+    pub enable: Vec<String>,
+    pub disable: Vec<String>,
+    pub abi: Option<String>,
+    pub size: bool,
+    pub trace: bool,
+    pub immediate: bool,
+}
+impl Options {
+    pub fn validate(&self) -> Result<()> {
+        for symbol in self.enable.iter().chain(&self.disable) {
+            if !symbol
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_uppercase)
+                || !symbol
+                    .bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+            {
+                return Err(format!("Invalid Kconfig symbol: {symbol}"));
+            }
+        }
+        if let Some(symbol) = self.enable.iter().find(|s| self.disable.contains(s)) {
+            return Err(format!("Conflicting Kconfig request: {symbol}"));
+        }
+        for feature in &self.features {
+            if feature
+                .split('/')
+                .next_back()
+                .is_some_and(|s| ["person-model", "pico-model"].contains(&s))
+            {
+                return Err(
+                    "model dependencies follow the profile; remove manual model features".into(),
+                );
+            }
+            if !feature
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+                || !feature
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_./-".contains(&b))
+            {
+                return Err("invalid Cargo feature".into());
+            }
+        }
+        if self
+            .abi
+            .as_deref()
+            .is_some_and(|s| !["active", "minimal"].contains(&s))
+        {
+            return Err("invalid ABI profile".into());
+        }
+        if self.immediate && !self.trace {
+            return Err("immediate abort requires trace-only backtrace".into());
+        }
+        Ok(())
+    }
+}
+pub fn selection(root: &Path, platform: Target, name: Option<&str>) -> Result<Profile> {
+    let p = Profile::resolve(root, name.unwrap_or(platform.default_profile()))?;
+    let board = p.data["board"].as_str().unwrap_or("");
+    let matches = match platform {
+        Target::Wroom => {
+            board.starts_with("esp32s3-devkit:") || board.starts_with("esp32s3-devkit")
+        }
+        Target::CoreS3 => board.starts_with("esp32s3-m5-cores3:"),
+        Target::Pico2W => board.starts_with("raspberrypi-pico-2:"),
+        Target::Linux | Target::Macos | Target::Windows => {
+            p.validate_target(platform.name()).is_ok()
+        }
+        Target::Web => p.validate_target("emscripten").is_ok(),
+    };
+    if !matches || (platform == Target::Wroom && p.name().starts_with("m5stack-cores3")) {
+        return Err("profile belongs to another platform family".into());
+    }
+    Ok(p)
+}
+pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
+    let absolute = if out.is_absolute() {
+        out.to_path_buf()
+    } else {
+        root.join(out)
+    };
+    if absolute
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err("output must not contain parent traversal".into());
+    }
+    let mut ancestor = absolute.as_path();
+    while !ancestor.exists() {
+        ancestor = ancestor.parent().ok_or("output parent missing")?;
+    }
+    let canonical = ancestor.canonicalize().map_err(|e| e.to_string())?;
+    let resolved = canonical.join(absolute.strip_prefix(ancestor).map_err(|e| e.to_string())?);
+    let repo = root.canonicalize().map_err(|e| e.to_string())?;
+    if repo.starts_with(&resolved)
+        || resolved.starts_with(repo.join("external"))
+        || resolved.starts_with(repo.join("platform"))
+        || resolved.starts_with(repo.join("hal"))
+        || resolved.starts_with(repo.join("app"))
+        || resolved.starts_with(repo.join(".git"))
+    {
+        return Err("output overlaps source or repository metadata".into());
+    }
+    let marker = resolved.join(".nxrs-build.json");
+    if resolved.exists() && !marker.is_file() {
+        // Qualification drivers may open their log before starting the builder.
+        let logs_only = fs::read_dir(&resolved)
+            .map_err(|e| e.to_string())?
+            .try_fold(true, |clean, entry| -> Result<bool> {
+                let entry = entry.map_err(|e| e.to_string())?;
+                Ok(clean
+                    && entry.file_type().map_err(|e| e.to_string())?.is_file()
+                    && entry.path().extension().is_some_and(|s| s == "log"))
+            })?;
+        if !logs_only {
+            return Err(
+                "existing output is not an owned build directory; choose a fresh --out".into(),
+            );
+        }
+    }
+    if marker.symlink_metadata().is_ok_and(|m| m.is_symlink()) {
+        return Err("build ownership marker must not be a symlink".into());
+    }
+    fs::create_dir_all(&resolved).map_err(|e| e.to_string())?;
+    if marker.exists() && crate::read_json(&marker)? != json!({"workspace":repo}) {
+        return Err("output belongs to another workspace".into());
+    }
+    write_json(&marker, &json!({"workspace":repo}))?;
+    Ok(resolved)
+}
+pub fn host(
+    root: &Path,
+    app: &App,
+    profile: &Profile,
+    out: &Path,
+    options: &Options,
+) -> Result<()> {
+    let os = std::env::consts::OS;
+    let evidence = deployment::validate(root, &app.manifest, profile, os)?;
+    options.validate()?;
+    if !options.helpers.is_empty()
+        || !options.enable.is_empty()
+        || !options.disable.is_empty()
+        || options.abi.is_some()
+        || options.size
+        || options.trace
+        || options.immediate
+    {
+        return Err("NuttX qualification switches require a NuttX profile".into());
+    }
+    let out = prepare_output(root, out)?;
+    write_json(&out.join("provider-selection.json"), &evidence)?;
+    let mut features = options.features.clone();
+    features.extend(profile.model_features(root, &app.manifest)?);
+    run(Command::new("cargo")
+        .current_dir(root)
+        .args(["build", "--locked", "--release", "--manifest-path"])
+        .arg(&app.manifest)
+        .args(["--bin", &app.bin, "--features", &features.join(",")])
+        .env("NXRS_PLATFORM", profile.name())
+        .env("CARGO_TARGET_DIR", out.join("cargo")))
+}
+pub fn std_source(messages: &Path, sysroot: &Path, rustc: &Path, out: &Path) -> Result<()> {
+    let mut selected = vec![];
+    for line in crate::read(messages)?.lines() {
+        let message: Value =
+            serde_json::from_str(line).map_err(|e| format!("invalid Cargo message: {e}"))?;
+        if message["reason"] == "compiler-artifact"
+            && message["target"]["name"] == "std"
+            && message["target"]["crate_types"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|v| v == "rlib"))
+        {
+            selected.push(message);
+        }
+    }
+    if selected.len() != 1 {
+        return Err(format!(
+            "expected one std artifact, found {}",
+            selected.len()
+        ));
+    }
+    let actual = Path::new(
+        selected[0]["target"]["src_path"]
+            .as_str()
+            .ok_or("missing std source")?,
+    )
+    .canonicalize()
+    .map_err(|e| e.to_string())?;
+    let expected = sysroot
+        .join("lib/rustlib/src/rust/library/std/src/lib.rs")
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    write_json(
+        &out.join("std-source.json"),
+        &json!({"std_source":actual,"expected_source":expected,"rustc":rustc,"selected_source_matches":actual==expected}),
+    )?;
+    if actual != expected {
+        return Err("Cargo selected the wrong standard-library source".into());
+    }
+    Ok(())
+}
+/// Stream Cargo JSON into evidence while keeping human diagnostics visible.
+pub fn cargo_messages(command: &mut Command, path: &Path) -> Result<()> {
+    use std::io::{BufRead, Write};
+    use std::process::Stdio;
+    let mut child = command
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let result: Result<()> = (|| {
+        let mut log = fs::File::create(path).map_err(|e| e.to_string())?;
+        for line in std::io::BufReader::new(child.stdout.take().unwrap()).lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            writeln!(log, "{line}").map_err(|e| e.to_string())?;
+            if let Ok(message) = serde_json::from_str::<Value>(&line) {
+                if let Some(rendered) = message.pointer("/message/rendered").and_then(Value::as_str)
+                {
+                    eprint!("{rendered}");
+                }
+            }
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    result?;
+    if !status.success() {
+        return Err(format!("Cargo build failed: {status}"));
+    }
+    Ok(())
+}

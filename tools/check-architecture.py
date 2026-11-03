@@ -111,6 +111,11 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: shared radio identities must remain dependency-free')
                 if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
                     errors.append(f'{context}: common contains radio identities and bounded payloads only')
+                # Host-only selection/native build tooling replaces the included Python resolver.
+                # Runtime HAL edges, and every app/service edge, remain forbidden.
+                if (role == 'hal' and dep.get('kind') == 'build'
+                        and destination == ('platform', 'build')):
+                    continue
                 if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:

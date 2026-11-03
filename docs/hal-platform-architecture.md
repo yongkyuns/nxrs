@@ -87,7 +87,7 @@ under `tests/`.
 The developer selects the application and a complete product platform:
 
 ~~~sh
-cargo firmware --app event-demo --platform pico2-mock
+cargo nxrs build --app event-demo --profile pico2-mock
 ~~~
 
 The platform owns the OS, board, HAL bindings, native drivers and resource
@@ -201,8 +201,10 @@ code; only reviewed native adapter modules permit it. Unselected provider
 modules are excluded by conditional compilation. Host-injected unit tests
 may compile native source against fakes; that is not hardware qualification.
 
-The build-only shared script `platform/hal-build.rs` asks
-`tools/platform_config.py` to validate the selected profile against Rust's target.
+The build-only shared script `platform/hal-build.rs` uses the host-only
+`platform/build` library to validate the selected profile against Rust's target.
+HAL crates may depend on this library only through `[build-dependencies]`; runtime
+HAL edges and all app/service edges to platform code remain forbidden.
 It emits only `hal_enabled` for a bound OS implementation or `hal_mock` for an
 explicit fixture; unbound capabilities emit neither. These booleans express
 capability admission, not platform identity, and belong only in module/acquisition

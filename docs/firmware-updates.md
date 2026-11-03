@@ -15,7 +15,7 @@ The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix.
 `NXRS_FIRMWARE_VERSION` and `NXRS_FIRMWARE_SECURITY_COUNTER`, then run:
 
 ```sh
-cargo firmware --app home-cam --platform esp32s3-camera-stream-startup --out /private/tmp/camera-mcuboot
+cargo nxrs build --app home-cam --platform wroom --out /private/tmp/camera-mcuboot
 ```
 
 The resulting `nuttx/nuttx.signed.bin` is signed and independently verified

@@ -19,7 +19,7 @@ on:
       - 'driver/mock_acquisition.rs'
       - 'driver/nuttx/**'
       - 'platform/nuttx/std-app/**'
-      - 'platform/firmware/**'
+      - 'platform/build/**'
       - '.cargo/config.toml'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
@@ -218,7 +218,7 @@ jobs:
           set -euo pipefail
           bash -n tools/build-nuttx-std-app.sh
           mkdir -p target/firmware/event-demo/esp32s3-qemu-mock
-          cargo +1.90.0 firmware --app event-demo --platform esp32s3-qemu-mock 2>&1 \
+          cargo +1.90.0 nxrs build --app event-demo --profile esp32s3-qemu-mock --out target/firmware/event-demo/esp32s3-qemu-mock 2>&1 \
             | tee target/firmware/event-demo/esp32s3-qemu-mock/build-wrapper.log
 
       - name: Execute actual app in ESP32-S3 QEMU
@@ -298,10 +298,10 @@ jobs:
           bash -n \
             tools/build-nuttx-std-app.sh \
             tests/nuttx-std/build.sh
-          cargo +1.90.0 firmware --list-apps
-          cargo +1.90.0 firmware --list-platforms
-          cargo +1.90.0 firmware --app event-demo --platform mps2-an521-mock --dry-run
-          cargo +1.90.0 firmware --app event-demo --platform pico2-mock --dry-run
+          cargo +1.90.0 nxrs apps
+          cargo +1.90.0 nxrs platforms
+          cargo +1.90.0 nxrs build --app event-demo --profile mps2-an521-mock --out target/firmware/event-demo/mps2-an521-mock --dry-run
+          cargo +1.90.0 nxrs build --app event-demo --profile pico2-mock --out target/firmware/event-demo/pico2-mock --dry-run
           python3 -m py_compile tests/host/test-event-demo-nuttx.py tests/nuttx-std/run.py
           python3 tests/nuttx-std/run.py --self-test
           python3 tests/nuttx-std/check-abi.py --self-test
@@ -312,7 +312,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/firmware/event-demo/mps2-an521-mock
-          cargo +1.90.0 firmware --app event-demo --platform mps2-an521-mock 2>&1 \
+          cargo +1.90.0 nxrs build --app event-demo --profile mps2-an521-mock --out target/firmware/event-demo/mps2-an521-mock 2>&1 \
             | tee target/firmware/event-demo/mps2-an521-mock/build-wrapper.log
 
       - name: Build actual Pico 2 firmware through Cargo
@@ -320,7 +320,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/firmware/event-demo/pico2-mock
-          cargo +1.90.0 firmware --app event-demo --platform pico2-mock 2>&1 \
+          cargo +1.90.0 nxrs build --app event-demo --profile pico2-mock --out target/firmware/event-demo/pico2-mock 2>&1 \
             | tee target/firmware/event-demo/pico2-mock/build-wrapper.log
 
       - name: Execute Cargo-built Cortex-M33 firmware

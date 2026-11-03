@@ -330,7 +330,7 @@ as distinct claims; host/browser/QEMU tests do not prove physical deadlines.
 | Board pins, buses, registered devices, memory | The board's existing definition and startup path; use devicetree where actually supported. |
 | Service instances and connections | Handwritten Rust in the selected app. |
 | Rates, capacities, and other app settings | Typed Rust configuration; feed settings from the existing build configuration where useful. |
-| HAL resource/provider selection | `cargo firmware --app ... --platform ...` selects one product platform; that platform owns provider features plus board/target configuration. Providers remain dependencies of their facade, not the app. |
+| HAL resource/provider selection | `cargo nxrs build --app ... --platform ...` selects one product platform; that platform owns provider features plus board/target configuration. Providers remain dependencies of their facade, not the app. |
 
 Retain the goal of ergonomic Kconfig/devicetree-quality configuration, not a
 requirement to recreate Zephyr's tooling. Do not maintain a second hardware graph
@@ -353,13 +353,14 @@ for crates needing no such work. [E05]
 Cargo is now the canonical developer-facing build surface:
 
 ~~~sh
-cargo firmware --app event-demo --platform pico2-mock
+cargo nxrs build --app event-demo --profile pico2-mock
 ~~~
 
 The repository alias invokes the narrowly scoped host-side
-`platform/firmware` package. It reads firmware-entry metadata from the selected
+`platform/build` package. It reads firmware-entry metadata from the selected
 app's existing `Cargo.toml`, validates the product-platform selection, and
-passes explicit arguments to one common NuttX backend.
+runs the shared Rust controller for SDK preparation, Cargo and native OS
+build/link/package steps. See [the build interface](build-system.md).
 
 This is not a general `xtask` framework. The helper has one responsibility:
 compose an existing Cargo app with one product platform and produce the firmware

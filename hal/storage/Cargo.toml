@@ -13,3 +13,6 @@ nxrs-camera = { path = "../camera" }
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "linux", "macos", "windows", "nuttx"]
+
+[build-dependencies]
+nxrs-build = { path = "../../platform/build" }

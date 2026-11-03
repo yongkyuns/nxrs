@@ -1,0 +1,10 @@
+--- a/src/unix/nuttx/mod.rs
++++ b/src/unix/nuttx/mod.rs
+@@ -217,6 +217,7 @@
+         pub sun_path: [c_char; 108],
+     }
+ 
++    #[repr(align(8))]
+     pub struct sockaddr_storage {
+         pub ss_family: sa_family_t,
+         ss_data: [u32; __SOCKADDR_STORAGE_SIZE__],

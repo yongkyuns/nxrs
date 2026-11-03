@@ -1,0 +1,7 @@
+# Browser std uses the separately qualified Emscripten pthread runtime.
+# Hardware capabilities remain unbound until browser providers are implemented.
+target-os = ["emscripten"]
+execution = "web"
+target = "wasm32-unknown-emscripten"
+
+[hal]

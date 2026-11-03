@@ -6,7 +6,7 @@ physical boot, module power and sensor performance are not yet qualified.
 It does not inherit the camera board’s flash layout or security deployment.
 
 ```sh
-cargo firmware --app event-demo --platform m5stack-cores3-gnss
+cargo nxrs build --app event-demo --platform cores3
 ```
 
 The board registers raw buses. GNSS owns UART/UBX configuration and decoding; IMU owns I²C,

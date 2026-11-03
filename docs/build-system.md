@@ -1,163 +1,87 @@
-# Build and configuration model
+# Build and platform selection
 
-Cargo is the canonical developer-facing build interface. NuttX still owns the OS
-configuration/final-image steps that Cargo does not model.
+`cargo nxrs` is the host-only Rust build controller in `platform/build`. It owns
+profile resolution, SDK preparation, Cargo invocation, NuttX configuration and
+linking, artifact checks, signing and offline factory packaging. Its dependencies
+are build dependencies; they do not enter firmware.
 
-## Developer interface
+```sh
+cargo nxrs platforms
+cargo nxrs apps
+cargo nxrs build --app home-cam --platform wroom
+cargo nxrs build --app event-demo --platform cores3
+cargo nxrs build --app std-demo --platform macos
+cargo nxrs build --app event-demo --profile pico2-mock --dry-run
+```
 
-Build a firmware image by selecting an app and one product platform:
+The seven platform families are:
 
-~~~sh
-cargo firmware --app event-demo --platform pico2-mock
-cargo firmware --app event-demo --platform esp32s3-qemu-mock
-~~~
+| Platform | Hardware / environment | Default profile |
+| --- | --- | --- |
+| `wroom` | ESP32-S3 WROOM / Freenove N16R8, NuttX | `esp32s3-camera-stream-startup` |
+| `cores3` | M5Stack CoreS3, NuttX | `m5stack-cores3-gnss` |
+| `pico2w` | Raspberry Pi Pico 2 W / RP2350, NuttX | `pico2w-radio` |
+| `linux` | Native Linux | `linux` |
+| `macos` | Native macOS | `macos` |
+| `windows` | Native Windows | `windows` |
+| `web` | Browser, `wasm32-unknown-emscripten` | `web` |
 
-Discovery is also through Cargo:
+`--profile` selects an explicit product or qualification configuration. With
+`--platform`, it must belong to that family. Qualification profiles such as
+`pico2-mock` and `mps2-an521-mock` are configurations, not additional public
+platform families. Native builds target the current host OS.
 
-~~~sh
-cargo firmware --list-apps
-cargo firmware --list-platforms
-~~~
+Platform admission does not imply every HAL is implemented or physically
+qualified. CoreS3 sensor wiring still needs physical qualification. Windows has
+file-camera, storage, IP transport and detector bindings. Web currently builds
+the Emscripten thread qualification; hardware HALs are unbound. Stock
+`wasm32-unknown-unknown` does not provide these std threads.
 
-The repository alias in `.cargo/config.toml` invokes the small host-side
-`nxrs-firmware` binary under `platform/firmware`.
+## Configuration and ownership
 
-## Sources of build data
+Applications keep only entry facts in Cargo metadata: binary, command, priority
+and stack size. App/service source and manifests stay platform-free. Declarative
+profiles under `platform/profiles` and `platform/nuttx/platforms` select hardware
+resources, capabilities, execution/model budgets and OS build settings. HAL
+implementations stay in their owning HAL crates.
 
-There are only two product-facing inputs.
+The CLI and HAL build scripts share one Rust profile resolver. Model dependency
+features follow the profile automatically. There is no shell environment-file
+interpreter or Python platform resolver. Existing qualification entry scripts
+are compatibility adapters; numerical reference/oracle tests remain independent.
 
-### Application Cargo metadata
+Upstream NuttX Make/Kconfig/configure scripts, compilers, CMake and the pinned
+`imgtool`/Espressif SDK remain external tools. Python remains a prerequisite for
+those vendor tools and independent qualification tests. Compiler installation
+and experimental compiler/OS research harnesses remain separate setup/test work.
 
-A firmware-capable app declares execution-entry facts in its existing
-`Cargo.toml`:
+## Inputs and outputs
 
-~~~toml
-[package.metadata.nxrs.firmware]
-bin = "event-demo"
-command = "event_demo"
-priority = 100
-stack-size = 65536
-~~~
+Prepare the pinned sources explicitly; Cargo build scripts do not fetch:
 
-The app's handwritten `main()` remains the service-composition source of truth.
+```sh
+cargo nxrs fetch tls
+cargo nxrs fetch detector
+```
 
-### Product platform
+NuttX needs its existing qualified toolchains. Rust discovers the pinned Xtensa
+bundle beneath `target/qemu-tools` (or `NXRS_QEMU_TOOLS_DIR`) directly. Explicit
+native-board setups can supply their compiler paths and SDK as before. A private
+SDK copy receives checked patches; the installed SDK is not modified. The final
+build checks the actual std source, device libc ABI, ELF, symbols and Kconfig.
 
-`platform/nuttx/platforms/<name>.toml` owns hardware/build realization:
+Signed profiles retain the existing required inputs:
+`NXRS_FIRMWARE_SIGNING_KEY`, `NXRS_FIRMWARE_VERIFY_KEY`,
+`NXRS_FIRMWARE_VERSION` and `NXRS_FIRMWARE_SECURITY_COUNTER`. Packaging verifies
+against the independently supplied public root before publishing an image.
+Build/package commands do not flash, provision or program eFuses.
 
-- NuttX board;
-- Rust target and C toolchain;
-- image format;
-- HAL provider features;
-- required/forbidden Kconfig settings.
+Default output is `target/build/<binary>/<profile>/`; `--out` overrides it.
+An ownership marker prevents reuse of unrelated output directories. Empty
+folders and regular log-only folders can be adopted for qualification drivers.
+Rebuilds clear old success evidence. Provider/profile hashes, SDK patch records,
+ABI/source checks and final image hashes accompany NuttX artifacts.
 
-The platform profile does not contain application identity or service wiring.
-
-This gives the developer-facing model:
-
-~~~text
-app + platform
-      |
-      v
-firmware image
-~~~
-
-rather than requiring:
-
-~~~text
-app + provider list + target triple + board + Kconfig + linker details
-~~~
-
-## Cargo frontend versus NuttX backend
-
-`cargo firmware` resolves app metadata and platform selection, validates names
-and output paths, then calls one common backend with explicit arguments:
-
-~~~text
-cargo firmware
-      |
-      v
-nxrs-firmware
-      |
-      v
-tools/build-nuttx-std-app.sh
-      |
-      +--> configure NuttX/Kconfig
-      +--> prepare the qualified Rust std target
-      +--> invoke Cargo for the selected app/provider graph
-      +--> check Rust/C ABI and imports
-      +--> perform the NuttX final link
-      +--> produce nuttx / nuttx.bin / nuttx.merged.bin
-~~~
-
-The shell backend is intentionally not the user-facing build system. It exists
-because NuttX's own Kconfig/Make/image tooling must be invoked somehow. It no
-longer sources per-app deployment scripts; all application inputs arrive as
-normal flags from the Cargo frontend.
-
-There is no app×target wrapper-script cross product.
-
-## Output layout
-
-Unless `--out` is supplied:
-
-~~~text
-target/firmware/<app>/<platform>/
-~~~
-
-For example:
-
-~~~text
-target/firmware/event-demo/pico2-mock/nuttx/nuttx.bin
-target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
-~~~
-
-The retained provenance includes app package/bin, product platform, selected HAL
-features, NuttX board/target, pinned NuttX source revisions and toolchain
-versions.
-
-## Relationship to Zephyr's model
-
-The split remains intentionally similar to the useful part of Zephyr's
-board/product model without recreating west or Devicetree:
-
-~~~text
-Zephyr:
-app + board/overlay
-       -> enabled hardware/drivers
-
-Nxrs:
-Cargo app + product platform
-       -> selected HAL providers + NuttX board/target
-~~~
-
-Cargo owns the Rust package graph and is the command surface. NuttX owns its
-native OS configuration and final image link.
-
-## Capability-local HALs remain unchanged
-
-The build frontend does not replace the capability facades.
-
-~~~text
-ImuService -> nxrs-imu -> selected provider
-GnssService -> nxrs-gnss -> selected provider
-~~~
-
-Provider features are activated below app/service policy from the selected
-platform. Unselected providers remain outside the active Cargo build graph.
-
-## What is intentionally absent
-
-There is no:
-
-- per-app/per-platform wrapper shell script;
-- checked-in deployment graph;
-- runtime `Platform` trait;
-- giant `Hal` object;
-- global provider registry;
-- generated app/service graph;
-- Devicetree clone;
-- general xtask/task-runner framework.
-
-`nxrs-firmware` has one purpose: compose an existing Cargo app with one
-product platform and produce a firmware image.
+Use `--manifest-path` and optional `--bin` for qualification binaries. The Web
+builder accepts an optional `--html` template containing one `__NXRS_SCRIPT__`
+marker and publishes its verified JS/WASM pair under `site/`.

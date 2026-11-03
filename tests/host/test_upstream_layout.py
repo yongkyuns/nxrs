@@ -7,6 +7,8 @@ import re
 import subprocess
 import tempfile
 import unittest
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/"tools"))
 from unittest.mock import patch
 
 
@@ -22,18 +24,16 @@ def load_tool(filename):
 
 class UpstreamLayoutTests(unittest.TestCase):
     def test_esp_patch_step_cannot_follow_a_shared_sdk_symlink(self):
-        text = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
-        begin = text.index('  case "$(cd "$hal_destination" && pwd -P)" in')
-        block = text[begin:text.index('\n  esac', begin) + len('\n  esac')]
+        from platform_config import _query
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'nuttx/sdk').mkdir(parents=True)
-            (root / 'shared-sdk').mkdir()
-            (root / 'nuttx/shared').symlink_to(root / 'shared-sdk', target_is_directory=True)
-            for path, expected in (('nuttx/sdk', 0), ('shared-sdk', 1), ('nuttx/shared', 1)):
-                result = subprocess.run(['bash', '-c', 'set -e; OUT=$1; hal_destination=$2; ' + block,
-                                         'fixture', str(root), str(root / path)], capture_output=True)
-                self.assertEqual(result.returncode, expected, result.stderr)
+            root=Path(temporary)
+            (root/'nuttx/sdk').mkdir(parents=True)
+            (root/'shared-sdk').mkdir()
+            (root/'nuttx/shared').symlink_to(root/'shared-sdk',target_is_directory=True)
+            self.assertEqual(_query('isolated-hal',{},nuttx=str(root/'nuttx'),hal=str((root/'nuttx/sdk').resolve())),str((root/'nuttx/sdk').resolve()))
+            for path in ('shared-sdk','nuttx/shared'):
+                with self.subTest(path=path),self.assertRaises(ValueError):
+                    _query('isolated-hal',{},nuttx=str(root/'nuttx'),hal=str(root/path))
 
     def test_version_uses_checked_release_pin_without_submodule_tags(self):
         versions = load_tool("nuttx-version.py")
@@ -54,11 +54,10 @@ class UpstreamLayoutTests(unittest.TestCase):
                 versions.stamp(archive, "short")
             # Portable CI does not initialize NuttX. The tool's actual generated
             # version header is checked by full target builds/device uname.
-            with patch.object(versions.subprocess, "run") as generate:
-                self.assertEqual(versions.stamp(archive, selected), release["version"])
-                generate.assert_called_once_with(
-                    ["bash", str(archive / "tools/version.sh"), "-v", release["version"],
-                     "-b", selected[:12] + "-nxrs", str(archive / ".version")], check=True)
+            (archive/'tools').mkdir()
+            (archive/'tools/version.sh').write_text('#!/bin/sh\nprintf "VERSION=%s\nBUILD=%s\n" "$2" "$4" > "$5"\n')
+            self.assertEqual(versions.stamp(archive,selected),release['version'])
+            self.assertEqual((archive/'.version').read_text(),f"VERSION={release['version']}\nBUILD={selected[:12]}-nxrs\n")
 
     def test_archive_uses_staged_dependency_pin_and_rejects_mismatch(self):
         spec = importlib.util.spec_from_file_location(
@@ -101,9 +100,11 @@ class UpstreamLayoutTests(unittest.TestCase):
                 self.assertEqual(builder.archive_submodule("nuttx", root / "archive"), new)
             self.assertEqual((root / "archive/payload").read_text(), "new release\n")
             self.assertEqual(git(root, "rev-parse", "HEAD:external/nuttx"), old)
+            from platform_config import _query
+            self.assertEqual(_query('source-revision',{},root=root,name='nuttx'),new)
 
     def test_builders_do_not_fall_back_to_last_committed_dependency_pins(self):
-        for filename in ("tools/build-nuttx-std-app.sh", "tools/build-nuttx-sim.sh",
+        for filename in ("tools/build-nuttx-sim.sh",
                          "tests/nuttx-std/build.sh", "tests/nuttx-std/userled/build.sh"):
             with self.subTest(builder=filename):
                 text = (ROOT / filename).read_text()

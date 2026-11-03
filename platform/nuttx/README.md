@@ -16,7 +16,7 @@ Applications and services do not know the selected board or provider identity.
 Developers select a platform through Cargo:
 
 ~~~sh
-cargo firmware --app event-demo --platform pico2-mock
+cargo nxrs build --app event-demo --profile pico2-mock
 ~~~
 
 The [CoreS3 navigation profile](../../docs/m5stack-cores3.md) adds raw UART/I²C
@@ -31,13 +31,12 @@ runtime configuration framework.
 
 ## Build mechanics
 
-`platform/firmware` contains the host-side Cargo frontend. It translates the
-selected app + platform into explicit arguments for
-`tools/build-nuttx-std-app.sh`.
+`platform/build` contains the shared Rust controller. It resolves the selected
+app/profile, prepares private sources and SDKs, configures NuttX, invokes Cargo,
+checks the ABI and performs the final Make/link/signing steps. Upstream build
+and cryptographic SDK tools remain external commands. See the concise
+[build interface](../../docs/build-system.md).
 
-The common shell backend is not the developer-facing build system. It owns the
-steps Cargo cannot perform itself: NuttX/Kconfig configuration, prepared std
-integration, ABI checks, NuttX Make/final linking and image generation.
 The exact Apache source pins and the build-time NuttX, NuttX-apps, and Rust
 library patchsets are documented in [upstream-patchsets](../../docs/upstream-patchsets.md).
 

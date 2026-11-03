@@ -32,6 +32,7 @@ on:
       - 'tools/prepare-protected-factory.py'
       - 'hal/boot/**'
       - 'platform/nuttx/mcuboot.py'
+      - 'platform/build/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'platform/nuttx/platforms/esp32s3-camera-stream-mcuboot.toml'
       - 'platform/nuttx/platforms/esp32s3-camera-stream-protected-build.toml'

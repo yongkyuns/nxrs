@@ -8,7 +8,7 @@ members = [
     "app/std-demo",
     "app/ao-stress",
     "app/home-cam",
-    "platform/firmware",
+    "platform/build",
     "hal/detector",
     "service/camera",
     "service/detection",

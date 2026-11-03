@@ -382,7 +382,7 @@ application Cargo metadata
 one product platform
 ~~~
 
-through `cargo firmware --app <app> --platform <platform>`. The selected
+through `cargo nxrs build --app <app> --platform <platform>`. The selected
 product platform supplies capability-provider bindings plus execution
 target/board/OS facts, while main() remains the sole source of service topology.
 There is no separate checked-in deployment graph.

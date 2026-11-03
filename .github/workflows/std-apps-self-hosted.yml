@@ -15,7 +15,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/config.toml'
-      - 'platform/firmware/**'
+      - 'platform/build/**'
       - 'platform/nuttx/**'
       - 'upstream/nuttx/**'
       - 'tools/nuttx-version.py'
@@ -46,7 +46,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/config.toml'
-      - 'platform/firmware/**'
+      - 'platform/build/**'
       - 'platform/nuttx/**'
       - 'upstream/nuttx/**'
       - 'tools/nuttx-version.py'
@@ -140,12 +140,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.90.0 firmware --list-apps | tee /tmp/nxrs-std-apps.txt
+          cargo +1.90.0 nxrs apps | tee /tmp/nxrs-std-apps.txt
           grep -x std-demo /tmp/nxrs-std-apps.txt
           grep -x ao-stress /tmp/nxrs-std-apps.txt
           for app in std-demo ao-stress; do
             for platform in pico2-mock mps2-an521-mock esp32s3-qemu-mock; do
-              cargo +1.90.0 firmware --app "$app" --platform "$platform" --dry-run
+              cargo +1.90.0 nxrs build --app "$app" --profile "$platform" --dry-run
             done
             cargo +1.90.0 tree --locked -p "nxrs-$app" > "/tmp/$app-tree.txt"
             ! grep -E 'nxrs-(imu|gnss|camera|storage|transport)' "/tmp/$app-tree.txt"
@@ -276,9 +276,9 @@ jobs:
                 --bin ao-stack-stress --command ao_stress --priority 100 --stack-size 65536 \
                 --platform "$platform" --out "target/firmware/$APP/$platform"
             elif test "$platform" = mps2-an521-mock; then
-              NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 firmware --app "$APP" --platform "$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
+              NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
             else
-              cargo +1.90.0 firmware --app "$APP" --platform "$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
+              cargo +1.90.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
             fi
           done
       - name: Execute twice on NuttX and verify actual output

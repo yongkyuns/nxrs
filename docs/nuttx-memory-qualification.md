@@ -58,8 +58,8 @@ is still executed twice in the same boot after the diagnostic cycles.
 The existing firmware qualification invokes this automatically:
 
 ```sh
-cargo firmware --app std-demo --platform mps2-an521-mock
-cargo firmware --app ao-stress --platform mps2-an521-mock
+cargo nxrs build --app std-demo --profile mps2-an521-mock
+cargo nxrs build --app ao-stress --profile mps2-an521-mock
 
 python3 tests/host/run-std-apps-nuttx.py \
   --qemu "$(command -v qemu-system-arm)" \

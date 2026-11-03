@@ -31,3 +31,6 @@ required-features = ["pico-model"]
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["linux", "macos", "windows", "nuttx"]
+
+[build-dependencies]
+nxrs-build = { path = "../../platform/build" }

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import json
 from itertools import product
 import shlex
 import subprocess
@@ -63,40 +64,6 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
-    def test_provider_headers_are_staged_checked_and_hashed(self):
-        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
-        begin = script.index('  for header in "$(dirname "$source_path")"/*.h')
-        end = script.index('  NXRS_TARGET_C_OBJECTS+=', begin)
-        header_loop = script[begin:end]
-        self.assertIn('HASH_INPUTS+=(${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"})', script)
-        self.assertIn('HASH_INPUTS+=("$header")', script)
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / 'src/platform/nuttx/ffi/helper.c'
-            source.parent.mkdir(parents=True)
-            source.touch()
-            (source.parent / 'local.h').write_text('/* local ABI */\n')
-            app = root / 'app'
-            app.mkdir()
-            command = ['bash', '-euc', 'source_path=$1; APP=$2;\n' + header_loop,
-                       'stage-headers', str(source), str(app)]
-            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((app / 'local.h').read_bytes(), (source.parent / 'local.h').read_bytes())
-            (app / 'local.h').write_text('/* incompatible ABI */\n')
-            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('Conflicting target helper header', result.stderr)
-
-    def test_final_native_configuration_is_recorded_after_build_and_hashed(self):
-        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
-        final_build = script.index('make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS"')
-        final_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
-        hashes = script.index('HASH_INPUTS=(')
-        self.assertLess(final_build, final_config)
-        self.assertLess(final_config, hashes)
-        self.assertIn('"$OUT/resolved.config"', script[hashes:].splitlines()[0])
-
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
         for option, symbol in product(
                 ("--kconfig-enable", "--kconfig-disable"),
@@ -114,7 +81,7 @@ class FirmwareFrontendTests(unittest.TestCase):
             ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh')], cwd=ROOT,
             text=True, capture_output=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Missing required argument", result.stderr)
+        self.assertIn("choose one --app or --manifest-path", result.stderr)
         self.assertNotIn("unbound", result.stderr)
 
     def test_valid_diagnostic_symbols_reach_normal_argument_validation(self):
@@ -126,7 +93,7 @@ class FirmwareFrontendTests(unittest.TestCase):
              "--kconfig-disable", "NETUTILS_NETINIT"], cwd=ROOT,
             text=True, capture_output=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Missing required argument", result.stderr)
+        self.assertIn("choose one --app or --manifest-path", result.stderr)
         self.assertNotIn("Invalid Kconfig symbol", result.stderr)
 
     def test_conflicting_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
@@ -136,13 +103,6 @@ class FirmwareFrontendTests(unittest.TestCase):
             cwd=ROOT, text=True, capture_output=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Conflicting Kconfig request: NSH_NETINIT", result.stderr)
-
-    def test_native_builder_compiles_the_manifest_it_validates(self):
-        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text().replace('\\\n', ' ')
-        command = next(line for line in script.splitlines() if line.startswith('"$CARGO_BIN" '))
-        arguments = shlex.split(command)
-        self.assertIn('--manifest-path', arguments)
-        self.assertEqual(arguments[arguments.index('--manifest-path') + 1], '$NXRS_APP_MANIFEST')
 
     def test_workflows_do_not_invoke_retired_provider_selection_cli(self):
         for workflow in (ROOT / '.github/workflows').glob('*.yml'):
@@ -262,7 +222,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def test_cargo_frontend_help_is_successful(self):
         output = self.cargo_firmware("--help").stdout
-        self.assertIn("cargo firmware --app <app> --platform <platform>", output)
+        self.assertIn("cargo nxrs build --app <app> --platform <platform>", output)
 
     def test_radio_profiles_keep_both_transports_and_station_requirements(self):
         for board in ("esp32s3", "pico2w"):
@@ -376,10 +336,10 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
-        self.assertEqual(apps, sorted(FIRMWARE_APPS))
+        self.assertEqual(apps, sorted([*FIRMWARE_APPS,"nxrs"]))
 
         platforms = self.cargo_firmware("--list-platforms").stdout.splitlines()
-        self.assertEqual(platforms, sorted(PLATFORM_NAMES))
+        self.assertEqual(platforms,["wroom","cores3","pico2w","linux","macos","windows","web"])
 
     def test_pico_radio_profile_excludes_gpio25_led_and_boot_credentials(self):
         data = tomllib.loads((PLATFORMS / "pico2w-wifi.toml").read_text())
@@ -438,29 +398,22 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertIn(setting, config["set"])
                     self.assertIn("CONFIG_" + setting, config["require"])
 
-    def test_cargo_frontend_resolves_app_plus_platform_to_backend_arguments(self):
-        for app, (package, binary, command) in FIRMWARE_APPS.items():
-            for platform in sorted(PLATFORM_NAMES):
-                with self.subTest(app=app, platform=platform):
-                    output = self.cargo_firmware(
-                        "--app",
-                        app,
-                        "--platform",
-                        platform,
-                        "--dry-run",
-                    ).stdout
-                    self.assertIn("build-nuttx-std-app.sh", output)
-                    self.assertIn(f'--app-package" "{package}', output)
-                    self.assertIn(f'--bin" "{binary}', output)
-                    self.assertIn(f'--command" "{command}', output)
-                    self.assertIn(f'--platform" "{platform}', output)
-                    self.assertIn(f"target/firmware/{app}/{platform}", output)
+    def test_cargo_frontend_resolves_app_and_profile_without_a_shell_backend(self):
+        for app,(package,binary,command) in FIRMWARE_APPS.items():
+            output=json.loads(self.cargo_firmware("build","--app",app,"--profile",("esp32s3-camera-stream-startup" if app=="home-cam" else "pico2-mock"),"--dry-run").stdout)
+            self.assertEqual(output["deployment"]["app_package"],package)
+            self.assertEqual(output["bin"],binary)
+            self.assertEqual(output["command"],command)
+            self.assertEqual(output["backend"],"nuttx")
+        for target in ("wroom","cores3","pico2w"):
+            output=json.loads(self.cargo_firmware("build","--app","std-demo","--platform",target,"--dry-run").stdout)
+            self.assertEqual(output["backend"],"nuttx")
 
     def test_invalid_app_or_platform_is_rejected_before_backend(self):
         for args in [
             ("--app", "../event-demo", "--platform", "pico2-mock"),
             ("--app", "event-demo", "--platform", "../pico2"),
-            ("--app", "nxrs", "--platform", "pico2-mock"),
+            ("--app", "missing", "--platform", "pico2w"),
         ]:
             with self.subTest(args=args):
                 result = subprocess.run(

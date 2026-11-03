@@ -1,0 +1,133 @@
+--- a/esp-dl/dl/base/dl_base_pool2d.hpp
++++ b/esp-dl/dl/base/dl_base_pool2d.hpp
+@@ -157,7 +157,7 @@
+ #endif
+     int c_div_x = args.input_channel / u;
+     if (args.c_remainder != 0 && args.input_x_offset % u == 0 && args.output_x_offset % u == 0 &&
+-        !((unsigned)&args.input_element[0] & 15) && !((unsigned)&args.output_element[0] & 15)) {
++        !((uintptr_t)&args.input_element[0] & 15) && !((uintptr_t)&args.output_element[0] & 15)) {
+         c_div_x += 1;
+     }
+     args.c_div_x_1 = c_div_x - 1;
+--- a/esp-dl/dl/module/include/dl_module_base.hpp
++++ b/esp-dl/dl/module/include/dl_module_base.hpp
+@@ -7,7 +7,7 @@
+ #include "dl_tool_cache.hpp"
+ #include "fbs_model.hpp"
+ #include <functional>
+-#include <iostream>
++
+ 
+ namespace dl {
+ // Define the enum type for module in-place operation mode
+@@ -26,7 +26,7 @@
+ public:
+     char *name;                       ///< Name of module
+     module_inplace_t inplace;         ///< Inplace type
+-    quant_type_t quant_type;          ///< Quantization type
++    static constexpr quant_type_t quant_type = QUANT_TYPE_SYMM_8BIT;          ///< Quantization type
+     std::vector<int> m_inputs_index;  ///< Tensor index of model's tensors that used for inputs
+     std::vector<int> m_outputs_index; ///< Tensor index of model's tensors that used for outputs
+ 
+@@ -143,65 +143,8 @@
+                      runtime_mode_t mode = RUNTIME_MODE_SINGLE_CORE);
+ };
+ 
+-/**
+- * @brief The data struct of module task. Pack all necessary information as the input for module task.
+- */
+-typedef struct {
+-    Module *op;                   ///< Module instance pointer
+-    void *args;                   ///< ArgsType, arithArgsType, resizeArgsType and so on
+-    SemaphoreHandle_t &semaphore; ///< recommend xSemaphoreCreateCounting
+-} module_task_data_t;
++static void module_forward_dual_core(Module *, void *, void *) { abort(); }
+ 
+-/**
+- * @brief The function of module task.
+- * @param args The data of module task.
+- */
+-static void module_forward_task(void *args)
+-{
+-    module_task_data_t *task = (module_task_data_t *)args;
+-    task->op->forward_args(task->args);
+-    xSemaphoreGive(task->semaphore);
+-    vTaskSuspend(NULL);
+-}
+-#pragma GCC diagnostic push
+-#pragma GCC diagnostic ignored "-Wunused-function"
+-/**
+- * @brief Run the module with dual core and use semaphores to keep tasks in sync
+- *
+- * @param op            Module instance
+- * @param args1         Task1 args: ArgsType, arithArgsType, resizeArgsType and so on
+- * @param args2         Task2 args: ArgsType, arithArgsType, resizeArgsType and so on
+- */
+-static void module_forward_dual_core(Module *op, void *args1, void *args2)
+-{
+-    BaseType_t current_core_id = xPortGetCoreID();
+-    UBaseType_t current_priority = uxTaskPriorityGet(xTaskGetCurrentTaskHandle());
+-    SemaphoreHandle_t semaphore = xSemaphoreCreateCounting(2, 0);
+-    TaskHandle_t xHandleTask1, xHandleTask2;
+-
+-    module_task_data_t task_data1 = {
+-        .op = op,
+-        .args = args1,
+-        .semaphore = semaphore,
+-    };
+-    xTaskCreatePinnedToCore(
+-        module_forward_task, NULL, 2048, &task_data1, current_priority, &xHandleTask1, (current_core_id + 1) % 2);
+-
+-    module_task_data_t task_data2 = {
+-        .op = op,
+-        .args = args2,
+-        .semaphore = semaphore,
+-    };
+-    xTaskCreatePinnedToCore(
+-        module_forward_task, NULL, 2048, &task_data2, current_priority, &xHandleTask2, current_core_id);
+-
+-    xSemaphoreTake(semaphore, portMAX_DELAY);
+-    xSemaphoreTake(semaphore, portMAX_DELAY);
+-    vSemaphoreDelete(semaphore);
+-    vTaskDelete(xHandleTask1);
+-    vTaskDelete(xHandleTask2);
+-}
+-#pragma GCC diagnostic pop
+ 
+ } // namespace module
+ } // namespace dl
+--- a/esp-dl/dl/module/include/dl_module_creator.hpp
++++ b/esp-dl/dl/module/include/dl_module_creator.hpp
+@@ -67,7 +67,7 @@
+ #include "dl_module_unsqueeze.hpp"
+ #include "fbs_loader.hpp"
+ #include <functional>
+-#include <iostream>
++
+ #include <malloc.h>
+ #include <map>
+ namespace dl {
+--- a/esp-dl/dl/module/src/dl_module_base.cpp
++++ b/esp-dl/dl/module/src/dl_module_base.cpp
+@@ -6,8 +6,9 @@
+ namespace dl {
+ namespace module {
+ Module::Module(const char *name, module_inplace_t inplace, quant_type_t quant_type) :
+-    inplace(inplace), quant_type(quant_type)
++    inplace(inplace)
+ {
++    if (quant_type != QUANT_TYPE_SYMM_8BIT) abort();
+ #if DL_LOG_MODULE_NAME
+     if (name) {
+         int length = strlen(name) + 1;
+--- a/esp-dl/dl/tensor/src/dl_tensor_base.cpp
++++ b/esp-dl/dl/tensor/src/dl_tensor_base.cpp
+@@ -1,7 +1,7 @@
+ #include "dl_tensor_base.hpp"
+ #include "dl_base_pad.hpp"
+ #include "dl_base_requantize_linear.hpp"
+-#include <iostream>
++
+ namespace dl {
+ 
+ template <typename RT, typename T>

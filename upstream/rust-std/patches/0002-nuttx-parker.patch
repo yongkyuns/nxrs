@@ -1,0 +1,13 @@
+--- a/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/pthread.rs
++++ b/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/pthread.rs
+@@ -27,6 +27,10 @@
+             lock: Mutex::new(),
+             cvar: Condvar::new(),
+         });
++
++        // NuttX libc bindings do not encode its configured static mutex initializer.
++        #[cfg(target_os = "nuttx")]
++        Pin::new_unchecked(&mut (*parker).lock).init();
+ 
+         Pin::new_unchecked(&mut (*parker).cvar).init();
+     }

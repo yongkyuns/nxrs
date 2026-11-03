@@ -3,6 +3,8 @@ from pathlib import Path
 import importlib.util
 import tempfile
 import unittest
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/"tools"))
 
 SOURCE = Path(__file__).resolve().parents[2] / "tools/check-deployment.py"
 SPEC = importlib.util.spec_from_file_location("deployment", SOURCE)

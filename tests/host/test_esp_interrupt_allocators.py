@@ -42,15 +42,10 @@ class EspInterruptAllocatorTests(unittest.TestCase):
         self.source.parent.mkdir(parents=True)
         patch_text = PATCH.read_text()
         self.source.write_text(source_preimage(patch_text, SOURCE, expected_lines=None))
-        marker = self.source_root / MARKER_SOURCE
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(source_preimage(MBEDTLS_PATCH.read_text(), MARKER_SOURCE))
         result = subprocess.run(
-            [sys.executable, str(APPLICATOR), "--component", "esp-hal-3rdparty",
-             "--source", str(self.source_root), "--revision", "fixture",
-             "--record", str(self.root / "applied.json")],
-            capture_output=True, text=True,
-        )
+            ['cargo','nxrs','patch-file','--source',str(self.source_root),'--patch',str(PATCH),
+             '--out',str(self.root),'--name','applied.patch'],cwd=ROOT,
+            capture_output=True,text=True,timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.patch_text = patch_text
 

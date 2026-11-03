@@ -1,8 +1,0 @@
-[package]
-name = "nxrs-firmware"
-version.workspace = true
-edition.workspace = true
-
-[[bin]]
-name = "nxrs-firmware"
-path = "src/main.rs"

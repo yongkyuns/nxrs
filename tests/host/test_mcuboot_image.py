@@ -49,7 +49,7 @@ class LayoutTests(unittest.TestCase):
         for args in ([], ["--out", "/private/tmp/nxrs-product-signing-guard"]):
             with self.subTest(args=args):
                 result = subprocess.run(
-                    ["cargo", "firmware", "--app", "home-cam", "--platform", "esp32s3-camera-stream-startup", *args],
+                    ["cargo", "firmware", "--app", "home-cam", "--platform", "wroom", *args],
                     cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("MCUboot build requires NXRS_FIRMWARE_SIGNING_KEY", result.stderr)
@@ -117,7 +117,7 @@ class SigningTests(unittest.TestCase):
                     IMAGE.sign(source, protected, GEOMETRY, key, root, "1.2.3+4", 7)
             for verification_root, data in ((wrong, source.read_bytes()), (root, b"x" * 0x10000)):
                 source.write_bytes(data)
-                with self.assertRaises(subprocess.CalledProcessError):
+                with self.assertRaises((subprocess.CalledProcessError,ValueError)):
                     IMAGE.sign(source, output, GEOMETRY, key, verification_root, "1.2.3+4", 7)
                 self.assertEqual(output.read_bytes(), good)
             corrupt = bytearray(good)

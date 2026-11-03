@@ -74,15 +74,11 @@ class BootWiringTests(unittest.TestCase):
             subprocess.run(["cc", "-I"+str(tools), str(tools/"mkconfig.c"), str(tools/"cfgdefine.c"),
                             "-o", str(work/"mkconfig")], check=True, capture_output=True)
             (work/".config").write_text('CONFIG_INIT_ARGS="old"\nCONFIG_INIT_ENTRYPOINT="old_main"\n')
-            backend = (ROOT / "tools/build-nuttx-std-app.sh").read_text()
-            writer = backend.split("<<'PY_SET'\n", 1)[1].split("\nPY_SET", 1)[0]
-            subprocess.run([sys.executable, "-c", writer, *[f"{key}={value}" for key, value in values.items()]],
-                           cwd=work, check=True, capture_output=True)
-            validation = 'for required in "${NUTTX_REQUIRE[@]:-}"; do' + backend.split(
-                'for required in "${NUTTX_REQUIRE[@]:-}"; do', 1)[1].split("\ndone", 1)[0] + "\ndone\n"
-            subprocess.run(["bash", "-c", 'NUTTX_REQUIRE=("$@")\nNXRS_DEPLOYMENT=fixture\n'+validation,
-                            "fixture", *[f"CONFIG_{key}={value}" for key, value in values.items()]],
-                           cwd=work, check=True, capture_output=True)
+            from platform_config import _query
+            def write_config(values):
+                required=[f"# CONFIG_{key} is not set" if value=="n" else f"CONFIG_{key}={value}" for key,value in values.items()]
+                _query('kconfig',{},path=str(work/'.config'),values=values,requirements=required)
+            write_config(values)
             header = subprocess.check_output([str(work/"mkconfig"), str(work)])
             (work/"config.h").write_bytes(header)
             (work/"witness.c").write_text('''#include "config.h"
@@ -106,8 +102,7 @@ int main(void) {
             # Empty product args must survive the actual NuttX config writer/header tool.
             profile["init"]["args"] = []
             values = configure(profile, "home_cam", 100, 32768)
-            subprocess.run([sys.executable, "-c", writer, *[f"{key}={value}" for key, value in values.items()]],
-                           cwd=work, check=True, capture_output=True)
+            write_config(values)
             (work/"config.h").write_bytes(subprocess.check_output([str(work/"mkconfig"), str(work)]))
             subprocess.run(["cc", "-Wall", "-Wextra", "-Werror", str(work/"witness.c"),
                             "-o", str(work/"witness")], check=True, capture_output=True)
@@ -678,7 +673,7 @@ class RomSigningTests(unittest.TestCase):
             data = bytearray(good)
             data[64] ^= 1
             image.write_bytes(data)
-            with self.assertRaises(subprocess.CalledProcessError):
+            with self.assertRaises((subprocess.CalledProcessError,ValueError)):
                 factory.prepare(profile, directory, image, root, app_root, flash_key, directory / "corrupt")
             self.assertFalse((directory / "corrupt").exists())
             data = bytearray(good)

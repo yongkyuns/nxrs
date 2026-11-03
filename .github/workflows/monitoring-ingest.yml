@@ -14,6 +14,7 @@ on:
       - 'upstream/mbedtls/**'
       - 'platform/profiles/linux*.toml'
       - 'platform/hal-build.rs'
+      - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tools/hal_native.py'
       - 'Cargo.toml'

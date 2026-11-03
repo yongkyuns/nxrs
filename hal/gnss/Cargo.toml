@@ -14,3 +14,6 @@ platforms = ["mock", "nuttx"]
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }
+
+[build-dependencies]
+nxrs-build = { path = "../../platform/build" }

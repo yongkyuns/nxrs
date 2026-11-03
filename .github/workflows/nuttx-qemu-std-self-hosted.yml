@@ -13,6 +13,7 @@ on:
       - 'hal/support/nuttx/**'
       - 'platform/hal-build.rs'
       - 'platform/profiles/**'
+      - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'platform/nuttx/qualification/**'
       - 'tools/build-nuttx-qemu.sh'

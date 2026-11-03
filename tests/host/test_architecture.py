@@ -24,7 +24,7 @@ class ArchitectureTests(unittest.TestCase):
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
                                ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
-                               ('driver', 'driver/demo'), ('platform', 'platform/firmware'),
+                               ('driver', 'driver/demo'), ('platform', 'platform/build'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
             self.package(name, location)
         self.metadata = {'packages': list(self.packages.values()),
@@ -59,6 +59,13 @@ class ArchitectureTests(unittest.TestCase):
         self.add('support', 'camera')
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
+
+    def test_host_build_exception_does_not_allow_runtime_or_app_edges(self):
+        for source in ('camera','app','service'):
+            for kind in (None,'dev','build'):
+                self.add(source,'platform',kind=kind)
+                self.assertEqual(bool(self.violations()),not(source=='camera' and kind in ('build','dev')))
+                self.packages[source]['dependencies'].clear()
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
         for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
