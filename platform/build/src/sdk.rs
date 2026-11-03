@@ -53,6 +53,7 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     for (path, expected) in files {
         expect(&source.join(LIBRARY).join(path), expected)?;
     }
+    fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let destination = out.join("toolchain");
     source::copy_tree(source, &destination)?;
     let library = destination.join(LIBRARY);
@@ -172,7 +173,13 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     }
     apply_dependency_patch(
         &destination,
-        &root.join("upstream/rust-std/patches/0005-nuttx-libc-override.patch"),
+        &root
+            .join("upstream/rust-std/patches")
+            .join(if sdk == "esp-1.90.0.0" {
+                "0005-nuttx-libc-override.patch"
+            } else {
+                "0006-nightly-nuttx-libc-override.patch"
+            }),
         out,
         "std-libc-override.patch",
     )?;
@@ -268,6 +275,29 @@ mod tests {
         std::os::unix::fs::symlink(&outside, &lock).unwrap();
         assert!(rewrite_lock(&private, &lock, "0.2.175").is_err());
         assert_eq!(read(&outside).unwrap(), original);
+    }
+    #[test]
+    fn libc_override_accepts_both_supported_manifest_endings() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let manifest = temp.0.join(LIBRARY).join("Cargo.toml");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        let patches = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../upstream/rust-std/patches");
+        let anchor = "[patch.crates-io]\nrustc-std-workspace-core = { path = 'rustc-std-workspace-core' }\nrustc-std-workspace-alloc = { path = 'rustc-std-workspace-alloc' }\nrustc-std-workspace-std = { path = 'rustc-std-workspace-std' }\n";
+        for (name, tail) in [
+            ("0006-nightly-nuttx-libc-override.patch", ""),
+            (
+                "0005-nuttx-libc-override.patch",
+                "compiler_builtins = { path = \"compiler-builtins/compiler-builtins\" }\n",
+            ),
+        ] {
+            let patch = patches.join(name);
+            fs::write(&manifest, format!("{anchor}{tail}")).unwrap();
+            source::patch(&temp.0, &patch).unwrap();
+            let text = read(&manifest).unwrap();
+            assert!(text.contains("libc = { path = 'libc-nuttx' }"));
+            assert!(text.ends_with(tail));
+            assert!(source::patch(&temp.0, &patch).is_err());
+        }
     }
     #[test]
     fn locks_only_selected_libc() {

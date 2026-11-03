@@ -243,7 +243,7 @@ fn profile_command(args: &[String]) -> Result<ExitCode> {
 }
 
 fn run() -> Result<ExitCode> {
-    let raw = env::args_os()
+    let mut raw = env::args_os()
         .skip(1)
         .map(|arg| {
             arg.into_string()
@@ -262,7 +262,16 @@ fn run() -> Result<ExitCode> {
         nxrs_build::linker::link(&raw[1..])?;
         return Ok(ExitCode::SUCCESS);
     }
-    let root = workspace_root()?;
+    let root = if raw.first().is_some_and(|s| s == "--workspace-root") {
+        let path = raw.get(1).ok_or("missing workspace root")?;
+        let root = PathBuf::from(path)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        raw.drain(..2);
+        root
+    } else {
+        workspace_root()?
+    };
     let command = raw.first().map(String::as_str).unwrap_or("--help");
     match command {
         "-h" | "--help" => println!("{}", usage()),

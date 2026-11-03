@@ -108,8 +108,8 @@ NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
 NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
 ~~~
 
-Explicit platform builds require Python 3.11+ for the shared TOML resolver.
-`NXRS_PYTHON` can select its executable. A build without `NXRS_PLATFORM`
+Explicit platform builds use the shared Rust profile resolver.
+A build without `NXRS_PLATFORM`
 compiles portable contracts/common code, with no implicit hardware or mock.
 
 `NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT as well as the

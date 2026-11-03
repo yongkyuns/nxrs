@@ -992,8 +992,10 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
         .map_err(|e| e.to_string())?;
     source::copy_tree(&cache, destination)?;
     let destination = destination.canonicalize().map_err(|e| e.to_string())?;
-    if output(source::git(&destination).args(["rev-parse", "--absolute-git-dir"]))?.trim()
-        != destination.join(".git").to_str().ok_or("HAL path UTF-8")?
+    if output(source::git(&destination).args(["rev-parse", "--show-toplevel"]))?.trim()
+        != destination.to_str().ok_or("HAL path UTF-8")?
+        || output(source::git(&destination).args(["rev-parse", "--absolute-git-dir"]))?.trim()
+            != destination.join(".git").to_str().ok_or("HAL path UTF-8")?
     {
         return Err("copied HAL Git metadata escapes build checkout".into());
     }
@@ -1008,7 +1010,17 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
         let metadata = PathBuf::from(
             output(source::git(&module).args(["rev-parse", "--absolute-git-dir"]))?.trim(),
         );
-        if !metadata.starts_with(destination.join(".git")) {
+        if !metadata
+            .canonicalize()
+            .map_err(|e| e.to_string())?
+            .starts_with(destination.join(".git"))
+            || !module
+                .canonicalize()
+                .map_err(|e| e.to_string())?
+                .starts_with(&destination)
+            || output(source::git(&module).args(["rev-parse", "--show-toplevel"]))?.trim()
+                != module.to_str().ok_or("HAL module path UTF-8")?
+        {
             return Err("copied submodule Git metadata escapes build checkout".into());
         }
         run(source::git(&module).args(["clean", "-fdx"]))?;
@@ -1019,6 +1031,42 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn copied_hal_cache_cannot_clean_the_original_worktree() {
+        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+        let cache = temp.0.join("cache");
+        fs::create_dir(&cache).unwrap();
+        run(source::git(&cache).args(["init", "--quiet"])).unwrap();
+        fs::write(cache.join("tracked"), "source").unwrap();
+        run(source::git(&cache).args(["add", "tracked"])).unwrap();
+        run(source::git(&cache).args([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ]))
+        .unwrap();
+        let revision = output(source::git(&cache).args(["rev-parse", "HEAD"])).unwrap();
+        fs::write(cache.join("keep"), "untracked cache content").unwrap();
+        let clean = temp.0.join("clean");
+        copy_hal_cache(&cache, &clean, revision.trim()).unwrap();
+        assert!(!clean.join("keep").exists());
+        assert!(cache.join("keep").exists());
+        run(source::git(&cache)
+            .args(["config", "core.worktree"])
+            .arg(&cache))
+        .unwrap();
+        let error = copy_hal_cache(&cache, &temp.0.join("escaped"), revision.trim()).unwrap_err();
+        assert!(error.contains("escapes build checkout"));
+        assert!(cache.join("keep").exists());
+    }
     #[test]
     fn literal_config_and_resolution() {
         let temp = crate::TempDir::new(&env::temp_dir()).unwrap();

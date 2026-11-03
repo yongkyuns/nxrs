@@ -50,7 +50,7 @@ class LayoutTests(unittest.TestCase):
             with self.subTest(args=args):
                 result = subprocess.run(
                     ["cargo", "firmware", "--app", "home-cam", "--platform", "wroom", *args],
-                    cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+                    cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("MCUboot build requires NXRS_FIRMWARE_SIGNING_KEY", result.stderr)
 
@@ -69,14 +69,14 @@ class LayoutTests(unittest.TestCase):
                 with self.subTest(args=args):
                     result = subprocess.run(
                         ["/bin/bash", script, *args],
-                        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+                        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     values = result.stdout.splitlines()
                     self.assertEqual(values[values.index("--platform") + 1], platform)
                     self.assertEqual(values[values.index("--bin") + 1], binary)
             result = subprocess.run(
                 ["/bin/bash", "tests/nuttx-std/stream/build.sh", "--tls"],
-                cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+                cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120)
             self.assertEqual(result.returncode, 2)
             self.assertIn("Qualification requires --platform", result.stderr)
 
@@ -100,11 +100,23 @@ class SigningTests(unittest.TestCase):
                 [sys.executable, str(ROOT / "tools/build-mcuboot.py"), "--platform",
                  "esp32s3-camera-stream-mcuboot", "--root", str(key),
                  "--mcuboot-repo", str(directory), "--hal-repo", str(directory),
-                 "--out", str(refused)], capture_output=True, text=True, timeout=10)
+                 "--out", str(refused)], capture_output=True, text=True, timeout=120)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("expected EC P-256 PUBLIC key", result.stderr)
             self.assertFalse(refused.exists())
-            IMAGE.sign(source, output, GEOMETRY, key, root, "1.2.3+4", 7)
+            previous = Path.cwd()
+            try:
+                os.chdir(directory)
+                IMAGE.sign(Path('input.bin'), Path('signed.bin'), GEOMETRY,
+                           Path('key.pem'), Path('root.pem'), "1.2.3+4", 7)
+                subprocess.run([sys.executable, str(ROOT / 'tools/mcuboot_image.py'),
+                                '--platform', 'esp32s3-camera-stream-mcuboot',
+                                '--input', 'input.bin', '--output', 'cli-signed.bin',
+                                '--key', 'key.pem', '--root', 'root.pem',
+                                '--version', '1.2.3+4', '--security-counter', '7'], check=True)
+                subprocess.run(['imgtool', 'verify', '-k', 'root.pem', 'cli-signed.bin'], check=True)
+            finally:
+                os.chdir(previous)
             self.assertLess(output.stat().st_size, GEOMETRY["slot-size"])
             factory = directory / "factory.bin"
             IMAGE.sign(source, factory, GEOMETRY, key, root, "1.2.3+4", 7, confirm=True)

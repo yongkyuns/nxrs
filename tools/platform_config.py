@@ -20,8 +20,12 @@ def _frontend():
     return ROOT/'target/debug'/('nxrs-build.exe' if os.name=='nt' else 'nxrs-build')
 
 
+def _cli(command, arguments):
+    return subprocess.call([str(_frontend()), '--workspace-root', str(ROOT), command, *arguments])
+
+
 def _query(action, data=None, root=ROOT, **arguments):
-    result = subprocess.run([str(_frontend()),'inspect-profile'], cwd=ROOT,
+    result = subprocess.run([str(_frontend()), '--workspace-root', str(ROOT), 'inspect-profile'],
                             input=json.dumps(dict(action=action, data=data, root=str(root), **arguments)),
                             text=True, capture_output=True, timeout=120)
     if result.returncode:

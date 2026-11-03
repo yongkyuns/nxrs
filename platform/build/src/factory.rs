@@ -119,7 +119,7 @@ pub fn prepare(p: &Profile, input: Inputs<'_>, out: &Path) -> Result<()> {
     }
     // The pinned SDK owns trailer layout. This is a single vendor API operation;
     // admission, ownership, bounds, encryption sequencing and publication stay in Rust.
-    let trailer=output_bytes(Command::new("python3").args(["-c","from imgtool.image import Image; import sys; i=Image(align=32,max_align=32,max_sectors=int(sys.argv[1]),confirm=True); i.payload=bytearray(); i.pad_to(i._trailer_size(32,i.max_sectors,False,None,False,0)); sys.stdout.buffer.write(i.payload)",&(b.slot/b.erase).to_string()]))?;
+    let trailer=output_bytes(Command::new("python3").args(["-c","from importlib.metadata import version\nimport sys\nif version('imgtool') != '2.2.0': sys.exit('factory API requires imgtool 2.2.0')\nfrom imgtool.image import Image;  i=Image(align=32,max_align=32,max_sectors=int(sys.argv[1]),confirm=True); i.payload=bytearray(); i.pad_to(i._trailer_size(32,i.max_sectors,False,None,False,0)); sys.stdout.buffer.write(i.payload)",&(b.slot/b.erase).to_string()]))?;
     if trailer.is_empty() || trailer.len() > image.len() || !image.ends_with(&trailer) {
         return Err("factory image needs a fresh upstream confirmed trailer".into());
     }

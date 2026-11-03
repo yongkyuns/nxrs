@@ -616,6 +616,16 @@ class RomSigningTests(unittest.TestCase):
             flash_key.write_bytes(os.urandom(32))
             output = directory / "bundle"
             factory.prepare(profile, directory, image, root, app_root, flash_key, output)
+            fake_sdk = directory / 'mismatched-python-sdk'
+            metadata_dir = fake_sdk / 'imgtool-0.0.0.dist-info'
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / 'METADATA').write_text('Name: imgtool\nVersion: 0.0.0\n')
+            from unittest.mock import patch
+            with patch.dict(os.environ, {'PYTHONPATH': str(fake_sdk)}):
+                with self.assertRaisesRegex(ValueError, 'factory API requires imgtool 2.2.0'):
+                    factory.prepare(profile, directory, image, root, app_root, flash_key,
+                                    directory / 'mismatched-factory')
+            self.assertFalse((directory / 'mismatched-factory').exists())
             manifest = json.loads((output / "factory.json").read_text())
             self.assertFalse(manifest["hardware_qualified"])
             self.assertFalse(manifest["runtime_updates"])

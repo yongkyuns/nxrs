@@ -83,7 +83,7 @@ jobs:
 
       - name: Enforce capability and service boundaries
         run: |
-          cargo +1.90.0 test --locked -p nxrs-firmware
+          cargo +1.90.0 test --locked -p nxrs-build
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
