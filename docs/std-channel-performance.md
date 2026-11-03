@@ -12,6 +12,7 @@ the production transport or replacing the RTOS.
 | --- | --- | --- |
 | [October ESP32-S3 service comparison](rtos-comparison.md) | Physical native-API C/Rust/Zephyr/Embassy behavior, capacity, timing and footprint for its recorded workload | Its NuttX Rust uses native threads/queues, not `std::thread` or std channels |
 | [Earlier std/NuttX qualification](nuttx-std.md) and [RTOS fixture](rtos-benchmarking.md) | Recorded ABI, lifecycle, implementation comparisons and QEMU behavior | Host/QEMU time cannot establish physical MCU latency; a ready message does not prove a parked receiver |
+| [November 2 physical std-channel cohort](../tests/std-channel-perf/results/2026-11-02-esp32s3/README.md) | 3,000 independently verified blocked receives on ESP32-S3 N16R8; actual-std reserved-slot stall and published control | Counter data is physical; time conversion remains uncalibrated, with no cross-RTOS ranking |
 | [Beningo report extraction](../tests/rtos-bench/report-reference.json) | Historical NuttX 12.13.0 results on an 80 MHz STM32L475, with documented source/configuration gaps | Percentages are normalized independently within each test row; they are neither absolute operations/s nor an overall RTOS score |
 | Source audit below | Mechanisms and concrete optimization candidates | Source inspection establishes neither their fraction of runtime nor a measured speedup |
 | `tests/std-channel-perf` | Reproducible cases and comparison contracts for the std path | Each claimed result still needs its own executable, environment and raw observations |
@@ -108,7 +109,16 @@ verifies 64 blocked-receiver samples after a SysTick timestamp correction,
 preserving the earlier rejected clock readings. These observations use a frozen
 `c03ac02`-based worktree before integration with later main changes; the archive
 records that boundary and the SysTick patch's later renumbering. Physical-target
-builds remain build-only, and emulator timing establishes no MCU speed ranking.
+builds in that archive remain build-only, and emulator timing establishes no MCU
+speed ranking.
+
+The separate [physical N16R8 cohort](../tests/std-channel-perf/results/2026-11-02-esp32s3/README.md)
+reproduces the actual-std stall and successful published control on hardware,
+with all workers joined. It also verifies 3,000 blocked receives across three
+fresh boots using integrated CI firmware. Timing qualification remains withheld:
+the cycle counter passed its plausibility probe, but independent CPU-clock
+calibration was unavailable. The archive retains the initial host-banner rejection
+and the target's unresolved ROM image-digest warning.
 
 The progress witness must use an independent higher-priority wake source and
 exercise the reserve-before-publish interval under controlled single-core FIFO

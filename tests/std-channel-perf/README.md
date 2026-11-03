@@ -25,6 +25,13 @@ and the corrected rebuilds. The report identifies the tested source inventory,
 its later integration/patch renumbering, and separate physical-target build-only
 records; it establishes no physical performance ranking.
 
+The [physical ESP32-S3 N16R8 cohort](results/2026-11-02-esp32s3/README.md)
+records 3,000 verified blocked receives across three fresh boots, the actual-std
+reservation stall and its published-slot control. Raw counter results are
+retained; timing qualification remains withheld without independent CPU-clock
+calibration. This cohort uses CI firmware whose input hashes match the integrated
+PR head, separately from the earlier frozen QEMU builds.
+
 ## What is measured and proved
 
 The channel has eight slots and a 16-byte Rust value. Payload validation uses a
@@ -127,10 +134,11 @@ for mode in latency witness-reserved witness-published; do
 done
 ```
 
-The runner owns one emulator and sends one command after each fresh NuttShell
-banner. It requires the complete result and return to the prompt. Once preflight
-checks pass and capture begins, it retains `console.log` and `capture.json` even
-on failure; successful analysis is in `analysis.json`.
+The runner owns one emulator and sends one command after a fresh NuttX startup
+or NuttShell banner and shell prompt. It requires the complete result and return
+to the prompt. Once preflight checks pass and capture begins, it retains
+`console.log` and `capture.json` even on failure; successful analysis is in
+`analysis.json`.
 A captured reservation stall is intentional negative evidence for the channel's
 progress contract. QEMU output always has `physical_timing_qualified: false`.
 
@@ -193,7 +201,9 @@ python3 tests/std-channel-perf/capture.py physical \
 ```
 
 Reset the board **after** the runner says it is ready; it requires a new boot
-banner. Run each witness with its matching firmware, `--mode`, and updated session
+banner and shell prompt. The NuttX startup banner also works when the optional
+NuttShell greeting is disabled. Run each witness with its matching firmware,
+`--mode`, and updated session
 image digest. Use a new capture directory and fresh boot for every repeat.
 This also avoids treating repeated NSH invocations as a qualified std-runtime
 restart scenario. No std or Crossbeam channel is invoked from an ISR.

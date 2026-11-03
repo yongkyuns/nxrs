@@ -227,9 +227,12 @@ design rather than relaxing benchmark checks.
 
 ## Qualification remaining after this foundation
 
-Physical Pico 2/ESP32-S3 std-channel timing, verified blocked-owner wakeups, IRQ
-and scope fixtures, and a same-board std comparison remain separate from
-host/QEMU success. The [October native-API physical cohort](rtos-comparison.md)
+The [November 2 ESP32-S3 std-channel cohort](../tests/std-channel-perf/results/2026-11-02-esp32s3/README.md)
+records verified blocked receivers and the reserved/published priority witnesses
+on hardware; independent clock calibration remains outstanding. Calibrated
+Pico 2/ESP32-S3 timing, IRQ and scope fixtures, and a matched same-board std
+comparison remain separate from host/QEMU success.
+The [October native-API physical cohort](rtos-comparison.md)
 already exists; it does not establish those std measurements. Runtime heap/stack
 and image-size measurements quantify Rust/std/AO overhead; fragmentation, queue
 occupancy, fairness and WCET remain separate. The existing

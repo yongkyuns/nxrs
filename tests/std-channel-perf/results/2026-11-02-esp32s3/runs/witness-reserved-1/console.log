@@ -1,0 +1,43 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x42018a5a
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fc90ad0,len:0x300c
+load:0x40374000,len:0x8ff0
+load:0x50000000,len:0x24
+SHA-256 comparison failed:
+Calculated: 5d4b69da51bc0cb89b343e3ccb5fded770617c0a7040ebf7549a215db5bccbbe
+Expected: 00000000903f0000000000000000000000000000000000000000000000000000
+Attempting to boot anyway...
+entry 0x403750e8
+*** Booting NuttX ***
+I (70) boot: chip revision: v0.2
+I (71) boot: efuse block revision: v1.3
+I (71) boot.esp32s3: Boot SPI Speed : 40MHz
+I (71) boot.esp32s3: SPI Mode       : DIO
+I (71) boot.esp32s3: SPI Flash Size : 16MB
+I (71) boot: Enabling RNG early entropy source...
+dram: lma 0x00000020 vma 0x3fc90ad0 len 0x300c   (12300)
+iram: lma 0x00003034 vma 0x40374000 len 0x8ff0   (36848)
+rtc: lma 0x0000c02c vma 0x50000000 len 0x24     (36)
+padd: lma 0x0000c068 vma 0x00000000 len 0x3f90   (16272)
+imap: lma 0x00010000 vma 0x42010000 len 0x57e78  (360056)
+padd: lma 0x00067e80 vma 0x00000000 len 0x8178   (33144)
+dmap: lma 0x00070000 vma 0x3c080000 len 0x102b8  (66232)
+total segments stored 7
+I (832) cpu_start: Pro cpu start user code
+I (832) cpu_start: cpu freq: 240000000 Hz
+I (832) app_init: Application information:
+I (832) app_init: Compile time:     Nov  3 2026 02:01:06
+I (832) app_init: ELF file SHA256:  000000000...
+I (832) app_init: ESP-IDF:          
+I (833) spi_flash: detected chip: generic
+I (833) spi_flash: flash io: dio
+I (833) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (834) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+nsh> [Kstd_channel_perf witness-reserved
+STD_CHANNEL_PERF {"schema":"std-channel-perf-v1","record":"metadata","run_id":"4-220000000","build_id":"3c33e1b472494759dbf540644067580a2c0fd068a9f628269fd75422e051701b","runtime":"nuttx","mode":"witness-reserved","hook_stage":1,"capacity":8,"payload_bytes":16,"samples":0,"warmup":0,"clock_source":"xtensa-ccount","clock_hz":240000000,"counter_bits":32,"native_counter_bits":32,"clock_source_request":"native-counter","clock_frequency_basis":"CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ","counter_accessor":"XTHAL_GET_CCOUNT","counter_probe_kind":"active-monotonic-plausibility","witness_api":"try_recv","monotonic_resolution_ns":10000000,"counter_probe_ticks":3060640,"counter_probe_ns":20000000,"counter_validated":true,"sender_policy":1,"sender_priority":120,"receiver_policy":1,"receiver_priority":180,"observer_policy":1,"observer_priority":220,"watchdog_policy":1,"watchdog_priority":240,"physical_measurement":false,"single_core_tcb_witness":true,"blocked_observation_scope":"WAIT_SEM-inside-recv"}
+STD_CHANNEL_PERF {"schema":"std-channel-perf-v1","record":"result","run_id":"4-220000000","success":true,"threads_joined":true,"deadline_hit":false,"hook_hit_count":1,"hook_returned_before_recovery":false,"consumer_entered":true,"consumer_done_before_recovery":false,"producer_done_before_recovery":false,"consumer_state_at_deadline":"ready","producer_state_at_deadline":"ready","consumer_priority_at_deadline":180,"producer_priority_at_deadline":120,"hook_timestamp_ns":260000000,"consumer_enter_timestamp_ns":260000000,"observer_timestamp_ns":370000000,"observation_ns":110000000,"observation_deadline_reached":true,"initial_gate_waits_verified":true,"consumer_woken_from_hook":true,"recovery_applied":true,"delivered":true,"reservation_stall_observed":true,"priority_progress_qualified":false,"timing_qualified":false}
+nsh> 

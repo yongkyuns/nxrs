@@ -15,8 +15,12 @@ import time
 from analyze import FAILURE, MODES, analyze, build_receipt, checked_file, qualify, read_json, require
 
 PROMPT = b'nsh> '
-BANNER = b'NuttShell'
+BOOT_BANNERS = (b'NuttShell', b'*** Booting NuttX ***')
 MAX_LOG_BYTES = 16 * 1024 * 1024
+
+
+def fresh_boot(data):
+    return PROMPT in data and any(banner in data for banner in BOOT_BANNERS)
 
 
 def command_for(mode, samples, warmup):
@@ -120,8 +124,8 @@ def capture(args):
             print('Serial capture ready. Reset the test board now; waiting for a new NuttShell banner.', flush=True)
         deadline = time.monotonic() + args.timeout
         report['failure_stage'] = 'fresh-boot'
-        boot = read_until(fd, transcript, lambda data: BANNER in data and PROMPT in data, deadline, process)
-        require(BANNER in boot, 'fresh boot banner missing')
+        boot = read_until(fd, transcript, fresh_boot, deadline, process)
+        require(fresh_boot(boot), 'fresh boot banner missing')
         report['fresh_boot_observed'] = True
         report['failure_stage'] = 'command'
         write_command(fd, command, deadline)

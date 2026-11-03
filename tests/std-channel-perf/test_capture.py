@@ -36,8 +36,11 @@ signal.signal(signal.SIGTERM, terminate)
 save()
 if config['behavior'] == 'missing-banner':
     print('FAKE boot without a required banner\nnsh> ', end='', flush=True)
+elif config['behavior'] == 'missing-prompt':
+    print('*** Booting NuttX *** (FAKE subprocess, no firmware)', flush=True)
 else:
-    print('NuttShell (FAKE subprocess, no firmware)\nnsh> ', end='', flush=True)
+    banner = '*** Booting NuttX ***' if config['behavior'] == 'nuttx-banner' else 'NuttShell'
+    print(banner + ' (FAKE subprocess, no firmware)\nnsh> ', end='', flush=True)
     state['commands'].append(sys.stdin.readline().rstrip('\r\n'))
     save()
     if config['behavior'] == 'timeout':
@@ -98,7 +101,7 @@ class CaptureProtocolTests(unittest.TestCase):
             records=transcript(*fixture()) if records is None else records,
         )))
         output = directory / 'capture'
-        deadline = '1' if behavior in {'missing-banner', 'timeout'} else '3'
+        deadline = '1' if behavior in {'missing-banner', 'missing-prompt', 'timeout'} else '3'
         completed = subprocess.run([
             sys.executable, str(HERE / 'capture.py'), 'qemu',
             '--build-directory', str(self.build), '--mode', 'latency',
@@ -140,6 +143,19 @@ class CaptureProtocolTests(unittest.TestCase):
         self.assertIn('FAKE fixture returned', (output / 'console.log').read_text())
         self.assertEqual(state['commands'], ['std_channel_perf latency 2 1'])
         self.assertFalse((output / 'analysis.json').exists())
+
+    def test_nuttx_boot_banner_without_optional_shell_greeting(self):
+        completed, report, _, state = self.run_capture('nuttx-banner', 'nuttx-banner')
+        self.assertEqual(completed.returncode, 0)
+        self.assertTrue(report['fresh_boot_observed'])
+        self.assertEqual(state['commands'], ['std_channel_perf latency 2 1'])
+
+    def test_boot_banner_without_prompt_never_sends_a_command(self):
+        completed, report, _, state = self.run_capture('missing-prompt', 'missing-prompt')
+        self.assertEqual(completed.returncode, 1)
+        self.assertEqual(report['failure_stage'], 'fresh-boot')
+        self.assertNotIn('fresh_boot_observed', report)
+        self.assertEqual(state['commands'], [])
 
     def test_missing_banner_never_sends_a_command(self):
         completed, report, output, state = self.run_capture('missing-banner', 'missing-banner')

@@ -1,0 +1,7 @@
+{
+  "board_serial": "20:6E:F1:A7:6F:58",
+  "flash_bytes": 16777216,
+  "sha256": "bb336d356def641fa0a02c60f2b16a10a2f482db90dc426aa70fc0e87ffd1b36",
+  "file": "original-flash.bin",
+  "restore_offset": 0
+}

@@ -1,0 +1,10 @@
+{
+  "head": "3d89b16a5be39462a966cef04c9e88ed62f27a22",
+  "host_patch": "accept NuttX startup banner plus prompt when optional NuttShell greeting is absent",
+  "sha256": {
+    "tests/std-channel-perf/capture.py": "a3cc0dad9b82c85e8697e9c061643a52bb1d5c6cc00049a0d50035569d49ce72",
+    "tests/std-channel-perf/analyze.py": "357706eca7a34e5a53d31d3beba4f0c7a69e5bcee2ad96aa1745bd14c7b35dea",
+    "tests/std-channel-perf/test_capture.py": "2909584dbc063020a71aee9cf76bec791a628ea9deabf914b4c0b0fbe20ac4fe"
+  },
+  "fixture_tests_passed": 47
+}

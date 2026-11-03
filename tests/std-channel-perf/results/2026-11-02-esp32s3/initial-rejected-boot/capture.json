@@ -1,0 +1,12 @@
+{
+  "schema": "std-channel-capture-v1",
+  "capture_complete": false,
+  "runtime_kind": "physical",
+  "mode": "latency",
+  "command": "std_channel_perf latency 1000 100",
+  "image_sha256": "f7ead566000dc7e9f7c5ecf07090e0754b3c1e7566e6c59b0569e9f1c0e9f57c",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "failure_stage": "fresh-boot",
+  "error": "TimeoutError: external console deadline: incomplete fixture; no progress claim"
+}

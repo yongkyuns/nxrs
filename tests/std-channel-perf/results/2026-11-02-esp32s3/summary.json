@@ -1,0 +1,119 @@
+{
+  "pr": 252,
+  "head": "3d89b16a5be39462a966cef04c9e88ed62f27a22",
+  "ci_source_revision": "93856f7f0b102a366254e3bebaa452befc9541f1",
+  "source_inventory_matches": true,
+  "results": [
+    {
+      "case": "latency-1",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1864,
+        "p50_ticks": 1864,
+        "p95_ticks": 1871,
+        "p99_ticks": 1871,
+        "max_ticks": 11958,
+        "min_ns": 7767,
+        "p50_ns": 7767,
+        "p95_ns": 7796,
+        "p99_ns": 7796,
+        "max_ns": 49825,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "latency-2",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1864,
+        "p50_ticks": 1864,
+        "p95_ticks": 1871,
+        "p99_ticks": 1871,
+        "max_ticks": 11922,
+        "min_ns": 7767,
+        "p50_ns": 7767,
+        "p95_ns": 7796,
+        "p99_ns": 7796,
+        "max_ns": 49675,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "latency-3",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1864,
+        "p50_ticks": 1864,
+        "p95_ticks": 1871,
+        "p99_ticks": 1871,
+        "max_ticks": 10386,
+        "min_ns": 7767,
+        "p50_ns": 7767,
+        "p95_ns": 7796,
+        "p99_ns": 7796,
+        "max_ns": 43275,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "witness-reserved-1",
+      "outcome": "reservation-stall-observed",
+      "receiver_blocked_verified": null,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": null
+    },
+    {
+      "case": "witness-published-1",
+      "outcome": "published-slot-control-completed",
+      "receiver_blocked_verified": null,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": null
+    }
+  ],
+  "failure": null,
+  "firmware_restored": true,
+  "physical_timing_qualified": false,
+  "pooled_send_to_receive_return": {
+    "samples": 3000,
+    "p50_ticks": 1864,
+    "p95_ticks": 1871,
+    "p99_ticks": 1871,
+    "max_ticks": 11958
+  },
+  "pooled_send_call": {
+    "samples": 3000,
+    "p50_ticks": 3577,
+    "p95_ticks": 3584,
+    "p99_ticks": 3584,
+    "max_ticks": 215296
+  },
+  "cpu_frequency_hz_basis": "240000000 from configuration; no independent calibration",
+  "host_validation": {
+    "fixture_tests": 47,
+    "architecture_audit": "PASS: 52 packages",
+    "architecture_regression_tests": 23,
+    "hal_boundary_regression_tests": 10
+  },
+  "limitations": [
+    "Physical timing qualification withheld because independent CPU-clock calibration was unavailable.",
+    "Raw latency capture files intentionally preserve the official qualification rejection. Separate analyses validate samples without a physical timing claim.",
+    "Test-image boot transcripts contain a ROM SHA-256 comparison warning; full-image esptool verification passed and boot continued. Warning remains uninvestigated.",
+    "Combined internal/PSRAM heap selected; exact channel allocation addresses were not instrumented. No PX5 comparison or WCET bound."
+  ],
+  "ci_artifact": {
+    "workflow_run": 41561882690,
+    "artifact_id": 13198576947,
+    "sha256": "ccb825d9b83d0d7727770fb1596eead6839728d345e7840723caf6c46d71b2aa",
+    "firmware_input_hashes_matched": 123
+  },
+  "restoration_receipt": "restoration.json"
+}
