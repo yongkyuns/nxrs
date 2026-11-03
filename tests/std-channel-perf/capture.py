@@ -17,6 +17,7 @@ from analyze import FAILURE, MODES, analyze, build_receipt, checked_file, qualif
 PROMPT = b'nsh> '
 BOOT_BANNERS = (b'NuttShell', b'*** Booting NuttX ***')
 MAX_LOG_BYTES = 16 * 1024 * 1024
+ROM_DIGEST_WARNING = b'SHA-256 comparison failed:'
 
 
 def fresh_boot(data):
@@ -127,6 +128,7 @@ def capture(args):
         boot = read_until(fd, transcript, fresh_boot, deadline, process)
         require(fresh_boot(boot), 'fresh boot banner missing')
         report['fresh_boot_observed'] = True
+        report['boot_rom_digest_warning_observed'] = ROM_DIGEST_WARNING in boot
         report['failure_stage'] = 'command'
         write_command(fd, command, deadline)
         read_until(fd, transcript, lambda data: PROMPT in data, deadline, process)
@@ -136,10 +138,16 @@ def capture(args):
         if args.mode == 'latency':
             require(summary['metadata']['samples'] == args.samples and
                     summary['metadata']['warmup'] == args.warmup, 'wrong command sample count')
-        summary = qualify(summary, receipt, session, fresh_boot_observed=True)
+        summary = qualify(
+            summary, receipt, session, fresh_boot_observed=True,
+            calibration_directory=(args.session.parent if args.runtime == 'physical' else None),
+            boot_digest_warning=report['boot_rom_digest_warning_observed'])
         (args.output / 'analysis.json').write_text(json.dumps(summary, indent=2) + '\n')
         report.update(capture_complete=True, failure_stage=None, outcome=summary['outcome'],
-                      physical_timing_qualified=summary['physical_timing_qualified'])
+                      physical_timing_qualified=summary['physical_timing_qualified'],
+                      clock_calibration_qualified=summary['clock_calibration_qualified'],
+                      clock_calibration_status=summary['clock_calibration']['status'],
+                      timing_qualification_blockers=summary.get('timing_qualification_blockers', []))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         report['error'] = f'{type(error).__name__}: {error}'
     finally:
@@ -163,6 +171,10 @@ def capture(args):
         (args.output / 'console.log').write_bytes(transcript)
         (args.output / 'capture.json').write_text(json.dumps(report, indent=2) + '\n')
         (args.output / 'build.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        if args.runtime == 'physical' and args.session and args.session.is_file():
+            # Retain exactly the supplied session even if analysis rejected it.
+            # Calibration supporting evidence remains separately hash-addressed.
+            (args.output / 'session.json').write_bytes(args.session.read_bytes())
     return report
 
 

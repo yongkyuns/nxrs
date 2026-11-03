@@ -40,6 +40,8 @@ elif config['behavior'] == 'missing-prompt':
     print('*** Booting NuttX *** (FAKE subprocess, no firmware)', flush=True)
 else:
     banner = '*** Booting NuttX ***' if config['behavior'] == 'nuttx-banner' else 'NuttShell'
+    if config['behavior'] == 'rom-warning':
+        print('SHA-256 comparison failed:\\nAttempting to boot anyway...', flush=True)
     print(banner + ' (FAKE subprocess, no firmware)\nnsh> ', end='', flush=True)
     state['commands'].append(sys.stdin.readline().rstrip('\r\n'))
     save()
@@ -149,6 +151,14 @@ class CaptureProtocolTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertTrue(report['fresh_boot_observed'])
         self.assertEqual(state['commands'], ['std_channel_perf latency 2 1'])
+
+    def test_rom_boot_warning_remains_visible_and_disqualifies_timing(self):
+        completed, report, output, _ = self.run_capture('rom-warning', 'rom-warning')
+        self.assertEqual(completed.returncode, 0)
+        self.assertTrue(report['boot_rom_digest_warning_observed'])
+        self.assertFalse(report['physical_timing_qualified'])
+        self.assertTrue(json.loads((output / 'analysis.json').read_text())
+                        ['boot_rom_digest_warning_observed'])
 
     def test_boot_banner_without_prompt_never_sends_a_command(self):
         completed, report, _, state = self.run_capture('missing-prompt', 'missing-prompt')

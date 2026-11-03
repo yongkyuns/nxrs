@@ -258,7 +258,73 @@ def build_receipt(directory, mode):
     return receipt
 
 
-def qualify(summary, receipt, session, *, fresh_boot_observed=False):
+def independent_clock_calibration(summary, receipt, session, evidence_directory):
+    """Qualify only a paired CPU/reference count with an independently timed source.
+
+    The external reference and simultaneous counter latching are operator evidence.
+    Structural consistency is checked here; no software self-measurement can
+    authenticate an external instrument or prove its oscillator is independent.
+    """
+    record = session.get('clock_calibration')
+    if record is None:
+        return {'qualified': False, 'status': 'missing',
+                'reason': 'independent paired-counter calibration not supplied'}
+    try:
+        require(isinstance(record, dict) and record.get('schema') ==
+                'std-channel-clock-calibration-v1', 'unknown clock calibration schema')
+        require(record.get('method') == 'paired-independent-timebase',
+                'clock reference must be an independent paired counter')
+        require(record.get('reference_type') in
+                {'external-instrument', 'independent-oscillator-counter'},
+                'unqualified reference type')
+        reference_identity = record.get('reference_identity')
+        require(isinstance(reference_identity, str) and bool(reference_identity.strip()) and
+                reference_identity.strip().lower() not in {'unknown', 'todo'},
+                'missing independent reference identity')
+        require(record.get('measurement_session') == session.get('measurement_session') and
+                record.get('build_id') == receipt.get('build_id') and
+                record.get('image_sha256') == receipt.get('image_sha256'),
+                'clock calibration does not match measured firmware/session')
+        reference_hz = integer(record, 'reference_hz', 1)
+        accuracy_ppm = integer(record, 'reference_accuracy_ppm', 0, 1000)
+        reference_start = integer(record, 'reference_start_ticks', 0)
+        reference_end = integer(record, 'reference_end_ticks', 0)
+        reference_ticks = reference_end - reference_start
+        require(reference_ticks > 0, 'nonpositive reference counter interval')
+        duration_ns = reference_ticks * 1_000_000_000 // reference_hz
+        require(250_000_000 <= duration_ns <= 5_000_000_000,
+                'calibration duration outside 0.25–5 second window')
+        require(integer(record, 'cpu_counter_bits') == summary['metadata']['counter_bits'] == 32,
+                'calibration counter width mismatch')
+        cpu_start = integer(record, 'cpu_start_ticks', 0, (1 << 32) - 1)
+        cpu_end = integer(record, 'cpu_end_ticks', 0, (1 << 32) - 1)
+        cpu_ticks = (cpu_end - cpu_start) % (1 << 32)
+        require(0 < cpu_ticks < (1 << 31), 'ambiguous calibration counter wrap')
+        observed_hz = cpu_ticks * reference_hz // reference_ticks
+        nominal_hz = integer(summary['metadata'], 'clock_hz', 1)
+        mismatch_ppm = abs(observed_hz - nominal_hz) * 1_000_000 // nominal_hz
+        require(mismatch_ppm <= max(1000, 3 * accuracy_ppm),
+                'CPU frequency disagrees with independent calibration')
+        require(evidence_directory is not None,
+                'calibration supporting file directory unavailable')
+        evidence_path = checked_file(evidence_directory, record.get('evidence_file'))
+        require(re.fullmatch('[0-9a-f]{64}', str(record.get('evidence_sha256', ''))) is not None and
+                sha256(evidence_path) == record['evidence_sha256'],
+                'calibration supporting file hash mismatch')
+        return {'qualified': True, 'status': 'qualified',
+                'method': record['method'], 'reference_type': record['reference_type'],
+                'reference_duration_ns': duration_ns,
+                'reference_accuracy_ppm': accuracy_ppm,
+                'measured_cpu_hz': observed_hz,
+                'configured_cpu_hz': nominal_hz,
+                'frequency_difference_ppm': mismatch_ppm,
+                'evidence_sha256': record['evidence_sha256']}
+    except (ValueError, OSError, TypeError, KeyError) as error:
+        return {'qualified': False, 'status': 'rejected', 'reason': str(error)}
+
+
+def qualify(summary, receipt, session, *, fresh_boot_observed=False,
+            calibration_directory=None, boot_digest_warning=False):
     """Physical identity/clock calibration are operator evidence, never inferred from QEMU."""
     result = dict(summary)
     require(receipt['mode'] == summary['mode'], 'build/run mode mismatch')
@@ -272,7 +338,11 @@ def qualify(summary, receipt, session, *, fresh_boot_observed=False):
     require(runtime != 'host' or summary['metadata']['runtime'] == 'linux-functional', 'host/session mismatch')
     require(runtime == 'host' or summary['metadata']['runtime'] == 'nuttx', 'firmware/session mismatch')
     result.update(runtime_kind=runtime, build=receipt, session=session,
-                  fresh_boot_observed=bool(fresh_boot_observed), physical_timing_qualified=False)
+                  fresh_boot_observed=bool(fresh_boot_observed), physical_timing_qualified=False,
+                  clock_calibration_qualified=False,
+                  clock_calibration={'qualified': False, 'status': 'not-applicable'},
+                  boot_rom_digest_warning_observed=bool(boot_digest_warning),
+                  physical_execution_verified=(runtime == 'physical' and bool(fresh_boot_observed)))
     if runtime == 'physical':
         for key in ['measurement_session', 'board', 'board_serial', 'clock_verification',
                     'cache_state', 'memory_placement', 'power_management', 'external_load',
@@ -290,9 +360,24 @@ def qualify(summary, receipt, session, *, fresh_boot_observed=False):
         require(fresh_boot_observed, 'physical capture must observe a fresh boot banner')
         result['hardware_identity_origin'] = 'operator-supplied session and flashing/calibration evidence'
         if summary['mode'] == 'latency':
+            calibration = independent_clock_calibration(
+                summary, receipt, session, calibration_directory)
+            result['clock_calibration'] = calibration
+            result['clock_calibration_qualified'] = calibration['qualified']
             result['physical_timing_qualified'] = bool(summary['receiver_blocked_verified'] and
                 summary['timing_resolution_sufficient'] and summary['warmup_completed'] and
-                summary['terminal_quiescence_verified'])
+                summary['terminal_quiescence_verified'] and calibration['qualified'] and
+                not boot_digest_warning)
+            result['timing_qualification_blockers'] = [
+                name for name, missing in [
+                    ('receiver-not-blocked', not summary['receiver_blocked_verified']),
+                    ('timer-underresolved', not summary['timing_resolution_sufficient']),
+                    ('no-warmup', not summary['warmup_completed']),
+                    ('no-terminal-gate', not summary['terminal_quiescence_verified']),
+                    ('clock-not-independently-calibrated', not calibration['qualified']),
+                    ('rom-digest-warning', bool(boot_digest_warning)),
+                ] if missing
+            ]
     return result
 
 

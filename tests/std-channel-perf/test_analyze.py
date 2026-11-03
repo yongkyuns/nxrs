@@ -211,6 +211,20 @@ class EvidenceTests(unittest.TestCase):
                             cache_state='off', memory_placement='internal SRAM', power_management='disabled',
                             external_load='none', flash_verification='test readback', active_cores=1,
                             cpu_clock_hz=100_000_000)
+        support = self.root / 'independent-reference.json'
+        support.write_text('{"fixture":"synthetic test reference, not physical measurement"}\n')
+        self.session['clock_calibration'] = dict(
+            schema='std-channel-clock-calibration-v1',
+            method='paired-independent-timebase',
+            reference_type='external-instrument',
+            reference_identity='synthetic reference for validator tests',
+            measurement_session=self.session['measurement_session'],
+            build_id=self.receipt['build_id'],
+            image_sha256=self.receipt['image_sha256'],
+            reference_hz=1_000_000, reference_accuracy_ppm=100,
+            reference_start_ticks=1000, reference_end_ticks=1_001_000,
+            cpu_counter_bits=32, cpu_start_ticks=1000, cpu_end_ticks=100_001_000,
+            evidence_file=support.name, evidence_sha256=analyze.sha256(support))
 
     def write_receipt(self):
         (self.root / 'build.json').write_text(json.dumps(self.receipt))
@@ -243,10 +257,58 @@ class EvidenceTests(unittest.TestCase):
             del session[field]
             with self.subTest(field=field), self.assertRaises(ValueError):
                 analyze.qualify(summary, self.receipt, session, fresh_boot_observed=True)
-        result = analyze.qualify(summary, self.receipt, self.session, fresh_boot_observed=True)
+        result = analyze.qualify(summary, self.receipt, self.session, fresh_boot_observed=True,
+                                 calibration_directory=self.root)
+        self.assertTrue(result['clock_calibration_qualified'])
+        self.assertEqual(result['clock_calibration']['measured_cpu_hz'], 100_000_000)
         self.assertTrue(result['physical_timing_qualified'])
         self.assertFalse(result['hard_realtime_bound'])
         self.assertIn('operator-supplied', result['hardware_identity_origin'])
+
+    def test_missing_calibration_preserves_physical_behavior_but_rejects_timing(self):
+        summary = analyze.analyze(transcript(*fixture()))
+        session = copy.deepcopy(self.session)
+        del session['clock_calibration']
+        result = analyze.qualify(summary, self.receipt, session, fresh_boot_observed=True,
+                                 calibration_directory=self.root)
+        self.assertTrue(result['physical_execution_verified'])
+        self.assertTrue(result['receiver_blocked_verified'])
+        self.assertFalse(result['clock_calibration_qualified'])
+        self.assertFalse(result['physical_timing_qualified'])
+        self.assertIn('clock-not-independently-calibrated',
+                      result['timing_qualification_blockers'])
+
+    def test_rejects_stale_or_inaccurate_calibration_without_losing_samples(self):
+        summary = analyze.analyze(transcript(*fixture()))
+        for field, value in [
+            ('build_id', 'a' * 64),
+            ('image_sha256', 'a' * 64),
+            ('reference_type', 'configured-cpu-frequency'),
+            ('reference_start_ticks', 1_001_000),
+            ('cpu_end_ticks', 120_001_000),
+            ('evidence_sha256', '0' * 64),
+            ('reference_accuracy_ppm', 1001),
+        ]:
+            session = copy.deepcopy(self.session)
+            session['clock_calibration'][field] = value
+            result = analyze.qualify(summary, self.receipt, session,
+                                     fresh_boot_observed=True,
+                                     calibration_directory=self.root)
+            with self.subTest(field=field):
+                self.assertFalse(result['clock_calibration_qualified'])
+                self.assertEqual(result['clock_calibration']['status'], 'rejected')
+                self.assertFalse(result['physical_timing_qualified'])
+                self.assertTrue(result['receiver_blocked_verified'])
+
+    def test_rom_sha256_warning_blocks_timing_without_erasing_behavior(self):
+        summary = analyze.analyze(transcript(*fixture()))
+        result = analyze.qualify(summary, self.receipt, self.session,
+                                 fresh_boot_observed=True, calibration_directory=self.root,
+                                 boot_digest_warning=True)
+        self.assertFalse(result['physical_timing_qualified'])
+        self.assertTrue(result['clock_calibration_qualified'])
+        self.assertTrue(result['boot_rom_digest_warning_observed'])
+        self.assertIn('rom-digest-warning', result['timing_qualification_blockers'])
 
     def test_qemu_can_never_become_physical_timing(self):
         summary = analyze.analyze(transcript(*fixture()))
