@@ -236,8 +236,19 @@ independently authenticated the physical board or established a hard deadline.
 Keep raw console, session, build and analysis records together.
 
 These cases establish measurement infrastructure and a specific progress witness.
-They do not yet establish a PX5/ThreadX/Zephyr performance ranking. For that next
-step, match hardware, API semantics, payload/capacity and timing boundaries, and
-also measure ready-path throughput, sender blocking, overload, memory, service
-load and energy when claiming an energy benefit. Use the existing
-[hot-path benchmark](../rtos-bench) alongside this blocked-path fixture.
+The [focused next-step plan](../../docs/event-path-benchmarks.md) uses the physical
+results to prioritize the actual event architecture: bounded admission, one wait
+over stop/important/ordinary queues, provider wakeups and owner scheduling.
+
+The retained send-call maximum occurs on the last sample in all three boots,
+where receiver exit can preempt the sender's final timestamp. The next fixture
+revision must hold the receiver at a final quiescence gate and measure cleanup
+separately; do not remove the old maximum. Phase coverage, structured independent
+clock calibration, allocation placement and the ROM digest warning also remain
+work before a qualified timing baseline.
+
+The plan adds actual-wrapper and pinned Crossbeam selection cases, progress/race
+gates, and small semaphore/park controls. Reuse the existing
+[hot-path benchmark](../rtos-bench) only with its documented semantics. A complete
+PX5/ThreadX/Zephyr ranking is not a prerequisite; a later external control must
+match hardware, workload, API semantics and timing boundaries.

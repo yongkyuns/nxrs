@@ -6,6 +6,11 @@ there is no matched physical result establishing it. This work adds research and
 the isolated [std channel fixture](../tests/std-channel-perf), without changing
 the production transport or replacing the RTOS.
 
+The next work is the [focused event-path benchmark plan](event-path-benchmarks.md):
+qualify the chosen bounded messaging, single selection point, provider wakeups
+and owner scheduling. Completing the Beningo matrix or porting every case to other
+RTOSes is not a prerequisite for this architecture work.
+
 ## Keep the evidence cohorts separate
 
 | Evidence | What it establishes | Boundary |
@@ -136,25 +141,43 @@ strict fixed-priority boundary requires it.
 
 ## Optimization sequence
 
-1. **Measure the production abstraction.** Establish std ready-path throughput,
-   verified parked-receiver latency, blocked-sender release, round-trip latency,
-   overload and deadline behavior. Match payload/capacity and report cold and
-   steady-state allocation separately. Keep the old C/native cohort intact.
-2. **Find shared blocked-path cost.** Attribute waiter registration, pthread
+The physical result changes the immediate order. The
+[execution plan](event-path-benchmarks.md) specifies cases, files and acceptance
+gates; its P0/P1 work comes before a transport migration or speed claim.
+
+1. **Correct the physical baseline.** All three archived send-call maxima occur
+   on the last sample, where the higher-priority receiver exits instead of waiting
+   for another iteration. Keep it alive behind a final gate until timing ends;
+   retain the old samples unchanged. Add structured clock qualification, resolve
+   the ROM digest warning, record memory placement and vary release phase. The
+   retained samples span only about 34 ms per boot at the configured frequency.
+2. **Qualify the actual progress contract.** Retain the physical std reserved and
+   published witnesses. Add exact pinned Crossbeam direct-receive and selected-wait
+   witnesses before adopting the three-class owner. A diagnostic that reproduces
+   the stall is not production acceptance; recovery cannot be part of a passing
+   production progress case.
+3. **Measure the production abstraction.** Compare raw std, the actual messaging
+   wrapper and pinned Crossbeam for ready and independently verified blocked
+   operations. Include the typed sink's nonblocking admission, one-arm versus
+   three-arm selection, deadlines, fairness, closure and stop. Match payload and
+   capacity; report fresh-thread and steady-state allocation separately.
+4. **Find shared blocked-path cost.** Attribute waiter registration, pthread
    mutex/condition operations, semaphore wake, ready-list insertion and context
    switching with a separate diagnostic image. Confirm operation/wakeup counts;
-   time the release image without per-event logging.
-3. **Optimize that common path first.** Candidate work includes avoiding redundant
+   time the release image without per-event logging. Native semaphore and
+   park/unpark controls explain mechanisms; neither round-trip division nor
+   subtraction of unrelated percentiles establishes pure context-switch cost.
+5. **Optimize the measured dominant path.** Candidate work includes avoiding redundant
    lock/scheduler entry when nobody wakes, reducing duplicate bookkeeping,
    improving measured ready-list insertion, and target-specific context/code
    placement improvements. Existing semaphore fast paths already cover some
    uncontended cases. Every change must preserve wake ordering, timeout races,
    priority inheritance where enabled, cancellation and shutdown progress.
-4. **Reduce unnecessary application wakeups.** Keep processing within its owner,
+6. **Reduce unnecessary application wakeups.** Keep processing within its owner,
    use owned bounded buffers for large data and bounded draining where latency
    allows. Batch only with an explicit latency/fairness budget. Preserve isolated
    important/stop capacity and one logical wait point.
-5. **Optimize mqueue users when evidence calls for it.** Pool sizing, a safe
+7. **Optimize mqueue users when evidence calls for it.** Pool sizing, a safe
    equal-priority tail append, per-queue reservation or direct delivery may help
    native mq callers. Benchmark depth and contention, preserve priority/FIFO
    ordering, and account for reserved RAM. These changes do not accelerate std's

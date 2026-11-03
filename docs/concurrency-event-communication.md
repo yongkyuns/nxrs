@@ -314,19 +314,30 @@ handling remains integrated into the service's one selection point.
 
 ## Implementation sequence and qualification boundaries
 
-1. Qualify raw std versus pinned Crossbeam with a synthetic HAL producer and
-   separate stop/important/ordinary queues; use existing allocation instrumentation.
+Follow the [event-path benchmark plan](event-path-benchmarks.md) for the next
+performance work. PR #252 now has physical std blocked-receive and reservation
+witness evidence; absolute timing and the selected Crossbeam progress contract
+remain separate gates. The current messaging inbox is one std queue; the
+[Wi-Fi fixture owner](../tests/nuttx-std/wifi/src/owner.rs) is an executable
+three-class selection contract, not a completed production transport migration.
+
+1. Qualify the intended scheduling/progress contract, then raw std versus pinned
+   Crossbeam with synthetic HAL producers and separate stop/important/ordinary
+   queues; use existing allocation instrumentation and the Wi-Fi owner's
+   deadline/fairness/closure tests.
 2. Add matched linked-size variants and comparison guards, then run the selected
    native and NuttX builds. Keep each result tied to exact source/toolchain/config.
 3. Extract only repeated endpoint, dispatch and lifecycle machinery into a small
    neutral crate after the fixture passes. No actor runtime, custom queue algorithm,
    serializer, global enum, service graph or service-side device poller.
-4. Integrate one event-producing HAL and coarse processing service; qualify provider
-   cancellation and data normalization before broader migration.
+4. Qualify provider cancellation, data normalization and loaded owner response
+   on the actual target before broader transport migration.
 
-The current `hal/gnss/src/api.rs` still has synchronous `Gnss::fix`; the event-producing
-session described here is not yet implemented. The existing event-demo topology
-remains portability/stress evidence, not the required product decomposition.
+The current [GNSS contract](../hal/gnss/src/api.rs) already delivers normalized
+events and exposes session cancellation/join; the
+[navigation consumer](../service/navigation/src/gnss.rs) receives those events.
+This replaces the earlier synchronous `Gnss::fix` status. The existing event-demo
+topology remains portability/stress evidence, not the required product decomposition.
 See [architecture.md](architecture.md) and [event-driven-demo.md](event-driven-demo.md).
 
 Tests must cover typed multi-source delivery, isolated capacity, important-full

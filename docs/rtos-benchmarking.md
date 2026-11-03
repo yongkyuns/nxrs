@@ -229,9 +229,13 @@ design rather than relaxing benchmark checks.
 
 The [November 2 ESP32-S3 std-channel cohort](../tests/std-channel-perf/results/2026-11-02-esp32s3/README.md)
 records verified blocked receivers and the reserved/published priority witnesses
-on hardware; independent clock calibration remains outstanding. Calibrated
-Pico 2/ESP32-S3 timing, IRQ and scope fixtures, and a matched same-board std
-comparison remain separate from host/QEMU success.
+on hardware; independent clock calibration remains outstanding. The
+[focused next-step plan](event-path-benchmarks.md) prioritizes correcting the
+terminal send-timing boundary, qualifying progress, and measuring the actual
+messaging/three-class selection owner, provider wakeups and scheduling. Complete
+Thread-Metric coverage, other boards and external RTOS ports are not prerequisites
+for that work. Physical IRQ-to-provider measurements are added where they explain
+the chosen acquisition path, rather than as an RTOS-wide interrupt ranking.
 The [October native-API physical cohort](rtos-comparison.md)
 already exists; it does not establish those std measurements. Runtime heap/stack
 and image-size measurements quantify Rust/std/AO overhead; fragmentation, queue
