@@ -11,6 +11,45 @@ and their retained physical results remain separate. P0 owns their latency,
 capture, clock and calibration changes. This fixture reuses only the mechanical
 native ABI and common build/source preparation helpers, without editing them.
 
+## Recorded progress results — 2026-11-03
+
+All six cases executed on fresh single-core ARM/NuttX QEMU boots from clean
+source commit [`ed830b6`](https://github.com/yongkyuns/nxrs/commit/ed830b6d78e2beb44c6da90395f0fe5d2666d413).
+An independent [hosted CI cohort](https://github.com/yongkyuns/nxrs/actions/runs/41660612437)
+reproduced the same outcomes. Its checkout was merge revision `8d70931a`, with
+the identical Git tree `b2a47b0e20564949457f09f80c1a7c884d0e006a`.
+
+| Case | Unrepaired observation | Final delivery and cleanup | No-repair gate |
+| --- | --- | --- | --- |
+| `direct-reserved` | Receiver and producer ready; publication pending | Priority recovery, 1/1 payload, all joins | **Rejected** |
+| `direct-published` | Both workers complete | 1/1 payload, all joins | Passed for this control |
+| `select-reserved` | Three arms registered, initial native wait and independent wake verified; owner stalls on the important arm | Priority recovery, 1/1 important payload, all joins | **Rejected** |
+| `select-published` | Same registered-wait and independent-wake path completes | 1/1 important payload, all joins | Passed for this control |
+| `send-reserved` | Sender and receiver ready; slot reclamation pending | Priority recovery, 9/9 payloads, all joins | **Rejected** |
+| `send-reclaimed` | Both workers complete | 9/9 payloads, all joins | Passed for this control |
+
+The [ARM evidence artifact](https://github.com/yongkyuns/nxrs/actions/runs/41660612437/artifacts/13242762554)
+retains raw captures, analyses, build receipts, original crate archives, source
+ledgers and the six firmware images. Independent replay reproduced each stored
+analysis and verified every retained artifact and all 135 source inputs per
+case. The archive SHA-256 is
+`cdab211f9851b3f1bfb8b09ea4f6d04e7c1ba1eb86a9997c724daca224fa963e`.
+The separate
+[ESP32-S3 artifact](https://github.com/yongkyuns/nxrs/actions/runs/41660612437/artifacts/13242671644)
+contains successfully linked selected-owner reservation/publication images;
+these are **build-only evidence**, with no physical execution claimed.
+Intermediate dependency binaries are pruned after building; their Cargo source
+paths and hashes remain in the bound build proof, while final image bytes are
+retained for revalidation.
+
+The tested fixed-priority contract therefore fails for the pinned Crossbeam
+implementation in both reservation directions. Selecting Crossbeam alone, or
+merely reversing producer and consumer priorities, is not an established remedy.
+The successful controls validate the experiment and their named interleavings;
+they do not qualify production progress. Physical-device replication and an
+admitted scheduling or transfer contract that needs no priority repair remain
+outstanding. These results make no latency, clock-calibration or WCET claim.
+
 ## Experiment contract
 
 Crossbeam is exactly `crossbeam-channel 0.5.17` with `crossbeam-utils 0.8.23`.
