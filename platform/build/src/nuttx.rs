@@ -161,12 +161,14 @@ struct Tools {
     esp: bool,
     path: std::ffi::OsString,
 }
-fn bin_directories(root: &Path, depth: usize, paths: &mut Vec<PathBuf>) -> Result<()> {
+fn bin_directories(root: &Path, depth: usize, tool: &str, paths: &mut Vec<PathBuf>) -> Result<()> {
     if !root.is_dir() {
         return Ok(());
     }
     if root.file_name().is_some_and(|name| name == "bin") {
-        paths.push(root.to_path_buf());
+        if root.join(tool).is_file() {
+            paths.push(root.to_path_buf());
+        }
         return Ok(());
     }
     if depth == 0 {
@@ -181,7 +183,7 @@ fn bin_directories(root: &Path, depth: usize, paths: &mut Vec<PathBuf>) -> Resul
     }
     directories.sort();
     for directory in directories {
-        bin_directories(&directory, depth - 1, paths)?;
+        bin_directories(&directory, depth - 1, tool, paths)?;
     }
     Ok(())
 }
@@ -214,8 +216,8 @@ impl Tools {
             .unwrap_or_else(|| root.join("target/qemu-tools"));
         let mut paths = Vec::new();
         if esp {
-            bin_directories(&bundle.join("gcc"), 6, &mut paths)?;
-            bin_directories(&bundle.join("qemu"), 6, &mut paths)?;
+            bin_directories(&bundle.join("gcc"), 6, "xtensa-esp-elf-gcc", &mut paths)?;
+            bin_directories(&bundle.join("qemu"), 6, "qemu-system-xtensa", &mut paths)?;
         }
         paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
         let path = env::join_paths(paths).map_err(|e| e.to_string())?;
@@ -1146,18 +1148,21 @@ mod rebuild_tests {
 mod tool_bundle_tests {
     use super::*;
     #[test]
-    fn compiler_discovery_does_not_source_shell_configuration() {
+    fn compiler_discovery_keeps_target_binutils_out_of_host_path() {
         let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
         let bin = temp.0.join("gcc/release/bin");
         fs::create_dir_all(&bin).unwrap();
-        fs::write(bin.join("compiler"), "fixture").unwrap();
+        fs::write(bin.join("xtensa-esp-elf-gcc"), "fixture").unwrap();
+        let internal = temp.0.join("gcc/release/xtensa-esp-elf/bin");
+        fs::create_dir_all(&internal).unwrap();
+        fs::write(internal.join("as"), "target-only assembler").unwrap();
         let mut paths = vec![];
-        bin_directories(&temp.0.join("gcc"), 6, &mut paths).unwrap();
+        bin_directories(&temp.0.join("gcc"), 6, "xtensa-esp-elf-gcc", &mut paths).unwrap();
         assert_eq!(paths.as_slice(), std::slice::from_ref(&bin));
         let path = env::join_paths(paths).unwrap();
         assert_eq!(
-            crate::find_program_on_path("compiler", &path).unwrap(),
-            bin.join("compiler")
+            crate::find_program_on_path("xtensa-esp-elf-gcc", &path).unwrap(),
+            bin.join("xtensa-esp-elf-gcc")
         );
     }
 }
