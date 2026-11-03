@@ -1,6 +1,20 @@
 use crate::{native::Schedule, support::Config};
 
 #[derive(Debug)]
+pub struct TimerSample {
+    pub plan_ns: u64,
+    pub deadline_ns: u64,
+    pub provider_resume_ns: u64,
+    pub provider_resume_ticks: u32,
+    pub provider_wait_observed_ns: u64,
+    pub owner_wait_observed_ns: u64,
+    pub provider_wait_verified: bool,
+    pub expired: bool,
+    pub handler_start_ticks: u32,
+    pub handler_end_ticks: u32,
+}
+
+#[derive(Debug)]
 pub struct Sample {
     pub sequence: u32,
     pub provider: u32,
@@ -15,6 +29,7 @@ pub struct Sample {
     pub accepted: bool,
     pub planned_release_ns: Option<u64>,
     pub release_observed_ns: Option<u64>,
+    pub timer: Option<TimerSample>,
 }
 
 impl Default for Sample {
@@ -33,6 +48,7 @@ impl Default for Sample {
             accepted: true,
             planned_release_ns: None,
             release_observed_ns: None,
+            timer: None,
         }
     }
 }

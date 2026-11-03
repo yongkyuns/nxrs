@@ -19,6 +19,7 @@ def encode(rows):
 def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=None, warmup=1):
     family, transport, admission, receive_api, arms, providers = analysis.CASES[case]
     normal, saturation = case.endswith("-normal"), case.endswith("-saturation")
+    timer_case = case == "timer-provider-messaging"
     scheduled = normal or saturation
     count = (9 if saturation else 3) if count is None else count
     epoch = 8_000_000 if scheduled else None
@@ -43,9 +44,11 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=Non
         "clock_source_request": "native-counter" if native else "baseline",
         "crossbeam_version": "0.5.17", "witness_hooks": False, "worker_stack": 16384,
         "blocked_state_name": "wait_sem",
-        "release_schedule": ("finite-absolute-1ms" if normal else "finite-held-owner-burst"
+        "release_schedule": ("native-timeout-after-owner-wait" if timer_case
+                             else "finite-absolute-1ms" if normal else "finite-held-owner-burst"
                              if saturation else "finite-closed-loop-or-unscheduled-fanin"),
         "release_period_ns": period,
+        "timer_delay_ns": 50_000_000 if timer_case else 0,
         "warmup_scope": "per-provider-prefix" if family == "finite-fanin" else "sequential-prefix",
         "counts_include_warmup": True,
     }
@@ -97,6 +100,18 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=Non
             else:
                 receive = start + 180 if accepted else 0
             planned = epoch + (sequence - 1) * period if scheduled else None
+            timer = None
+            if timer_case:
+                plan = 1_000_000_000 + sequence * 100_000_000
+                timer = {
+                    "plan_ns": plan, "deadline_ns": plan + 50_000_000,
+                    "provider_resume_ns": plan + 50_000_100,
+                    "provider_resume_ticks": start - 20,
+                    "provider_wait_observed_ns": plan + 1_000_000 if native else 0,
+                    "owner_wait_observed_ns": plan - 100 if native else 0,
+                    "provider_wait_verified": native, "expired": True,
+                    "handler_start_ticks": receive + 10, "handler_end_ticks": receive + 30,
+                }
             samples.append({
                 **common, "record": "sample", "index": len(samples), "sequence": sequence,
                 "provider": provider, "start_ticks": start, "admission_return_ticks": admission_return,
@@ -109,6 +124,7 @@ def specimen(case="ready-std-try", *, native=False, payload="bytes16", count=Non
                 "blocked_verified": native and family in analysis.WAIT_FAMILIES,
                 "peer_tid": receiver_tid if control else 0, "park_returns": returns,
                 "accepted": accepted, "payload_valid": True,
+                "timer": timer,
             })
     result = {
         **common, "record": "result", "success": True, "sample_count": len(samples),
@@ -186,14 +202,14 @@ class ValidSpecimens(unittest.TestCase):
 
     def test_original_captures_remain_unscheduled_when_new_fields_are_absent(self):
         for case in analysis.CASES:
-            if case.endswith(("-normal", "-saturation")):
+            if case.endswith(("-normal", "-saturation")) or case == "timer-provider-messaging":
                 continue
             with self.subTest(case=case):
                 rows = specimen(case, native=case == "fixed-peer")
                 for row in rows:
                     for key in ("release_period_ns", "warmup_scope", "release_epoch_ns",
                                 "planned_release_ns", "release_observed_ns",
-                                "owner_release_ticks", "owner_hold_verified"):
+                                "owner_release_ticks", "owner_hold_verified", "timer_delay_ns", "timer"):
                         row.pop(key, None)
                 result = analysis.analyze(encode(rows))
                 self.assertIsNone(result["release_lateness"])
@@ -209,6 +225,48 @@ class ValidSpecimens(unittest.TestCase):
         result = first(rows, "result")
         result["owner_release_ticks"] = (result["owner_release_ticks"] + offset) & analysis.U32
         self.assertTrue(analysis.analyze(encode(rows))["structural_valid"])
+
+    def test_timer_pipeline_separates_deadline_lateness_from_raw_stage_ticks(self):
+        for native in (False, True):
+            for payload in ("bytes16", "imu-sample"):
+                with self.subTest(native=native, payload=payload):
+                    result = analysis.analyze(encode(specimen(
+                        "timer-provider-messaging", native=native, payload=payload)))
+                    self.assertFalse(result["timer_deadline_lateness"]["timing_qualified"])
+                    self.assertEqual(result["timer_deadline_lateness"]["observed_ns"]["p50_ns"], 100)
+                    for name, expected in (("provider_to_admission_start", 20),
+                                           ("provider_to_handler_end", 230),
+                                           ("receive_to_handler_start", 10), ("handler_duration", 20)):
+                        self.assertEqual(result["raw_ticks"][name]["p50_ticks"], expected)
+                    self.assertFalse(result["timing_qualified"])
+                    self.assertFalse(result["priority_progress_qualified"])
+                    self.assertTrue(result["total_checksum_reconstructed"])
+
+    def test_timer_accepts_owner_preemption_and_consistent_raw_counter_wrap(self):
+        rows = specimen("timer-provider-messaging", native=True, count=1, warmup=0)
+        sample = first(rows, "sample")
+        timer = sample["timer"]
+        sample["admission_return_ticks"] = timer["handler_end_ticks"] + 50
+        offset = analysis.U32 - sample["start_ticks"] - 5
+        for key in ("start_ticks", "admission_return_ticks", "receive_return_ticks"):
+            sample[key] = (sample[key] + offset) & analysis.U32
+        for key in ("provider_resume_ticks", "handler_start_ticks", "handler_end_ticks"):
+            timer[key] = (timer[key] + offset) & analysis.U32
+        result = analysis.analyze(encode(rows))
+        self.assertEqual(result["raw_ticks"]["provider_to_handler_end"]["p50_ticks"], 230)
+        self.assertEqual(result["raw_ticks"]["admission_call"]["p50_ticks"], 260)
+
+    def test_pre_timer_capture_fields_remain_optional_for_all_previous_cases(self):
+        for case in analysis.CASES:
+            if case == "timer-provider-messaging":
+                continue
+            with self.subTest(case=case):
+                rows = specimen(case, native=case == "fixed-peer")
+                for row in rows:
+                    row.pop("timer", None)
+                    row.pop("timer_delay_ns", None)
+                result = analysis.analyze(encode(rows))
+                self.assertIsNone(result["timer_deadline_lateness"])
 
 
 class CorruptionControls(unittest.TestCase):
@@ -421,6 +479,95 @@ class CorruptionControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             analysis.analyze(encoded.replace('"clock_hz": 1000000000', '"clock_hz": NaN'))
         self.reject_mutation("ready-std-try", "sample", "index", False)
+
+
+class TimerCorruptionControls(unittest.TestCase):
+    def reject_timer_mutation(self, key, value, *, native=False):
+        rows = specimen("timer-provider-messaging", native=native)
+        first(rows, "sample")["timer"][key] = value
+        with self.assertRaises(ValueError):
+            analysis.analyze(encode(rows))
+
+    def test_timer_metadata_limits_and_required_fields_are_exact(self):
+        for key, value in (("samples", 129), ("warmup", 33), ("timer_delay_ns", 49_000_000),
+                           ("timer_delay_ns", True), ("release_period_ns", 1),
+                           ("release_schedule", "finite-absolute-1ms"),
+                           ("warmup_scope", "per-provider-prefix")):
+            with self.subTest(key=key):
+                rows = specimen("timer-provider-messaging")
+                rows[0][key] = value
+                with self.assertRaises(ValueError):
+                    analysis.analyze(encode(rows))
+        for kind, key in (("experiment", "timer_delay_ns"), ("experiment", "release_period_ns"),
+                          ("experiment", "warmup_scope"), ("sample", "timer"),
+                          ("sample", "planned_release_ns"), ("sample", "release_observed_ns"),
+                          ("result", "release_epoch_ns"), ("result", "owner_release_ticks"),
+                          ("result", "owner_hold_verified")):
+            with self.subTest(missing=key):
+                rows = specimen("timer-provider-messaging")
+                del first(rows, kind)[key]
+                with self.assertRaises(ValueError):
+                    analysis.analyze(encode(rows))
+
+    def test_timer_deadline_expiry_and_provider_window_fail_closed(self):
+        timer = first(specimen("timer-provider-messaging"), "sample")["timer"]
+        for key, value in (("expired", False), ("deadline_ns", timer["deadline_ns"] - 1),
+                           ("plan_ns", analysis.U64), ("plan_ns", 1 << 64),
+                           ("provider_resume_ns", timer["deadline_ns"] - 1),
+                           ("provider_resume_ns", timer["deadline_ns"] + 1999),
+                           ("provider_resume_ns", True)):
+            with self.subTest(key=key, value=value):
+                self.reject_timer_mutation(key, value)
+
+    def test_timer_wait_observations_and_host_refusal_are_required(self):
+        timer = first(specimen("timer-provider-messaging", native=True), "sample")["timer"]
+        for key, value in (("provider_wait_verified", False),
+                           ("owner_wait_observed_ns", timer["plan_ns"] + 1),
+                           ("provider_wait_observed_ns", timer["plan_ns"] - 1),
+                           ("provider_wait_observed_ns", timer["deadline_ns"])):
+            with self.subTest(native=True, key=key):
+                self.reject_timer_mutation(key, value, native=True)
+        for key, value in (("provider_wait_verified", True),
+                           ("provider_wait_observed_ns", 1), ("owner_wait_observed_ns", 1)):
+            with self.subTest(native=False, key=key):
+                self.reject_timer_mutation(key, value)
+        rows = specimen("timer-provider-messaging", native=True)
+        first(rows, "sample")["blocked_verified"] = False
+        with self.assertRaisesRegex(ValueError, "blocked-wait proof"):
+            analysis.analyze(encode(rows))
+
+    def test_timer_raw_stage_order_and_wrap_bounds_are_checked(self):
+        sample = first(specimen("timer-provider-messaging"), "sample")
+        for key, value in (("provider_resume_ticks", sample["start_ticks"] + 1),
+                           ("handler_start_ticks", sample["receive_return_ticks"] - 1),
+                           ("handler_end_ticks", sample["timer"]["handler_start_ticks"] - 1),
+                           ("handler_end_ticks", sample["start_ticks"] + analysis.HALF),
+                           ("handler_end_ticks", 1 << 32), ("handler_start_ticks", True)):
+            with self.subTest(key=key, value=value):
+                self.reject_timer_mutation(key, value)
+        rows = specimen("timer-provider-messaging")
+        first(rows, "sample")["admission_return_ticks"] = sample["start_ticks"] - 1
+        with self.assertRaises(ValueError):
+            analysis.analyze(encode(rows))
+
+    def test_timer_object_omissions_extra_claims_and_old_case_relabelling_fail(self):
+        valid = specimen("timer-provider-messaging")
+        for key in first(valid, "sample")["timer"]:
+            with self.subTest(missing=key):
+                rows = copy.deepcopy(valid)
+                del first(rows, "sample")["timer"][key]
+                with self.assertRaisesRegex(ValueError, "malformed timer evidence"):
+                    analysis.analyze(encode(rows))
+        self.reject_timer_mutation("irq_timestamp_ticks", 1)
+        self.reject_timer_mutation("timing_qualified", True)
+        rows = specimen("blocked-messaging-try")
+        first(rows, "sample")["timer"] = first(valid, "sample")["timer"]
+        with self.assertRaisesRegex(ValueError, "non-timer case"):
+            analysis.analyze(encode(rows))
+        rows = specimen("blocked-messaging-try")
+        rows[0]["timer_delay_ns"] = 50_000_000
+        with self.assertRaisesRegex(ValueError, "unexpected timer delay"):
+            analysis.analyze(encode(rows))
 
 
 if __name__ == "__main__":

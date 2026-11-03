@@ -14,12 +14,13 @@ SPEC.loader.exec_module(capture)
 NORMALIZED = (
     "ready-std-try", "ready-messaging-try", "ready-crossbeam-try", "full-messaging",
     "blocked-std-try", "blocked-messaging-try", "blocked-select-three", "fanin-messaging-4",
+    "timer-provider-messaging",
 )
 SCHEDULED_FANIN = {
     "fanin-messaging-1-normal", "fanin-messaging-4-normal",
     "fanin-messaging-1-saturation", "fanin-messaging-4-saturation",
 }
-EXPECTED_RUNS = 40
+EXPECTED_RUNS = 42
 
 
 def main():
@@ -31,6 +32,8 @@ def main():
         parser.error("output must be new; retain previous attempts")
     if not SCHEDULED_FANIN.issubset(capture.analysis.CASES):
         parser.error("case catalog must include all four scheduled messaging fan-in controls")
+    if "timer-provider-messaging" not in capture.analysis.CASES:
+        parser.error("case catalog must include the native timer/provider/handler control")
     cases = [(case, "bytes16") for case in capture.analysis.CASES if case != "fixed-peer"]
     cases += [(case, "imu16") for case in NORMALIZED]
     cases.append(("fixed-peer", "bytes16"))

@@ -85,6 +85,9 @@ class BuildGuards(unittest.TestCase):
         self.assertIn("ARCH_PERF_EVENTS", command)
         self.assertNotIn("std_channel_perf", command)
         self.assertNotIn("NXRS_CARGO_CONFIG", command)
+        self.assertEqual([command[index + 1] for index, value in enumerate(command)
+                          if value == "--target-c-source"],
+                         [build.BASE / "native.c", build.HERE / "native-timer.c"])
 
     def test_fixture_is_accepted_by_existing_deployment_resolution(self):
         spec = importlib.util.spec_from_file_location(
@@ -103,7 +106,7 @@ class BuildGuards(unittest.TestCase):
         for path in ("Cargo.lock", "shared/messaging/src/channel.rs", "hal/imu/src/api.rs",
                      "platform/hal-build.rs", "tests/std-channel-perf/native.c",
                      "tests/std-channel-perf/rust/src/native.rs", "tests/event-path-perf/build.py",
-                     "tests/event-path-perf/rust/Cargo.toml"):
+                     "tests/event-path-perf/rust/Cargo.toml", "tests/event-path-perf/native-timer.c"):
             self.assertIn(path, inventory)
         self.assertNotIn("tests/std-channel-perf/rust/src/latency.rs", inventory)
 

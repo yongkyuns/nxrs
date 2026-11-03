@@ -90,7 +90,8 @@ def firmware_command(platform: str, out: Path, kernel_optimization: str,
             "--app-manifest", MANIFEST, "--app-package", PACKAGE, "--bin", BINARY,
             "--command", COMMAND, "--priority", "100", "--stack-size", "65536",
             "--platform", platform, "--out", out / "firmware", "--abi-profile", "active",
-            "--target-c-source", BASE / "native.c"]
+            "--target-c-source", BASE / "native.c",
+            "--target-c-source", HERE / "native-timer.c"]
     if kernel_optimization == "o2":
         argv += ["--kconfig-disable", "DEBUG_NOOPT", "--kconfig-disable", "DEBUG_FULLOPT",
                  "--kconfig-enable", "DEBUG_CUSTOMOPT"]

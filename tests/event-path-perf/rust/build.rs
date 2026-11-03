@@ -22,32 +22,40 @@ fn main() {
     }
     assert_eq!(env::var("CARGO_CFG_TARGET_OS").unwrap(), "linux");
     assert_eq!(env::var("HOST").unwrap(), env::var("TARGET").unwrap());
-    let native = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join("../../std-channel-perf/native.c");
+    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let native = manifest.join("../../std-channel-perf/native.c");
+    let timer = manifest.join("../native-timer.c");
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     println!("cargo:rerun-if-changed={}", native.display());
     println!(
         "cargo:rerun-if-changed={}",
         native.with_extension("h").display()
     );
-    for command in [
-        Command::new("cc")
+    for (source, object) in [(&native, "native.o"), (&timer, "native-timer.o")] {
+        println!("cargo:rerun-if-changed={}", source.display());
+        let mut command = Command::new("cc");
+        command
             .args([
                 "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-c",
             ])
-            .arg(&native)
+            .arg(source)
             .arg("-o")
-            .arg(out.join("native.o")),
-        Command::new("ar")
-            .arg("crs")
-            .arg(out.join("libevent_path_native.a"))
-            .arg(out.join("native.o")),
-    ] {
+            .arg(out.join(object));
         assert!(
             command.status().expect("native compiler").success(),
             "{command:?}"
         );
     }
+    let mut archive = Command::new("ar");
+    archive
+        .arg("crs")
+        .arg(out.join("libevent_path_native.a"))
+        .arg(out.join("native.o"))
+        .arg(out.join("native-timer.o"));
+    assert!(
+        archive.status().expect("native archive").success(),
+        "{archive:?}"
+    );
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=event_path_native");
     println!("cargo:rustc-link-lib=pthread");

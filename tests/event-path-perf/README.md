@@ -22,6 +22,7 @@ provider/sequence identity. IMU padding is never hashed or interpreted.
 | `ready-select-{one,three}`, `blocked-select-{one,three}` | Compare Crossbeam direct receive with one-arm and three-arm `select_biased!`. The ordinary queue is active; idle stop/important arms stay connected. |
 | `semaphore` | Sequence publication plus native semaphore post, ending at return from `sem_clockwait`. This has zero message payload and is a notification control. |
 | `park` | Sequence publication plus `unpark`, ending at the actual `park` return that satisfies the predicate. Count park returns separately from useful completions. |
+| `timer-provider-messaging` | Native monotonic timeout wakes a blocked provider, which publishes the typed payload through the actual messaging facade; the owner receives and performs bounded checked work. Retain deadline lateness and correlated provider/admission/receive/handler markers. |
 | `fixed-peer` | Known-peer marker after sequence publication and `yield_now`, with two distinct equal-priority FIFO tasks and a native peer-ready observation. Host execution refuses this contract. |
 | `fanin-{std,messaging,crossbeam}-{1,4}` | One/four task-context providers issue finite unpaced `try_send` attempts while the owner drains one shared class queue. Retain accepted and rejected attempts and reconcile actual handling; these six cases do not guarantee saturation. |
 | `fanin-messaging-{1,4}-normal` | One/four providers share an epoch and attempt one admission per 1 ms absolute slot. Retain each scheduled attempt and release lateness while the owner drains concurrently. |
@@ -113,6 +114,39 @@ warmups; retained records and checksums describe only the retained attempts.
 These are finite scheduling and overload controls, not sustained offered-load,
 coordinated-omission, fairness or deadline qualification.
 
+### Native timer to typed handler
+
+`timer-provider-messaging` exercises the native timer alternative in P2's
+provider-to-handler family. Each iteration first establishes an empty owner
+wait. The supervisor then sets a `CLOCK_MONOTONIC` deadline 50 ms ahead, and the
+provider enters `sem_clockwait` on a dedicated empty semaphore. On the pinned
+NuttX implementation, the semaphore deadline arms a kernel watchdog; its timer
+interrupt completes the wait with `ETIMEDOUT`. The provider checks that exact
+outcome before constructing and admitting its typed payload. An ordinary
+semaphore post is cancellation, never a timer event.
+
+The P2-owned `native-timer.c` only translates the absolute deadline and native
+return status using target headers. Rust owns the sequence protocol, waits,
+payload, admission, handler validation, cancellation and joins. P0's native
+adapter remains unchanged. On NuttX, every iteration requires a fresh owner
+queue wait and a fresh provider timer wait observed before the deadline.
+Host runs exercise behavior and preserve both wait-proof flags as false.
+
+Each retained `timer` record separates the planned deadline and monotonic
+provider-resume time from raw-counter provider resume, admission entry/return,
+receive, handler-start and handler-end markers. The handler performs bounded
+payload validation and checksum work. A higher-priority owner can finish that
+work before the provider's admission call returns; the analysis permits that
+ordering while checking each correlated stage. Final gates retain the last
+admission-return timestamp before worker cleanup.
+
+The 50 ms arming interval is outside the raw stage measurements. Deadline to
+provider resume is reported as unqualified monotonic lateness; the deadline is
+not an observed IRQ/callback timestamp. This control does not acquire a sensor
+or claim a physical device's interrupt latency. It is capped at 128 retained
+iterations and 32 excluded warmups, with per-iteration counter-wrap guards and
+the independent watchdog still active.
+
 ## Build and run
 
 From the repository root:
@@ -125,9 +159,10 @@ CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_LTO=false cargo +1.90.0 
 python3 tests/event-path-perf/run-host.py --binary target/release/event-path-perf --output target/event-path-host
 ```
 
-The host corpus checks 40 expectations: all 31 supported named cases, eight
+The host corpus checks 42 expectations: all 32 supported named cases, nine
 normalized IMU controls and the expected fixed-peer refusal. This includes all
-four normal/saturation messaging fan-in cases. Every run gets a new directory
+four normal/saturation messaging fan-in cases and the timer-provider case with
+both payload profiles. Every run gets a new directory
 with raw stdout/stderr, a capture receipt and analysis. Reusing an output
 directory is rejected. Individual runs accept `CASE SAMPLES WARMUP PROFILE`:
 
@@ -136,6 +171,7 @@ target/release/event-path-perf blocked-messaging-try 128 16 bytes16
 target/release/event-path-perf ready-messaging-try 128 16 imu16
 target/release/event-path-perf fanin-messaging-4-normal 128 16 bytes16
 target/release/event-path-perf fanin-messaging-1-saturation 16 4 bytes16
+target/release/event-path-perf timer-provider-messaging 16 4 imu16
 python3 tests/event-path-perf/capture.py host --binary target/release/event-path-perf --case park --samples 128 --warmup 16 --output target/event-path-park
 ```
 
@@ -157,9 +193,10 @@ changed source refuses the build. Compiler, configuration, source and image
 identities are retained in `event-path-build-v1`.
 
 The [dedicated workflow](../../.github/workflows/event-path-perf.yml) runs the
-host corpus, builds ARM, runs 15 representative cases in separate fresh QEMU
+host corpus, builds ARM, runs 17 representative captures in separate fresh QEMU
 boots, and builds the ESP32-S3 image. The QEMU corpus includes one and four
-providers in both normal and saturation modes. It does not flash or take
+providers in both normal and saturation modes and the timer-provider case with
+both payload profiles. It does not flash or take
 physical-board ownership.
 
 ## Evidence and pending acceptance
@@ -188,19 +225,15 @@ claim. Physical captures still require P0's corrected independently calibrated,
 phase-covered cohort and resource/placement review. P1's no-repair progress gate
 is required before production transport adoption.
 
-The following P2 work remains unimplemented:
-
-- A qualified native IRQ/timer notification → provider task → typed admission →
-  owner-handler experiment. The current synthetic providers begin in task
-  context and do not exercise hardware acquisition, its native notification,
-  or the full provider-to-handler path. This remains a P2 implementation gap.
-- A blocked-producer release control, if the selected production call site
-  permits blocking and requires that control. Current `send` cases use nonfull
-  queues and cannot satisfy it.
+The provider-to-handler case implements P2's native timer path. Physical sensor
+acquisition and a device-specific IRQ notification source remain outside this
+synthetic control; their acceptance requires the chosen source path and physical
+evidence. A full-queue blocked-producer release control remains conditional on
+a selected production call site that permits blocking and requires that control.
+Current `send` cases use nonfull queues and cannot satisfy that separate control.
 
 P3 owns full selected-owner behavior, P4 owns correlated native switch/IRQ
 attribution, and P5 owns sustained offered-load and resource/product budgets.
-Those later stages do not replace the pending P2 acquisition experiment.
 
 This work owns `tests/event-path-perf`, its dedicated workflow, and the minimal
 workspace member/lock entry. Existing P0 capture/timing code, P1 source hooks,

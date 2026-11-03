@@ -6,6 +6,7 @@ mod ladder;
 #[path = "../../../std-channel-perf/rust/src/native.rs"]
 mod native;
 mod payload;
+mod provider;
 mod report;
 mod support;
 mod transport;
@@ -28,6 +29,7 @@ enum Family {
     Park,
     FixedPeer,
     Fanin,
+    ProviderTimer,
 }
 impl Family {
     fn name(self) -> &'static str {
@@ -39,6 +41,7 @@ impl Family {
             Self::Park => "park",
             Self::FixedPeer => "fixed-peer",
             Self::Fanin => "finite-fanin",
+            Self::ProviderTimer => "timer-provider-handler",
         }
     }
 }
@@ -83,7 +86,7 @@ impl Case {
     fn parse(value: &str) -> Result<Self> {
         use AdmissionCall::{Send, TrySend};
         use Backend::{Crossbeam, Messaging, None, SelectOne, SelectThree, Std};
-        use Family::{Blocked, Fanin, FixedPeer, Full, Park, Ready, Semaphore};
+        use Family::{Blocked, Fanin, FixedPeer, Full, Park, ProviderTimer, Ready, Semaphore};
         let (name, family, backend, call, providers) = match value {
             "ready-std-try" => ("ready-std-try", Ready, Std, TrySend, 1),
             "ready-messaging-try" => ("ready-messaging-try", Ready, Messaging, TrySend, 1),
@@ -107,6 +110,13 @@ impl Case {
             "semaphore" => ("semaphore", Semaphore, None, TrySend, 1),
             "park" => ("park", Park, None, TrySend, 1),
             "fixed-peer" => ("fixed-peer", FixedPeer, None, TrySend, 1),
+            "timer-provider-messaging" => (
+                "timer-provider-messaging",
+                ProviderTimer,
+                Messaging,
+                TrySend,
+                1,
+            ),
             "fanin-std-1" => ("fanin-std-1", Fanin, Std, TrySend, 1),
             "fanin-std-4" => ("fanin-std-4", Fanin, Std, TrySend, 4),
             "fanin-messaging-1" => ("fanin-messaging-1", Fanin, Messaging, TrySend, 1),
@@ -168,6 +178,9 @@ impl Case {
         }
     }
     fn release_schedule(self) -> &'static str {
+        if self.family == Family::ProviderTimer {
+            return "native-timeout-after-owner-wait";
+        }
         match self.fanin_mode() {
             fanin::Mode::Unpaced => "finite-closed-loop-or-unscheduled-fanin",
             fanin::Mode::Normal => "finite-absolute-1ms",
@@ -191,6 +204,7 @@ fn run_transport<T: Transport, P: Payload>(
             case.family == Family::Full,
         ),
         Family::Blocked => ladder::blocked::<T, P>(config, clock, capacity, case.call),
+        Family::ProviderTimer => provider::run::<P>(config, clock, capacity),
         Family::Fanin => match case.fanin_mode() {
             fanin::Mode::Unpaced => fanin::run::<T, P>(config, clock, capacity, case.providers),
             mode => fanin::run_with_mode::<T, P>(config, clock, capacity, case.providers, mode),
@@ -252,6 +266,11 @@ fn print_experiment<P: Payload>(
     } else {
         "sequential-prefix"
     };
+    let timer_delay_ns = if case.family == Family::ProviderTimer {
+        provider::DEADLINE_DELAY_NS
+    } else {
+        0
+    };
     println!(concat!("EVENT_PATH_PERF {{\"schema\":\"event-path-perf-v1\",\"record\":\"experiment\",",
         "\"run_id\":\"{}\",\"case\":\"{}\",\"family\":\"{}\",\"transport\":\"{}\",\"admission\":\"{}\",",
         "\"payload\":\"{}\",\"payload_bytes\":{},\"payload_alignment\":{},\"capacity\":{},\"provider_count\":{},",
@@ -260,18 +279,30 @@ fn print_experiment<P: Payload>(
         "\"clock_hz\":{},\"clock_source\":{},\"counter_native_bits\":{},\"monotonic_resolution_ns\":{},",
         "\"counter_bits\":32,\"clock_source_request\":\"{}\",\"receive_api\":\"{}\",",
         "\"crossbeam_version\":\"0.5.17\",\"witness_hooks\":false,\"worker_stack\":{},\"blocked_state_name\":\"{}\",",
-        "\"release_schedule\":\"{}\",\"release_period_ns\":{},\"warmup_scope\":\"{}\",\"counts_include_warmup\":true}}"),
+        "\"release_schedule\":\"{}\",\"release_period_ns\":{},\"warmup_scope\":\"{}\",\"timer_delay_ns\":{},\"counts_include_warmup\":true}}"),
         run_id, case.name, case.family.name(), case.backend.name(), case.admission(), payload, bytes, alignment,
         capacity, case.providers, case.backend.arms(), stop_capacity, important_capacity,
         config.samples, config.warmup, runtime, env!("NXRS_EVENT_PATH_BUILD_ID"), clock.hz, clock.source, clock.bits,
         clock.resolution_ns, env!("NXRS_STD_CHANNEL_CLOCK_SOURCE"), case.receive_api(), support::WORKER_STACK, native::State::WaitSem.label(),
-        case.release_schedule(), release_period_ns, warmup_scope);
+        case.release_schedule(), release_period_ns, warmup_scope, timer_delay_ns);
 }
 
 fn optional_stamp(value: Option<u64>) -> String {
     value
         .map(|stamp| stamp.to_string())
         .unwrap_or_else(|| "null".into())
+}
+
+fn timer_record(timer: &Option<report::TimerSample>) -> String {
+    match timer {
+        None => "null".into(),
+        Some(timer) => format!(concat!("{{\"plan_ns\":{},\"deadline_ns\":{},\"provider_resume_ns\":{},",
+            "\"provider_resume_ticks\":{},\"provider_wait_observed_ns\":{},\"owner_wait_observed_ns\":{},",
+            "\"provider_wait_verified\":{},\"expired\":{},\"handler_start_ticks\":{},\"handler_end_ticks\":{}}}"),
+            timer.plan_ns, timer.deadline_ns, timer.provider_resume_ns, timer.provider_resume_ticks,
+            timer.provider_wait_observed_ns, timer.owner_wait_observed_ns, timer.provider_wait_verified,
+            timer.expired, timer.handler_start_ticks, timer.handler_end_ticks),
+    }
 }
 
 fn print_report(run_id: &str, report: &Report) {
@@ -292,10 +323,10 @@ fn print_report(run_id: &str, report: &Report) {
             "\"index\":{},\"sequence\":{},\"provider\":{},\"start_ticks\":{},\"admission_return_ticks\":{},",
             "\"receive_start_ticks\":{},\"receive_return_ticks\":{},\"elapsed_upper_ns\":{},\"blocked_verified\":{},",
             "\"peer_tid\":{},\"park_returns\":{},\"accepted\":{},\"payload_valid\":true,",
-            "\"planned_release_ns\":{},\"release_observed_ns\":{}}}"), run_id, index,
+            "\"planned_release_ns\":{},\"release_observed_ns\":{},\"timer\":{}}}"), run_id, index,
             sample.sequence, sample.provider, sample.start, sample.admission_end, receive_start, sample.receive, sample.window_ns,
             sample.blocked, sample.peer_tid, sample.park_returns, sample.accepted,
-            optional_stamp(sample.planned_release_ns), optional_stamp(sample.release_observed_ns));
+            optional_stamp(sample.planned_release_ns), optional_stamp(sample.release_observed_ns), timer_record(&sample.timer));
     }
     println!(concat!("EVENT_PATH_PERF {{\"schema\":\"event-path-perf-v1\",\"record\":\"result\",\"run_id\":\"{}\",",
         "\"success\":true,\"sample_count\":{},\"attempted\":{},\"admitted\":{},\"rejected\":{},\"handled\":{},\"checksum\":{},\"retained_checksum\":{},",
@@ -400,6 +431,10 @@ mod tests {
             "finite-held-owner-burst"
         );
         assert!(Case::parse("fanin-crossbeam-4-normal").is_err());
+        let timer = Case::parse("timer-provider-messaging").unwrap();
+        assert_eq!(timer.family, Family::ProviderTimer);
+        assert_eq!(timer.backend, Backend::Messaging);
+        assert_eq!(timer.release_schedule(), "native-timeout-after-owner-wait");
         assert!(Case::parse("yield-alone").is_err());
         assert!(Case::parse("context-switch").is_err());
     }

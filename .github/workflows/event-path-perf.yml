@@ -116,9 +116,11 @@ jobs:
             blocked-select-one blocked-select-three semaphore park fixed-peer \
             fanin-messaging-4 \
             fanin-messaging-1-normal fanin-messaging-4-normal \
-            fanin-messaging-1-saturation fanin-messaging-4-saturation; do
+            fanin-messaging-1-saturation fanin-messaging-4-saturation \
+            timer-provider-messaging; do
             python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --case "$case" --samples 16 --warmup 4 --output "target/event-path-arm/runs/$case"
           done
+          python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --case timer-provider-messaging --samples 16 --warmup 4 --payload imu16 --output target/event-path-arm/runs/timer-provider-messaging-imu16
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

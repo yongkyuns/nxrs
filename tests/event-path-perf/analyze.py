@@ -27,8 +27,10 @@ SCHEMA = "event-path-perf-v1"
 U32 = (1 << 32) - 1
 U64 = (1 << 64) - 1
 HALF = 1 << 31
+TIMER_FAMILY = "timer-provider-handler"
+TIMER_DELAY_NS = 50_000_000
 CONTROL_FAMILIES = {"semaphore", "park", "fixed-peer"}
-WAIT_FAMILIES = {"blocked", "semaphore", "park"}
+WAIT_FAMILIES = {"blocked", "semaphore", "park", TIMER_FAMILY}
 THREAD_FAMILIES = WAIT_FAMILIES | {"fixed-peer", "finite-fanin"}
 SCHEDULED_FANIN = {
     f"fanin-messaging-{providers}-{mode}": (schedule, period)
@@ -66,6 +68,8 @@ def case_contracts() -> dict:
             ("park", "publish-and-unpark", "thread-park-predicate"),
             ("fixed-peer", "publish-and-yield-now", "known-peer-marker")):
         cases[family] = (family, "notification-control", admission, receive, 0, 1)
+    cases["timer-provider-messaging"] = (
+        TIMER_FAMILY, "messaging", "try-send", "inbox-wait-none", 0, 1)
     return cases
 
 
@@ -169,6 +173,9 @@ def validate_experiment(metadata: dict):
     warmup = integer(metadata, "warmup", 0, 1024)
     require(family != "finite-fanin" or (samples <= 256 and warmup <= 64),
             "finite fan-in storage bound exceeded")
+    timer_case = family == TIMER_FAMILY
+    require(not timer_case or (samples <= 128 and warmup <= 32),
+            "timer-provider storage bound exceeded")
     require(boolean(metadata, "counts_include_warmup"), "count scope must include warmup")
     require(not boolean(metadata, "witness_hooks"), "timing fixture contains witness hooks")
     require(metadata.get("crossbeam_version") == "0.5.17", "unexpected Crossbeam version")
@@ -177,17 +184,21 @@ def validate_experiment(metadata: dict):
     require(metadata.get("active_arm") == "ordinary", "unexpected selected arm")
     release = SCHEDULED_FANIN.get(case)
     require(metadata.get("release_schedule") == (
-        release[0] if release else "finite-closed-loop-or-unscheduled-fanin"),
+        "native-timeout-after-owner-wait" if timer_case else release[0]
+        if release else "finite-closed-loop-or-unscheduled-fanin"),
             "unexpected workload release schedule")
     # Older captures of the original cases did not emit these fields. Missing
     # fields never reinterpret an old run as a scheduled workload.
-    if release or "release_period_ns" in metadata:
+    if release or timer_case or "release_period_ns" in metadata:
         require(integer(metadata, "release_period_ns", 0, U64) == (release[1] if release else 0),
                 "unexpected workload release period")
-    if release or "warmup_scope" in metadata:
+    if release or timer_case or "warmup_scope" in metadata:
         require(metadata.get("warmup_scope") == (
             "per-provider-prefix" if family == "finite-fanin" else "sequential-prefix"),
                 "unexpected warmup scope")
+    if timer_case or "timer_delay_ns" in metadata:
+        require(integer(metadata, "timer_delay_ns", 0, U64) == (TIMER_DELAY_NS if timer_case else 0),
+                "unexpected timer delay")
     payload = metadata.get("payload")
     capacity = integer(metadata, "capacity", 0, 16)
     size = integer(metadata, "payload_bytes", 0, 48)
@@ -286,20 +297,24 @@ def analyze(text: str) -> dict:
     elif family != "finite-fanin":
         require((admitted, rejected) == (total, 0), "delivery case lost or rejected work")
     release = SCHEDULED_FANIN.get(metadata["case"])
+    timer_case = family == TIMER_FAMILY
+    strict_fields = release is not None or timer_case
     saturation = release is not None and release[1] == 0
     epoch = integer(result, "release_epoch_ns", 0, U64) if release else None
     if release:
         require(epoch + (count + warmup - 1) * release[1] <= U64,
                 "absolute release schedule overflows u64")
     if not release:
-        require(result.get("release_epoch_ns") is None, "unscheduled case claims a release epoch")
-    if release or "owner_hold_verified" in result:
+        require(result.get("release_epoch_ns") is None
+                and (not timer_case or "release_epoch_ns" in result),
+                "unscheduled case claims a release epoch")
+    if strict_fields or "owner_hold_verified" in result:
         require(boolean(result, "owner_hold_verified") == (native and saturation),
                 "missing or fabricated saturation owner-hold proof")
     owner_release = integer(result, "owner_release_ticks", 0, U32) if saturation else None
     if not saturation:
         require(result.get("owner_release_ticks") is None
-                and (not release or "owner_release_ticks" in result),
+                and (not strict_fields or "owner_release_ticks" in result),
                 "non-saturation case claims an owner release marker")
     if saturation:
         capacity = metadata["capacity"]
@@ -308,6 +323,7 @@ def analyze(text: str) -> dict:
 
     admission_ticks, accepted_ticks, rejected_ticks, delivery_ticks, receive_ticks = [], [], [], [], []
     release_lateness = []
+    deadline_lateness, provider_admission, provider_handler, receive_handler, handler_duration = [], [], [], [], []
     last_release = [0] * provider_count
     provider_full = [False] * provider_count
     retained_admitted = 0
@@ -342,7 +358,8 @@ def analyze(text: str) -> dict:
                 provider_full[provider] |= not accepted
         else:
             require(sample.get("planned_release_ns") is None
-                    and sample.get("release_observed_ns") is None,
+                    and sample.get("release_observed_ns") is None
+                    and (not timer_case or {"planned_release_ns", "release_observed_ns"} <= sample.keys()),
                     "unscheduled case claims planned or observed releases")
         require(boolean(sample, "blocked_verified") == (native and family in WAIT_FAMILIES),
                 "missing or fabricated blocked-wait proof")
@@ -360,6 +377,47 @@ def analyze(text: str) -> dict:
         receive = integer(sample, "receive_return_ticks", 0, U32)
         admission = (admission_end - start) & U32
         deltas = [admission]
+        if timer_case:
+            timer = sample.get("timer")
+            require(isinstance(timer, dict) and set(timer) == {
+                "plan_ns", "deadline_ns", "provider_resume_ns", "provider_resume_ticks",
+                "provider_wait_observed_ns", "owner_wait_observed_ns", "provider_wait_verified",
+                "expired", "handler_start_ticks", "handler_end_ticks",
+            }, "missing or malformed timer evidence")
+            plan = integer(timer, "plan_ns", 0, U64)
+            deadline = integer(timer, "deadline_ns", 0, U64)
+            resume_ns = integer(timer, "provider_resume_ns", 0, U64)
+            require(plan + TIMER_DELAY_NS <= U64 and deadline == plan + TIMER_DELAY_NS,
+                    "timer deadline differs from its checked delay")
+            require(boolean(timer, "expired") and resume_ns >= deadline,
+                    "timer did not expire before provider resume")
+            require(boolean(timer, "provider_wait_verified") == native,
+                    "missing or fabricated provider-wait proof")
+            provider_wait = integer(timer, "provider_wait_observed_ns", 0, U64)
+            owner_wait = integer(timer, "owner_wait_observed_ns", 0, U64)
+            require((owner_wait <= plan and plan <= provider_wait < deadline) if native
+                    else (owner_wait == 0 and provider_wait == 0),
+                    "timer wait observations disagree with runtime or deadline")
+            resume = integer(timer, "provider_resume_ticks", 0, U32)
+            handler_start = integer(timer, "handler_start_ticks", 0, U32)
+            handler_end = integer(timer, "handler_end_ticks", 0, U32)
+            admission_start_delta = (start - resume) & U32
+            admission_return_delta = (admission_end - resume) & U32
+            receive_delta = (receive - resume) & U32
+            handler_start_delta = (handler_start - resume) & U32
+            handler_end_delta = (handler_end - resume) & U32
+            require(admission_start_delta <= receive_delta <= handler_start_delta <= handler_end_delta
+                    and admission_start_delta <= admission_return_delta,
+                    "timer-provider admission, receive or handler markers are reordered")
+            deltas.extend([admission_start_delta, admission_return_delta, receive_delta,
+                           handler_start_delta, handler_end_delta])
+            deadline_lateness.append(resume_ns - deadline)
+            provider_admission.append(admission_start_delta)
+            provider_handler.append(handler_end_delta)
+            receive_handler.append(handler_start_delta - receive_delta)
+            handler_duration.append(handler_end_delta - handler_start_delta)
+        else:
+            require(sample.get("timer") is None, "non-timer case claims timer evidence")
         if saturation:
             owner_release_delta = (owner_release - start) & U32
             require(admission <= owner_release_delta, "admission returned after owner release")
@@ -394,6 +452,9 @@ def analyze(text: str) -> dict:
         if release:
             require(observed - epoch <= window - resolution * 2,
                     "observed release exceeds the active monotonic window")
+        if timer_case:
+            require(resume_ns - deadline <= window - resolution * 2,
+                    "provider resume exceeds the post-deadline monotonic window")
         require(max(deltas) < HALF and window * frequency < HALF * 1_000_000_000,
                 "ambiguous counter wrap or reversed timestamp")
         require(max(deltas) * 1_000_000_000 <= window * frequency,
@@ -441,12 +502,21 @@ def analyze(text: str) -> dict:
             "timing_qualified": False,
             "observed_ns": raw_distribution(release_lateness, "ns"),
         } if release else None),
+        "timer_deadline_lateness": ({
+            "scope": "Retained provider resumes after the planned deadline; unqualified monotonic observations, not IRQ timestamps.",
+            "timing_qualified": False,
+            "observed_ns": raw_distribution(deadline_lateness, "ns"),
+        } if timer_case else None),
         "raw_ticks": {
             "admission_call": raw_distribution(admission_ticks),
             "accepted_admission_call": raw_distribution(accepted_ticks),
             "rejected_admission_call": raw_distribution(rejected_ticks),
             "admission_to_receive_return": raw_distribution(delivery_ticks),
             "ready_receive_call": raw_distribution(receive_ticks),
+            "provider_to_admission_start": raw_distribution(provider_admission),
+            "provider_to_handler_end": raw_distribution(provider_handler),
+            "receive_to_handler_start": raw_distribution(receive_handler),
+            "handler_duration": raw_distribution(handler_duration),
         },
         "scope": "Finite-case characterization; no calibrated duration, pure switch cost, offered-load or production progress claim.",
     }
