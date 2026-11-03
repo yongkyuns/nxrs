@@ -25,7 +25,7 @@ use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, UdpSocket},
     sync::watch,
     task::JoinHandle,
     time::timeout,
@@ -163,6 +163,7 @@ struct Authority {
     directory: PathBuf,
     issuer: Issuer<'static, KeyPair>,
     ca_der: Vec<u8>,
+    bootstrap_pin: [u8; 32],
     token: Zeroizing<Vec<u8>>,
     generation: u64,
     clock: u64,
@@ -200,6 +201,7 @@ impl Authority {
             &directory.join("bootstrap.pem"),
             4096,
         )?))?;
+        let bootstrap_pin = Sha256::digest(&certificate).into();
         let key = Zeroizing::new(config::private_read(
             &directory.join("bootstrap.key"),
             4096,
@@ -233,6 +235,7 @@ impl Authority {
                 directory,
                 issuer,
                 ca_der,
+                bootstrap_pin,
                 token,
                 generation,
                 clock: now()?,
@@ -453,6 +456,9 @@ async fn execute(
         .listen;
     let (mut authority, acceptor) = Authority::load(config)?;
     let listener = TcpListener::bind(listen).await?;
+    // Explicit wildcard binding opts into LAN discovery; static binds stay scoped.
+    let discovery = if listen.ip().is_unspecified() { Some(UdpSocket::bind(listen).await?) } else { None };
+    let mut packet = [0; enrollment::discovery::SIZE + 1];
     let upload_deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     let mut upload = if let Some(image) = &image {
         if authority.generation == 0 {
@@ -484,13 +490,25 @@ async fn execute(
                     continue;
                 },
                 value=listener.accept()=>value?.0,
+                value=async { match &discovery {
+                    Some(socket)=>socket.recv_from(&mut packet).await,
+                    None=>std::future::pending().await,
+                }}=>{
+                    let (n,peer)=value?;
+                    if enrollment::discovery::local_peer(peer).is_some() {
+                        if let Some(reply)=enrollment::discovery::reply(&packet[..n],&authority.bootstrap_pin) {
+                            let _=discovery.as_ref().unwrap().try_send_to(&reply,peer);
+                        }
+                    }
+                    continue;
+                },
             };
             let updating=image.is_some();
             let request=async {
                 #[cfg(feature="probe")]
                 let handshake_started=tokio::time::Instant::now();
                 let address=match socket.peer_addr()?.ip() {
-                    std::net::IpAddr::V4(ip)=>ip,
+                    std::net::IpAddr::V4(ip) if ip.is_private() || ip.is_loopback()=>ip,
                     _=>return Err(Error::Authentication),
                 };
                 let mut tls=acceptor.accept(socket).await.map_err(|_|Error::Authentication)?;

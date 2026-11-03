@@ -1,6 +1,7 @@
 //! Bounded camera/gateway bootstrap records carried inside exact-pin TLS.
 #![forbid(unsafe_code)]
 use std::io::{self, Read, Write};
+pub mod discovery;
 
 pub const MAGIC: &[u8; 4] = b"NXB1";
 pub const MAX_CSR: usize = 1024;
@@ -12,6 +13,7 @@ fn invalid() -> io::Error {
 
 /// One independently commissioned camera. Never serialize this with Debug.
 pub struct Commission {
+    /// Last-known endpoint; an unspecified IP requests LAN discovery only.
     pub gateway: std::net::SocketAddrV4,
     pub certificate_sha256: [u8; 32],
     pub token: [u8; 32],
@@ -23,7 +25,9 @@ impl Commission {
     pub const MAX_BYTES: usize = 4 + 6 + 64 + 3 * 65;
     pub fn encode(&self) -> io::Result<Vec<u8>> {
         if self.gateway.port() == 0
-            || !(self.gateway.ip().is_private() || self.gateway.ip().is_loopback())
+            || !(self.gateway.ip().is_unspecified()
+                || self.gateway.ip().is_private()
+                || self.gateway.ip().is_loopback())
             || self.certificate_sha256 == [0; 32]
             || self.token == [0; 32]
         {
@@ -222,6 +226,15 @@ mod tests {
             &[b'N', b'X', b'C', b'1', 192, 168, 1, 3, 0x20, 0xfc]
         );
         assert_eq!(Commission::decode(&bytes).unwrap().encode().unwrap(), bytes);
+        let mut discovery = bytes.clone();
+        discovery[4..8].fill(0);
+        assert!(Commission::decode(&discovery)
+            .unwrap()
+            .gateway
+            .ip()
+            .is_unspecified());
+        discovery[4..8].copy_from_slice(&[8, 8, 8, 8]);
+        assert!(Commission::decode(&discovery).is_err());
         for end in 0..bytes.len() {
             assert!(Commission::decode(&bytes[..end]).is_err());
         }

@@ -32,7 +32,7 @@ OPEN_FLAGS = ['O_RDONLY', 'O_WRONLY', 'O_RDWR', 'O_CREAT', 'O_EXCL', 'O_NOCTTY',
               'O_TRUNC', 'O_APPEND', 'O_NONBLOCK', 'O_DSYNC', 'O_DIRECT',
               'O_LARGEFILE', 'O_DIRECTORY', 'O_NOFOLLOW', 'O_NOATIME',
               'O_CLOEXEC', 'O_ACCMODE']
-CONSTANTS += OPEN_FLAGS
+CONSTANTS += OPEN_FLAGS + ['SOL_SOCKET', 'SO_BROADCAST']
 SIGNAL_HANDLERS = ['SIG_IGN', 'SIG_DFL', 'SIG_ERR']
 # libc reserves trailing storage in stat and a larger NAME_MAX in dirent.
 # Capacity is sufficient only with every public field offset/width checked.
@@ -219,7 +219,7 @@ def run(out, target=TARGET, target_spec=None):
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <time.h>\n#include <sys/types.h>\n#include <poll.h>\n'
                 '#include <pthread.h>\n#include <errno.h>\n#include <fcntl.h>\n#include <signal.h>\n'
-                '#include <dirent.h>\n#include <sys/stat.h>\n'
+                '#include <dirent.h>\n#include <sys/stat.h>\n#include <sys/socket.h>\n'
                 '__attribute__((section(".nxrs_abi"), used))\n'
                 'const uint32_t nxrs_abi[] = {\n'
                 + ''.join(f'  (uint32_t)({c}), /* {name} */\n' for name, c, _, _ in rows) + '};\n')

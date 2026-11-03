@@ -4,7 +4,7 @@ use config::Store;
 pub use enrollment::Commission;
 use std::{
     io::{self, Read, Write},
-    net::{SocketAddr, TcpStream},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -13,6 +13,7 @@ const KEY: &str = "camera.bootstrap";
 const REQUEST: Duration = Duration::from_secs(5);
 const LEASE: Duration = Duration::from_secs(30);
 const REFRESH: Duration = Duration::from_secs(15);
+const LOOKUP: Duration = Duration::from_millis(100);
 pub type TimeSource = Box<dyn FnMut(&tls::Identity) -> Result<tls::TimeLease, tls::Error>>;
 
 pub fn load(store: &mut impl Store) -> Result<Option<Commission>, config::Error> {
@@ -88,6 +89,98 @@ impl Observation {
         Ok(self.time.clone())
     }
 }
+fn endpoints(commission: &Commission, until: Instant) -> Vec<SocketAddrV4> {
+    let mut peers = Vec::with_capacity(4);
+    let mut lookup = || -> io::Result<()> {
+        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+        socket.set_broadcast(true)?;
+        socket.set_nonblocking(true)?;
+        let hint = commission.gateway;
+        let destination = if hint.ip().is_loopback() {
+            hint
+        } else {
+            SocketAddrV4::new(Ipv4Addr::BROADCAST, hint.port())
+        };
+        let query = enrollment::discovery::query(&commission.certificate_sha256);
+        socket.send_to(&query, destination)?;
+        let deadline = until.min(Instant::now() + LOOKUP);
+        let mut next = Instant::now() + Duration::from_millis(30);
+        let mut retries = 2;
+        let mut packet = [0; enrollment::discovery::SIZE + 1];
+        let mut received = 0;
+        while Instant::now() < deadline && received < 16 && peers.len() < 3 {
+            if retries > 0 && Instant::now() >= next {
+                let _ = socket.send_to(&query, destination);
+                retries -= 1;
+                next += Duration::from_millis(30);
+            }
+            match socket.recv_from(&mut packet) {
+                Ok((n, source)) => {
+                    received += 1;
+                    if let Some(peer) = enrollment::discovery::candidate(
+                        &packet[..n],
+                        source,
+                        &commission.certificate_sha256,
+                        hint.port(),
+                    ) {
+                        if !peers.contains(&peer) {
+                            peers.push(peer);
+                        }
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    };
+    let _ = lookup(); // Discovery failure preserves the commissioned endpoint.
+    if !commission.gateway.ip().is_unspecified() && !peers.contains(&commission.gateway) {
+        peers.push(commission.gateway);
+    }
+    peers
+}
+fn connect<'a>(
+    identity: &'a tls::Identity,
+    commission: &Commission,
+    until: Instant,
+) -> Result<Bounded<'a>, tls::Error> {
+    let peers = endpoints(commission, until);
+    for (index, peer) in peers.iter().enumerate() {
+        let remaining = until
+            .checked_duration_since(Instant::now())
+            .ok_or(tls::Error::Time)?;
+        // A stalled/forged locator cannot consume the original endpoint's share.
+        let budget = remaining / (peers.len() - index) as u32;
+        let attempt = || -> Result<Bounded<'a>, tls::Error> {
+            let deadline = Instant::now() + budget;
+            let socket = TcpStream::connect_timeout(&SocketAddr::V4(*peer), budget)
+                .map_err(|_| tls::Error::Io)?;
+            let remaining = until
+                .checked_duration_since(Instant::now())
+                .ok_or(tls::Error::Time)?;
+            let mut connection =
+                identity.connect_pinned(socket, commission.certificate_sha256, remaining)?;
+            loop {
+                if Instant::now() >= deadline {
+                    return Err(tls::Error::Time);
+                }
+                if connection.poll()? {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Ok(Bounded { connection, until })
+        };
+        if let Ok(connection) = attempt() {
+            return Ok(connection);
+        }
+    }
+    Err(tls::Error::Io)
+}
 fn exchange(
     identity: &tls::Identity,
     commission: &Commission,
@@ -95,15 +188,7 @@ fn exchange(
 ) -> Result<(Observation, Vec<u8>), tls::Error> {
     let started = Instant::now();
     let until = started + REQUEST;
-    let socket = TcpStream::connect_timeout(&SocketAddr::V4(commission.gateway), REQUEST)
-        .map_err(|_| tls::Error::Io)?;
-    let remaining = until
-        .checked_duration_since(Instant::now())
-        .ok_or(tls::Error::Time)?;
-    let mut transport = Bounded {
-        connection: identity.connect_pinned(socket, commission.certificate_sha256, remaining)?,
-        until,
-    };
+    let mut transport = connect(identity, commission, until)?;
     enrollment::request(&mut transport, &commission.token, csr).map_err(|_| tls::Error::Io)?;
     let (epoch, bytes) = enrollment::read_response(&mut transport).map_err(|_| tls::Error::Io)?;
     let observed = Instant::now();
