@@ -7,4 +7,4 @@ cpus = 2
 model = "pico"
 stack-bytes = 131072
 sample-ms = 750
-compute = { cores = [1] }
+compute-core = 1

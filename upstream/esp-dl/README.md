@@ -6,11 +6,10 @@ Run `python3 upstream/esp-dl/prepare.py` explicitly; Cargo never fetches it.
 An existing source directory must pass the reviewed post-port inventory. Editing
 `prepared.json` cannot certify edited sources. Cargo tracks the prepared tree.
 
-`prepare.py` removes SDK task launching, corrects a host pool pointer-width check
-and removes unused iostream initializers. Conv may pass its disjoint row
-partitions to a synchronous Rust callback; the callback joins before its borrowed
-arguments retire. Other task-launch paths abort. The default remains single-core;
-the numerical capsule contains no RTOS execution layer.
+`prepare.py` removes SDK dual-core task launch code (attempted use aborts),
+corrects a host pool pointer-width check and removes unused iostream initializers.
+Every generated call requests synchronous single-core execution. This capsule
+provides numerical operations, not an RTOS compatibility layer.
 
 `graph.py` reads only the pinned EDL2 model at build time, validates its 114
 operators and exact input/output protocol, and creates a fixed numerical graph.

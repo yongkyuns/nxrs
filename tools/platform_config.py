@@ -148,26 +148,17 @@ def detector_config(platform: dict) -> dict | None:
         return None
     if platform["hal"].get("detector", "none") == "none":
         raise ValueError(f"{platform['name']}: detector configuration requires a detector HAL binding")
-    if set(config) - {"compute"} != {"model", "stack-bytes", "sample-ms"}:
+    if set(config) - {"compute-core"} != {"model", "stack-bytes", "sample-ms"}:
         raise ValueError(f"{platform['name']}: detector requires model, stack-bytes and sample-ms")
     if not isinstance(config["model"], str) or config["model"] not in MODEL_FEATURES:
         raise ValueError(f"{platform['name']}: unknown detector model: {config['model']}")
     for key in ("stack-bytes", "sample-ms"):
         if type(config[key]) is not int or not 0 < config[key] <= 0x7fffffff:
             raise ValueError(f"{platform['name']}: detector {key} must be a positive 32-bit integer")
-    if "compute" in config:
-        compute = config["compute"]
-        if (not isinstance(compute, dict) or "cores" not in compute
-                or config["model"] != "pico"
-                or not isinstance(compute["cores"], list) or len(compute["cores"]) not in (1, 2)
-                or any(type(c) is not int or not 0 <= c < 32 for c in compute["cores"])
-                or len(set(compute["cores"])) != len(compute["cores"])):
-            raise ValueError("invalid detector compute resources")
-        parallel = len(compute["cores"]) == 2
-        if (set(compute) != ({"cores", "stack-bytes", "priority"} if parallel else {"cores"})
-                or parallel and (type(compute["stack-bytes"]) is not int or not 16384 <= compute["stack-bytes"] <= 262144
-                                 or type(compute["priority"]) is not int or not 1 <= compute["priority"] <= 255)):
-            raise ValueError("invalid detector compute resources")
+    if "compute-core" in config and (
+            config["model"] != "pico" or platform["hal"].get("detector") != "nuttx"
+            or type(config["compute-core"]) is not int or not 0 <= config["compute-core"] < 32):
+        raise ValueError("invalid detector compute core")
     return config
 
 
@@ -273,13 +264,8 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     resources = []
     if capability == "detector":
         config = detector_config(platform)
-        if config and "compute" in config:
-            compute = config["compute"]
-            resources += ["cargo:rustc-env=DETECTOR_CALLER_CORE=" + str(compute["cores"][0])]
-            if len(compute["cores"]) == 2:
-                resources += ["cargo:rustc-env=DETECTOR_HELPER_CORE=" + str(compute["cores"][1]),
-                          "cargo:rustc-env=DETECTOR_HELPER_STACK=" + str(compute["stack-bytes"]),
-                          "cargo:rustc-env=DETECTOR_HELPER_PRIORITY=" + str(compute["priority"])]
+        if config and "compute-core" in config:
+            resources.append("cargo:rustc-env=DETECTOR_COMPUTE_CORE=" + str(config["compute-core"]))
     if capability == "gnss" and platform["hal"].get(capability) == "nuttx":
         config = gnss_config(platform)
         resources.extend(["cargo:rustc-env=GNSS_DEVICE=" + config["device"],

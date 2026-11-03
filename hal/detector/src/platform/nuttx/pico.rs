@@ -3,9 +3,8 @@
 #[path = "ffi/mod.rs"]
 mod ffi;
 
-use crate::model::pico::compute::{Engine, Error as ComputeError, Partition, Worker};
 struct Kernel {
-    engine: Engine,
+    engine: crate::model::pico::Engine,
     core: Option<u32>,
     failed: bool,
 }
@@ -18,17 +17,13 @@ impl crate::model::pico::Kernel for Kernel {
         if self.failed {
             return Err(crate::DeviceError::Model);
         }
-        let result = ffi::run(self.core, || {
-            self.engine
-                .run(input, output)
-                .map_err(|_| crate::DeviceError::Model)
-        });
+        let result = ffi::run(self.core, || self.engine.run(input, output));
         self.failed = result.is_err();
         result
     }
 }
 pub(crate) fn kernel() -> Result<impl crate::model::pico::Kernel, crate::DeviceError> {
-    let core = option_env!("DETECTOR_CALLER_CORE")
+    let core = option_env!("DETECTOR_COMPUTE_CORE")
         .map(str::parse::<u32>)
         .transpose()
         .map_err(|_| crate::DeviceError::Model)?;
@@ -38,32 +33,7 @@ pub(crate) fn kernel() -> Result<impl crate::model::pico::Kernel, crate::DeviceE
     if core.is_some_and(|core| core >= ffi::cpus()) {
         return Err(crate::DeviceError::Unsupported);
     }
-    let engine = if let Some(helper) = option_env!("DETECTOR_HELPER_CORE") {
-        let core = core.ok_or(crate::DeviceError::Model)?;
-        let helper = helper
-            .parse::<u32>()
-            .map_err(|_| crate::DeviceError::Model)?;
-        let stack = option_env!("DETECTOR_HELPER_STACK")
-            .and_then(|v| v.parse::<usize>().ok())
-            .ok_or(crate::DeviceError::Model)?;
-        let priority = option_env!("DETECTOR_HELPER_PRIORITY")
-            .and_then(|v| v.parse::<i32>().ok())
-            .ok_or(crate::DeviceError::Model)?;
-        if core >= ffi::cpus() || helper >= ffi::cpus() || core == helper {
-            return Err(crate::DeviceError::Unsupported);
-        }
-        Engine::with_parallel(
-            stack,
-            move || ffi::initialize_helper(helper, priority).map_err(|_| ComputeError::Model),
-            |work| ffi::numerical(|| work.run()),
-            |worker: &mut Worker<Partition>, first, second| {
-                ffi::paused(|| worker.run(first, second))
-            },
-        )
-        .map_err(|_| crate::DeviceError::Model)?
-    } else {
-        crate::model::pico::kernel()?
-    };
+    let engine = crate::model::pico::kernel()?;
     Ok(Kernel {
         engine,
         core,

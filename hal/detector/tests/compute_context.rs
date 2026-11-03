@@ -7,6 +7,7 @@ thread_local! {
     static MASK: Cell<u32> = const { Cell::new(3) };
     static ENABLED: Cell<bool> = const { Cell::new(false) };
     static REFUSE: Cell<bool> = const { Cell::new(false) };
+    static STUCK: Cell<bool> = const { Cell::new(false) };
     static ON_RESTORE: Cell<bool> = const { Cell::new(false) };
 }
 #[no_mangle]
@@ -41,40 +42,39 @@ extern "C" fn detector_affinity_set(value: u32) -> i32 {
 }
 #[no_mangle]
 extern "C" fn detector_current_cpu() -> i32 {
-    MASK.get().trailing_zeros() as i32
-}
-#[no_mangle]
-extern "C" fn detector_helper_priority(_: i32) -> i32 {
-    0
+    if STUCK.get() {
+        0
+    } else {
+        MASK.get().trailing_zeros() as i32
+    }
 }
 #[test]
-fn placement_context_pause_failure_and_unwind_restore_in_order() {
+fn placement_context_failure_and_unwind_restore_in_order() {
     assert_eq!(context::cpus(), 2);
     assert_eq!(
-        context::initialize_helper(2, 90),
+        context::run(Some(2), || panic!("invalid core")),
         Err(DeviceError::Unsupported)
     );
     assert_eq!(
         context::run(Some(1), || {
             assert_eq!(MASK.get(), 2);
             assert!(ENABLED.get());
-            context::paused(|| {
-                assert!(!ENABLED.get());
-                context::numerical(|| assert!(ENABLED.get()));
-                assert!(!ENABLED.get());
-            });
-            assert!(ENABLED.get());
-            Ok(())
         }),
         Ok(())
     );
     assert_eq!(MASK.get(), 3);
     assert!(!ENABLED.get());
+    STUCK.set(true);
+    assert_eq!(
+        context::run(Some(1), || panic!("not placed")),
+        Err(DeviceError::Model)
+    );
+    assert_eq!(MASK.get(), 3);
+    STUCK.set(false);
     assert!(!ON_RESTORE.get());
     ENABLED.set(true);
     context::run(Some(1), || {
         assert!(ENABLED.get());
-        Ok(())
     })
     .unwrap();
     assert!(ENABLED.get());

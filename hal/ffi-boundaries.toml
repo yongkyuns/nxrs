@@ -132,7 +132,7 @@ allowed_calls = ["clock_gettime"]
 [[bridge]]
 path = "hal/detector/src/platform/nuttx/ffi/context.c"
 kind = "abi"
-reason = "NuttX target-header cop_ai state, CPU/affinity and calling-thread scheduler ABI. Rust owns numerical execution, placement/context leases, worker synchronization and restoration; no native thread creation or detector policy."
+reason = "NuttX target-header cop_ai state and CPU/affinity ABI. Rust owns serialization, placement/context leases and restoration; no native thread creation or detector policy."
 [[bridge]]
 path = "hal/config/src/platform/nuttx/ffi/config.c"
 kind = "abi"

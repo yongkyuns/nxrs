@@ -248,18 +248,17 @@ class FirmwareFrontendTests(unittest.TestCase):
         product = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
         experiment = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-smp')
         self.assertIn('# CONFIG_SMP is not set', product['kconfig']['require'])
-        self.assertNotIn('compute', product['detector'])
+        self.assertNotIn('compute-core', product['detector'])
         self.assertIn('SMP', experiment['kconfig']['enable'])
         self.assertNotIn('SMP', experiment['kconfig']['disable'])
         self.assertIn('CONFIG_SMP_NCPUS=2', experiment['kconfig']['require'])
         for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
             self.assertNotIn(counter, experiment['kconfig']['enable'])
             self.assertRegex('CONFIG_' + counter + '=y', experiment['kconfig']['forbid-regex'])
-        self.assertEqual(experiment['detector']['compute']['cores'], [1])
-        for compute in ({'cores': [0, 0], 'stack-bytes': 32768, 'priority': 90},
-                        {'cores': [1, 0], 'stack-bytes': 0, 'priority': 90}):
+        self.assertEqual(experiment['detector']['compute-core'], 1)
+        for core in (-1, 32, True):
             with self.assertRaises(ValueError):
-                PLATFORM_CONFIG.detector_config({**experiment, 'detector': {**experiment['detector'], 'compute': compute}})
+                PLATFORM_CONFIG.detector_config({**experiment, 'detector': {**experiment['detector'], 'compute-core': core}})
 
     def test_cargo_frontend_help_is_successful(self):
         output = self.cargo_firmware("--help").stdout

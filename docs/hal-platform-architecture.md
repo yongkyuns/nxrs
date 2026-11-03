@@ -267,8 +267,9 @@ checks are legacy contract tests, not a bare-metal product platform.
 
 An optional NuttX profile `cpus = 1` or `2` derives the SMP enablement, CPU count
 and checked requirements; it does not introduce CPU identity into shared code.
-Detector compute resources may supply caller/helper cores, helper stack and
-priority. Factories validate the actual CPU capabilities before acquisition.
+An optional detector `compute-core` pins its numerical lease. The factory
+validates actual CPU capabilities before acquisition; shared model code has no
+core or platform knowledge.
 
 Bindings merge by capability; `"none"` explicitly removes an inherited
 binding. Other fields/tables replace the parent's value. In particular,

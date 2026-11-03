@@ -2,9 +2,8 @@
 //! confidence decoding and bounded box postprocessing; a supplied kernel owns
 //! only synchronous quantized numerical execution.
 #[allow(unsafe_code)]
-#[allow(dead_code, reason = "Provider factories select sequential or parallel numerical execution.")]
 #[path = "../compute/esp_dl/ffi/mod.rs"]
-pub(crate) mod compute;
+mod compute;
 use super::image;
 use crate::{Bounds, Detection, Detections, DeviceError as Error, Score};
 pub(crate) use compute::Engine;
@@ -228,7 +227,8 @@ impl Kernel for Engine {
         input: &[i8; INPUT_BYTES],
         output: &mut [i8; OUTPUT_BYTES],
     ) -> core::result::Result<(), crate::DeviceError> {
-        self.run(input, output).map_err(|_| Error::Model)
+        self.run(input, output);
+        Ok(())
     }
 }
 pub(crate) fn with_kernel<K: Kernel>(

@@ -118,8 +118,6 @@ def plan(variables,nodes):
 
 def generate(model,destination,optimized):
     params,variables,nodes=read(model)
-    if any(t['exp'] == -2147483648 for t in params.values()):
-        raise ValueError('fixed PICO partitions require per-tensor quantization')
     offsets,arena=plan(variables,nodes)
     ids={name:i for i,name in enumerate(variables)}
     pids={name:10000000+i for i,name in enumerate(params)}
@@ -170,14 +168,9 @@ def generate(model,destination,optimized):
     # ModelContext deletes tensor views only when it owns a root allocation.
     # This graph instead supplies an external arena, so retire operators first
     # and explicitly delete every registered view before releasing that arena.
-    code+=['}', '~Engine(){ops.clear();for(auto*t:context.m_variables)delete t;for(auto*t:context.m_parameters)delete t;context.clear();}',
-           'bool run(){static constexpr bool split[]='+values([int(n['op']=='Conv') for n in nodes])+';',
-           'for(size_t i=0;i<ops.size();++i){ops[i]->forward(&context,context.parallel&&split[i]?RUNTIME_MODE_MULTI_CORE:RUNTIME_MODE_SINGLE_CORE);if(context.parallel_failed)return false;}']
-    code+=['return true;}', '};',f'extern "C" void *pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;void*weights=tool::calloc_aligned(1,{parameter_bytes},MALLOC_CAP_DEFAULT);if(!weights){{free(arena);return nullptr;}}return new Engine(arena,weights);}}','extern "C" void pico_destroy(void *p){delete static_cast<Engine*>(p);}',
-           'extern "C" void pico_partition(void*module,void*args){static_cast<Module*>(module)->forward_args(args);}',
-           f'extern "C" int pico_run(void*p,const int8_t*input,int8_t*output,int(*parallel)(void*,void*,void*,void*),void*context){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.context.parallel=parallel;e.context.parallel_context=context;e.context.parallel_failed=false;bool ok=e.run();e.context.parallel=nullptr;e.context.parallel_context=nullptr;if(!ok)return -1;int offset=0;']
+    code+=['}', '~Engine(){ops.clear();for(auto*t:context.m_variables)delete t;for(auto*t:context.m_parameters)delete t;context.clear();}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;void*weights=tool::calloc_aligned(1,{parameter_bytes},MALLOC_CAP_DEFAULT);if(!weights){{free(arena);return nullptr;}}return new Engine(arena,weights);}}','extern "C" void pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
     for name in ['score0','score1','score2','bbox0','bbox1','bbox2']:
         code.append(f'{{auto*t=e.context.get_tensor({ids[name]});memcpy(output+offset,t->data,t->size);offset+=t->size;}}')
-    code+=['return 0;}']
+    code+=['}']
     destination.write_text('\n'.join(code)+'\n')
     return {'arena_bytes':arena,'parameter_bytes':parameter_bytes,'model_input_bytes':150528,'model_output_bytes':33957,'operators':len(nodes),'optimized':optimized}

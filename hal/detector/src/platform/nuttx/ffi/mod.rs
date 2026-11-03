@@ -10,7 +10,6 @@ unsafe extern "C" {
     fn detector_affinity_get(mask: *mut u32) -> i32;
     fn detector_affinity_set(mask: u32) -> i32;
     fn detector_current_cpu() -> i32;
-    fn detector_helper_priority(priority: i32) -> i32;
 }
 pub(super) fn cpus() -> u32 {
     unsafe { detector_compute_cpus() }.max(0) as u32
@@ -34,14 +33,6 @@ fn pin(core: u32) -> Result<(), DeviceError> {
         return Err(DeviceError::Model);
     }
     Ok(())
-}
-pub(super) fn initialize_helper(core: u32, priority: i32) -> Result<(), DeviceError> {
-    pin(core)?;
-    if unsafe { detector_helper_priority(priority) } == 0 {
-        Ok(())
-    } else {
-        Err(DeviceError::Model)
-    }
 }
 struct Placement {
     prior: u32,
@@ -97,37 +88,15 @@ impl Drop for Context {
         }
     }
 }
-pub(super) fn numerical<T>(operation: impl FnOnce() -> T) -> T {
-    let _context = Context::enter();
-    operation()
-}
-/// The SDK callback has finished its caller-side SIMD work before waiting.
-pub(super) fn paused<T>(operation: impl FnOnce() -> T) -> T {
-    struct Resume(bool);
-    impl Drop for Resume {
-        fn drop(&mut self) {
-            if self.0 {
-                unsafe { detector_compute_set(1) };
-            }
-        }
-    }
-    let prior = unsafe { detector_compute_enabled() } != 0;
-    if prior {
-        unsafe { detector_compute_set(0) };
-    }
-    let _resume = Resume(prior);
-    operation()
-}
-pub(super) fn run(
-    core: Option<u32>,
-    operation: impl FnOnce() -> Result<(), DeviceError>,
-) -> Result<(), DeviceError> {
+pub(super) fn run(core: Option<u32>, operation: impl FnOnce()) -> Result<(), DeviceError> {
     // A poisoned lease is a sticky failure, not permission to reuse uncertain
     // native state. Multiple detector owners serialize only numerical execution.
     let _exclusive = COMPUTE.lock().map_err(|_| DeviceError::Model)?;
     let mut placement = core.map(Placement::enter).transpose()?;
-    let result = numerical(operation);
+    {
+        let _context = Context::enter();
+        operation();
+    }
     // Restore CP3 before allowing migration or another owner, including unwind.
-    let restored = placement.as_mut().map_or(Ok(()), Placement::restore);
-    result.and(restored)
+    placement.as_mut().map_or(Ok(()), Placement::restore)
 }

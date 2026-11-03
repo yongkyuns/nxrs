@@ -31,11 +31,6 @@ int detector_affinity_set(uint32_t value)
   return sched_setaffinity(0, sizeof(mask), &mask);
 }
 int detector_current_cpu(void) { return sched_getcpu(); }
-int detector_helper_priority(int priority)
-{
-  struct sched_param parameter = { .sched_priority = priority };
-  return sched_setparam(0, &parameter);
-}
 int detector_compute_enabled(void)
 {
 #ifdef CONFIG_ARCH_CHIP_ESP32S3
