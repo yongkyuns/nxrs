@@ -203,8 +203,20 @@ def cargo_metadata(prepared: Path, sdk: str, env: dict) -> dict:
     metadata_env["RUSTC"] = str(prepared / "toolchain/bin/rustc")
     metadata_env["CARGO_BUILD_RUSTC"] = metadata_env["RUSTC"]
     metadata_env["RUSTC_BOOTSTRAP"] = "1"
-    return json.loads(run([cargo, "metadata", "--locked", "--format-version", "1",
-                           "--manifest-path", MANIFEST], env=metadata_env))
+    command = [cargo, "metadata", "--locked", "--format-version", "1",
+               "--manifest-path", str(MANIFEST)]
+    print("+", " ".join(command), flush=True)
+    # Cargo writes registry/download diagnostics to stderr even on success.
+    # Preserve both streams, but parse only its machine-readable stdout.
+    result = subprocess.run(command, cwd=ROOT, env=metadata_env, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (prepared.parent / "cargo-metadata.log").write_text(
+        f"exit status: {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+    if result.returncode:
+        print(result.stderr[-6000:], file=sys.stderr)
+        raise subprocess.CalledProcessError(
+            result.returncode, command, output=result.stdout, stderr=result.stderr)
+    return json.loads(result.stdout)
 
 
 def verify_compiled_sources(firmware: Path, sources: dict) -> None:

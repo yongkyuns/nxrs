@@ -5,6 +5,8 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tarfile
 import tempfile
 from types import SimpleNamespace
@@ -116,6 +118,66 @@ class BuildGuards(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "physical-board"):
             build.build(SimpleNamespace(out=Path("/unused"), platform="mps2-an521-mock",
                                         clock_source="native-counter"))
+
+
+class CargoMetadataControls(unittest.TestCase):
+    def cargo_fixture(self, root, stdout, stderr, returncode=0):
+        prepared = root / "prepared"
+        prepared.mkdir()
+        cargo = root / "cargo"
+        cargo.write_text(f"#!{sys.executable}\nimport sys\n"
+                         f"sys.stdout.write({stdout!r})\nsys.stderr.write({stderr!r})\n"
+                         f"sys.exit({returncode})\n")
+        cargo.chmod(0o755)
+        return prepared, cargo
+
+    def test_registry_diagnostics_do_not_corrupt_metadata_stdout(self):
+        metadata = {"packages": [], "resolve": {"nodes": []}}
+        stdout = json.dumps(metadata) + "\n"
+        stderr = "    Updating crates.io index\n Downloading crates ...\n"
+        for sdk, cargo_sdk in (("nightly-2025-09-15", "nightly-2025-09-15"),
+                               ("esp-1.90.0.0", "1.90.0")):
+            with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                prepared, cargo = self.cargo_fixture(root, stdout, stderr)
+                with patch.object(build, "run", return_value=str(cargo)) as lookup:
+                    self.assertEqual(build.cargo_metadata(prepared, sdk, {}), metadata)
+                lookup.assert_called_once_with(
+                    ["rustup", "which", "--toolchain", cargo_sdk, "cargo"], env={})
+                log = (root / "cargo-metadata.log").read_text()
+                self.assertIn(stdout, log)
+                self.assertIn(stderr, log)
+                self.assertIn("exit status: 0", log)
+
+    def test_nonzero_cargo_status_preserves_both_streams_and_refuses_json(self):
+        stdout = '{"packages": []}\n'
+        stderr = "error: failed to download crossbeam-channel\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, cargo = self.cargo_fixture(root, stdout, stderr, 101)
+            with patch.object(build, "run", return_value=str(cargo)), \
+                    self.assertRaises(subprocess.CalledProcessError) as caught:
+                build.cargo_metadata(prepared, "nightly-2025-09-15", {})
+            self.assertEqual(caught.exception.returncode, 101)
+            self.assertEqual(caught.exception.stdout, stdout)
+            self.assertEqual(caught.exception.stderr, stderr)
+            log = (root / "cargo-metadata.log").read_text()
+            self.assertIn(stdout, log)
+            self.assertIn(stderr, log)
+            self.assertIn("exit status: 101", log)
+
+    def test_malformed_stdout_is_not_recovered_from_stderr_or_json_suffix(self):
+        for stdout, stderr in (("not JSON\n", '{"packages": []}\n'),
+                               ('diagnostic\n{"packages": []}\n', "")):
+            with self.subTest(stdout=stdout), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                prepared, cargo = self.cargo_fixture(root, stdout, stderr)
+                with patch.object(build, "run", return_value=str(cargo)), \
+                        self.assertRaises(json.JSONDecodeError):
+                    build.cargo_metadata(prepared, "nightly-2025-09-15", {})
+                log = (root / "cargo-metadata.log").read_text()
+                self.assertIn(stdout, log)
+                self.assertIn(stderr, log)
 
 
 class RegistrySourceControls(unittest.TestCase):
