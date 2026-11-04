@@ -1,5 +1,9 @@
 # P4 blocked-delivery attribution
 
+The [November 4 physical report](results/2026-11-04-esp32s3/README.md) records 36
+fresh-boot captures and the scoped P1 repeat. Instrumentation changes rankings;
+equal FIFO increases delivery latency. No production change is adopted.
+
 This fixture investigates P2's blocked-receiver gap. Production messaging,
 parker and scheduler policy are unchanged. Use a separate diagnostic executable,
 the exact pinned std/Crossbeam implementations, and three matched arms:
