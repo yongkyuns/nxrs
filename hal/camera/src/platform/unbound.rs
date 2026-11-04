@@ -1,5 +1,7 @@
+//! Unavailable acquisition; no replay or implicit mock fallback.
 use crate::{Camera, Capture, DeviceError, Format};
-pub struct UnconfiguredCamera;
+
+struct UnconfiguredCamera;
 
 impl Camera for UnconfiguredCamera {
     fn start(&mut self, _: Format) -> Result<Format, DeviceError> {
@@ -13,22 +15,6 @@ impl Camera for UnconfiguredCamera {
     }
 }
 
-pub fn open() -> Result<UnconfiguredCamera, DeviceError> {
-    Err(DeviceError::Unsupported)
+pub fn open() -> Result<impl Camera, DeviceError> {
+    Err::<UnconfiguredCamera, _>(DeviceError::Unsupported)
 }
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-#[path = "../replay/unavailable.rs"]
-mod replay;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub use replay::replay;

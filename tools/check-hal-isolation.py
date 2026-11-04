@@ -111,6 +111,8 @@ def run(out, capabilities=CAPABILITIES):
                     env["NXRS_PLATFORM"] = profile
                 command = ["cargo", "build", "--locked", "-p", package]
                 command += ["--example", example] if example else ["--lib"]
+                if capability == "camera" and example:
+                    command += ["--features", "replay"]
                 if target:
                     command += ["--target", target]
                 command += ["--message-format=json-render-diagnostics"]

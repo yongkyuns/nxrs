@@ -102,19 +102,3 @@ impl Camera for MockCamera {
 pub fn open() -> Result<impl crate::Camera, crate::DeviceError> {
     Ok(MockCamera::new([]))
 }
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-#[path = "../replay/unavailable.rs"]
-mod unbound;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub use unbound::replay;

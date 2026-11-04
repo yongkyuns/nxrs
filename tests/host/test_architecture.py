@@ -50,20 +50,32 @@ class ArchitectureTests(unittest.TestCase):
     def violations(self):
         return CHECK.inspect(self.metadata, self.root) + CHECK.inspect_sources(self.metadata, self.root)
 
-    def test_hal_selector_has_one_export_and_no_implementation(self):
+    def test_hal_selector_exports_selected_items_without_implementation(self):
         directory = self.root / 'hal/camera/src/platform'
         directory.mkdir()
         selector = directory / 'mod.rs'
-        valid = '#[path="unbound.rs"] mod selected;\npub use selected::*;\n'
-        selector.write_text(valid)
-        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
+        for exports in ['pub use selected::*;', 'pub(super) use selected::open;',
+                        'pub use selected::{open, Camera};',
+                        'pub(super) use selected::open;\n#[cfg(hal_mock)] pub use selected::{CameraAction, MockCamera, FORMAT};']:
+            with self.subTest(exports=exports):
+                selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
+                self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
+        valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
                      'mod selected { pub fn open() {} } pub use selected::*;',
-                     'mod selected; pub use selected::Camera;']:
+                     'mod selected;', 'mod selected; pub use selected::{open, other::Camera};']:
             with self.subTest(code=code):
                 selector.write_text(code)
                 self.assertTrue(any('select source modules' in error
                                     for error in CHECK.inspect_hal_boundaries(self.root)))
+
+    def test_camera_replay_feature_does_not_admit_provider_features(self):
+        path = self.root / 'hal/camera/Cargo.toml'
+        original = path.read_text()
+        path.write_text(original + '[features]\nreplay=[]\n')
+        self.assertEqual(self.violations(), [])
+        path.write_text(original + '[features]\nreplay=[]\nnuttx=[]\n')
+        self.assertTrue(self.violations())
 
     def test_valid_composition_and_contract_reuse(self):
         for source, target in [('app', 'service'), ('app', 'camera'), ('service', 'storage'),
@@ -84,7 +96,7 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
         for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
-            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'target': 'cfg(target_os = "nuttx")'}):
+            for extra in ({}, {'kind': 'dev'}, {'target': 'cfg(target_os = "nuttx")'}, {'kind': 'build'}):
                 self.add(source, target, **extra)
                 self.assertTrue(self.violations())
                 self.packages[source]['dependencies'].clear()
