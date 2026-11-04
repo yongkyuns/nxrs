@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = json.loads((ROOT / "security/tools.json").read_text())["gitleaks"]
 
 
+class ControlFailure(ValueError):
+    """Only fixed, locally constructed control identifiers may enter this error."""
+
+
 def install(output):
     systems = {("Linux", "x86_64"): "linux_x64", ("Darwin", "arm64"): "darwin_arm64"}
     target = systems.get((platform.system(), platform.machine()))
@@ -89,45 +93,46 @@ def reviewed_hash_controls(scanner, source, config, token, alphabet):
     pthread = ("upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch",
                "776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",
                "18ddcdb162985348728fd5e5d167305e87e8e35f")
-    for _field, digest, blob in (imu, pthread):
+    for index, (_field, digest, blob) in enumerate((imu, pthread)):
         result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
-                                capture_output=True, check=True, timeout=10)
-        if hashlib.sha256(result.stdout).hexdigest() != digest:
-            raise ValueError("reviewed public source digest does not match its Git blob")
+                                capture_output=True, check=False, timeout=10)
+        if result.returncode or hashlib.sha256(result.stdout).hexdigest() != digest:
+            raise ControlFailure(f"reviewed-source-{index}")
     cases = [
         ("tests/event-path-perf/results/2026-11-04-esp32s3/board/build/build.json", imu),
         ("tests/event-path-perf/results/2026-11-04-esp32s3/board/runs/pass-3-ready-std-try/build.json", pthread),
         ("tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-published/run/acceptance.json", pthread),
         ("tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json", pthread),
     ]
-    for relative, (field, digest, _blob) in cases:
+    for index, (relative, (field, digest, _blob)) in enumerate(cases):
         path = source / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         line = '    ' + json.dumps(field) + ': ' + json.dumps(digest) + ',\n'
         path.write_text(line)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
-            raise ValueError("reviewed source-hash false-positive control failed")
+            raise ControlFailure(f"reviewed-hash-allow-{index}")
         # A changed value, real-shaped token or different field is never exempt.
-        for key, value, rule in [(field, alphabet * 4, "generic-api-key"),
-                                 (field, token, "github-pat"),
-                                 ("api_key", digest, "generic-api-key")]:
+        for control, (key, value, rule) in enumerate([
+                (field, alphabet * 4, "generic-api-key"),
+                (field, token, "github-pat"),
+                ("api_key", digest, "generic-api-key")]):
             path.write_text(json.dumps(key) + ': ' + json.dumps(value) + '\n')
             findings, output = execute(scanner, "dir", source, config)
             if not any(item.get("RuleID") == rule for item in findings) or value in output:
-                raise ValueError("reviewed hash exclusion hides a secret or breaks redaction")
+                raise ControlFailure(f"reviewed-hash-reject-{index}-{control}")
         # Neither a second field on the line nor the same field outside the
         # bounded benchmark path may inherit the exception.
         path.write_text(line.rstrip() + ' "api_key": "' + alphabet * 4 + '"\n')
         findings, output = execute(scanner, "dir", source, config)
         if not any(item.get("RuleID") == "generic-api-key" for item in findings) or alphabet * 4 in output:
-            raise ValueError("complete-line hash control failed")
+            raise ControlFailure(f"reviewed-hash-line-{index}")
         path.unlink()
         outside = source / "unreviewed.json"
         outside.write_text(line)
         findings, output = execute(scanner, "dir", source, config)
         if not any(item.get("RuleID") == "generic-api-key" for item in findings) or digest in output:
-            raise ValueError("hash exclusion escaped its reviewed path")
+            raise ControlFailure(f"reviewed-hash-path-{index}")
         outside.unlink()
 
 
@@ -184,6 +189,10 @@ def main():
             self_test(args.scanner)
         else:
             scan(args.scanner)
+    except ControlFailure as error:
+        # These identifiers contain only fixed local labels and loop indexes.
+        print(f"Secret self-test failed: {error}", file=sys.stderr)
+        return 1
     except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.SubprocessError):
         # Even exception text can contain secret-bearing remote input or scanner output.
         print("Secret check failed; see safe finding locations above or verify tool/configuration", file=sys.stderr)
