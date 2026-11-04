@@ -1,6 +1,9 @@
 //! NuttX acquisition and scan normalization. Portable execution lives in worker.
 #![deny(unsafe_code)]
 
+#[path = "../../quiescence.rs"]
+mod quiescence;
+
 pub(crate) use crate::worker::Lease;
 mod station;
 use crate::{AccessPoint, Error, Security, Ssid};
@@ -11,10 +14,10 @@ use std::time::{Duration, Instant};
 mod native;
 
 #[cfg(not(test))]
-pub(super) fn open_for_quiescence() -> Result<impl crate::QuiescenceControl, Error> {
+pub(crate) fn open_quiescence() -> Result<impl crate::QuiescenceControl, Error> {
     let lease = Lease::acquire()?;
     let interface = native::QuiescenceInterface::open()?;
-    Ok(super::quiescence::Owner::new(interface, lease))
+    Ok(quiescence::Owner::new(interface, lease))
 }
 
 fn set_interface_enabled(
@@ -41,7 +44,7 @@ pub(crate) const SCAN_READ_TIMEOUT: Duration = Duration::from_secs(6);
 const SCAN_READ_POLL: Duration = Duration::from_millis(20);
 
 #[cfg(not(test))]
-pub(crate) fn open<S>(sink: S) -> Result<crate::worker::Worker, Error>
+pub(crate) fn open<S>(sink: S, _: crate::CredentialStorage) -> Result<crate::worker::Worker, Error>
 where
     S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {

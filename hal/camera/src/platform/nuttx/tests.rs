@@ -213,11 +213,11 @@ fn fifo_buffer_ownership_validation_and_cleanup() {
     let quality = JpegQuality::new(81).unwrap();
     let higher = JpegQuality::new(100).unwrap();
     assert_eq!(
-        crate::platform::mock::MockCamera::new([]).set_jpeg_quality(quality),
+        crate::mock_tests::MockCamera::new([]).set_jpeg_quality(quality),
         Err(DeviceError::Unsupported)
     );
     assert_eq!(
-        crate::platform::mock::MockCamera::new([]).discarded_frames(),
+        crate::mock_tests::MockCamera::new([]).discarded_frames(),
         None
     );
 

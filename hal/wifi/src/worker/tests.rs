@@ -1,7 +1,5 @@
 use super::*;
-use crate::platform::nuttx::{
-    normalize_scan, read_scan_with_retry, Field, Lease, SCAN_READ_TIMEOUT,
-};
+use crate::nuttx_tests::{normalize_scan, read_scan_with_retry, Field, Lease, SCAN_READ_TIMEOUT};
 use std::vec;
 use std::vec::Vec;
 

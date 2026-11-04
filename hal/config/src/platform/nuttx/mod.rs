@@ -10,7 +10,7 @@ mod ffi {
     }
 }
 
-pub(super) fn open() -> Result<impl Store, Error> {
+pub fn open() -> Result<impl Store, Error> {
     std::fs::OpenOptions::new()
         .read(true)
         .write(true)

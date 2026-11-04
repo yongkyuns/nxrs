@@ -50,6 +50,21 @@ class ArchitectureTests(unittest.TestCase):
     def violations(self):
         return CHECK.inspect(self.metadata, self.root) + CHECK.inspect_sources(self.metadata, self.root)
 
+    def test_hal_selector_has_one_export_and_no_implementation(self):
+        directory = self.root / 'hal/camera/src/platform'
+        directory.mkdir()
+        selector = directory / 'mod.rs'
+        valid = '#[path="unbound.rs"] mod selected;\npub use selected::*;\n'
+        selector.write_text(valid)
+        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
+        for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
+                     'mod selected { pub fn open() {} } pub use selected::*;',
+                     'mod selected; pub use selected::Camera;']:
+            with self.subTest(code=code):
+                selector.write_text(code)
+                self.assertTrue(any('select source modules' in error
+                                    for error in CHECK.inspect_hal_boundaries(self.root)))
+
     def test_valid_composition_and_contract_reuse(self):
         for source, target in [('app', 'service'), ('app', 'camera'), ('service', 'storage'),
                                ('storage', 'camera'),

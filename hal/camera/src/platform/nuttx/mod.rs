@@ -77,7 +77,7 @@ impl Drop for Buffer {
     }
 }
 
-pub struct LiveCamera {
+pub(super) struct LiveCamera {
     file: Option<File>,
     buffers: [Option<Buffer>; BUFFER_COUNT],
     format: Option<Format>,
@@ -418,6 +418,12 @@ impl Drop for LiveCamera {
         ACQUIRED.store(false, Ordering::Release);
     }
 }
+
+pub fn open() -> Result<impl crate::Camera, crate::DeviceError> {
+    LiveCamera::acquire()
+}
+
+pub use crate::replay::{camera, camera as replay, ReplayCamera};
 
 #[cfg(test)]
 mod tests;

@@ -18,3 +18,5 @@ impl Entropy for Source {
 pub fn open() -> Result<crate::Identity, crate::Error> {
     crate::Identity::generate(Source)
 }
+
+pub use crate::sdk::{Connection, Identity};

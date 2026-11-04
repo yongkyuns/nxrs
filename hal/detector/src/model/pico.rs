@@ -243,7 +243,7 @@ pub(crate) fn with_kernel<K: Kernel>(
 pub(crate) fn kernel() -> Result<Engine, crate::DeviceError> {
     Engine::new().map_err(|_| crate::DeviceError::Model)
 }
-pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
+pub fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
     with_kernel(config, kernel()?)
 }
 

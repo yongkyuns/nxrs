@@ -35,3 +35,23 @@ impl Transport for MockTransport {
         Ok(())
     }
 }
+
+pub fn open() -> impl crate::Transport {
+    MockTransport::default()
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "nuttx"
+))]
+#[path = "unbound.rs"]
+mod unbound;
+#[cfg(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "nuttx"
+))]
+pub use unbound::transport;

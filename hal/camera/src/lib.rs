@@ -30,3 +30,15 @@ mod platform;
 #[allow(dead_code)]
 mod replay;
 pub use platform::*;
+
+#[cfg(all(test, unix, not(target_os = "nuttx")))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/nuttx/mod.rs"]
+mod nuttx_tests;
+
+#[cfg(all(test, not(hal_mock)))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/mock.rs"]
+mod mock_tests;
+#[cfg(all(test, hal_mock))]
+use platform as mock_tests;

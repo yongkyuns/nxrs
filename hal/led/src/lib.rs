@@ -28,3 +28,13 @@ mod tests {
         assert_eq!(leds.set(1, true), Err(DeviceError::Unsupported));
     }
 }
+
+#[cfg(all(test, unix, not(target_os = "nuttx")))]
+#[allow(dead_code, unused_imports, unsafe_code)]
+#[path = "platform/nuttx/mod.rs"]
+mod nuttx_tests;
+
+#[cfg(all(test, not(hal_mock)))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/mock.rs"]
+mod mock_tests;

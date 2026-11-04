@@ -24,3 +24,14 @@ pub(crate) fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 
 
 #[cfg(not(test))]
 pub(crate) mod gatt;
+
+#[cfg(hal_enabled)]
+pub(crate) fn gatt_driver<const N: usize>(
+    wake: impl Fn() + Send + Sync + 'static,
+) -> Result<impl crate::gatt::Driver<N>, crate::Error> {
+    #[cfg(test)]
+    type Backend = crate::gatt_driver::tests::FakeBackend;
+    #[cfg(not(test))]
+    type Backend = gatt::Executor;
+    crate::gatt_driver::open_with::<N, Backend, crate::gatt_driver::NativePeer, _>(wake)
+}

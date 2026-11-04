@@ -13,7 +13,7 @@ pub mod gatt;
 mod gatt_backend;
 #[cfg(any(hal_enabled, all(test, unix)))]
 mod gatt_driver;
-#[cfg(any(hal_enabled, all(test, unix)))]
+#[cfg(hal_enabled)]
 mod platform;
 #[cfg(any(all(hal_enabled, not(target_os = "nuttx")), all(test, unix)))]
 mod shared;
@@ -27,3 +27,8 @@ where
 {
     platform::open(sink).map(Controller::new)
 }
+
+#[cfg(all(test, unix, not(target_os = "nuttx")))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/nuttx/mod.rs"]
+mod nuttx_tests;
