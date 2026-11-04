@@ -79,6 +79,7 @@ pub fn name(value: &str) -> bool {
 #[derive(Debug, Default)]
 pub struct Options {
     pub features: Vec<String>,
+    pub no_default_features: bool,
     pub helpers: Vec<PathBuf>,
     pub enable: Vec<String>,
     pub disable: Vec<String>,
@@ -114,13 +115,13 @@ impl Options {
                     "model dependencies follow the profile; remove manual model features".into(),
                 );
             }
-            if !feature
-                .as_bytes()
-                .first()
-                .is_some_and(u8::is_ascii_alphanumeric)
-                || !feature
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"_./-".contains(&b))
+            // Cargo owns feature-name validation. Only reject malformed CLI values
+            // here; valid additive features include '+' and Unicode identifiers.
+            if feature.is_empty()
+                || feature.starts_with('-')
+                || feature
+                    .chars()
+                    .any(|c| c.is_whitespace() || c == ',' || c == '\0')
             {
                 return Err("invalid Cargo feature".into());
             }
@@ -136,6 +137,33 @@ impl Options {
             return Err("immediate abort requires trace-only backtrace".into());
         }
         Ok(())
+    }
+    pub fn validate_for_backend(&self, os: &str) -> Result<()> {
+        self.validate()?;
+        if os != "nuttx"
+            && (!self.helpers.is_empty()
+                || !self.enable.is_empty()
+                || !self.disable.is_empty()
+                || self.abi.is_some()
+                || self.size
+                || self.trace
+                || self.immediate)
+        {
+            return Err("NuttX qualification switches require a NuttX profile".into());
+        }
+        Ok(())
+    }
+
+    /// Forward dependency selection to Cargo with optional profile-required features.
+    pub fn configure_cargo(&self, command: &mut Command, required: &[String]) {
+        let mut features = self.features.clone();
+        features.extend_from_slice(required);
+        if !features.is_empty() {
+            command.args(["--features", &features.join(",")]);
+        }
+        if self.no_default_features {
+            command.arg("--no-default-features");
+        }
     }
 }
 pub fn selection(root: &Path, platform: Target, name: Option<&str>) -> Result<Profile> {
@@ -221,28 +249,19 @@ pub fn host(
 ) -> Result<()> {
     let os = std::env::consts::OS;
     let evidence = deployment::validate(root, &app.manifest, profile, os)?;
-    options.validate()?;
-    if !options.helpers.is_empty()
-        || !options.enable.is_empty()
-        || !options.disable.is_empty()
-        || options.abi.is_some()
-        || options.size
-        || options.trace
-        || options.immediate
-    {
-        return Err("NuttX qualification switches require a NuttX profile".into());
-    }
+    options.validate_for_backend(os)?;
     let out = prepare_output(root, out)?;
     write_json(&out.join("provider-selection.json"), &evidence)?;
-    let mut features = options.features.clone();
-    features.extend(profile.model_features(root, &app.manifest)?);
-    run(Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .current_dir(root)
         .args(["build", "--locked", "--release", "--manifest-path"])
         .arg(&app.manifest)
-        .args(["--bin", &app.bin, "--features", &features.join(",")])
+        .args(["--bin", &app.bin])
         .env("NXRS_PLATFORM", profile.name())
-        .env("CARGO_TARGET_DIR", out.join("cargo")))
+        .env("CARGO_TARGET_DIR", out.join("cargo"));
+    options.configure_cargo(&mut command, &profile.model_features(root, &app.manifest)?);
+    run(&mut command)
 }
 pub fn std_source(messages: &Path, sysroot: &Path, rustc: &Path, out: &Path) -> Result<()> {
     let mut selected = vec![];

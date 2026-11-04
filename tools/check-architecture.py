@@ -30,6 +30,7 @@ ALLOWED = {
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test', 'shared'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared'}
+PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
@@ -145,17 +146,16 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 continue
             manifest = Path(directory) / 'Cargo.toml'
             data = tomllib.loads(manifest.read_text())
-            allowed_features = {'default', 'probe'}
-            if manifest.relative_to(root).as_posix() == 'hal/detector/Cargo.toml':
-                allowed_features |= {'person-model', 'pico-model'}
-            if manifest.relative_to(root).as_posix() == 'shared/messaging/Cargo.toml':
-                allowed_features.add('channels')
-            extra_features = set(data.get('features', {})) - allowed_features
-            if extra_features:
-                errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics and typed cases for experiments; unexpected features {sorted(extra_features)}')
+            # Cargo features may compose optional functionality. They must not
+            # introduce a second platform selector or enable probes implicitly.
+            provider_features = set(data.get('features', {})) & PROVIDER_FEATURES
+            if provider_features:
+                errors.append(f'{manifest.relative_to(root)}: provider features retired; select one platform: {sorted(provider_features)}')
             for feature, values in data.get('features', {}).items():
+                if feature != 'probe' and re.search(r'(?:^|[-_])probe(?:[-_]|$)', feature):
+                    errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics, not {feature}')
                 if feature != 'probe' and any(value == 'probe' or value.endswith('/probe') for value in values):
-                    errors.append(f'{manifest.relative_to(root)}: probe must remain an explicit opt-in, independent of defaults and models')
+                    errors.append(f'{manifest.relative_to(root)}: probe must remain an explicit opt-in, independent of other features')
             if manifest.resolve() in manifests:
                 continue
             if (name == 'tests' and 'workspace' in data
@@ -229,10 +229,6 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 if dep.get('features') or forwarded:
                     errors.append(f"{package['name']}: enable detector models through profile-derived product wiring, not an app/service manifest")
         if role == 'hal':
-            data = tomllib.loads((directory / 'Cargo.toml').read_text())
-            features = data.get('features', {})
-            if set(features) & {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}:
-                errors.append(f"{package['name']}: provider features retired; select one platform")
             for module in ('api.rs', 'controller.rs'):
                 path = directory / 'src' / module
                 if path.is_file() and '#![forbid(unsafe_code)]' not in path.read_text():

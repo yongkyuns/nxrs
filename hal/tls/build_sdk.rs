@@ -1,6 +1,16 @@
 //! Build the pinned TLS SDK against the same private ABI/configuration headers.
 use nxrs_build::{archive, find_program, hash, native, output, read_json, Result};
 use std::{env, fs, path::Path, process::Command};
+
+pub(crate) fn nuttx_headers(include: &Path) -> Result<()> {
+    if !include.join("nuttx/config.h").is_file() {
+        return Err("Configured NuttX target headers required".into());
+    }
+    // Kconfig and target ABI headers can change without changing the include path.
+    println!("cargo:rerun-if-changed={}", include.display());
+    Ok(())
+}
+
 pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     let root = here.join("../..");
     let pin = read_json(&root.join("upstream/mbedtls/source.json"))?;
@@ -45,9 +55,7 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
         let include = std::path::PathBuf::from(
             env::var_os("NXRS_NUTTX_INCLUDE").ok_or("configured NuttX target headers required")?,
         );
-        if !include.join("nuttx/config.h").is_file() {
-            return Err("Configured NuttX target headers required".into());
-        }
+        nuttx_headers(&include)?;
         flags.extend(cpu.iter().map(|s| s.to_string()));
         flags.extend(["-D__NuttX__".into(), format!("-I{}", include.display())]);
         cross = vec![

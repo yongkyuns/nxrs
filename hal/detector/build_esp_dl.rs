@@ -27,6 +27,14 @@ pub fn qualify_context(header: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+pub(crate) fn nuttx_headers(header: &Path) -> Result<()> {
+    qualify_context(header)?;
+    // Recheck the execution contract and rebuild native code after header changes.
+    println!("cargo:rerun-if-changed={}", header.display());
+    Ok(())
+}
+
 fn regex_match(text: &str, pattern: &str) -> bool {
     nxrs_build::regex::Regex::new(pattern)
         .expect("static build pattern")
@@ -219,7 +227,7 @@ pub fn build(root: &Path, sdk: &Path, out: &Path, target: &str) -> Result<()> {
             env::var_os("NXRS_NUTTX_INCLUDE")
                 .ok_or("native build requires configured NuttX headers")?,
         );
-        qualify_context(&header)?;
+        nuttx_headers(&header)?;
         includes.push(header);
         flags.extend(["-mlongcalls".into(), "-mtext-section-literals".into()]);
         for p in [

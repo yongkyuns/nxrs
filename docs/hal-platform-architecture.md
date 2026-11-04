@@ -95,6 +95,11 @@ configuration. Rust `std` is available on production targets; it is not a
 platform or a selectable HAL implementation. Application/service manifests do not choose HAL providers.
 There are no per-capability Cargo provider features.
 
+Ordinary additive Cargo features may select optional functionality or driver
+code at the owning module boundary. They must preserve the portable app/service
+boundary and explicit `probe` opt-in. OS choice still uses Rust target
+configuration; physical device instances are resources, not feature names.
+
 For example, `platform/nuttx/platforms/pico2w-wifi.toml` binds Wi-Fi to the
 NuttX implementation and configures the CYW43439 driver. The ESP32-S3 profile
 uses the same Rust implementation and different native driver configuration.
@@ -526,9 +531,13 @@ python3 tools/check-hal-isolation.py --out target/hal-isolation-new
 cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
 ~~~
 
-The isolation check records clean Cargo artifacts and actual emitted provider
-cfgs, compiles portable core/WASM variants, runs independently checked native
-examples, and rejects unsupported platform/target combinations.
+The isolation check records observed Cargo artifacts (including registry crates)
+and actual emitted provider cfgs. It checks target packages separately from host
+build tools, compiles portable core/WASM variants, runs independently checked
+native examples, and rejects unsupported platform/target combinations. Sensor
+driver dependencies belong to the NuttX target; host driver unit tests retain
+them as dev-dependencies. Contract/mock library builds exclude those drivers on
+other targets. See `docs/build-system.md` for the remaining selection/reuse work.
 
 ## Detector ownership and portability
 
