@@ -14,13 +14,19 @@ Changing the wrapper cannot repair that underlying progress problem. P2's
 current sender/provider 120 and receiver/owner 180 relationship remains a
 characterization baseline, outside P1's equal-FIFO Crossbeam contract.
 
-The next performance deliverable is six existing cases, three fresh boots each,
-with separate queue-call and blocked-delivery measurements. No production
-transport or scheduler optimization is justified by the current P2 evidence.
 The [sanitized November 4 summary](results/2026-11-04-esp32s3/README.md) now records
 18 successful captures and six matched comparisons. Identifiers and original raw
 evidence are excluded from that publication. Timing calibration and placement
 review remain open; no firmware input or runtime behavior changes.
+
+Independent offline review reproduced all eighteen saved replays, all six
+comparisons and all 45 per-run metric distributions from the retained evidence.
+Keep the facade: ready-path differences are small and repeatable, while blocked
+intervals are much larger and include wakeup, receiver execution and scheduling.
+The next diagnostic is the existing semaphore/park pair described below; the
+completed transport screen does not need to be repeated. These finite,
+uncalibrated measurements do not justify a production transport or scheduler
+optimization.
 
 ## Evidence that informs the decision
 
@@ -86,6 +92,69 @@ The symbol search has no matches, so its exit status 1 is expected. The final
 command selects the six `ImuSample` wait instances; use the other offsets to
 inspect their references. These commands inspect data and execute no firmware.
 
+### The completed screen has a repeatable transfer-phase component
+
+The retained raw records reproduce the published per-boot quantiles. In every
+one of the nine ready captures, exactly 125 of 1,000 retained samples have
+`(sequence - 1) % 8 == 7`; all take the alternate values below. The other 875
+samples take the first values. There are no exceptions across the three rotated
+passes. These are aggregate findings from the retained private evidence, not
+newly published raw sessions or consoles.
+
+| Ready transport | Admission ticks: phases 0–6 / phase 7 | Receive-call ticks: phases 0–6 / phase 7 |
+| --- | ---: | ---: |
+| std | 141 / 143 | 150 / 152 |
+| messaging | 147 / 149 | 152 / 154 |
+| Crossbeam | 167 / 170 | 214 / 217 |
+
+The blocked captures also contain phase-associated modes, with additional tail
+variation. This identifies total-transfer sequence in this fixture, not an
+observed internal queue slot or a cache, scheduler or interrupt cause. Preserve
+sample order when investigating it. A same-image warmup-100/101 pair for an
+affected case remains a conditional diagnostic if separating total-transfer
+phase from retained-sample parity is necessary; it is not a new transport screen.
+
+All 9,000 retained blocked samples place the receiver marker before the sender's
+admission return. In [the actual blocked fixture](rust/src/ladder.rs), the
+receiver timestamps immediately after `recv`, then validates the payload,
+publishes completion, posts the done gate and waits again at the next arm or
+terminal hold.
+With FIFO receiver 180 and sender 120, this later receiver work can execute
+before the sender resumes and records `admission_end`. It affects caller-visible
+admission time, while the receive marker ends before that fixture completion
+work. Neither interval alone identifies exclusive queue or scheduler CPU cost.
+
+### Concrete P4 handoff: existing notification controls
+
+The large blocked intervals justify using the already compiled `semaphore` and
+`park` controls next. The question is whether large blocked intervals persist
+when useful work is sequence publication and notification without a payload.
+Use the same verified candidate, 1,000 retained samples after 100 warmups, three
+fresh boots per control and the existing effective FIFO 120/180 schedule. Keep
+each of these six captures separate from the completed channel comparisons.
+Alternate control order across passes and use fresh session/output directories.
+
+The [notification fixture](rust/src/controls.rs) proves a fresh native wait and
+checked sequence completion. `semaphore` includes sequence publication and
+`sem_post`, ending after `sem_clockwait`; `park` includes sequence publication
+and `unpark`, ending after the predicate-confirmed park return. Their marker
+boundaries and work differ from payload delivery. Report individual raw-tick
+distributions and park-return counts; do not subtract their percentiles from
+channel results to claim a queue, parker or context-switch cost. Existing
+capture and replay commands accept both case names; no firmware change or new
+comparison group is needed.
+
+Static inspection supplies an additional placement fact for P4: in the exact
+retained ELF, std and Crossbeam `SyncWaker::notify`, pthread `Parker::unpark`,
+`pthread_cond_signal` and `pthread_cond_wait` are linked into `.flash.text`.
+That is code-section placement, not a measurement of cache residency or the
+addresses of dynamically allocated queues and stacks. Correlated wake/switch
+attribution and actual allocation placement remain P4/P0 work. If both controls
+retain large intervals, inspect that common notification/scheduling path; if
+only park does, inspect its predicate/parker path; if neither does, inspect the
+channel wake-registration path. Those are investigation branches, not causal
+conclusions from unmatched distributions.
+
 ### Existing physical timing belongs to P0
 
 [P0's corrected physical baseline](https://github.com/yongkyuns/nxrs/blob/634552533aeee23c1dbed5b7389c11612e98e15a/tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/README.md)
@@ -141,7 +210,7 @@ flags remain false. Four original direct/reverse-send modes have no physical
 execution in that campaign. The [P1 source audit](https://github.com/yongkyuns/nxrs/blob/8efbd59cd392678aaedf1f00addc80a30a1682a3/tests/channel-progress/FIFO-SCHEDULING-AUDIT.md)
 defines the exact scope.
 
-## First board campaign: eighteen captures
+## Completed first board campaign: eighteen captures
 
 Use the authenticated candidate above, one board and one unchanged configuration.
 The initial payload is `bytes16`, capacity eight. Retain native-counter values,
@@ -240,9 +309,9 @@ Do not pool boots or subtract their percentiles.
   add `timer-provider-messaging`, `imu16`, 128 samples and 16 warmups for three
   boots, then replay each with `replay.py`. The 50 ms arming interval is setup,
   not a sensor sampling requirement; no sensor is acquired.
-- Add semaphore/park controls if blocked delivery is a material cost and a
-  notification-path investigation is needed. They transfer different work from
-  the channel cases and cannot be subtracted as a matched queue baseline.
+- The completed screen now selects the existing semaphore/park controls for the
+  P4 notification-path handoff above. They transfer different work from channel
+  cases and cannot be subtracted as a matched queue baseline.
 - Add `send` only for a selected call site that permits waiting for capacity.
   The current `*-send` cases use nonfull queues. Add saturation/fan-in only to
   answer a concrete admission or retention-policy question.
@@ -277,13 +346,15 @@ deadline is not an observed IRQ timestamp.
 
 ## Remaining execution boundary
 
-The candidate is built and the first campaign is specified. This continuation
-has no connected board interface and has executed no physical P2 capture.
-Independent calibration, actual placement review and coordinated board access
-remain with P0/hardware; progress-contract review remains with P1. The historical
+The first campaign is complete, with original evidence retained privately and
+per-boot quantiles in the linked sanitized summary. Independent calibration and
+actual placement review remain with P0/hardware; progress-contract review
+remains with P1. The historical
 [pre-shell ARM failure](README.md#preserved-arm-startup-failure) also remains
 unresolved. No successful later capture can erase it.
 
-The useful next result is the eighteen-capture table with these interpretations,
-followed by one evidence-supported optimization or a decision to keep the
-measured path. Additional benchmark families are conditional on that result.
+The decision remains to keep the measured facade. The existing semaphore/park
+handoff gives P4 a concrete first diagnostic, followed by the indicated source,
+placement and correlated tracing work. It adds no P2 runtime or benchmark family.
+Selection, timer and saturation extensions remain conditional on another
+engineering decision.

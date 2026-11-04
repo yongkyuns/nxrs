@@ -139,7 +139,13 @@ def self_test(scanner):
             for case in cases for kind in ('build', 'analysis', 'acceptance')
         ] + [f'{progress_root}/{family}-{kind}.json'
              for family in ('std', 'fifo') for kind in ('no-repair', 'physical')]
-        exact_hash_evidence = digest_evidence + latency_evidence + progress_evidence
+        event_root = 'tests/event-path-perf/results/2026-11-04-esp32s3/board'
+        event_evidence = [f'{event_root}/build/build.json'] + [
+            f'{event_root}/runs/pass-{iteration}-{family}-{transport}-try/build.json'
+            for iteration in (1, 2, 3) for family in ('ready', 'blocked')
+            for transport in ('std', 'messaging', 'crossbeam')
+        ]
+        exact_hash_evidence = digest_evidence + latency_evidence + progress_evidence + event_evidence
 
         def detected_at(paths, fields, rule, hidden, *, indent=2):
             # Scan independent file controls together, checking every location;
@@ -189,8 +195,8 @@ def self_test(scanner):
             if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
                 raise ValueError("source-hash exclusion escaped its evidence path or redaction failed")
             path.unlink()
-        # The newer P0/P1 archives repeat the same public patch bytes. Their
-        # separate exceptions cover only the reviewed paths and one value.
+        # The newer P0/P1/P2 archives repeat the same public patch bytes. Their
+        # patch-field exceptions cover only the reviewed paths and that one value.
         public_hash = hashlib.sha256((ROOT / source_field).read_bytes()).hexdigest()
         for relative in exact_hash_evidence:
             path = source / relative
@@ -211,6 +217,47 @@ def self_test(scanner):
             # matching. Neighboring fields must remain together on one line.
             detected_at(exact_hash_evidence, fields, rule, (token, source_hash),
                         indent=2 if len(fields) == 1 else None)
+        # P2's historical build receipts also repeat one exact public IMU API
+        # hash. Check each field/hash pairing separately, including swapped
+        # values; admitting either value under either key would be too broad.
+        imu_field = 'hal/imu/src/api.rs'
+        # This is the source hash retained at 55c6b2b5. Future API edits must
+        # not change the approved value in that historical receipt.
+        imu_hash = '051b8789dfd02ecf97bf0b22538fca53c7fc4cf10791a2f7fa7461cd28a0a528'
+        for relative in event_evidence:
+            (source / relative).write_text(json.dumps(
+                {source_field: public_hash, imu_field: imu_hash}, indent=2) + '\n')
+        findings, _ = execute(scanner, "dir", source, config)
+        if findings:
+            raise ValueError("reviewed P2 public source-hash pairs were not recognized")
+        for relative in event_evidence:
+            (source / relative).write_text('{"description":"synthetic clean file"}\n')
+        for fields, rule in (
+            ({imu_field: token}, 'github-pat'),
+            ({imu_field: source_hash}, 'generic-api-key'),
+            ({imu_field: public_hash}, 'generic-api-key'),
+            ({source_field: imu_hash}, 'generic-api-key'),
+            ({imu_field.replace('api.rs', 'api-v2.rs'): imu_hash}, 'generic-api-key'),
+            ({imu_field: imu_hash, 'api_key': source_hash}, 'generic-api-key'),
+            ({imu_field: imu_hash, 'access_token': token}, 'github-pat'),
+        ):
+            detected_at(event_evidence, fields, rule, (token, source_hash),
+                        indent=None if 'api_key' in fields else 2)
+        event_wrong_paths = (
+            f'{event_root}/build/analysis.json',
+            f'{event_root}/runs/pass-0-ready-std-try/build.json',
+            f'{event_root}/runs/pass-4-ready-std-try/build.json',
+            f'{event_root}/runs/pass-1-full-std-try/build.json',
+            f'{event_root}/runs/pass-1-ready-other-try/build.json',
+            f'{event_root}/runs/pass-1-ready-std-send/build.json',
+            f'{event_root}/runs/pass-1-ready-std-try/analysis.json',
+            f'{event_root}/runs/pass-1-ready-std-try/build.json.bak',
+            f'{event_root}/runs/pass-1-ready-std-try/run/build.json',
+            event_evidence[0].replace('/board/', '/'),
+            event_evidence[1].replace('2026-11-04', '2026-11-05'),
+        )
+        detected_at((*event_wrong_paths, digest_evidence[0]),
+                    {imu_field: imu_hash}, 'generic-api-key', ())
         wrong_paths = (
             f'{digest_root}/runs/latency-rom-digest-tight-4/build.json',
             f'{digest_root}/runs/latency-tight-1/credentials.json',
@@ -229,7 +276,7 @@ def self_test(scanner):
             f'{progress_root}/std-report.json',
             f'{progress_root}/fifo-no-repair.json.bak',
             progress_evidence[0].replace('2026-11-04', '2026-11-05'),
-        )
+        ) + event_wrong_paths
         detected_at(wrong_paths, {source_field: public_hash}, 'generic-api-key', ())
         for relative in wrong_paths:
             (source / relative).unlink()

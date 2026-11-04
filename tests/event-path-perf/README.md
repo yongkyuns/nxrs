@@ -315,6 +315,24 @@ collection above corrects capture's early truncation, not the native fault.
 Later attempts retain their own source/build identities and cannot overwrite
 or qualify this failed attempt.
 
+At later head `7a8eff5f`, [run 41827784812](https://github.com/yongkyuns/nxrs/actions/runs/41827784812)
+completed 24 captures, then failed another fresh boot before NSH or the
+`fanin-messaging-4-normal` command. The bounded drain retained the full register
+and task dump in [artifact 13322381118](https://github.com/yongkyuns/nxrs/actions/runs/41827784812/artifacts/13322381118).
+Independent offline replay verifies the 24 completed outcomes and preserves the
+failed boot as `retained-capture-failure`. The artifact ZIP SHA-256 is
+`2ef9d5fc0b935fd059842dd6e7823ed43091e5bc517da3edc867eb8f1164ba99`.
+
+This dump reports an early `Idle_Task` HardFault at the handler's generic
+`armv8-m/arm_hardfault.c:147` panic site. Its printed PC lies in the Idle stack;
+SP and EXC_RETURN are zero, so the saved context does not identify a trustworthy
+faulting instruction. The retained configuration disables HardFault alerts and
+memory/bus/usage-fault diagnostics, leaving fault-status registers unavailable.
+The cause, including whether it matches the earlier truncated failure, remains
+unresolved. Neither a transport change nor a stack-size fix follows from this
+dump. Later successful P2 runs retain their own evidence and do not establish a
+correction of this startup failure.
+
 ### Retention and independent replay
 
 A standalone capture retains the executable or the target build's exact receipt
