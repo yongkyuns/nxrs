@@ -48,12 +48,7 @@ pub struct Report {
     counter_read_max_ticks: u32,
 }
 
-pub fn run(
-    samples: u32,
-    warmup: u32,
-    schedule: ReleaseSchedule,
-    clock: &Clock,
-) -> Result<Report> {
+pub fn run(samples: u32, warmup: u32, schedule: ReleaseSchedule, clock: &Clock) -> Result<Report> {
     let mut pacing = Pacing::new(schedule, samples, warmup)?;
     let mut counter_read_min_ticks = u32::MAX;
     let mut counter_read_max_ticks = 0;
