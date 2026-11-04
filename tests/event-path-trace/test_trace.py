@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('p4_capture_tests',Path(__file__).parent/'capture.py')
 capture = importlib.util.module_from_spec(spec)
@@ -43,6 +44,28 @@ def run(rows):
 
 
 class TraceControls(unittest.TestCase):
+    def test_comparison_rejects_mixed_workloads_and_unrelated_config(self):
+        comparison=capture.load('p4_compare_tests',Path(__file__).parent/'compare.py')
+        for invalid in (None,'workload','config'):
+            summaries=[run(fixture()) for _ in range(3)]
+            summaries[0].update(mode='baseline',recording=False)
+            summaries[1]['recording']=False
+            records=[{key:'same' for key in ('source_sha256','kernel_revision','apps_revision','compiler_identity',
+                         'std_array_sha256','std_library_tree_sha256','crossbeam','build_environment')} for _ in range(3)]
+            for record in records: record.update(build_id='a'*64,config_file='resolved.config')
+            configs=[{'CONFIG_FREQ':'240','CONFIG_SCHED_INSTRUMENTATION':mode} for mode in ('n','y','y')]
+            if invalid=='workload': summaries[1]['policy']='equal'
+            if invalid=='config': configs[1]['CONFIG_FREQ']='160'
+            with patch.object(comparison.capture,'receipt',side_effect=records), \
+                 patch.object(comparison.capture,'replay',side_effect=summaries), \
+                 patch.object(comparison.capture.p2,'checked_file',return_value=Path('ignored')), \
+                 patch.object(comparison.capture.builder.p2.baseline,'config_values',side_effect=configs):
+                if invalid:
+                    with self.assertRaises(ValueError): comparison.compare([None]*3,[None]*3)
+                else:
+                    result=comparison.compare([None]*3,[None]*3)
+                    self.assertTrue(result['matched']);self.assertFalse(result['pooled'])
+
     def test_both_quiet_arms_and_real_transport_names(self):
         for mode in ('baseline','trace'):
             for backend,name in [('std','raw-std'),('messaging','messaging'),('crossbeam','crossbeam-direct')]:
@@ -103,7 +126,7 @@ class TraceControls(unittest.TestCase):
         rows[index:index]=extra
         for i,row in enumerate(r for r in rows if r['record']=='event'): row['index']=i
         rows[-1]['event_count']+=2
-        self.assertEqual(run(rows)['irq_entries'],[1])
+        self.assertEqual(run(rows)['irq_entries']['max'],1)
 
     def test_duplicate_json_and_native_fault_are_rejected(self):
         text='\n'.join(analyze.PREFIX+json.dumps(r) for r in fixture())

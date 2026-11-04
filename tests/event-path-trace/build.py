@@ -30,7 +30,7 @@ PINS = (
     'arch/xtensa/src/esp32s3/esp32s3_spiram.h', 'include/nuttx/irq.h',
     MEMORY_MAP,
 )
-IDENTITY = ('schema','package','mode','source_sha256','kernel_revision','apps_revision',
+IDENTITY = ('schema','package','mode','target','sdk','source_sha256','kernel_revision','apps_revision',
             'compiler_identity','std_array_sha256','std_library_tree_sha256','crossbeam',
             'build_nonce','platform','clock_request','boot_image_profile','build_environment')
 ENABLED = ('SCHED_INSTRUMENTATION','SCHED_INSTRUMENTATION_SWITCH',
@@ -99,7 +99,7 @@ def build(out, mode):
     source = p2.baseline.discover_source(profile,sdk,env)
     out.mkdir(parents=True)
     record = {'schema':'event-path-trace-build-v1','package':PACKAGE,'mode':mode,
-        'status':'failed','failure':'incomplete build','platform':PLATFORM,'target':profile['target'],
+        'status':'failed','failure':'incomplete build','platform':PLATFORM,'target':profile['target'],'sdk':sdk,
         'clock_request':'native-counter','boot_image_profile':p2.boot_image.PROFILE,
         'source_revision':p2.run(['git','rev-parse','HEAD']), 'source_sha256':before,
         'kernel_revision':p2.run(['git','rev-parse',':external/nuttx']),
