@@ -13,6 +13,13 @@ platforms = ["mock", "nuttx"]
 
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+bmi2 = "=0.1.2"
+embedded-hal = "=1.0.0"
+
+[dev-dependencies]
+# Host tests exercise the physical driver's bounded configuration and FIFO codec.
 bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"
 

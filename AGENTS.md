@@ -51,6 +51,12 @@ requirements, not aspirational guidance.
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit mocks, not a second OS identity via feature/cfg values.
+- Cargo manifests own component dependencies. Ordinary additive features may
+  select optional functionality, formats, algorithms and driver code at their
+  owning module boundary. Do not maintain a global feature-name allowlist.
+  Keep OS selection in target configuration and physical resource instances in
+  explicit configuration/ownership. Diagnostics still use the explicit `probe`
+  feature, and the detector product/model rules below still apply.
 - Group capability admission and acquisition selection in each HAL's
   `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
   and unavailable stubs in those implementations, and host source-injection

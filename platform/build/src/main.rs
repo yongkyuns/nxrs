@@ -33,16 +33,77 @@ fn usage() -> &'static str {
   cargo nxrs platforms
   cargo nxrs apps
   cargo nxrs profile --platform <profile> [--target-os <os>]
-  cargo nxrs fetch tls
+  cargo nxrs fetch <tls|detector>
 
 Platforms: wroom, cores3, pico2w, linux, macos, windows, web.
+Use --workspace-root <path> before a command to select an Nxrs checkout.
+Run cargo nxrs build --help for build options.
 NuttX signed profiles require the existing signing-key, verification-root, version and counter inputs."
+}
+fn build_usage() -> &'static str {
+    "usage:
+  cargo nxrs build --app <app> --platform <platform> [options]
+  cargo nxrs build --manifest-path <path> --profile <profile> [options]
+
+Selection:
+  --app <app>                 Select an application under app/
+  --manifest-path <path>      Select a Cargo manifest; --app-manifest is an alias
+  --bin <bin>                 Select a binary target
+  --platform <platform>       Select a platform family and its default profile
+  --profile <profile>         Select a product or qualification profile
+  --features <features>       Enable Cargo features, separated by commas or spaces;
+                              repeat as needed; --feature is an alias
+  --no-default-features       Disable the application's default Cargo features
+  --out <path>                Override the build output directory
+  --dry-run                   Validate selection and print it without building
+
+Browser builds:
+  --html <path>               Supply an HTML template with one __NXRS_SCRIPT__ marker
+  --unmodified-browser-std    Use the unpatched browser standard library
+
+NuttX qualification:
+  --target-c-source <path>    Add a target C source; repeat as needed
+  --kconfig-enable <symbol>   Enable a Kconfig symbol; repeat as needed
+  --kconfig-disable <symbol>  Disable a Kconfig symbol; repeat as needed
+  --abi-profile <profile>     Select active or minimal ABI checks
+  --size-optimized            Enable size qualification settings
+  --trace-only-backtrace      Use trace-only backtraces
+  --panic-immediate-abort     Abort immediately; requires --trace-only-backtrace
+  --app-package <package>     Check the selected package name
+  --command <command>         Override the firmware command name
+  --priority <priority>       Override the firmware task priority
+  --stack-size <bytes>        Override the firmware task stack size
+
+Paths are relative to the selected Nxrs workspace unless absolute.
+--profile selects an Nxrs configuration; builds use Cargo's release profile."
+}
+fn profile_usage() -> &'static str {
+    "usage:
+  cargo nxrs profile --platform <profile> [--target-os <os>]
+  cargo nxrs profile --platform <profile> --capability <capability> --target-os <os>
+  cargo nxrs profile --platform <profile> --model-features <manifest-path>
+  cargo nxrs profile --platform <profile> --native-helpers
+
+Manifest paths are relative to the selected Nxrs workspace unless absolute."
 }
 fn applications(root: &Path) -> Result<()> {
     let mut names = vec![];
     for entry in fs::read_dir(root.join("app")).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
-        if App::load(&entry.path().join("Cargo.toml"), None).is_ok() {
+        let directory = entry.path();
+        if !fs::metadata(&directory)
+            .map_err(|e| format!("{}: {e}", directory.display()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let manifest = directory.join("Cargo.toml");
+        if manifest
+            .try_exists()
+            .map_err(|e| format!("{}: {e}", manifest.display()))?
+        {
+            App::load(&manifest, None)
+                .map_err(|e| format!("invalid application {}: {e}", manifest.display()))?;
             names.push(entry.file_name());
         }
     }
@@ -66,7 +127,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let mut stack = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--html" => html = Some(PathBuf::from(args.next().ok_or("missing HTML template")?)),
+            "--html" => html = Some(root.join(args.next().ok_or("missing HTML template")?)),
             "--unmodified-browser-std" => web_fix = false,
             "--dry-run" => dry = true,
             "--size-optimized" => options.size = true,
@@ -78,14 +139,24 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             }
             "--platform" => platform = Some(args.next().ok_or("missing --platform")?.clone()),
             "--profile" => profile = Some(args.next().ok_or("missing --profile")?.clone()),
-            "--out" => out = Some(PathBuf::from(args.next().ok_or("missing output path")?)),
+            "--out" => out = Some(root.join(args.next().ok_or("missing output path")?)),
             "--bin" => bin = Some(args.next().ok_or("missing binary")?.clone()),
-            "--feature" => options
-                .features
-                .push(args.next().ok_or("missing feature")?.clone()),
+            "--feature" | "--features" => {
+                let list = args.next().ok_or("missing Cargo feature list")?;
+                let features: Vec<_> = list
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|feature| !feature.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                if features.is_empty() {
+                    return Err("missing Cargo feature list".into());
+                }
+                options.features.extend(features);
+            }
+            "--no-default-features" => options.no_default_features = true,
             "--target-c-source" => options
                 .helpers
-                .push(args.next().ok_or("missing helper source")?.into()),
+                .push(root.join(args.next().ok_or("missing helper source")?)),
             "--kconfig-enable" => options
                 .enable
                 .push(args.next().ok_or("missing symbol")?.clone()),
@@ -170,6 +241,10 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     } else {
         env::consts::OS
     };
+    options.validate_for_backend(os)?;
+    if os != "emscripten" && (html.is_some() || !web_fix) {
+        return Err("browser switches require a web profile".into());
+    }
     let evidence = nxrs_build::deployment::validate(root, &app.manifest, &profile, os)?;
     let out = out.unwrap_or_else(|| {
         root.join("target/build")
@@ -195,8 +270,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     };
     Ok(ExitCode::SUCCESS)
 }
-fn profile_command(args: &[String]) -> Result<ExitCode> {
-    let root = workspace_root().map_err(|e| e.to_string())?;
+fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let mut name = None;
     let mut os = None;
     let mut capability = None;
@@ -214,13 +288,13 @@ fn profile_command(args: &[String]) -> Result<ExitCode> {
         }
     }
     let profile =
-        nxrs_build::profile::Profile::resolve(&root, name.ok_or("profile requires --platform")?)?;
+        nxrs_build::profile::Profile::resolve(root, name.ok_or("profile requires --platform")?)?;
     if let Some(os) = os {
         profile.validate_target(os)?;
     }
     if let Some(capability) = capability {
         for line in profile.cargo_output(
-            &root,
+            root,
             capability,
             os.ok_or("--capability requires --target-os")?,
         )? {
@@ -229,12 +303,12 @@ fn profile_command(args: &[String]) -> Result<ExitCode> {
     } else if let Some(manifest) = features {
         println!(
             "{}",
-            serde_json::to_string(&profile.model_features(&root, Path::new(manifest))?).unwrap()
+            serde_json::to_string(&profile.model_features(root, &root.join(manifest))?).unwrap()
         );
     } else if helpers {
         println!(
             "{}",
-            serde_json::to_string(&profile.native_helpers(&root)?).unwrap()
+            serde_json::to_string(&profile.native_helpers(root)?).unwrap()
         );
     } else {
         println!("{}", serde_json::to_string_pretty(&profile.json()).unwrap());
@@ -262,19 +336,32 @@ fn run() -> Result<ExitCode> {
         nxrs_build::linker::link(&raw[1..])?;
         return Ok(ExitCode::SUCCESS);
     }
-    let root = if raw.first().is_some_and(|s| s == "--workspace-root") {
+    let requested_root = if raw.first().is_some_and(|s| s == "--workspace-root") {
         let path = raw.get(1).ok_or("missing workspace root")?;
-        let root = PathBuf::from(path)
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
+        let root = PathBuf::from(path);
         raw.drain(..2);
-        root
+        Some(root)
     } else {
-        workspace_root()?
+        None
     };
     let command = raw.first().map(String::as_str).unwrap_or("--help");
+    let help = match command {
+        "-h" | "--help" => Some(usage()),
+        "build" | "nuttx-build" if raw[1..].iter().any(|s| s == "-h" || s == "--help") => {
+            Some(build_usage())
+        }
+        "profile" if raw[1..].iter().any(|s| s == "-h" || s == "--help") => Some(profile_usage()),
+        _ => None,
+    };
+    if let Some(help) = help {
+        println!("{help}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let root = match requested_root {
+        Some(path) => path.canonicalize().map_err(|e| e.to_string())?,
+        None => workspace_root()?,
+    };
     match command {
-        "-h" | "--help" => println!("{}", usage()),
         "platforms" | "--list-platforms" => {
             for target in Target::ALL {
                 println!("{}", target.name());
@@ -286,7 +373,7 @@ fn run() -> Result<ExitCode> {
                 nxrs_build::json::from_reader(std::io::stdin()).map_err(|e| e.to_string())?;
             println!("{}", nxrs_build::inspect::query(request)?);
         }
-        "profile" => return profile_command(&raw[1..]),
+        "profile" => return profile_command(&root, &raw[1..]),
         "build" => return build_command(&root, &raw[1..]),
         "nuttx-build" => {
             let args: Vec<_> = raw[1..]

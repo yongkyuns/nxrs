@@ -27,6 +27,17 @@ pub fn qualify_context(header: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+pub(crate) fn nuttx_headers(header: &Path) -> Result<()> {
+    // Track required configuration by file, not only the include directory, so
+    // deletion and same-path edits invalidate the build on all Cargo hosts.
+    println!("cargo:rerun-if-changed={}", header.join("nuttx/config.h").display());
+    // Other ABI and architecture headers can also change beneath this root.
+    println!("cargo:rerun-if-changed={}", header.display());
+    qualify_context(header)?;
+    Ok(())
+}
+
 fn regex_match(text: &str, pattern: &str) -> bool {
     nxrs_build::regex::Regex::new(pattern)
         .expect("static build pattern")
@@ -219,7 +230,7 @@ pub fn build(root: &Path, sdk: &Path, out: &Path, target: &str) -> Result<()> {
             env::var_os("NXRS_NUTTX_INCLUDE")
                 .ok_or("native build requires configured NuttX headers")?,
         );
-        qualify_context(&header)?;
+        nuttx_headers(&header)?;
         includes.push(header);
         flags.extend(["-mlongcalls".into(), "-mtext-section-literals".into()]);
         for p in [

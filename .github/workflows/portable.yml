@@ -37,6 +37,7 @@ jobs:
         run: |
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+          python -m unittest discover -s tests/host -p test_hal_isolation.py -v
           python -m unittest discover -s tests/host -p test_imu_i2c_ffi.py -v
       - name: Editor configuration regressions
         run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
@@ -206,11 +207,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.90.0
-          targets: thumbv6m-none-eabi
+          targets: thumbv6m-none-eabi,wasm32-unknown-unknown
       - name: Compile app library and services without selecting a backend
         run: cargo check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
       - name: Compile allocation-free radio contracts and controllers
         run: cargo check --locked -p nxrs-wifi -p nxrs-ble --no-default-features --lib --target thumbv6m-none-eabi
+      - name: Verify sensor contract and mock dependency isolation
+        run: python3 tools/check-hal-isolation.py --capability imu --capability gnss --out target/sensor-isolation
 
   wasm:
     name: Shared mocks in Node and Chromium
