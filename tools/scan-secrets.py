@@ -80,6 +80,57 @@ def scan(scanner):
     print("Secret scan passed: all available Git history; zero findings after reviewed hash-field exclusions")
 
 
+def reviewed_hash_controls(scanner, source, config, token, alphabet):
+    # Full-history checkout is already required by the security workflow.
+    # Verify immutable public source blobs, not just a hash-shaped string.
+    imu = ("hal/imu/src/api.rs",
+           "051b8789dfd02ecf97bf0b22538fca53c7fc4cf10791a2f7fa7461cd28a0a528",
+           "e4a7de4ef3d71343c1a3fdbc2cc7ea62e4a49345")
+    pthread = ("upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch",
+               "776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",
+               "18ddcdb162985348728fd5e5d167305e87e8e35f")
+    for _field, digest, blob in (imu, pthread):
+        result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
+                                capture_output=True, check=True, timeout=10)
+        if hashlib.sha256(result.stdout).hexdigest() != digest:
+            raise ValueError("reviewed public source digest does not match its Git blob")
+    cases = [
+        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/build/build.json", imu),
+        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/runs/pass-3-ready-std-try/build.json", pthread),
+        ("tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-published/run/acceptance.json", pthread),
+        ("tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json", pthread),
+    ]
+    for relative, (field, digest, _blob) in cases:
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = '    ' + json.dumps(field) + ': ' + json.dumps(digest) + ',\n'
+        path.write_text(line)
+        findings, _ = execute(scanner, "dir", source, config)
+        if findings:
+            raise ValueError("reviewed source-hash false-positive control failed")
+        # A changed value, real-shaped token or different field is never exempt.
+        for key, value, rule in [(field, alphabet * 4, "generic-api-key"),
+                                 (field, token, "github-pat"),
+                                 ("api_key", digest, "generic-api-key")]:
+            path.write_text(json.dumps(key) + ': ' + json.dumps(value) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == rule for item in findings) or value in output:
+                raise ValueError("reviewed hash exclusion hides a secret or breaks redaction")
+        # Neither a second field on the line nor the same field outside the
+        # bounded benchmark path may inherit the exception.
+        path.write_text(line.rstrip() + ' "api_key": "' + alphabet * 4 + '"\n')
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings) or alphabet * 4 in output:
+            raise ValueError("complete-line hash control failed")
+        path.unlink()
+        outside = source / "unreviewed.json"
+        outside.write_text(line)
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings) or digest in output:
+            raise ValueError("hash exclusion escaped its reviewed path")
+        outside.unlink()
+
+
 def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
     with tempfile.TemporaryDirectory(prefix="nxrs-secret-control-") as directory:
@@ -110,6 +161,7 @@ def self_test(scanner):
                 if not any(item.get("RuleID") == rule for item in findings) or value in output:
                     raise ValueError("hash-field exclusion hides a token or redaction failed")
             path.write_text('{"description":"synthetic clean file"}\n')
+        reviewed_hash_controls(scanner, source, config, token, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")
