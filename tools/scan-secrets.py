@@ -47,6 +47,8 @@ def install(output):
 
 def execute(scanner, mode, source, config):
     scanner = str(Path(scanner).resolve())
+    source = Path(source).resolve()
+    config = Path(config).resolve()
     version = subprocess.run([scanner, "version"], capture_output=True, text=True, check=True)
     if version.stdout.strip() != SETTINGS["version"]:
         raise ValueError("pinned scanner version required")
@@ -60,8 +62,13 @@ def execute(scanner, mode, source, config):
                    "--report-format", "json", "--report-path", str(report), "--timeout", "120"]
         if mode == "git":
             command += ["--log-opts=--all"]
-        command.append(str(source))
-        result = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=150)
+        # Pinned Gitleaks preserves the input path in directory-mode findings.
+        # Run from the source with '.' so controls exercise the same anchored
+        # repository-relative paths as Git history, not absolute temp paths.
+        # Reports and the explicit empty ignore file remain outside the source.
+        command.append("." if mode == "dir" else str(source))
+        result = subprocess.run(command, cwd=source if mode == "dir" else directory,
+                                capture_output=True, text=True, timeout=150)
         # Never print scanner stdout/stderr or match/secret/line fields, even on errors.
         if result.returncode not in (0, 1) or not report.is_file():
             raise ValueError("scanner infrastructure failure; raw output withheld")
@@ -108,10 +115,15 @@ def reviewed_hash_controls(scanner, source, config, token, alphabet):
         path = source / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         line = '    ' + json.dumps(field) + ': ' + json.dumps(digest) + ',\n'
-        path.write_text(line)
-        findings, _ = execute(scanner, "dir", source, config)
-        if findings:
-            raise ControlFailure(f"reviewed-hash-allow-{index}")
+        # Include ordinary multiline JSON and CRLF. Gitleaks 8.30.1's line
+        # slice can include the preceding newline; first-line-only controls
+        # would miss that production-history difference.
+        for variant, contents in enumerate((line, '{\n' + line + '}\n',
+                                            '{\r\n' + line.replace('\n', '\r\n') + '}\r\n')):
+            path.write_bytes(contents.encode('utf-8'))
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ControlFailure(f"reviewed-hash-allow-{index}-{variant}")
         # A changed value, real-shaped token or different field is never exempt.
         for control, (key, value, rule) in enumerate([
                 (field, alphabet * 4, "generic-api-key"),
