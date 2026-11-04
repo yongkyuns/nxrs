@@ -147,6 +147,9 @@ fn app_discovery_reports_a_malformed_manifest() {
     fs::create_dir(root.0.join("app/broken")).unwrap();
     let manifest = root.0.join("app/broken/Cargo.toml");
     fs::write(&manifest, "[package]\nname =\n").unwrap();
+    // The frontend canonicalizes the workspace before discovering manifests.
+    // Compare that same native spelling, including Windows verbatim paths.
+    let manifest = manifest.canonicalize().unwrap();
     let output = frontend(&root.0, &root.0, &["apps"]);
     assert!(
         output.stdout.is_empty(),
