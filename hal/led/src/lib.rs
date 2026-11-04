@@ -9,36 +9,11 @@ mod platform;
 pub use platform::open;
 #[cfg(hal_mock)]
 pub use platform::MockLeds;
+// Retain the existing qualified native type without importing every backend item.
 #[cfg(all(hal_enabled, target_os = "nuttx"))]
 pub use platform::UserLeds;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(not(any(hal_enabled, hal_mock)))]
-    #[test]
-    fn unconfigured_never_silently_selects_a_mock() {
-        assert!(matches!(open(), Err(DeviceError::Unsupported)));
-    }
-
-    #[cfg(hal_mock)]
-    #[test]
-    fn portable_consumer_uses_only_the_capability() {
-        let mut leds = open().unwrap();
-        assert!(leds.supported().contains(0));
-        leds.set(0, true).unwrap();
-        leds.set(0, false).unwrap();
-        assert_eq!(leds.set(1, true), Err(DeviceError::Unsupported));
-    }
-}
-
-#[cfg(all(test, unix, not(target_os = "nuttx")))]
-#[allow(dead_code, unused_imports, unsafe_code)]
-#[path = "platform/nuttx/mod.rs"]
-mod nuttx_tests;
-
-#[cfg(all(test, not(hal_mock)))]
-#[allow(dead_code, unused_imports)]
-#[path = "platform/mock.rs"]
-mod mock_tests;
+mod tests;
+#[cfg(test)]
+mod test_support;

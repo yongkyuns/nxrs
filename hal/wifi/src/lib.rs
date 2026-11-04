@@ -5,7 +5,11 @@
 #[cfg(any(hal_enabled, test))]
 extern crate std;
 mod api;
-pub use api::{AccessPoint, Capabilities, Command, Completion, CredentialStorage, Credentials, DeliveryError, Error, Event, EventKind, LinkState, OperationId, Passphrase, ProviderStatus, QuiescenceControl, Rejected, Request, RequestId, Security, SessionId, Ssid, Wifi};
+pub use api::{
+    AccessPoint, Capabilities, Command, Completion, CredentialStorage, Credentials, DeliveryError,
+    Error, Event, EventKind, LinkState, OperationId, Passphrase, ProviderStatus, QuiescenceControl,
+    Rejected, Request, RequestId, Security, SessionId, Ssid, Wifi,
+};
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 mod platform;
@@ -17,7 +21,5 @@ mod worker;
 mod acquisition;
 pub use acquisition::{open, open_for_quiescence, open_with_storage};
 
-#[cfg(all(test, unix, not(target_os = "nuttx")))]
-#[allow(dead_code, unused_imports)]
-#[path = "platform/nuttx/mod.rs"]
-mod nuttx_tests;
+#[cfg(test)]
+mod test_support;

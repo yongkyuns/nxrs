@@ -5,7 +5,10 @@
 #[cfg(any(hal_enabled, test))]
 extern crate std;
 mod api;
-pub use api::{Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, OperationId, PeerId, ProviderStatus, Rejected, Request, RequestId, SessionId, Uuid};
+pub use api::{
+    Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, OperationId,
+    PeerId, ProviderStatus, Rejected, Request, RequestId, SessionId, Uuid,
+};
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 pub mod gatt;
@@ -28,7 +31,5 @@ where
     platform::open(sink).map(Controller::new)
 }
 
-#[cfg(all(test, unix, not(target_os = "nuttx")))]
-#[allow(dead_code, unused_imports)]
-#[path = "platform/nuttx/mod.rs"]
-mod nuttx_tests;
+#[cfg(test)]
+mod test_support;

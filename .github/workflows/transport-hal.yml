@@ -48,6 +48,10 @@ jobs:
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-transport
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-applications --bin nxrs
+      - name: Real loopback UDP without a hardware profile
+        run: |
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-transport --test std_udp
+          env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
       - name: Lint portable and native transport selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
