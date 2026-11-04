@@ -1,0 +1,38 @@
+name: Benchmark integration input snapshots
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/benchmark-integration-inputs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  snapshots:
+    if: github.head_ref == 'codex/benchmark-integration-263'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Retain pinned main and common-base source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/benchmark-integration-inputs
+          for revision in 9b62522c3d65d77f3fa0008933d2dc039415e66a 0b7cb2f9403cd484f5fad524bc271d3376df01e6; do
+            git cat-file -e "$revision^{commit}"
+            git archive --format=tar.gz --output="target/benchmark-integration-inputs/$revision.tar.gz" "$revision"
+            git rev-parse "$revision^{tree}" > "target/benchmark-integration-inputs/$revision.tree"
+          done
+          sha256sum target/benchmark-integration-inputs/*.tar.gz > target/benchmark-integration-inputs/SHA256SUMS
+          # No Git database, credentials, binaries, device session, or flash backup.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmark-integration-pinned-source
+          path: target/benchmark-integration-inputs/
+          retention-days: 7
+          if-no-files-found: error
