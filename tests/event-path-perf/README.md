@@ -277,12 +277,36 @@ library identities against the retained source proofs. Clock rejection and ROM
 digest warnings remain visible without erasing valid functional data. Raw output and failed receipts survive
 console deadlines, fixture refusal and serial-cleanup errors.
 
+After detecting a native fault, capture keeps the outcome failed and collects
+only incoming diagnostic bytes for at most one second, bounded by the existing
+capture deadline, 64 KiB of additional output and the overall console limit.
+It sends no command or retry and then performs the ordinary cleanup. This
+preserves a delayed task/file/PC dump without accepting a faulted boot.
+
 Physical session labels remain operator assertions. A matching image receipt,
 observed boot banner and accepted clock calibration do not independently prove
 the execution location, board identity or exclusive access. Capture keeps
 `physical_execution_verified` false while retaining those separate facts.
 Replay rejects unsupported true claims, including in failed captures, without
 rewriting the original evidence.
+
+### Preserved ARM startup failure
+
+At head `5f9cad59`, [run 41749403901](https://github.com/yongkyuns/nxrs/actions/runs/41749403901)
+built the ARM image and completed 28 captures, then detected a native assertion
+before the final `timer-provider-messaging` / `imu16` command could be sent.
+The [failed ARM archive](https://github.com/yongkyuns/nxrs/actions/runs/41749403901/artifacts/13285793832)
+retains the failed receipt and the original 174-byte console prefix. It ends
+at `dump_assert_info: Assertion`, after the NuttX version line and before any
+boot banner, shell prompt or event-path record. Its image SHA-256 is
+`f847433a922d30cc33c58c75d5390cc4b4df841137b8c57aafb021e13725f288`.
+
+The complete-run replay/comparison gates were not reached. This is a pre-command
+startup failure; the prefix contains no task, file or PC with which to establish
+its cause or equate it to P1's earlier Idle_Task fault. The bounded diagnostic
+collection above corrects capture's early truncation, not the native fault.
+Later attempts retain their own source/build identities and cannot overwrite
+or qualify this failed attempt.
 
 ### Retention and independent replay
 

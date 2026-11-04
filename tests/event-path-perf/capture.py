@@ -16,6 +16,7 @@ import os
 from pathlib import Path, PurePosixPath
 import pty
 import re
+import select
 import subprocess
 import sys
 import termios
@@ -54,6 +55,8 @@ MAX_BUILD_BYTES = 256 * 1024 * 1024
 MAX_CALIBRATION_BYTES = 64 * 1024 * 1024
 MAX_RECEIPT_BYTES = 8 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 600
+FAULT_TAIL_BYTES = 64 * 1024
+FAULT_TAIL_SECONDS = 1.0
 
 
 def digest(path):
@@ -292,6 +295,29 @@ def retained_session(session, evidence):
     return rebased
 
 
+def drain_fault_diagnostics(fd, transcript, deadline):
+    """Retain a bounded raw diagnostic tail after failure, without writing."""
+    end = min(deadline, time.monotonic() + FAULT_TAIL_SECONDS)
+    remaining = min(FAULT_TAIL_BYTES, max(0, console.MAX_LOG_BYTES - len(transcript)))
+    while remaining:
+        wait = end - time.monotonic()
+        if wait <= 0:
+            return
+        try:
+            ready, _, _ = select.select([fd], [], [], wait)
+            if not ready or time.monotonic() >= end:
+                return
+            chunk = os.read(fd, remaining)
+        except (BlockingIOError, InterruptedError):
+            continue
+        except (OSError, ValueError):
+            return
+        if not chunk:
+            return
+        transcript.extend(chunk)
+        remaining -= len(chunk)
+
+
 def read_until(fd, transcript, predicate, deadline, process=None):
     """Keep P0 I/O while checking P2 faults before either prompt is accepted."""
     def checked(data):
@@ -299,10 +325,19 @@ def read_until(fd, transcript, predicate, deadline, process=None):
             raise RuntimeError("guest fixture failure or kernel fault")
         return predicate(data)
 
-    result = console.read_until(fd, transcript, checked, deadline, process)
-    if analysis.faulted(result):
-        raise RuntimeError("guest fixture failure or kernel fault")
-    return result
+    try:
+        result = console.read_until(fd, transcript, checked, deadline, process)
+        if analysis.faulted(result):
+            raise RuntimeError("guest fixture failure or kernel fault")
+        return result
+    except RuntimeError:
+        if analysis.faulted(transcript):
+            try:
+                drain_fault_diagnostics(fd, transcript, deadline)
+            except Exception:
+                # A secondary diagnostic-read error must not replace the fault.
+                pass
+        raise
 
 
 def associate(summary, receipt, session, evidence_directory, fresh_boot, digest_warning):
