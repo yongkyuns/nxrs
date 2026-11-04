@@ -3,8 +3,8 @@ name: Portable services
 on:
   push:
     branches: [main]
+  # Stacked PRs need the same architecture/native/core/WASM gates as main-bound PRs.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -126,6 +126,10 @@ jobs:
         run: |
           cargo test --locked
           cargo test --locked -p nxrs-build
+      - name: Real shared file and UDP APIs without hardware admission
+        run: |
+          cargo test --locked -p nxrs-storage --test std_recording
+          cargo test --locked -p nxrs-transport --test std_udp
       - name: Event-driven native owner unit tests
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}
