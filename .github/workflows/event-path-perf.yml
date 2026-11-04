@@ -56,6 +56,10 @@ jobs:
         with:
           toolchain: 1.90.0
           components: rustfmt, clippy
+      - name: Retain owner formatting diagnostic
+        run: |
+          mkdir -p target/owner-format
+          rustfmt --edition 2021 --emit stdout tests/event-path-perf/rust/src/owner.rs > target/owner-format/owner-formatted.rs
       - name: Rust, evidence refusal, architecture and unchanged P0 controls
         run: |
           cargo +1.90.0 fmt --check -p nxrs-event-path-perf
@@ -71,6 +75,9 @@ jobs:
         run: |
           CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_LTO=false cargo +1.90.0 build --locked --release -p nxrs-event-path-perf
           python3 tests/event-path-perf/run-host.py --binary target/release/event-path-perf --output target/event-path-host
+      - name: Matched three-class owner campaign (host only)
+        run: |
+          python3 tests/event-path-perf/owner_campaign.py --binary target/release/event-path-perf --samples 128 --repeats 2 --output target/event-path-host/owner
       - name: Preserve exact source and executable identity
         if: always()
         run: |
@@ -85,7 +92,9 @@ jobs:
         if: always()
         with:
           name: event-path-host-functional
-          path: target/event-path-host/
+          path: |
+            target/event-path-host/
+            target/owner-format/
 
   arm:
     needs: host

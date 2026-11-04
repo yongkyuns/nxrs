@@ -5,6 +5,7 @@ mod fanin;
 mod ladder;
 #[path = "../../../std-channel-perf/rust/src/native.rs"]
 mod native;
+mod owner;
 mod payload;
 mod provider;
 mod report;
@@ -370,6 +371,24 @@ fn main() {
         let args: Vec<_> = std::env::args().skip(1).collect();
         if args.is_empty() || args.len() > 4 {
             return Err("usage-case-samples-warmup-bytes16-or-imu16");
+        }
+        if args[0].starts_with("owner-") {
+            let samples = args
+                .get(1)
+                .map(|v| v.parse().map_err(|_| "invalid-samples"))
+                .transpose()?
+                .unwrap_or(128);
+            let warmup = args
+                .get(2)
+                .map(|v| v.parse().map_err(|_| "invalid-warmup"))
+                .transpose()?
+                .unwrap_or(0);
+            return owner::execute(
+                &args[0],
+                samples,
+                warmup,
+                args.get(3).map(String::as_str).unwrap_or("bytes16"),
+            );
         }
         let case = Case::parse(&args[0])?;
         let samples = args
