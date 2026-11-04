@@ -16,6 +16,9 @@ is a post-insertion marker, not the first ready instruction. Pinned source
 copies and linked references are required in the build receipt; correlated
 physical ready events must prove the hook actually ran. Xtensa long-call
 literal loads alone are not counted as direct calls.
+Native source pins describe prepared sources, including the repository's
+existing ESP32-S3 PSRAM size-mismatch return fix. IRQ records use task ID zero;
+they identify interrupts without guessing the interrupted task from a ready head.
 
 The Rust recorder stores at most 4,096 events (64 KiB plus indices), without
 allocation, output, blocking or overwrite in callbacks. Single-core flat

@@ -86,6 +86,8 @@ def build(out, mode):
     if out.exists(): raise ValueError('output must be new')
     profile = p2.resolve_platform(PLATFORM, ROOT)
     pins = json.loads((HERE/'native-pins.json').read_text())
+    for name,expected in pins['prepared_patch_sha256'].items():
+        if p2.digest(ROOT/name) != expected: raise ValueError('unaudited native patch')
     for key, submodule in [('kernel_revision','nuttx'),('apps_revision','nuttx-apps')]:
         if p2.run(['git','rev-parse',':external/'+submodule]) != pins[key]:
             raise ValueError('unaudited native revision: '+key)

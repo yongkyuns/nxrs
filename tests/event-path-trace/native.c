@@ -82,7 +82,9 @@ static void trace_irq(struct note_driver_s *driver, int irq, void *handler, bool
 {
   (void)driver;
   (void)handler;
-  trace_note(enter ? 4 : 5, this_task()->pid, (uint32_t)irq);
+  /* IRQ notes carry no task attribution: the ready head can already name the
+   * next task before architectural restoration. Only IRQ identity is needed. */
+  trace_note(enter ? 4 : 5, 0, (uint32_t)irq);
 }
 static const struct note_driver_ops_s trace_ops =
 {

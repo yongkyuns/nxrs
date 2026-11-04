@@ -130,11 +130,17 @@ def capture(args):
         raise
     finally:
         if fd is not None:
-            if saved is not None: termios.tcsetattr(fd,termios.TCSANOW,saved)
-            os.close(fd)
+            try:
+                if saved is not None: termios.tcsetattr(fd,termios.TCSANOW,saved)
+            except OSError as error:
+                run['cleanup_failure']=str(error)
+                run['failure']=run['failure'] or 'serial restoration failed'
+            finally:
+                os.close(fd)
         (args.output/'console.log').write_bytes(transcript)
         run['console_sha256']=hashlib.sha256(transcript).hexdigest()
         (args.output/'run.json').write_text(json.dumps(run,indent=2)+'\n')
+    require(run['failure'] is None, 'capture cleanup failed')
     summary = replay(args.output,args.build_directory)
     (args.output/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
 

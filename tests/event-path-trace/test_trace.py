@@ -13,7 +13,7 @@ analyze = capture.analysis
 
 def fixture():
     meta = dict(record='metadata',schema='event-path-trace-v1',build_id='a'*64,
-                transport='crossbeam',samples=1,warmup=0,instrumented=True,recording=True,
+                transport='crossbeam-direct',samples=1,warmup=0,instrumented=True,recording=True,
                 sender_tid=20,receiver_tid=21,sender_priority=120,receiver_priority=180,
                 policy=1,clock_hz=240_000_000,counter_bits=32,counter_source=5,
                 window_ns=1_000_000,trace_capacity=4096,trace_bytes=65544,trace_address=1024,trace_region=1)
@@ -43,6 +43,17 @@ def run(rows):
 
 
 class TraceControls(unittest.TestCase):
+    def test_both_quiet_arms_and_real_transport_names(self):
+        for mode in ('baseline','trace'):
+            for backend,name in [('std','raw-std'),('messaging','messaging'),('crossbeam','crossbeam-direct')]:
+                rows=[r for r in fixture() if r['record']!='event']
+                rows[0].update(instrumented=mode=='trace',recording=False,transport=name)
+                rows[-1]['event_count']=0
+                result=analyze.analyze('\n'.join(analyze.PREFIX+json.dumps(r) for r in rows),
+                    {'build_id':'a'*64,'mode':mode},backend=backend,policy='unequal',recording=False,samples=1,warmup=0)
+                self.assertEqual(result['transport'],backend)
+                self.assertEqual(result['correlated_ticks'],{})
+
     def test_baseline_disables_parent_without_requesting_hidden_children(self):
         self.assertEqual(capture.builder.instrumentation_options('baseline'),
                          ['--kconfig-disable','SCHED_INSTRUMENTATION'])

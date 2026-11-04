@@ -62,7 +62,8 @@ def analyze(text, build, *, backend, policy, recording, samples, warmup):
     require(backend in {'std','messaging','crossbeam'} and policy in {'equal','unequal'}, 'unknown case')
     integer(samples,1,128); integer(warmup,0,64)
     require(meta.get('schema') == 'event-path-trace-v1' and meta.get('build_id') == build['build_id'], 'wrong build/schema')
-    require(meta.get('transport') == backend and meta.get('samples') == samples and meta.get('warmup') == warmup, 'wrong workload')
+    expected_transport = {'std':'raw-std','messaging':'messaging','crossbeam':'crossbeam-direct'}[backend]
+    require(meta.get('transport') == expected_transport and meta.get('samples') == samples and meta.get('warmup') == warmup, 'wrong workload')
     require(meta.get('instrumented') is (build['mode']=='trace') and meta.get('recording') is recording and
             (not recording or meta['instrumented']), 'wrong instrumentation arm')
     require(meta.get('sender_priority') == (180 if policy=='equal' else 120) and
