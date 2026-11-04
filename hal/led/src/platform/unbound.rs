@@ -1,5 +1,5 @@
 use crate::{DeviceError, Led, LedSet};
-pub struct UnconfiguredLed;
+struct UnconfiguredLed;
 
 impl Led for UnconfiguredLed {
     fn supported(&self) -> LedSet {
@@ -10,6 +10,6 @@ impl Led for UnconfiguredLed {
     }
 }
 
-pub fn open() -> Result<UnconfiguredLed, DeviceError> {
-    Err(DeviceError::Unsupported)
+pub fn open() -> Result<impl Led, DeviceError> {
+    Err::<UnconfiguredLed, _>(DeviceError::Unsupported)
 }

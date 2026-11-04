@@ -18,14 +18,15 @@ mod platform;
 #[allow(dead_code)]
 mod record;
 #[cfg(any(hal_enabled, test, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
-#[allow(dead_code)]
-mod recording;
+pub mod recording;
 
-// Preserve the existing factory signatures; expose only deliberate public items.
+// Explicit shared functionality is independent of hardware admission.
+#[cfg(any(hal_enabled, test, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
+pub use recording::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
+
+// Legacy factory signatures and admission behavior remain unchanged.
 #[cfg(any(hal_enabled, hal_mock))]
 pub use platform::open;
-#[cfg(hal_enabled)]
-pub use platform::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
 #[cfg(all(hal_enabled, target_os = "nuttx"))]
 pub use platform::FileStorage;
 #[cfg(hal_mock)]

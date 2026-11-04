@@ -1,4 +1,4 @@
-"""Execute the real native CLI and independently verify disk + UDP artifacts."""
+"""Execute the real CLI and independently verify disk + UDP under three profiles."""
 from pathlib import Path
 import os
 import re
@@ -16,7 +16,12 @@ def checksum(payload: bytes) -> int:
     return value
 
 
-def main() -> None:
+def run_profile(profile: str | None) -> None:
+    env = dict(os.environ)
+    env.pop("NXRS_PLATFORM", None)
+    if profile is not None:
+        env["NXRS_PLATFORM"] = profile
+    print(f"Explicit software composition: NXRS_PLATFORM={profile or '<unset>'}", flush=True)
     values = (7, 11, 23, 37)
     with tempfile.TemporaryDirectory(prefix="nxrs-native-e2e-") as root:
         root = Path(root)
@@ -32,7 +37,7 @@ def main() -> None:
                  "--bin", "nxrs", "--",
                  str(source), "2", "2", "gray8", "10", str(output), peer],
                 check=False, text=True, capture_output=True, timeout=120,
-                env={**os.environ, "NXRS_PLATFORM": {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")},
+                env=env,
             )
             print(result.stdout, end="")
             if result.returncode:
@@ -76,6 +81,12 @@ def main() -> None:
                 assert time_ms - previous_time == 10
             previous_time = time_ms
         print("PASS: independent decoder verified four persisted frames and four actual UDP datagrams")
+
+
+def main() -> None:
+    host = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
+    for profile in (None, "mock", host):
+        run_profile(profile)
 
 
 if __name__ == "__main__":

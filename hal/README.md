@@ -52,3 +52,17 @@ Wi-Fi association and BLE discovery/GATT require OS radio-control APIs that
 controllers/workers and ordinary resource handling. Linux Wi-Fi and BLE share
 the GIO protocol binding in `driver/linux/gio.rs`; NetworkManager/BlueZ schemas,
 radio ownership and capability errors stay in their respective providers.
+
+## Public surface conventions
+
+Each HAL crate root explicitly lists its stable contracts, acquisition functions
+and deliberate fixture exports. `src/platform/mod.rs` contains only one selected
+implementation module and named factory exports, not implementation code or
+wildcard re-exports. An unbound acquisition must fail explicitly.
+
+Ordinary shared Rust `std` facilities stay in their own modules, independent of
+hardware admission: file replay in `camera::replay` (opt-in Cargo feature),
+recording in `storage::recording` and UDP in `transport::udp` (on std-capable
+targets). Legacy root factory aliases remain admission-controlled for backward
+compatibility. Cargo determines which crates are built; profiles select physical
+resource bindings and NuttX configuration, not shared algorithms.

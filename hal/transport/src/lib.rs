@@ -11,14 +11,15 @@ mod api;
 pub use api::{DeviceError, PacketSink, Transport};
 mod platform;
 #[cfg(any(hal_enabled, test, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
-#[allow(dead_code)]
-mod udp;
+pub mod udp;
 
-// Preserve the existing factory signatures; expose only deliberate public items.
+// Explicit shared functionality is independent of hardware admission.
+#[cfg(any(hal_enabled, test, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
+pub use udp::{UdpSender, UdpTransport};
+
+// Legacy factory signatures and admission behavior remain unchanged.
 #[cfg(any(hal_enabled, hal_mock))]
 pub use platform::open;
-#[cfg(hal_enabled)]
-pub use platform::{UdpSender, UdpTransport};
 #[cfg(hal_mock)]
 pub use platform::MockTransport;
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]

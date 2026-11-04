@@ -299,14 +299,18 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
         # Check the selection boundary, not a mandatory wildcard spelling.
-        # Existing selectors may retain a glob; explicit facade exports should
-        # name their fixed factory surface and any deliberate fixture exports.
-        selected_export = r'selected::(?:\*|[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
+        # Exact exports prevent backend internals from accidentally reaching
+        # public namespaces. No platform selector may wildcard-reexport.
+        selected_export = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
         if (not exports
                 or any(not re.fullmatch(selected_export, export.strip()) for export in exports)
                 or not re.search(r'\bmod\s+selected\s*;', text)
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
+    for path in (root / 'hal').glob('*/src/lib.rs'):
+        source = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        if re.search(r'\bpub\s+use\s+(?:api|platform)::\*\s*;', source):
+            errors.append(f'{path.relative_to(root)}: HAL crate roots must name public exports explicitly')
     for path in (root / 'hal').glob('*/src/providers'):
         errors.append(f'{path.relative_to(root)}: HAL implementations belong in src/platform')
     for path in (root / 'hal').glob('*/src/platform/native*'):
