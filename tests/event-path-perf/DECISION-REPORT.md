@@ -322,7 +322,7 @@ Do not pool boots or subtract their percentiles.
 | --- | --- |
 | Raw std and messaging are comparable across repeated ready captures | Keep the facade; focus on the shared implementation. |
 | A reproducible facade-only difference exceeds run-to-run variation | Inspect the exact surrounding generated code and placement before changing the API. Inlining alone does not rule out every difference. |
-| Blocked delivery is material relative to ready queue-call costs | Investigate notification, parker and scheduling with P4's correlated traces before changing scheduler code. |
+| Blocked delivery is material relative to ready queue-call costs | [P4's physical traces](../event-path-trace/results/2026-11-04-esp32s3/README.md) show one ready/resume per measured transfer and material probe perturbation. Equal FIFO worsens delivery; keep production policy unchanged and narrow the probe before quantitative attribution. |
 | Admission-return tails are large while delivery tails remain small | Check receiver preemption and work performed before the producer resumes. |
 | Three-arm delivery adds a material cost | Decide whether separate admission classes are required by the product; preserve stop/priority semantics when considering a single inbox. |
 | A progress failure occurs or the schedule is outside the accepted contract | Resolve the transport/scheduling contract before performance-driven production adoption. |

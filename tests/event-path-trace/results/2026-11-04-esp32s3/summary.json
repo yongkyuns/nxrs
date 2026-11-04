@@ -1,0 +1,2757 @@
+{
+  "schema": "event-path-trace-physical-summary-v1",
+  "fresh_boot_captures": 36,
+  "samples_per_capture": 64,
+  "warmup_per_capture": 16,
+  "matched_comparisons": 12,
+  "pooled": false,
+  "passes": [
+    {
+      "pass": 1,
+      "transport": "std",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 20101,
+            "p95": 30198,
+            "p99": 30198,
+            "max": 30198
+          },
+          "delivery_ticks": {
+            "p50": 11819,
+            "p95": 16575,
+            "p99": 16575,
+            "max": 16575
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 42554,
+            "p95": 42554,
+            "p99": 46112,
+            "max": 46112
+          },
+          "delivery_ticks": {
+            "p50": 26681,
+            "p95": 27676,
+            "p99": 29587,
+            "max": 29587
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 42545,
+            "p95": 46430,
+            "p99": 50222,
+            "max": 50222
+          },
+          "delivery_ticks": {
+            "p50": 26263,
+            "p95": 27763,
+            "p99": 32506,
+            "max": 32506
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 20411,
+              "p95": 20411,
+              "p99": 25154,
+              "max": 25154
+            },
+            "ready_to_receive": {
+              "p50": 8245,
+              "p95": 9205,
+              "p99": 12132,
+              "max": 12132
+            },
+            "last_resume_to_receive": {
+              "p50": 6360,
+              "p95": 7320,
+              "p99": 9864,
+              "max": 9864
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 2,
+            "max": 2
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 2.1170091040246755,
+            "record_over_hooks": 0.9997885040184237
+          },
+          "p95": {
+            "hooks_over_baseline": 1.4091661699450295,
+            "record_over_hooks": 1.0910842693988814
+          },
+          "p99": {
+            "hooks_over_baseline": 1.5269885422875686,
+            "record_over_hooks": 1.0891308119361554
+          },
+          "max": {
+            "hooks_over_baseline": 1.5269885422875686,
+            "record_over_hooks": 1.0891308119361554
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 2.2574667907606396,
+            "record_over_hooks": 0.9843334207863274
+          },
+          "p95": {
+            "hooks_over_baseline": 1.6697435897435897,
+            "record_over_hooks": 1.0031435178494001
+          },
+          "p99": {
+            "hooks_over_baseline": 1.7850377073906485,
+            "record_over_hooks": 1.0986581944773042
+          },
+          "max": {
+            "hooks_over_baseline": 1.7850377073906485,
+            "record_over_hooks": 1.0986581944773042
+          }
+        }
+      }
+    },
+    {
+      "pass": 1,
+      "transport": "messaging",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 47679,
+            "p95": 47679,
+            "p99": 53808,
+            "max": 53808
+          },
+          "delivery_ticks": {
+            "p50": 25311,
+            "p95": 25311,
+            "p99": 25311,
+            "max": 25311
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 31259,
+            "p95": 33173,
+            "p99": 39719,
+            "max": 39719
+          },
+          "delivery_ticks": {
+            "p50": 14101,
+            "p95": 17524,
+            "p99": 20188,
+            "max": 20188
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 38849,
+            "p95": 42467,
+            "p99": 49712,
+            "max": 49712
+          },
+          "delivery_ticks": {
+            "p50": 20734,
+            "p95": 22243,
+            "p99": 28342,
+            "max": 28342
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 15572,
+              "p95": 15575,
+              "p99": 15578,
+              "max": 15578
+            },
+            "ready_to_receive": {
+              "p50": 7292,
+              "p95": 8261,
+              "p99": 14360,
+              "max": 14360
+            },
+            "last_resume_to_receive": {
+              "p50": 5406,
+              "p95": 6375,
+              "p99": 12474,
+              "max": 12474
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 2,
+            "max": 2
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 0.655613582499633,
+            "record_over_hooks": 1.2428100706996386
+          },
+          "p95": {
+            "hooks_over_baseline": 0.6957570418842677,
+            "record_over_hooks": 1.2801676061857534
+          },
+          "p99": {
+            "hooks_over_baseline": 0.7381616116562593,
+            "record_over_hooks": 1.2515924368690048
+          },
+          "max": {
+            "hooks_over_baseline": 0.7381616116562593,
+            "record_over_hooks": 1.2515924368690048
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 0.5571095571095571,
+            "record_over_hooks": 1.4703921707680305
+          },
+          "p95": {
+            "hooks_over_baseline": 0.6923472008217771,
+            "record_over_hooks": 1.2692878338278932
+          },
+          "p99": {
+            "hooks_over_baseline": 0.797597882343645,
+            "record_over_hooks": 1.4039033088963742
+          },
+          "max": {
+            "hooks_over_baseline": 0.797597882343645,
+            "record_over_hooks": 1.4039033088963742
+          }
+        }
+      }
+    },
+    {
+      "pass": 1,
+      "transport": "crossbeam",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 30132,
+            "p95": 31585,
+            "p99": 36460,
+            "max": 36460
+          },
+          "delivery_ticks": {
+            "p50": 16779,
+            "p95": 17757,
+            "p99": 22632,
+            "max": 22632
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 43753,
+            "p95": 49654,
+            "p99": 55899,
+            "max": 55899
+          },
+          "delivery_ticks": {
+            "p50": 27015,
+            "p95": 29196,
+            "p99": 37836,
+            "max": 37836
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 56603,
+            "p95": 63324,
+            "p99": 66461,
+            "max": 66461
+          },
+          "delivery_ticks": {
+            "p50": 32887,
+            "p95": 37682,
+            "p99": 39587,
+            "max": 39587
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 19643,
+              "p95": 21082,
+              "p99": 21910,
+              "max": 21910
+            },
+            "ready_to_receive": {
+              "p50": 14111,
+              "p95": 17144,
+              "p99": 18101,
+              "max": 18101
+            },
+            "last_resume_to_receive": {
+              "p50": 10510,
+              "p95": 11461,
+              "p99": 12418,
+              "max": 12418
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.4520443382450552,
+            "record_over_hooks": 1.2936941466870844
+          },
+          "p95": {
+            "hooks_over_baseline": 1.572075352224157,
+            "record_over_hooks": 1.2753051113706853
+          },
+          "p99": {
+            "hooks_over_baseline": 1.5331596269884806,
+            "record_over_hooks": 1.1889479239342384
+          },
+          "max": {
+            "hooks_over_baseline": 1.5331596269884806,
+            "record_over_hooks": 1.1889479239342384
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.6100482746290006,
+            "record_over_hooks": 1.2173607255228576
+          },
+          "p95": {
+            "hooks_over_baseline": 1.6441966548403446,
+            "record_over_hooks": 1.2906562542814084
+          },
+          "p99": {
+            "hooks_over_baseline": 1.6717921527041357,
+            "record_over_hooks": 1.0462786763928533
+          },
+          "max": {
+            "hooks_over_baseline": 1.6717921527041357,
+            "record_over_hooks": 1.0462786763928533
+          }
+        }
+      }
+    },
+    {
+      "pass": 1,
+      "transport": "crossbeam",
+      "policy": "equal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 15256,
+            "p95": 15280,
+            "p99": 15280,
+            "max": 15280
+          },
+          "delivery_ticks": {
+            "p50": 29259,
+            "p95": 30876,
+            "p99": 30900,
+            "max": 30900
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 26972,
+            "p95": 27367,
+            "p99": 27367,
+            "max": 27367
+          },
+          "delivery_ticks": {
+            "p50": 57957,
+            "p95": 58869,
+            "p99": 61596,
+            "max": 61596
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 34654,
+            "p95": 34657,
+            "p99": 34898,
+            "max": 34898
+          },
+          "delivery_ticks": {
+            "p50": 69411,
+            "p95": 71154,
+            "p99": 71395,
+            "max": 71395
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 29158,
+              "p95": 29161,
+              "p99": 29308,
+              "max": 29308
+            },
+            "ready_to_receive": {
+              "p50": 40973,
+              "p95": 42017,
+              "p99": 42362,
+              "max": 42362
+            },
+            "last_resume_to_receive": {
+              "p50": 14365,
+              "p95": 15408,
+              "p99": 17052,
+              "max": 17052
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.7679601468274777,
+            "record_over_hooks": 1.284813881061842
+          },
+          "p95": {
+            "hooks_over_baseline": 1.7910340314136126,
+            "record_over_hooks": 1.2663792158438996
+          },
+          "p99": {
+            "hooks_over_baseline": 1.7910340314136126,
+            "record_over_hooks": 1.2751854423210436
+          },
+          "max": {
+            "hooks_over_baseline": 1.7910340314136126,
+            "record_over_hooks": 1.2751854423210436
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.9808264123859325,
+            "record_over_hooks": 1.1976292768776853
+          },
+          "p95": {
+            "hooks_over_baseline": 1.9066265060240963,
+            "record_over_hooks": 1.208683687509555
+          },
+          "p99": {
+            "hooks_over_baseline": 1.993398058252427,
+            "record_over_hooks": 1.159085005519839
+          },
+          "max": {
+            "hooks_over_baseline": 1.993398058252427,
+            "record_over_hooks": 1.159085005519839
+          }
+        }
+      }
+    },
+    {
+      "pass": 2,
+      "transport": "std",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 23141,
+            "p95": 29795,
+            "p99": 34044,
+            "max": 34044
+          },
+          "delivery_ticks": {
+            "p50": 15179,
+            "p95": 17550,
+            "p99": 19464,
+            "max": 19464
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 39626,
+            "p95": 42554,
+            "p99": 46181,
+            "max": 46181
+          },
+          "delivery_ticks": {
+            "p50": 26173,
+            "p95": 27676,
+            "p99": 30095,
+            "max": 30095
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 44714,
+            "p95": 48884,
+            "p99": 52757,
+            "max": 52757
+          },
+          "delivery_ticks": {
+            "p50": 27763,
+            "p95": 29674,
+            "p99": 34084,
+            "max": 34084
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 20411,
+              "p95": 21368,
+              "p99": 26732,
+              "max": 26732
+            },
+            "ready_to_receive": {
+              "p50": 8248,
+              "p95": 9205,
+              "p99": 12132,
+              "max": 12132
+            },
+            "last_resume_to_receive": {
+              "p50": 6363,
+              "p95": 7320,
+              "p99": 9864,
+              "max": 9864
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 2,
+            "max": 2
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.7123719804675683,
+            "record_over_hooks": 1.1284005450966537
+          },
+          "p95": {
+            "hooks_over_baseline": 1.4282262124517537,
+            "record_over_hooks": 1.1487521737086996
+          },
+          "p99": {
+            "hooks_over_baseline": 1.3565092233580074,
+            "record_over_hooks": 1.1423962235551417
+          },
+          "max": {
+            "hooks_over_baseline": 1.3565092233580074,
+            "record_over_hooks": 1.1423962235551417
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.72429013769023,
+            "record_over_hooks": 1.0607496274786994
+          },
+          "p95": {
+            "hooks_over_baseline": 1.576980056980057,
+            "record_over_hooks": 1.072192513368984
+          },
+          "p99": {
+            "hooks_over_baseline": 1.546187833949856,
+            "record_over_hooks": 1.1325469347067618
+          },
+          "max": {
+            "hooks_over_baseline": 1.546187833949856,
+            "record_over_hooks": 1.1325469347067618
+          }
+        }
+      }
+    },
+    {
+      "pass": 2,
+      "transport": "messaging",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 42918,
+            "p95": 45750,
+            "p99": 47955,
+            "max": 47955
+          },
+          "delivery_ticks": {
+            "p50": 24462,
+            "p95": 25335,
+            "p99": 28479,
+            "max": 28479
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 30302,
+            "p95": 35768,
+            "p99": 39221,
+            "max": 39221
+          },
+          "delivery_ticks": {
+            "p50": 13144,
+            "p95": 16567,
+            "p99": 16567,
+            "max": 16567
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 38849,
+            "p95": 41519,
+            "p99": 48719,
+            "max": 48719
+          },
+          "delivery_ticks": {
+            "p50": 20734,
+            "p95": 22243,
+            "p99": 26791,
+            "max": 26791
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 15572,
+              "p95": 15575,
+              "p99": 15578,
+              "max": 15578
+            },
+            "ready_to_receive": {
+              "p50": 7292,
+              "p95": 8261,
+              "p99": 14315,
+              "max": 14315
+            },
+            "last_resume_to_receive": {
+              "p50": 5406,
+              "p95": 6375,
+              "p99": 12429,
+              "max": 12429
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 2,
+            "max": 2
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 0.7060440840672911,
+            "record_over_hooks": 1.2820605900600621
+          },
+          "p95": {
+            "hooks_over_baseline": 0.7818142076502732,
+            "record_over_hooks": 1.1607861775889063
+          },
+          "p99": {
+            "hooks_over_baseline": 0.8178709206547805,
+            "record_over_hooks": 1.2421661864817317
+          },
+          "max": {
+            "hooks_over_baseline": 0.8178709206547805,
+            "record_over_hooks": 1.2421661864817317
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 0.5373231951598397,
+            "record_over_hooks": 1.5774497869750457
+          },
+          "p95": {
+            "hooks_over_baseline": 0.6539175054272746,
+            "record_over_hooks": 1.342608800627754
+          },
+          "p99": {
+            "hooks_over_baseline": 0.5817268864777555,
+            "record_over_hooks": 1.6171304400313877
+          },
+          "max": {
+            "hooks_over_baseline": 0.5817268864777555,
+            "record_over_hooks": 1.6171304400313877
+          }
+        }
+      }
+    },
+    {
+      "pass": 2,
+      "transport": "crossbeam",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 28540,
+            "p95": 29734,
+            "p99": 35017,
+            "max": 35017
+          },
+          "delivery_ticks": {
+            "p50": 15822,
+            "p95": 16848,
+            "p99": 16848,
+            "max": 16848
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 44710,
+            "p95": 49978,
+            "p99": 57412,
+            "max": 57412
+          },
+          "delivery_ticks": {
+            "p50": 27015,
+            "p95": 31116,
+            "p99": 38796,
+            "max": 38796
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 60578,
+            "p95": 64340,
+            "p99": 68986,
+            "max": 68986
+          },
+          "delivery_ticks": {
+            "p50": 37381,
+            "p95": 40457,
+            "p99": 47083,
+            "max": 47083
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 23917,
+              "p95": 24739,
+              "p99": 25750,
+              "max": 25750
+            },
+            "ready_to_receive": {
+              "p50": 13328,
+              "p95": 16247,
+              "p99": 22058,
+              "max": 22058
+            },
+            "last_resume_to_receive": {
+              "p50": 9583,
+              "p95": 10780,
+              "p99": 17749,
+              "max": 17749
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 2,
+            "max": 2
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.5665732305536089,
+            "record_over_hooks": 1.354909416237978
+          },
+          "p95": {
+            "hooks_over_baseline": 1.6808367525391807,
+            "record_over_hooks": 1.287366441234143
+          },
+          "p99": {
+            "hooks_over_baseline": 1.6395465059828083,
+            "record_over_hooks": 1.2015954852644046
+          },
+          "max": {
+            "hooks_over_baseline": 1.6395465059828083,
+            "record_over_hooks": 1.2015954852644046
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.7074326886613576,
+            "record_over_hooks": 1.3837127521747177
+          },
+          "p95": {
+            "hooks_over_baseline": 1.8468660968660968,
+            "record_over_hooks": 1.3001992544028795
+          },
+          "p99": {
+            "hooks_over_baseline": 2.3027065527065527,
+            "record_over_hooks": 1.2136044953087948
+          },
+          "max": {
+            "hooks_over_baseline": 2.3027065527065527,
+            "record_over_hooks": 1.2136044953087948
+          }
+        }
+      }
+    },
+    {
+      "pass": 2,
+      "transport": "crossbeam",
+      "policy": "equal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 13309,
+            "p95": 13378,
+            "p99": 13378,
+            "max": 13378
+          },
+          "delivery_ticks": {
+            "p50": 27357,
+            "p95": 28929,
+            "p99": 28953,
+            "max": 28953
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 27328,
+            "p95": 28285,
+            "p99": 28847,
+            "max": 28847
+          },
+          "delivery_ticks": {
+            "p50": 56970,
+            "p95": 58713,
+            "p99": 59652,
+            "max": 59652
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 34654,
+            "p95": 34657,
+            "p99": 34898,
+            "max": 34898
+          },
+          "delivery_ticks": {
+            "p50": 69411,
+            "p95": 71154,
+            "p99": 71395,
+            "max": 71395
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 29158,
+              "p95": 29161,
+              "p99": 29308,
+              "max": 29308
+            },
+            "ready_to_receive": {
+              "p50": 40973,
+              "p95": 42017,
+              "p99": 42362,
+              "max": 42362
+            },
+            "last_resume_to_receive": {
+              "p50": 14365,
+              "p95": 15408,
+              "p99": 17052,
+              "max": 17052
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 2.0533473589300475,
+            "record_over_hooks": 1.2680766978922717
+          },
+          "p95": {
+            "hooks_over_baseline": 2.1142921213933326,
+            "record_over_hooks": 1.2252784161216193
+          },
+          "p99": {
+            "hooks_over_baseline": 2.156301390342353,
+            "record_over_hooks": 1.2097618469858218
+          },
+          "max": {
+            "hooks_over_baseline": 2.156301390342353,
+            "record_over_hooks": 1.2097618469858218
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 2.08246518258581,
+            "record_over_hooks": 1.218378093733544
+          },
+          "p95": {
+            "hooks_over_baseline": 2.02955511770196,
+            "record_over_hooks": 1.2118951509887077
+          },
+          "p99": {
+            "hooks_over_baseline": 2.060304631644389,
+            "record_over_hooks": 1.196858445651445
+          },
+          "max": {
+            "hooks_over_baseline": 2.060304631644389,
+            "record_over_hooks": 1.196858445651445
+          }
+        }
+      }
+    },
+    {
+      "pass": 3,
+      "transport": "std",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 21668,
+            "p95": 29610,
+            "p99": 30585,
+            "max": 30585
+          },
+          "delivery_ticks": {
+            "p50": 13733,
+            "p95": 15960,
+            "p99": 16935,
+            "max": 16935
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 40728,
+            "p95": 44999,
+            "p99": 51125,
+            "max": 51125
+          },
+          "delivery_ticks": {
+            "p50": 26621,
+            "p95": 28579,
+            "p99": 33748,
+            "max": 33748
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "std",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 43734,
+            "p95": 45479,
+            "p99": 49937,
+            "max": 49937
+          },
+          "delivery_ticks": {
+            "p50": 26690,
+            "p95": 27763,
+            "p99": 30937,
+            "max": 30937
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 19896,
+              "p95": 20411,
+              "p99": 21873,
+              "max": 21873
+            },
+            "ready_to_receive": {
+              "p50": 8245,
+              "p95": 9205,
+              "p99": 12132,
+              "max": 12132
+            },
+            "last_resume_to_receive": {
+              "p50": 6360,
+              "p95": 7320,
+              "p99": 9864,
+              "max": 9864
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.8796381761122392,
+            "record_over_hooks": 1.0738067177371833
+          },
+          "p95": {
+            "hooks_over_baseline": 1.519723066531577,
+            "record_over_hooks": 1.0106669037089713
+          },
+          "p99": {
+            "hooks_over_baseline": 1.671571031551414,
+            "record_over_hooks": 0.976762836185819
+          },
+          "max": {
+            "hooks_over_baseline": 1.671571031551414,
+            "record_over_hooks": 0.976762836185819
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.9384693803247652,
+            "record_over_hooks": 1.0025919386950153
+          },
+          "p95": {
+            "hooks_over_baseline": 1.7906641604010025,
+            "record_over_hooks": 0.9714475663949054
+          },
+          "p99": {
+            "hooks_over_baseline": 1.9927959846471803,
+            "record_over_hooks": 0.9167061751807515
+          },
+          "max": {
+            "hooks_over_baseline": 1.9927959846471803,
+            "record_over_hooks": 0.9167061751807515
+          }
+        }
+      }
+    },
+    {
+      "pass": 3,
+      "transport": "messaging",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 43386,
+            "p95": 45801,
+            "p99": 49350,
+            "max": 49350
+          },
+          "delivery_ticks": {
+            "p50": 22497,
+            "p95": 23433,
+            "p99": 26400,
+            "max": 26400
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 30302,
+            "p95": 32216,
+            "p99": 41204,
+            "max": 41204
+          },
+          "delivery_ticks": {
+            "p50": 13144,
+            "p95": 16567,
+            "p99": 22708,
+            "max": 22708
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "messaging",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 38849,
+            "p95": 43919,
+            "p99": 49676,
+            "max": 49676
+          },
+          "delivery_ticks": {
+            "p50": 20734,
+            "p95": 22243,
+            "p99": 27748,
+            "max": 27748
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 15572,
+              "p95": 15578,
+              "p99": 17069,
+              "max": 17069
+            },
+            "ready_to_receive": {
+              "p50": 7292,
+              "p95": 8261,
+              "p99": 15272,
+              "max": 15272
+            },
+            "last_resume_to_receive": {
+              "p50": 5406,
+              "p95": 6375,
+              "p99": 13386,
+              "max": 13386
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 2,
+            "max": 2
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 0.6984280643525561,
+            "record_over_hooks": 1.2820605900600621
+          },
+          "p95": {
+            "hooks_over_baseline": 0.7033907556603568,
+            "record_over_hooks": 1.3632666997765086
+          },
+          "p99": {
+            "hooks_over_baseline": 0.8349341438703141,
+            "record_over_hooks": 1.2056111057178915
+          },
+          "max": {
+            "hooks_over_baseline": 0.8349341438703141,
+            "record_over_hooks": 1.2056111057178915
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 0.5842556785349158,
+            "record_over_hooks": 1.5774497869750457
+          },
+          "p95": {
+            "hooks_over_baseline": 0.7069944095933086,
+            "record_over_hooks": 1.342608800627754
+          },
+          "p99": {
+            "hooks_over_baseline": 0.8601515151515151,
+            "record_over_hooks": 1.2219482120838472
+          },
+          "max": {
+            "hooks_over_baseline": 0.8601515151515151,
+            "record_over_hooks": 1.2219482120838472
+          }
+        }
+      }
+    },
+    {
+      "pass": 3,
+      "transport": "crossbeam",
+      "policy": "unequal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 29733,
+            "p95": 32673,
+            "p99": 34117,
+            "max": 34117
+          },
+          "delivery_ticks": {
+            "p50": 17316,
+            "p95": 18399,
+            "p99": 18399,
+            "max": 18399
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 45141,
+            "p95": 46098,
+            "p99": 57600,
+            "max": 57600
+          },
+          "delivery_ticks": {
+            "p50": 28944,
+            "p95": 29082,
+            "p99": 33045,
+            "max": 33045
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "unequal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 57318,
+            "p95": 62103,
+            "p99": 66207,
+            "max": 66207
+          },
+          "delivery_ticks": {
+            "p50": 35814,
+            "p95": 38946,
+            "p99": 41862,
+            "max": 41862
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 21643,
+              "p95": 22960,
+              "p99": 24871,
+              "max": 24871
+            },
+            "ready_to_receive": {
+              "p50": 14267,
+              "p95": 16178,
+              "p99": 17144,
+              "max": 17144
+            },
+            "last_resume_to_receive": {
+              "p50": 8839,
+              "p95": 10510,
+              "p99": 11716,
+              "max": 11716
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.5182120875794571,
+            "record_over_hooks": 1.2697547683923707
+          },
+          "p95": {
+            "hooks_over_baseline": 1.4108897254613901,
+            "record_over_hooks": 1.347195106078355
+          },
+          "p99": {
+            "hooks_over_baseline": 1.6883078817012047,
+            "record_over_hooks": 1.1494270833333333
+          },
+          "max": {
+            "hooks_over_baseline": 1.6883078817012047,
+            "record_over_hooks": 1.1494270833333333
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 1.6715176715176716,
+            "record_over_hooks": 1.2373548922056385
+          },
+          "p95": {
+            "hooks_over_baseline": 1.5806293820316322,
+            "record_over_hooks": 1.3391788735300185
+          },
+          "p99": {
+            "hooks_over_baseline": 1.7960215229088536,
+            "record_over_hooks": 1.266817975487971
+          },
+          "max": {
+            "hooks_over_baseline": 1.7960215229088536,
+            "record_over_hooks": 1.266817975487971
+          }
+        }
+      }
+    },
+    {
+      "pass": 3,
+      "transport": "crossbeam",
+      "policy": "equal",
+      "arms": [
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "baseline",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 14266,
+            "p95": 14287,
+            "p99": 14287,
+            "max": 14287
+          },
+          "delivery_ticks": {
+            "p50": 28266,
+            "p95": 29886,
+            "p99": 29910,
+            "max": 29910
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "trace",
+          "recording": false,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 28886,
+            "p95": 29281,
+            "p99": 29281,
+            "max": 29281
+          },
+          "delivery_ticks": {
+            "p50": 59739,
+            "p95": 60651,
+            "p99": 63378,
+            "max": 63378
+          },
+          "correlated_ticks": {},
+          "ready_edges": null,
+          "resume_edges": null,
+          "irq_entries": null,
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        },
+        {
+          "schema": "event-path-trace-summary-v1",
+          "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+          "transport": "crossbeam",
+          "policy": "equal",
+          "mode": "trace",
+          "recording": true,
+          "samples": 64,
+          "warmup": 16,
+          "clock_hz_configuration": 240000000,
+          "admission_ticks": {
+            "p50": 32740,
+            "p95": 32743,
+            "p99": 32984,
+            "max": 32984
+          },
+          "delivery_ticks": {
+            "p50": 65577,
+            "p95": 67320,
+            "p99": 67561,
+            "max": 67561
+          },
+          "correlated_ticks": {
+            "entry_to_ready": {
+              "p50": 27244,
+              "p95": 27247,
+              "p99": 27394,
+              "max": 27394
+            },
+            "ready_to_receive": {
+              "p50": 39080,
+              "p95": 40097,
+              "p99": 40469,
+              "max": 40469
+            },
+            "last_resume_to_receive": {
+              "p50": 13381,
+              "p95": 14451,
+              "p99": 16095,
+              "max": 16095
+            }
+          },
+          "ready_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "resume_edges": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "irq_entries": {
+            "p50": 1,
+            "p95": 1,
+            "p99": 1,
+            "max": 1
+          },
+          "placement_regions": {
+            "sender-stack": 1,
+            "receiver-stack": 1
+          },
+          "constructor_allocations": [
+            {
+              "bytes": 160,
+              "alignment": 4,
+              "region": 1,
+              "released_during_constructor": false
+            },
+            {
+              "bytes": 320,
+              "alignment": 64,
+              "region": 1,
+              "released_during_constructor": false
+            }
+          ],
+          "trace_region": 1,
+          "trace_bytes": 65544,
+          "physical_timing_qualified": false,
+          "priority_progress_qualified": false
+        }
+      ],
+      "perturbation_quantile_ratios": {
+        "admission_ticks": {
+          "p50": {
+            "hooks_over_baseline": 2.0248142436562455,
+            "record_over_hooks": 1.1334210344111335
+          },
+          "p95": {
+            "hooks_over_baseline": 2.049485546300833,
+            "record_over_hooks": 1.1182336668829616
+          },
+          "p99": {
+            "hooks_over_baseline": 2.049485546300833,
+            "record_over_hooks": 1.1264642601004065
+          },
+          "max": {
+            "hooks_over_baseline": 2.049485546300833,
+            "record_over_hooks": 1.1264642601004065
+          }
+        },
+        "delivery_ticks": {
+          "p50": {
+            "hooks_over_baseline": 2.1134578645722777,
+            "record_over_hooks": 1.0977251042032843
+          },
+          "p95": {
+            "hooks_over_baseline": 2.0294117647058822,
+            "record_over_hooks": 1.109956966909037
+          },
+          "p99": {
+            "hooks_over_baseline": 2.1189568706118354,
+            "record_over_hooks": 1.0660008204739815
+          },
+          "max": {
+            "hooks_over_baseline": 2.1189568706118354,
+            "record_over_hooks": 1.0660008204739815
+          }
+        }
+      }
+    }
+  ],
+  "stack_bytes": {
+    "sender-stack": [
+      65232
+    ],
+    "receiver-stack": [
+      16160
+    ]
+  },
+  "retained_event_count_range": [
+    1604,
+    1984
+  ],
+  "diagnostic_irq_entry_totals": {
+    "7": 3072,
+    "65": 407
+  },
+  "p1_scoped_repeat": {
+    "contract": "equal-fifo-run-to-block-v1",
+    "scope": "equal-fifo-reservation-progress",
+    "fresh_boot_cases": 6,
+    "outcomes": {
+      "fifo-try-recv-reserved": "completed-without-repair",
+      "fifo-try-recv-published": "completed-without-repair",
+      "fifo-select-reserved": "completed-without-repair",
+      "fifo-select-published": "completed-without-repair",
+      "fifo-try-send-reserved": "completed-without-repair",
+      "fifo-try-send-reclaimed": "completed-without-repair"
+    },
+    "no_repair_gate_passed": true,
+    "legacy_rom_digest_warning": true
+  },
+  "original_flash_restored_and_verified": true,
+  "physical_timing_qualified": false,
+  "priority_progress_qualified": false,
+  "production_transport_qualified": false
+}

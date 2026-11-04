@@ -1,0 +1,21 @@
+{
+  "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+  "apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+  "files": {
+    "sched/sched/sched_addreadytorun.c": "9969e9395eb1cb91127229bd6b65e2f12b7078f41b420067bf0ae2d82f579fa0",
+    "sched/sched/sched.h": "57b4cc2d873a57f9a2410598d953b7ab0bf0cb21eb11d019d29b29407885b21a",
+    "sched/sched/sched_switchcontext.c": "14c0eecd6ac0a6218f7a1e14e870cd619e80f90008108410237d7e78c452e1b7",
+    "drivers/note/note_driver.c": "e7a059a2e5f11d87c494c2d87a63df5e03fa9d7a1fc12fe5a7a99b66427aa6a6",
+    "include/nuttx/note/note_driver.h": "4b378d4851c4aa60fd7749029b079e3a46179596ea4b561919ae1baaafae514a",
+    "include/nuttx/sched.h": "5cc14e5f63b75a7cc0586c5494e0cb2d15e5fb2cc0528eada7cffbcbfb1859d8",
+    "arch/xtensa/include/irq.h": "6dea737b3988df72a615b474acfd4bef42490bc69dc0360ae95c5ff7a5097cf1",
+    "arch/xtensa/src/Makefile": "4d911ffdf9e5a1198c13d8e2811926909d87f573f05c224f678a4a992eded23d",
+    "arch/xtensa/src/esp32s3/esp32s3_spiram.c": "ff769b650c42b8cd530397dd71f790261b5b5d7c4d1293b5ab4bc39e33d9a13c",
+    "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/soc/esp32s3/include/soc/soc.h": "7c5d0a1870cd659d78e2e551352ddfeab6973d6e20ee7dbc8abf9b0eaf53eadc",
+    "arch/xtensa/src/esp32s3/esp32s3_spiram.h": "61481452673bae878d32772ed1591a711564e7c3a6c11a35c52dc4aa76f71e8f",
+    "include/nuttx/irq.h": "26234d3172f50ef16099cd9e07fb5468f3d422381f89883c03ab43a63d495de5"
+  },
+  "prepared_patch_sha256": {
+    "upstream/nuttx/patches/0007-esp32s3-spiram-size-mismatch-return.patch": "db8bb04fa12065079c11e618c8327cdcfcc763974c63785006782210fa63a489"
+  }
+}
