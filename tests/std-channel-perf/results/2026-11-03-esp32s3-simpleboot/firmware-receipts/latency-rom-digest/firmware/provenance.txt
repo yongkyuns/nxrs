@@ -1,0 +1,27 @@
+deployment=std-channel-perf-esp32s3-service-footprint
+nxrs=cbc9dd4327958194de2ec0f93046d0f3605177fe
+nxrs_dirty=no
+nuttx=2b5c0de5e933281c209f954a63b99cf10c132346
+apps=3c772ea35b9245972e18999828f7b533e6fc57cc
+app_package=nxrs-std-channel-perf
+app_bin=std-channel-perf
+platform=esp32s3-service-footprint
+platform_profile=platform/nuttx/platforms/esp32s3-service-footprint.toml
+provider_selection=provider-selection.json
+app_command=std_channel_perf
+abi_profile=active
+size_optimized=0
+trace_only_backtrace=0
+panic_immediate_abort=0
+target_c_source=/home/runner/work/nxrs/nxrs/tests/std-channel-perf/native.c
+774d96ac36e63e12f01d70c2ed629438ec22b1085ca3aaa642e443d102b24e31  /home/runner/work/nxrs/nxrs/tests/std-channel-perf/native.c
+target=xtensa-esp32s3-nuttx
+board=esp32s3-devkit:nsh
+rustc 1.90.0-nightly (abf50ae2e 2025-09-16) (1.90.0.0)
+binary: rustc
+commit-hash: abf50ae2e46066e67e29fe856f9764c23aa9a3ca
+commit-date: 2025-09-16
+host: x86_64-unknown-linux-gnu
+release: 1.90.0-nightly
+LLVM version: 20.1.1
+xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20241119) 14.2.0

@@ -1,0 +1,16 @@
+{
+  "schema": "std-channel-session-v1",
+  "runtime_kind": "physical",
+  "measurement_session": "pr257-20261103-latency-tight-1",
+  "board": "ESP32-S3 QFN56 rev v0.2, 16 MiB quad flash / 8 MiB embedded octal PSRAM",
+  "board_serial": "20:6E:F1:A7:6F:58",
+  "image_sha256": "e977f4a2b6aed57d7ac6a732c4c0623a325d420de944acb70d28d173c35644ec",
+  "active_cores": 1,
+  "cpu_clock_hz": 240000000,
+  "clock_verification": "No independent reference instrument available; absolute timing remains unqualified.",
+  "cache_state": "Resolved config: 16 KiB instruction and 32 KiB data cache, 8 ways, 32-byte lines; fresh boot for each run.",
+  "memory_placement": "Resolved N16R8 linker/image with octal PSRAM at 40 MHz in common heap; exact channel allocation address not instrumented.",
+  "power_management": "CONFIG_PM=n; configured fixed 240 MHz single-core build.",
+  "external_load": "Standalone benchmark NSH image; no camera/radio application started; normal kernel tick/USB interrupts; UART result output follows worker joins.",
+  "flash_verification": "latency-flash.log and latency-verify.log: complete 16 MiB image written with header settings kept and esptool flash verification succeeded."
+}

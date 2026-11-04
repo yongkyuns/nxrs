@@ -219,9 +219,10 @@ checks. No Zephyr/Embassy comparison or IRQ-latency qualification applies there.
 | Zephyr C | Compact tested image, native wait-any queues, good tested CPU-load response | Different driver/configuration ecosystem; threaded RAM remains substantial |
 | Embassy Rust | Much lower execution RAM, bounded channels/tasks, naturally suspending I/O | Async drivers and bounded synchronous work; no in-handler preemption on this executor |
 
-Rust on NuttX remains viable; async execution deserves consideration for tight
-RAM budgets and mostly-waiting services. Next, qualify interrupt-driven I/O
-under concurrent traffic, with deadlines and a full driver/buffer budget.
+Rust on NuttX remains viable; consider async for tight RAM budgets and
+mostly-waiting services. Next qualify [std channels](std-channel-performance.md) and
+interrupt-driven I/O under concurrent traffic, including deadlines and driver/buffer
+budgets.
 
 ## Evidence and reproduction
 

@@ -154,6 +154,30 @@ Simple services with only one queue may use `recv`/`recv_timeout`. Existing
 standard receivers cannot be passed to Crossbeam's selector. Neither path
 requires Rust async. There is no generic service-side descriptor reactor.
 
+## Scheduling and channel progress
+
+Queue admission preference and CPU scheduling priority are separate contracts.
+In the audited bounded std array channel, a producer reserves a slot before
+publishing its contents. A receiver can retry while that reservation is
+unpublished. An independently awakened higher-priority receiver on one FIFO
+core can therefore prevent the lower-priority producer from completing; a
+`try_recv` name alone does not prove bounded progress. Normal channel notification
+follows publication, so ordinary ping-pong may not expose this interleaving.
+
+Qualify the actual pinned channel and scheduling policy before assigning such
+priorities. Include an independent higher-priority wake source, evidence of the
+reserve-before-publish interval and an external watchdog. A synthetic witness
+demonstrates the mechanism; it does not qualify std or Crossbeam. Neither an ISR
+channel call nor a busy-wait fallback is an acceptable shortcut.
+
+The [std channel performance plan](std-channel-performance.md) records the source
+audit and [isolated qualification fixture](../tests/std-channel-perf). NuttX's std
+parker uses pthread mutex/condition machinery, while std stores messages in its
+own array. Shared pthread/semaphore/scheduler improvements can benefit blocked
+channels; mqueue pool or priority-list changes do not improve that array path.
+Measure verified blocking, throughput, latency tails, allocation and footprint
+before changing the production transport.
+
 ## Admission and lifecycle contracts
 
 Independent queues prevent ordinary traffic consuming important-event slots;
@@ -290,19 +314,30 @@ handling remains integrated into the service's one selection point.
 
 ## Implementation sequence and qualification boundaries
 
-1. Qualify raw std versus pinned Crossbeam with a synthetic HAL producer and
-   separate stop/important/ordinary queues; use existing allocation instrumentation.
+Follow the [event-path benchmark plan](event-path-benchmarks.md) for the next
+performance work. PR #252 now has physical std blocked-receive and reservation
+witness evidence; absolute timing and the selected Crossbeam progress contract
+remain separate gates. The current messaging inbox is one std queue; the
+[Wi-Fi fixture owner](../tests/nuttx-std/wifi/src/owner.rs) is an executable
+three-class selection contract, not a completed production transport migration.
+
+1. Qualify the intended scheduling/progress contract, then raw std versus pinned
+   Crossbeam with synthetic HAL producers and separate stop/important/ordinary
+   queues; use existing allocation instrumentation and the Wi-Fi owner's
+   deadline/fairness/closure tests.
 2. Add matched linked-size variants and comparison guards, then run the selected
    native and NuttX builds. Keep each result tied to exact source/toolchain/config.
 3. Extract only repeated endpoint, dispatch and lifecycle machinery into a small
    neutral crate after the fixture passes. No actor runtime, custom queue algorithm,
    serializer, global enum, service graph or service-side device poller.
-4. Integrate one event-producing HAL and coarse processing service; qualify provider
-   cancellation and data normalization before broader migration.
+4. Qualify provider cancellation, data normalization and loaded owner response
+   on the actual target before broader transport migration.
 
-The current `hal/gnss/src/api.rs` still has synchronous `Gnss::fix`; the event-producing
-session described here is not yet implemented. The existing event-demo topology
-remains portability/stress evidence, not the required product decomposition.
+The current [GNSS contract](../hal/gnss/src/api.rs) already delivers normalized
+events and exposes session cancellation/join; the
+[navigation consumer](../service/navigation/src/gnss.rs) receives those events.
+This replaces the earlier synchronous `Gnss::fix` status. The existing event-demo
+topology remains portability/stress evidence, not the required product decomposition.
 See [architecture.md](architecture.md) and [event-driven-demo.md](event-driven-demo.md).
 
 Tests must cover typed multi-source delivery, isolated capacity, important-full

@@ -1,0 +1,28 @@
+deployment=std-channel-perf-pico2-mock
+nxrs=c03ac02ff1443da34acc6022ea4d38246e7c1417
+nxrs_dirty=yes
+nuttx=2b5c0de5e933281c209f954a63b99cf10c132346
+apps=3c772ea35b9245972e18999828f7b533e6fc57cc
+app_package=nxrs-std-channel-perf
+app_bin=std-channel-perf
+platform=pico2-mock
+platform_profile=platform/nuttx/platforms/pico2-mock.toml
+provider_selection=provider-selection.json
+app_command=std_channel_perf
+abi_profile=active
+size_optimized=0
+trace_only_backtrace=0
+panic_immediate_abort=0
+kconfig_enable=ARCH_PERF_EVENTS
+target_c_source=/workspace/scratch/e9a2e950b045/nxrs/tests/std-channel-perf/native.c
+774d96ac36e63e12f01d70c2ed629438ec22b1085ca3aaa642e443d102b24e31  /workspace/scratch/e9a2e950b045/nxrs/tests/std-channel-perf/native.c
+target=thumbv8m.main-nuttx-eabi
+board=raspberrypi-pico-2:nsh
+rustc 1.92.0-nightly (52618eb33 2025-09-14)
+binary: rustc
+commit-hash: 52618eb338609df44978b0ca4451ab7941fd1c7a
+commit-date: 2025-09-14
+host: x86_64-unknown-linux-gnu
+release: 1.92.0-nightly
+LLVM version: 21.1.1
+arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009

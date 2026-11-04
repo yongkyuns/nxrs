@@ -394,6 +394,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-channel-progress"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
 name = "nxrs-config"
 version = "0.1.0"
 dependencies = [
@@ -456,6 +463,15 @@ name = "nxrs-event-demo"
 version = "0.1.0"
 dependencies = [
  "nxrs-navigation-services",
+]
+
+[[package]]
+name = "nxrs-event-path-perf"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "nxrs-imu",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -614,6 +630,10 @@ version = "0.1.0"
 dependencies = [
  "nxrs-camera",
 ]
+
+[[package]]
+name = "nxrs-std-channel-perf"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-std-demo"

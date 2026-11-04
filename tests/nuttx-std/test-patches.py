@@ -118,6 +118,167 @@ class PatchSeriesTests(unittest.TestCase):
                     self.assertIn("set_errno(-err);", transport)
                     self.assertNotIn("set_errno(err);", transport)
 
+    def test_armv8m_systick_snapshot_preserves_elapsed_time_at_wrap(self):
+        """Exercise the actual native function with hardware register transitions."""
+        native_path = "arch/arm/src/armv8-m/arm_systick.c"
+        source, upstream, _, _ = self.fixture("nuttx", (native_path,))
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        template = r'''
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define USEC_PER_SEC 1000000u
+#define RELOAD2TIMEOUT(value) ((value) + 1u)
+#define NVIC_SYSTICK_CTRL 1u
+#define NVIC_SYSTICK_RELOAD 2u
+#define NVIC_SYSTICK_CURRENT 3u
+#define NVIC_INTCTRL 4u
+#define NVIC_SYSTICK_CTRL_ENABLE 1u
+#define NVIC_INTCTRL_PENDSTSET (1u << 26)
+#define TCFLAGS_HANDLER 1u
+#define TCFLAGS_ACTIVE 2u
+
+typedef unsigned irqstate_t;
+typedef bool (*tccb_t)(uint32_t *, void *);
+struct timer_ops_s;
+struct timer_lowerhalf_s { const struct timer_ops_s *ops; };
+struct timer_status_s { uint32_t flags; uint32_t timeout; uint32_t timeleft; };
+/* LOWER_STATE */;
+
+static bool irq_masked;
+static bool pending;
+static bool wrap_on_current_read;
+static uint32_t current;
+static unsigned current_reads;
+
+static irqstate_t up_irq_save(void)
+{
+  if (irq_masked) abort();
+  irq_masked = true;
+  return 0;
+}
+
+static void up_irq_restore(irqstate_t flags)
+{
+  if (!irq_masked || flags != 0) abort();
+  irq_masked = false;
+}
+
+static uint32_t getreg32(unsigned reg)
+{
+  if (!irq_masked) abort();
+  switch (reg)
+    {
+      case NVIC_SYSTICK_CTRL: return NVIC_SYSTICK_CTRL_ENABLE;
+      case NVIC_SYSTICK_RELOAD: return 24999u; /* 1000 us at 25 MHz. */
+      case NVIC_INTCTRL: return pending ? NVIC_INTCTRL_PENDSTSET : 0;
+      case NVIC_SYSTICK_CURRENT:
+        {
+          uint32_t value = current;
+          ++current_reads;
+          if (wrap_on_current_read)
+            {
+              /* Hardware progresses even while software masks interrupts.
+               * Return the old count, then wrap before the next NVIC read.
+               */
+              wrap_on_current_read = false;
+              pending = true;
+              current = 24975u;
+            }
+          return value;
+        }
+      default: abort();
+    }
+}
+
+/* NATIVE_FUNCTIONS */
+
+struct scenario
+{
+  const char *name;
+  uint32_t current;
+  bool pending;
+  bool wrap;
+  bool callback_active;
+  uint32_t elapsed;
+};
+
+static const struct scenario cases[] =
+{
+  {"no-wrap",                 12500, false, false, false,  500},
+  {"already-pending",         12500, true,  false, false, 1500},
+  {"reset-zero",                  0, false, false, false,    0},
+  {"pending-zero",                0, true,  false, false, 1000},
+  {"callback-in-process",     12500, true,  false, true,   500},
+  {"pending-transition",        500, false, true,  false, 1001},
+  {"submicrosecond-not-pending",  24, false, false, false, 1000},
+  {"submicrosecond-pending",      24, true,  false, false, 2000},
+};
+
+int main(int argc, char **argv)
+{
+  unsigned i;
+  if (argc != 2) return 2;
+  for (i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i)
+    {
+      const struct scenario *test = &cases[i];
+      struct systick_lowerhalf_s lower = {0};
+      struct timer_status_s status = {0};
+      uint32_t interval = 0;
+      uint32_t elapsed;
+      if (strcmp(argv[1], test->name) != 0) continue;
+      lower.freq = 25000000;
+      lower.next_interval = test->callback_active ? &interval : NULL;
+      current = test->current;
+      pending = test->pending;
+      wrap_on_current_read = test->wrap;
+      if (systick_getstatus((struct timer_lowerhalf_s *)&lower, &status) != 0
+          || irq_masked || status.flags != TCFLAGS_ACTIVE)
+        return 2;
+      elapsed = status.timeout - status.timeleft;
+      if (elapsed != test->elapsed || (test->wrap && current_reads < 2))
+        {
+          fprintf(stderr, "%s: elapsed=%u expected=%u current_reads=%u\n",
+                  test->name, elapsed, test->elapsed, current_reads);
+          return 1;
+        }
+      return 0;
+    }
+  return 2;
+}
+'''
+        signatures = (
+            "static inline uint64_t usec_from_count(",
+            "static bool systick_is_running(",
+            "static bool systick_irq_pending(",
+            "static int systick_getstatus(",
+        )
+        scenarios = (
+            "no-wrap", "already-pending", "reset-zero", "pending-zero",
+            "callback-in-process", "pending-transition",
+            "submicrosecond-not-pending", "submicrosecond-pending",
+        )
+        old_failures = set(scenarios[-3:])
+        for label, tree in (("baseline", upstream), ("patched", source)):
+            native = (tree / native_path).read_text()
+            program = self.base / f"systick-{label}.c"
+            program.write_text(template.replace("/* LOWER_STATE */", function_definition(
+                native, "struct systick_lowerhalf_s")).replace(
+                "/* NATIVE_FUNCTIONS */", "\n\n".join(
+                    function_definition(native, signature) for signature in signatures)))
+            binary = self.base / f"systick-{label}"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            str(program), "-o", str(binary)], check=True)
+            for scenario in scenarios:
+                with self.subTest(source=label, scenario=scenario):
+                    result = subprocess.run([str(binary), scenario], text=True, capture_output=True)
+                    expected = 1 if label == "baseline" and scenario in old_failures else 0
+                    self.assertEqual(result.returncode, expected, result.stderr)
+
     def test_tcp_ack_progress_preserves_sequence_and_replay_bounds(self):
         source, _, _, _ = self.fixture("nuttx", ("net/tcp/tcp_input.c",))
         applied = self.apply("nuttx", source)

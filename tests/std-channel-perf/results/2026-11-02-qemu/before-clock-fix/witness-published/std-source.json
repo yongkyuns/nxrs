@@ -1,0 +1,6 @@
+{
+  "std_source": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/witness-published/prepared/toolchain/lib/rustlib/src/rust/library/std/src/lib.rs",
+  "expected_source": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/witness-published/prepared/toolchain/lib/rustlib/src/rust/library/std/src/lib.rs",
+  "rustc": "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/witness-published/prepared/toolchain/bin/rustc",
+  "selected_source_matches": true
+}

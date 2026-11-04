@@ -1,0 +1,40 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x42018a0e
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fc90ab0,len:0x300c
+load:0x40374000,len:0x8ff0
+load:0x50000000,len:0x24
+SHA-256 comparison failed:
+Calculated: 1f9ac51242b748b9debf101e8b85b7942292474875180f1bc54ccf7a0c3e0c63
+Expected: 00000000903f0000000000000000000000000000000000000000000000000000
+Attempting to boot anyway...
+entry 0x403750e8
+*** Booting NuttX ***
+I (70) boot: chip revision: v0.2
+I (71) boot: efuse block revision: v1.3
+I (71) boot.esp32s3: Boot SPI Speed : 40MHz
+I (71) boot.esp32s3: SPI Mode       : DIO
+I (71) boot.esp32s3: SPI Flash Size : 16MB
+I (71) boot: Enabling RNG early entropy source...
+dram: lma 0x00000020 vma 0x3fc90ab0 len 0x300c   (12300)
+iram: lma 0x00003034 vma 0x40374000 len 0x8ff0   (36848)
+rtc: lma 0x0000c02c vma 0x50000000 len 0x24     (36)
+padd: lma 0x0000c068 vma 0x00000000 len 0x3f90   (16272)
+imap: lma 0x00010000 vma 0x42010000 len 0x58150  (360784)
+padd: lma 0x00068158 vma 0x00000000 len 0x7ea0   (32416)
+dmap: lma 0x00070000 vma 0x3c080000 len 0xfbb0   (64432)
+total segments stored 7
+I (832) cpu_start: Pro cpu start user code
+I (832) cpu_start: cpu freq: 240000000 Hz
+I (832) app_init: Application information:
+I (832) app_init: Compile time:     Nov  3 2026 01:58:45
+I (832) app_init: ELF file SHA256:  000000000...
+I (832) app_init: ESP-IDF:          
+I (833) spi_flash: detected chip: generic
+I (833) spi_flash: flash io: dio
+I (833) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (833) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+nsh> [K

@@ -5,6 +5,12 @@ production runtime or HAL. The ordinary Rust `main()` is a non-default workspace
 member because it intentionally measures OS APIs. Production apps, services,
 platform profiles and the existing event transport are unchanged.
 
+The follow-up [std channel performance plan](std-channel-performance.md) and
+[`tests/std-channel-perf`](../tests/std-channel-perf) focus on the actual bounded
+std channel and pthread parking path. They extend this evidence without replacing
+the original Thread-Metric loops, the native physical service comparison or their
+recorded measurement boundaries.
+
 ## Three independent questions
 
 1. **C/NuttX:** pinned, unmodified Thread-Metric loops and our own NuttX adapter;
@@ -31,6 +37,13 @@ vs std channel); it is not a pure language-overhead measurement.
 | yield-alone | sched_yield call cost; no switch guarantee | Not applicable |
 | semaphore-handoff | Real two-thread semaphore request/response; one round trip per iteration | Rust caller uses the same C/POSIX object and step function |
 | ping-pong | Not directly equivalent | One Rust echo owner, two bounded channels, lossless/blocking |
+
+`queue-hot` and the original Thread-Metric message loop each return an otherwise
+empty queue to empty on the same worker. Their message score does not measure a
+blocked receiver, direct handoff or deep priority insertion. Keep those cases
+separate when attributing a speed difference. The report's normalized percentages
+also have a different denominator for every test row; they are not an aggregate
+RTOS score. Native ThreadX queue results are not its POSIX adapter's results.
 
 Hot cases have 100 warmup iterations, then two clock reads around the requested
 operation count. Setup and teardown are outside that interval. They are new,
@@ -214,9 +227,19 @@ design rather than relaxing benchmark checks.
 
 ## Qualification remaining after this foundation
 
-Hardware runs on physical Pico 2/ESP32-S3, verified blocked-owner wakeups, IRQ and
-scope fixtures, physical interrupt/scope work and a same-board comparison OS are
-not established by host/QEMU success. Runtime heap/stack and image-size measurements are being added specifically to quantify Rust/std/AO overhead; fragmentation, queue occupancy, fairness and WCET remain separate. The existing
+The [November 2 ESP32-S3 std-channel cohort](../tests/std-channel-perf/results/2026-11-02-esp32s3/README.md)
+records verified blocked receivers and the reserved/published priority witnesses
+on hardware; independent clock calibration remains outstanding. The
+[focused next-step plan](event-path-benchmarks.md) prioritizes correcting the
+terminal send-timing boundary, qualifying progress, and measuring the actual
+messaging/three-class selection owner, provider wakeups and scheduling. Complete
+Thread-Metric coverage, other boards and external RTOS ports are not prerequisites
+for that work. Physical IRQ-to-provider measurements are added where they explain
+the chosen acquisition path, rather than as an RTOS-wide interrupt ranking.
+The [October native-API physical cohort](rtos-comparison.md)
+already exists; it does not establish those std measurements. Runtime heap/stack
+and image-size measurements quantify Rust/std/AO overhead; fragmentation, queue
+occupancy, fairness and WCET remain separate. The existing
 `ao-stress` app remains the system-load suite; its workload/percentile/loss limits
 remain unchanged. Extend those measurements separately after validating the
 primitive baseline, without introducing another AO framework.

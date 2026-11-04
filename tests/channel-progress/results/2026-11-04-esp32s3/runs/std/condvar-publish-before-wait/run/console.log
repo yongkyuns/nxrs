@@ -1,0 +1,43 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4206e3be
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fc91bb0,len:0x301c
+load:0x40374000,len:0x8ff0
+load:0x50000000,len:0x24
+SHA-256 comparison failed:
+Calculated: 330803650f6f7e84a88faf19ddd25262123d3812415f83254c8ef8fd31a764c8
+Expected: 00000000803f0000000000000000000000000000000000000000000000000000
+Attempting to boot anyway...
+entry 0x403750e8
+*** Booting NuttX ***
+I (70) boot: chip revision: v0.2
+I (71) boot: efuse block revision: v1.3
+I (71) boot.esp32s3: Boot SPI Speed : 40MHz
+I (71) boot.esp32s3: SPI Mode       : DIO
+I (71) boot.esp32s3: SPI Flash Size : 16MB
+I (71) boot: Enabling RNG early entropy source...
+dram: lma 0x00000020 vma 0x3fc91bb0 len 0x301c   (12316)
+iram: lma 0x00003044 vma 0x40374000 len 0x8ff0   (36848)
+rtc: lma 0x0000c03c vma 0x50000000 len 0x24     (36)
+padd: lma 0x0000c078 vma 0x00000000 len 0x3f80   (16256)
+imap: lma 0x00010000 vma 0x42010000 len 0x5fbb0  (392112)
+padd: lma 0x0006fbb8 vma 0x00000000 len 0x440    (1088)
+dmap: lma 0x00070000 vma 0x3c080000 len 0x11ba0  (72608)
+total segments stored 7
+I (832) cpu_start: Pro cpu start user code
+I (832) cpu_start: cpu freq: 240000000 Hz
+I (832) app_init: Application information:
+I (832) app_init: Compile time:     Nov  4 2026 01:07:49
+I (832) app_init: ELF file SHA256:  000000000...
+I (832) app_init: ESP-IDF:          
+I (833) spi_flash: detected chip: generic
+I (833) spi_flash: flash io: dio
+I (833) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (833) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+nsh> [Kchannel_progress condvar-publish-before-wait
+CHANNEL_PROGRESS {"schema":"std-transfer-progress-v1","record":"metadata","run_id":"4-340000000","build_id":"53304ab7f810b613bd4136ba98c1e6af96e54cc592366033808198b85a3f838c","build_mode":"std-mutex-suite","mode":"condvar-publish-before-wait","hook_stage":0,"runtime":"nuttx","transport":"std-mutex-condvar","capacity":1,"payload_bytes":16,"provider_count":1,"arm_count":1,"selection_bias":"none","witness_api":"condvar","single_core_tcb_witness":true,"prewarmed":true,"prewarm_before_workers":true,"caller_policy":1,"caller_priority":180,"holder_policy":1,"holder_priority":120,"observer_policy":1,"observer_priority":220,"watchdog_policy":1,"watchdog_priority":240}
+CHANNEL_PROGRESS {"schema":"std-transfer-progress-v1","record":"result","run_id":"4-340000000","mode":"condvar-publish-before-wait","outcome":"taken","success":true,"diagnostic_valid":true,"completed_without_repair":true,"primitive_contract_satisfied":true,"priority_progress_qualified":false,"production_transport_qualified":false,"timing_qualified":false,"recovery_applied":false,"try_lock_calls":0,"busy_count":0,"accepted":1,"transferred":1,"initial_value_count":0,"final_value_count":0,"original_payload_retained":false,"protected_payload_retained":false,"payload_valid":true,"guard_held_at_attempt":false,"guard_held_at_return":false,"condvar_wait_calls":0,"initial_condvar_wait_verified":false,"initial_wait_state":"unavailable","initial_wait_priority":-1,"caller_start_gate_verified":true,"holder_start_gate_verified":true,"worker_priorities_verified":true,"caller_done":true,"holder_done":true,"joins_complete":true,"watchdog_complete":true,"prewarm_order":1,"caller_start_order":2,"holder_start_order":3,"holder_guard_order":4,"caller_attempt_order":7,"caller_return_order":8,"holder_release_order":6,"wait_verified_order":0,"publish_order":5,"close_order":0}
+nsh> 

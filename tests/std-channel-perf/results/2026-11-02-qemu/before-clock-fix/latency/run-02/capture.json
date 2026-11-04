@@ -1,0 +1,30 @@
+{
+  "schema": "std-channel-capture-v1",
+  "capture_complete": false,
+  "runtime_kind": "qemu",
+  "mode": "latency",
+  "command": "std_channel_perf latency 64 8",
+  "image_sha256": "db731bf630f15e623196ebebab0ac47667c58aa803fa24e138d3cd42a37a6c2c",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "failure_stage": "analysis",
+  "error": "ValueError: target failed: monotonic-reversed",
+  "emulator_command": [
+    "qemu-system-arm",
+    "-machine",
+    "mps2-an521",
+    "-kernel",
+    "/workspace/scratch/e9a2e950b045/nxrs/target/std-channel-perf/verified/mps2/latency/firmware/nuttx/nuttx",
+    "-display",
+    "none",
+    "-serial",
+    "stdio",
+    "-monitor",
+    "none",
+    "-nic",
+    "none",
+    "-no-reboot"
+  ],
+  "fresh_boot_observed": true,
+  "emulator_returncode_before_cleanup": null
+}

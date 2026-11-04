@@ -1,0 +1,20 @@
+{
+  "schema": "std-channel-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "physical",
+  "mode": "latency",
+  "command": "std_channel_perf latency 1000 100",
+  "image_sha256": "411e6ed9e741c88c0e427750ead9a7b1951b61ff6c8e3675d675aefc84093290",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "fresh_boot_observed": true,
+  "boot_rom_digest_warning_observed": false,
+  "outcome": "blocked-receiver-measurement",
+  "clock_calibration_qualified": false,
+  "clock_calibration_status": "missing",
+  "timing_qualification_blockers": [
+    "clock-not-independently-calibrated"
+  ]
+}

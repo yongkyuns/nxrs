@@ -1,0 +1,14 @@
+{
+  "schema": "std-channel-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "physical",
+  "mode": "witness-published",
+  "command": "std_channel_perf witness-published",
+  "image_sha256": "9f6a6a0fffcc36e407c641564dc57724e64e0ffe4d311efb62d910947aa75c0b",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "fresh_boot_observed": true,
+  "outcome": "published-slot-control-completed"
+}

@@ -1,0 +1,62 @@
+{
+  "schema": "channel-progress-physical-provenance-v1",
+  "pr": 255,
+  "tested_head": "dc3bf1e800e4f95dba5fa05ee42f1aec26788dbf",
+  "ci_checkout_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494",
+  "workflow_run": 41750025775,
+  "artifact_id": 13285154816,
+  "artifact_sha256": "9870a61656371236c9e9a82ee98b25c7372e50d4fb2f9b9fd2679d13a004fa47",
+  "artifact_bytes": 18122966,
+  "build_receipt_preflight": {
+    "expected_input_count": 158,
+    "all_build_receipts_verified": true,
+    "source_inventory_matches": true,
+    "builds": [
+      {
+        "mode": "fifo-channel-suite",
+        "build_id": "133d1de73dd00976231646546c70ecdcff21e150cfa6686d1247ac10ae9b4f6d",
+        "image_sha256": "f70d8b0a95061c4a28b0262b5f810716e3331b839ef98f9c637f3cc03e0e3d28",
+        "image_file": "firmware/nuttx/nuttx.merged.bin",
+        "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+      },
+      {
+        "mode": "select-published",
+        "build_id": "8817b6d0e3f02a5b1fb79bf1ad548fe60d48cf700691732d601f787f4aa9bfd7",
+        "image_sha256": "180062de54c10f24dfbcd57ada791a0342443c7bccdfc4c94cb8aa0a7a7c7ac2",
+        "image_file": "firmware/nuttx/nuttx.merged.bin",
+        "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+      },
+      {
+        "mode": "select-reserved",
+        "build_id": "5a1e3ed022968efb6321df835cdf969e1dfe5d549b5f0a7e1c9c1b198b9bfe6c",
+        "image_sha256": "c4be5588f88ebaea4e876038c6a1f7712ea1c9ac06016ed929adf4f9df0babd5",
+        "image_file": "firmware/nuttx/nuttx.merged.bin",
+        "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+      },
+      {
+        "mode": "std-mutex-suite",
+        "build_id": "53304ab7f810b613bd4136ba98c1e6af96e54cc592366033808198b85a3f838c",
+        "image_sha256": "edf16f9edbc88f714d24c40d43921e45c95077363289a8f8c4c559750564960f",
+        "image_file": "firmware/nuttx/nuttx.merged.bin",
+        "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+      }
+    ]
+  },
+  "verifier_revision": "dc3bf1e800e4f95dba5fa05ee42f1aec26788dbf",
+  "verifier_sources_sha256": {
+    "analyze.py": "57f94ff5caff84da4d4416caa463c7624e70022ca7631bc85e7b4725452d765d",
+    "capture.py": "ecbdacc9c3a9aca149878f18ae20d2188fb26e06000c2d4f47421f578d50b32e",
+    "cohort.py": "c6d6f1d87dea9d7c1a80eb19edabdda9e259b41070a923148c4606b7d48e895a",
+    "fifo_analyze.py": "a883585df6fe11cb2d3646768f15769a3b4c53d42e995c69c1d1d86e09ebda73",
+    "fifo_cohort.py": "19b73b39b95adb1dae7627a978ed8086d3ce58c3225532b09e5f6c85beac944c",
+    "fifo_sources.py": "1fda51f6d37adc2fd8c314e8ba3fa1f7940e862416a5012eacaf08893c9eef4d",
+    "mutex_analyze.py": "de24b32ff172a7581c6dc329495a68a6061f4f5ec0d36a3b8fa699a316650c4f",
+    "prepare-crossbeam.py": "e77fbd129b4838e2060f42e9573c3eaf590b058140ef2df9f86a280bf1eb88f1",
+    "std_cohort.py": "e1ca9258eda7bb70be30132a54e1b5b8faed026ffb0fc979b97060b8146cb566",
+    "replay.py": "ecc65fc1fa439900206a0eb11656154c7ae3bb8a2a086ea85877538ef753e921"
+  },
+  "physical_evidence_origin": "operator-asserted, with retained flashing and restoration tool receipts",
+  "physical_execution_verified": false,
+  "physical_timing_qualified": false,
+  "complete_19_case_replay_claimed": false
+}
