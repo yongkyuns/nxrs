@@ -14,13 +14,11 @@ Changing the wrapper cannot repair that underlying progress problem. P2's
 current sender/provider 120 and receiver/owner 180 relationship remains a
 characterization baseline, outside P1's equal-FIFO Crossbeam contract.
 
-The [November 4 physical campaign](results/2026-11-04-esp32s3/README.md) now records
-all eighteen captures and six separately matched per-pass comparisons, with no
-failed capture or ROM digest warning. The ready facade paths have small, stable
-differences; blocked intervals are substantially larger and include scheduling
-effects. Keep the facade while reviewing actual placement and correlated wake
-behavior. No production transport or scheduler optimization is justified by
-this finite, uncalibrated screening campaign. Runtime behavior is unchanged.
+The next performance deliverable is six existing cases, three fresh boots each,
+with separate queue-call and blocked-delivery measurements. No production
+transport or scheduler optimization is justified by the current P2 evidence.
+There are no physical P2 captures yet. This report adds an engineering decision
+and a concrete campaign; it changes no firmware input or runtime behavior.
 
 ## Evidence that informs the decision
 
@@ -277,13 +275,13 @@ deadline is not an observed IRQ timestamp.
 
 ## Remaining execution boundary
 
-The first campaign is complete, with original evidence and per-boot quantiles
-retained in the linked report. Independent calibration and actual placement
-review remain open; progress-contract review remains with P1. The historical
+The candidate is built and the first campaign is specified. This continuation
+has no connected board interface and has executed no physical P2 capture.
+Independent calibration, actual placement review and coordinated board access
+remain with P0/hardware; progress-contract review remains with P1. The historical
 [pre-shell ARM failure](README.md#preserved-arm-startup-failure) also remains
 unresolved. No successful later capture can erase it.
 
-The decision remains to keep the measured facade. Any further diagnostic should
-target generated-code/placement differences or correlated notification/parker/
-scheduling behavior before changing APIs or scheduler code. Additional benchmark
-families remain conditional; none were added by the physical campaign.
+The useful next result is the eighteen-capture table with these interpretations,
+followed by one evidence-supported optimization or a decision to keep the
+measured path. Additional benchmark families are conditional on that result.
