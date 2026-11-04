@@ -39,7 +39,7 @@ enum Mode {
     Latency {
         samples: u32,
         warmup: u32,
-        phase_seed: Option<u32>,
+        schedule: pacing::Schedule,
     },
     Reserved,
     Published,
@@ -84,16 +84,12 @@ fn parse() -> Result<Mode> {
             if !(1..=4096).contains(&samples) || warmup > 1024 {
                 return Err("count-out-of-bounds");
             }
-            let phase_seed = args
-                .get(3)
-                .map(|value| value.parse::<u32>())
-                .transpose()
-                .map_err(|_| "invalid-phase-seed")?;
-            pacing::Pacing::new(phase_seed, samples, warmup)?;
+            let schedule = pacing::Schedule::parse(args.get(3).map(String::as_str))?;
+            pacing::Pacing::new(schedule, samples, warmup)?;
             Ok(Mode::Latency {
                 samples,
                 warmup,
-                phase_seed,
+                schedule,
             })
         }
         Some("witness-reserved") if args.len() == 1 => Ok(Mode::Reserved),
@@ -375,8 +371,8 @@ fn run() -> Result<()> {
         Mode::Latency {
             samples,
             warmup,
-            phase_seed,
-        } => latency::run(samples, warmup, phase_seed, &clock).map(|report| {
+            schedule,
+        } => latency::run(samples, warmup, schedule, &clock).map(|report| {
             (
                 report.sender,
                 report.receiver,
