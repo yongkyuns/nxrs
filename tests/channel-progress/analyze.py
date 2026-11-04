@@ -15,6 +15,11 @@ from pathlib import Path
 import re
 import sys
 
+BOOT_SPEC = importlib.util.spec_from_file_location(
+    "channel_progress_boot_image_validation", Path(__file__).with_name("boot_image.py"))
+boot_image = importlib.util.module_from_spec(BOOT_SPEC)
+BOOT_SPEC.loader.exec_module(boot_image)
+
 PREFIX = "CHANNEL_PROGRESS "
 SCHEMA = "channel-progress-v1"
 STD_TRANSFER_SCHEMA = "std-transfer-progress-v1"
@@ -67,9 +72,11 @@ IDENTITY_FIELDS = (
 )
 
 
-def identity_fields(mode):
-    return IDENTITY_FIELDS + (("fifo_kernel_source_sha256",)
-                              if expected_build_mode(mode) == FIFO_BUILD_MODE else ())
+def identity_fields(mode, receipt=None):
+    fields = IDENTITY_FIELDS + (("fifo_kernel_source_sha256",)
+                                if expected_build_mode(mode) == FIFO_BUILD_MODE else ())
+    return fields + (("boot_image_profile",)
+                     if receipt is not None and "boot_image_profile" in receipt else ())
 
 
 def canonical(value):
@@ -389,7 +396,9 @@ def build_receipt(path, mode):
     string(receipt["compiler_identity"], "version")
     hash_string(receipt["compiler_identity"].get("rustc_sha256"), "compiler executable")
     hash_string(receipt.get("std_library_tree_sha256"), "std library identity")
-    fields = identity_fields(mode)
+    boot_image.validate_profile(receipt.get("boot_image_profile", boot_image.DEFAULT),
+                                receipt.get("platform"))
+    fields = identity_fields(mode, receipt)
     require(all(key in receipt for key in fields), "incomplete build identity inputs")
     require(canonical({key: receipt[key] for key in fields}) == receipt["build_id"],
             "build identity does not match frozen inputs")
@@ -419,6 +428,7 @@ def build_receipt(path, mode):
             config[line[2:-11]] = "n"
     require(config.get("CONFIG_BUILD_FLAT") == "y" and config.get("CONFIG_SMP", "n") == "n",
             "actual firmware config disagrees with single-core flat receipt")
+    boot_image.verify(root, receipt)
     _source_receipts(root, receipt, artifacts, mode)
     return receipt
 

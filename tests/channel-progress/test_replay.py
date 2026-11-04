@@ -143,7 +143,7 @@ class ReplayTests(unittest.TestCase):
             name: evidence.sha256(run / name) for name in receipt["artifacts_sha256"]
         }
         receipt["build_id"] = evidence.canonical({
-            key: receipt[key] for key in evidence.identity_fields(receipt["mode"])
+            key: receipt[key] for key in evidence.identity_fields(receipt["mode"], receipt)
         })
         self.write(run / "build.json", receipt)
         original = (run / "console.log").read_text()
@@ -205,6 +205,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(report["families"]["fifo"]["report"]["scope"], "equal-fifo-reservation-progress")
         self.assertEqual(report["runtime_kind"], "qemu")
         self.assertEqual(report["execution_evidence"], "virtual")
+        self.assertNotIn("boot_image_profile", report["matched_identity"])
         self.assertIsNot(report.get("progress_contract_satisfied"), True)
         for field in BROAD_CLAIMS:
             self.assertIs(report[field], False)
@@ -221,6 +222,30 @@ class ReplayTests(unittest.TestCase):
             replay.require_no_repair(report, ["std", "crossbeam", "fifo"])
         with self.assertRaisesRegex(ValueError, "physical"):
             replay.require_physical(report)
+
+    def test_explicit_profile_is_preserved_across_all_nineteen_cases(self):
+        for family, mode, run in self.runs():
+            receipt = evidence.read_json(run / "build.json")
+            receipt["boot_image_profile"] = "platform-default"
+            self.reseal(family, mode, receipt=receipt)
+        self.write_reports()
+        report = self.analyze()
+        self.assertEqual(report["matched_identity"]["boot_image_profile"], "platform-default")
+        for family in report["families"].values():
+            self.assertEqual(family["report"]["matched_identity"]["boot_image_profile"], "platform-default")
+        self.assertEqual(report["matched_identity_sha256"], evidence.canonical(report["matched_identity"]))
+        replay.require_no_repair(report, ["std", "fifo"])
+
+    def test_individually_valid_family_cannot_mix_explicit_and_legacy_boot_profiles(self):
+        for family, mode, run in self.runs("std"):
+            receipt = evidence.read_json(run / "build.json")
+            receipt["boot_image_profile"] = "platform-default"
+            self.reseal(family, mode, receipt=receipt)
+        reports = self.write_reports()
+        self.assertEqual(reports["std"]["matched_identity"]["boot_image_profile"], "platform-default")
+        self.assertNotIn("boot_image_profile", reports["crossbeam"]["matched_identity"])
+        with self.assertRaisesRegex(ValueError, "mixed complete P1.*identity at std"):
+            self.analyze()
 
     def test_any_missing_case_and_an_extra_capture_are_refused(self):
         for family in self.families:
@@ -531,7 +556,7 @@ class SourceVerificationTests(unittest.TestCase):
         self.assertEqual(report["source_sha256"], self.inventory)
         self.assertEqual(report["source_input_count"], len(self.inventory))
         self.assertEqual(report["inventory_sha256"], evidence.canonical(self.inventory))
-        self.assertEqual(report["inventory_policy"], "mps2-channel-progress-inputs-v1")
+        self.assertEqual(report["inventory_policy"], "mps2-channel-progress-inputs-v2")
         self.assertFalse(report["historical_std_report_optional"])
 
     def test_inventory_policy_matches_the_live_build_recipe_including_new_modules(self):
@@ -546,6 +571,39 @@ class SourceVerificationTests(unittest.TestCase):
         unrelated = {"docs/unrelated.py", "tests/channel-progress/README.md",
                      "tests/channel-progress/__pycache__/ignored.py"}
         self.assertEqual(set(replay.expected_source_paths(available | unrelated)), set(inventory))
+
+    def test_shared_boot_inputs_are_required_only_after_p1_adopts_the_adapter(self):
+        current = set(self.inventory)
+        self.assertIn(replay.BOOT_ADAPTER_INPUT, current)
+        for name in replay.BOOT_HELPER_INPUTS:
+            self.assertIn(name, replay.expected_source_paths(current))
+            with self.subTest(missing=name), self.assertRaisesRegex(ValueError, "required MPS2 build inputs"):
+                replay.expected_source_paths(current - {name})
+        historical = current - {replay.BOOT_ADAPTER_INPUT}
+        expected = historical - set(replay.BOOT_HELPER_INPUTS)
+        # Shared helpers may already exist for P0 without being P1 inputs.
+        self.assertEqual(set(replay.expected_source_paths(historical)), expected)
+        self.assertEqual(set(replay.expected_source_paths(expected)), expected)
+
+    def test_historical_git_inventory_keeps_its_policy_and_omits_unused_p0_helpers(self):
+        historical = self.run / "historical-source"
+        shutil.copytree(self.repository, historical)
+        git(historical, "rm", "--quiet", replay.BOOT_ADAPTER_INPUT)
+        git(historical, "-c", "user.name=Progress evidence tests", "-c", "user.email=progress-tests@example.invalid",
+            "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m",
+            "Synthetic historical P1 recipe without boot adapter")
+        revision = git(historical, "rev-parse", "HEAD").decode().strip()
+        omitted = {replay.BOOT_ADAPTER_INPUT, *replay.BOOT_HELPER_INPUTS}
+        inventory = {name: value for name, value in self.inventory.items() if name not in omitted}
+        receipt = {**self.receipt, "source_revision": revision, "source_sha256": inventory}
+        ReplayTests.write(self.run / "build.json", receipt)
+        report = replay.verify_sources(historical, receipt, self.run)
+        self.assertEqual(report["inventory_policy"], "mps2-channel-progress-inputs-v1")
+        self.assertEqual(report["source_sha256"], inventory)
+        self.assertEqual(report["source_input_count"], len(inventory))
+        for name in replay.BOOT_HELPER_INPUTS:
+            self.assertTrue((historical / name).is_file())
+            self.assertNotIn(name, report["source_sha256"])
 
     def test_omitted_extra_and_rehashed_wrong_source_entries_are_refused(self):
         name = "tests/channel-progress/rust/src/main.rs"
@@ -625,6 +683,44 @@ class SourceVerificationTests(unittest.TestCase):
         ReplayTests.write(self.run / "build.json", {**self.receipt, "source_dirty": 0})
         with self.assertRaises(ValueError):
             self.verify()
+
+
+class VerifierIdentityTests(unittest.TestCase):
+    def test_boot_verifier_dependencies_bind_bytes_and_dirty_state_outside_p1(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            here = repository / "tests/channel-progress"
+            names = ["tests/channel-progress/" + name for name in replay.VERIFIER_FILES]
+            names += list(replay.VERIFIER_DEPENDENCIES)
+            for name in names:
+                destination = repository / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(replay.ROOT / name, destination)
+            git(repository, "init", "--quiet")
+            git(repository, "add", ".")
+            git(repository, "-c", "user.name=Progress evidence tests", "-c", "user.email=progress-tests@example.invalid",
+                "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m",
+                "Freeze synthetic verifier sources")
+            with mock.patch.object(replay, "ROOT", repository), mock.patch.object(replay, "HERE", here):
+                original = replay.verifier_identity()
+                self.assertFalse(original["working_tree_dirty"])
+                self.assertEqual(original["source_revision"], git(repository, "rev-parse", "HEAD").decode().strip())
+                for name in (replay.BOOT_ADAPTER_INPUT, *replay.VERIFIER_DEPENDENCIES):
+                    path = repository / name
+                    key = Path(name).name if name == replay.BOOT_ADAPTER_INPUT else name
+                    data = path.read_bytes()
+                    self.assertEqual(original["files_sha256"][key], evidence.sha256(path))
+                    try:
+                        path.write_bytes(data + b"\n# synthetic verifier dependency mutation\n")
+                        changed = replay.verifier_identity()
+                        with self.subTest(dependency=name):
+                            self.assertTrue(changed["working_tree_dirty"])
+                            self.assertEqual(changed["files_sha256"][key], evidence.sha256(path))
+                            self.assertNotEqual(changed["files_identity_sha256"], original["files_identity_sha256"])
+                            self.assertEqual(changed["source_revision"], original["source_revision"])
+                    finally:
+                        path.write_bytes(data)
+                self.assertEqual(replay.verifier_identity(), original)
 
 
 if __name__ == "__main__":

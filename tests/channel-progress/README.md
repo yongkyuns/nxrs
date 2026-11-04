@@ -9,7 +9,8 @@ parker, or measure latency.
 The existing [actual-std reserved/published witnesses](../std-channel-perf/README.md)
 and their retained physical results remain separate. P0 owns their latency,
 capture, clock and calibration changes. This fixture reuses only the mechanical
-native ABI and common build/source preparation helpers, without editing them.
+native ABI, common build/source preparation helpers and the separately named
+[P0 paired image/loader profile](../std-channel-perf/SIMPLEBOOT_DIGEST.md).
 
 There are three experiment families, each with its own acceptance scope:
 
@@ -25,8 +26,11 @@ a queue implementation or certify a production three-class owner.
 The [November 4 WROOM campaign](results/2026-11-04-esp32s3/README.md) records
 15 fresh physical boots from the four published ESP builds. Both complete
 std/FIFO no-repair gates pass; the unequal-priority selected reservation stall
-reproduces. The four unbuilt original Crossbeam modes remain untested physically,
-and the retained ROM warning and operator-only qualification limits remain open.
+reproduces. Four original Crossbeam modes were absent from that campaign and
+remain untested physically. Its retained ROM warning and operator-only
+qualification limits remain open. The separate build-only CI matrix described
+below is configured to produce fresh paired-profile images; they have no P1
+physical execution evidence yet.
 
 ## Recorded progress results — 2026-11-03
 
@@ -500,13 +504,67 @@ including original crate archives, source ledgers, selected-source proof,
 configuration and firmware. Raw logs and failure receipts survive rejection.
 QEMU is explicitly reported as virtual execution; it is not a physical run.
 
+### ESP32-S3 build profiles
+
 For the physical ESP32-S3, build with `--platform esp32s3-service-footprint`.
-The current ESP CI job is configured to build exactly `select-reserved`,
-`select-published`, `std-mutex-suite` and `fifo-channel-suite`, retaining four images for later
-hardware sessions. It does not flash or execute a physical board. The historical
-ESP artifact identified above still contains only its original two selected-owner
-images. Other Crossbeam cases use the same build command with their own named
-modes; all seven primitive cases share the suite build mode.
+The boot image profile is explicit in every new build receipt. Omitting
+`--boot-image-profile` selects `platform-default`, preserving the existing
+packing behavior. The ESP CI matrix retains that default and builds a separate
+set with the opt-in `ram-prefix-digest-v1` paired image/loader profile:
+
+| Boot profile | CI images | Cases contained in those images | Artifact |
+| --- | --- | --- | --- |
+| `platform-default` | Four | Two selected-owner cases, seven std primitive cases, six FIFO cases | `channel-progress-esp32s3-build-only` |
+| `ram-prefix-digest-v1` | Eight | All six original Crossbeam cases, seven std primitive cases, six FIFO cases | `channel-progress-esp32s3-ram-prefix-digest-v1-build-only` |
+
+The default entry keeps exactly `select-reserved`, `select-published`,
+`std-mutex-suite` and `fifo-channel-suite` under
+`target/channel-progress/esp32s3/<mode>`. The paired entry adds
+`direct-reserved`, `direct-published`, `send-reserved` and `send-reclaimed` and
+places its eight images under
+`target/channel-progress/esp32s3-ram-prefix-digest-v1/<mode>`. The two entries
+run independently and retain separate artifacts. Neither flashes or executes
+a physical board. The historical ESP artifact linked above still contains only
+its original two selected-owner images, and the November 4 physical campaign
+still refers to its four original default-profile builds.
+
+Build the complete paired-profile set into new directories:
+
+```sh
+for mode in direct-reserved direct-published select-reserved select-published send-reserved send-reclaimed std-mutex-suite fifo-channel-suite; do
+  out="target/channel-progress/esp32s3-ram-prefix-digest-v1/$mode"
+  python3 tests/channel-progress/build.py \
+    --platform esp32s3-service-footprint --mode "$mode" \
+    --boot-image-profile ram-prefix-digest-v1 --out "$out"
+done
+```
+
+Those **eight images contain 19 cases**. Each original Crossbeam mode has its
+own image; the seven std commands share `std-mutex-suite` and the six FIFO
+commands share `fifo-channel-suite`. A complete later physical campaign needs
+19 separate fresh boots with case-specific captures, even though the suite
+images are reused. Building all eight images does not establish progress,
+physical execution, clock calibration or production qualification.
+
+The paired profile rebuilds the matching SIMPLE_BOOT loader and selects
+`firmware/nuttx/nuttx.rom-digest.bin` in `build.json`. It also retains the fresh
+build's original `firmware/nuttx/nuttx.merged.bin`, packing report,
+`nuttx-patches.json`, the actual compiled loader source and exact
+`0107-xtensa-simpleboot-hash-offset.patch` bytes. The original file belongs to
+that same fresh candidate build; use the separately named default-profile
+builds for legacy controls. The profile participates in the candidate runtime
+build identity. Receipt replay verifies both image hashes and reconstructs the
+candidate byte for byte against the bound loader and patch evidence. Historical
+build identities and archived physical observations remain verifiable with
+their original receipts.
+
+CI checks the exact four- or eight-mode set and every retained build receipt
+after pruning disposable compiler/Cargo/private-source caches. It rejects a
+wrong profile, mixed source inventory, missing image or missing paired-loader
+proof. The RAM-prefix digest covers the ROM-loaded prefix; the complete image
+hash remains necessary for the hidden mapped payload and deployment identity.
+This profile does not enable secure boot. Fresh P1 captures are still required
+to observe its boot behavior and scheduling results on the board.
 
 Only one workstream may own the board at a time. After exclusive ownership and
 flashing the verified selected image, record a `channel-progress-session-v1`

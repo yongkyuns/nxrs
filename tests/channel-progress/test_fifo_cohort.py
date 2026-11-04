@@ -98,7 +98,7 @@ class FifoCohortTests(unittest.TestCase):
             relative: evidence.sha256(run / relative) for relative in receipt["artifacts_sha256"]
         }
         receipt["build_id"] = evidence.canonical({key: receipt[key]
-                                                  for key in evidence.identity_fields(receipt["mode"])})
+                                                  for key in evidence.identity_fields(receipt["mode"], receipt)})
         self.write(mode, "build.json", receipt)
         self.write_run(mode)
         return receipt
@@ -120,10 +120,23 @@ class FifoCohortTests(unittest.TestCase):
         self.assertEqual(len({row["run_id"] for row in report["cases"]}), 1)
         self.assertEqual(report["execution_evidence"], "virtual")
         self.assertEqual(report["matched_identity"]["fifo_kernel_source_sha256"], self.binding.kernel_pins)
+        self.assertNotIn("boot_image_profile", report["matched_identity"])
         for field in ("physical_execution_verified", "physical_progress_qualified", "priority_progress_qualified",
                       "production_transport_qualified", "physical_timing_qualified", "timing_qualified",
                       "hard_realtime_bound"):
             self.assertFalse(report[field])
+
+    def test_explicit_profile_survives_fifo_aggregation_without_changing_legacy_shape(self):
+        original = cohort.analyze_cohort(self.root)
+        for mode in wire.CASES:
+            self.reseal_case(mode, boot_image_profile="platform-default")
+        report = cohort.analyze_cohort(self.root)
+        cohort.require_no_repair(report)
+        self.assertNotIn("boot_image_profile", original["matched_identity"])
+        self.assertEqual(report["matched_identity"]["boot_image_profile"], "platform-default")
+        self.assertEqual(report["matched_identity"]["fifo_kernel_source_sha256"], self.binding.kernel_pins)
+        self.assertEqual(report["matched_identity_sha256"], evidence.canonical(report["matched_identity"]))
+        self.assertEqual(report["required_modes"], original["required_modes"])
 
     def test_published_controls_alone_and_foreign_case_directories_are_refused(self):
         foreign = self.root / "std-mutex-suite"

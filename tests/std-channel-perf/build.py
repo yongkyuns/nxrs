@@ -16,6 +16,8 @@ import secrets
 import subprocess
 import sys
 
+import simpleboot_digest
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SPEC = importlib.util.spec_from_file_location("std_channel_private_std", HERE / "prepare-std.py")
@@ -64,6 +66,7 @@ def relative(path: Path, root: Path) -> str:
 
 def inventory(profile: dict) -> dict:
     files = [HERE / "build.py", HERE / "prepare-std.py", HERE / "native.c",
+             HERE / "simpleboot_digest.py", HERE / "inspect_esp_image.py",
              ROOT / "Cargo.toml", ROOT / "Cargo.lock",
              ROOT / "tools/build-nuttx-std-app.sh", ROOT / "tools/platform_config.py",
              ROOT / "tools/check-deployment.py", ROOT / "tools/apply-nuttx-patches.py",
@@ -201,6 +204,11 @@ def build(args) -> dict:
     if (args.clock_source == "native-counter"
             and args.platform not in ("pico2-mock", "esp32s3-service-footprint")):
         raise ValueError("native-counter requires a supported physical-board profile; use baseline for QEMU")
+    boot_profile = getattr(args, "boot_image_profile", "platform-default")
+    if boot_profile not in ("platform-default", simpleboot_digest.PROFILE):
+        raise ValueError("unknown boot image profile")
+    if boot_profile != "platform-default" and args.platform != "esp32s3-service-footprint":
+        raise ValueError("digest candidate requires physical ESP32-S3 profile")
     if out.exists():
         raise ValueError("build output must be new; modes may not reuse a directory")
     profile = resolve_platform(args.platform, ROOT)
@@ -215,6 +223,7 @@ def build(args) -> dict:
         "platform": args.platform, "target": profile["target"], "sdk": sdk,
         "runtime_kind": "unmeasured", "source_sha256": before,
         "clock_request": args.clock_source,
+        "boot_image_profile": boot_profile,
         "clock_frequency_claim": "configuration-derived; physical capture requires independent clock verification",
         "source_revision": run(["git", "rev-parse", "HEAD"]),
         "source_dirty": bool(run(["git", "status", "--porcelain"])),
@@ -248,6 +257,7 @@ def build(args) -> dict:
             "mode", "hook_stage", "platform", "target", "sdk", "source_sha256",
             "kernel_revision", "apps_revision", "optimization", "std_array_sha256",
             "std_library_tree_sha256", "compiler_identity", "build_nonce", "build_environment", "clock_request",
+            "boot_image_profile",
         )}
         record["build_id"] = private_std.digest(json.dumps(
             build_identity, sort_keys=True, separators=(",", ":")).encode())
@@ -264,6 +274,13 @@ def build(args) -> dict:
             raise ValueError("final firmware image is missing or empty")
         record["resolved_configuration"] = validate_configuration(
             config, args.kernel_optimization, args.clock_source, args.platform)
+        digest_artifacts = []
+        if boot_profile == simpleboot_digest.PROFILE:
+            source_image = image
+            image, digest_report = simpleboot_digest.prepare(firmware, source_image)
+            record["simpleboot_digest_report"] = relative(digest_report, out)
+            record["unmodified_source_image"] = relative(source_image, out)
+            digest_artifacts = [source_image, digest_report, firmware / "nuttx-patches.json"]
         record.update(
             image_file=relative(image, out), image_sha256=digest(image),
             elf_file=relative(elf, out), elf_sha256=digest(elf),
@@ -278,6 +295,9 @@ def build(args) -> dict:
                 prepared / "std-library-sources.json", firmware / "abi-report.json",
             )
         }
+        record["artifacts_sha256"].update({
+            relative(path, out): digest(path) for path in digest_artifacts
+        })
         if inventory(profile) != before:
             raise ValueError("firmware sources changed during compilation")
         record["status"] = "complete"
@@ -301,6 +321,10 @@ def main() -> None:
     parser.add_argument("--kernel-optimization", choices=("baseline", "o2"), default="baseline")
     parser.add_argument("--clock-source", choices=("baseline", "native-counter"), default="baseline",
                         help="native-counter is explicit for physical ESP32-S3/Pico 2; baseline is suitable for functional QEMU runs")
+    parser.add_argument("--boot-image-profile",
+                        choices=("platform-default", simpleboot_digest.PROFILE),
+                        default="platform-default",
+                        help="opt-in ESP32-S3 digest candidate; requires rebuilt loader")
     args = parser.parse_args()
     try:
         record = build(args)

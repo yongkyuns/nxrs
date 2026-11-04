@@ -316,7 +316,7 @@ class BuildEvidenceTests(unittest.TestCase):
             for p in (self.root / parent).rglob("*") if p.is_file() and "/sources/" not in str(p)
         }
         self.receipt["build_id"] = analyze.canonical({
-            key: self.receipt[key] for key in analyze.identity_fields(self.receipt["mode"])})
+            key: self.receipt[key] for key in analyze.identity_fields(self.receipt["mode"], self.receipt)})
         self.write("build.json", self.receipt)
 
     def summary(self):
@@ -331,6 +331,20 @@ class BuildEvidenceTests(unittest.TestCase):
         self.assertFalse(bound["priority_progress_qualified"])
         with self.assertRaisesRegex(ValueError, "no-repair gate"):
             analyze.require_no_repair(bound)
+
+    def test_explicit_default_profile_authenticates_with_its_own_runtime_identity(self):
+        legacy_identity = self.receipt["build_id"]
+        self.receipt["boot_image_profile"] = "platform-default"
+        self.refresh()
+        self.assertNotEqual(self.receipt["build_id"], legacy_identity)
+        receipt = analyze.build_receipt(self.root, self.mode)
+        self.assertTrue(analyze.bind_build(self.summary(), receipt)["build_bound"])
+        # Omitting the field restores the historical hash contract; a receipt
+        # cannot retain the new runtime identity after that identity input goes.
+        del self.receipt["boot_image_profile"]
+        self.write("build.json", self.receipt)
+        with self.assertRaisesRegex(ValueError, "frozen inputs"):
+            analyze.build_receipt(self.root, self.mode)
 
     def test_source_validation_survives_relocated_evidence_without_source_trees(self):
         import shutil

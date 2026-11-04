@@ -24,7 +24,8 @@ import std_cohort
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCHEMA = "channel-progress-replay-v1"
-INVENTORY_POLICY = "mps2-channel-progress-inputs-v1"
+LEGACY_INVENTORY_POLICY = "mps2-channel-progress-inputs-v1"
+INVENTORY_POLICY = "mps2-channel-progress-inputs-v2"
 FAMILIES = {
     "crossbeam": ("mps2", cohort),
     "std": ("std-transfer/mps2/cases", std_cohort),
@@ -44,6 +45,11 @@ FIXED_INPUTS = (
     "tools/nuttx-version.py", "platform/nuttx/init.py", "platform/nuttx/mcuboot.py",
     "tests/nuttx-std/prepare-std.py", "tests/nuttx-std/check-abi.py", "tests/nuttx-std/link.py",
 )
+BOOT_ADAPTER_INPUT = "tests/channel-progress/boot_image.py"
+BOOT_HELPER_INPUTS = (
+    "tests/std-channel-perf/simpleboot_digest.py",
+    "tests/std-channel-perf/inspect_esp_image.py",
+)
 INPUT_DIRECTORIES = (
     "platform/nuttx/std-app", "upstream/nuttx", "upstream/nuttx-apps",
     "upstream/rust-std", "upstream/libc",
@@ -51,6 +57,11 @@ INPUT_DIRECTORIES = (
 VERIFIER_FILES = (
     "analyze.py", "capture.py", "cohort.py", "fifo_analyze.py", "fifo_cohort.py",
     "fifo_sources.py", "mutex_analyze.py", "prepare-crossbeam.py", "std_cohort.py", "replay.py",
+    "boot_image.py",
+)
+VERIFIER_DEPENDENCIES = BOOT_HELPER_INPUTS + (
+    "tools/apply-nuttx-patches.py",
+    "upstream/nuttx/patches/0107-xtensa-simpleboot-hash-offset.patch",
 )
 
 
@@ -70,6 +81,11 @@ def expected_source_paths(paths):
     """Select all inputs for the supported MPS2 recipe from a Git tree listing."""
     paths = set(paths)
     selected = set(FIXED_INPUTS)
+    # The old P1 recipe did not import either helper, even when P0's inspector
+    # existed elsewhere in the tree. Select by the recorded P1 adapter, not by
+    # the current checkout or a receipt's profile declaration.
+    if BOOT_ADAPTER_INPUT in paths:
+        selected.update(BOOT_HELPER_INPUTS)
     selected.update(name for name in paths if any(name.startswith(prefix + "/")
                                                 for prefix in INPUT_DIRECTORIES))
     selected.update(name for name in paths if name.startswith("tests/channel-progress/")
@@ -145,7 +161,9 @@ def verify_sources(repository, receipt, input_root):
         "source_revision": revision,
         "source_tree": git(repository, "rev-parse", revision + "^{tree}").decode().strip(),
         "source_input_count": len(inventory), "source_sha256": inventory,
-        "inventory_policy": INVENTORY_POLICY, "inventory_sha256": evidence.canonical(inventory),
+        "inventory_policy": (INVENTORY_POLICY if BOOT_ADAPTER_INPUT in inventory
+                             else LEGACY_INVENTORY_POLICY),
+        "inventory_sha256": evidence.canonical(inventory),
         "historical_std_report_optional": "tests/channel-progress/std_cohort.py" not in inventory,
     }
 
@@ -171,12 +189,13 @@ def stored_report(root, relative, expected, *, optional=False):
 
 def verifier_identity():
     files = {name: evidence.sha256(HERE / name) for name in VERIFIER_FILES}
+    files.update({name: evidence.sha256(ROOT / name) for name in VERIFIER_DEPENDENCIES})
     # A verifier can also be copied outside a checkout for offline use. Its exact
     # module hashes remain available even when no enclosing Git revision exists.
     try:
         revision = git(ROOT, "rev-parse", "HEAD").decode().strip()
         dirty = bool(git(ROOT, "status", "--porcelain", "--untracked-files=all",
-                         "--", "tests/channel-progress"))
+                         "--", "tests/channel-progress", *VERIFIER_DEPENDENCIES))
     except (ValueError, OSError):
         revision, dirty = None, None
     return {"source_revision": revision, "working_tree_dirty": dirty,
@@ -206,7 +225,8 @@ def analyze_replay(root, repository):
         require(report["runtime_kind"] == "qemu"
                 and report["execution_evidence"] == "virtual",
                 "complete P1 replay requires ARM/QEMU virtual execution evidence")
-        identity = {field: report["matched_identity"][field] for field in cohort.IDENTITY_FIELDS}
+        matched = report["matched_identity"]
+        identity = {field: matched[field] for field in cohort.common_identity_fields(matched)}
         if common is None:
             common = identity
         require(evidence.canonical(identity) == evidence.canonical(common),

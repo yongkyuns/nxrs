@@ -8,11 +8,14 @@ on:
       - 'tests/std-channel-perf/rust/src/native.rs'
       - 'tests/std-channel-perf/build.py'
       - 'tests/std-channel-perf/prepare-std.py'
+      - 'tests/std-channel-perf/simpleboot_digest.py'
+      - 'tests/std-channel-perf/inspect_esp_image.py'
       - 'tests/nuttx-std/prepare-std.py'
       - 'tests/nuttx-std/check-abi.py'
       - 'tests/nuttx-std/link.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/platform_config.py'
+      - 'tools/apply-nuttx-patches.py'
       - 'upstream/rust-std/**'
       - 'upstream/libc/**'
       - 'upstream/nuttx/**'
@@ -31,9 +34,12 @@ on:
       - 'tests/std-channel-perf/rust/src/native.rs'
       - 'tests/std-channel-perf/build.py'
       - 'tests/std-channel-perf/prepare-std.py'
+      - 'tests/std-channel-perf/simpleboot_digest.py'
+      - 'tests/std-channel-perf/inspect_esp_image.py'
       - 'tests/nuttx-std/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/platform_config.py'
+      - 'tools/apply-nuttx-patches.py'
       - 'upstream/rust-std/**'
       - 'upstream/libc/**'
       - 'upstream/nuttx/**'
@@ -208,9 +214,26 @@ jobs:
             target/channel-progress/**/workspace/Cargo.*
 
   esp32s3:
+    name: ESP32-S3 ${{ matrix.boot_image_profile }} (build only)
     needs: host
     runs-on: ubuntu-24.04
     timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - boot_image_profile: platform-default
+            modes: select-reserved select-published std-mutex-suite fifo-channel-suite
+            output_root: target/channel-progress/esp32s3
+            artifact_name: channel-progress-esp32s3-build-only
+          - boot_image_profile: ram-prefix-digest-v1
+            modes: direct-reserved direct-published select-reserved select-published send-reserved send-reclaimed std-mutex-suite fifo-channel-suite
+            output_root: target/channel-progress/esp32s3-ram-prefix-digest-v1
+            artifact_name: channel-progress-esp32s3-ram-prefix-digest-v1-build-only
+    env:
+      BOOT_IMAGE_PROFILE: ${{ matrix.boot_image_profile }}
+      BUILD_MODES: ${{ matrix.modes }}
+      BUILD_ROOT: ${{ matrix.output_root }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -229,19 +252,67 @@ jobs:
           key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
       - name: Hash-pinned Xtensa SDK
         run: bash tools/install-qemu-tools.sh
-      - name: Three-arm, std primitive and equal FIFO ESP32-S3 images (build only)
+      - name: ESP32-S3 images for the named boot profile (build only)
         shell: bash
         run: |
           set -euo pipefail
-          for mode in select-reserved select-published std-mutex-suite fifo-channel-suite; do
-            out="target/channel-progress/esp32s3/$mode"
-            python3 tests/channel-progress/build.py --platform esp32s3-service-footprint --mode "$mode" --out "$out"
+          read -r -a modes <<< "$BUILD_MODES"
+          for mode in "${modes[@]}"; do
+            out="$BUILD_ROOT/$mode"
+            python3 tests/channel-progress/build.py --platform esp32s3-service-footprint \
+              --mode "$mode" --boot-image-profile "$BOOT_IMAGE_PROFILE" --out "$out"
             rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
           done
+      - name: Verify complete image set and retained profile proof
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path("tests/channel-progress").resolve()))
+          import analyze
+
+          profile = os.environ["BOOT_IMAGE_PROFILE"]
+          root = Path(os.environ["BUILD_ROOT"])
+          expected = {
+              "platform-default": {
+                  "select-reserved", "select-published",
+                  analyze.STD_TRANSFER_BUILD_MODE, analyze.FIFO_BUILD_MODE,
+              },
+              "ram-prefix-digest-v1": (analyze.CHANNEL_MODES - {"host-functional"}) | {
+                  analyze.STD_TRANSFER_BUILD_MODE, analyze.FIFO_BUILD_MODE,
+              },
+          }[profile]
+          requested = os.environ["BUILD_MODES"].split()
+          if len(requested) != len(expected) or set(requested) != expected:
+              raise SystemExit("profile matrix does not select the complete expected mode set")
+          if set(Path("target/channel-progress").iterdir()) != {root}:
+              raise SystemExit("unexpected profile root in ESP artifact")
+          if {path.name for path in root.iterdir()} != expected:
+              raise SystemExit("missing or unexpected ESP image directory")
+          sources = None
+          for mode in sorted(expected):
+              receipt = analyze.build_receipt(root / mode, mode)
+              if (receipt.get("boot_image_profile") != profile
+                      or receipt.get("platform") != "esp32s3-service-footprint"
+                      or receipt.get("target") != "xtensa-esp32s3-nuttx"):
+                  raise SystemExit(f"wrong platform or boot profile: {mode}")
+              if (receipt.get("source_revision") != os.environ["GITHUB_SHA"]
+                      or receipt.get("source_dirty") is not False):
+                  raise SystemExit(f"image does not bind the clean workflow revision: {mode}")
+              if sources is not None and receipt["source_sha256"] != sources:
+                  raise SystemExit(f"source inventory changed between ESP images: {mode}")
+              sources = receipt["source_sha256"]
+              print("CHANNEL_PROGRESS_IMAGE_VERIFIED", profile, mode,
+                    receipt["build_id"], receipt["image_sha256"])
+          print("CHANNEL_PROGRESS_IMAGE_SET_COMPLETE", profile, len(expected))
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: channel-progress-esp32s3-build-only
+          name: ${{ matrix.artifact_name }}
           path: |
             target/channel-progress/**/build.json
             target/channel-progress/**/build.log
@@ -256,4 +327,7 @@ jobs:
             target/channel-progress/**/firmware/*.txt
             target/channel-progress/**/firmware/nuttx/nuttx
             target/channel-progress/**/firmware/nuttx/nuttx.merged.bin
+            target/channel-progress/**/firmware/nuttx/nuttx.rom-digest.bin
+            target/channel-progress/**/firmware/nuttx/arch/xtensa/src/common/espressif/esp_loader.c
+            target/channel-progress/**/firmware/0107-xtensa-simpleboot-hash-offset.patch
             target/channel-progress/**/workspace/Cargo.*

@@ -107,7 +107,7 @@ def analyze_cohort(root):
         results.append(case)
     blocking = [case["mode"] for case in results if not case["completed_without_repair"]
                 or not case["progress_contract_satisfied"] or not case["primitive_contract_satisfied"]]
-    identity = {key: shared_build[key] for key in capture_checks.IDENTITY_FIELDS}
+    identity = {key: shared_build[key] for key in capture_checks.common_identity_fields(shared_build)}
     identity.update(build_id=shared_build["build_id"], image_sha256=shared_build["image_sha256"],
                     elf_sha256=shared_build["elf_sha256"], mode=shared_build["mode"],
                     hook_stage=shared_build["hook_stage"], crossbeam_receipt=shared_build["crossbeam_receipt"])

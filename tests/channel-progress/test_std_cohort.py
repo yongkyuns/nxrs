@@ -100,7 +100,7 @@ class StdCohortTests(unittest.TestCase):
             relative: evidence.sha256(run / relative) for relative in receipt["artifacts_sha256"]
         }
         receipt["build_id"] = evidence.canonical({key: receipt[key]
-                                                  for key in evidence.identity_fields(receipt["mode"])})
+                                                  for key in evidence.identity_fields(receipt["mode"], receipt)})
         self.write(mode, "build.json", receipt)
         self.refresh(mode)
         return receipt
@@ -125,6 +125,7 @@ class StdCohortTests(unittest.TestCase):
         for key in common.IDENTITY_FIELDS:
             self.assertEqual(report["matched_identity"][key], self.build.receipt[key])
         self.assertEqual(report["matched_identity"]["hook_stage"], 0)
+        self.assertNotIn("boot_image_profile", report["matched_identity"])
         for field in cohort.QUALIFICATION_FLAGS:
             self.assertFalse(report[field])
         for case in report["cases"]:
@@ -133,6 +134,17 @@ class StdCohortTests(unittest.TestCase):
                 self.assertEqual(case["outcome"], "busy")
                 self.assertEqual(case["observation"]["accepted"], 0)
                 self.assertEqual(case["observation"]["transferred"], 0)
+
+    def test_explicit_profile_survives_shared_build_aggregation_without_changing_legacy_shape(self):
+        original = cohort.analyze_cohort(self.root)
+        for mode in wire.CASES:
+            self.rebind(mode, boot_image_profile="platform-default")
+        report = cohort.analyze_cohort(self.root)
+        cohort.require_no_repair(report)
+        self.assertNotIn("boot_image_profile", original["matched_identity"])
+        self.assertEqual(report["matched_identity"]["boot_image_profile"], "platform-default")
+        self.assertEqual(report["matched_identity_sha256"], evidence.canonical(report["matched_identity"]))
+        self.assertEqual(report["required_modes"], original["required_modes"])
 
     def test_missing_and_extra_case_directories_are_refused_without_invalidating_individual_cases(self):
         foreign = self.root / "fifo-direct-published"

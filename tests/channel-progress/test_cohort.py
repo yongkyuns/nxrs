@@ -78,7 +78,8 @@ class CohortTests(unittest.TestCase):
             for path in (run / parent).rglob("*")
             if path.is_file() and "/sources/" not in str(path)
         }
-        receipt["build_id"] = evidence.canonical({key: receipt[key] for key in evidence.IDENTITY_FIELDS})
+        receipt["build_id"] = evidence.canonical({
+            key: receipt[key] for key in evidence.identity_fields(receipt["mode"], receipt)})
         self.write(mode, "build.json", receipt)
         metadata, result = fixtures.fixture(mode, stalled=self.stalled[mode])
         metadata["build_id"] = receipt["build_id"]
@@ -122,6 +123,7 @@ class CohortTests(unittest.TestCase):
         self.assertFalse(report["progress_contract_satisfied"])
         self.assertEqual(report["execution_evidence"], "virtual")
         self.assertEqual(len(report["cases"]), 6)
+        self.assertNotIn("boot_image_profile", report["matched_identity"])
         self.assertEqual(len({row["run_id"] for row in report["cases"]}), 1)
         with self.assertRaisesRegex(ValueError, "no-repair gate refused"):
             cohort.require_no_repair(report)
@@ -239,6 +241,24 @@ class CohortTests(unittest.TestCase):
                     cohort.analyze_cohort(self.root)
         self.receipts[mode] = original
         self.write_run(mode)
+
+    def test_explicit_boot_profile_is_retained_and_cannot_mix_with_legacy_identity(self):
+        original = cohort.analyze_cohort(self.root)
+        self.assertNotIn("boot_image_profile", original["matched_identity"])
+        mode = "direct-published"
+        self.receipts[mode]["boot_image_profile"] = "platform-default"
+        self.write_run(mode)
+        evidence.build_receipt(self.run_directory(mode) / "build.json", mode)
+        with self.assertRaisesRegex(ValueError, "mixed cohort.*boot_image_profile"):
+            cohort.analyze_cohort(self.root)
+        for mode in cohort.MODES:
+            self.receipts[mode]["boot_image_profile"] = "platform-default"
+            self.write_run(mode)
+        report = cohort.analyze_cohort(self.root)
+        self.assertEqual(report["matched_identity"], {
+            **original["matched_identity"], "boot_image_profile": "platform-default"})
+        self.assertEqual(report["matched_identity_sha256"], evidence.canonical(report["matched_identity"]))
+        self.assertEqual(report["blocking_cases"], original["blocking_cases"])
 
     def test_actual_configuration_bytes_must_match_even_outside_selected_config_fields(self):
         mode = "direct-published"

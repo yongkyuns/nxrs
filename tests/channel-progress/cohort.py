@@ -45,6 +45,12 @@ def require(condition, message):
     evidence.require(condition, message)
 
 
+def common_identity_fields(record):
+    # Historical receipts did not declare a boot profile. Keep their exact
+    # matched identity while comparing every explicit profile on new builds.
+    return IDENTITY_FIELDS + (("boot_image_profile",) if "boot_image_profile" in record else ())
+
+
 def directory(root, relative):
     path = root / relative
     require(not path.is_symlink() and path.is_dir(), f"missing or linked case directory: {relative}")
@@ -207,7 +213,7 @@ def replay_case(run, mode):
         "legacy_operator_physical_claim_ignored": legacy_physical_claim,
         "physical_execution_verified": False,
     }
-    identity = {key: receipt[key] for key in IDENTITY_FIELDS}
+    identity = {key: receipt[key] for key in common_identity_fields(receipt)}
     identity["crossbeam_originals"] = {
         name: {key: item[key] for key in ("version", "archive_sha256", "original_tree_sha256")}
         for name, item in receipt["crossbeam_receipt"]["crates"].items()

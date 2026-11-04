@@ -30,6 +30,7 @@ def module(name, path):
     return result
 
 
+boot_image = module("channel_progress_boot_image", HERE / "boot_image.py")
 baseline = module("channel_progress_baseline_build", HERE.parent / "std-channel-perf/build.py")
 private = module("channel_progress_private_crossbeam", HERE / "prepare-crossbeam.py")
 MODES = {
@@ -51,11 +52,13 @@ IDENTITY_FIELDS = (
 )
 
 
-def identity_fields(mode):
-    # Keep historical build identities unchanged. The FIFO source proof is an
-    # additional frozen input only for the new scheduling contract.
-    return IDENTITY_FIELDS + (("fifo_kernel_source_sha256",)
-                              if mode == "fifo-channel-suite" else ())
+def identity_fields(mode, receipt=None):
+    # Historical receipts retain their frozen identity. Every new build binds
+    # its explicit image profile before compiling the runtime build ID.
+    fields = IDENTITY_FIELDS + (("fifo_kernel_source_sha256",)
+                                if mode == "fifo-channel-suite" else ())
+    return fields + (("boot_image_profile",)
+                     if receipt is not None and "boot_image_profile" in receipt else ())
 
 
 def sha(path):
@@ -102,7 +105,8 @@ def inventory(profile):
     # latency/capture/analyzer sources, which belong to the parallel P0 stream.
     files = [ROOT / "Cargo.toml", ROOT / "Cargo.lock"]
     files += [HERE.parent / "std-channel-perf" / p for p in SHARED_FILES]
-    files += [HERE.parent / "std-channel-perf" / p for p in ("build.py", "prepare-std.py")]
+    files += [HERE.parent / "std-channel-perf" / p for p in (
+        "build.py", "prepare-std.py", "simpleboot_digest.py", "inspect_esp_image.py")]
     files += [p for p in HERE.rglob("*") if p.is_file() and
               p.suffix in (".rs", ".toml", ".py") and "__pycache__" not in p.parts]
     files += [ROOT / p for p in (
@@ -217,6 +221,8 @@ def build(args):
     out = args.out.absolute()
     if args.mode not in MODES or args.platform not in baseline.PLATFORMS:
         raise ValueError("unsupported progress case or platform")
+    boot_profile = getattr(args, "boot_image_profile", boot_image.DEFAULT)
+    boot_image.validate_profile(boot_profile, args.platform)
     if out.exists():
         raise ValueError("build output must be new; preserve earlier images")
     profile = baseline.resolve_platform(args.platform, ROOT)
@@ -230,6 +236,7 @@ def build(args):
     record = {
         "schema": "channel-progress-build-v1", "status": "failed", "failure": "build incomplete",
         "runtime_kind": "unmeasured", "mode": args.mode,
+        "boot_image_profile": boot_profile,
         "hook_stage": private.MODES[MODES[args.mode]], "platform": args.platform,
         "target": profile["target"], "sdk": sdk, "source_sha256": before,
         "source_revision": baseline.run(["git", "rev-parse", "HEAD"]),
@@ -266,7 +273,7 @@ def build(args):
             std_array_original_sha256=std["original"]["sha256"],
             staged_inputs_sha256=staged_inputs,
         )
-        record["build_id"] = canonical({key: record[key] for key in identity_fields(args.mode)})
+        record["build_id"] = canonical({key: record[key] for key in identity_fields(args.mode, record)})
         env["NXRS_CHANNEL_PROGRESS_BUILD_ID"] = record["build_id"]
         command = firmware_command(args.platform, out, manifest)
         record["build_command"] = [str(p) for p in command]
@@ -299,6 +306,10 @@ def build(args):
         for path in (image, elf, config):
             if not path.is_file() or path.stat().st_size == 0:
                 raise ValueError("missing or empty firmware artifact")
+        boot_artifacts = []
+        if boot_profile == boot_image.PROFILE:
+            image, boot_fields, boot_artifacts = boot_image.prepare(firmware, image, out)
+            record.update(boot_fields)
         record.update(
             resolved_configuration=baseline.validate_configuration(config, "baseline"),
             image_file=baseline.relative(image, out), image_sha256=sha(image),
@@ -315,11 +326,13 @@ def build(args):
                           out / "crossbeam/crossbeam-hook.json", out / "crossbeam/cargo-config.toml"]
         artifact_paths += list((out / "crossbeam").glob("*.patch"))
         artifact_paths += list((out / "crossbeam/original").glob("*.crate"))
+        artifact_paths += boot_artifacts
         if args.mode == "fifo-channel-suite":
             artifact_paths += [out / record["fifo_kernel_source_proof"]]
             artifact_paths += [out / "prepared/fifo-kernel" / name
                                for name in record["fifo_kernel_source_sha256"]]
         record["artifacts_sha256"] = {baseline.relative(p, out): sha(p) for p in artifact_paths}
+        boot_image.verify(out, record)
         if inventory(profile) != before:
             raise ValueError("progress inputs changed during compilation")
         if any(sha(out / name) != digest for name, digest in staged_inputs.items()):
@@ -340,6 +353,9 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--source-sysroot", type=Path)
     parser.add_argument("--crate-cache", type=Path, default=ROOT / "target/channel-progress-crates")
+    parser.add_argument("--boot-image-profile", choices=(boot_image.DEFAULT, boot_image.PROFILE),
+                        default=boot_image.DEFAULT,
+                        help="opt-in paired ESP32-S3 image/loader; no physical qualification")
     args = parser.parse_args()
     try:
         record = build(args)
