@@ -6,10 +6,12 @@ This implements the transport and scheduling controls from
 It measures the actual `messaging` facade and pinned Crossbeam 0.5.17 with
 statically dispatched Rust callers. It does not change a production transport.
 
-For the engineering conclusions and the next board run, start with the
+For the engineering conclusions and physical results, start with the
 [P2 decision report](DECISION-REPORT.md). It records the compiled facade review,
-the latest physical P0/P1 observations, and an eighteen-capture first campaign
-using the existing cases. New P2 physical timing results remain pending.
+the physical P0/P1 constraints, and the completed
+[eighteen-capture WROOM campaign](results/2026-11-04-esp32s3/README.md) using the
+existing cases. Raw counter results are retained per boot; independent timing
+and progress qualification remain open.
 
 ## Experiment contract
 
@@ -519,11 +521,12 @@ physical run or a comparison between identical executable builds.
 
 All five P0 captures still record missing independent clock calibration and
 `physical_timing_qualified: false`. Exact channel/stack allocation placement and
-resource qualification remain open. P2's separately built digest candidate
-needs its own coordinated fresh-boot/image evidence and calibration review;
-neither the packing profile nor P0's boot observation verifies P2 execution or
-changes P2's qualification flags. Physical-board ownership remains with the
-coordinated P0/hardware workstream.
+resource qualification remain open. P2's separately built digest candidate now
+has its own eighteen-capture operator-declared board campaign, with matching
+image/runtime identities and no ROM warning. Independent calibration, placement
+review and progress acceptance remain open; neither the packing profile nor
+these captures change P2's qualification flags. Physical-board ownership remains
+with the coordinated hardware workstream.
 
 P3 owns full selected-owner behavior, P4 owns correlated native switch/IRQ
 attribution, and P5 owns sustained offered-load and resource/product budgets.

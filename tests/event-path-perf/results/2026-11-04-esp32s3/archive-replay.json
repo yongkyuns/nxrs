@@ -1,0 +1,45 @@
+{
+  "schema": "event-path-physical-archive-replay-v1",
+  "artifact_root_rehydrated_from_verified_ci_zip": true,
+  "complete_root_manifest_verified": true,
+  "comparisons": [
+    {
+      "pass_number": 1,
+      "group": "ready-try",
+      "matched": true,
+      "saved_comparison_reproduced": true
+    },
+    {
+      "pass_number": 1,
+      "group": "blocked-try",
+      "matched": true,
+      "saved_comparison_reproduced": true
+    },
+    {
+      "pass_number": 2,
+      "group": "ready-try",
+      "matched": true,
+      "saved_comparison_reproduced": true
+    },
+    {
+      "pass_number": 2,
+      "group": "blocked-try",
+      "matched": true,
+      "saved_comparison_reproduced": true
+    },
+    {
+      "pass_number": 3,
+      "group": "ready-try",
+      "matched": true,
+      "saved_comparison_reproduced": true
+    },
+    {
+      "pass_number": 3,
+      "group": "blocked-try",
+      "matched": true,
+      "saved_comparison_reproduced": true
+    }
+  ],
+  "all_18_members_independently_replayed": true,
+  "qualification_flags_unchanged": true
+}

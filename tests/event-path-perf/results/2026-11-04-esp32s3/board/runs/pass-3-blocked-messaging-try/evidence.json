@@ -1,0 +1,25 @@
+{
+  "schema": "event-path-evidence-v1",
+  "files_sha256": {
+    "console.log": "87b9bdc923d3e83df19bf7c05d6b39b1c215315a8e1ef80b78208f23ed56cfdb",
+    "capture.json": "1e10fa399bbe9973183e6a3919c139ee9fef5cbab310093c1c6bc49e71e91ca7",
+    "analysis.json": "2f0bd96a9fbb181c076cb0b536e1bf826754a92d8a9f3cc931cf6071d69b2d93",
+    "session.json": "91dd8377009620c9d15f8bc244408ed0655d59853c2f0f89d14dd8e326365432",
+    "build.json": "2c5ec7d0316821fdd3bdc6effb1939deabb94ff36434657ee4b146b9efd1c985"
+  },
+  "build": {
+    "mode": "shared",
+    "directory": "build",
+    "capture_directory": "runs/pass-3-blocked-messaging-try",
+    "receipt_sha256": "2c5ec7d0316821fdd3bdc6effb1939deabb94ff36434657ee4b146b9efd1c985"
+  },
+  "host_binary": null,
+  "calibration": {
+    "status": "not-supplied",
+    "original_file": null,
+    "retained_file": null,
+    "actual_sha256": null,
+    "claimed_sha256": null,
+    "error": null
+  }
+}

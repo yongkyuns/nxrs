@@ -1,0 +1,24 @@
+{
+  "schema": "event-path-physical-provenance-v1",
+  "pr": 256,
+  "artifact_id": 13286791409,
+  "workflow_run": 41752066250,
+  "artifact_sha256": "5b8faa0925c110d00bbeee822392611342d0ef24e8a8ec840ce1c4c15c1f39f5",
+  "tested_firmware_head": "af6738fc9559b2e0b2d1c57a049b70e4b7ac9580",
+  "ci_checkout_revision": "bcc2da205687fa0e70f5900b3cac938ab24a6927",
+  "verifier_revision": "fbc45294cc853caa047736ff368d0584915d94d4",
+  "verified_firmware_input_count": 168,
+  "verified_artifact_count": 16,
+  "build_id": "b42d3d84adc4c52bd2420067e4de7c8442030d26288e0269bcfaac7942e93b26",
+  "image_sha256": "5e738b3ae480ec6fb920ce1d9dd2b04d2f49265a9d31047e51c96b724224c583",
+  "elf_sha256": "a931b1ae565042b859d2071a0048ef07f5635c0f21122259ca93cf6de9a0d541",
+  "boot_image_profile": "ram-prefix-digest-v1",
+  "verifier_sources_sha256": {
+    "capture.py": "0dd028c7c4c4572498ea3f45f8e39f7df45c924fe4e3c13a95e7b8150b47b5d0",
+    "replay.py": "9f2f170c2e6992d13a7a8af0cb78fa2dfa2db133e24abaff5d373c3bb4f60a06",
+    "compare.py": "300064d24c3d4ffd9a70c544f0eb359f7654f78c78fd2a53cd0d69a559af40d7",
+    "analyze.py": "50b23dcdda5ad083bd88733c7cb211cee747db03d40c7686e5d9151a47ced0dd",
+    "build.py": "7546858ecf4ae0c44789a038c6f005ef0229becad57c2ced1b2973fc6136cce9",
+    "boot_image.py": "731f98b0b0f7389ec1113455137e9cf9800c8a6a101121f74895c13ec4d8f99c"
+  }
+}

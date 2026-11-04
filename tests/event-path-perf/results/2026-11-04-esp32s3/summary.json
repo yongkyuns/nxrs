@@ -1,0 +1,175 @@
+{
+  "pr": 256,
+  "firmware_head": "af6738fc9559b2e0b2d1c57a049b70e4b7ac9580",
+  "verifier_head": "fbc45294cc853caa047736ff368d0584915d94d4",
+  "results": [
+    {
+      "pass_number": 1,
+      "case": "ready-std-try",
+      "directory": "runs/pass-1-ready-std-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 1,
+      "case": "ready-messaging-try",
+      "directory": "runs/pass-1-ready-messaging-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 1,
+      "case": "ready-crossbeam-try",
+      "directory": "runs/pass-1-ready-crossbeam-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 1,
+      "case": "blocked-std-try",
+      "directory": "runs/pass-1-blocked-std-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 1,
+      "case": "blocked-messaging-try",
+      "directory": "runs/pass-1-blocked-messaging-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 1,
+      "case": "blocked-crossbeam-try",
+      "directory": "runs/pass-1-blocked-crossbeam-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 2,
+      "case": "ready-messaging-try",
+      "directory": "runs/pass-2-ready-messaging-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 2,
+      "case": "ready-crossbeam-try",
+      "directory": "runs/pass-2-ready-crossbeam-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 2,
+      "case": "ready-std-try",
+      "directory": "runs/pass-2-ready-std-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 2,
+      "case": "blocked-messaging-try",
+      "directory": "runs/pass-2-blocked-messaging-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 2,
+      "case": "blocked-crossbeam-try",
+      "directory": "runs/pass-2-blocked-crossbeam-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 2,
+      "case": "blocked-std-try",
+      "directory": "runs/pass-2-blocked-std-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 3,
+      "case": "ready-crossbeam-try",
+      "directory": "runs/pass-3-ready-crossbeam-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 3,
+      "case": "ready-std-try",
+      "directory": "runs/pass-3-ready-std-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 3,
+      "case": "ready-messaging-try",
+      "directory": "runs/pass-3-ready-messaging-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 3,
+      "case": "blocked-crossbeam-try",
+      "directory": "runs/pass-3-blocked-crossbeam-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 3,
+      "case": "blocked-std-try",
+      "directory": "runs/pass-3-blocked-std-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    },
+    {
+      "pass_number": 3,
+      "case": "blocked-messaging-try",
+      "directory": "runs/pass-3-blocked-messaging-try",
+      "capture_complete": true,
+      "replay_complete": true,
+      "rom_digest_warning": false,
+      "physical_timing_qualified": false
+    }
+  ],
+  "failure": null,
+  "firmware_restored": true,
+  "physical_execution_verified": false,
+  "physical_timing_qualified": false,
+  "priority_progress_qualified": false,
+  "pooled": false
+}

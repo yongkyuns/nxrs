@@ -1,0 +1,24 @@
++ /private/tmp/tmp5wv027fu/cargo metadata --locked --format-version 1 --manifest-path /private/tmp/nxrs-p2-wroom-20261104/tests/event-path-perf/rust/Cargo.toml
++ /private/tmp/tmprpaeo0x9/cargo metadata --locked --format-version 1 --manifest-path /private/tmp/nxrs-p2-wroom-20261104/tests/event-path-perf/rust/Cargo.toml
++ /private/tmp/tmp_hd52cdu/cargo metadata --locked --format-version 1 --manifest-path /private/tmp/nxrs-p2-wroom-20261104/tests/event-path-perf/rust/Cargo.toml
+error: failed to download crossbeam-channel
+
++ /private/tmp/tmpmwmri8ey/cargo metadata --locked --format-version 1 --manifest-path /private/tmp/nxrs-p2-wroom-20261104/tests/event-path-perf/rust/Cargo.toml
++ /private/tmp/tmp4o4mf4un/cargo metadata --locked --format-version 1 --manifest-path /private/tmp/nxrs-p2-wroom-20261104/tests/event-path-perf/rust/Cargo.toml
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 47 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 90 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 90 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 90 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 90 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 90 seconds.
+Reset the already-flashed board; fresh-boot capture budget is 90 seconds.
+----------------------------------------------------------------------
+Ran 131 tests in 19.091s
+
+OK

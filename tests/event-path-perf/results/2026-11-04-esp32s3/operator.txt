@@ -1,0 +1,195 @@
+"""Private operator for P2. Preserve raw failures and always restore flash."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import sys
+import time
+
+import serial
+from serial.tools import list_ports
+from esptool.reset import HardReset
+
+ROOT = Path(__file__).resolve().parent
+REPO = Path('/private/tmp/nxrs-p2-wroom-20261104')
+PORT = '/dev/cu.usbmodem21101'
+DEVICE = (0x303a, 0x1001, '20:6E:F1:A7:6F:58')
+sys.path.insert(0, str(REPO / 'tests/event-path-perf'))
+import capture as p2_capture
+
+
+def save(name, value):
+    temporary = ROOT / (name + '.tmp')
+    temporary.write_text(json.dumps(value, indent=2) + '\n')
+    temporary.replace(ROOT / name)
+
+
+def event(phase, **fields):
+    value = dict(phase=phase, unix=time.time(), **fields)
+    save('phase.json', value)
+    print(json.dumps(value), flush=True)
+
+
+def identity():
+    ports = [p for p in list_ports.comports() if p.device == PORT]
+    assert len(ports) == 1
+    p = ports[0]
+    assert (p.vid, p.pid, p.serial_number) == DEVICE, 'USB identity changed'
+
+
+def tool(arguments, log):
+    identity()
+    with log.open('xb') as output:
+        result = subprocess.run([sys.executable, '-m', 'esptool', '--chip', 'esp32s3',
+                                 '--port', PORT, '--baud', '921600', *arguments],
+                                stdout=output, stderr=subprocess.STDOUT, timeout=300)
+    assert result.returncode == 0, 'esptool failed; retained ' + log.name
+
+
+def flash(image, prefix):
+    event('flashing', image=prefix)
+    tool(['write_flash', '--flash_mode', 'keep', '--flash_freq', 'keep',
+          '--flash_size', 'keep', '0', str(image)], ROOT / (prefix + '-flash.log'))
+    tool(['verify_flash', '0', str(image)], ROOT / (prefix + '-verify.log'))
+    event('flash_verified', image=prefix)
+
+
+def reset():
+    identity()
+    # The capture process already owns the data FD. This second FD only toggles
+    # the documented USB-JTAG reset lines; it never reads or transmits data.
+    console = serial.Serial(port=None, baudrate=115200, timeout=.1)
+    console.dtr = console.rts = False
+    console.port = PORT
+    console.open()
+    try:
+        HardReset(console, uses_usb=True).reset()
+    finally:
+        console.close()
+
+
+ARTIFACT = ROOT / 'board'
+BUILD = ARTIFACT / 'build'
+
+
+def run_case(pass_number, family, backend):
+    case = family + '-' + backend + '-try'
+    label = 'pass-' + str(pass_number) + '-' + case
+    receipt = p2_capture.build_receipt(BUILD)
+    out = ARTIFACT / 'runs' / label
+    session = {
+        'schema': 'event-path-session-v1', 'runtime_kind': 'physical',
+        'measurement_session': 'p2-20261104-' + label,
+        'board': 'ESP32-S3 N16R8 QFN56 rev v0.2, 16 MiB flash / 8 MiB embedded octal PSRAM',
+        'board_serial': DEVICE[2], 'image_sha256': receipt['image_sha256'],
+        'build_id': receipt['build_id'], 'clock_source_request': 'native-counter',
+        'active_cores': 1, 'cpu_clock_hz': 240000000,
+        'cache_state': 'Resolved config: 16 KiB instruction / 32 KiB data cache, 8 ways, 32-byte lines; fresh USB-reset boot for each command.',
+        'memory_placement': 'Resolved N16R8 linker/image; 40 MHz octal PSRAM in common heap. Actual queue/stack allocation addresses and cache residency not instrumented.',
+        'power_management': 'CONFIG_PM=n; configured fixed 240 MHz single-core build.',
+        'external_load': 'Standalone P2 fixture NSH image; no camera/radio application started; normal kernel tick/USB interrupts; result serialization and USB console output follow worker joins.',
+        'flash_verification': 'p2-candidate-flash.log and p2-candidate-verify.log: exact selected full 16 MiB image written with header settings kept; esptool digest verification passed; one unchanged image for all cases.',
+        'clock_verification': 'Independent reference calibration unavailable for this P2 image/session; no calibration record supplied; raw counter observations only.'
+    }
+    session_path = ARTIFACT / 'sessions' / (label + '.json')
+    session_path.write_text(json.dumps(session, indent=2) + '\n')
+    argv = [sys.executable, str(REPO/'tests/event-path-perf/capture.py'), 'serial',
+            '--build-directory', str(BUILD), '--artifact-root', str(ARTIFACT),
+            '--port', PORT, '--session', str(session_path), '--case', case,
+            '--samples', '1000', '--warmup', '100', '--payload', 'bytes16',
+            '--output', str(out)]
+    timeout = p2_capture.serial_budget(case, 1000)['minimum_timeout_seconds']
+    event('capturing', case=label, calculated_serial_deadline_seconds=timeout)
+    child = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    log=bytearray();ready=False;deadline=time.monotonic()+timeout+30
+    try:
+        while child.poll() is None or select.select([child.stdout], [], [], 0)[0]:
+            if time.monotonic()>deadline:
+                raise TimeoutError('operator deadline outside tool serial budget')
+            if not select.select([child.stdout], [], [], .1)[0]:
+                continue
+            data=os.read(child.stdout.fileno(),65536)
+            if not data:
+                break
+            log.extend(data)
+            if not ready and b'Reset the already-flashed board;' in log:
+                ready=True;event('fresh_boot_reset',case=label);reset()
+        code=child.wait(timeout=5)
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill();child.wait(timeout=5)
+        (ROOT/(label+'-operator.log')).write_bytes(log)
+    report=json.loads((out/'capture.json').read_text())
+    with (out/'replay.json').open('xb') as replay_output:
+        replay_code=subprocess.run([sys.executable,str(REPO/'tests/event-path-perf/replay.py'),
+            str(out),'--artifact-root',str(ARTIFACT)],stdout=replay_output,
+            stderr=subprocess.STDOUT,timeout=30).returncode
+    assert code==0 and report['capture_complete'],report
+    assert replay_code==0,'offline replay rejected '+label
+    event('case_complete',case=label,rom_digest_warning=report['boot_rom_digest_warning_observed'],
+          physical_timing_qualified=report['physical_timing_qualified'])
+    return dict(pass_number=pass_number,case=case,directory='runs/'+label,
+                capture_complete=True,replay_complete=True,
+                rom_digest_warning=report['boot_rom_digest_warning_observed'],
+                physical_timing_qualified=report['physical_timing_qualified'])
+
+
+def compare_pass(pass_number,family):
+    paths=[ARTIFACT/'runs'/('pass-'+str(pass_number)+'-'+family+'-'+b+'-try')
+           for b in ['std','messaging','crossbeam']]
+    out=ARTIFACT/('pass-'+str(pass_number)+'-'+family+'-try.json')
+    with out.open('xb') as output:
+        code=subprocess.run([sys.executable,str(REPO/'tests/event-path-perf/compare.py'),
+            family+'-try',*[str(p) for p in paths],'--artifact-root',str(ARTIFACT)],
+            stdout=output,stderr=subprocess.STDOUT,timeout=60).returncode
+    assert code==0,'matched comparison rejected '+out.name
+    report=json.loads(out.read_text());assert report['matched'] is True
+    event('comparison_complete',pass_number=pass_number,group=family+'-try')
+
+
+def main():
+    os.umask(0o077)
+    original=ROOT/'fresh-original-flash.bin';assert original.stat().st_size==0x1000000
+    backup_hash=hashlib.sha256(original.read_bytes()).hexdigest()
+    save('fresh-original-flash.json',dict(file=original.name,bytes=original.stat().st_size,
+        sha256=backup_hash,captured_before_test=True,previous_backups_unused=True))
+    tool(['verify_flash','0',str(original)],ROOT/'backup-verify.log')
+    (ARTIFACT/'sessions').mkdir();(ARTIFACT/'runs').mkdir()
+    orders=[['std','messaging','crossbeam'],['messaging','crossbeam','std'],['crossbeam','std','messaging']]
+    save('campaign.json',dict(samples=1000,warmup=100,payload='bytes16',orders=orders,
+        families=['ready','blocked'],first_six_are_pass_one=True,
+        fresh_boot_per_command=True,same_executable=True,pooled=False,comparisons=6))
+    results=[];failure=None
+    try:
+        receipt=p2_capture.build_receipt(BUILD)
+        flash(BUILD/receipt['image_file'],'p2-candidate')
+        for pass_number,order in enumerate(orders,1):
+            for family in ['ready','blocked']:
+                for backend in order:
+                    results.append(run_case(pass_number,family,backend))
+                compare_pass(pass_number,family)
+            if pass_number==1:
+                event('first_six_completed_and_matched')
+    except Exception as error:
+        failure=type(error).__name__+': '+str(error);event('campaign_stopped',reason=failure)
+    finally:
+        event('restoring_fresh_original_firmware')
+        flash(original,'fresh-original-restore')
+        save('restoration.json',dict(restored=True,original_sha256=backup_hash,
+            verification='fresh-original-restore-verify.log',unix=time.time()))
+        event('original_firmware_restored')
+    save('summary.json',dict(pr=256,firmware_head='af6738fc9559b2e0b2d1c57a049b70e4b7ac9580',
+        verifier_head='fbc45294cc853caa047736ff368d0584915d94d4',results=results,failure=failure,
+        firmware_restored=True,physical_execution_verified=False,physical_timing_qualified=False,
+        priority_progress_qualified=False,pooled=False))
+    return bool(failure)
+
+if __name__=='__main__':
+    sys.exit(main())

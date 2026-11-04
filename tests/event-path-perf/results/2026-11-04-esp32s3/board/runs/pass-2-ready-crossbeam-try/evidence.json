@@ -1,0 +1,25 @@
+{
+  "schema": "event-path-evidence-v1",
+  "files_sha256": {
+    "console.log": "6016dd9d6aeba64194d448baa58385dfea2baaca5c86deed533757d54191a2ed",
+    "capture.json": "5cc8f63096a9729c1d38a0df7450a67134768ef055111fa884e08b91d0b3c106",
+    "analysis.json": "d6d3d1a06e13f7bce45f3d7d1e10f827d03c58bb7df4bbe9d68f5567f85e41ab",
+    "session.json": "e49c822a727c105b68c568e2007c82b3bfbe4063bde0a01d50bfec5e44224c30",
+    "build.json": "2c5ec7d0316821fdd3bdc6effb1939deabb94ff36434657ee4b146b9efd1c985"
+  },
+  "build": {
+    "mode": "shared",
+    "directory": "build",
+    "capture_directory": "runs/pass-2-ready-crossbeam-try",
+    "receipt_sha256": "2c5ec7d0316821fdd3bdc6effb1939deabb94ff36434657ee4b146b9efd1c985"
+  },
+  "host_binary": null,
+  "calibration": {
+    "status": "not-supplied",
+    "original_file": null,
+    "retained_file": null,
+    "actual_sha256": null,
+    "claimed_sha256": null,
+    "error": null
+  }
+}
