@@ -29,9 +29,12 @@ pub fn qualify_context(header: &Path) -> Result<()> {
 }
 
 pub(crate) fn nuttx_headers(header: &Path) -> Result<()> {
-    qualify_context(header)?;
-    // Recheck the execution contract and rebuild native code after header changes.
+    // Track required configuration by file, not only the include directory, so
+    // deletion and same-path edits invalidate the build on all Cargo hosts.
+    println!("cargo:rerun-if-changed={}", header.join("nuttx/config.h").display());
+    // Other ABI and architecture headers can also change beneath this root.
     println!("cargo:rerun-if-changed={}", header.display());
+    qualify_context(header)?;
     Ok(())
 }
 
