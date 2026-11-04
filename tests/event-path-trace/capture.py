@@ -56,7 +56,7 @@ def receipt(directory):
     require(hook.get('channel_instrumented') is False and hook.get('hook_stage')==0 and
             hook['selected']['sha256']==hook['original']['sha256']==record['std_array_sha256'], 'wrong std source')
     require(read_json(p2.checked_file(directory,'crossbeam-source.json'))==record['crossbeam'], 'wrong registry receipt')
-    require(record.get('ready_wrapper_call_sites',0)>0, 'missing ready wrapper')
+    require(record.get('ready_wrapper_references',0)>0, 'missing ready wrapper')
     builder.p2.boot_image.verify(directory,record)
     config = builder.p2.baseline.config_values(p2.checked_file(directory,record['config_file']))
     for name in ('SCHED_INSTRUMENTATION','SCHED_INSTRUMENTATION_SWITCH','SCHED_INSTRUMENTATION_IRQHANDLER','DRIVERS_NOTE'):

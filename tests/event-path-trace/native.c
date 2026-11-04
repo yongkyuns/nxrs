@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "arch/xtensa/src/chip/esp32s3_spiram.h"
-#include "arch/xtensa/src/chip/hardware/esp32s3_soc.h"
+#include "memory-bounds.h"
 
 #if !defined(CONFIG_ARCH_CHIP_ESP32S3) || !defined(CONFIG_BUILD_FLAT) || defined(CONFIG_SMP)
 # error "P4 native bridge requires qualified single-core flat ESP32-S3"
@@ -55,7 +55,7 @@ int trace_stack(int tid, uintptr_t *base, uintptr_t *bytes)
 unsigned trace_memory_region(uintptr_t base, uintptr_t bytes)
 {
   if (bytes == 0 || base > UINTPTR_MAX - bytes) return 0;
-  if (base >= SOC_DRAM_LOW && base + bytes <= SOC_DRAM_HIGH) return 1;
+  if (base >= P4_DRAM_LOW && base + bytes <= P4_DRAM_HIGH) return 1;
 #ifdef CONFIG_ESP32S3_SPIRAM
   if (base >= esp_spiram_allocable_vaddr_start() &&
       base + bytes <= esp_spiram_allocable_vaddr_end()) return 2;

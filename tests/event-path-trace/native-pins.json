@@ -10,6 +10,9 @@
     "include/nuttx/sched.h": "5cc14e5f63b75a7cc0586c5494e0cb2d15e5fb2cc0528eada7cffbcbfb1859d8",
     "arch/xtensa/include/irq.h": "6dea737b3988df72a615b474acfd4bef42490bc69dc0360ae95c5ff7a5097cf1",
     "arch/xtensa/src/Makefile": "4d911ffdf9e5a1198c13d8e2811926909d87f573f05c224f678a4a992eded23d",
-    "arch/xtensa/src/esp32s3/esp32s3_spiram.c": "c6df1eb67aba048f5866cc2ec6caca3cec7af6d1e9baf2fb7dda375d47496664"
+    "arch/xtensa/src/esp32s3/esp32s3_spiram.c": "c6df1eb67aba048f5866cc2ec6caca3cec7af6d1e9baf2fb7dda375d47496664",
+    "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/soc/esp32s3/include/soc/soc.h": "7c5d0a1870cd659d78e2e551352ddfeab6973d6e20ee7dbc8abf9b0eaf53eadc",
+    "arch/xtensa/src/esp32s3/esp32s3_spiram.h": "61481452673bae878d32772ed1591a711564e7c3a6c11a35c52dc4aa76f71e8f",
+    "include/nuttx/irq.h": "26234d3172f50ef16099cd9e07fb5468f3d422381f89883c03ab43a63d495de5"
   }
 }

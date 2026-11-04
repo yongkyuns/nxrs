@@ -13,7 +13,9 @@ the exact pinned std/Crossbeam implementations, and three matched arms:
 Both images wrap `nxsched_add_readytorun`. The wrapper records **after** the
 real function returns, before its caller acts on the preemption result. This
 is a post-insertion marker, not the first ready instruction. Pinned source
-copies and linked call sites are required in the build receipt.
+copies and linked references are required in the build receipt; correlated
+physical ready events must prove the hook actually ran. Xtensa long-call
+literal loads alone are not counted as direct calls.
 
 The Rust recorder stores at most 4,096 events (64 KiB plus indices), without
 allocation, output, blocking or overwrite in callbacks. Single-core flat

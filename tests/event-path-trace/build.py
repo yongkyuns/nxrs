@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -19,12 +20,15 @@ PACKAGE = 'nxrs-event-path-trace'
 MANIFEST = HERE/'rust/Cargo.toml'
 PLATFORM = 'esp32s3-service-footprint'
 WRAP = '--wrap=nxsched_add_readytorun'
+MEMORY_MAP = 'arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/soc/esp32s3/include/soc/soc.h'
 PINS = (
     'sched/sched/sched_addreadytorun.c', 'sched/sched/sched.h',
     'sched/sched/sched_switchcontext.c',
     'drivers/note/note_driver.c', 'include/nuttx/note/note_driver.h',
     'include/nuttx/sched.h', 'arch/xtensa/include/irq.h',
     'arch/xtensa/src/Makefile', 'arch/xtensa/src/esp32s3/esp32s3_spiram.c',
+    'arch/xtensa/src/esp32s3/esp32s3_spiram.h', 'include/nuttx/irq.h',
+    MEMORY_MAP,
 )
 IDENTITY = ('schema','package','mode','source_sha256','kernel_revision','apps_revision',
             'compiler_identity','std_array_sha256','std_library_tree_sha256','crossbeam',
@@ -155,14 +159,24 @@ def build(out, mode):
             dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(src,dest)
             native_sources[name]=p2.digest(dest)
         record['native_source_sha256']=native_sources
+        sdk_header=(firmware/'nuttx'/MEMORY_MAP).read_text()
+        translated=(HERE/'memory-bounds.h').read_text()
+        for suffix in ('LOW','HIGH'):
+            original=re.search(r'^#define SOC_DRAM_'+suffix+r'\s+(0x[0-9A-Fa-f]+)\s*$',sdk_header,re.M)
+            selected=re.search(r'^#define P4_DRAM_'+suffix+r'\s+(0x[0-9A-Fa-f]+)\s*$',translated,re.M)
+            if not original or not selected or int(original[1],16)!=int(selected[1],16):
+                raise ValueError('memory boundary translation mismatch')
         nm=shutil.which('xtensa-esp32s3-elf-nm');objdump=shutil.which('xtensa-esp32s3-elf-objdump')
         symbols=p2.run([nm,'--defined-only',elf]);(out/'symbols.txt').write_text(symbols)
         for symbol in ['__wrap_nxsched_add_readytorun','nxsched_add_readytorun','trace_register']:
             if not any(line.endswith(' '+symbol) for line in symbols.splitlines()):raise ValueError('missing wrapper symbol '+symbol)
         disassembly=p2.run([objdump,'-d',elf]);(out/'disassembly.txt').write_text(disassembly)
-        calls=[line for line in disassembly.splitlines() if 'call' in line and '<__wrap_nxsched_add_readytorun>' in line]
-        if not calls:raise ValueError('ready wrapper has no linked call sites')
-        record['ready_wrapper_call_sites']=len(calls)
+        # Xtensa long calls can load a literal address before callx8. Retain
+        # references rather than mislabeling that literal as a direct call.
+        references=[line for line in disassembly.splitlines()
+                    if re.match(r'^\s*[0-9a-f]+:\s',line) and '<__wrap_nxsched_add_readytorun>' in line]
+        if not references:raise ValueError('ready wrapper has no linked references')
+        record['ready_wrapper_references']=len(references)
         paths=[image,elf,config,firmware/'std-source.json',firmware/'std-patch.json',
             prepared/'std-channel-hook.json',prepared/'std-library-sources.json',
             firmware/'abi-report.json',firmware/'cargo-messages.jsonl',out/'crossbeam-source.json',

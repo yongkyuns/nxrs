@@ -94,7 +94,7 @@ def analyze(text, build, *, backend, policy, recording, samples, warmup):
         bound = integer(row.get('window_ns'),1,window)
         for key, values in [('admission_return', admission),('receive_return',delivery)]:
             delta = (row[key]-row['start']) & MASK
-            require(delta < 1<<31 and delta*1_000_000_000 <= bound*hz, 'counter outside monotonic bound')
+            require(0 < delta < 1<<31 and delta*1_000_000_000 <= bound*hz, 'counter outside monotonic bound')
             values.append(delta)
     for key in ('success','terminal_quiescence_verified','threads_joined','watchdog_joined','schedule_restored'):
         require(result.get(key) is True, 'missing completion proof: '+key)
@@ -138,8 +138,14 @@ def analyze(text, build, *, backend, policy, recording, samples, warmup):
         m = markers
         require(m[16]<m[12]<m[14]<m[10]<m[11]<m[15] and m[10]<m[13]<m[15], 'invalid causal marker order')
         require(any(e['kind']==2 and e['tid']==receiver and e['detail']==1 for e in events[m[12]+1:m[14]]), 'missing receive wait note')
-        for key,kind in [('start',10),('admission_return',11),('receive_return',13)]:
-            require(((events[m[kind]]['ticks']-sample[key]) & MASK) < 1<<31, 'marker precedes sample boundary')
+        boundaries = {}
+        for key,kind,previous in [('start',10,14),('admission_return',11,10),('receive_return',13,10)]:
+            lag = (events[m[kind]]['ticks']-sample[key]) & MASK
+            require(lag < 1<<31, 'marker precedes sample boundary')
+            boundaries[key] = timeline[m[kind]]-lag
+            require(timeline[m[previous]] <= boundaries[key] <= timeline[m[kind]], 'sample boundary outside its causal markers')
+        require((max(timeline[m[11]],timeline[m[13]])-boundaries['start'])*1_000_000_000 <= sample['window_ns']*hz,
+                'sample trace outside wall bound')
         ready = [i for i in range(m[10]+1,m[13]) if events[i]['kind']==1 and events[i]['tid']==receiver and events[i]['detail'] in (1,2)]
         resumes = [i for i in range(m[10]+1,m[13]) if events[i]['kind']==3 and events[i]['tid']==receiver]
         require(ready and resumes and ready[0]<resumes[-1], 'missing correlated ready/resume edges')
