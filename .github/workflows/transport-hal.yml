@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'hal/transport/**'
+      - 'hal/storage/**'
+      - 'hal/camera/**'
       - 'hal/common/**'
       - 'hal/support/**'
       - 'app/**'
@@ -14,6 +16,7 @@ on:
       - 'tools/platform_config.py'
       - 'tools/check-hal-isolation.py'
       - 'tests/host/test_transport_isolation.py'
+      - 'tests/host/test-native-runner.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/transport-hal.yml'
@@ -50,8 +53,10 @@ jobs:
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-applications --bin nxrs
       - name: Real loopback UDP without a hardware profile
         run: |
-          env -u NXRS_PLATFORM cargo test --locked -p nxrs-transport --test std_udp
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-transport --test std_udp --test typed_udp
           env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
+      - name: CLI disk and UDP outputs under unset, mock and native profiles
+        run: python tests/host/test-native-runner.py
       - name: Lint portable and native transport selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
