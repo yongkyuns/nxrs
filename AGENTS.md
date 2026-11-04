@@ -51,23 +51,34 @@ requirements, not aspirational guidance.
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit mocks, not a second OS identity via feature/cfg values.
-- Group capability admission, selected exports and acquisition in each HAL's
-  `src/platform/mod.rs`. Select one source module as `selected`, followed by one
-  `pub use selected::*;` (crate-visible for private providers). Keep constructors
-  and unavailable stubs in the selected implementation, and host source-injection
-  witnesses in separate test wiring. Gate a coherent module once instead of repeating its
-  condition on each type, implementation and constructor. Keep model features
-  in the detector HAL; services consume `detector::Detector` directly, without
-  model feature forwarding or compatibility facades. Qualification controls
-  belong in fixtures and named experiment cases, not production platform APIs.
-  Use one `probe` feature for optional diagnostics and test witnesses. Ordinary
-  tests and executables need no feature. Product profiles select a detector model
-  and execution budget; build frontends derive its internal dependency features
-  automatically when the product consumes detection. Do not add manual model
-  switches, a second model-selection environment variable, or model features to
-  app/service manifests. Explicit model features are for HAL qualification only.
-  Model dependencies remain explicit in the detector HAL; benchmark choices use
-  typed cases, never boolean cfg aliases or a feature for each measurement axis.
+- Group capability admission and acquisition selection in each HAL's
+  `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
+  and unavailable stubs in those implementations, and host source-injection
+  witnesses in separate test wiring. Prefer fixed named exports. The selector
+  must not contain implementation bodies or force its entire public namespace
+  into the crate root. A crate's public API should be explicit in `lib.rs`;
+  private placeholder/backend types need not become public to support `open()`.
+  Gate a coherent module once instead of repeating its condition on each type,
+  implementation and constructor. Existing private selector globs can be
+  migrated incrementally; the audit must not require wildcard exports.
+  Shared file replay is explicit functionality, not a platform backend:
+  `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
+  default and no hardware-profile requirement. Its native CLI forwards that
+  functionality normally; core-only library fixtures disable the CLI defaults.
+  Do not reintroduce OS whitelists or unavailable replay stubs. See
+  `hal/camera/README.md` for the public API and compatibility aliases.
+  Keep model features in the detector HAL; services consume `detector::Detector`
+  directly, without model feature forwarding or compatibility facades.
+  Qualification controls belong in fixtures and named experiment cases, not
+  production platform APIs. Use one `probe` feature for optional diagnostics
+  and test witnesses. Ordinary tests and executables need no diagnostic feature.
+  Product profiles select a detector model and execution budget; build frontends
+  derive its internal dependency features automatically when the product consumes
+  detection. Do not add manual model switches, a second model-selection
+  environment variable, or model features to app/service manifests. Explicit
+  model features are for HAL qualification only. Model dependencies remain
+  explicit in the detector HAL; benchmark choices use typed cases, never boolean
+  cfg aliases or a feature for each measurement axis.
 - Hardware acquisition is event-driven. GNSS UART reads and IMU FIFO
   draining belong to HAL providers, never service polling timers. Services receive
   normalized typed messages through bounded channels. ISRs and interrupt-context callbacks only

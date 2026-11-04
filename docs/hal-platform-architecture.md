@@ -47,13 +47,15 @@ Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
 not branch on `target_os`, `hal_enabled`, `hal_mock`, or platform environment
 variables. Rust model features select model code, never an OS.
-Each HAL's `src/platform/mod.rs` selects one source module as `selected` and
-re-exports it with one `pub use selected::*;` line (crate-visible for private
-providers). Keep constructors and unavailable stubs in those selected modules,
-not inline in the selector. `cfg_attr(path = ...)` makes the OS-to-source mapping
+Each HAL's `src/platform/mod.rs` selects source modules as `selected` and
+re-exports only selected items. Prefer fixed named factory exports; do not
+require a wildcard or let backend exports implicitly define the crate's public
+API. Keep constructors and unavailable stubs in those selected modules, not
+inline in the selector. `cfg_attr(path = ...)` makes the OS-to-source mapping
 explicit. Identical Rust implementations remain ordinary shared modules outside
-`platform/`; selecting their acquisition exports does not duplicate them per OS.
-Native source injection for host unit tests belongs in separate test wiring.
+`platform/`; selecting acquisition does not duplicate them per OS. Native source
+injection for host unit tests belongs in separate test wiring. Existing private
+selector globs can be migrated incrementally as public surfaces are made explicit.
 
 Platform factories supply resource budgets such as worker stack size. Providers
 report capabilities; shared behavior does not infer them from the OS name.
@@ -119,6 +121,8 @@ NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
 Explicit platform builds use the shared Rust profile resolver.
 A build without `NXRS_PLATFORM`
 compiles portable contracts/common code, with no implicit hardware or mock.
+Explicit software functionality, such as camera file replay, may be requested
+through Cargo without hardware admission; it does not select a physical backend.
 
 `NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT as well as the
 existing native file/socket adapters. Both reuse their capability's controller
@@ -131,8 +135,8 @@ observation and temporary station activation, plus BlueZ BLE scanning. Both
 Linux bridges use GIO/D-Bus on their existing Rust workers; they refuse ambiguous
 adapters and do not change host radio power. The scanner uses fresh BlueZ report
 signals, local UUID filtering and daemon-scoped opaque peer identities. Cached
-device objects alone are not discoveries. Discovery start/stop retains ownership
-through uncertain replies; callbacks retire before release. Linux GATT uses the
+device objects alone are not discoveries. Discovery is bounded/best-effort.
+Discovery start/stop retains ownership through uncertain replies; callbacks retire before release. Linux GATT uses the
 same public client API with a private native GIO executor, described below.
 Private-bus tests cover IPC and lifecycle, not Linux RF hardware.
 The GIO dependency is selected only for these native bridges, not embedded or
@@ -204,6 +208,18 @@ exists. Providers are not public namespaces. Product code uses the capability
 contract and `open()`; private provider contracts are typed Rust too.
 Some older capabilities still export selected types for qualification fixtures.
 
+The camera crate now defines its fixed public factory explicitly in `lib.rs`.
+`open() -> Result<impl Camera, DeviceError>` hides both live and unavailable
+implementation types. Its selector contains only acquisition wiring and named
+exports; replay is not a desktop backend or an unavailable stub.
+The additive, opt-in `replay` Cargo feature exposes `camera::replay::open` and
+`camera::replay::ReplayCamera` on std-capable targets, independently of a camera
+binding. Contract-only builds and hardware consumers need not compile replay.
+The native CLI forwards this functionality in Cargo; core-only library fixtures
+use `default-features = false` for the CLI package. Existing root replay names
+remain explicit compatibility aliases under that feature, not platform exports.
+See [camera organization and verification](../hal/camera/README.md).
+
 API/controller modules forbid unsafe Rust. The capability root denies unsafe
 code; only reviewed native adapter modules permit it. Unselected provider
 modules are excluded by conditional compilation. Host-injected unit tests
@@ -226,6 +242,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 | --- | --- | --- |
 | `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
+| `replay` | Camera HAL and its consumers' Cargo manifests | Include explicit std file replay; does not select or require a hardware backend |
 | `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |
 | `probe` | Owning crate and qualification fixtures | Enable optional measurements and test witnesses |
 
@@ -251,8 +268,10 @@ desktop OS profiles alone are qualification bindings without a product model.
 Model evaluation examples live beside the HAL's qualification code.
 
 Use `probe` as the single opt-in name for diagnostic instrumentation and SDK
-witnesses. Ordinary tests use `cfg(test)` and named test targets. Do not add a
-separate feature for each probe, test command, CLI or integration executable.
+witnesses. Ordinary tests use `cfg(test)` and named test targets; software-feature
+requirements such as replay belong in Cargo's `required-features`, not in OS
+or hardware-admission guards. Do not add a separate feature for each probe,
+test command, CLI or integration executable.
 
 Benchmark workloads use validated, typed experiment cases selected once by their
 build runner. Compile those choices into constants or concrete I/O types; do not
@@ -530,7 +549,9 @@ Radio fixtures are functional tests, not refreshed size/speed benchmarks.
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_deployment.py
 python3 -m unittest discover -s tests/host -p test_hal_boundaries.py
+python3 -m unittest discover -s tests/host -p test_camera_organization.py
 python3 tools/check-hal-isolation.py --out target/hal-isolation-new
+cargo test --locked -p nxrs-camera --features replay
 cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
 ~~~
 
