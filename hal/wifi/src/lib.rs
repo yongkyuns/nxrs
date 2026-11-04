@@ -17,7 +17,7 @@ mod worker;
 mod acquisition;
 pub use acquisition::{open, open_for_quiescence, open_with_storage};
 
+#[cfg(test)]
+mod test_support;
 #[cfg(all(test, unix, not(target_os = "nuttx")))]
-#[allow(dead_code, unused_imports)]
-#[path = "platform/nuttx/mod.rs"]
-mod nuttx_tests;
+use test_support::nuttx_tests;

@@ -3,4 +3,4 @@
 #[cfg_attr(hal_mock, path = "mock.rs")]
 #[cfg_attr(not(any(hal_enabled, hal_mock)), path = "unbound.rs")]
 mod selected;
-pub use selected::*;
+pub use selected::open;
