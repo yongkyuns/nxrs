@@ -51,6 +51,24 @@ all archived firmware was replayed by the integration's current validators.
 Profile resolution is lazy: importing the P0 build helpers for offline receipt
 inspection does not compile the frontend or contact a package registry.
 
+## ARM/QEMU benchmark UART compatibility
+
+The MPS2 AN521 default profile is identical to current main. Under the
+recorded standard-app QEMU runs, the default TX/RX IRQ values 49/48 completed
+the NuttShell prompt and std-app executions; the earlier integrated 48/49
+variant printed the banner but did not reach the prompt. The P2 benchmark's
+earlier passing full ARM corpus used 48/49; a subsequent 49/48 build again
+stopped before the prompt. Those are **fixture-specific CI observations**,
+not a universal QEMU/SoC IRQ mapping claim.
+
+To preserve both accepted runtime fixtures, the P0/P1/P2 firmware commands
+select the 48/49 mapping on `mps2-an521-mock` through two explicit
+`--kconfig-integer SYMBOL=N` requests. The Rust build frontend validates
+symbol syntax, typed nonnegative integer values, duplicates, NuttX-only use,
+and the resolved `.config` requirements. Ordinary applications do not make
+those requests and retain the main profile. New builds receive new firmware
+and source identities; archived captures/configurations are not rewritten.
+
 ## Evidence and privacy
 
 The selected P0/P1 result files remain byte-for-byte unchanged. P2 retains only

@@ -65,6 +65,7 @@ NuttX qualification:
   --target-c-source <path>    Add a target C source; repeat as needed
   --kconfig-enable <symbol>   Enable a Kconfig symbol; repeat as needed
   --kconfig-disable <symbol>  Disable a Kconfig symbol; repeat as needed
+  --kconfig-integer <S=N>    Set integer Kconfig symbol; repeat as needed
   --abi-profile <profile>     Select active or minimal ABI checks
   --size-optimized            Enable size qualification settings
   --trace-only-backtrace      Use trace-only backtraces
@@ -163,6 +164,16 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             "--kconfig-disable" => options
                 .disable
                 .push(args.next().ok_or("missing symbol")?.clone()),
+            "--kconfig-integer" => {
+                let assignment = args.next().ok_or("missing Kconfig integer assignment")?;
+                let (symbol, number) = assignment
+                    .split_once('=')
+                    .ok_or("invalid Kconfig integer assignment")?;
+                let number = number
+                    .parse::<u32>()
+                    .map_err(|_| "invalid Kconfig integer value")?;
+                options.integers.push((symbol.to_owned(), number));
+            }
             "--abi-profile" => {
                 options.abi = Some(args.next().ok_or("missing ABI profile")?.clone())
             }

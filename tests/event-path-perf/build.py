@@ -174,6 +174,9 @@ def firmware_command(platform: str, out: Path, kernel_optimization: str,
             "--platform", platform, "--out", out / "firmware", "--abi-profile", "active",
             "--target-c-source", BASE / "native.c",
             "--target-c-source", HERE / "native-timer.c"]
+    if platform == "mps2-an521-mock":
+        argv += ["--kconfig-integer", "CMSDK_UART0_TX_IRQ=48",
+                 "--kconfig-integer", "CMSDK_UART0_RX_IRQ=49"]
     if kernel_optimization == "o2":
         argv += ["--kconfig-disable", "DEBUG_NOOPT", "--kconfig-disable", "DEBUG_FULLOPT",
                  "--kconfig-enable", "DEBUG_CUSTOMOPT"]

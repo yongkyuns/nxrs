@@ -189,11 +189,15 @@ def build_environment(out, mode, original):
 
 
 def firmware_command(platform, out, manifest):
-    return ["bash", ROOT / "tools/build-nuttx-std-app.sh",
+    argv = ["bash", ROOT / "tools/build-nuttx-std-app.sh",
             "--app-manifest", manifest, "--app-package", PACKAGE, "--bin", BINARY,
             "--command", COMMAND, "--priority", "100", "--stack-size", "65536",
             "--platform", platform, "--out", out / "firmware", "--abi-profile", "active",
             "--target-c-source", out / "workspace/tests/std-channel-perf/native.c"]
+    if platform == "mps2-an521-mock":
+        argv += ["--kconfig-integer", "CMSDK_UART0_TX_IRQ=48",
+                 "--kconfig-integer", "CMSDK_UART0_RX_IRQ=49"]
+    return argv
 
 
 def cargo_source_proof(out, receipt):

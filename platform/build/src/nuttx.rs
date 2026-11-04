@@ -377,6 +377,11 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         values.insert(key.into(), "n".into());
         requirements.push(line(key, "n"));
     }
+    for (key, value) in &options.integers {
+        let value = value.to_string();
+        values.insert(key.clone(), value.clone());
+        requirements.push(line(key, &value));
+    }
     let standard = standard();
     requirements.extend(standard.iter().map(|(k, v)| line(k, v)));
     requirements.push("CONFIG_BUILD_FLAT=y".into());

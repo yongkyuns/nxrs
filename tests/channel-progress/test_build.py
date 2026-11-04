@@ -193,5 +193,18 @@ class CompiledSourceTests(unittest.TestCase):
                     build.cargo_source_proof(root, receipt)
 
 
+
+class ArmUartBenchmarkConfig(unittest.TestCase):
+    def test_irq_override_is_explicit_and_arm_only(self):
+        expected = ["CMSDK_UART0_TX_IRQ=48", "CMSDK_UART0_RX_IRQ=49"]
+        for platform in build.baseline.PLATFORMS:
+            with self.subTest(platform=platform):
+                command = build.firmware_command(platform, Path("/probe"), Path("/probe/workspace/tests/channel-progress/rust/Cargo.toml"))
+                configured = [command[index + 1] for index, word in enumerate(command[:-1])
+                              if word == "--kconfig-integer"]
+                self.assertEqual(configured, expected if platform == "mps2-an521-mock" else [])
+
+
+
 if __name__ == "__main__":
     unittest.main()

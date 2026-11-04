@@ -137,6 +137,11 @@ def firmware_command(platform: str, out: Path, kernel_optimization: str,
             "--command", COMMAND, "--priority", "100", "--stack-size", "65536",
             "--platform", platform, "--out", out / "firmware", "--abi-profile", "active",
             "--target-c-source", HERE / "native.c"]
+    if platform == "mps2-an521-mock":
+        # Benchmark-specific UART mapping; ordinary std apps retain the
+        # known-good shared platform default (49 TX / 48 RX).
+        argv += ["--kconfig-integer", "CMSDK_UART0_TX_IRQ=48",
+                 "--kconfig-integer", "CMSDK_UART0_RX_IRQ=49"]
     if kernel_optimization == "o2":
         # DEBUG_CUSTOMOPT's pinned default is -O2; verify the resolved value below.
         # Assertions/diagnostics stay at their platform settings.

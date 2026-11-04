@@ -454,5 +454,18 @@ class BuildReceiptControls(unittest.TestCase):
                 self.assertEqual(record["runtime_kind"], "unmeasured")
 
 
+
+class ArmUartBenchmarkConfig(unittest.TestCase):
+    def test_irq_override_is_explicit_and_arm_only(self):
+        expected = ["CMSDK_UART0_TX_IRQ=48", "CMSDK_UART0_RX_IRQ=49"]
+        for platform in build.PLATFORMS:
+            with self.subTest(platform=platform):
+                command = build.firmware_command(platform, Path("/probe"), "baseline")
+                configured = [command[index + 1] for index, word in enumerate(command[:-1])
+                              if word == "--kconfig-integer"]
+                self.assertEqual(configured, expected if platform == "mps2-an521-mock" else [])
+
+
+
 if __name__ == "__main__":
     unittest.main()
