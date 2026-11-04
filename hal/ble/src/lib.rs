@@ -5,7 +5,7 @@
 #[cfg(any(hal_enabled, test))]
 extern crate std;
 mod api;
-pub use api::*;
+pub use api::{Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, OperationId, PeerId, ProviderStatus, Rejected, Request, RequestId, SessionId, Uuid};
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 pub mod gatt;

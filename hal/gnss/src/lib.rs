@@ -15,7 +15,7 @@ mod mock_acquisition;
 mod platform;
 #[cfg(any(test, hal_enabled))]
 mod receiver;
-pub use platform::*;
+pub use platform::open;
 
 #[cfg(test)]
 mod session_tests;

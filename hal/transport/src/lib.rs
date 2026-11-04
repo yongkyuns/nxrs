@@ -38,13 +38,14 @@ mod platform;
     )
 ))]
 #[allow(dead_code)]
-mod udp;
-#[cfg(any(
-    hal_enabled,
-    hal_mock,
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub use platform::*;
+pub mod udp;
+#[cfg(any(hal_enabled, hal_mock))]
+pub use platform::open;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
+pub use platform::transport;
+#[cfg(hal_mock)]
+pub use platform::MockTransport;
+
+// Explicit shared Rust functionality, independent of HAL admission.
+#[cfg(any(hal_enabled, test, any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx")))]
+pub use udp::{UdpSender, UdpTransport};

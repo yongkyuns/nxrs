@@ -17,7 +17,7 @@ mod cadence;
 #[path = "../../../driver/mock_acquisition.rs"]
 mod mock_acquisition;
 mod platform;
-pub use platform::*;
+pub use platform::open;
 
 #[cfg(all(test, unix))]
 #[path = "platform/nuttx/irq_tests.rs"]

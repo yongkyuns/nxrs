@@ -59,8 +59,12 @@ requirements, not aspirational guidance.
   into the crate root. A crate's public API should be explicit in `lib.rs`;
   private placeholder/backend types need not become public to support `open()`.
   Gate a coherent module once instead of repeating its condition on each type,
-  implementation and constructor. Existing private selector globs can be
-  migrated incrementally; the audit must not require wildcard exports.
+  implementation and constructor. All HAL selectors must name their exports;
+  wildcard re-exports in selectors or crate roots are forbidden by the audit.
+  Storage recording and transport UDP are explicitly accessible as
+  `storage::recording` and `transport::udp` on qualified std targets, regardless
+  of hardware admission. Legacy root factories preserve profile-based selection
+  and must never silently become software fallbacks.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
   default and no hardware-profile requirement. Its native CLI forwards that

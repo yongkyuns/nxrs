@@ -8,4 +8,6 @@ mod selected;
 #[cfg(not(all(hal_enabled, any(feature = "person-model", feature = "pico-model"))))]
 #[path = "unbound.rs"]
 mod selected;
-pub use selected::*;
+pub use selected::open;
+#[cfg(all(feature = "probe", feature = "pico-model"))]
+pub(crate) use selected::kernel;

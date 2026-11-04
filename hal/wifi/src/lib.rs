@@ -5,7 +5,7 @@
 #[cfg(any(hal_enabled, test))]
 extern crate std;
 mod api;
-pub use api::*;
+pub use api::{AccessPoint, Capabilities, Command, Completion, CredentialStorage, Credentials, DeliveryError, Error, Event, EventKind, LinkState, OperationId, Passphrase, ProviderStatus, QuiescenceControl, Rejected, Request, RequestId, Security, SessionId, Ssid, Wifi};
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 mod platform;

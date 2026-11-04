@@ -40,6 +40,23 @@ class HalBoundariesTests(unittest.TestCase):
                     self.assertTrue(self.errors())
                     path.unlink()
 
+    def test_repo_hal_public_surfaces_are_explicit(self):
+        selectors = sorted(ROOT.glob('hal/*/src/platform/mod.rs'))
+        self.assertEqual(len(selectors), 15, 'all capability selectors must be inspected')
+        for selector in selectors:
+            with self.subTest(path=selector.relative_to(ROOT)):
+                code = selector.read_text()
+                self.assertIn('mod selected;', code)
+                self.assertNotIn('selected::*', code)
+                self.assertNotRegex(code, r'\b(?:fn|struct|enum|trait|impl)\b')
+                root = selector.parents[1] / 'lib.rs'
+                self.assertTrue(root.is_file())
+                self.assertNotRegex(root.read_text(), r'pub\s+use\s+(?:api|platform)::\*\s*;')
+        storage = (ROOT / 'hal/storage/src/lib.rs').read_text()
+        transport = (ROOT / 'hal/transport/src/lib.rs').read_text()
+        self.assertIn('pub mod recording;', storage)
+        self.assertIn('pub mod udp;', transport)
+
     def test_platform_wiring_and_ordinary_test_selection_are_allowed(self):
         self.write('hal/demo/src/lib.rs', '#[cfg(target_os = "linux")] mod selected;')
         self.write('hal/demo/src/worker.rs', '#[cfg(test)] mod tests; // no target_os selection\n')

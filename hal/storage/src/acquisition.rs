@@ -1,4 +1,2 @@
-pub use crate::recording::{
-    read_record, storage, storage as open, FileRecorder, RecordedFrame, StorageLimits,
-    RECORD_HEADER_BYTES,
-};
+//! Platform admission to the shared Rust file-recorder factory.
+pub use crate::recording::{storage, storage as open};

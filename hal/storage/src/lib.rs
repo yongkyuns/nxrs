@@ -54,18 +54,21 @@ mod record;
     )
 ))]
 #[allow(dead_code)]
-mod recording;
-#[cfg(any(
-    hal_enabled,
-    hal_mock,
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub use platform::*;
+pub mod recording;
+#[cfg(any(hal_enabled, hal_mock))]
+pub use platform::open;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
+pub use platform::storage;
+#[cfg(hal_mock)]
+pub use platform::{MockStorage, StoredFrame};
+#[cfg(all(hal_enabled, target_os = "nuttx"))]
+pub use platform::FileStorage;
 
 #[cfg(all(test, unix, not(target_os = "nuttx")))]
 #[allow(dead_code, unused_imports)]
 #[path = "platform/nuttx/mod.rs"]
 mod nuttx_tests;
+
+// Explicit shared Rust functionality, independent of HAL admission.
+#[cfg(any(hal_enabled, test, any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx")))]
+pub use recording::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};

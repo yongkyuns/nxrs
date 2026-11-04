@@ -6,7 +6,11 @@ extern crate std;
 mod api;
 pub use api::{DeviceError, Led, LedSet};
 mod platform;
-pub use platform::*;
+pub use platform::open;
+#[cfg(hal_mock)]
+pub use platform::MockLeds;
+#[cfg(all(hal_enabled, target_os = "nuttx"))]
+pub use platform::UserLeds;
 
 #[cfg(test)]
 mod tests {
