@@ -43,6 +43,13 @@ def run(rows):
 
 
 class TraceControls(unittest.TestCase):
+    def test_baseline_disables_parent_without_requesting_hidden_children(self):
+        self.assertEqual(capture.builder.instrumentation_options('baseline'),
+                         ['--kconfig-disable','SCHED_INSTRUMENTATION'])
+        trace=capture.builder.instrumentation_options('trace')
+        self.assertIn('SCHED_INSTRUMENTATION_IRQHANDLER',trace)
+        self.assertNotIn('SCHED_INSTRUMENTATION_SYSCALL',trace)
+
     def test_correlated_intervals_and_public_allowlist(self):
         result = run(fixture())
         self.assertEqual(result['correlated_ticks']['ready_to_receive']['p50'],90)

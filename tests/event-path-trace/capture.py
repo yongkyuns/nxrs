@@ -61,6 +61,8 @@ def receipt(directory):
     config = builder.p2.baseline.config_values(p2.checked_file(directory,record['config_file']))
     for name in ('SCHED_INSTRUMENTATION','SCHED_INSTRUMENTATION_SWITCH','SCHED_INSTRUMENTATION_IRQHANDLER','DRIVERS_NOTE'):
         require((config.get('CONFIG_'+name)=='y') == (record['mode']=='trace'), 'wrong instrumentation configuration')
+    for name in builder.DISABLED:
+        require(config.get('CONFIG_'+name) != 'y', 'unexpected note path')
     return record
 
 

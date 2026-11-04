@@ -29,6 +29,28 @@ PINS = (
 IDENTITY = ('schema','package','mode','source_sha256','kernel_revision','apps_revision',
             'compiler_identity','std_array_sha256','std_library_tree_sha256','crossbeam',
             'build_nonce','platform','clock_request','boot_image_profile','build_environment')
+ENABLED = ('SCHED_INSTRUMENTATION','SCHED_INSTRUMENTATION_SWITCH',
+           'SCHED_INSTRUMENTATION_IRQHANDLER','DRIVERS_NOTE')
+DISABLED = ('SCHED_INSTRUMENTATION_FILTER','SCHED_INSTRUMENTATION_CSECTION',
+            'SCHED_INSTRUMENTATION_PREEMPTION','SCHED_INSTRUMENTATION_SYSCALL',
+            'SCHED_INSTRUMENTATION_HEAP','SCHED_INSTRUMENTATION_DUMP',
+            'SCHED_INSTRUMENTATION_SPINLOCKS','SCHED_INSTRUMENTATION_WDOG',
+            'SCHED_INSTRUMENTATION_FUNCTION','DRIVERS_NOTERAM','DRIVERS_NOTELOG',
+            'DRIVERS_NOTESNAP','DRIVERS_NOTEFILE','DRIVERS_NOTELOWEROUT')
+
+
+def instrumentation_options(mode):
+    # Hidden dependent symbols are omitted by Kconfig, not explicit "not set".
+    # Disable the parent in baseline; verify every child after resolution.
+    if mode == 'baseline':
+        return ['--kconfig-disable','SCHED_INSTRUMENTATION']
+    if mode != 'trace': raise ValueError('unknown instrumentation mode')
+    options = []
+    for name in ENABLED: options += ['--kconfig-enable',name]
+    for name in DISABLED:
+        # SYSCALL is itself hidden when ARCH_HAVE_SYSCALL_HOOKS is absent.
+        if name != 'SCHED_INSTRUMENTATION_SYSCALL': options += ['--kconfig-disable',name]
+    return options
 
 
 def canonical(value):
@@ -102,14 +124,7 @@ def build(out, mode):
             '--priority','100','--stack-size','65536','--platform',PLATFORM,'--out',out/'firmware',
             '--abi-profile','active','--target-c-source',ROOT/'tests/std-channel-perf/native.c',
             '--target-c-source',HERE/'native.c']
-        for name in ['SCHED_INSTRUMENTATION_FILTER','SCHED_INSTRUMENTATION_CSECTION',
-                     'SCHED_INSTRUMENTATION_PREEMPTION','SCHED_INSTRUMENTATION_SYSCALL',
-                     'SCHED_INSTRUMENTATION_HEAP','SCHED_INSTRUMENTATION_DUMP','DRIVERS_NOTERAM',
-                     'DRIVERS_NOTELOG','DRIVERS_NOTESNAP']:
-            command += ['--kconfig-disable',name]
-        for name in ['SCHED_INSTRUMENTATION','SCHED_INSTRUMENTATION_SWITCH',
-                     'SCHED_INSTRUMENTATION_IRQHANDLER','DRIVERS_NOTE']:
-            command += ['--kconfig-enable' if mode=='trace' else '--kconfig-disable',name]
+        command += instrumentation_options(mode)
         record['build_command']=[str(x) for x in command]
         p2.run(command,env=env,log=out/'build.log')
         firmware=out/'firmware'
@@ -118,10 +133,11 @@ def build(out, mode):
         if registry(metadata)!=record['crossbeam']:raise ValueError('registry source drift')
         config=firmware/'resolved.config'
         resolved=p2.baseline.config_values(config)
-        for name in ['SCHED_INSTRUMENTATION','SCHED_INSTRUMENTATION_SWITCH',
-                     'SCHED_INSTRUMENTATION_IRQHANDLER','DRIVERS_NOTE']:
+        for name in ENABLED:
             if (resolved.get('CONFIG_'+name)=='y') != (mode=='trace'):
                 raise ValueError('instrumentation config mismatch: '+name)
+        for name in DISABLED:
+            if resolved.get('CONFIG_'+name)=='y': raise ValueError('unexpected note path: '+name)
         p2.validate_configuration(config,'baseline','native-counter',PLATFORM)
         original=firmware/'nuttx'/profile['image']
         image,fields,boot_artifacts=p2.boot_image.prepare(firmware,original,out)
