@@ -1,0 +1,545 @@
+{
+  "schema": "std-channel-alternation-v1",
+  "run_id": "4-270000000",
+  "build_id": "01a673e341e87829750f1e46bf41d0f31aa2e126b115260e146e95952f8ef8aa",
+  "sample_count": 1000,
+  "warmup": 100,
+  "capacity": 8,
+  "sampling": {
+    "profile": "setup-counter-delay-v1",
+    "seed": 1,
+    "fixed_delay_us": 0,
+    "requested_pacing_ticks": 236025120,
+    "retained_window_ns": 1080000000,
+    "counter_read_probe": {
+      "count": 64,
+      "min_ticks": 20,
+      "max_ticks": 1447,
+      "subtracted_from_samples": false
+    },
+    "max_send_sample_indices": [
+      104
+    ],
+    "max_receive_sample_indices": [
+      796
+    ],
+    "phase_coverage_qualified": false,
+    "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+  },
+  "retained_index_mod_2": [
+    {
+      "remainder": 0,
+      "send_call": {
+        "count": 500,
+        "min_ticks": 11621,
+        "p50_ticks": 11621,
+        "p99_ticks": 11621,
+        "max_ticks": 13268,
+        "distinct_ticks": 4,
+        "most_common": [
+          {
+            "ticks": 11621,
+            "count": 497
+          },
+          {
+            "ticks": 11622,
+            "count": 1
+          },
+          {
+            "ticks": 12221,
+            "count": 1
+          },
+          {
+            "ticks": 13268,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 500,
+        "min_ticks": 3673,
+        "p50_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 5232,
+        "distinct_ticks": 3,
+        "most_common": [
+          {
+            "ticks": 3673,
+            "count": 498
+          },
+          {
+            "ticks": 3674,
+            "count": 1
+          },
+          {
+            "ticks": 5232,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 1,
+      "send_call": {
+        "count": 500,
+        "min_ticks": 6600,
+        "p50_ticks": 6600,
+        "p99_ticks": 6606,
+        "max_ticks": 8244,
+        "distinct_ticks": 4,
+        "most_common": [
+          {
+            "ticks": 6600,
+            "count": 373
+          },
+          {
+            "ticks": 6606,
+            "count": 125
+          },
+          {
+            "ticks": 7284,
+            "count": 1
+          },
+          {
+            "ticks": 8244,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 500,
+        "min_ticks": 2990,
+        "p50_ticks": 2990,
+        "p99_ticks": 2997,
+        "max_ticks": 2997,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 2990,
+            "count": 375
+          },
+          {
+            "ticks": 2997,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    }
+  ],
+  "transfer_index_mod_2": [
+    {
+      "remainder": 0,
+      "send_call": {
+        "count": 500,
+        "min_ticks": 11621,
+        "p50_ticks": 11621,
+        "p99_ticks": 11621,
+        "max_ticks": 13268,
+        "distinct_ticks": 4,
+        "most_common": [
+          {
+            "ticks": 11621,
+            "count": 497
+          },
+          {
+            "ticks": 11622,
+            "count": 1
+          },
+          {
+            "ticks": 12221,
+            "count": 1
+          },
+          {
+            "ticks": 13268,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 500,
+        "min_ticks": 3673,
+        "p50_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 5232,
+        "distinct_ticks": 3,
+        "most_common": [
+          {
+            "ticks": 3673,
+            "count": 498
+          },
+          {
+            "ticks": 3674,
+            "count": 1
+          },
+          {
+            "ticks": 5232,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 1,
+      "send_call": {
+        "count": 500,
+        "min_ticks": 6600,
+        "p50_ticks": 6600,
+        "p99_ticks": 6606,
+        "max_ticks": 8244,
+        "distinct_ticks": 4,
+        "most_common": [
+          {
+            "ticks": 6600,
+            "count": 373
+          },
+          {
+            "ticks": 6606,
+            "count": 125
+          },
+          {
+            "ticks": 7284,
+            "count": 1
+          },
+          {
+            "ticks": 8244,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 500,
+        "min_ticks": 2990,
+        "p50_ticks": 2990,
+        "p99_ticks": 2997,
+        "max_ticks": 2997,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 2990,
+            "count": 375
+          },
+          {
+            "ticks": 2997,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    }
+  ],
+  "transfer_index_mod_capacity": [
+    {
+      "remainder": 0,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 11621,
+        "p50_ticks": 11621,
+        "p99_ticks": 11621,
+        "max_ticks": 12221,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 11621,
+            "count": 124
+          },
+          {
+            "ticks": 12221,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 3673,
+        "p50_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 5232,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 3673,
+            "count": 124
+          },
+          {
+            "ticks": 5232,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 1,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 6600,
+        "p50_ticks": 6600,
+        "p99_ticks": 6600,
+        "max_ticks": 8244,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 6600,
+            "count": 124
+          },
+          {
+            "ticks": 8244,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 2990,
+        "p50_ticks": 2990,
+        "p99_ticks": 2990,
+        "max_ticks": 2990,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 2990,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 2,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 11621,
+        "p50_ticks": 11621,
+        "p99_ticks": 11621,
+        "max_ticks": 11621,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 11621,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 3673,
+        "p50_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 3673,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 3673,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 3,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 6600,
+        "p50_ticks": 6600,
+        "p99_ticks": 6600,
+        "max_ticks": 7284,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 6600,
+            "count": 124
+          },
+          {
+            "ticks": 7284,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 2990,
+        "p50_ticks": 2990,
+        "p99_ticks": 2990,
+        "max_ticks": 2990,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 2990,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 4,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 11621,
+        "p50_ticks": 11621,
+        "p99_ticks": 11622,
+        "max_ticks": 13268,
+        "distinct_ticks": 3,
+        "most_common": [
+          {
+            "ticks": 11621,
+            "count": 123
+          },
+          {
+            "ticks": 11622,
+            "count": 1
+          },
+          {
+            "ticks": 13268,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 3673,
+        "p50_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 3674,
+        "distinct_ticks": 2,
+        "most_common": [
+          {
+            "ticks": 3673,
+            "count": 124
+          },
+          {
+            "ticks": 3674,
+            "count": 1
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 5,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 6600,
+        "p50_ticks": 6600,
+        "p99_ticks": 6600,
+        "max_ticks": 6600,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 6600,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 2990,
+        "p50_ticks": 2990,
+        "p99_ticks": 2990,
+        "max_ticks": 2990,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 2990,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 6,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 11621,
+        "p50_ticks": 11621,
+        "p99_ticks": 11621,
+        "max_ticks": 11621,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 11621,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 3673,
+        "p50_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 3673,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 3673,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "remainder": 7,
+      "send_call": {
+        "count": 125,
+        "min_ticks": 6606,
+        "p50_ticks": 6606,
+        "p99_ticks": 6606,
+        "max_ticks": 6606,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 6606,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      },
+      "send_to_receive_return": {
+        "count": 125,
+        "min_ticks": 2997,
+        "p50_ticks": 2997,
+        "p99_ticks": 2997,
+        "max_ticks": 2997,
+        "distinct_ticks": 1,
+        "most_common": [
+          {
+            "ticks": 2997,
+            "count": 125
+          }
+        ],
+        "percentile_method": "nearest-rank"
+      }
+    }
+  ],
+  "transfer_index_definition": "zero-based warmup + retained sample index",
+  "internal_channel_slot_observed": false,
+  "last_sample": {
+    "index": 999,
+    "send_ticks": 7284,
+    "receive_ticks": 2990
+  },
+  "terminal_quiescence_verified": true,
+  "root_cause_established": false,
+  "physical_timing_qualified": false,
+  "overhead_subtracted": false,
+  "samples_excluded": 0,
+  "scope": "Descriptive counter-tick distributions from one validated transcript. Transfer index is not an observed internal queue slot. No causal, IRQ-phase, calibrated-time, CPU-cost or representative-load claim.",
+  "transcript_sha256": "1c8c61dffadf6434011f7f85d14471d7546efa53e4b8cc9bae9f14995bead479"
+}

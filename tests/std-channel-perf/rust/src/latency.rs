@@ -1,6 +1,6 @@
 use crate::{
     native::{self, Gate, Result, Schedule, State},
-    pacing::{Observation, Pacing},
+    pacing::{Observation, Pacing, Schedule as ReleaseSchedule},
     Clock, Message, CAPACITY, RECEIVER_PRIORITY, SENDER_PRIORITY, WAIT_MS, WORKER_STACK,
 };
 use std::{
@@ -42,13 +42,14 @@ pub struct Report {
     pub terminal_quiescence_verified: bool,
     release_profile: &'static str,
     release_seed: u32,
+    fixed_delay_us: u32,
     retained_window_ns: u64,
     counter_read_min_ticks: u32,
     counter_read_max_ticks: u32,
 }
 
-pub fn run(samples: u32, warmup: u32, phase_seed: Option<u32>, clock: &Clock) -> Result<Report> {
-    let mut pacing = Pacing::new(phase_seed, samples, warmup)?;
+pub fn run(samples: u32, warmup: u32, schedule: ReleaseSchedule, clock: &Clock) -> Result<Report> {
+    let mut pacing = Pacing::new(schedule, samples, warmup)?;
     let mut counter_read_min_ticks = u32::MAX;
     let mut counter_read_max_ticks = 0;
     // Separate observation, never subtracted from sample latencies.
@@ -243,6 +244,7 @@ pub fn run(samples: u32, warmup: u32, phase_seed: Option<u32>, clock: &Clock) ->
         terminal_quiescence_verified,
         release_profile: pacing.profile(),
         release_seed: pacing.seed(),
+        fixed_delay_us: pacing.fixed_delay_us(),
         retained_window_ns,
         counter_read_min_ticks,
         counter_read_max_ticks,
@@ -271,11 +273,12 @@ impl Report {
             "\"timing_qualified\":false,\"priority_progress_qualified\":false,",
             "\"terminal_quiescence_verified\":{},",
             "\"release_profile\":\"{}\",\"release_seed\":{},\"retained_window_ns\":{},",
+            "\"release_fixed_delay_us\":{},",
             "\"counter_read_probe_count\":64,\"counter_read_min_ticks\":{},\"counter_read_max_ticks\":{},",
             "\"measurement_boundary\":\"send-start-to-recv-return\",\"send_duration_includes_receiver_preemption\":{}}}"),
             run_id, self.samples.len(), verified, nonzero && clock.counter_validated,
             self.terminal_quiescence_verified, self.release_profile, self.release_seed, self.retained_window_ns,
-            self.counter_read_min_ticks, self.counter_read_max_ticks, native::is_nuttx());
+            self.fixed_delay_us, self.counter_read_min_ticks, self.counter_read_max_ticks, native::is_nuttx());
         Ok(())
     }
 }
