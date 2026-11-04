@@ -105,6 +105,19 @@ def self_test(scanner):
             'tests/std-channel-perf/results/2026-11-02-qemu/after-clock-fix/witness-reserved/run/analysis.json',
             'tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-reserved-1/build.json',
             'tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-reserved-1/analysis.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-latency-controls/firmware-receipts/build.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-latency-controls/runs/01-tight/build.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-latency-controls/runs/01-tight/analysis.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/firmware-receipts/latency-rom-digest/build.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/runs/latency-rom-digest-tight-1/build.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/runs/latency-rom-digest-tight-1/analysis.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-reserved/run/build.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/runs/std/mutex-admit-held/run/analysis.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/runs/fifo/fifo-select-published/run/acceptance.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/std-no-repair.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/std-physical.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/fifo-no-repair.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json',
         ]
         for relative in ['tests/rtos-bench/upstream.json','tests/detection/results/control/provenance.json',
                          'tests/detection/results/control/firmware.json','tests/detection/results/control/validation.json',
@@ -133,9 +146,28 @@ def self_test(scanner):
             if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
                 raise ValueError("source-hash line exclusion hides another field or redaction failed")
             path.write_text('{"description":"synthetic clean file"}\n')
+        # The path exception does not broaden the exact field/value shape.
+        # Exercise these at an admitted new cohort-report path.
+        path = source / channel_evidence[-1]
+        for field, value in [
+            (source_field.replace('0006-', '0007-'), source_hash),
+            (source_field, source_hash[:-1]),
+            (source_field, source_hash.replace('f', 'g')),
+        ]:
+            path.write_text(json.dumps({field: value}, indent=2) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or value in output:
+                raise ValueError("source-hash exclusion escaped its field/value shape or redaction failed")
+        path.write_text('{"description":"synthetic clean file"}\n')
         for relative in [
             'tests/std-channel-perf/results/2026-11-02-qemu/after-clock-fix/witness-reserved/credentials.json',
             'tests/std-channel-perf/results/2026-11-03-qemu/after-clock-fix/witness-reserved/build.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-other/runs/01-tight/build.json',
+            'tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/runs/latency-rom-digest-tight-1/acceptance.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/runs/std/mutex-admit-held/run/credentials.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/runs/other/example/run/build.json',
+            'tests/channel-progress/results/2026-11-04-esp32s3/std-report.json',
+            'tests/channel-progress/results/2026-11-05-esp32s3/runs/std/mutex-admit-held/run/build.json',
         ]:
             path = source / relative
             path.parent.mkdir(parents=True, exist_ok=True)

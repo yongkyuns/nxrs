@@ -44,9 +44,14 @@ regexTarget = "line"
 regexes = ['^\s*"tests/nuttx-std/wifi/ffi/credentials\.c":\s*"[0-9a-f]{64}",?\s*$']
 
 [[allowlists]]
-description = "Archived std-channel build provenance records the public pthread-key patch SHA-256"
+description = "Archived channel build provenance records the public pthread-key patch SHA-256"
 targetRules = ["generic-api-key"]
 condition = "AND"
-paths = ['^tests/std-channel-perf/results/2026-11-02-(qemu|esp32s3)/([^/]+/)+(build|analysis)\.json$']
+paths = [
+  '^tests/std-channel-perf/results/2026-11-02-(qemu|esp32s3)/([^/]+/)+(build|analysis)\.json$',
+  '^tests/std-channel-perf/results/2026-11-03-esp32s3-(latency-controls|simpleboot)/([^/]+/)+(build|analysis)\.json$',
+  '^tests/channel-progress/results/2026-11-04-esp32s3/runs/(crossbeam|std|fifo)/[^/]+/run/(build|analysis|acceptance)\.json$',
+  '^tests/channel-progress/results/2026-11-04-esp32s3/(std|fifo)-(no-repair|physical)\.json$',
+]
 regexTarget = "line"
 regexes = ['^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"[0-9a-f]{64}",?\s*$']
