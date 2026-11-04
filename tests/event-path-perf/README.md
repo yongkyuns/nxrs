@@ -6,6 +6,11 @@ This implements the transport and scheduling controls from
 It measures the actual `messaging` facade and pinned Crossbeam 0.5.17 with
 statically dispatched Rust callers. It does not change a production transport.
 
+For the engineering conclusions and the next board run, start with the
+[P2 decision report](DECISION-REPORT.md). It records the compiled facade review,
+the latest physical P0/P1 observations, and an eighteen-capture first campaign
+using the existing cases. New P2 physical timing results remain pending.
+
 ## Experiment contract
 
 The baseline is a checked 16-byte payload and capacity eight. The separately
@@ -425,9 +430,9 @@ single-core QEMU boot, capacity eight and a checked 16-byte payload.
 All three reservation cases recorded a stall at the original priorities, then
 delivered and joined only after diagnostic priority recovery. Their successful
 CI diagnosis preserves a **failed no-repair contract**. The three controls
-passed only their named interleavings. P1's ESP32-S3 images are build-only;
-physical Crossbeam replication and a production contract requiring no repair
-remain open.
+passed only their named interleavings. That archived cohort contained no
+physical Crossbeam captures; the later fifteen-case physical follow-up is
+described below. A general production contract requiring no repair remains open.
 
 That P1 revision also passes seven prewarmed std mutex/condition-variable
 witnesses without repair on ARM/QEMU: held/released single-item admission and
@@ -435,8 +440,8 @@ retrieval, blocked publication, publication before waiting, and blocked closure.
 The held cases make one `try_lock` attempt, return Busy, preserve ownership and
 transfer no value. These are primitive contracts with one item; they do not
 define a bounded queue's overload, retry, fairness or multi-class owner policy.
-Their ESP32-S3 evidence is build-only. The three Crossbeam reservation failures
-remain failures in the complete cohort.
+The physical follow-up below adds seven std-primitive cases. The three Crossbeam
+reservation failures remain failures in the complete ARM cohort.
 
 At revision `d6f76e4d`, P1 also defines the separate
 [`equal-fifo-run-to-block-v1` contract](https://github.com/yongkyuns/nxrs/blob/d6f76e4d21dbbb97167b32899da88e8137ffff8d/tests/channel-progress/FIFO-SCHEDULING-AUDIT.md).
@@ -449,6 +454,17 @@ contract, and no reserved slot may survive a wait, yield or user callback.
 Bounded runnable work and bounded interference remain separate requirements.
 Notification locks after slot release can still delay method return, so this
 contract does not establish wait-freedom or a latency bound.
+
+At evidence revision `8efbd59c`, P1 records
+[fifteen fresh physical WROOM boots](https://github.com/yongkyuns/nxrs/blob/8efbd59cd392678aaedf1f00addc80a30a1682a3/tests/channel-progress/results/2026-11-04-esp32s3/README.md)
+of firmware from `dc3bf1e8`: all seven prewarmed std-primitive cases and all six
+equal-FIFO cases complete without priority recovery. The unequal-priority
+selected reserved-slot case reproduces the stall and needs diagnostic recovery;
+its published control completes without repair. The original direct
+reserved/published and reverse send reserved/reclaimed cases still lack physical
+execution. All fifteen boots retain the legacy ROM digest warning, and physical
+execution/progress qualification flags remain false. These are scoped progress
+observations, with no physical latency or complete-owner qualification.
 
 P2's current scheduler profiles do not implement that equal-FIFO experiment:
 
