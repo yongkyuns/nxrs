@@ -130,6 +130,10 @@ def inventory(profile):
 def stage_workspace(out, profile):
     """A minimal new workspace allows a private patch lock without root edits."""
     workspace = out / "workspace"
+    # The actual Rust deployment validator canonicalizes the HAL root even
+    # when this profile declares no HAL providers. Preserve that empty root
+    # without staging any concrete provider implementation.
+    (workspace / "hal").mkdir(parents=True, exist_ok=True)
     manifest = workspace / "tests/channel-progress/rust/Cargo.toml"
     shutil.copytree(HERE / "rust", manifest.parent)
     for name in SHARED_FILES:

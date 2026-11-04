@@ -95,11 +95,13 @@ class BuildGuards(unittest.TestCase):
             "event_path_deployment_tests", build.ROOT / "tools/check-deployment.py")
         deployment = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(deployment)
-        self.assertEqual(deployment.workspace_root(build.MANIFEST), build.ROOT)
+        self.assertEqual(deployment.ROOT, build.ROOT)
         for platform in build.PLATFORMS:
             with self.subTest(platform=platform):
                 result = deployment.validate(build.MANIFEST, platform, "nuttx")
                 self.assertEqual(result["app_package"], build.PACKAGE)
+                self.assertEqual(result["platform"], platform)
+                self.assertEqual(Path(result["app_manifest"]), build.MANIFEST.resolve())
 
     def test_real_lock_and_source_inventory_cover_actual_dependencies(self):
         self.assertEqual(build.locked_packages()["crossbeam-channel"]["version"], "0.5.17")

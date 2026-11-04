@@ -68,6 +68,7 @@ class BuildIsolationTests(unittest.TestCase):
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
                 profile = build.baseline.resolve_platform(platform, build.ROOT)
                 manifest = build.stage_workspace(Path(temporary), profile)
+                self.assertTrue((Path(temporary) / "workspace/hal").is_dir())
                 validated = deployment.validate(manifest, platform, "nuttx")
                 self.assertEqual(validated["app_package"], build.PACKAGE)
                 self.assertEqual(validated["platform"], platform)
