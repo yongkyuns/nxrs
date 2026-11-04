@@ -274,6 +274,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-channel-progress"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
 name = "nxrs-config"
 version = "0.1.0"
 

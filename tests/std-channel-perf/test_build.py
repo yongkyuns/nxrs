@@ -85,6 +85,17 @@ class BuildGuards(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "escapes"):
                 build.relative(root / "build/image", root / "build")
 
+    def test_candidate_profile_is_explicit_and_wrong_targets_are_rejected(self):
+        for platform, profile, error in [
+            ("pico2-mock", build.simpleboot_digest.PROFILE, "physical ESP32-S3"),
+            ("mps2-an521-mock", build.simpleboot_digest.PROFILE, "physical ESP32-S3"),
+            ("esp32s3-service-footprint", "invented", "unknown boot image profile"),
+        ]:
+            with self.subTest(platform=platform, profile=profile), self.assertRaisesRegex(ValueError, error):
+                build.build(SimpleNamespace(out=Path("/unused"), platform=platform,
+                                            mode="latency", clock_source="baseline",
+                                            boot_image_profile=profile))
+
     def test_native_counter_selection_is_explicit_and_qemu_is_rejected(self):
         env = build.build_environment(Path("/private"), "latency", "2", {}, "native-counter")
         self.assertEqual(env["NXRS_STD_CHANNEL_CLOCK_SOURCE"], "native-counter")
@@ -98,14 +109,19 @@ class BuildGuards(unittest.TestCase):
 
 
 class BuildReceiptTests(unittest.TestCase):
-    def run_fixture(self, root, *, fail=False, change_inputs=False):
+    def run_fixture(self, root, *, fail=False, change_inputs=False,
+                    esp=False, digest_candidate=False, fail_candidate=False):
         source = root / "sdk"
         source.mkdir()
         out = root / "out"
-        args = SimpleNamespace(out=out, platform="mps2-an521-mock", mode="latency",
+        args = SimpleNamespace(out=out, platform=("esp32s3-service-footprint" if esp
+                                                  else "mps2-an521-mock"), mode="latency",
                                app_opt_level="2", kernel_optimization="o2", source_sysroot=source,
-                               clock_source="baseline")
-        profile = {"target": "thumbv8m.main-nuttx-eabi", "image": "nuttx", "sources": []}
+                               clock_source="baseline", boot_image_profile=(
+                                   build.simpleboot_digest.PROFILE if digest_candidate
+                                   else "platform-default"))
+        profile = {"target": "xtensa-esp32s3-nuttx" if esp else "thumbv8m.main-nuttx-eabi",
+                   "image": "nuttx.merged.bin" if esp else "nuttx", "sources": []}
 
         def prepare(source, prepared, sdk, mode):
             prepared.mkdir()
@@ -123,12 +139,26 @@ class BuildReceiptTests(unittest.TestCase):
             firmware = out / "firmware"
             (firmware / "nuttx").mkdir(parents=True)
             (firmware / "nuttx/nuttx").write_bytes(b"synthetic ELF; not execution evidence")
+            if esp:
+                (firmware / "nuttx/nuttx.merged.bin").write_bytes(b"synthetic original image")
             (firmware / "resolved.config").write_text(CONFIG)
+            (firmware / "nuttx-patches.json").write_text('{"synthetic":true}')
             for name in ("provenance.txt", "std-source.json", "std-patch.json", "abi-report.json"):
                 (firmware / name).write_text("synthetic regression fixture")
             self.assertEqual(kwargs["env"]["NXRS_STD_CHANNEL_HOOK_STAGE"], "0")
             self.assertEqual(len(kwargs["env"]["NXRS_STD_CHANNEL_BUILD_ID"]), 64)
             return ""
+
+        def make_candidate(firmware, image):
+            self.assertTrue(esp and digest_candidate)
+            self.assertEqual(image.read_bytes(), b"synthetic original image")
+            if fail_candidate:
+                raise ValueError("synthetic missing loader proof")
+            output = firmware / "nuttx/nuttx.rom-digest.bin"
+            report = firmware / "simpleboot-digest.json"
+            output.write_bytes(b"synthetic candidate; not firmware")
+            report.write_text('{"synthetic":true}')
+            return output, report
 
         inputs = [{"fixture": "a" * 64}, {"fixture": ("b" if change_inputs else "a") * 64}]
         with patch.object(build, "resolve_platform", return_value=profile), \
@@ -136,12 +166,15 @@ class BuildReceiptTests(unittest.TestCase):
                 patch.object(build, "run", side_effect=run), \
                 patch.object(build.private_std, "prepare", side_effect=prepare), \
                 patch.object(build, "verify_selected_std", return_value=HOOK), \
+                patch.object(build.simpleboot_digest, "prepare", side_effect=make_candidate) as packer, \
+                patch.object(build.secrets, "token_hex", return_value="0" * 32), \
                 patch.dict(build.os.environ, {}, clear=True):
-            if fail or change_inputs:
+            if fail or change_inputs or fail_candidate:
                 with self.assertRaises(ValueError):
                     build.build(args)
             else:
                 build.build(args)
+            self.assertEqual(packer.call_count, int(digest_candidate and not fail))
         return out, json.loads((out / "build.json").read_text())
 
     def test_success_receipt_hashes_actual_artifacts_but_claims_no_execution(self):
@@ -153,6 +186,43 @@ class BuildReceiptTests(unittest.TestCase):
             self.assertEqual(record["elf_sha256"], build.digest(out / record["elf_file"]))
             self.assertEqual(record["config_sha256"], build.digest(out / record["config_file"]))
             self.assertEqual(record["std_array_sha256"], record["std_array_original_sha256"])
+
+    def test_candidate_receipt_selects_new_image_without_relabeling_original(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            out, record = self.run_fixture(Path(temporary), esp=True, digest_candidate=True)
+            self.assertEqual(record["status"], "complete")
+            self.assertEqual(record["boot_image_profile"], build.simpleboot_digest.PROFILE)
+            self.assertEqual(record["runtime_kind"], "unmeasured")
+            self.assertTrue(record["image_file"].endswith("nuttx.rom-digest.bin"))
+            self.assertEqual((out / record["unmodified_source_image"]).read_bytes(),
+                             b"synthetic original image")
+            self.assertNotEqual(record["image_sha256"],
+                                build.digest(out / record["unmodified_source_image"]))
+            for path in [record["image_file"], record["unmodified_source_image"],
+                         record["simpleboot_digest_report"], "firmware/nuttx-patches.json"]:
+                self.assertEqual(record["artifacts_sha256"][path], build.digest(out / path))
+
+    def test_failed_candidate_does_not_produce_success_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            out, record = self.run_fixture(Path(temporary), esp=True, digest_candidate=True,
+                                           fail_candidate=True)
+            self.assertEqual(record["status"], "failed")
+            self.assertIn("missing loader proof", record["failure"])
+            self.assertNotIn("image_file", record)
+            self.assertEqual((out / "firmware/nuttx/nuttx.merged.bin").read_bytes(),
+                             b"synthetic original image")
+
+    def test_profile_participates_in_build_identity_even_with_same_nonce(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first, second = root / "first", root / "second"
+            first.mkdir()
+            second.mkdir()
+            _, default = self.run_fixture(first, esp=True)
+            _, candidate = self.run_fixture(second, esp=True, digest_candidate=True)
+            self.assertEqual(default["build_nonce"], candidate["build_nonce"])
+            self.assertNotEqual(default["build_id"], candidate["build_id"])
+            self.assertNotIn("simpleboot_digest_report", default)
 
     def test_failed_compile_and_mid_build_source_change_cannot_claim_success(self):
         for case in ("compile", "inputs"):

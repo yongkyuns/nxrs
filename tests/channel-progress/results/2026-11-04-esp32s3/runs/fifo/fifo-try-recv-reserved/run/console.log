@@ -1,0 +1,43 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x42018b46
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fc91c30,len:0x302c
+load:0x40374000,len:0x8ff0
+load:0x50000000,len:0x24
+SHA-256 comparison failed:
+Calculated: f9877c59d87359600d2bcbf7c828292d5b0640b2c819e41ad1a78cf1d108dd6e
+Expected: 00000000703f0000000000000000000000000000000000000000000000000000
+Attempting to boot anyway...
+entry 0x403750e8
+*** Booting NuttX ***
+I (70) boot: chip revision: v0.2
+I (71) boot: efuse block revision: v1.3
+I (71) boot.esp32s3: Boot SPI Speed : 40MHz
+I (71) boot.esp32s3: SPI Mode       : DIO
+I (71) boot.esp32s3: SPI Flash Size : 16MB
+I (71) boot: Enabling RNG early entropy source...
+dram: lma 0x00000020 vma 0x3fc91c30 len 0x302c   (12332)
+iram: lma 0x00003054 vma 0x40374000 len 0x8ff0   (36848)
+rtc: lma 0x0000c04c vma 0x50000000 len 0x24     (36)
+padd: lma 0x0000c088 vma 0x00000000 len 0x3f70   (16240)
+imap: lma 0x00010000 vma 0x42010000 len 0x5d888  (383112)
+padd: lma 0x0006d890 vma 0x00000000 len 0x2768   (10088)
+dmap: lma 0x00070000 vma 0x3c080000 len 0x111e8  (70120)
+total segments stored 7
+I (832) cpu_start: Pro cpu start user code
+I (832) cpu_start: cpu freq: 240000000 Hz
+I (832) app_init: Application information:
+I (832) app_init: Compile time:     Nov  4 2026 01:10:13
+I (832) app_init: ELF file SHA256:  000000000...
+I (832) app_init: ESP-IDF:          
+I (833) spi_flash: detected chip: generic
+I (833) spi_flash: flash io: dio
+I (833) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (833) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+nsh> [Kchannel_progress fifo-try-recv-reserved
+CHANNEL_PROGRESS {"schema":"fifo-channel-progress-v1","record":"metadata","run_id":"4-300000000","mode":"fifo-try-recv-reserved","build_id":"133d1de73dd00976231646546c70ecdcff21e150cfa6686d1247ac10ae9b4f6d","build_mode":"fifo-channel-suite","contract":"equal-fifo-run-to-block-v1","runtime":"nuttx","transport":"crossbeam-channel","transport_version":"0.5.17","selection_bias":"none","holder_api":"try_send","peer_api":"try_recv","hook_stage":5,"capacity":8,"payload_bytes":16,"provider_count":1,"arm_count":1,"trigger_stage":769,"commit_stage":770,"participant_operation_budget":1,"drain_budget":0,"select_timeout_ms":0,"interference_iteration_limit":2000000,"interference_time_limit_ms":1000,"single_core_tcb_witness":true,"async_channel_access":false,"manual_selected_operations":false,"selected_send":false,"endpoints_changed_during_window":false,"holder_policy":1,"holder_priority":180,"peer_policy":1,"peer_priority":180,"observer_policy":1,"observer_priority":220,"watchdog_policy":1,"watchdog_priority":240}
+CHANNEL_PROGRESS {"schema":"fifo-channel-progress-v1","record":"result","run_id":"4-300000000","mode":"fifo-try-recv-reserved","outcome":"completed-without-repair","success":true,"diagnostic_valid":true,"completed_without_repair":true,"progress_contract_satisfied":true,"recovery_applied":false,"priority_progress_qualified":false,"production_transport_qualified":false,"timing_qualified":false,"failure_reason":"none","cleanup_error":"none","hook_error":false,"trigger_count":1,"holder_resume_count":1,"holder_reserved_count":1,"holder_committed_count":1,"peer_reserved_count":1,"peer_committed_count":1,"select_registration_count":0,"select_wait_resume_count":0,"holder_enter_order":1,"peer_enter_order":10,"select_registered_order":0,"select_wait_verified_order":0,"holder_reserve_order":2,"holder_commit_order":8,"trigger_order":3,"observer_trigger_order":4,"peer_ready_order":5,"observer_block_order":6,"holder_resume_order":7,"holder_return_order":9,"peer_reserve_order":11,"peer_commit_order":12,"peer_wait_resume_order":0,"peer_return_order":13,"holder_operation_calls":1,"peer_operation_calls":1,"peer_retry_count":0,"messages_sent":1,"messages_received":1,"holder_commit_count_at_ready":0,"registered_arms":0,"select_timeout_count":0,"interference_iterations":1,"payload_valid":true,"initial_gate_waits_verified":true,"holder_hook_returned_at_ready":false,"initial_select_wait_verified":false,"holder_done":true,"peer_done":true,"final_native_waits_verified":true,"joins_complete":true,"watchdog_complete":true,"holder_state_at_trigger":"ready","holder_priority_at_trigger":180,"peer_state_at_trigger":"wait_sem","peer_priority_at_trigger":180,"peer_ready_state":"ready","peer_ready_priority":180,"holder_state_at_ready":"ready","holder_priority_at_ready":180,"observer_state_at_holder_resume":"wait_sem","observer_priority_at_holder_resume":220,"select_outcome":"none","interference_elapsed_ns":0}
+nsh> 

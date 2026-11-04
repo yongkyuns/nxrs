@@ -42,3 +42,27 @@ condition = "AND"
 paths = ['^tests/csi-radio/results/[^/]+\.json$']
 regexTarget = "line"
 regexes = ['^\s*"tests/nuttx-std/wifi/ffi/credentials\.c":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "Archived channel build provenance records the public pthread-key patch SHA-256"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '^tests/std-channel-perf/results/2026-11-02-(qemu|esp32s3)/([^/]+/)+(build|analysis)\.json$',
+  '^tests/std-channel-perf/results/2026-11-03-esp32s3-(latency-controls|simpleboot)/([^/]+/)+(build|analysis)\.json$',
+  '^tests/channel-progress/results/2026-11-04-esp32s3/runs/(crossbeam|std|fifo)/[^/]+/run/(build|analysis|acceptance)\.json$',
+  '^tests/channel-progress/results/2026-11-04-esp32s3/(std|fifo)-(no-repair|physical)\.json$',
+]
+regexTarget = "line"
+regexes = ['^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "Nineteen reviewed P2 physical build receipts repeat two exact public source hashes"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/event-path-perf/results/2026-11-04-esp32s3/board/(build|runs/pass-[123]-(ready|blocked)-(std|messaging|crossbeam)-try)/build\.json$']
+regexTarget = "line"
+regexes = [
+  '^\s*"hal/imu/src/api\.rs":\s*"051b8789dfd02ecf97bf0b22538fca53c7fc4cf10791a2f7fa7461cd28a0a528",?\s*$',
+  '^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?\s*$',
+]

@@ -1,0 +1,18 @@
+{
+  "schema": "channel-progress-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "physical",
+  "mode": "condvar-publish-before-wait",
+  "command": "channel_progress condvar-publish-before-wait",
+  "build_id": "53304ab7f810b613bd4136ba98c1e6af96e54cc592366033808198b85a3f838c",
+  "image_sha256": "edf16f9edbc88f714d24c40d43921e45c95077363289a8f8c4c559750564960f",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "priority_progress_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "fresh_boot_observed": true,
+  "boot_rom_digest_warning_observed": true,
+  "outcome": "taken",
+  "progress_contract_satisfied": true
+}
