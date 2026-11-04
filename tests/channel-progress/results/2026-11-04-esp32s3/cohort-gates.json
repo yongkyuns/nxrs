@@ -1,0 +1,22 @@
+[
+  {
+    "family": "std",
+    "gate": "--require-no-repair",
+    "exit": 0
+  },
+  {
+    "family": "std",
+    "gate": "--require-physical",
+    "exit": 2
+  },
+  {
+    "family": "fifo",
+    "gate": "--require-no-repair",
+    "exit": 0
+  },
+  {
+    "family": "fifo",
+    "gate": "--require-physical",
+    "exit": 2
+  }
+]

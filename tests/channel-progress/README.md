@@ -22,6 +22,12 @@ There are three experiment families, each with its own acceptance scope:
 The additional suites retain the earlier negative results. They do not introduce
 a queue implementation or certify a production three-class owner.
 
+The [November 4 WROOM campaign](results/2026-11-04-esp32s3/README.md) records
+15 fresh physical boots from the four published ESP builds. Both complete
+std/FIFO no-repair gates pass; the unequal-priority selected reservation stall
+reproduces. The four unbuilt original Crossbeam modes remain untested physically,
+and the retained ROM warning and operator-only qualification limits remain open.
+
 ## Recorded progress results — 2026-11-03
 
 All six cases executed on fresh single-core ARM/NuttX QEMU boots from clean

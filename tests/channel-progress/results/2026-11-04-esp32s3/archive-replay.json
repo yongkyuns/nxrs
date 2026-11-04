@@ -1,0 +1,20 @@
+{
+  "checks": [
+    {
+      "family": "std",
+      "rehydrated_report_matches": true,
+      "report_canonical_sha256": "4c67ed420207f4ed7307a2c48cd71ef51c4e8d6f208ce081b2185f26aa0ad3c3"
+    },
+    {
+      "family": "fifo",
+      "rehydrated_report_matches": true,
+      "report_canonical_sha256": "22868c4f8a03f21af3d4acdec6f714859689b69bdc8daa610f1ae254ae7f42d6"
+    },
+    {
+      "family": "crossbeam-selected-pair",
+      "rehydrated_reports_match": true
+    }
+  ],
+  "missing_esp_cases_remain_missing": true,
+  "physical_qualification_flags_unchanged": true
+}

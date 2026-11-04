@@ -1,0 +1,35 @@
+{
+  "expected_input_count": 158,
+  "all_build_receipts_verified": true,
+  "source_inventory_matches": true,
+  "builds": [
+    {
+      "mode": "fifo-channel-suite",
+      "build_id": "133d1de73dd00976231646546c70ecdcff21e150cfa6686d1247ac10ae9b4f6d",
+      "image_sha256": "f70d8b0a95061c4a28b0262b5f810716e3331b839ef98f9c637f3cc03e0e3d28",
+      "image_file": "firmware/nuttx/nuttx.merged.bin",
+      "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+    },
+    {
+      "mode": "select-published",
+      "build_id": "8817b6d0e3f02a5b1fb79bf1ad548fe60d48cf700691732d601f787f4aa9bfd7",
+      "image_sha256": "180062de54c10f24dfbcd57ada791a0342443c7bccdfc4c94cb8aa0a7a7c7ac2",
+      "image_file": "firmware/nuttx/nuttx.merged.bin",
+      "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+    },
+    {
+      "mode": "select-reserved",
+      "build_id": "5a1e3ed022968efb6321df835cdf969e1dfe5d549b5f0a7e1c9c1b198b9bfe6c",
+      "image_sha256": "c4be5588f88ebaea4e876038c6a1f7712ea1c9ac06016ed929adf4f9df0babd5",
+      "image_file": "firmware/nuttx/nuttx.merged.bin",
+      "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+    },
+    {
+      "mode": "std-mutex-suite",
+      "build_id": "53304ab7f810b613bd4136ba98c1e6af96e54cc592366033808198b85a3f838c",
+      "image_sha256": "edf16f9edbc88f714d24c40d43921e45c95077363289a8f8c4c559750564960f",
+      "image_file": "firmware/nuttx/nuttx.merged.bin",
+      "source_revision": "06c6cfeb75fa03d805916c3b37b718ded25f6494"
+    }
+  ]
+}

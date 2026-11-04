@@ -1,0 +1,188 @@
+"""Private operator for PR 255. Preserve raw failures and always restore flash."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import sys
+import time
+
+import serial
+from serial.tools import list_ports
+from esptool.reset import HardReset
+
+ROOT = Path(__file__).resolve().parent
+REPO = Path('/private/tmp/nxrs-pr255-wroom-20261104')
+PORT = '/dev/cu.usbmodem21101'
+DEVICE = (0x303a, 0x1001, '20:6E:F1:A7:6F:58')
+sys.path.insert(0, str(REPO / 'tests/channel-progress'))
+import analyze
+
+
+def save(name, value):
+    temporary = ROOT / (name + '.tmp')
+    temporary.write_text(json.dumps(value, indent=2) + '\n')
+    temporary.replace(ROOT / name)
+
+
+def event(phase, **fields):
+    value = dict(phase=phase, unix=time.time(), **fields)
+    save('phase.json', value)
+    print(json.dumps(value), flush=True)
+
+
+def identity():
+    ports = [p for p in list_ports.comports() if p.device == PORT]
+    assert len(ports) == 1
+    p = ports[0]
+    assert (p.vid, p.pid, p.serial_number) == DEVICE, 'USB identity changed'
+
+
+def tool(arguments, log):
+    identity()
+    with log.open('xb') as output:
+        result = subprocess.run([sys.executable, '-m', 'esptool', '--chip', 'esp32s3',
+                                 '--port', PORT, '--baud', '921600', *arguments],
+                                stdout=output, stderr=subprocess.STDOUT, timeout=300)
+    assert result.returncode == 0, 'esptool failed; retained ' + log.name
+
+
+def flash(image, prefix):
+    event('flashing', image=prefix)
+    tool(['write_flash', '--flash_mode', 'keep', '--flash_freq', 'keep',
+          '--flash_size', 'keep', '0', str(image)], ROOT / (prefix + '-flash.log'))
+    tool(['verify_flash', '0', str(image)], ROOT / (prefix + '-verify.log'))
+    event('flash_verified', image=prefix)
+
+
+def reset():
+    identity()
+    # The capture process already owns the data FD. This second FD only toggles
+    # the documented USB-JTAG reset lines; it never reads or transmits data.
+    console = serial.Serial(port=None, baudrate=115200, timeout=.1)
+    console.dtr = console.rts = False
+    console.port = PORT
+    console.open()
+    try:
+        HardReset(console, uses_usb=True).reset()
+    finally:
+        console.close()
+
+
+def command(args, log, expected=0):
+    with log.open('xb') as output:
+        code = subprocess.run([sys.executable, *args], stdout=output,
+                              stderr=subprocess.STDOUT, timeout=120).returncode
+    assert code == expected, (log.name, code, expected)
+    return code
+
+
+def run_case(build_mode, mode, family):
+    build = ROOT / 'ci-firmware/esp32s3' / build_mode
+    receipt = analyze.build_receipt(build / 'build.json', mode)
+    out = ROOT / 'runs' / family / mode / 'run'
+    session = {
+        'schema': 'channel-progress-session-v1', 'runtime_kind': 'physical',
+        'measurement_session': 'pr255-20261104-' + mode,
+        'board': 'ESP32-S3 N16R8 QFN56 rev v0.2; single-core configured 240 MHz; 16 MiB flash and 8 MiB octal PSRAM',
+        'board_serial': DEVICE[2], 'active_cores': 1,
+        'build_id': receipt['build_id'], 'image_sha256': receipt['image_sha256'],
+        'flash_verification': build_mode + '-flash.log and ' + build_mode + '-verify.log: complete 16 MiB image written unchanged and esptool digest verification passed; exclusive test ownership; fresh USB reset for this sole command.'
+    }
+    session_path = ROOT / (mode + '-session.json')
+    session_path.write_text(json.dumps(session, indent=2) + '\n')
+    args = [sys.executable, str(REPO / 'tests/channel-progress/capture.py'), 'physical',
+            '--build-directory', str(build), '--mode', mode, '--port', PORT,
+            '--session', str(session_path), '--output', str(out), '--timeout', '120']
+    event('capturing', case=mode)
+    child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    log = bytearray(); ready = False; deadline = time.monotonic() + 135
+    try:
+        while child.poll() is None or select.select([child.stdout], [], [], 0)[0]:
+            if time.monotonic() > deadline:
+                raise TimeoutError('physical capture host deadline')
+            if not select.select([child.stdout], [], [], .1)[0]:
+                continue
+            data = os.read(child.stdout.fileno(), 65536)
+            if not data:
+                break
+            log.extend(data)
+            if not ready and b'Serial capture ready' in log:
+                ready = True; event('fresh_boot_reset', case=mode); reset()
+        code = child.wait(timeout=5)
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill(); child.wait(timeout=5)
+        (ROOT / (mode + '-capture.log')).write_bytes(log)
+    report = json.loads((out/'capture.json').read_text())
+    assert code == 0 and report['capture_complete'], report
+    summary = json.loads((out/'analysis.json').read_text())
+    expected_gate = 2 if mode == 'select-reserved' else 0
+    gate_code = command([str(REPO/'tests/channel-progress/analyze.py'), str(out/'console.log'),
+                        '--build-receipt', str(out/'build.json'), '--output', str(out/'acceptance.json'),
+                        '--require-no-repair'], ROOT/(mode+'-acceptance.log'), expected_gate)
+    event('case_complete', case=mode, outcome=summary['outcome'],
+          no_repair_exit=gate_code, rom_digest_warning=report['boot_rom_digest_warning_observed'])
+    return dict(case=mode, family=family, build_mode=build_mode, outcome=summary['outcome'],
+                no_repair_exit=gate_code, capture_complete=True,
+                rom_digest_warning=report['boot_rom_digest_warning_observed'],
+                physical_execution_verified=summary['physical_execution_verified'])
+
+
+def main():
+    os.umask(0o077)
+    original = ROOT/'fresh-original-flash.bin'
+    assert original.stat().st_size == 0x1000000
+    backup_hash = hashlib.sha256(original.read_bytes()).hexdigest()
+    save('fresh-original-flash.json', dict(file=original.name, bytes=original.stat().st_size,
+         sha256=backup_hash, captured_before_test=True, previous_backups_unused=True))
+    tool(['verify_flash','0',str(original)],ROOT/'backup-verify.log')
+    (ROOT/'runs').mkdir()
+    plan = [
+        ('select-reserved', ['select-reserved'], 'crossbeam'),
+        ('select-published', ['select-published'], 'crossbeam'),
+        ('std-mutex-suite', list(analyze.STD_TRANSFER_MODES), 'std'),
+        ('fifo-channel-suite', list(analyze.FIFO_MODES), 'fifo'),
+    ]
+    save('campaign.json', dict(plan=plan, fresh_boot_per_command=True,
+         unavailable_esp_cases=['direct-reserved','direct-published','send-reserved','send-reclaimed'],
+         complete_19_case_replay_claimed=False))
+    results=[]; failure=None
+    try:
+        for build_mode, cases, family in plan:
+            build=ROOT/'ci-firmware/esp32s3'/build_mode
+            receipt=analyze.build_receipt(build/'build.json',cases[0])
+            flash(build/receipt['image_file'],build_mode)
+            for mode in cases:
+                results.append(run_case(build_mode,mode,family))
+        gates=[]
+        for family, module in [('std','std_cohort.py'),('fifo','fifo_cohort.py')]:
+            for gate, expected in [('--require-no-repair',0),('--require-physical',2)]:
+                label=family+gate.replace('--require-','-')
+                code=command([str(REPO/'tests/channel-progress'/module),str(ROOT/'runs'/family),
+                    '--output',str(ROOT/(label+'.json')),gate],ROOT/(label+'.log'),expected)
+                gates.append(dict(family=family,gate=gate,exit=code))
+        save('cohort-gates.json',gates)
+    except Exception as error:
+        failure=type(error).__name__+': '+str(error)
+        event('measurement_failed',reason=failure)
+    finally:
+        event('restoring_fresh_original_firmware')
+        flash(original,'fresh-original-restore')
+        save('restoration.json',dict(restored=True,original_sha256=backup_hash,
+             verification='fresh-original-restore-verify.log',unix=time.time()))
+        event('original_firmware_restored')
+    save('summary.json',dict(pr=255,head='dc3bf1e800e4f95dba5fa05ee42f1aec26788dbf',
+         results=results,failure=failure,firmware_restored=True,
+         physical_execution_verified=False,physical_timing_qualified=False,
+         complete_19_case_replay_claimed=False))
+    return bool(failure)
+
+if __name__ == '__main__':
+    sys.exit(main())

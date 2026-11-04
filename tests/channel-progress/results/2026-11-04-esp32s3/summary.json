@@ -1,0 +1,161 @@
+{
+  "pr": 255,
+  "head": "dc3bf1e800e4f95dba5fa05ee42f1aec26788dbf",
+  "results": [
+    {
+      "case": "select-reserved",
+      "family": "crossbeam",
+      "build_mode": "select-reserved",
+      "outcome": "stall-observed",
+      "no_repair_exit": 2,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "select-published",
+      "family": "crossbeam",
+      "build_mode": "select-published",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "mutex-admit-held",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "busy",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "mutex-admit-released",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "accepted",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "mutex-take-held",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "busy",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "mutex-take-released",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "taken",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "condvar-wait-publish",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "taken",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "condvar-publish-before-wait",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "taken",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "condvar-close-wait",
+      "family": "std",
+      "build_mode": "std-mutex-suite",
+      "outcome": "closed",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "fifo-try-recv-reserved",
+      "family": "fifo",
+      "build_mode": "fifo-channel-suite",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "fifo-try-recv-published",
+      "family": "fifo",
+      "build_mode": "fifo-channel-suite",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "fifo-select-reserved",
+      "family": "fifo",
+      "build_mode": "fifo-channel-suite",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "fifo-select-published",
+      "family": "fifo",
+      "build_mode": "fifo-channel-suite",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "fifo-try-send-reserved",
+      "family": "fifo",
+      "build_mode": "fifo-channel-suite",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    },
+    {
+      "case": "fifo-try-send-reclaimed",
+      "family": "fifo",
+      "build_mode": "fifo-channel-suite",
+      "outcome": "completed-without-repair",
+      "no_repair_exit": 0,
+      "capture_complete": true,
+      "rom_digest_warning": true,
+      "physical_execution_verified": false
+    }
+  ],
+  "failure": null,
+  "firmware_restored": true,
+  "physical_execution_verified": false,
+  "physical_timing_qualified": false,
+  "complete_19_case_replay_claimed": false
+}

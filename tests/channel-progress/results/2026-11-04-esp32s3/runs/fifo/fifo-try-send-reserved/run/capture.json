@@ -1,0 +1,18 @@
+{
+  "schema": "channel-progress-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "physical",
+  "mode": "fifo-try-send-reserved",
+  "command": "channel_progress fifo-try-send-reserved",
+  "build_id": "133d1de73dd00976231646546c70ecdcff21e150cfa6686d1247ac10ae9b4f6d",
+  "image_sha256": "f70d8b0a95061c4a28b0262b5f810716e3331b839ef98f9c637f3cc03e0e3d28",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "priority_progress_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "fresh_boot_observed": true,
+  "boot_rom_digest_warning_observed": true,
+  "outcome": "completed-without-repair",
+  "progress_contract_satisfied": true
+}
