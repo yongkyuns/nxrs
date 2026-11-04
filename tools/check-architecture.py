@@ -148,6 +148,9 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             allowed_features = {'default', 'probe'}
             if manifest.relative_to(root).as_posix() == 'hal/detector/Cargo.toml':
                 allowed_features |= {'person-model', 'pico-model'}
+            if manifest.relative_to(root).as_posix() in {'hal/camera/Cargo.toml', 'app/nxrs/Cargo.toml'}:
+                # File replay is explicit software functionality, not provider selection.
+                allowed_features.add('replay')
             if manifest.relative_to(root).as_posix() == 'shared/messaging/Cargo.toml':
                 allowed_features.add('channels')
             extra_features = set(data.get('features', {})) - allowed_features
@@ -295,10 +298,15 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     for path in (root / 'hal').glob('*/src/platform/mod.rs'):
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
-        if (exports != ['selected::*']
+        # Check the selection boundary, not a mandatory wildcard spelling.
+        # Existing selectors may retain a glob; explicit facade exports should
+        # name their fixed factory surface and any deliberate fixture exports.
+        selected_export = r'selected::(?:\*|[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
+        if (not exports
+                or any(not re.fullmatch(selected_export, export.strip()) for export in exports)
                 or not re.search(r'\bmod\s+selected\s*;', text)
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
-            errors.append(f'{path.relative_to(root)}: select source modules and re-export selected::* once; factories belong in the selected implementation')
+            errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/providers'):
         errors.append(f'{path.relative_to(root)}: HAL implementations belong in src/platform')
     for path in (root / 'hal').glob('*/src/platform/native*'):

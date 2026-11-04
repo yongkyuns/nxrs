@@ -15,6 +15,10 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = json.loads((ROOT / "security/tools.json").read_text())["gitleaks"]
 
+class ControlFailure(ValueError):
+    """Only fixed, locally constructed control identifiers may enter this error."""
+
+
 
 def install(output):
     systems = {("Linux", "x86_64"): "linux_x64", ("Darwin", "arm64"): "darwin_arm64"}
@@ -43,6 +47,8 @@ def install(output):
 
 def execute(scanner, mode, source, config):
     scanner = str(Path(scanner).resolve())
+    source = Path(source).resolve()
+    config = Path(config).resolve()
     version = subprocess.run([scanner, "version"], capture_output=True, text=True, check=True)
     if version.stdout.strip() != SETTINGS["version"]:
         raise ValueError("pinned scanner version required")
@@ -56,9 +62,10 @@ def execute(scanner, mode, source, config):
                    "--report-format", "json", "--report-path", str(report), "--timeout", "120"]
         if mode == "git":
             command += ["--log-opts=--all"]
-        # Directory controls must use repository-relative paths, like git mode.
-        # Absolute source arguments bypass anchored allowlist paths and would
-        # make exclusion tests pass without actually exercising the exclusions.
+        # Pinned Gitleaks preserves the input path in directory-mode findings.
+        # Run from the source with '.' so controls exercise the same anchored
+        # repository-relative paths as Git history, not absolute temp paths.
+        # Reports and the explicit empty ignore file remain outside the source.
         command.append("." if mode == "dir" else str(source))
         result = subprocess.run(command, cwd=source if mode == "dir" else directory,
                                 capture_output=True, text=True, timeout=150)
@@ -82,6 +89,63 @@ def scan(scanner):
     if findings:
         raise ValueError(f"secret scan blocked: {len(findings)} findings; rotate real credentials privately")
     print("Secret scan passed: all available Git history; zero findings after reviewed hash-field exclusions")
+
+
+def reviewed_hash_controls(scanner, source, config, token, alphabet):
+    # Full-history checkout is already required by the security workflow.
+    # Verify immutable public source blobs, not just a hash-shaped string.
+    imu = ("hal/imu/src/api.rs",
+           "051b8789dfd02ecf97bf0b22538fca53c7fc4cf10791a2f7fa7461cd28a0a528",
+           "e4a7de4ef3d71343c1a3fdbc2cc7ea62e4a49345")
+    pthread = ("upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch",
+               "776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",
+               "18ddcdb162985348728fd5e5d167305e87e8e35f")
+    for index, (_field, digest, blob) in enumerate((imu, pthread)):
+        result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
+                                capture_output=True, check=False, timeout=10)
+        if result.returncode or hashlib.sha256(result.stdout).hexdigest() != digest:
+            raise ControlFailure(f"reviewed-source-{index}")
+    cases = [
+        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/build/build.json", imu),
+        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/runs/pass-3-ready-std-try/build.json", pthread),
+        ("tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-published/run/acceptance.json", pthread),
+        ("tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json", pthread),
+    ]
+    for index, (relative, (field, digest, _blob)) in enumerate(cases):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = '    ' + json.dumps(field) + ': ' + json.dumps(digest) + ',\n'
+        # Include ordinary multiline JSON and CRLF. Gitleaks 8.30.1's line
+        # slice can include the preceding newline; first-line-only controls
+        # would miss that production-history difference.
+        for variant, contents in enumerate((line, '{\n' + line + '}\n',
+                                            '{\r\n' + line.replace('\n', '\r\n') + '}\r\n')):
+            path.write_bytes(contents.encode('utf-8'))
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ControlFailure(f"reviewed-hash-allow-{index}-{variant}")
+        # A changed value, real-shaped token or different field is never exempt.
+        for control, (key, value, rule) in enumerate([
+                (field, alphabet * 4, "generic-api-key"),
+                (field, token, "github-pat"),
+                ("api_key", digest, "generic-api-key")]):
+            path.write_text(json.dumps(key) + ': ' + json.dumps(value) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == rule for item in findings) or value in output:
+                raise ControlFailure(f"reviewed-hash-reject-{index}-{control}")
+        # Neither a second field on the line nor the same field outside the
+        # bounded benchmark path may inherit the exception.
+        path.write_text(line.rstrip() + ' "api_key": "' + alphabet * 4 + '"\n')
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings) or alphabet * 4 in output:
+            raise ControlFailure(f"reviewed-hash-line-{index}")
+        path.unlink()
+        outside = source / "unreviewed.json"
+        outside.write_text(line)
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings) or digest in output:
+            raise ControlFailure(f"reviewed-hash-path-{index}")
+        outside.unlink()
 
 
 def self_test(scanner):
@@ -280,6 +344,7 @@ def self_test(scanner):
         detected_at(wrong_paths, {source_field: public_hash}, 'generic-api-key', ())
         for relative in wrong_paths:
             (source / relative).unlink()
+        reviewed_hash_controls(scanner, source, config, token, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")
@@ -302,6 +367,10 @@ def main():
             self_test(args.scanner)
         else:
             scan(args.scanner)
+    except ControlFailure as error:
+        # These identifiers contain only fixed local labels and loop indexes.
+        print(f"Secret self-test failed: {error}", file=sys.stderr)
+        return 1
     except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.SubprocessError):
         # Even exception text can contain secret-bearing remote input or scanner output.
         print("Secret check failed; see safe finding locations above or verify tool/configuration", file=sys.stderr)

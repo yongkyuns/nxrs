@@ -3,6 +3,11 @@ name = "nxrs-applications"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# The CLI consumes explicit file replay. Core-only library consumers opt out.
+default = ["replay"]
+replay = ["nxrs-camera/replay"]
+
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-storage = { path = "../../hal/storage" }
@@ -14,3 +19,4 @@ nxrs-telemetry-service = { path = "../../service/telemetry" }
 [[bin]]
 name = "nxrs"
 path = "src/main.rs"
+required-features = ["replay"]

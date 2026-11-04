@@ -13,4 +13,4 @@ nxrs-transport = { path = "../../hal/transport" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-recording-service = { path = "../../service/recording" }
 nxrs-telemetry-service = { path = "../../service/telemetry" }
-nxrs-applications = { path = "../../app/nxrs" }
+nxrs-applications = { path = "../../app/nxrs", default-features = false }

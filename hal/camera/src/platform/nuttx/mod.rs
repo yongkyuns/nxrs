@@ -423,7 +423,5 @@ pub fn open() -> Result<impl crate::Camera, crate::DeviceError> {
     LiveCamera::acquire()
 }
 
-pub use crate::replay::{camera, camera as replay, ReplayCamera};
-
 #[cfg(test)]
 mod tests;

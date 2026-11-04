@@ -1040,6 +1040,12 @@ mod tests {
         let cache = temp.0.join("cache");
         fs::create_dir(&cache).unwrap();
         run(source::git(&cache).args(["init", "--quiet"])).unwrap();
+        // This test copies Git metadata after a fixture commit. Disable Git's
+        // opportunistic maintenance while constructing that fixture, since a
+        // transient maintenance.lock can otherwise disappear during the copy.
+        // The real cache-copy escape and cleanup assertions remain unchanged.
+        run(source::git(&cache).args(["config", "maintenance.auto", "false"])).unwrap();
+        run(source::git(&cache).args(["config", "gc.auto", "0"])).unwrap();
         fs::write(cache.join("tracked"), "source").unwrap();
         run(source::git(&cache).args(["add", "tracked"])).unwrap();
         run(source::git(&cache).args([

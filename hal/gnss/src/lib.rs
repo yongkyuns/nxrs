@@ -15,14 +15,11 @@ mod mock_acquisition;
 mod platform;
 #[cfg(any(test, hal_enabled))]
 mod receiver;
-pub use platform::*;
+pub use platform::open;
 
 #[cfg(test)]
 mod session_tests;
-
-#[cfg(all(test, not(hal_mock)))]
-#[allow(dead_code, unused_imports)]
-#[path = "platform/mock.rs"]
-mod mock_tests;
-#[cfg(all(test, hal_mock))]
-use platform as mock_tests;
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+use test_support::mock_tests;

@@ -7,6 +7,19 @@ build = "../../platform/hal-build.rs"
 [lib]
 name = "camera"
 
+[features]
+# Explicit software functionality, not an OS or hardware-provider selection.
+# No defaults: contract-only and physical-camera consumers need no file replay.
+replay = []
+
+[[example]]
+name = "native_replay"
+required-features = ["replay"]
+
+[[test]]
+name = "native_replay"
+required-features = ["replay"]
+
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "linux", "macos", "windows", "nuttx"]
