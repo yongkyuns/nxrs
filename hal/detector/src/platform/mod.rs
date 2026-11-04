@@ -8,4 +8,9 @@ mod selected;
 #[cfg(not(all(hal_enabled, any(feature = "person-model", feature = "pico-model"))))]
 #[path = "unbound.rs"]
 mod selected;
-pub use selected::*;
+pub use selected::open;
+
+// Qualification must retain the selected factory, including NuttX's native
+// compute-context lease and the unbound implementation's explicit rejection.
+#[cfg(all(feature = "probe", feature = "pico-model"))]
+pub(crate) use selected::kernel;

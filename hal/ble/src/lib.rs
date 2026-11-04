@@ -28,7 +28,5 @@ where
     platform::open(sink).map(Controller::new)
 }
 
-#[cfg(all(test, unix, not(target_os = "nuttx")))]
-#[allow(dead_code, unused_imports)]
-#[path = "platform/nuttx/mod.rs"]
-mod nuttx_tests;
+#[cfg(test)]
+mod test_support;

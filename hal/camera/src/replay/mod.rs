@@ -1,4 +1,7 @@
-//! Bounded raw-frame replay for desktop hosts; not a physical camera driver.
+//! Explicit bounded raw-frame replay, enabled by the `replay` Cargo feature.
+//!
+//! Requires Rust `std` file I/O, not a camera profile or a hardware backend.
+//! File loading is setup work; frame polling uses the shared in-memory source.
 #![forbid(unsafe_code)]
 
 mod source;
@@ -6,7 +9,7 @@ use crate::{Camera, Format};
 pub use source::ReplayCamera;
 use std::io;
 
-pub fn camera(
+pub fn open(
     source: &str,
     format: Format,
     period_ms: u64,

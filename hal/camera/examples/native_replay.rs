@@ -1,7 +1,6 @@
-//! Exercises just the selected provider, with no app/storage/network dependency.
-#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
+//! Explicit replay with no app/storage/network or hardware-profile dependency.
 use camera::{Camera, Format, PixelFormat};
-#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args().nth(1).ok_or("expected raw file path")?;
     let format = Format {
@@ -9,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         height: 2,
         pixels: PixelFormat::Gray8,
     };
-    let (mut camera, count) = camera::replay(&path, format, 10, 8)?;
+    let (mut camera, count) = camera::replay::open(&path, format, 10, 8)?;
     assert_eq!(count, 2);
     assert_eq!(camera.start(format), Ok(format));
     let mut bytes = [0; 4];
@@ -35,10 +34,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(camera.stop(), Ok(()));
     println!("CAMERA_ONLY_PASS");
     Ok(())
-}
-
-#[cfg(not(all(hal_enabled, not(target_os = "nuttx"))))]
-fn main() {
-    eprintln!("This example requires the matching desktop OS profile in NXRS_PLATFORM");
-    std::process::exit(2);
 }

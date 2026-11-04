@@ -5,4 +5,4 @@
 #[cfg_attr(not(hal_enabled), path = "unbound.rs")]
 #[allow(unsafe_code)]
 mod selected;
-pub(crate) use selected::*;
+pub(crate) use selected::{open, open_quiescence};

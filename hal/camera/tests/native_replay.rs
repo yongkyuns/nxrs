@@ -1,10 +1,10 @@
-#![cfg(all(hal_enabled, not(target_os = "nuttx")))]
-
+//! Replay is selected by Cargo functionality, not a hardware profile.
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use camera::{Camera, DeviceError, Format, PixelFormat, ReplayCamera};
+use camera::replay::ReplayCamera;
+use camera::{Camera, DeviceError, Format, PixelFormat};
 
 const FORMAT: Format = Format {
     width: 2,
@@ -118,4 +118,27 @@ fn replay_rejects_empty_truncated_and_oversized_input() {
         8
     )
     .is_err());
+}
+
+#[test]
+fn explicit_replay_and_compatibility_names_share_one_implementation() {
+    let temp = Temp::new();
+    let path = temp.join("source.raw");
+    fs::write(&path, [7; 4]).unwrap();
+    let path = path.to_str().unwrap();
+    let (mut source, frames) = camera::replay::open(path, FORMAT, 10, 4).unwrap();
+    assert_eq!(frames, 1);
+    source.start(FORMAT).unwrap();
+    let mut bytes = [0; 4];
+    assert!(source.poll_frame(0, &mut bytes).unwrap().is_some());
+    assert_eq!(bytes, [7; 4]);
+    source.stop().unwrap();
+    assert_eq!(camera::replay(path, FORMAT, 10, 4).unwrap().1, 1);
+    assert_eq!(camera::camera(path, FORMAT, 10, 4).unwrap().1, 1);
+}
+
+#[cfg(all(not(hal_mock), not(target_os = "nuttx")))]
+#[test]
+fn configured_acquisition_does_not_implicitly_become_replay() {
+    assert!(matches!(camera::open(), Err(DeviceError::Unsupported)));
 }
