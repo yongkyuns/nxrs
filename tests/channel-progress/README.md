@@ -23,6 +23,13 @@ There are three experiment families, each with its own acceptance scope:
 The additional suites retain the earlier negative results. They do not introduce
 a queue implementation or certify a production three-class owner.
 
+The [selected-owner participant contract](PARTICIPANT-CONTRACT.md) turns these
+audits into the admission table for [#265](https://github.com/yongkyuns/nxrs/issues/265):
+every endpoint caller and clone, stop sender, callback, lifecycle operation and
+effective scheduling relationship must be accounted for before consumer
+acceptance. It preserves the distinction between slot ordering, complete owner
+progress and physical qualification.
+
 The [November 4 WROOM campaign](results/2026-11-04-esp32s3/README.md) records
 15 fresh physical boots from the four published ESP builds. Both complete
 std/FIFO no-repair gates pass; the unequal-priority selected reservation stall

@@ -15,6 +15,12 @@ demonstrations of failed progress contracts; their recovery cannot become a
 progress pass. The standard primitive suite remains a separate qualification.
 No queue, parker, production owner or provider is replaced by this experiment.
 
+For an actual owner, use the
+[participant/operation admission contract](PARTICIPANT-CONTRACT.md) to enumerate
+all endpoint callers, callbacks, effective priorities and lifecycle operations.
+It applies the limits below without treating this source argument as acceptance
+of a concrete provider workload.
+
 ## Exact source and image binding
 
 Crossbeam uses the authenticated `crossbeam-channel 0.5.17` and

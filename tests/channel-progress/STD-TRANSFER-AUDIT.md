@@ -14,6 +14,11 @@ sources and the established common Rust std preparation. They add no source
 hooks to std. The original six Crossbeam cases retain their distinct meanings,
 including their failed no-repair reservation contracts.
 
+The [selected-owner participant contract](PARTICIPANT-CONTRACT.md) carries these
+primitive limits into the consumer review alongside the separate Crossbeam
+FIFO argument. Its census includes callbacks, external locks, stop callers and
+teardown; the primitive suite does not qualify those paths automatically.
+
 ## Exact source basis
 
 The ARM SDK is `nightly-2025-09-15`, whose compiler revision is
