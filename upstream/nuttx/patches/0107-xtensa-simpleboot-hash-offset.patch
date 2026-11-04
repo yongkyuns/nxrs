@@ -1,0 +1,34 @@
+Subject: [PATCH] xtensa/espressif: skip a declared SIMPLE_BOOT prefix digest
+
+Base: apache/nuttx 2b5c0de5e933281c209f954a63b99cf10c132346 (13.1.0)
+
+The ROM-visible image ends after its RAM segments and aligned checksum.
+When hash_appended is one, skip its 32-byte SHA-256 before parsing the
+hidden padding and flash-mapped segments. Keep flag-zero legacy images
+unchanged. This adds parsing support, not digest verification or secure boot.
+
+The std-channel fixture uses an opt-in packer that consumes existing zero
+padding instead of moving mapped payloads. The native regression executes
+the original and patched parsing block against both layouts. Physical boot
+and target-build qualification remain separate requirements.
+
+diff --git a/arch/xtensa/src/common/espressif/esp_loader.c b/arch/xtensa/src/common/espressif/esp_loader.c
+--- a/arch/xtensa/src/common/espressif/esp_loader.c
++++ b/arch/xtensa/src/common/espressif/esp_loader.c
+@@ -252,6 +252,16 @@
+       if (ram_segments == image_header.segment_count && !padding_checksum)
+         {
+           offset += (CHECKSUM_ALIGN - 1) - (offset % CHECKSUM_ALIGN) + 1;
++
++          /* A declared SHA-256 follows the ROM-visible checksum.  It is not
++           * a segment header.  Legacy SIMPLE_BOOT images omit this digest.
++           */
++
++          if (image_header.hash_appended == 1)
++            {
++              offset += 32;
++            }
++
+           padding_checksum = true;
+         }
+     }

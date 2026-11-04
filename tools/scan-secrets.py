@@ -108,6 +108,41 @@ def self_test(scanner):
                 if not any(item.get("RuleID") == rule for item in findings) or value in output:
                     raise ValueError("hash-field exclusion hides a token or redaction failed")
             path.write_text('{"description":"synthetic clean file"}\n')
+        # This one historical source hash is public, not a credential. Check
+        # exact approved lines as well as real-shaped tokens in both the same
+        # field and neighboring fields; never exclude an entire result file.
+        hash_field = "upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch"
+        public_hash = hashlib.sha256((ROOT / hash_field).read_bytes()).hexdigest()
+        for relative in (
+            "tests/std-channel-perf/results/2026-11-02-esp32s3/runs/control/build.json",
+            "tests/std-channel-perf/results/2026-11-02-qemu/after-clock-fix/control/run/analysis.json",
+        ):
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({hash_field: public_hash}, indent=2) + "\n")
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ValueError("public source-hash control was not narrowly recognized")
+            for field, value, rule in (
+                ("access_token", token, "github-pat"),
+                ("api_key", alphabet * 4, "generic-api-key"),
+                (hash_field, token, "github-pat"),
+                (hash_field, alphabet * 4, "generic-api-key"),
+            ):
+                path.write_text(json.dumps({field: value}, indent=2) + "\n")
+                findings, output = execute(scanner, "dir", source, config)
+                if (not any(item.get("RuleID") == rule for item in findings)
+                        or value in output):
+                    raise ValueError("historical source-hash exception hides a token")
+            path.write_text('{"description":"synthetic clean file"}\n')
+        # Even the known public hash must still be detected outside its exact
+        # historical result paths; this checks the allowlist's AND condition.
+        path = source / "outside-provenance.json"
+        path.write_text(json.dumps({hash_field: public_hash}, indent=2) + "\n")
+        findings, _ = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings):
+            raise ValueError("historical hash exception escaped its path scope")
+        path.unlink()
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")

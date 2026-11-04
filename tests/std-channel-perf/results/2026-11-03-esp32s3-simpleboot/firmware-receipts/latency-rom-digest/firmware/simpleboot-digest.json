@@ -1,0 +1,41 @@
+{
+  "schema": "std-channel-simpleboot-digest-v1",
+  "profile": "ram-prefix-digest-v1",
+  "input_sha256": "cd3759d761a6c3a026c3179a2dc82eaa01538105af02e23fb50d5e27f81f2604",
+  "output_sha256": "411e6ed9e741c88c0e427750ead9a7b1951b61ff6c8e3675d675aefc84093290",
+  "image_bytes": 16777216,
+  "digest_offset": 49248,
+  "ram_prefix_sha256": "7bb9fe59427be5f1508b3f98c799243d7186e3370d13ea333d3183e784d4fed1",
+  "first_padding_payload_before": 16272,
+  "first_padding_payload_after": 16240,
+  "mapped_segments": [
+    {
+      "header_offset": 65528,
+      "load_address": 1107361792,
+      "bytes": 364104,
+      "kind": "mapped"
+    },
+    {
+      "header_offset": 458744,
+      "load_address": 1007157248,
+      "bytes": 66272,
+      "kind": "mapped"
+    }
+  ],
+  "mapped_offsets_and_bytes_preserved": true,
+  "ram_payloads_preserved": true,
+  "prefix_digest_verified": true,
+  "digest_scope": "header through aligned ROM-visible RAM checksum only",
+  "secure_boot_qualified": false,
+  "boot_warning_resolved": false,
+  "physical_timing_qualified": false,
+  "loader": {
+    "patch": "0107-xtensa-simpleboot-hash-offset.patch",
+    "patch_sha256": "84950899e0a15cf88c6e649b193f9c6f1800da0357c4db217d829c7ba8872a1c",
+    "loader_source_sha256": "a35533da7d7b800cbac6a6e6de2a307cff727284c0ced2db54269290691c00a9",
+    "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346"
+  },
+  "source_image": "nuttx.merged.bin",
+  "output_image": "nuttx.rom-digest.bin",
+  "qualification": "build-candidate-only"
+}

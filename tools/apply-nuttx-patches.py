@@ -103,6 +103,7 @@ SERIES = {
         "0104-esp32s3-m5-cores3-raw-resources.patch",
         "0105-sched-migrate-affinity-with-empty-ready-queue.patch",
         "0106-armv8m-systick-coherent-snapshot.patch",
+        "0107-xtensa-simpleboot-hash-offset.patch",
     ),
     "mcuboot": ("0001-nuttx-direct-trailer-writes.patch",
                 "0004-nuttx-encrypted-metadata-alignment.patch",

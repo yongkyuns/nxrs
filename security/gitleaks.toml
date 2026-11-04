@@ -42,3 +42,11 @@ condition = "AND"
 paths = ['^tests/csi-radio/results/[^/]+\.json$']
 regexTarget = "line"
 regexes = ['^\s*"tests/nuttx-std/wifi/ffi/credentials\.c":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "Historical std-channel receipts record the exact public pthread-keys patch SHA-256"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/std-channel-perf/results/2026-11-02-(esp32s3|qemu)/([^/]+/)+(build|analysis)\.json$']
+regexTarget = "line"
+regexes = ['^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?\s*$']

@@ -8,6 +8,7 @@ on:
       - 'tests/nuttx-std/check-abi.py'
       - 'tests/nuttx-std/link.py'
       - 'tests/nuttx-std/test-patches.py'
+      - 'tests/nuttx-std/test-simpleboot-digest.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/platform_config.py'
       - 'tools/check-deployment.py'
@@ -35,6 +36,7 @@ on:
       - 'tests/nuttx-std/check-abi.py'
       - 'tests/nuttx-std/link.py'
       - 'tests/nuttx-std/test-patches.py'
+      - 'tests/nuttx-std/test-simpleboot-digest.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/platform_config.py'
       - 'tools/check-deployment.py'
@@ -129,6 +131,8 @@ jobs:
           python3 -m venv target/std-channel-venv
           target/std-channel-venv/bin/pip install kconfiglib==14.1.0
           echo "$GITHUB_WORKSPACE/target/std-channel-venv/bin" >> "$GITHUB_PATH"
+      - name: Native SIMPLE_BOOT digest-offset regression
+        run: python3 tests/nuttx-std/test-simpleboot-digest.py -v
       - name: Native SysTick regression and patch provenance
         run: |
           python3 tests/nuttx-std/test-patches.py PatchSeriesTests.test_armv8m_systick_snapshot_preserves_elapsed_time_at_wrap PatchSeriesTests.test_both_series_apply_to_copies_and_record_provenance -v
@@ -195,6 +199,13 @@ jobs:
             python3 tests/std-channel-perf/build.py --platform esp32s3-service-footprint --mode "$mode" --clock-source native-counter --out "$out"
             rm -rf "$out/prepared/toolchain" "$out/firmware/cargo"
           done
+      - name: Opt-in RAM-prefix digest candidate (build only; no clean-boot claim)
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/std-channel-perf/esp32s3/latency-rom-digest"
+          python3 tests/std-channel-perf/build.py --platform esp32s3-service-footprint --mode latency --clock-source native-counter --boot-image-profile ram-prefix-digest-v1 --out "$out"
+          rm -rf "$out/prepared/toolchain" "$out/firmware/cargo"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -211,3 +222,4 @@ jobs:
             target/std-channel-perf/**/firmware/nuttx/nuttx
             target/std-channel-perf/**/firmware/nuttx/nuttx.bin
             target/std-channel-perf/**/firmware/nuttx/nuttx.merged.bin
+            target/std-channel-perf/**/firmware/nuttx/nuttx.rom-digest.bin

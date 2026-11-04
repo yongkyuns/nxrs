@@ -1,0 +1,9 @@
+test_original_loader_accepts_legacy_layout (__main__.NativeLoaderTests.test_original_loader_accepts_legacy_layout) ... ok
+test_original_loader_fails_digest_layout_control (__main__.NativeLoaderTests.test_original_loader_fails_digest_layout_control) ... ok
+test_patched_loader_parses_both_mapped_segments_after_digest (__main__.NativeLoaderTests.test_patched_loader_parses_both_mapped_segments_after_digest) ... ok
+test_patched_loader_preserves_legacy_layout (__main__.NativeLoaderTests.test_patched_loader_preserves_legacy_layout) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 1.022s
+
+OK
