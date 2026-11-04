@@ -1,0 +1,271 @@
+{
+  "pr": 259,
+  "head": "2b84a8b37193fb5839ec9a9a7fa6baad4a28eb53",
+  "ci_source_revision": "32dca9f1ff869d27a556c65cbc03f4f58676ac9f",
+  "source_inventory_matches": true,
+  "results": [
+    {
+      "case": "01-tight",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 1872,
+        "max_ticks": 5140,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 7800,
+        "max_ns": 21417,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "02-seed-1-a",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 6050,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 25209,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "03-seed-17",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 2821,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 11755,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "04-fixed-100-w100-a",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5515,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22980,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "05-fixed-100-w101-a",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5518,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22992,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "06-fixed-1000-w100-a",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 3079,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 12830,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "07-fixed-1000-w101-a",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2815,
+        "max_ticks": 2821,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11730,
+        "max_ns": 11755,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "08-seed-113",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 2821,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 11755,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "09-seed-1-b",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 6050,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 25209,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "10-fixed-1000-w101-b",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 5341,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 22255,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "11-fixed-1000-w100-b",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 3079,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 12830,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "12-fixed-100-w101-b",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5310,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22125,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "13-fixed-100-w100-b",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5515,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22980,
+        "percentile_method": "nearest-rank"
+      }
+    }
+  ],
+  "failure": null,
+  "firmware_restored": true,
+  "physical_timing_qualified": false
+}

@@ -1,6 +1,10 @@
 # P0: isolate the seeded latency alternation
 
 This is a fixture experiment, not a channel, parker or scheduler optimization.
+The [completed WROOM campaign](results/2026-11-03-esp32s3-latency-controls/README.md)
+records all 13 fresh-boot controls and their interpretation. The new executable
+does not reproduce the old large alternation; fixed warmup pairs reproduce a
+smaller total-transfer-count pattern without establishing its cause.
 The [physical archive](results/2026-11-03-esp32s3-simpleboot/README.md) remains
 unchanged. In its seed-1 run, retained even indices contain 498 receives at
 3,673 counter ticks plus two larger observations; odd indices contain 375 at

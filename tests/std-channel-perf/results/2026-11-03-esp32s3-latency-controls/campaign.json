@@ -1,0 +1,63 @@
+{
+  "samples": 1000,
+  "cases": [
+    {
+      "label": "01-tight"
+    },
+    {
+      "label": "02-seed-1-a",
+      "seed": 1
+    },
+    {
+      "label": "03-seed-17",
+      "seed": 17
+    },
+    {
+      "label": "04-fixed-100-w100-a",
+      "fixed": 100
+    },
+    {
+      "label": "05-fixed-100-w101-a",
+      "fixed": 100,
+      "warmup": 101
+    },
+    {
+      "label": "06-fixed-1000-w100-a",
+      "fixed": 1000
+    },
+    {
+      "label": "07-fixed-1000-w101-a",
+      "fixed": 1000,
+      "warmup": 101
+    },
+    {
+      "label": "08-seed-113",
+      "seed": 113
+    },
+    {
+      "label": "09-seed-1-b",
+      "seed": 1
+    },
+    {
+      "label": "10-fixed-1000-w101-b",
+      "fixed": 1000,
+      "warmup": 101
+    },
+    {
+      "label": "11-fixed-1000-w100-b",
+      "fixed": 1000
+    },
+    {
+      "label": "12-fixed-100-w101-b",
+      "fixed": 100,
+      "warmup": 101
+    },
+    {
+      "label": "13-fixed-100-w100-b",
+      "fixed": 100
+    }
+  ],
+  "same_executable": true,
+  "counterbalanced_fixed_pairs": true,
+  "fresh_boot_per_command": true
+}
