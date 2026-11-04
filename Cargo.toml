@@ -54,6 +54,7 @@ members = [
     "tests/nuttx-std/stream",
     "tests/rtos-bench/rust",
     "tests/std-channel-perf/rust",
+    "tests/event-path-perf/rust",
 ]
 default-members = [
     "app/nxrs",

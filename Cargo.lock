@@ -332,6 +332,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-event-path-perf"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "nxrs-imu",
+ "nxrs-messaging",
+]
+
+[[package]]
 name = "nxrs-execution"
 version = "0.1.0"
 
