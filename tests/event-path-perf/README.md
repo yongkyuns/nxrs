@@ -9,7 +9,9 @@ statically dispatched Rust callers. It does not change a production transport.
 For the engineering conclusions and the next board run, start with the
 [P2 decision report](DECISION-REPORT.md). It records the compiled facade review,
 the latest physical P0/P1 observations, and an eighteen-capture first campaign
-using the existing cases. New P2 physical timing results remain pending.
+using the existing cases. The [sanitized physical summary](results/2026-11-04-esp32s3/README.md)
+now records all 18 captures and six matched comparisons; independent timing
+qualification remains open.
 
 ## Experiment contract
 

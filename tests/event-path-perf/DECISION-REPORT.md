@@ -17,8 +17,10 @@ characterization baseline, outside P1's equal-FIFO Crossbeam contract.
 The next performance deliverable is six existing cases, three fresh boots each,
 with separate queue-call and blocked-delivery measurements. No production
 transport or scheduler optimization is justified by the current P2 evidence.
-There are no physical P2 captures yet. This report adds an engineering decision
-and a concrete campaign; it changes no firmware input or runtime behavior.
+The [sanitized November 4 summary](results/2026-11-04-esp32s3/README.md) now records
+18 successful captures and six matched comparisons. Identifiers and original raw
+evidence are excluded from that publication. Timing calibration and placement
+review remain open; no firmware input or runtime behavior changes.
 
 ## Evidence that informs the decision
 
