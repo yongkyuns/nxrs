@@ -3,11 +3,15 @@ use nxrs_build::{archive, find_program, hash, native, output, read_json, Result}
 use std::{env, fs, path::Path, process::Command};
 
 pub(crate) fn nuttx_headers(include: &Path) -> Result<()> {
-    if !include.join("nuttx/config.h").is_file() {
+    let config = include.join("nuttx/config.h");
+    // Explicitly observe deletion of a required file: on Windows, directory
+    // timestamp tracking alone may not invalidate a successful build script.
+    println!("cargo:rerun-if-changed={}", config.display());
+    // Keep recursive tracking for other configured NuttX and ABI headers.
+    println!("cargo:rerun-if-changed={}", include.display());
+    if !config.is_file() {
         return Err("Configured NuttX target headers required".into());
     }
-    // Kconfig and target ABI headers can change without changing the include path.
-    println!("cargo:rerun-if-changed={}", include.display());
     Ok(())
 }
 
