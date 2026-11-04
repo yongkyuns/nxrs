@@ -28,9 +28,11 @@ The [November 4 WROOM campaign](results/2026-11-04-esp32s3/README.md) records
 std/FIFO no-repair gates pass; the unequal-priority selected reservation stall
 reproduces. Four original Crossbeam modes were absent from that campaign and
 remain untested physically. Its retained ROM warning and operator-only
-qualification limits remain open. The separate build-only CI matrix described
-below is configured to produce fresh paired-profile images; they have no P1
-physical execution evidence yet.
+qualification limits remain open. The separate build-only CI matrix produced
+[eight verified paired-profile images](https://github.com/yongkyuns/nxrs/actions/runs/41827567717/artifacts/13323366472).
+The [fixed 19-case campaign handoff](../channel-progress-physical/README.md)
+binds those images to an offline preflight and complete physical-capture replay.
+They have no P1 physical execution evidence yet.
 
 ## Recorded progress results — 2026-11-03
 
@@ -406,6 +408,7 @@ qualification flags remain false.
 
 ```sh
 python3 -m unittest discover -s tests/channel-progress -p 'test_*.py' -v
+python3 -m unittest discover -s tests/channel-progress-physical -p 'test_*.py' -v
 cargo +1.90.0 fmt --check -p nxrs-channel-progress
 cargo +1.90.0 test --locked -p nxrs-channel-progress
 cargo +1.90.0 clippy --locked -p nxrs-channel-progress --all-targets -- -D warnings
@@ -565,6 +568,13 @@ proof. The RAM-prefix digest covers the ROM-loaded prefix; the complete image
 hash remains necessary for the hidden mapped payload and deployment identity.
 This profile does not enable secure boot. Fresh P1 captures are still required
 to observe its boot behavior and scheduling results on the board.
+
+For the next campaign, use the frozen artifact, case order, preflight commands
+and operator handoff in [`../channel-progress-physical/README.md`](../channel-progress-physical/README.md).
+That host-only tooling lives outside this fixture's firmware input directory,
+so it can advance independently of the eight already verified image identities.
+Its complete-campaign gate requires all 19 named captures and preserves the
+separate no-repair, clean-boot-observation and physical-verification decisions.
 
 Only one workstream may own the board at a time. After exclusive ownership and
 flashing the verified selected image, record a `channel-progress-session-v1`

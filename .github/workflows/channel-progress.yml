@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tests/channel-progress/**'
+      - 'tests/channel-progress-physical/**'
       - 'tests/std-channel-perf/native.*'
       - 'tests/std-channel-perf/rust/src/native.rs'
       - 'tests/std-channel-perf/build.py'
@@ -30,6 +31,7 @@ on:
     branches: [main]
     paths:
       - 'tests/channel-progress/**'
+      - 'tests/channel-progress-physical/**'
       - 'tests/std-channel-perf/native.*'
       - 'tests/std-channel-perf/rust/src/native.rs'
       - 'tests/std-channel-perf/build.py'
@@ -74,6 +76,7 @@ jobs:
       - name: Source, evidence and architecture refusal controls
         run: |
           python3 -m unittest discover -s tests/channel-progress -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/channel-progress-physical -p 'test_*.py' -v
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
           python3 -m unittest discover -s tests/host -p test_hal_boundaries.py -v
           python3 tools/check-architecture.py
