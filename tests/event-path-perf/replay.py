@@ -201,11 +201,10 @@ def replay(directory: Path, artifact_root: Path | None = None) -> dict:
             require(report.get("command") == "event_path_perf " + " ".join(arguments),
                     "firmware command differs from raw experiment")
             require(receipt is not None and session is not None, "missing retained firmware/session association")
-            prefix = raw.split(capture.analysis.PREFIX.encode(), 1)[0]
-            fresh = capture.console.fresh_boot(prefix)
-            warning = capture.console.ROM_DIGEST_WARNING in prefix
-            require(report.get("fresh_boot_observed") == fresh
-                    and report.get("boot_rom_digest_warning_observed") == warning,
+            observed = capture.analysis.firmware_frame(raw, report["command"])
+            fresh = observed["fresh_boot_observed"]
+            warning = observed["boot_rom_digest_warning_observed"]
+            require(all(report.get(key) == value for key, value in observed.items()),
                     "recorded boot observations differ from raw console")
             facts = capture.associate(summary, receipt,
                                       capture.retained_session(session, manifest["calibration"]),

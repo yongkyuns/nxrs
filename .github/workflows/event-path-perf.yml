@@ -170,6 +170,10 @@ jobs:
     needs: host
     runs-on: ubuntu-24.04
     timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        boot_image_profile: [platform-default, ram-prefix-digest-v1]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -186,14 +190,23 @@ jobs:
         with:
           path: target/qemu-tools/*.tar.xz
           key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
-      - name: Hash-pinned SDK and uninstrumented ESP32-S3 image (build only)
+      - name: Hash-pinned SDK and isolated ESP32-S3 image profile (build only)
         run: |
           bash tools/install-qemu-tools.sh
-          python3 tests/event-path-perf/build.py --platform esp32s3-service-footprint --clock-source native-counter --out target/event-path-esp32s3
+          python3 tests/event-path-perf/build.py --platform esp32s3-service-footprint --clock-source native-counter --boot-image-profile '${{ matrix.boot_image_profile }}' --out target/event-path-esp32s3
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("event_path_ci_build_receipt", "tests/event-path-perf/capture.py")
+          capture = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(capture)
+          receipt = capture.build_receipt(Path("target/event-path-esp32s3"))
+          print(f"P2 retained build verified: {receipt['boot_image_profile']} {receipt['image_sha256']}")
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: event-path-esp32s3-build-only
+          name: event-path-esp32s3-${{ matrix.boot_image_profile }}-build-only
           path: |
             target/event-path-esp32s3/*.json
             target/event-path-esp32s3/*.log
@@ -202,6 +215,9 @@ jobs:
             target/event-path-esp32s3/firmware/*.jsonl
             target/event-path-esp32s3/firmware/*.config
             target/event-path-esp32s3/firmware/*.txt
+            target/event-path-esp32s3/firmware/*.patch
             target/event-path-esp32s3/firmware/nuttx/nuttx
             target/event-path-esp32s3/firmware/nuttx/nuttx.bin
             target/event-path-esp32s3/firmware/nuttx/nuttx.merged.bin
+            target/event-path-esp32s3/firmware/nuttx/nuttx.rom-digest.bin
+            target/event-path-esp32s3/firmware/nuttx/arch/xtensa/src/common/espressif/esp_loader.c

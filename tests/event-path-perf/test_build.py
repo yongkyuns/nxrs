@@ -123,6 +123,18 @@ class BuildGuards(unittest.TestCase):
             build.build(SimpleNamespace(out=Path("/unused"), platform="mps2-an521-mock",
                                         clock_source="native-counter"))
 
+    def test_invalid_boot_profile_is_refused_before_any_build_work(self):
+        for platform, profile in (("mps2-an521-mock", build.boot_image.PROFILE),
+                                  ("pico2-mock", build.boot_image.PROFILE),
+                                  ("esp32s3-service-footprint", "unknown")):
+            with self.subTest(platform=platform, profile=profile), tempfile.TemporaryDirectory() as temporary:
+                out = Path(temporary) / "must-not-exist"
+                with patch.object(build, "resolve_platform") as resolve, self.assertRaises(ValueError):
+                    build.build(SimpleNamespace(out=out, platform=platform,
+                                                clock_source="baseline", boot_image_profile=profile))
+                resolve.assert_not_called()
+                self.assertFalse(out.exists())
+
 
 class CargoMetadataControls(unittest.TestCase):
     def cargo_fixture(self, root, stdout, stderr, returncode=0):
@@ -342,6 +354,7 @@ class BuildReceiptControls(unittest.TestCase):
             self.assertEqual(record["status"], "complete")
             self.assertEqual(record["runtime_kind"], "unmeasured")
             self.assertEqual(record["command"], "event_path_perf")
+            self.assertEqual(record["boot_image_profile"], build.boot_image.DEFAULT)
             self.assertEqual(record["image_sha256"], build.digest(out / record["image_file"]))
             self.assertEqual(record["std_array_sha256"], record["std_array_original_sha256"])
             self.assertIn("crossbeam-source.json", record["artifacts_sha256"])
@@ -356,14 +369,30 @@ class BuildReceiptControls(unittest.TestCase):
         self.assertEqual(build.IDENTITY_FIELDS, original_fields)
         with tempfile.TemporaryDirectory() as temporary:
             _, record = self.run_fixture(Path(temporary))
+            explicit_profile_identity = record["build_id"]
+            del record["boot_image_profile"]
             original = hashlib.sha256(json.dumps(
                 {key: record[key] for key in original_fields},
                 sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-            self.assertEqual(record["build_id"], original)
+            self.assertNotEqual(explicit_profile_identity, original)
             self.assertEqual(build.build_identity(record), original)
             reordered = dict(reversed(list(record.items())))
             reordered["compiler_identity"] = dict(reversed(list(record["compiler_identity"].items())))
             self.assertEqual(build.build_identity(reordered), original)
+
+    def test_explicit_boot_profile_is_bound_into_runtime_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, record = self.run_fixture(Path(temporary))
+        record.update(platform="esp32s3-service-footprint", target="xtensa-esp32s3-nuttx",
+                      sdk="esp-1.90.0.0")
+        default = build.build_identity(record)
+        record["boot_image_profile"] = build.boot_image.PROFILE
+        candidate = build.build_identity(record)
+        self.assertNotEqual(default, candidate)
+        del record["boot_image_profile"]
+        legacy = build.build_identity(record)
+        self.assertNotEqual(legacy, default)
+        self.assertNotEqual(legacy, candidate)
 
     def test_identity_refuses_missing_or_malformed_frozen_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:

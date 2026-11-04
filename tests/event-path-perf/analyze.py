@@ -24,6 +24,18 @@ require, integer, boolean, unique_keys = p0.require, p0.integer, p0.boolean, p0.
 
 PREFIX = "EVENT_PATH_PERF "
 SCHEMA = "event-path-perf-v1"
+# Native faults are emitted with different capitalization across architectures
+# and may precede the first fixture record. Keep live capture and offline replay
+# on this same signature set without changing the reused P0 implementation.
+FAILURE = re.compile(
+    p0.FAILURE.pattern + r'|EVENT_PATH_PERF FAIL|PANIC|ASSERTION|UsageFault|BusFault|'
+    r'"record"\s*:\s*"(?:fatal|failure)"', re.IGNORECASE,
+)
+RAW_FAILURE = re.compile(FAILURE.pattern.encode("ascii"), re.IGNORECASE)
+BOOT_BANNERS = (b"NuttShell", b"*** Booting NuttX ***")
+BOOT_MARKERS = (*BOOT_BANNERS, b"ESP-ROM:")
+ROM_DIGEST_WARNING = b"SHA-256 comparison failed:"
+MAX_CONSOLE_BYTES = 16 * 1024 * 1024
 U32 = (1 << 32) - 1
 U64 = (1 << 64) - 1
 HALF = 1 << 31
@@ -76,9 +88,52 @@ def case_contracts() -> dict:
 CASES = case_contracts()
 
 
+def faulted(data: str | bytes | bytearray) -> bool:
+    return bool((FAILURE if isinstance(data, str) else RAW_FAILURE).search(data))
+
+
+def firmware_frame(raw: bytes, command: str) -> dict:
+    """Validate native console framing; this never authenticates execution.
+
+    P2 JSON records remain byte-for-byte intact. Only NSH's known erase-line
+    sequence is permitted after a literal prompt; its two incomplete prefixes
+    are accepted exclusively at raw EOF after the complete returned prompt.
+    """
+    require(isinstance(raw, bytes) and len(raw) <= MAX_CONSOLE_BYTES,
+            "invalid or oversized firmware console")
+    raw.decode("utf-8", errors="strict")
+    require(not faulted(raw), "failure or kernel fault in transcript")
+    require(isinstance(command, str) and command.startswith("event_path_perf ")
+            and "\r" not in command and "\n" not in command, "invalid expected firmware command")
+    rows = list(re.finditer(rb"(?m)^EVENT_PATH_PERF [^\r\n]*\r*\n", raw))
+    require(len(rows) >= 4, "firmware frame lacks complete event-path records")
+    prefix, body, suffix = raw[:rows[0].start()], raw[rows[0].start():rows[-1].end()], raw[rows[-1].end():]
+    require(body == b"".join(row.group() for row in rows) and b"\x1b" not in body,
+            "interleaved or malformed firmware record framing")
+    echoes = list(re.finditer(rb"(?m)^nsh> (?:\x1b\[K)?" + re.escape(command.encode("ascii"))
+                             + rb"\r*\n", prefix))
+    require(len(echoes) == 1, "firmware frame needs its exact echoed command")
+    echo = echoes[0]
+    before, after = prefix[:echo.start()], prefix[echo.end():]
+    require(b"nsh>" not in before and not after.strip(b"\r\n"),
+            "firmware frame has additional commands or output before records")
+    require(b"\x1b" not in before and all(value >= 32 or value in (9, 10, 13) for value in before),
+            "malformed terminal control before firmware command")
+    require(any(banner in before for banner in BOOT_BANNERS),
+            "fresh boot banner missing before firmware command")
+    require(all(raw.count(banner) <= 1 for banner in BOOT_MARKERS),
+            "firmware frame contains multiple boots")
+    # Do not normalize CR or strip arbitrary ANSI bytes here: doing so could
+    # manufacture a complete prompt from a truncated or corrupted byte stream.
+    require(suffix.lstrip(b"\r\n") in (
+        b"nsh> ", b"nsh> \x1b[K", b"nsh> \x1b[", b"nsh> \x1b",
+    ), "firmware frame lacks its final prompt or has an unexpected suffix")
+    return {"fresh_boot_observed": True,
+            "boot_rom_digest_warning_observed": ROM_DIGEST_WARNING in before}
+
+
 def records(text: str):
-    require(not p0.FAILURE.search(text) and "EVENT_PATH_PERF FAIL" not in text,
-            "failure or kernel fault in transcript")
+    require(not faulted(text), "failure or kernel fault in transcript")
     rows = []
     for line in text.replace("\r", "").splitlines():
         if line.startswith(PREFIX):

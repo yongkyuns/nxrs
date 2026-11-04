@@ -197,6 +197,7 @@ def build_receipt(directory):
         version, checksum = builder.REGISTRY_PINS[package["name"]]
         require(package.get("version") == version and package.get("registry_checksum") == checksum
                 and package.get("uninstrumented_archive_match") is True, "instrumented or wrong Crossbeam source")
+    builder.boot_image.verify(directory, record)
     return record
 
 
@@ -289,6 +290,19 @@ def retained_session(session, evidence):
         record["evidence_file"] = (evidence["retained_file"] if evidence["status"] == "retained"
                                    else "calibration/unavailable-evidence")
     return rebased
+
+
+def read_until(fd, transcript, predicate, deadline, process=None):
+    """Keep P0 I/O while checking P2 faults before either prompt is accepted."""
+    def checked(data):
+        if analysis.faulted(data):
+            raise RuntimeError("guest fixture failure or kernel fault")
+        return predicate(data)
+
+    result = console.read_until(fd, transcript, checked, deadline, process)
+    if analysis.faulted(result):
+        raise RuntimeError("guest fixture failure or kernel fault")
+    return result
 
 
 def associate(summary, receipt, session, evidence_directory, fresh_boot, digest_warning):
@@ -399,12 +413,16 @@ def capture(args):
                 print(f"Reset the already-flashed board; fresh-boot capture budget is {timeout:g} seconds.", flush=True)
             deadline = time.monotonic() + timeout
             report["failure_stage"] = "fresh-boot"
-            boot = console.read_until(fd, transcript, console.fresh_boot, deadline, process)
+            boot = read_until(fd, transcript, console.fresh_boot, deadline, process)
             report["fresh_boot_observed"] = console.fresh_boot(boot)
             report["boot_rom_digest_warning_observed"] = console.ROM_DIGEST_WARNING in boot
             report["failure_stage"] = "command"
             console.write_command(fd, report["command"], deadline)
-            console.read_until(fd, transcript, lambda data: console.PROMPT in data, deadline, process)
+            read_until(fd, transcript, lambda data: console.PROMPT in data, deadline, process)
+            report["failure_stage"] = "framing"
+            observed = analysis.firmware_frame(bytes(transcript), report["command"])
+            require(all(report[key] == value for key, value in observed.items()),
+                    "firmware frame differs from captured boot observations")
         report["failure_stage"] = "analysis"
         summary = analysis.analyze(transcript.decode("utf-8", errors="strict"))
         metadata = summary["metadata"]

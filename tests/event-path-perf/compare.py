@@ -94,13 +94,16 @@ def identity(member):
     report, receipt = member["report"], member["receipt"]
     if receipt is None:
         return {"kind": "host-executable", "binary_sha256": report["binary_sha256"]}
-    return {
+    result = {
         "kind": "firmware-build", "build_receipt_sha256": report["build_receipt_sha256"],
         **{key: receipt[key] for key in (
             "build_id", "image_sha256", "elf_sha256", "config_sha256", "platform", "target", "sdk",
             "compiler_version", "optimization", "std_array_sha256", "std_library_tree_sha256",
         )},
     }
+    if "boot_image_profile" in receipt:
+        result["boot_image_profile"] = receipt["boot_image_profile"]
+    return result
 
 
 def context(member):

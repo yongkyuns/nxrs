@@ -50,3 +50,11 @@ condition = "AND"
 paths = ['^tests/std-channel-perf/results/2026-11-02-(qemu|esp32s3)/([^/]+/)+(build|analysis)\.json$']
 regexTarget = "line"
 regexes = ['^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "Twelve reviewed P0 SIMPLE_BOOT receipts repeat one exact public patch hash"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/(firmware-receipts/(latency|latency-rom-digest)/build\.json|runs/(latency-tight-1|latency-rom-digest-tight-[123]|latency-rom-digest-seed-1-1)/(build|analysis)\.json)$']
+regexTarget = "line"
+regexes = ['^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?\s*$']

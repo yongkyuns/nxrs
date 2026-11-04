@@ -67,8 +67,10 @@ class ReplayControls(unittest.TestCase):
         args = self.fixture.arguments("physical", runtime="serial", session=source,
                                       port="synthetic", timeout=90)
         descriptor = os.open(os.devnull, os.O_RDWR)
+        echo = ("event_path_perf " + " ".join(capture.command_for(
+            args.case, args.samples, args.warmup, args.payload)) + "\n").encode()
         replies = iter((b"*** Booting NuttX *** synthetic\nnsh> ",
-                        b"\n" + fixtures.transcript(rows).encode() + b"nsh> "))
+                        echo + fixtures.transcript(rows).encode() + b"nsh> "))
 
         def read_until(_fd, buffer, *_args):
             data = next(replies)

@@ -114,8 +114,10 @@ class ComparisonControls(unittest.TestCase):
             args = self.fixture.arguments(name, runtime="serial", session=source,
                                           port="synthetic", **arguments)
             fd = os.open(os.devnull, os.O_RDWR)
+            echo = ("event_path_perf " + " ".join(capture.command_for(
+                args.case, args.samples, args.warmup, args.payload)) + "\n").encode()
             replies = iter((b"*** Booting NuttX *** SYNTHETIC TEST ONLY\nnsh> ",
-                            b"\n" + fixtures.transcript(rows).encode() + b"nsh> "))
+                            echo + fixtures.transcript(rows).encode() + b"nsh> "))
 
             def read_until(_fd, buffer, *_args):
                 data = next(replies)

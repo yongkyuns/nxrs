@@ -400,8 +400,10 @@ class CaptureControls(unittest.TestCase):
         source.write_text(json.dumps(session, indent=3) + "\n\n")
         args = self.arguments(name, runtime="serial", session=source, port="synthetic")
         fd = os.open(os.devnull, os.O_RDWR)
+        echo = ("event_path_perf " + " ".join(capture.command_for(
+            args.case, args.samples, args.warmup, args.payload)) + "\n").encode()
         responses = iter((b"*** Booting NuttX *** synthetic\nnsh> ",
-                          b"\n" + transcript(fixture(native=True, hardware_counter=True,
+                          echo + transcript(fixture(native=True, hardware_counter=True,
                                                      build_id=receipt["build_id"])).encode() + b"nsh> "))
 
         def read_until(_fd, buffer, *_args):
@@ -620,8 +622,10 @@ class CaptureControls(unittest.TestCase):
         source.write_text(json.dumps(session))
         args = self.arguments("serial-restore", runtime="serial", session=source, port="synthetic")
         fd = os.open(os.devnull, os.O_RDWR)
+        echo = ("event_path_perf " + " ".join(capture.command_for(
+            args.case, args.samples, args.warmup, args.payload)) + "\n").encode()
         responses = iter((b"*** Booting NuttX *** synthetic\nnsh> ",
-                          b"\n" + transcript(fixture(native=True, hardware_counter=True,
+                          echo + transcript(fixture(native=True, hardware_counter=True,
                                                      build_id=receipt["build_id"])).encode() + b"nsh> "))
 
         def read_until(_fd, buffer, *_args):

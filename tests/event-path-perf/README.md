@@ -44,7 +44,8 @@ complete P3 owner, fairness, deadline, closed-arm disabling or registration-race
 qualification.
 
 All target notification/blocked cases use FIFO sender 120, receiver 180 and
-16 KiB worker stacks. The fixed-peer workers both use FIFO 120. The observer
+16 KiB worker stacks. Fan-in and timer-provider cases use the same 120/180
+provider/owner relationship. The fixed-peer workers both use FIFO 120. The observer
 uses FIFO 220 where needed and an independently runnable watchdog uses FIFO
 240. Every requested policy/priority is read back. The reused native adapter
 refuses SMP or non-flat NuttX at compilation. Linux reports its actual policy
@@ -196,8 +197,26 @@ fixture installed:
 ```sh
 python3 tests/event-path-perf/build.py --platform mps2-an521-mock --out target/event-path-arm
 python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --case fixed-peer --samples 16 --warmup 4 --output target/event-path-arm/runs/fixed-peer
-python3 tests/event-path-perf/build.py --platform esp32s3-service-footprint --clock-source native-counter --out target/event-path-esp32s3
 ```
+
+Build the ESP32-S3 baseline and optional digest candidate into separate new
+directories:
+
+```sh
+python3 tests/event-path-perf/build.py \
+  --platform esp32s3-service-footprint --clock-source native-counter \
+  --boot-image-profile platform-default --out target/event-path-esp32s3
+python3 tests/event-path-perf/build.py \
+  --platform esp32s3-service-footprint --clock-source native-counter \
+  --boot-image-profile ram-prefix-digest-v1 --out target/event-path-esp32s3-rom-digest
+```
+
+`platform-default` remains the default packing. The optional
+`ram-prefix-digest-v1` profile is restricted to `esp32s3-service-footprint` and
+uses [P0's paired image/loader contract](../std-channel-perf/SIMPLEBOOT_DIGEST.md).
+Both are new builds with the matching loader patch; old images are not repacked
+or relabeled. The profile participates in each new runtime build identity.
+Legacy receipts retain their original identity derivation.
 
 Each target build gets a private prepared std copy and Cargo directory. The
 builder reuses P0's source/configuration checks in uninstrumented `latency` mode.
@@ -207,9 +226,22 @@ the downloaded archives, and actual compiler-artifact paths. Instrumented or
 changed source refuses the build. Compiler, configuration, source and image
 identities are retained in `event-path-build-v1`.
 
+The candidate retains the original `nuttx.merged.bin`, selected
+`nuttx.rom-digest.bin`, packing report `simpleboot-digest.json`, patch ledger
+`nuttx-patches.json`, actual `esp_loader.c`, and a copy of
+`0107-xtensa-simpleboot-hash-offset.patch`. Build and capture validation recompute
+the candidate bytes from the retained original and check the exact loader,
+patch and provenance binding; offline replay performs the same checks without
+requiring the original private build directory. The ROM-visible prefix digest
+excludes hidden mapped payloads and does not establish secure boot. Whole-image
+hashes remain required, and an offline digest check cannot clear an observed
+ROM warning. The P2 candidate is build-only; these commands do not flash or
+establish physical execution.
+
 The [dedicated workflow](../../.github/workflows/event-path-perf.yml) runs the
 host corpus, builds ARM, runs 29 captures in separate fresh QEMU boots, and
-builds the ESP32-S3 image. Nineteen of those captures cover every member of the
+builds separate ESP32-S3 baseline and digest-candidate images with native-counter
+selection. Nineteen of those captures cover every member of the
 seven comparison groups on the 16-byte/capacity-eight baseline. The other ten
 retain the notification, fixed-peer, fan-in and timer controls. The QEMU corpus includes one and four
 providers in both normal and saturation modes and the timer-provider case with
@@ -227,8 +259,15 @@ include warmup; fan-in's excluded, nondeterministically admitted warmups mean
 its whole-run checksum may be firmware-validated without independently
 reconstructible warmup detail, which analysis reports explicitly.
 
-Capture reuses P0's console I/O, fresh-boot and independent-clock checks without
-editing P0. Serial sessions use schema `event-path-session-v1` with the same
+Capture reuses P0's mechanical console I/O and independent-clock checks, with
+P2-owned fault detection and target-console framing. Live capture and offline
+replay reject case-insensitive kernel/fixture faults. A completed target capture
+requires a boot before exactly one echoed command, contiguous ordered event
+records, and the returned literal `nsh> ` prompt. Known NSH erase-line decoration
+is accepted; only its exact `ESC` or `ESC[` fragments at raw EOF after that final
+prompt may be incomplete. Repeated boots or commands, other terminal controls
+and trailing content are refused. Serial sessions use schema
+`event-path-session-v1` with the same
 physical identity/calibration fields described in the
 [P0 fixture](../std-channel-perf/README.md). Build ID, image hash, clock request,
 CPU frequency and source receipts must agree. Artifact hashes are checked before
@@ -332,7 +371,8 @@ and declared-input match. It does not independently identify the emulator
 binary or execution host, and operator labels do not verify physical identity;
 `execution_context_verified`, physical-execution, timing and progress
 qualification remain false. This gate compares cases within one build, not
-separately optimized candidate builds.
+separately optimized candidate builds. Baseline and digest-candidate images
+therefore require separate comparison groups.
 
 The two selection groups explicitly retain the direct-receive macro control and
 the additional idle queues in the three-arm topology. Their whole difference
@@ -374,6 +414,34 @@ define a bounded queue's overload, retry, fairness or multi-class owner policy.
 Their ESP32-S3 evidence is build-only. The three Crossbeam reservation failures
 remain failures in the complete cohort.
 
+At revision `d6f76e4d`, P1 also defines the separate
+[`equal-fifo-run-to-block-v1` contract](https://github.com/yongkyuns/nxrs/blob/d6f76e4d21dbbb97167b32899da88e8137ffff8d/tests/channel-progress/FIFO-SCHEDULING-AUDIT.md).
+Its six cases use two channel participants at FIFO 180 on one core and retain
+the actual reservation/publication or reclamation order. The audited scheduler
+places a newly ready equal-priority peer behind the preempted slot holder;
+the holder must finish its reservation before the peer enters the conflicting
+operation. All endpoint participants must obey the same effective-priority
+contract, and no reserved slot may survive a wait, yield or user callback.
+Bounded runnable work and bounded interference remain separate requirements.
+Notification locks after slot release can still delay method return, so this
+contract does not establish wait-freedom or a latency bound.
+
+P2's current scheduler profiles do not implement that equal-FIFO experiment:
+
+| P2 family | Current schedule | Relation to P1's equal-FIFO contract |
+| --- | --- | --- |
+| Ready and full rejection | One FIFO 120 thread performs admission and receive/drain | No competing reservation holder is made runnable; these are call-cost controls. |
+| Blocked transports/selectors, finite fan-in and timer-provider | Sender/providers at FIFO 120; receiver/owner at FIFO 180 | Unequal effective priorities are outside the contract. |
+| Fixed peer | Two FIFO 120 tasks exchange a marker and yield | No channel payload or reservation is transferred. |
+| Semaphore and park | Sender at FIFO 120; receiver at FIFO 180 | Notification controls have no channel reservation to qualify. |
+
+The new P1 source argument concerns pinned Crossbeam's bounded array and
+receive-only selection paths. It does not qualify the raw std queue or the
+actual messaging facade. P2 keeps its existing priorities, case names and
+qualification flags; a future equal-priority transport measurement would need
+an explicitly named schedule and its own matching evidence. The original
+unequal-priority failures remain applicable to their recorded interleavings.
+
 P2's passing functional corpus establishes completion and conservation for its
 named schedules. Its direct Crossbeam adapter calls the same `recv` path, and
 the one-arm macro expands to that call. Its three-arm case keeps stop and
@@ -401,11 +469,21 @@ evidence. A full-queue blocked-producer release control remains conditional on
 a selected production call site that permits blocking and requires that control.
 Current `send` cases use nonfull queues and cannot satisfy that separate control.
 
-[P0's paired digest image/loader candidate (#257)](https://github.com/yongkyuns/nxrs/pull/257)
-has its own opt-in build profile and provenance contract. P2's current ESP image
-uses the existing baseline profile. Consuming that candidate requires deliberate
-P2 build/profile/receipt integration and P0's physical boot and calibration
-qualification; its published build results do not qualify the current P2 image.
+[P0's recorded WROOM comparison](https://github.com/yongkyuns/nxrs/blob/634552533aeee23c1dbed5b7389c11612e98e15a/tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot/README.md)
+contains four fresh boots of its paired digest candidate without the ROM SHA-256
+warning; a separately built legacy-packing control reproduced the warning on
+the same board. The candidate's three tight runs and one seeded run completed
+with matching flashed-image/runtime identities. This is an observation of P0's
+`std_channel_perf` firmware on that board and USB-reset path. It is not a P2
+physical run or a comparison between identical executable builds.
+
+All five P0 captures still record missing independent clock calibration and
+`physical_timing_qualified: false`. Exact channel/stack allocation placement and
+resource qualification remain open. P2's separately built digest candidate
+needs its own coordinated fresh-boot/image evidence and calibration review;
+neither the packing profile nor P0's boot observation verifies P2 execution or
+changes P2's qualification flags. Physical-board ownership remains with the
+coordinated P0/hardware workstream.
 
 P3 owns full selected-owner behavior, P4 owns correlated native switch/IRQ
 attribution, and P5 owns sustained offered-load and resource/product budgets.

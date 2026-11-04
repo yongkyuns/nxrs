@@ -23,6 +23,9 @@ import tomllib
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BASE = ROOT / "tests/std-channel-perf"
+BOOT_SPEC = importlib.util.spec_from_file_location("event_path_boot_image", HERE / "boot_image.py")
+boot_image = importlib.util.module_from_spec(BOOT_SPEC)
+BOOT_SPEC.loader.exec_module(boot_image)
 SPEC = importlib.util.spec_from_file_location("event_path_std_build", BASE / "build.py")
 baseline = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(baseline)
@@ -83,6 +86,7 @@ def build_identity(record: dict) -> str:
 
     for key in ("package", "binary", "command", "mode", "platform", "target", "sdk", "clock_request"):
         string(record[key], key)
+    boot_image.validate_profile(record.get("boot_image_profile", boot_image.DEFAULT), record["platform"])
     if type(record["hook_stage"]) is not int or record["hook_stage"] != 0:
         raise ValueError("invalid build identity hook_stage")
     hashes(record["source_sha256"], "source_sha256")
@@ -113,7 +117,10 @@ def build_identity(record: dict) -> str:
     if (not isinstance(registry, dict) or registry.get("schema") != "event-path-registry-sources-v1"
             or not isinstance(registry.get("packages"), list)):
         raise ValueError("invalid build identity Crossbeam source receipt")
-    identity = {key: record[key] for key in IDENTITY_FIELDS}
+    # Historical v1 receipts predate the explicit profile. Preserve their frozen
+    # identity; every new build binds its selected profile before compilation.
+    fields = IDENTITY_FIELDS + (("boot_image_profile",) if "boot_image_profile" in record else ())
+    identity = {key: record[key] for key in fields}
     try:
         encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     except (TypeError, ValueError) as error:
@@ -313,6 +320,8 @@ def build(args) -> dict:
     if (args.clock_source == "native-counter"
             and args.platform not in ("pico2-mock", "esp32s3-service-footprint")):
         raise ValueError("native-counter requires a supported physical-board profile")
+    boot_profile = getattr(args, "boot_image_profile", boot_image.DEFAULT)
+    boot_image.validate_profile(boot_profile, args.platform)
     if out.exists():
         raise ValueError("build output must be new; images may not reuse a directory")
     profile = resolve_platform(args.platform, ROOT)
@@ -330,6 +339,7 @@ def build(args) -> dict:
         "platform": args.platform, "target": profile["target"], "sdk": sdk,
         "runtime_kind": "unmeasured", "source_sha256": before,
         "clock_request": args.clock_source,
+        "boot_image_profile": boot_profile,
         "clock_frequency_claim": "configuration-derived; physical timing requires P0 calibration",
         "source_revision": run(["git", "rev-parse", "HEAD"]),
         "source_dirty": bool(run(["git", "status", "--porcelain"])),
@@ -381,6 +391,10 @@ def build(args) -> dict:
             raise ValueError("final firmware image is missing or empty")
         record["resolved_configuration"] = validate_configuration(
             config, args.kernel_optimization, args.clock_source, args.platform)
+        boot_artifacts = []
+        if boot_profile == boot_image.PROFILE:
+            image, boot_fields, boot_artifacts = boot_image.prepare(firmware, image, out)
+            record.update(boot_fields)
         record.update(
             image_file=relative(image, out), image_sha256=digest(image),
             elf_file=relative(elf, out), elf_sha256=digest(elf),
@@ -396,6 +410,8 @@ def build(args) -> dict:
                 firmware / "cargo-messages.jsonl", out / "crossbeam-source.json",
             )
         }
+        record["artifacts_sha256"].update({relative(path, out): digest(path) for path in boot_artifacts})
+        boot_image.verify(out, record)
         if inventory(profile) != before:
             raise ValueError("firmware sources changed during compilation")
         record["status"] = "complete"
@@ -417,6 +433,9 @@ def main() -> None:
     parser.add_argument("--app-opt-level", choices=("2", "3", "s", "z"), default="2")
     parser.add_argument("--kernel-optimization", choices=("baseline", "o2"), default="baseline")
     parser.add_argument("--clock-source", choices=("baseline", "native-counter"), default="baseline")
+    parser.add_argument("--boot-image-profile", choices=(boot_image.DEFAULT, boot_image.PROFILE),
+                        default=boot_image.DEFAULT,
+                        help="opt-in paired ESP32-S3 image/loader; no physical qualification")
     args = parser.parse_args()
     try:
         record = build(args)

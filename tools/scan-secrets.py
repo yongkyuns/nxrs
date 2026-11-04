@@ -106,9 +106,18 @@ def self_test(scanner):
             'tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-reserved-1/build.json',
             'tests/std-channel-perf/results/2026-11-02-esp32s3/runs/witness-reserved-1/analysis.json',
         ]
+        digest_root = 'tests/std-channel-perf/results/2026-11-03-esp32s3-simpleboot'
+        digest_evidence = [
+            f'{digest_root}/runs/{case}/{kind}.json'
+            for case in ('latency-tight-1', 'latency-rom-digest-tight-1',
+                         'latency-rom-digest-tight-2', 'latency-rom-digest-tight-3',
+                         'latency-rom-digest-seed-1-1')
+            for kind in ('build', 'analysis')
+        ] + [f'{digest_root}/firmware-receipts/{case}/build.json'
+             for case in ('latency', 'latency-rom-digest')]
         for relative in ['tests/rtos-bench/upstream.json','tests/detection/results/control/provenance.json',
                          'tests/detection/results/control/firmware.json','tests/detection/results/control/validation.json',
-                         'tests/csi-radio/results/control.json', *channel_evidence]:
+                         'tests/csi-radio/results/control.json', *channel_evidence, *digest_evidence]:
             path = source / relative
             path.parent.mkdir(parents=True,exist_ok=True)
             for field, value, rule in [('access_token', token, 'github-pat'),
@@ -143,6 +152,41 @@ def self_test(scanner):
             findings, output = execute(scanner, "dir", source, config)
             if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
                 raise ValueError("source-hash exclusion escaped its evidence path or redaction failed")
+            path.unlink()
+        # P0's new physical archive repeats the same public patch bytes. Its
+        # separate exception covers only twelve reviewed paths and one value.
+        public_hash = hashlib.sha256((ROOT / source_field).read_bytes()).hexdigest()
+        for relative in digest_evidence:
+            path = source / relative
+            path.write_text(json.dumps({source_field: public_hash}, indent=2) + '\n')
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ValueError("reviewed digest-archive source hash was not recognized")
+            path.write_text('{"description":"synthetic clean file"}\n')
+        path = source / digest_evidence[0]
+        for fields, rule in (
+            ({source_field: token}, 'github-pat'),
+            ({source_field: source_hash}, 'generic-api-key'),
+            ({source_field: public_hash, 'api_key': source_hash}, 'generic-api-key'),
+        ):
+            path.write_text(json.dumps(fields) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            if (not any(item.get('RuleID') == rule for item in findings)
+                    or token in output or source_hash in output):
+                raise ValueError("digest-archive exception hides a credential or another field")
+        path.write_text('{"description":"synthetic clean file"}\n')
+        for relative in (
+            f'{digest_root}/runs/latency-rom-digest-tight-4/build.json',
+            f'{digest_root}/runs/latency-tight-1/credentials.json',
+            f'{digest_root}/firmware-receipts/latency/analysis.json',
+            digest_evidence[0].replace('2026-11-03', '2026-11-04'),
+        ):
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({source_field: public_hash}, indent=2) + '\n')
+            findings, _ = execute(scanner, "dir", source, config)
+            if not any(item.get('RuleID') == 'generic-api-key' for item in findings):
+                raise ValueError("digest-archive exception escaped its reviewed paths")
             path.unlink()
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
