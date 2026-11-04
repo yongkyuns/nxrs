@@ -1,8 +1,10 @@
 # P0: paired SIMPLE_BOOT digest candidate
 
-This is an opt-in build candidate for nxrs #252, not a qualified physical fix,
-secure-boot implementation, or channel optimization. The historical evidence and
-all existing boot-warning, clock-calibration and progress gates remain unchanged.
+This is an opt-in image/loader profile for nxrs #252. The
+[physical WROOM comparison](results/2026-11-03-esp32s3-simpleboot/README.md)
+records four clean candidate boots and a warning-producing legacy control.
+It is not secure boot or a channel optimization. Historical evidence and all
+boot-warning, clock-calibration and progress gates remain unchanged.
 
 ## Image and loader must agree
 
@@ -69,8 +71,9 @@ build identity and packing/patch receipts. No workflow step flashes a device.
 ## Acceptance still required
 
 A successful full target build establishes compile/link and image/provenance
-consistency only. Before closing this P0 gate, retain a fresh physical boot with
-matching flashed-image/runtime identities and **no** ROM digest warning. Then
-qualify independent clock calibration, corrected tight/seeded sampling, placement
-and resource observations separately. Do not overwrite or discard the old failed
-captures. P0 remains open until the physical acceptance criteria pass.
+consistency only. The recorded WROOM runs now satisfy the fresh-boot gate for
+this board and USB-reset path: flashed-image/runtime identities match and **no**
+ROM digest warning appears in any candidate boot. Corrected tight and seeded
+captures also complete. Independent clock calibration, actual placement and
+resource qualification remain open under #252. Preserve the old failed captures;
+this result does not close the complete P0 timing gate.

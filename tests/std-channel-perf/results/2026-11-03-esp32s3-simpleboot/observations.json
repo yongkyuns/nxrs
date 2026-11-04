@@ -1,0 +1,290 @@
+{
+  "runs": [
+    {
+      "case": "latency-rom-digest-seed-1-1",
+      "samples": 1000,
+      "rom_digest_warning": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 2990,
+        "p50_ticks": 2997,
+        "p95_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 5232,
+        "min_ns": 12459,
+        "p50_ns": 12488,
+        "p95_ns": 15305,
+        "p99_ns": 15305,
+        "max_ns": 21800,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 6600,
+        "p50_ticks": 8244,
+        "p95_ticks": 11621,
+        "p99_ticks": 11621,
+        "max_ticks": 13268,
+        "min_ns": 27500,
+        "p50_ns": 34350,
+        "p95_ns": 48421,
+        "p99_ns": 48421,
+        "max_ns": 55284,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-counter-delay-v1",
+        "seed": 1,
+        "requested_pacing_ticks": 236025120,
+        "retained_window_ns": 1080000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 1447,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          104
+        ],
+        "max_receive_sample_indices": [
+          796
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "timing_qualification_blockers": [
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "case": "latency-rom-digest-tight-1",
+      "samples": 1000,
+      "rom_digest_warning": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3686,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 15359,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3575,
+        "p50_ticks": 3575,
+        "p95_ticks": 3582,
+        "p99_ticks": 3582,
+        "max_ticks": 5395,
+        "min_ns": 14896,
+        "p50_ns": 14896,
+        "p95_ns": 14925,
+        "p99_ns": 14925,
+        "max_ns": 22480,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "tight-v1",
+        "seed": 0,
+        "requested_pacing_ticks": 0,
+        "retained_window_ns": 40000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 493,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          673
+        ],
+        "max_receive_sample_indices": [
+          673
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "timing_qualification_blockers": [
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "case": "latency-rom-digest-tight-2",
+      "samples": 1000,
+      "rom_digest_warning": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3511,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 14630,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3575,
+        "p50_ticks": 3575,
+        "p95_ticks": 3582,
+        "p99_ticks": 3582,
+        "max_ticks": 5227,
+        "min_ns": 14896,
+        "p50_ns": 14896,
+        "p95_ns": 14925,
+        "p99_ns": 14925,
+        "max_ns": 21780,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "tight-v1",
+        "seed": 0,
+        "requested_pacing_ticks": 0,
+        "retained_window_ns": 40000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 493,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          371
+        ],
+        "max_receive_sample_indices": [
+          673
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "timing_qualification_blockers": [
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "case": "latency-rom-digest-tight-3",
+      "samples": 1000,
+      "rom_digest_warning": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3683,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 15346,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3575,
+        "p50_ticks": 3575,
+        "p95_ticks": 3582,
+        "p99_ticks": 3582,
+        "max_ticks": 5392,
+        "min_ns": 14896,
+        "p50_ns": 14896,
+        "p95_ns": 14925,
+        "p99_ns": 14925,
+        "max_ns": 22467,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "tight-v1",
+        "seed": 0,
+        "requested_pacing_ticks": 0,
+        "retained_window_ns": 40000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 493,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          673
+        ],
+        "max_receive_sample_indices": [
+          673
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "timing_qualification_blockers": [
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "case": "latency-tight-1",
+      "samples": 1000,
+      "rom_digest_warning": true,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3581,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 14921,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3575,
+        "p50_ticks": 3575,
+        "p95_ticks": 3582,
+        "p99_ticks": 3582,
+        "max_ticks": 5901,
+        "min_ns": 14896,
+        "p50_ns": 14896,
+        "p95_ns": 14925,
+        "p99_ns": 14925,
+        "max_ns": 24588,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "tight-v1",
+        "seed": 0,
+        "requested_pacing_ticks": 0,
+        "retained_window_ns": 40000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 493,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          71
+        ],
+        "max_receive_sample_indices": [
+          673
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "timing_qualification_blockers": [
+        "clock-not-independently-calibrated",
+        "rom-digest-warning"
+      ]
+    }
+  ],
+  "candidate_samples": 4000,
+  "baseline_samples": 1000,
+  "independent_clock_calibration": "unavailable",
+  "allocation_placement": "not instrumented",
+  "physical_timing_qualified": false
+}

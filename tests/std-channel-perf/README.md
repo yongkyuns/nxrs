@@ -32,6 +32,11 @@ retained; timing qualification remains withheld without independent CPU-clock
 calibration. This cohort uses CI firmware whose input hashes match the integrated
 PR head, separately from the earlier frozen QEMU builds.
 
+The [November 3 WROOM comparison](results/2026-11-03-esp32s3-simpleboot/README.md)
+records four clean boots of the paired digest image/loader, a legacy control
+that reproduces the warning, and 4,000 corrected tight/seeded candidate samples.
+Independent calibration and actual allocation placement remain outstanding.
+
 ## What is measured and proved
 
 The channel has eight slots and a 16-byte Rust value. Payload validation uses a

@@ -1,0 +1,111 @@
+{
+  "pr": 257,
+  "head": "4a0f47e750e8fcdbc2a42c2195c4a93b02c14952",
+  "ci_source_revision": "cbc9dd4327958194de2ec0f93046d0f3605177fe",
+  "source_inventory_matches": true,
+  "results": [
+    {
+      "case": "latency-tight-1",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3581,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 14921,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "latency-rom-digest-tight-1",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3686,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 15359,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "latency-rom-digest-tight-2",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3511,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 14630,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "latency-rom-digest-tight-3",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 1866,
+        "p50_ticks": 1866,
+        "p95_ticks": 1873,
+        "p99_ticks": 1873,
+        "max_ticks": 3683,
+        "min_ns": 7775,
+        "p50_ns": 7775,
+        "p95_ns": 7805,
+        "p99_ns": 7805,
+        "max_ns": 15346,
+        "percentile_method": "nearest-rank"
+      }
+    },
+    {
+      "case": "latency-rom-digest-seed-1-1",
+      "outcome": "blocked-receiver-measurement",
+      "receiver_blocked_verified": true,
+      "physical_timing_qualified": false,
+      "send_to_receive_return": {
+        "count": 1000,
+        "min_ticks": 2990,
+        "p50_ticks": 2997,
+        "p95_ticks": 3673,
+        "p99_ticks": 3673,
+        "max_ticks": 5232,
+        "min_ns": 12459,
+        "p50_ns": 12488,
+        "p95_ns": 15305,
+        "p99_ns": 15305,
+        "max_ns": 21800,
+        "percentile_method": "nearest-rank"
+      }
+    }
+  ],
+  "failure": null,
+  "firmware_restored": true,
+  "physical_timing_qualified": false
+}
