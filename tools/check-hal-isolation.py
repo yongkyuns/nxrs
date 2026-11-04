@@ -179,6 +179,8 @@ def run(out, capabilities=CAPABILITIES):
                     env["NXRS_PLATFORM"] = profile
                 command = ["cargo", "build", "--locked", "-p", package]
                 command += ["--example", example] if example else ["--lib"]
+                if capability == "camera" and example:
+                    command += ["--features", "replay"]
                 # Even native builds use an explicit target: Cargo then puts
                 # target libraries and host build dependencies in distinct dirs.
                 command += ["--target", target]

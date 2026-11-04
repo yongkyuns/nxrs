@@ -1,40 +1,62 @@
 # Camera HAL
 
-One `nxrs-camera` crate contains the contract and private providers. A checked-in
-profile selects one provider through `NXRS_PLATFORM`; unset builds select `none`.
+One `nxrs-camera` crate owns the camera contract, configured acquisition and
+optional explicit replay. Read `src/lib.rs` for the public surface; the private
+`src/platform/mod.rs` selects acquisition only, with no implementation bodies.
 
-| Provider | Support and behavior |
+| API | Selection and behavior |
 | --- | --- |
-| `std` | Linux/macOS/Windows packed Gray8/RGB565 file replay. Blocking bounded-size input loading at setup, bounded memory-copy polling, and exact owner-clock retry deadlines between frames. Not a physical camera driver. |
-| `nuttx` | Standard NuttX video-capture adapter selected by `camera::open()`. The physical fixture targets the Freenove ESP32-S3/OV3660. The older read-device adapter remains for synthetic sim/QEMU tests only. |
-| `mock` | Explicit std-based scripted camera, including WASM test builds. Preserves deliberate staging corruption, failures and stop retries. Not a web hardware implementation. |
+| `Camera`, `Format`, `Capture`, errors | Always available; contract-only builds remain `no_std`. |
+| `camera::open()` | Uses the camera binding in `NXRS_PLATFORM`. NuttX selects live capture; an explicit mock selects a scripted source. Unbound or unsupported live acquisition returns `Unsupported`. |
+| `camera::replay::open(...)`, `camera::replay::ReplayCamera` | Enabled by the ordinary Cargo `replay` feature. Loads packed Gray8/RGB565 files through Rust `std`, independently of camera admission. Not a physical camera driver. |
 
-The root manifest records supported providers in Cargo metadata. Std and
-NuttX implementations reject unsupported targets. The old core-only read-device
-provider is a test-local implementation in `tests/nuttx/support`; it is not a
-production HAL provider.
+Replay has no default feature. Hardware-only and contract-only consumers do not
+compile the file replay module. A consumer that needs replay declares it in its
+ordinary Cargo dependency:
 
-The native nxrs profile loads file input through
-`camera::replay(...)`. Live acquisition uses `camera::open()` with no device path.
-Desktop physical capture currently returns `Unsupported`; replay is not a hardware substitute.
-The selected profile owns provider choice; app/nxrs has no
-direct provider dependency. Arguments, service wiring, timestamps and shutdown remain
-unchanged. Replay now advertises `Camera::next_poll_at_ms()`, allowing the
-app-owned execution loop to block until the next frame deadline instead of
-polling every millisecond. Ordinary execution timekeeping continues to use
-`std::time`.
+```toml
+[dependencies]
+nxrs-camera = { path = "../../hal/camera", features = ["replay"] }
+```
 
-## Dependency boundaries
+This is a software-functionality choice, not an OS/provider feature. It requires
+a target with Rust `std`; requesting it on a core-only target is not supported.
+No OS whitelist or profile-derived cfg chooses the replay implementation.
 
-The camera API owns `camera::DeviceError`; storage and transport own separate
-error types. Camera does not depend on `hal/common`, which holds radio
-request identities and bounded payload storage. The video provider owns its `File` and DMA buffers in Rust.
-Its private `close.c` binding reports close errors that `File` destruction cannot
-return; Rust consumes the descriptor before calling it. The legacy read-device
-adapter and its descriptor owner live only in `tests/nuttx/support`.
+The established root names `camera::replay(...)`, `camera::camera(...)` and
+`camera::ReplayCamera` remain explicit compatibility aliases behind that same
+feature. They are not backend-dependent exports. Prefer the `camera::replay`
+namespace for new code. Scripted fixture exports remain explicitly gated by
+`hal_mock`; they are never selected by a missing hardware binding.
 
-`src/api.rs` contains the contract and `src/platform/` contains private
-provider modules. NuttX helper C sources are in `src/platform/nuttx/ffi/`.
+The native `nxrs` CLI enables replay through its default `replay` feature and
+keeps its existing invocation. Consumers of its contract-only application
+library use `default-features = false`; the CLI target requires replay. Services
+and the physical `home-cam` product do not need this feature. The old core-only
+read-device adapter remains test-local in `tests/nuttx/support`.
+
+Desktop physical capture currently returns `Unsupported`; `camera::open()`
+never silently becomes replay. Explicit replay also works without
+`NXRS_PLATFORM`, or alongside an explicitly selected mock. Loading is bounded
+setup work; polling is an in-memory copy with owner-clock retry deadlines.
+Ordinary execution timekeeping continues to use `std::time`.
+
+## Source and dependency boundaries
+
+`src/api.rs` owns the portable contract and `camera::DeviceError`. Storage and
+transport own separate error types. Camera does not depend on `hal/common`,
+which holds radio request identities and bounded payload storage.
+
+`src/platform/mod.rs` maps the configured acquisition to one source module and
+exports only the factory and deliberate mock fixture items. Factories and the
+private unavailable type belong in those modules. `src/replay/` is shared Rust
+behavior, not an acquisition backend or an unavailable stub. Host-injected
+provider tests are wired separately in `src/test_support.rs`.
+
+The NuttX provider owns its `File` and DMA buffers in Rust. Its private `close.c`
+binding reports close errors that `File` destruction cannot return; Rust
+consumes the descriptor before calling it. This organization change does not
+alter capture, cancellation, buffer ownership or cleanup semantics.
 
 ## Target integration
 
@@ -79,9 +101,18 @@ deadline-driven polling, not qualified interrupt wakeup.
 
 ## Verification
 
-Provider selection is profile-owned. For example, run the standalone replay
-fixture with `NXRS_PLATFORM=linux cargo run -p nxrs-camera --example native_replay`.
-The shared isolation tooling is being updated for the consolidated crate layout.
+The camera workflow keeps the core/WASM isolation builds and provider ownership
+tests, and additionally runs replay with no profile, a mock profile and the Linux
+profile. The same replay tests cover size/format rejection, clock monotonicity,
+capacity, deadlines, restart and the explicitly exported constructors.
+
+Run without a hardware profile:
+
+```sh
+cargo test --locked -p nxrs-camera --features replay
+# The fixture file must contain two 2x2 Gray8 frames: [7; 4] followed by [9; 4].
+cargo run --locked -p nxrs-camera --features replay --example native_replay -- source.raw
+```
 
 See [physical qualification](../../tests/nuttx-std/camera/README.md) for build/run
 instructions and the current hardware result. Host ownership tests use a

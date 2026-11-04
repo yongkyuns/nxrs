@@ -40,6 +40,6 @@ pub(crate) fn kernel() -> Result<impl crate::model::pico::Kernel, crate::DeviceE
         failed: false,
     })
 }
-pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
+pub fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
     crate::model::pico::with_kernel(config, kernel()?)
 }

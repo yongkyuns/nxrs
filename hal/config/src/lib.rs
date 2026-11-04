@@ -26,3 +26,6 @@ pub trait Store {
 
 mod platform;
 pub use platform::open;
+
+#[cfg(test)]
+mod test_support;

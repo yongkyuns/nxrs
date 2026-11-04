@@ -41,6 +41,8 @@ impl Storage for FileStorage {
     }
 }
 
+pub use crate::recording::storage;
+
 #[cfg(test)]
 mod tests {
     use super::*;

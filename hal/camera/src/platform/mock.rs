@@ -98,3 +98,7 @@ impl Camera for MockCamera {
         Ok(())
     }
 }
+
+pub fn open() -> Result<impl crate::Camera, crate::DeviceError> {
+    Ok(MockCamera::new([]))
+}

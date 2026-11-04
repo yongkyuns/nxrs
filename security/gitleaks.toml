@@ -50,3 +50,27 @@ condition = "AND"
 paths = ['^tests/std-channel-perf/results/[^\r\n]+/(build|analysis)\.json$']
 regexTarget = "line"
 regexes = ['^\s*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":\s*"[0-9a-f]{64}",?\s*$']
+
+# Reviewed provenance in 55c6b2b and 8efbd59, not credentials. Match exact
+# public source hashes, exact fields, complete lines and bounded result paths.
+# tools/scan-secrets.py self-test verifies the source blobs and negative controls.
+# Gitleaks 8.30.1 may include the preceding newline in regexTarget="line".
+# Accommodate only leading EOL/indentation and trailing CR; never extra fields.
+[[allowlists]]
+description = "Reviewed event-path measurement source hashes from 2026-11-04"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/event-path-perf/results/2026-11-04-esp32s3/board/(build|runs/pass-[1-3]-(blocked|ready)-(std|crossbeam|messaging)-try)/build\.json$']
+regexTarget = "line"
+regexes = [
+  '^[\r\n \t]*"hal/imu/src/api\.rs":[ \t]*"051b8789dfd02ecf97bf0b22538fca53c7fc4cf10791a2f7fa7461cd28a0a528",?[ \t\r]*$',
+  '^[\r\n \t]*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":[ \t]*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?[ \t\r]*$',
+]
+
+[[allowlists]]
+description = "Reviewed channel-progress pthread patch hash from 2026-11-04"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/channel-progress/results/2026-11-04-esp32s3/(runs/(std|crossbeam|fifo)/[^/]+/run/(build|analysis|acceptance)|(std|fifo)-(no-repair|physical))\.json$']
+regexTarget = "line"
+regexes = ['^[\r\n \t]*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":[ \t]*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?[ \t\r]*$']

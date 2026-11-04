@@ -43,6 +43,10 @@ impl Led for MockLeds {
     }
 }
 
+pub fn open() -> Result<impl crate::Led + Send + 'static, crate::DeviceError> {
+    Ok(MockLeds::default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

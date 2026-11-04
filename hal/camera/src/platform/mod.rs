@@ -1,69 +1,11 @@
-//! Camera admission and OS acquisition. Replay is explicit shared Rust code.
-#[cfg(any(hal_mock, test))]
-#[cfg_attr(test, allow(dead_code))]
-mod mock;
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
-#[cfg_attr(test, allow(dead_code))]
-mod nuttx;
+//! Select configured acquisition only. Replay is an independent Rust module.
+#[cfg_attr(all(hal_enabled, target_os = "nuttx"), path = "nuttx/mod.rs")]
+#[cfg_attr(hal_mock, path = "mock.rs")]
+#[cfg_attr(
+    not(any(all(hal_enabled, target_os = "nuttx"), hal_mock)),
+    path = "unbound.rs"
+)]
+mod selected;
+pub(super) use selected::open;
 #[cfg(hal_mock)]
-mod selected {
-    pub use super::mock::{CameraAction, MockCamera, FORMAT};
-    pub fn open() -> Result<impl crate::Camera, crate::DeviceError> {
-        Ok(MockCamera::new([]))
-    }
-}
-#[cfg(hal_enabled)]
-mod selected {
-    pub use crate::replay::{camera, camera as replay, ReplayCamera};
-    #[cfg(target_os = "nuttx")]
-    pub fn open() -> Result<impl crate::Camera, crate::DeviceError> {
-        super::nuttx::LiveCamera::acquire()
-    }
-    #[cfg(not(target_os = "nuttx"))]
-    pub fn open() -> Result<ReplayCamera, crate::DeviceError> {
-        Err(crate::DeviceError::Unsupported)
-    }
-}
-#[cfg(not(any(hal_enabled, hal_mock)))]
-mod selected {
-    use crate::{Camera, Capture, DeviceError, Format};
-    pub struct UnconfiguredCamera;
-
-    impl Camera for UnconfiguredCamera {
-        fn start(&mut self, _: Format) -> Result<Format, DeviceError> {
-            Err(DeviceError::Unsupported)
-        }
-        fn poll_frame(&mut self, _: u64, _: &mut [u8]) -> Result<Option<Capture>, DeviceError> {
-            Err(DeviceError::Unsupported)
-        }
-        fn stop(&mut self) -> Result<(), DeviceError> {
-            Ok(())
-        }
-    }
-
-    pub fn open() -> Result<UnconfiguredCamera, DeviceError> {
-        Err(DeviceError::Unsupported)
-    }
-}
-pub use selected::*;
-
-#[cfg(all(
-    not(hal_enabled),
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "nuttx"
-    )
-))]
-mod unbound;
-#[cfg(all(
-    not(hal_enabled),
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "nuttx"
-    )
-))]
-pub use unbound::*;
+pub use selected::{CameraAction, MockCamera, FORMAT};

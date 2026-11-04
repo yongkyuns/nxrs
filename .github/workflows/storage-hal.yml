@@ -48,6 +48,10 @@ jobs:
         run: |
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-storage
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-storage
+      - name: Real recording without a hardware profile
+        run: |
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-storage --test std_recording
+          env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
       - name: Lint portable and native storage selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings

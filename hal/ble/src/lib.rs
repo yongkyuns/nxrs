@@ -5,7 +5,10 @@
 #[cfg(any(hal_enabled, test))]
 extern crate std;
 mod api;
-pub use api::*;
+pub use api::{
+    Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, OperationId,
+    PeerId, ProviderStatus, Rejected, Request, RequestId, SessionId, Uuid,
+};
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 pub mod gatt;
@@ -13,7 +16,7 @@ pub mod gatt;
 mod gatt_backend;
 #[cfg(any(hal_enabled, all(test, unix)))]
 mod gatt_driver;
-#[cfg(any(hal_enabled, all(test, unix)))]
+#[cfg(hal_enabled)]
 mod platform;
 #[cfg(any(all(hal_enabled, not(target_os = "nuttx")), all(test, unix)))]
 mod shared;
@@ -27,3 +30,6 @@ where
 {
     platform::open(sink).map(Controller::new)
 }
+
+#[cfg(test)]
+mod test_support;

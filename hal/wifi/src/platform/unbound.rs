@@ -39,3 +39,14 @@ impl QuiescenceControl for Unavailable {
         Err(Error::Unsupported)
     }
 }
+
+#[cfg(not(hal_enabled))]
+pub(crate) fn open<S>(_: S, _: CredentialStorage) -> Result<impl Wifi + Send, Error>
+where
+    S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
+{
+    Err::<Unavailable, _>(Error::Unsupported)
+}
+pub(crate) fn open_quiescence() -> Result<impl QuiescenceControl, Error> {
+    Err::<Unavailable, _>(Error::Unsupported)
+}

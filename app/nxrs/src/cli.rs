@@ -1,5 +1,5 @@
-//! App-owned entry: configured camera -> recording and telemetry workflows.
-//! Device construction is delegated to capability-local HAL facades; service wiring is Rust.
+//! App-owned entry: explicit replay -> queued recording and UDP telemetry.
+//! Software operations and service wiring are ordinary Rust, not HAL-profile selection.
 #![forbid(unsafe_code)]
 
 use std::io;
@@ -93,13 +93,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let period_ms: u64 = args[4].parse()?;
-    let (camera, frames) = camera::replay(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
+    let (camera, frames) = camera::replay::open(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
     let deadline_ms = frames
         .checked_mul(period_ms)
         .and_then(|n| n.checked_add(10_000))
         .ok_or("replay duration overflow")?;
-    let transport = transport::transport(&args[6])?;
-    let storage = storage::storage(&args[5], 4, FRAME_BYTES, frames)?;
+    let transport = transport::udp::UdpTransport::connect(args[6].parse()?)?;
+    let storage = storage::recording::FileRecorder::create_new(
+        &args[5],
+        storage::recording::StorageLimits {
+            queued_records: 4,
+            max_frame_bytes: FRAME_BYTES,
+            max_records: frames,
+        },
+    )?;
 
     // Payloads are allocated directly in the heap. Boxing an already-built
     // inline product would still permit large startup stack temporaries.
