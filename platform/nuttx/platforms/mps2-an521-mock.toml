@@ -31,24 +31,13 @@ disable = [
   "FS_PROCFS_EXCLUDE_PROCESS",
   "FS_PROCFS_EXCLUDE_MEMINFO",
 ]
-# QEMU AN521 UART0 wires TX/RX to external IRQs 32/33, respectively.
-# NuttX numbers Cortex-M exceptions including the 16 core exception slots.
-# The upstream nsh defconfig reverses these: the RX handler then repeatedly
-# services an uncleared TX interrupt before the first NSH prompt.
-# https://github.com/qemu/qemu/blob/v8.2.2/hw/arm/mps2-tz.c
-set = [
-  "PTHREAD_STACK_DEFAULT=65536", "MM_BACKTRACE=8", "MM_BACKTRACE_DEFAULT=y",
-  "CMSDK_UART0_TX_IRQ=48", "CMSDK_UART0_RX_IRQ=49",
-]
+set = ["PTHREAD_STACK_DEFAULT=65536", "MM_BACKTRACE=8", "MM_BACKTRACE_DEFAULT=y"]
 require = [
   "CONFIG_ARCH_ARM=y",
   "CONFIG_ARCH_BOARD_MPS2_AN521=y",
   "CONFIG_ARCH_CHIP_MPS2_AN521=y",
   "CONFIG_RAM_SIZE=2097152",
   "CONFIG_PTHREAD_STACK_DEFAULT=65536",
-  "CONFIG_CMSDK_UART0_TX_IRQ=48",
-  "CONFIG_CMSDK_UART0_RX_IRQ=49",
-  "CONFIG_CMSDK_UART0_OV_IRQ=63",
   "CONFIG_MM_BACKTRACE=8",
   "CONFIG_MM_BACKTRACE_DEFAULT=y",
   "CONFIG_SCHED_BACKTRACE=y",

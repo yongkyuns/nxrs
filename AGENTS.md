@@ -51,6 +51,12 @@ requirements, not aspirational guidance.
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit mocks, not a second OS identity via feature/cfg values.
+- Cargo manifests own component dependencies. Ordinary additive features may
+  select optional functionality, formats, algorithms and driver code at their
+  owning module boundary. Do not maintain a global feature-name allowlist.
+  Keep OS selection in target configuration and physical resource instances in
+  explicit configuration/ownership. Diagnostics still use the explicit `probe`
+  feature, and the detector product/model rules below still apply.
 - Group capability admission and acquisition selection in each HAL's
   `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
   and unavailable stubs in those implementations, and host source-injection
@@ -59,8 +65,12 @@ requirements, not aspirational guidance.
   into the crate root. A crate's public API should be explicit in `lib.rs`;
   private placeholder/backend types need not become public to support `open()`.
   Gate a coherent module once instead of repeating its condition on each type,
-  implementation and constructor. Existing private selector globs can be
-  migrated incrementally; the audit must not require wildcard exports.
+  implementation and constructor. All HAL selectors must name their exports;
+  wildcard re-exports in selectors or crate roots are forbidden by the audit.
+  Storage recording and transport UDP are explicitly accessible as
+  `storage::recording` and `transport::udp` on qualified std targets, regardless
+  of hardware admission. Legacy root factories preserve profile-based selection
+  and must never silently become software fallbacks.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
   default and no hardware-profile requirement. Its native CLI forwards that

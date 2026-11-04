@@ -71,7 +71,7 @@ The normative resource-ownership model is documented in
 normally compose services; services normally acquire the capabilities they own
 internally, while an app may access a capability directly when that is the
 simpler ownership boundary. A single profile selects providers for the whole
-build, such as `std`, `mock`, or `host-demo`. There is no global `hal/platform`
+build, such as `linux`, `mock`, or `host-demo`. There is no global `hal/platform`
 package, provider registry, giant HAL object, xtask, generated app manifest, or
 general runtime framework.
 
@@ -181,15 +181,18 @@ common NuttX build backend
 Cargo Rust build + NuttX final image
 ~~~
 
-The app manifest owns only firmware-entry properties such as binary name,
-NuttX command name, priority and stack size. The platform profile owns board,
+The app's firmware metadata table owns binary name, NuttX command name, priority
+and stack size. Optional `required-capabilities` metadata supplies early admission
+checks; Cargo dependencies select components. The platform profile owns board,
 Rust target, toolchain, Kconfig and HAL bindings. Developers do not pass
 provider-specific Cargo features, target triples or Kconfig values.
 
-The common `tools/build-nuttx-std-app.sh` remains an internal backend because
-NuttX configuration, Make, ABI inspection and final image linking are not Cargo
-operations. It now accepts explicit arguments from the Cargo frontend; there are
-no per-app/per-target build wrapper scripts or deployment profiles.
+The Rust controller in `platform/build` owns NuttX configuration, Cargo/Make
+invocation, ABI inspection and final image linking. The common
+`tools/build-nuttx-std-app.sh` is a compatibility adapter to that controller;
+there are no per-app/per-target build wrapper scripts. Ordinary additive Cargo
+features select optional components. See [build and platform selection](docs/build-system.md)
+for feature controls and the remaining modularity, incremental-build and reuse work.
 
 The MPS2 profile remains a Cortex-M33 execution proxy rather than RP2350
 emulation. The Pico 2 profile separately builds and ABI-checks the actual

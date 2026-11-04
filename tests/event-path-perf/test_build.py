@@ -72,6 +72,9 @@ class BuildGuards(unittest.TestCase):
         self.assertEqual(env["NXRS_STD_CHANNEL_HOOK_STAGE"], "0")
         for key in ("NXRS_SHARED_NUTTX_STD_SYSROOT", "NXRS_SHARED_CARGO_TARGET_DIR", "CARGO_TARGET_DIR"):
             self.assertTrue(Path(env[key]).is_relative_to(out))
+        self.assertEqual(Path(env["CARGO_TARGET_DIR"]), out / "frontend-cargo")
+        self.assertEqual(Path(env["NXRS_SHARED_CARGO_TARGET_DIR"]), out / "firmware/cargo")
+        self.assertFalse(Path(env["CARGO_TARGET_DIR"]).is_relative_to(out / "firmware"))
         for key in ("RUSTFLAGS", "NXRS_STD_CHANNEL_BUILD_ID", "NXRS_EVENT_PATH_BUILD_ID"):
             self.assertNotIn(key, env)
 

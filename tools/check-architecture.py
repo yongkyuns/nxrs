@@ -30,6 +30,7 @@ ALLOWED = {
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test', 'shared'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared'}
+PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
@@ -145,20 +146,16 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 continue
             manifest = Path(directory) / 'Cargo.toml'
             data = tomllib.loads(manifest.read_text())
-            allowed_features = {'default', 'probe'}
-            if manifest.relative_to(root).as_posix() == 'hal/detector/Cargo.toml':
-                allowed_features |= {'person-model', 'pico-model'}
-            if manifest.relative_to(root).as_posix() in {'hal/camera/Cargo.toml', 'app/nxrs/Cargo.toml'}:
-                # File replay is explicit software functionality, not provider selection.
-                allowed_features.add('replay')
-            if manifest.relative_to(root).as_posix() == 'shared/messaging/Cargo.toml':
-                allowed_features.add('channels')
-            extra_features = set(data.get('features', {})) - allowed_features
-            if extra_features:
-                errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics and typed cases for experiments; unexpected features {sorted(extra_features)}')
+            # Cargo features may compose optional functionality. They must not
+            # introduce a second platform selector or enable probes implicitly.
+            provider_features = set(data.get('features', {})) & PROVIDER_FEATURES
+            if provider_features:
+                errors.append(f'{manifest.relative_to(root)}: provider features retired; select one platform: {sorted(provider_features)}')
             for feature, values in data.get('features', {}).items():
+                if feature != 'probe' and re.search(r'(?:^|[-_])probe(?:[-_]|$)', feature):
+                    errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics, not {feature}')
                 if feature != 'probe' and any(value == 'probe' or value.endswith('/probe') for value in values):
-                    errors.append(f'{manifest.relative_to(root)}: probe must remain an explicit opt-in, independent of defaults and models')
+                    errors.append(f'{manifest.relative_to(root)}: probe must remain an explicit opt-in, independent of other features')
             if manifest.resolve() in manifests:
                 continue
             if (name == 'tests' and 'workspace' in data
@@ -232,10 +229,6 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 if dep.get('features') or forwarded:
                     errors.append(f"{package['name']}: enable detector models through profile-derived product wiring, not an app/service manifest")
         if role == 'hal':
-            data = tomllib.loads((directory / 'Cargo.toml').read_text())
-            features = data.get('features', {})
-            if set(features) & {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}:
-                errors.append(f"{package['name']}: provider features retired; select one platform")
             for module in ('api.rs', 'controller.rs'):
                 path = directory / 'src' / module
                 if path.is_file() and '#![forbid(unsafe_code)]' not in path.read_text():
@@ -299,14 +292,18 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
         # Check the selection boundary, not a mandatory wildcard spelling.
-        # Existing selectors may retain a glob; explicit facade exports should
-        # name their fixed factory surface and any deliberate fixture exports.
-        selected_export = r'selected::(?:\*|[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
+        # Exact exports prevent backend internals from accidentally reaching
+        # public namespaces. No platform selector may wildcard-reexport.
+        selected_export = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
         if (not exports
                 or any(not re.fullmatch(selected_export, export.strip()) for export in exports)
                 or not re.search(r'\bmod\s+selected\s*;', text)
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
+    for path in (root / 'hal').glob('*/src/lib.rs'):
+        source = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        if re.search(r'\bpub\s+use\s+(?:api|platform)::\*\s*;', source):
+            errors.append(f'{path.relative_to(root)}: HAL crate roots must name public exports explicitly')
     for path in (root / 'hal').glob('*/src/providers'):
         errors.append(f'{path.relative_to(root)}: HAL implementations belong in src/platform')
     for path in (root / 'hal').glob('*/src/platform/native*'):

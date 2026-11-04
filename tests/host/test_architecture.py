@@ -54,7 +54,7 @@ class ArchitectureTests(unittest.TestCase):
         directory = self.root / 'hal/camera/src/platform'
         directory.mkdir()
         selector = directory / 'mod.rs'
-        for exports in ['pub use selected::*;', 'pub(super) use selected::open;',
+        for exports in ['pub(super) use selected::open;',
                         'pub use selected::{open, Camera};',
                         'pub(super) use selected::open;\n#[cfg(hal_mock)] pub use selected::{CameraAction, MockCamera, FORMAT};']:
             with self.subTest(exports=exports):
@@ -63,11 +63,20 @@ class ArchitectureTests(unittest.TestCase):
         valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
                      'mod selected { pub fn open() {} } pub use selected::*;',
-                     'mod selected;', 'mod selected; pub use selected::{open, other::Camera};']:
+                     'mod selected;', 'mod selected; pub use selected::{open, other::Camera};',
+                     'mod selected; pub use selected::*;']:
             with self.subTest(code=code):
                 selector.write_text(code)
                 self.assertTrue(any('select source modules' in error
                                     for error in CHECK.inspect_hal_boundaries(self.root)))
+
+    def test_hal_root_wildcard_exports_are_rejected(self):
+        source = self.root / 'hal/camera/src/lib.rs'
+        for export in ('pub use api::*;', 'pub use platform::*;'):
+            with self.subTest(export=export):
+                source.write_text('#![no_std]\n#![deny(unsafe_code)]\n' + export)
+                self.assertTrue(any('must name public exports' in issue
+                                    for issue in CHECK.inspect_hal_boundaries(self.root)))
 
     def test_camera_replay_feature_does_not_admit_provider_features(self):
         path = self.root / 'hal/camera/Cargo.toml'
@@ -96,7 +105,7 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
         for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
-            for extra in ({}, {'kind': 'dev'}, {'target': 'cfg(target_os = "nuttx")'}, {'kind': 'build'}):
+            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'target': 'cfg(target_os = "nuttx")'}):
                 self.add(source, target, **extra)
                 self.assertTrue(self.violations())
                 self.packages[source]['dependencies'].clear()
@@ -158,7 +167,7 @@ class ArchitectureTests(unittest.TestCase):
         manifest.write_text('[package]\nname="messaging"\n[features]\nchannels=[]\n')
         self.assertEqual(self.violations(), [])
         manifest.write_text(manifest.read_text() + 'std=[]\n')
-        self.assertTrue(any('unexpected features' in error for error in self.violations()))
+        self.assertTrue(any('provider features' in error for error in self.violations()))
         self.package('hidden', 'shared/hidden')
         self.assertTrue(any('package omitted' in error for error in self.violations()))
 
@@ -245,9 +254,33 @@ class ArchitectureTests(unittest.TestCase):
         path.write_text(original + '[features]\nprobe=[]\n')
         self.assertEqual(self.violations(), [])
         path.write_text(original + '[features]\nstack-probe=[]\n')
-        self.assertTrue(any('typed cases' in error for error in self.violations()))
-        path.write_text(original + '[features]\nprobe=[]\ndefault=["probe"]\n')
-        self.assertTrue(any('explicit opt-in' in error for error in self.violations()))
+        self.assertTrue(any('use probe for diagnostics' in error for error in self.violations()))
+        for feature, enabled in [('default', 'probe'), ('recording', 'probe'),
+                                 ('recording', 'camera/probe'), ('recording', 'camera?/probe')]:
+            with self.subTest(feature=feature, enabled=enabled):
+                path.write_text(original + f'[features]\nprobe=[]\n{feature}=["{enabled}"]\n')
+                self.assertTrue(any('explicit opt-in' in error for error in self.violations()))
+
+    def test_optional_functionality_uses_normal_cargo_features(self):
+        for package in ('app', 'service', 'camera', 'messaging'):
+            path = Path(self.packages[package]['manifest_path'])
+            original = path.read_text()
+            with self.subTest(package=package):
+                path.write_text(original + '[features]\ndefault=["recording"]\n'
+                                'recording=["compression"]\ncompression=[]\n')
+                self.assertEqual(self.violations(), [])
+                for feature in ('nuttx', 'mock', 'std'):
+                    path.write_text(original + f'[features]\n{feature}=[]\n')
+                    self.assertTrue(any('provider features' in error for error in self.violations()))
+                path.write_text(original)
+        self.add('app', 'storage', optional=True)
+        path = Path(self.packages['app']['manifest_path'])
+        path.write_text(path.read_text() + '[dependencies]\n'
+                        'storage={path="../../hal/storage",optional=true}\n'
+                        '[features]\nrecording=["dep:storage", "storage?/compression"]\n')
+        storage = Path(self.packages['storage']['manifest_path'])
+        storage.write_text(storage.read_text() + '[features]\ncompression=[]\n')
+        self.assertEqual(self.violations(), [])
 
     def test_services_consume_detector_contract_without_selecting_models(self):
         detector = self.package('detector', 'hal/detector')

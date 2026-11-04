@@ -282,7 +282,7 @@ impl Tools {
     }
 }
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
-    options.validate()?;
+    options.validate_for_backend("nuttx")?;
     let deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
     let target = string(&p.data, "target")?;
     let board = string(&p.data, "board")?;
@@ -408,8 +408,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             return Err(format!("missing native helper: {}", path.display()));
         }
     }
-    let mut features = options.features.clone();
-    features.extend(p.model_features(root, &app.manifest)?);
+    let model_features = p.model_features(root, &app.manifest)?;
     let out = build::prepare_output(root, out)?;
     for input in std::iter::once(&app.manifest)
         .chain(sources.iter())
@@ -607,15 +606,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .current_dir(root)
         .args(["build", "--locked", "--release", "--manifest-path"])
         .arg(&app.manifest)
-        .args([
-            "-p",
-            &app.package,
-            "--features",
-            &features.join(","),
-            "--bin",
-            &app.bin,
-            "--target",
-        ])
+        .args(["-p", &app.package, "--bin", &app.bin, "--target"])
         .arg(&target_arg)
         .args([
             "-Zbuild-std=std,panic_abort",
@@ -639,6 +630,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
+    options.configure_cargo(&mut cargo, &model_features);
     if tools.esp {
         cargo.env(
             "NUTTX_STD_GNU_LINKER",
@@ -1040,10 +1032,8 @@ mod tests {
         let cache = temp.0.join("cache");
         fs::create_dir(&cache).unwrap();
         run(source::git(&cache).args(["init", "--quiet"])).unwrap();
-        // This test copies Git metadata after a fixture commit. Disable Git's
-        // opportunistic maintenance while constructing that fixture, since a
-        // transient maintenance.lock can otherwise disappear during the copy.
-        // The real cache-copy escape and cleanup assertions remain unchanged.
+        // Disable transient maintenance.lock during the fixture's Git commit.
+        // The copy/clean and escaped-worktree refusal checks are unchanged.
         run(source::git(&cache).args(["config", "maintenance.auto", "false"])).unwrap();
         run(source::git(&cache).args(["config", "gc.auto", "0"])).unwrap();
         fs::write(cache.join("tracked"), "source").unwrap();

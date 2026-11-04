@@ -54,8 +54,8 @@ API. Keep constructors and unavailable stubs in those selected modules, not
 inline in the selector. `cfg_attr(path = ...)` makes the OS-to-source mapping
 explicit. Identical Rust implementations remain ordinary shared modules outside
 `platform/`; selecting acquisition does not duplicate them per OS. Native source
-injection for host unit tests belongs in separate test wiring. Existing private
-selector globs can be migrated incrementally as public surfaces are made explicit.
+injection for host unit tests belongs in separate test wiring. All HAL selectors
+now name their exports explicitly; wildcard exports obscure implementation boundaries.
 
 Platform factories supply resource budgets such as worker stack size. Providers
 report capabilities; shared behavior does not infer them from the OS name.
@@ -123,6 +123,10 @@ A build without `NXRS_PLATFORM`
 compiles portable contracts/common code, with no implicit hardware or mock.
 Explicit software functionality, such as camera file replay, may be requested
 through Cargo without hardware admission; it does not select a physical backend.
+The `storage::recording` and `transport::udp` modules similarly expose shared
+qualified Rust std file/UDP operations without selecting a hardware provider.
+Profile-admitted root acquisition functions and legacy root storage/transport
+aliases retain their existing behavior, including `Unsupported` when unbound.
 
 `NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT as well as the
 existing native file/socket adapters. Both reuse their capability's controller
@@ -173,7 +177,8 @@ does not move there. A profile's `[hal]` values name actual OS implementations:
 explicit fixture/unbound states. There is no `std` or `native` platform/profile.
 
 Shared code lives outside `src/platform/`: sockets in `transport/src/udp.rs`,
-replay in `camera/src/replay/`, recording in `storage/src/recording/`, radio
+replay in `camera/src/replay/`, public recording in `storage::recording`,
+public shared UDP in `transport::udp`, radio
 resource protocols in `src/shared/`, and detector models in `detector/src/model/`.
 An OS factory may directly reuse these modules; do not copy them into each OS
 folder or invent a shared platform. Private, platform-independent ESP-DL SDK

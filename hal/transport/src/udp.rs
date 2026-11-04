@@ -16,6 +16,17 @@ pub struct UdpTransport {
 }
 
 impl UdpTransport {
+    /// Connect a numeric peer from an ephemeral local port of the same IP family.
+    /// This explicit std operation needs no configured hardware provider.
+    pub fn connect(peer: SocketAddr) -> io::Result<Self> {
+        let local = if peer.is_ipv4() {
+            SocketAddr::from(([0, 0, 0, 0], 0))
+        } else {
+            SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))
+        };
+        Self::bind(local, peer)
+    }
+
     pub fn bind(local: SocketAddr, peer: SocketAddr) -> io::Result<Self> {
         let socket = UdpSocket::bind(local)?;
         socket.connect(peer)?;
@@ -70,16 +81,12 @@ impl Transport for UdpSender {
     }
 }
 
+/// Compatibility parser. New consumers should pass SocketAddr to UdpTransport.
 pub fn transport(peer: &str) -> io::Result<impl Transport> {
     let peer: SocketAddr = peer
         .parse()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let local = if peer.is_ipv4() {
-        SocketAddr::from(([0, 0, 0, 0], 0))
-    } else {
-        SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))
-    };
-    UdpTransport::bind(local, peer)
+    UdpTransport::connect(peer)
 }
 
 fn submission_result(result: io::Result<usize>, expected: usize) -> Result<(), DeviceError> {

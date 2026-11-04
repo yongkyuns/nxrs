@@ -91,17 +91,7 @@ pub fn build(
     fix: bool,
 ) -> Result<()> {
     p.validate_target("emscripten")?;
-    options.validate()?;
-    if !options.helpers.is_empty()
-        || !options.enable.is_empty()
-        || !options.disable.is_empty()
-        || options.abi.is_some()
-        || options.size
-        || options.trace
-        || options.immediate
-    {
-        return Err("NuttX switches cannot configure browser builds".into());
-    }
+    options.validate_for_backend("emscripten")?;
     let emcc = output(Command::new("emcc").arg("--version"))?;
     if !emcc.lines().next().is_some_and(|s| s.contains("4.0.15")) {
         return Err("browser builds require Emscripten 4.0.15".into());
@@ -155,9 +145,7 @@ pub fn build(
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("RUSTC", &rustc)
         .env("CARGO_BUILD_RUSTC", &rustc);
-    if !options.features.is_empty() {
-        command.args(["--features", &options.features.join(",")]);
-    }
+    options.configure_cargo(&mut command, &[]);
     build::cargo_messages(&mut command, &out.join("cargo-messages.jsonl"))?;
     build::std_source(&out.join("cargo-messages.jsonl"), &sysroot, &rustc, &site)?;
     let mut emitted = vec![];

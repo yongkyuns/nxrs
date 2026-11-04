@@ -157,7 +157,12 @@ def build_environment(out: Path, app_opt_level: str, original: dict,
     env = baseline.build_environment(out, "latency", app_opt_level, original, clock_source)
     env.pop("NXRS_STD_CHANNEL_BUILD_ID", None)
     env.pop("NXRS_EVENT_PATH_BUILD_ID", None)
-    env["CARGO_TARGET_DIR"] = str(out / "firmware/cargo")
+    # Cargo first builds the Rust CLI frontend through `cargo nxrs`. Its
+    # target directory must not pre-create the firmware output before the
+    # frontend installs its build-ownership marker there.
+    # The NuttX app compilation retains NXRS_SHARED_CARGO_TARGET_DIR inside
+    # the now-owned firmware tree.
+    env["CARGO_TARGET_DIR"] = str(out / "frontend-cargo")
     return env
 
 
