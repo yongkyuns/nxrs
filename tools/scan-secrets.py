@@ -176,6 +176,77 @@ def self_test(scanner):
             if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
                 raise ValueError("source-hash exclusion escaped its evidence path or redaction failed")
             path.unlink()
+        # P2's completed physical archive has nineteen reviewed build receipts.
+        # The two admitted values were checked against their public Git source
+        # blobs; every other value/field/path remains subject to the same scan.
+        event_root = 'tests/event-path-perf/results/2026-11-04-esp32s3/board'
+        event_evidence = [f'{event_root}/build/build.json'] + [
+            f'{event_root}/runs/pass-{number}-{state}-{method}-try/build.json'
+            for number in (1, 2, 3) for state in ('ready', 'blocked')
+            for method in ('std', 'messaging', 'crossbeam')
+        ]
+        # These are historical archive values, independent of later legitimate
+        # edits to the current source files. Their Git-blob provenance was
+        # checked before adding this exact-value exception.
+        reviewed_hashes = (
+            '051b8789dfd02ecf97bf0b22538fca53c7fc4cf10791a2f7fa7461cd28a0a528',
+            '776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101',
+        )
+        public_fields = dict(zip(('hal/imu/src/api.rs', source_field), reviewed_hashes))
+
+        def detected_at(paths, fields, rule, hidden, *, indent=2):
+            # Reuse P2's batched control pattern, checking every location rather
+            # than launching a separate scanner for each repeated receipt.
+            for relative in paths:
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(fields, indent=indent) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            detected = {item['File'] for item in findings if item['RuleID'] == rule}
+            if detected != set(paths) or any(value in output for value in hidden):
+                raise ValueError("exact public-hash control missed a location or redaction failed")
+            for relative in paths:
+                (source / relative).write_text('{"description":"synthetic clean file"}\n')
+
+        for relative in event_evidence:
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(public_fields, indent=2) + '\n')
+        findings, _ = execute(scanner, "dir", source, config)
+        if findings:
+            raise ValueError("reviewed P2 public source hashes were not recognized")
+        for relative in event_evidence:
+            (source / relative).write_text('{"description":"synthetic clean file"}\n')
+        for field, value, rule in (
+            ('access_token', token, 'github-pat'), ('api_key', source_hash, 'generic-api-key'),
+        ):
+            detected_at(event_evidence, {**public_fields, field: value}, rule, (value,))
+        for field, public_hash in public_fields.items():
+            changed_hash = public_hash[:-1] + ('0' if public_hash[-1] != '0' else '1')
+            wrong_field = field.replace('api.rs', 'api2.rs').replace('0006-', '0007-')
+            for fields, rule, hidden in (
+                ({field: token}, 'github-pat', (token,)),
+                ({field: changed_hash}, 'generic-api-key', (changed_hash,)),
+                ({wrong_field: public_hash}, 'generic-api-key', ()),
+                ({field: public_hash, 'api_key': source_hash}, 'generic-api-key', (source_hash,)),
+            ):
+                detected_at(event_evidence, fields, rule, hidden,
+                            indent=2 if len(fields) == 1 else None)
+        wrong_paths = (
+            f'{event_root}/runs/pass-0-ready-std-try/build.json',
+            f'{event_root}/runs/pass-4-ready-std-try/build.json',
+            f'{event_root}/runs/pass-1-other-std-try/build.json',
+            f'{event_root}/runs/pass-1-ready-other-try/build.json',
+            f'{event_root}/runs/pass-1-ready-std-try/analysis.json',
+            f'{event_root}/runs/pass-1-ready-std-try/credentials.json',
+            f'{event_root}/runs/pass-1-ready-std-try/build.json.bak',
+            f'{event_root}/build/analysis.json',
+            f'{event_root}/build.json',
+            event_evidence[0].replace('2026-11-04', '2026-11-05'),
+        )
+        detected_at(wrong_paths, public_fields, 'generic-api-key', ())
+        for relative in wrong_paths:
+            (source / relative).unlink()
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")
