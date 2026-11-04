@@ -44,9 +44,15 @@ def run(rows):
 
 
 class TraceControls(unittest.TestCase):
+    def test_prompt_accepts_only_the_nsh_erase_line_suffix(self):
+        for data in (b'output\r\nnsh> ',b'output\r\nnsh> \x1b[K'):
+            self.assertTrue(capture.final_prompt(data))
+        for data in (b'not-nsh> ',b'\nnsh> \x1b[Klate fault',b'\nnsh> \x1b[2J'):
+            self.assertFalse(capture.final_prompt(data))
+
     def test_comparison_rejects_mixed_workloads_and_unrelated_config(self):
         comparison=capture.load('p4_compare_tests',Path(__file__).parent/'compare.py')
-        for invalid in (None,'workload','config'):
+        for invalid in (None,'workload','config','extra-note-driver'):
             summaries=[run(fixture()) for _ in range(3)]
             summaries[0].update(mode='baseline',recording=False)
             summaries[1]['recording']=False
@@ -54,8 +60,10 @@ class TraceControls(unittest.TestCase):
                          'std_array_sha256','std_library_tree_sha256','crossbeam','build_environment')} for _ in range(3)]
             for record in records: record.update(build_id='a'*64,config_file='resolved.config')
             configs=[{'CONFIG_FREQ':'240','CONFIG_SCHED_INSTRUMENTATION':mode} for mode in ('n','y','y')]
+            for config in configs[1:]: config['CONFIG_NOTE_RTT']='n'; config['CONFIG_SEGGER_SYSVIEW']='n'
             if invalid=='workload': summaries[1]['policy']='equal'
             if invalid=='config': configs[1]['CONFIG_FREQ']='160'
+            if invalid=='extra-note-driver': configs[1]['CONFIG_NOTE_RTT']='y'
             with patch.object(comparison.capture,'receipt',side_effect=records), \
                  patch.object(comparison.capture,'replay',side_effect=summaries), \
                  patch.object(comparison.capture.p2,'checked_file',return_value=Path('ignored')), \

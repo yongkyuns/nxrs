@@ -62,6 +62,9 @@ Open the console first, then reset when prompted. Retain all failures. Restore
 and verify the fresh original flash in a `finally` path. Rotate std, messaging
 and Crossbeam, with three fresh boots per case/arm. Add equal-FIFO Crossbeam as
 a diagnostic candidate, keeping its results separate from unequal FIFO.
+Prompt validation admits NSH's trailing erase-to-EOL sequence only. Comparison
+also admits absent/off RTT and SYSVIEW note options becoming visible; it rejects
+either driver being enabled and rejects unrelated configuration changes.
 
 ## Interpretation and privacy
 

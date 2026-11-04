@@ -24,8 +24,12 @@ def compare(builds, runs):
     names = set().union(*configs)
     differences = {name:[c.get(name) for c in configs] for name in sorted(names)
                    if len({c.get(name) for c in configs})>1}
-    require(all(name.startswith(('CONFIG_SCHED_INSTRUMENTATION','CONFIG_DRIVERS_NOTE'))
-                for name in differences), 'unrelated configuration differences')
+    # Enabling the parent also makes these two disabled note drivers visible.
+    # Absence versus explicit n is equivalent; enabling either is not admitted.
+    require(all(name.startswith(('CONFIG_SCHED_INSTRUMENTATION','CONFIG_DRIVERS_NOTE')) or
+                (name in {'CONFIG_NOTE_RTT','CONFIG_SEGGER_SYSVIEW'} and
+                 all(value in (None,'n') for value in values))
+                for name,values in differences.items()), 'unrelated configuration differences')
     return {'schema':'event-path-trace-comparison-v1','matched':True,'pooled':False,
             'arms':summaries,'configuration_differences':differences,
             'perturbation_quantile_ratios':{

@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import termios
 import time
 
@@ -24,6 +25,12 @@ builder = load('p4_builder', HERE/'build.py')
 # Reuse P2/P0 bounded console I/O read-only; no shared module substitution.
 p2 = load('p4_p2_capture', HERE.parent/'event-path-perf/capture.py')
 require = analysis.require
+
+
+def final_prompt(data):
+    # NSH's line editor may emit erase-to-EOL in a later serial packet.
+    # Admit only that exact suffix, never strip arbitrary terminal/text output.
+    return re.search(rb'(?:^|[\r\n])nsh>[ \t]*(?:\x1b\[K)?[ \t\r\n]*\Z',data) is not None
 
 
 def read_json(path):
@@ -86,7 +93,7 @@ def replay(directory, build_directory):
     require(session.get('schema')=='event-path-trace-session-v1' and
             session.get('fresh_backup_verified') is True and session.get('flash_verified') is True and
             session.get('image_sha256')==build['image_sha256'], 'missing physical preparation proof')
-    require(p2.console.fresh_boot(console) and console.rstrip().endswith(b'nsh>'), 'missing boot/final prompt')
+    require(p2.console.fresh_boot(console) and final_prompt(console), 'missing boot/final prompt')
     return analysis.analyze(console.decode(errors='strict'),build,backend=run['backend'],policy=run['policy'],
         recording=run['recording']=='record',samples=run['samples'],warmup=run['warmup'])
 
@@ -116,7 +123,7 @@ def capture(args):
         run['fresh_boot_observed']=True
         require(not analysis.FAULT.search(transcript.decode(errors='replace')), 'boot fault/warning')
         p2.console.write_command(fd,command,deadline)
-        p2.console.read_until(fd,transcript,lambda data: b'"record":"result"' in data and data.rstrip().endswith(b'nsh>'),deadline)
+        p2.console.read_until(fd,transcript,lambda data: b'"record":"result"' in data and final_prompt(data),deadline)
         # Preserve late failures after the final prompt, just as the P2 runner.
         try:
             p2.console.read_until(fd,transcript,lambda _:False,min(deadline,time.monotonic()+1))
