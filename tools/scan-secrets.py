@@ -115,18 +115,54 @@ def self_test(scanner):
             for kind in ('build', 'analysis')
         ] + [f'{digest_root}/firmware-receipts/{case}/build.json'
              for case in ('latency', 'latency-rom-digest')]
-        for relative in ['tests/rtos-bench/upstream.json','tests/detection/results/control/provenance.json',
-                         'tests/detection/results/control/firmware.json','tests/detection/results/control/validation.json',
-                         'tests/csi-radio/results/control.json', *channel_evidence, *digest_evidence]:
-            path = source / relative
-            path.parent.mkdir(parents=True,exist_ok=True)
-            for field, value, rule in [('access_token', token, 'github-pat'),
-                                       ('api_key', alphabet * 4, 'generic-api-key')]:
-                path.write_text(json.dumps({field: value}, indent=2) + '\n')
-                findings, output = execute(scanner, "dir", source, config)
-                if not any(item.get("RuleID") == rule for item in findings) or value in output:
-                    raise ValueError("hash-field exclusion hides a token or redaction failed")
-            path.write_text('{"description":"synthetic clean file"}\n')
+        latency_root = 'tests/std-channel-perf/results/2026-11-03-esp32s3-latency-controls'
+        latency_evidence = [f'{latency_root}/firmware-receipts/build.json'] + [
+            f'{latency_root}/runs/{case}/{kind}.json'
+            for case in ('01-tight', '02-seed-1-a', '03-seed-17', '04-fixed-100-w100-a',
+                         '05-fixed-100-w101-a', '06-fixed-1000-w100-a', '07-fixed-1000-w101-a',
+                         '08-seed-113', '09-seed-1-b', '10-fixed-1000-w101-b',
+                         '11-fixed-1000-w100-b', '12-fixed-100-w101-b', '13-fixed-100-w100-b')
+            for kind in ('build', 'analysis')
+        ]
+        progress_root = 'tests/channel-progress/results/2026-11-04-esp32s3'
+        progress_evidence = [
+            f'{progress_root}/runs/{family}/{case}/run/{kind}.json'
+            for family, cases in (
+                ('crossbeam', ('select-reserved', 'select-published')),
+                ('std', ('mutex-admit-held', 'mutex-admit-released', 'mutex-take-held',
+                         'mutex-take-released', 'condvar-close-wait',
+                         'condvar-publish-before-wait', 'condvar-wait-publish')),
+                ('fifo', ('fifo-select-reserved', 'fifo-select-published',
+                          'fifo-try-recv-reserved', 'fifo-try-recv-published',
+                          'fifo-try-send-reserved', 'fifo-try-send-reclaimed')),
+            )
+            for case in cases for kind in ('build', 'analysis', 'acceptance')
+        ] + [f'{progress_root}/{family}-{kind}.json'
+             for family in ('std', 'fifo') for kind in ('no-repair', 'physical')]
+        exact_hash_evidence = digest_evidence + latency_evidence + progress_evidence
+
+        def detected_at(paths, fields, rule, hidden, *, indent=2):
+            # Scan independent file controls together, checking every location;
+            # hundreds of scanner startups would exhaust the CI job budget.
+            for relative in paths:
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(fields, indent=indent) + '\n')
+            findings, output = execute(scanner, "dir", source, config)
+            detected = {item['File'] for item in findings if item['RuleID'] == rule}
+            if detected != set(paths) or any(value in output for value in hidden):
+                raise ValueError("hash-field control missed a location or redaction failed")
+            for relative in paths:
+                (source / relative).write_text('{"description":"synthetic clean file"}\n')
+
+        exclusion_paths = [
+            'tests/rtos-bench/upstream.json', 'tests/detection/results/control/provenance.json',
+            'tests/detection/results/control/firmware.json', 'tests/detection/results/control/validation.json',
+            'tests/csi-radio/results/control.json', *channel_evidence, *exact_hash_evidence,
+        ]
+        for field, value, rule in [('access_token', token, 'github-pat'),
+                                   ('api_key', alphabet * 4, 'generic-api-key')]:
+            detected_at(exclusion_paths, {field: value}, rule, (value,))
         # The reviewed exception must admit precisely the source-hash line,
         # without suppressing sensitive fields on the same line or nearby files.
         source_field = 'upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch'
@@ -153,41 +189,50 @@ def self_test(scanner):
             if not any(item.get("RuleID") == 'generic-api-key' for item in findings) or source_hash in output:
                 raise ValueError("source-hash exclusion escaped its evidence path or redaction failed")
             path.unlink()
-        # P0's new physical archive repeats the same public patch bytes. Its
-        # separate exception covers only twelve reviewed paths and one value.
+        # The newer P0/P1 archives repeat the same public patch bytes. Their
+        # separate exceptions cover only the reviewed paths and one value.
         public_hash = hashlib.sha256((ROOT / source_field).read_bytes()).hexdigest()
-        for relative in digest_evidence:
+        for relative in exact_hash_evidence:
             path = source / relative
             path.write_text(json.dumps({source_field: public_hash}, indent=2) + '\n')
-            findings, _ = execute(scanner, "dir", source, config)
-            if findings:
-                raise ValueError("reviewed digest-archive source hash was not recognized")
-            path.write_text('{"description":"synthetic clean file"}\n')
-        path = source / digest_evidence[0]
+        findings, _ = execute(scanner, "dir", source, config)
+        if findings:
+            raise ValueError("reviewed exact archive source hash was not recognized")
+        for relative in exact_hash_evidence:
+            (source / relative).write_text('{"description":"synthetic clean file"}\n')
         for fields, rule in (
             ({source_field: token}, 'github-pat'),
             ({source_field: source_hash}, 'generic-api-key'),
+            ({source_field.replace('0006-', '0007-'): public_hash}, 'generic-api-key'),
             ({source_field: public_hash, 'api_key': source_hash}, 'generic-api-key'),
         ):
-            path.write_text(json.dumps(fields) + '\n')
-            findings, output = execute(scanner, "dir", source, config)
-            if (not any(item.get('RuleID') == rule for item in findings)
-                    or token in output or source_hash in output):
-                raise ValueError("digest-archive exception hides a credential or another field")
-        path.write_text('{"description":"synthetic clean file"}\n')
-        for relative in (
+            # Single-field controls use the admitted line shape, so a broader
+            # hash exception cannot pass merely because JSON braces prevented
+            # matching. Neighboring fields must remain together on one line.
+            detected_at(exact_hash_evidence, fields, rule, (token, source_hash),
+                        indent=2 if len(fields) == 1 else None)
+        wrong_paths = (
             f'{digest_root}/runs/latency-rom-digest-tight-4/build.json',
             f'{digest_root}/runs/latency-tight-1/credentials.json',
             f'{digest_root}/firmware-receipts/latency/analysis.json',
             digest_evidence[0].replace('2026-11-03', '2026-11-04'),
-        ):
-            path = source / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({source_field: public_hash}, indent=2) + '\n')
-            findings, _ = execute(scanner, "dir", source, config)
-            if not any(item.get('RuleID') == 'generic-api-key' for item in findings):
-                raise ValueError("digest-archive exception escaped its reviewed paths")
-            path.unlink()
+            f'{latency_root}/firmware-receipts/analysis.json',
+            f'{latency_root}/runs/01-tight/acceptance.json',
+            f'{latency_root}/runs/14-tight/build.json',
+            f'{latency_root}/runs/04-fixed-100-w101-a/build.json',
+            latency_evidence[1].replace('2026-11-03', '2026-11-04'),
+            f'{progress_root}/runs/crossbeam/direct-reserved/run/build.json',
+            f'{progress_root}/runs/std/fifo-select-reserved/run/build.json',
+            f'{progress_root}/runs/fifo/fifo-try-send-published/run/build.json',
+            f'{progress_root}/runs/std/mutex-admit-held/run/credentials.json',
+            f'{progress_root}/runs/other/select-reserved/run/build.json',
+            f'{progress_root}/std-report.json',
+            f'{progress_root}/fifo-no-repair.json.bak',
+            progress_evidence[0].replace('2026-11-04', '2026-11-05'),
+        )
+        detected_at(wrong_paths, {source_field: public_hash}, 'generic-api-key', ())
+        for relative in wrong_paths:
+            (source / relative).unlink()
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")

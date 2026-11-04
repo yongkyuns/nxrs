@@ -106,6 +106,16 @@ activity and does not establish IRQ phase coverage or identify the cause of its
 different distribution. This sensitivity is a reason to preserve operating
 conditions and individual boot results in P2.
 
+P0's subsequent [thirteen-boot latency-control campaign](https://github.com/yongkyuns/nxrs/blob/4aeb64ceef1e2ea51ebe0fd7cb42a7ef42c12ec1/tests/std-channel-perf/results/2026-11-03-esp32s3-latency-controls/README.md)
+uses a new executable and adds 13,000 retained samples. The older large seeded
+alternation does not recur there: both new seed-1 runs have receive p50/p99/maximum
+of 1,865/2,821/6,050 ticks. This executable difference is not evidence of a
+transport improvement. A smaller 1,872-tick component repeats in four fixed-delay
+runs, shifting retained parity when warmups change from 100 to 101. It tracks
+warmup-adjusted transfer count modulo eight; internal slot, cache, scheduler and
+IRQ causes remain unproved. Calibration, actual placement and IRQ phase coverage
+remain open in that campaign too.
+
 ### Physical progress now constrains the choices
 
 [P1's November 4 physical campaign](https://github.com/yongkyuns/nxrs/blob/8efbd59cd392678aaedf1f00addc80a30a1682a3/tests/channel-progress/results/2026-11-04-esp32s3/README.md)
@@ -153,6 +163,14 @@ This produces eighteen captures and six existing comparison reports: one
 `ready-try` and one `blocked-try` report per pass. It is an initial screening
 campaign. Three boots and 1,000 samples per boot do not establish a worst-case
 bound. Order rotation does not establish IRQ phase coverage.
+
+Retain sample order and inspect any repeating sequence-dependent component
+before attributing a difference to a transport. P2's one-provider `sequence`
+already includes warmup; its zero-based total-transfer index is `sequence - 1`.
+That index is not an observed internal queue slot. If a P2 case shows such a
+component, a same-image warmup-100/101 follow-up is an available conditional
+diagnostic. Keep it separate from the primary comparisons, which require equal
+warmup counts. The first eighteen captures remain unchanged.
 
 Physical execution stays with the coordinated hardware workstream. Before
 running, the operator must have exclusive board access, a fresh verified backup
