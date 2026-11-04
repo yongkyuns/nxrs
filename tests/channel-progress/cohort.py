@@ -23,6 +23,11 @@ MODES = (
     "send-reserved", "send-reclaimed",
 )
 CONTROLS = ("direct-published", "select-published", "send-reclaimed")
+CAPTURE_FAMILIES = {
+    CHANNEL_SCHEMA: ("crossbeam-channel", MODES),
+    evidence.STD_TRANSFER_SCHEMA: ("std-mutex-condvar", evidence.STD_TRANSFER_MODES),
+    evidence.FIFO_SCHEMA: ("crossbeam-channel", evidence.FIFO_MODES),
+}
 IDENTITY_FIELDS = (
     "source_revision", "source_sha256", "platform", "target", "sdk",
     "kernel_revision", "apps_revision", "compiler_identity", "std_library_tree_sha256",
@@ -113,17 +118,20 @@ def _stored_analysis(stored, replay):
 def replay_capture(run, mode, *, schema=CHANNEL_SCHEMA):
     """Replay one source-bound capture without imposing a cohort's case set.
 
-    Both Crossbeam scheduling families use the same raw shell, firmware and
-    execution-session checks. Their analyzers and aggregate acceptance rules
-    remain separate; callers still compare the stored family-specific analysis.
+    The three experiment families share raw shell, firmware and execution-session
+    checks. Their schemas, transports, modes and acceptance rules remain explicit;
+    callers still compare the stored family-specific analysis.
     """
+    require(schema in CAPTURE_FAMILIES, "unknown capture experiment schema")
+    transport, modes = CAPTURE_FAMILIES[schema]
+    require(mode in modes, "capture mode does not belong to its experiment family")
     files = {name: evidence.checked_file(run, name) for name in CAPTURE_FILES}
     raw = files["console.log"].read_bytes()
     structure = capture_structure(raw, mode)
     summary = evidence.analyze(raw.decode("utf-8", errors="strict"))
     metadata = summary["metadata"]
-    require(metadata.get("schema") == schema and metadata.get("transport") == "crossbeam-channel"
-            and summary.get("mode") == mode, "cohort only accepts its named Crossbeam experiment")
+    require(metadata.get("schema") == schema and metadata.get("transport") == transport
+            and summary.get("mode") == mode, "cohort only accepts its named experiment family")
     receipt = evidence.build_receipt(files["build.json"], mode)
     require(receipt.get("source_dirty") is False, "cohort requires clean frozen source")
     summary = evidence.bind_build(summary, receipt)

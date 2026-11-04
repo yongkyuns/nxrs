@@ -175,7 +175,13 @@ jobs:
             python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
               --output "$run/acceptance.json" --require-no-repair
           done
+          python3 tests/channel-progress/std_cohort.py "$out/cases" \
+            --output "$out/cohort.json" --require-no-repair
           rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
+      - name: Complete source-bound P1 replay with named acceptance gates
+        run: |
+          python3 tests/channel-progress/replay.py target/channel-progress \
+            --output target/channel-progress/replay.json --require-no-repair std fifo
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -186,6 +192,8 @@ jobs:
             target/channel-progress/mps2/cohort.json
             target/channel-progress/mps2/acceptance.json
             target/channel-progress/fifo/mps2/cohort.json
+            target/channel-progress/std-transfer/mps2/cohort.json
+            target/channel-progress/replay.json
             target/channel-progress/**/run/
             target/channel-progress/**/crossbeam/*.json
             target/channel-progress/**/crossbeam/*.toml

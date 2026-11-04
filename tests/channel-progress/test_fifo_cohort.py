@@ -146,7 +146,7 @@ class FifoCohortTests(unittest.TestCase):
         path = self.run_directory(requested) / "console.log"
         path.write_bytes(path.read_bytes().replace(
             ("channel_progress " + substituted).encode(), ("channel_progress " + requested).encode(), 1))
-        with self.assertRaisesRegex(ValueError, "named Crossbeam experiment"):
+        with self.assertRaisesRegex(ValueError, "named experiment family"):
             cohort.analyze_cohort(self.root)
 
     def test_linked_run_directory_is_refused_even_when_its_contents_would_validate(self):

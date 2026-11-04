@@ -249,6 +249,16 @@ at head `0bc150ce28b3710da31525615e3daa0a4672a0a7` (merge checkout
 confirmed the seven primitive results and the original six Crossbeam outcomes.
 These are virtual NuttX observations with the narrow primitive scope above.
 
+[`std_cohort.py`](std_cohort.py) requires the complete fixed seven-case set on
+the same clean stage-zero suite image. It replays each fresh boot, sole command,
+raw result, build receipt and execution session. The saved `analysis.json` must
+match the execution-attached replay; `acceptance.json` must match the separate
+build-bound analysis. All seven complete receipts and execution environments
+must agree. Missing, substituted or linked cases, mixed images, and unsupported
+qualification claims are refused. Its `std-prewarmed-single-item-v1` contract
+preserves each Busy result's zero admission/transfer counts and retained value.
+The no-repair gate covers only those seven primitive observations.
+
 ## Equal-priority FIFO reservation suite
 
 The [FIFO scheduling audit](FIFO-SCHEDULING-AUDIT.md) defines
@@ -334,6 +344,54 @@ selected-send expressions, ISR/signal reentry and unaudited endpoint or priority
 changes are outside this contract. Owner fairness, overload, cancellation and
 the complete work-to-block budget remain separate qualification obligations.
 
+## Complete ARM/QEMU replay
+
+[`replay.py`](replay.py) checks the complete retained P1 artifact: 19 fresh-boot
+captures from eight distinct builds, comprising the original six Crossbeam
+images, one shared std primitive image and one shared equal-FIFO image. It
+replays all three family gates and requires their common source, compiler,
+prepared std library, kernel/apps revisions, resolved configuration and staged
+input identities to match. Each stored case analysis and acceptance is compared
+with its appropriate replay, as are the saved family cohort reports.
+
+The recorded source revision must be available as a Git commit in `--repository`
+(the current repository by default). The verifier independently derives the
+complete MPS2 input set from that Git tree, including every fixture Python,
+Rust and TOML input and the common build/profile/upstream inputs. It hashes the
+regular Git blobs and rejects missing, extra or altered source inventory entries.
+This bounded inventory policy supports the non-inheriting MPS2 mock profile;
+changes to its build recipe require an explicit policy update. Source tests
+check parity with `build.py`.
+
+```sh
+python3 tests/channel-progress/replay.py target/channel-progress \
+  --output target/channel-progress/replay.json --require-no-repair std fifo
+```
+
+The report keeps `diagnostic_valid` and `cohort_complete` separate from each
+family's `no_repair_satisfied` result. A valid complete diagnostic can retain
+the three original reservation stalls. Passing the named std and FIFO gates
+does not admit the unequal-priority Crossbeam contract or a complete selected
+owner. With the currently retained outcomes:
+
+| Requested gate | Expected exit status | Meaning |
+| --- | --- | --- |
+| No extra gate | 0 | All 19 cases form one valid, complete source-bound diagnostic |
+| `--require-no-repair std fifo` | 0 | Both named scoped contracts pass |
+| `--require-no-repair crossbeam` | 2 | Original reservation cases still require repair |
+| `--require-physical` | 2 | ARM/QEMU evidence does not verify device execution |
+| Missing, mixed or altered evidence | 1 | The complete diagnostic is invalid |
+
+CI runs the seven-case std gate and complete replay after collecting the existing
+19 captures, and retains `std-transfer/mps2/cohort.json` and `replay.json` with
+the raw evidence. The verifier records its own revision, dirty state and module
+hashes separately from the firmware source revision. Replaying an older archive
+does not relabel its firmware as a new build. Only a Git-verified historical
+source inventory that predates `std_cohort.py` may omit the saved std cohort
+report; all seven raw captures and individual acceptances remain required.
+All physical, general priority-progress, production-transport and timing
+qualification flags remain false.
+
 ## Host validation
 
 ```sh
@@ -386,6 +444,8 @@ for mode in mutex-admit-held mutex-admit-released mutex-take-held mutex-take-rel
   python3 tests/channel-progress/analyze.py "$run/console.log" \
     --build-receipt "$run/build.json" --output "$run/acceptance.json" --require-no-repair
 done
+python3 tests/channel-progress/std_cohort.py "$out/cases" \
+  --output "$out/cohort.json" --require-no-repair
 ```
 
 `std-mutex-suite` is a build mode, not an executable case name. Its Crossbeam
@@ -394,8 +454,8 @@ hooks. The prepared std library is checked against the audited primitive source
 hashes for the selected SDK before the firmware build and again on receipt
 replay; changed or missing required source files are rejected. The seven
 commands test the actual std primitives in that one image.
-They are analyzed individually and are not inputs to the fixed six-case
-Crossbeam cohort gate.
+They are analyzed individually and together by the fixed seven-case std gate.
+Their report remains separate from the fixed six-case Crossbeam cohort gate.
 
 Build the FIFO suite once and capture its six cases on fresh boots:
 
