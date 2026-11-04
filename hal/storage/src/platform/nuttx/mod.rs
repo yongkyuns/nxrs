@@ -41,6 +41,10 @@ impl Storage for FileStorage {
     }
 }
 
+pub use crate::recording::{
+    read_record, storage, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

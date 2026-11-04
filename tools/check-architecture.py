@@ -292,6 +292,13 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     code review; scalar declarations do not certify a mechanical boundary.
     """
     errors = []
+    for path in (root / 'hal').glob('*/src/platform/mod.rs'):
+        text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
+        if (exports != ['selected::*']
+                or not re.search(r'\bmod\s+selected\s*;', text)
+                or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
+            errors.append(f'{path.relative_to(root)}: select source modules and re-export selected::* once; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/providers'):
         errors.append(f'{path.relative_to(root)}: HAL implementations belong in src/platform')
     for path in (root / 'hal').glob('*/src/platform/native*'):

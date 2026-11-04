@@ -52,7 +52,10 @@ requirements, not aspirational guidance.
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit mocks, not a second OS identity via feature/cfg values.
 - Group capability admission, selected exports and acquisition in each HAL's
-  `src/platform/mod.rs`. Gate a coherent module once instead of repeating its
+  `src/platform/mod.rs`. Select one source module as `selected`, followed by one
+  `pub use selected::*;` (crate-visible for private providers). Keep constructors
+  and unavailable stubs in the selected implementation, and host source-injection
+  witnesses in separate test wiring. Gate a coherent module once instead of repeating its
   condition on each type, implementation and constructor. Keep model features
   in the detector HAL; services consume `detector::Detector` directly, without
   model feature forwarding or compatibility facades. Qualification controls

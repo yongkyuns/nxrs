@@ -84,3 +84,7 @@ fn device_error(error: io::Error) -> DeviceError {
 
 #[cfg(test)]
 mod tests;
+
+pub fn open() -> Result<impl crate::Led + Send + 'static, crate::DeviceError> {
+    UserLeds::open()
+}

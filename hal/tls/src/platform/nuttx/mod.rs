@@ -17,3 +17,5 @@ pub fn open() -> Result<crate::Identity, crate::Error> {
     let flags = unsafe { tls_entropy_open_flags() };
     crate::Identity::generate(entropy::Source::open("/dev/random", flags)?)
 }
+
+pub use crate::sdk::{Connection, Identity};

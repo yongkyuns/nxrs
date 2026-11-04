@@ -115,7 +115,7 @@ impl QuiescenceInterface {
     }
 }
 
-impl super::super::quiescence::Interface for QuiescenceInterface {
+impl super::quiescence::Interface for QuiescenceInterface {
     fn set_enabled(&mut self, enabled: bool) -> Result<(), Error> {
         super::set_interface_enabled(
             enabled,

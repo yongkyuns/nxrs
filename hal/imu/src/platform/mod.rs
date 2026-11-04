@@ -1,33 +1,6 @@
-//! Capability admission and resource acquisition.
-#[cfg(any(test, hal_mock))]
-pub(super) mod mock;
-#[cfg(all(hal_enabled, target_os = "nuttx"))]
-#[path = "nuttx/mod.rs"]
+//! Select one implementation from profile admission and Rust target_os.
+#[cfg_attr(all(hal_enabled, target_os = "nuttx"), path = "nuttx/mod.rs")]
+#[cfg_attr(hal_mock, path = "mock.rs")]
+#[cfg_attr(not(any(hal_enabled, hal_mock)), path = "unbound.rs")]
 mod selected;
-#[cfg(hal_mock)]
-use mock as selected;
-#[cfg(not(any(hal_enabled, hal_mock)))]
-mod selected {
-    use crate::{DeviceError, Event, Imu};
-    struct Unconfigured;
-    impl Imu for Unconfigured {
-        fn request_stop(&mut self) -> Result<(), DeviceError> {
-            Ok(())
-        }
-        fn join(&mut self) -> Result<(), DeviceError> {
-            Ok(())
-        }
-        fn is_finished(&self) -> bool {
-            true
-        }
-        fn dropped(&self) -> u32 {
-            0
-        }
-    }
-    pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
-        _: S,
-    ) -> Result<impl Imu + Send + 'static, DeviceError> {
-        Err::<Unconfigured, _>(DeviceError::Unsupported)
-    }
-}
-pub use selected::open;
+pub use selected::*;

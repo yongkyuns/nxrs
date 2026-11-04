@@ -6,10 +6,10 @@ pub(crate) mod pico;
 #[cfg(all(feature = "probe", feature = "pico-model"))]
 pub(crate) use pico::kernel;
 #[cfg(feature = "pico-model")]
-pub(crate) use pico::open;
+pub use pico::open;
 
 #[cfg(not(feature = "pico-model"))]
-pub(crate) fn open(
+pub fn open(
     config: crate::Config,
 ) -> core::result::Result<impl crate::Detector, crate::DeviceError> {
     if config.require_localization {

@@ -22,6 +22,14 @@ pub use camera::{Capture, Format, Frame, PixelFormat};
 #[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
 #[cfg_attr(test, allow(dead_code))]
 mod file;
+#[cfg(any(
+    hal_enabled,
+    hal_mock,
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "nuttx"
+))]
 mod platform;
 #[cfg(any(
     hal_enabled,
@@ -47,5 +55,17 @@ mod record;
 ))]
 #[allow(dead_code)]
 mod recording;
-#[cfg(any(hal_enabled, hal_mock, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
+#[cfg(any(
+    hal_enabled,
+    hal_mock,
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "nuttx"
+))]
 pub use platform::*;
+
+#[cfg(all(test, unix, not(target_os = "nuttx")))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/nuttx/mod.rs"]
+mod nuttx_tests;

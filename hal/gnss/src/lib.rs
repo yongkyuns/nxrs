@@ -19,3 +19,10 @@ pub use platform::*;
 
 #[cfg(test)]
 mod session_tests;
+
+#[cfg(all(test, not(hal_mock)))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/mock.rs"]
+mod mock_tests;
+#[cfg(all(test, hal_mock))]
+use platform as mock_tests;

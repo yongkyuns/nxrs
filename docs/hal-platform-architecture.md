@@ -47,6 +47,14 @@ Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
 not branch on `target_os`, `hal_enabled`, `hal_mock`, or platform environment
 variables. Rust model features select model code, never an OS.
+Each HAL's `src/platform/mod.rs` selects one source module as `selected` and
+re-exports it with one `pub use selected::*;` line (crate-visible for private
+providers). Keep constructors and unavailable stubs in those selected modules,
+not inline in the selector. `cfg_attr(path = ...)` makes the OS-to-source mapping
+explicit. Identical Rust implementations remain ordinary shared modules outside
+`platform/`; selecting their acquisition exports does not duplicate them per OS.
+Native source injection for host unit tests belongs in separate test wiring.
+
 Platform factories supply resource budgets such as worker stack size. Providers
 report capabilities; shared behavior does not infer them from the OS name.
 Ordinary `cfg(test)` and language/ABI requirements inside a platform provider

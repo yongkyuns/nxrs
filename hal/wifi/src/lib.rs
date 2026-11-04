@@ -14,4 +14,10 @@ mod shared;
 #[cfg(any(hal_enabled, all(test, unix)))]
 mod worker;
 
-pub use platform::acquisition::{open, open_for_quiescence, open_with_storage};
+mod acquisition;
+pub use acquisition::{open, open_for_quiescence, open_with_storage};
+
+#[cfg(all(test, unix, not(target_os = "nuttx")))]
+#[allow(dead_code, unused_imports)]
+#[path = "platform/nuttx/mod.rs"]
+mod nuttx_tests;
