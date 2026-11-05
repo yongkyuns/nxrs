@@ -19,6 +19,7 @@ pub mod nuttx;
 pub mod profile;
 pub mod radio;
 pub mod sdk;
+pub mod selection;
 pub mod source;
 pub mod target;
 pub mod web;
