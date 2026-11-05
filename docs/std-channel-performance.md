@@ -19,7 +19,9 @@ Three changes address the measured slowdown:
   switching.
 
 Three paired primary passes and three separate hardware-counter passes produced
-198 replayed fresh-boot captures. Samples were not pooled. In matched hot
+198 replayed fresh-boot captures. A narrower native placement then passed one
+paired primary and one hardware-counter pass (66 further captures). Samples
+were not pooled. In matched hot
 placement, sustained throughput is 321k versus 264k messages/s with one producer,
 and 272k versus 234k with four. Rust/std uses 3–18% less whole-core active CPU.
 The same hardware counters include IRQ and scheduler work; native thread counters
@@ -31,20 +33,23 @@ repeatable. Both have zero exploratory 100 µs misses in that case. Other normal
 p99 cases are lower with std; normal cases have zero loss and preserve payload,
 per-producer FIFO and joined reclamation.
 
-Complete-image IRAM text is 107,688 bytes versus 52,684; these include OS, runtime
-and fixture code, not isolated queue storage. Matched placement is not an
+The narrower image uses 86,456 IRAM text bytes versus Zephyr's 52,684, saving
+21,232 text bytes and 21,248 bytes of shared SRAM reservation from the earlier
+placement. These include OS, runtime and fixture code, not isolated queue
+storage. The Rust image also retains native-control workers. Matched placement is not an
 ordinary-placement, cross-build or resource-parity claim. Native GCC14.2/14.3
 differ, clocks lack external calibration, and three boots establish descriptive
-repeatability rather than statistical confidence. The upgrade itself did not
+repeatability rather than statistical confidence; the narrower placement has
+one paired pass per observer. The upgrade itself did not
 improve this matched Zephyr fixture; its compiler changed too.
 
-An input-section audit of the measured NuttX linker map attributes 33,722 bytes
-to ordinary IRAM admission and 72,848 to the comparison's added selectors:
-36,366 scheduler/architecture bytes, 2,178 libc bytes and 34,304 app/std/fixture
-bytes, plus 1,118 bytes of alignment. Added native inputs include startup,
-GPIO and console code as well as hot paths. These are current relaxed input
-sizes, not predicted savings. Production placement needs a narrower hot-path
-selection; `ESP32S3_RUN_IRAM` instead loads the entire image into IRAM.
+The `esp32s3-sync-iram` product profile selects the native/stdlib synchronization
+layout through `iram-layout`. The frontend stages its platform-owned linker
+fragment and records both source and staged hashes. Applications keep ordinary
+std APIs. The comparison additionally places its workload functions in IRAM;
+that fixture-specific placement is not part of the product profile. A normal
+frontend build checks the profile and target ABI; it is not an ordinary-app
+physical performance result. `ESP32S3_RUN_IRAM` instead loads the entire image.
 
 Validation includes native state/preemption/signal/TLS tests, ordinary Rust
 thread/channel checks, seven unchanged P1 primitive cases, and the
@@ -61,5 +66,7 @@ original image. The P1 campaign reverified an existing full backup after fresh
 read transport failures; no successful new full read is claimed. Its clean
 digest test-image preparation does not fix normal frontend digest packaging.
 
-The residual tail difference and production placement qualification remain open;
-these results do not establish universal parity or general SMP qualification.
+The residual tail difference and memory parity remain open. The comparison's
+`physical_timing_qualified` and `production_qualified` flags remain false;
+these are nominal-clock physical observations, not calibrated product-deadline
+qualification. They do not establish universal parity or general SMP qualification.
