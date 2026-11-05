@@ -286,3 +286,24 @@ fn main() {}
         .is_file());
     assert!(!outside.0.join("artifacts").exists());
 }
+
+#[test]
+fn external_app_metadata_typos_fail_before_building() {
+    let root = fixture();
+    let manifest = root.0.join("app/probe/Cargo.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    for (suffix, error) in [
+        ("[package.metadata.nxrs]\nunknown-setting = 1\n", "unknown nxrs application metadata field"),
+        ("[package.metadata.nxrs.firmware]\nprioroty = 1\n", "unknown firmware metadata field"),
+        ("[package.metadata.nxrs.firmware]\nbin = 17\n", "invalid firmware bin"),
+        ("[package.metadata.nxrs.firmware]\nstack-size = \"large\"\n", "invalid firmware stack-size"),
+    ] {
+        fs::write(&manifest, format!("{original}\n{suffix}")).unwrap();
+        let stderr = failure(frontend(&root.0, &root.0, &[
+            "build", "--manifest-path", "app/probe/Cargo.toml",
+            "--profile", "host", "--dry-run"
+        ]));
+        assert!(stderr.contains(error), "{suffix}: {stderr}");
+    }
+    fs::write(&manifest, original).unwrap();
+}
