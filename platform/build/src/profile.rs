@@ -583,6 +583,32 @@ mod tests {
         }
     }
     #[test]
+    fn only_selected_hal_packages_contribute_private_native_helpers() {
+        let root = root();
+        let profile = Profile::resolve(&root, "esp32s3-camera-stream").unwrap();
+        let camera = crate::selection::CargoSelection {
+            packages: BTreeSet::from(["nxrs-camera".into()])
+        };
+        let helpers = profile.native_helpers_for(&root, &camera).unwrap();
+        assert!(!helpers.is_empty());
+        assert!(helpers.iter().all(|p| p.to_string_lossy().contains("/hal/camera/")));
+        let unused = crate::selection::CargoSelection { packages: BTreeSet::new() };
+        assert!(profile.native_helpers_for(&root, &unused).unwrap().is_empty());
+    }
+
+    #[test]
+    fn detector_models_are_profile_owned_but_cargo_consumption_gated() {
+        let root = root();
+        let profile = Profile::resolve(&root, "esp32s3-camera-stream-vww").unwrap();
+        let unused = crate::selection::CargoSelection { packages: BTreeSet::new() };
+        assert!(profile.model_features(&unused).unwrap().is_empty());
+        let selected = crate::selection::CargoSelection {
+            packages: BTreeSet::from(["nxrs-detector".into()])
+        };
+        assert_eq!(profile.model_features(&selected).unwrap(), vec!["nxrs-detector/person-model"]);
+    }
+
+    #[test]
     fn every_tracked_profile_resolves() {
         let root = root();
         for dir in ["platform/profiles", "platform/nuttx/platforms"] {
