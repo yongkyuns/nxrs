@@ -24,14 +24,17 @@ pub mod recording;
 #[cfg(any(hal_enabled, test, target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
 pub use recording::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
 
-// Legacy factory signatures and admission behavior remain unchanged.
+// Compatibility-only root factories have platform-dependent signatures.
+// New consumers use the stable, named software modules above instead.
 #[cfg(any(hal_enabled, hal_mock))]
+#[doc(hidden)]
 pub use platform::open;
 #[cfg(all(hal_enabled, target_os = "nuttx"))]
 pub use platform::FileStorage;
 #[cfg(hal_mock)]
 pub use platform::{MockStorage, StoredFrame};
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "nuttx"))]
+#[doc(hidden)]
 pub use platform::storage;
 
 #[cfg(test)]
