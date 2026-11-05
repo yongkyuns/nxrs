@@ -77,18 +77,18 @@ class DetectorCompositionTests(unittest.TestCase):
                     self.assertEqual('mod batch;' in text, suffix == '' and features == ('PROBE',))
                     self.assertIn('esp32s3-camera-stream.toml', result.stdout)
 
-    def test_backend_derives_features_before_any_native_build(self):
-        for suffix, expected in [('', ['nxrs-detector/pico-model']),
-                                 ('-vww', ['nxrs-detector/person-model']), ('-video', [])]:
-            for manifest, dependencies in [('tests/nuttx-std/stream/Cargo.toml', expected),
-                                           ('app/std-demo/Cargo.toml', [])]:
+    def test_sdk_free_backend_defers_exact_model_selection_without_native_build(self):
+        for suffix in ('', '-vww', '-video'):
+            for manifest in ('tests/nuttx-std/stream/Cargo.toml', 'app/std-demo/Cargo.toml'):
                 with self.subTest(suffix=suffix, manifest=manifest):
                     args = ['cargo', 'nxrs', 'build', '--dry-run', '--manifest-path', manifest,
                             '--profile', 'esp32s3-camera-stream' + suffix,
                             '--out', str(self.directory / 'firmware'), '--feature', 'probe']
                     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=120)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(json.loads(result.stdout)['deployment']['model_features'], dependencies)
+                    selected = json.loads(result.stdout)['deployment']
+                    self.assertIsNone(selected['model_features'])
+                    self.assertEqual(selected['model_resolution'], 'pending-exact-target-cargo')
                     self.assertFalse((self.directory / 'firmware').exists())
                     rejected = subprocess.run([*args, '--feature', 'nxrs-detector/pico-model'],
                                               cwd=ROOT, capture_output=True, text=True, timeout=120)
