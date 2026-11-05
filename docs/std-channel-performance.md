@@ -38,6 +38,14 @@ differ, clocks lack external calibration, and three boots establish descriptive
 repeatability rather than statistical confidence. The upgrade itself did not
 improve this matched Zephyr fixture; its compiler changed too.
 
+An input-section audit of the measured NuttX linker map attributes 33,722 bytes
+to ordinary IRAM admission and 72,848 to the comparison's added selectors:
+36,366 scheduler/architecture bytes, 2,178 libc bytes and 34,304 app/std/fixture
+bytes, plus 1,118 bytes of alignment. Added native inputs include startup,
+GPIO and console code as well as hot paths. These are current relaxed input
+sizes, not predicted savings. Production placement needs a narrower hot-path
+selection; `ESP32S3_RUN_IRAM` instead loads the entire image into IRAM.
+
 Validation includes native state/preemption/signal/TLS tests, ordinary Rust
 thread/channel checks, seven unchanged P1 primitive cases, and the
 [host ownership controls](../tests/nuttx-std/channels/README.md). P1 observations
