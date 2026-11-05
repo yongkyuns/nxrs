@@ -1,4 +1,4 @@
-/* ESP32-S3 synchronization placement. Keep OS/runtime policy out of apps. */
+/* ESP32-S3 bounded-channel and native synchronization placement. Keep OS/runtime policy out of apps. */
 *libsched.a:clock_delay.o(.literal .text .literal.* .text.*)
 *libsched.a:clock_realtime2absticks.o(.literal .text .literal.* .text.*)
 *libsched.a:clock_sched_ticks.o(.literal .text .literal.* .text.*)
@@ -73,7 +73,15 @@
 *libarch.a:xtensa_sigdeliver.o(.literal .text .literal.* .text.*)
 *libc.a:pthread_*.*(.literal .text .literal.* .text.*)
 *libc.a:sem_*.*(.literal .text .literal.* .text.*)
-*(.literal.*std4sync* .text.*std4sync* .literal.*std3sys4sync* .text.*std3sys4sync*)
+*(.literal.*std4sync4mpmc5array* .text.*std4sync4mpmc5array*)
+*(.literal.*std4sync4mpmc7counter* .text.*std4sync4mpmc7counter*)
+*(.literal.*std4sync4mpmc*Sender* .text.*std4sync4mpmc*Sender*)
+*(.literal.*std4sync4mpmc*Receiver* .text.*std4sync4mpmc*Receiver*)
+*(.literal.*std4sync4mpsc* .text.*std4sync4mpsc*)
+*(.literal.*std4sync6poison* .text.*std4sync6poison*)
+*(.literal.*std4sync9once_lock* .text.*std4sync9once_lock*)
+*(.literal.*std4sync9lazy_lock* .text.*std4sync9lazy_lock*)
+*(.literal.*std3sys4sync* .text.*std3sys4sync*)
 *(.literal.__rust_nuttx_spin_* .text.__rust_nuttx_spin_*)
 *(.literal.*std6thread7current18current_or_unnamed* .text.*std6thread7current18current_or_unnamed* .literal.*std6thread6Thread4park* .text.*std6thread6Thread4park*)
 *(.literal.tls_get_info .text.tls_get_info)

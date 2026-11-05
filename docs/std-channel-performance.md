@@ -19,7 +19,7 @@ Three changes address the measured slowdown:
   switching.
 
 Three paired primary passes and three separate hardware-counter passes produced
-198 replayed fresh-boot captures. A narrower native placement then passed one
+198 replayed fresh-boot captures. The final bounded-path placement passed one
 paired primary and one hardware-counter pass (66 further captures). Samples
 were not pooled. In matched hot
 placement, sustained throughput is 321k versus 264k messages/s with one producer,
@@ -33,8 +33,8 @@ repeatable. Both have zero exploratory 100 µs misses in that case. Other normal
 p99 cases are lower with std; normal cases have zero loss and preserve payload,
 per-producer FIFO and joined reclamation.
 
-The narrower image uses 86,456 IRAM text bytes versus Zephyr's 52,684, saving
-21,232 text bytes and 21,248 bytes of shared SRAM reservation from the earlier
+The narrower image uses 79,280 IRAM text bytes versus Zephyr's 52,684, saving
+28,408 text bytes and 28,416 bytes of shared SRAM reservation from the earlier
 placement. These include OS, runtime and fixture code, not isolated queue
 storage. The Rust image also retains native-control workers. Matched placement is not an
 ordinary-placement, cross-build or resource-parity claim. Native GCC14.2/14.3
@@ -43,10 +43,11 @@ repeatability rather than statistical confidence; the narrower placement has
 one paired pass per observer. The upgrade itself did not
 improve this matched Zephyr fixture; its compiler changed too.
 
-The `esp32s3-sync-iram` product profile selects the native/stdlib synchronization
-layout through `iram-layout`. The frontend stages its platform-owned linker
+The `esp32s3-sync-iram` product profile selects native synchronization and
+bounded Rust channel placement through `iram-layout`. The frontend stages its platform-owned linker
 fragment and records both source and staged hashes. Applications keep ordinary
-std APIs. The comparison additionally places its workload functions in IRAM;
+std APIs. Rendezvous/unbounded APIs remain compiled; their out-of-line helpers
+stay in flash. The comparison additionally places its workload functions in IRAM;
 that fixture-specific placement is not part of the product profile. A normal
 frontend build checks the profile and target ABI; it is not an ordinary-app
 physical performance result. `ESP32S3_RUN_IRAM` instead loads the entire image.
