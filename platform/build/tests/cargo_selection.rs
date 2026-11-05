@@ -41,7 +41,7 @@ version = "0.1.0"
 edition = "2021"
 [dependencies]
 sensor_alias = { workspace = true, optional = true }
-service = { path = "../service", optional = true }
+service = { package = "detection-service", path = "../service", optional = true }
 [target.'cfg(target_os = "none")'.dependencies]
 imu_alias = { package = "nxrs-imu", path = "../imu" }
 [features]
@@ -93,8 +93,8 @@ gnss = {{package = "nxrs-gnss", path = {:?}}}
 "#, checkout.join("hal/camera"), checkout.join("hal/imu"), checkout.join("hal/gnss")));
     put(&root.join("src/main.rs"), r#"fn main() {
     let _ = camera::open();
-    let _ = imu::open();
-    let _ = gnss::open();
+    let _ = imu::open;
+    let _ = gnss::open;
 }
 "#);
     cargo(&["generate-lockfile", "--offline"], root);
