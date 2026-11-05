@@ -91,6 +91,6 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         d
     });
     Ok(
-        json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":profile.model_features(root,&path)?,"providers":providers,"profiles":sources}),
+        json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":Value::Null,"model_resolution":"pending-exact-target-cargo","providers":providers,"profiles":sources}),
     )
 }
