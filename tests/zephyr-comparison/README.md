@@ -44,7 +44,11 @@ the two required modules into ignored `target/rtos-comparison/`; source its
 `environment.sh` to supply the paths below. Adding `--build` builds the newer
 event-service fixture, not this historical packet/reply workload.
 
-Use CMake, Ninja, dtc, Python 3.10+, Zephyr SDK 0.17.0 and its ESP32-S3
+For new runs the shared installer now pins Zephyr 4.5.0 and SDK 1.0.1;
+the frozen results above remain Zephyr 4.3.1. SDK 1.0.1 supports Apple Silicon
+macOS and x86-64/AArch64 Linux; Intel macOS has no release asset.
+
+Use CMake, Ninja, dtc, Python 3.12+, Zephyr SDK 1.0.1 and its ESP32-S3
 Xtensa toolchain, plus the pinned NuttX/ESP Rust environment. Initialize an
 isolated west workspace at the pinned revisions, update only the two modules,
 and install Zephyr base requirements plus `esptool==5.3.0` locally. Helpers

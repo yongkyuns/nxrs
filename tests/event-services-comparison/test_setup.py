@@ -56,6 +56,11 @@ class AssetSelectionTests(unittest.TestCase):
     def test_zephyr_and_embassy_assets_are_separate_and_all_is_the_union(self):
         for host in setup.PINS["hosts"]:
             with self.subTest(host=host):
+                if "sdk" not in setup.PINS["hosts"][host]:
+                    with self.assertRaisesRegex(ValueError, "unavailable"):
+                        setup.assets(host, ("zephyr",))
+                    self.assertEqual(set(setup.assets(host, ("embassy",))), {"gcc", "rust", "rust-src", "espflash"})
+                    continue
                 zephyr = setup.assets(host, ("zephyr",))
                 embassy = setup.assets(host, ("embassy",))
                 combined = setup.assets(host, ("zephyr", "embassy"))

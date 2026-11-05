@@ -20,7 +20,7 @@ import zipfile
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent))
-from rtos_harness.zephyr import PINS as ZEPHYR_PINS, ZEPHYR_SHA
+from rtos_harness.zephyr import PINS as ZEPHYR_PINS, ZEPHYR_SHA, ZEPHYR_VERSION, SDK_VERSION
 PIN_FILE = HERE / "setup-pins.json"
 PINS = json.loads(PIN_FILE.read_text())
 TRIPLE = "xtensa-espressif_esp32s3_zephyr-elf"
@@ -144,6 +144,8 @@ def assets(host, platforms):
         names += ["gcc", "rust", "rust-src", "espflash"]
     selected = {}
     for name in names:
+        if name not in PINS["common"] and name not in PINS["hosts"][host]:
+            raise ValueError(f"Zephyr SDK {SDK_VERSION} is unavailable for {host}")
         release, filename, sha = PINS["common"].get(name) or PINS["hosts"][host][name]
         selected[name] = {"url": PINS["releases"][release] + filename, "sha256": sha,
                           "filename": filename}
@@ -167,7 +169,7 @@ def package(root, name, pin):
 
 
 def sdk_path(root):
-    return root / "packages/sdk/zephyr-sdk-0.17.0"
+    return root / f"packages/sdk/zephyr-sdk-{SDK_VERSION}"
 
 
 def environment(root, embassy=False):
@@ -210,18 +212,19 @@ def prepare_root(root, host):
 def prepare_zephyr(root, selected):
     sources = root / "sources"
     checkout(sources / "zephyr", "https://github.com/zephyrproject-rtos/zephyr.git",
-             ZEPHYR_SHA, tag="v4.3.1")
+             ZEPHYR_SHA, tag=f"v{ZEPHYR_VERSION}")
     for name in ("espressif", "xtensa"):
         checkout(sources / f"hal_{name}", f"https://github.com/zephyrproject-rtos/hal_{name}.git",
                  ZEPHYR_PINS[name])
     package(root, "sdk", selected["sdk"])
     toolchain = package(root, "zephyr-toolchain", selected["zephyr-toolchain"]) / TRIPLE
-    link = sdk_path(root) / TRIPLE
+    link = sdk_path(root) / "gnu" / TRIPLE
     if not link.exists() and not link.is_symlink():
+        link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to(toolchain, target_is_directory=True)
     if link.resolve() != toolchain.resolve():
         raise ValueError("unexpected Zephyr toolchain link")
-    if (sdk_path(root) / "sdk_version").read_text().strip() != "0.17.0":
+    if (sdk_path(root) / "sdk_version").read_text().strip() != SDK_VERSION:
         raise ValueError("Zephyr SDK version mismatch")
     run([link / "bin" / (TRIPLE + "-gcc"), "--version"])
 
@@ -292,7 +295,7 @@ def build_command(platform_name, root, out, layout="three", instrumentation="ful
         argv += ["--zephyr", root / "sources/zephyr", "--espressif", root / "sources/hal_espressif",
                  "--xtensa", root / "sources/hal_xtensa", "--sdk", sdk_path(root),
                  "--zephyr-python", root / "venv/bin/python", "--readelf",
-                 sdk_path(root) / TRIPLE / "bin" / (TRIPLE + "-readelf")]
+                 sdk_path(root) / "gnu" / TRIPLE / "bin" / (TRIPLE + "-readelf")]
     else:
         argv += ["--espflash", root / "packages/espflash/espflash", "--readelf",
                  root / "packages/gcc/xtensa-esp-elf/bin/xtensa-esp32s3-elf-readelf",

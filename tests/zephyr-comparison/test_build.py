@@ -119,7 +119,7 @@ class ArgumentAndProvenanceTests(unittest.TestCase):
 
     def test_readelf_path_selects_sdk_xtensa_toolchain_exactly(self):
         with tempfile.TemporaryDirectory() as temporary:
-            tool = (Path(temporary) / 'xtensa-espressif_esp32s3_zephyr-elf' / 'bin' /
+            tool = (Path(temporary) / 'gnu' / 'xtensa-espressif_esp32s3_zephyr-elf' / 'bin' /
                     'xtensa-espressif_esp32s3_zephyr-elf-readelf')
             tool.parent.mkdir(parents=True)
             tool.write_text('#!/bin/sh\n')
