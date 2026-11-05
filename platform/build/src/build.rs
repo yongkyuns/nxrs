@@ -248,10 +248,9 @@ pub fn host(
     options: &Options,
 ) -> Result<()> {
     let os = std::env::consts::OS;
-    let evidence = deployment::validate(root, &app.manifest, profile, os)?;
+    let mut evidence = deployment::validate(root, &app.manifest, profile, os)?;
     options.validate_for_backend(os)?;
     let out = prepare_output(root, out)?;
-    write_json(&out.join("provider-selection.json"), &evidence)?;
     let mut command = Command::new("cargo");
     command
         .current_dir(root)
@@ -264,7 +263,11 @@ pub fn host(
     let selected = crate::selection::CargoSelection::resolve(
         &app.manifest, options, Path::new(&target), Command::new("cargo"),
     )?;
-    options.configure_cargo(&mut command, &profile.model_features(&selected)?);
+    let model_features = profile.model_features(&selected)?;
+    evidence["model_features"] = json!(model_features);
+    evidence.as_object_mut().unwrap().remove("model_resolution");
+    write_json(&out.join("provider-selection.json"), &evidence)?;
+    options.configure_cargo(&mut command, &model_features);
     run(&mut command)
 }
 pub fn std_source(messages: &Path, sysroot: &Path, rustc: &Path, out: &Path) -> Result<()> {
