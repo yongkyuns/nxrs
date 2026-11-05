@@ -488,20 +488,27 @@ impl Profile {
         }
         Ok(output)
     }
+    /// Inventory of all profile-bound NuttX shims, for diagnostics only.
     pub fn native_helpers(&self, root: &Path) -> Result<Vec<PathBuf>> {
+        self.native_helpers_selected(root, None)
+    }
+    /// Build only private helpers for HAL packages consumed by this application.
+    pub fn native_helpers_for(
+        &self, root: &Path, selected: &crate::selection::CargoSelection
+    ) -> Result<Vec<PathBuf>> {
+        self.native_helpers_selected(root, Some(&selected.packages))
+    }
+    fn native_helpers_selected(
+        &self, root: &Path, selected: Option<&BTreeSet<String>>
+    ) -> Result<Vec<PathBuf>> {
         let mut sources = vec![];
         for (capability, provider) in self.data["hal"].as_object().unwrap() {
-            if provider == "nuttx" {
-                let dir = root
-                    .join("hal")
-                    .join(capability)
-                    .join("src/platform/nuttx/ffi");
+            if provider == "nuttx" && selected.is_none_or(|s| s.contains(&format!("nxrs-{capability}"))) {
+                let dir = root.join("hal").join(capability).join("src/platform/nuttx/ffi");
                 if dir.is_dir() {
                     for e in fs::read_dir(&dir).map_err(|e| e.to_string())? {
                         let p = e.map_err(|e| e.to_string())?.path();
-                        if p.extension().is_some_and(|x| x == "c") {
-                            sources.push(p)
-                        }
+                        if p.extension().is_some_and(|x| x == "c") { sources.push(p) }
                     }
                 }
             }
@@ -509,73 +516,19 @@ impl Profile {
         sources.sort();
         Ok(sources)
     }
-    pub fn model_features(&self, root: &Path, app: &Path) -> Result<Vec<String>> {
+    /// Model identity is profile-owned; activation follows Cargo's selected graph.
+    pub fn model_features(&self, selected: &crate::selection::CargoSelection) -> Result<Vec<String>> {
         if let Some(detector) = self.detector()? {
-            if uses_detector(root, app, &mut BTreeSet::new())? {
-                return Ok(vec![format!(
-                    "nxrs-detector/{}",
-                    if detector.model == "pico" {
-                        "pico-model"
-                    } else {
-                        "person-model"
-                    }
-                )]);
+            if selected.contains("nxrs-detector") {
+                return Ok(vec![format!("nxrs-detector/{}", if detector.model == "pico" {
+                    "pico-model"
+                } else {
+                    "person-model"
+                })]);
             }
         }
         Ok(vec![])
     }
-}
-fn uses_detector(root: &Path, path: &Path, seen: &mut BTreeSet<PathBuf>) -> Result<bool> {
-    let path = path
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    if !seen.insert(path.clone()) {
-        return Ok(false);
-    }
-    if path
-        == root
-            .join("hal/detector/Cargo.toml")
-            .canonicalize()
-            .map_err(|e| e.to_string())?
-    {
-        return Ok(true);
-    }
-    let m = manifest(&path)?;
-    let workspace = manifest(&root.join("Cargo.toml"))?;
-    let mut tables = vec![&m];
-    if let Some(t) = m["target"].as_object() {
-        tables.extend(t.values())
-    }
-    for table in tables {
-        if let Some(deps) = table["dependencies"].as_object() {
-            for (alias, dependency) in deps {
-                let mut dependency = dependency.clone();
-                if !dependency.is_object() {
-                    continue;
-                }
-                let base = if dependency["workspace"] == true {
-                    let mut inherited = workspace["workspace"]["dependencies"][alias]
-                        .as_object()
-                        .cloned()
-                        .unwrap_or_default();
-                    inherited.extend(dependency.as_object().unwrap().clone());
-                    dependency = json!(inherited);
-                    root
-                } else {
-                    path.parent().unwrap()
-                };
-                if dependency["optional"] == true {
-                    continue;
-                }
-                if let Some(p) = dependency["path"].as_str() {
-                    if uses_detector(root, &base.join(p).join("Cargo.toml"), seen)? {
-                        return Ok(true);
-                    }
-                }
-            }
-        }
-    }
-    Ok(false)
 }
 
 #[cfg(test)]
