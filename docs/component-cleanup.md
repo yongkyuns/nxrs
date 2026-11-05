@@ -65,9 +65,10 @@ Existing root `open()`, `storage()` and `transport()` entry points retain their
 historical signatures and profile admission. They are compatibility paths, not
 the template for new applications. An unbound legacy factory still returns
 `Unsupported`; it never silently invokes the explicit software operation.
-Existing root type aliases remain explicit. Further removal requires a complete
-consumer inventory and coordinated migration, not dropping fixture exports to
-make the selector shorter.
+Existing root aliases remain explicit but are hidden from primary generated
+API documentation; the named constructors are the public usage template.
+Further removal requires a complete consumer inventory and coordinated migration,
+not dropping fixtures or changing synchronous/queued semantics for aesthetics.
 
 ### Verification
 
@@ -93,20 +94,27 @@ python3 tests/host/test-native-runner.py
 These are host tests of production software. They do not refresh physical
 hardware qualification or establish an untested NuttX std operation.
 
-## Remaining work: do not label the entire repository complete
+## Post-#269 boundaries and acceptance
 
-1. Complete the inventory/migration of legacy factory users, including target
-   fixtures. Keep synchronous record-file operations separate from queued
-   directory recording. Do not change flush or empty-packet semantics to make
-   signatures look alike.
-2. Simplify std-versus-contract-only module availability and cross-package
-   source inclusion. Preserve core/WASM support unless its removal is a stated
-   support decision. Qualify actual independent package reuse before claiming it.
-3. Use Cargo-grounded detector dependency selection, conditional implementation
-   dependencies and consumed-component native helper compilation; coordinate
-   with #258. Preserve board initialization and final Kconfig/ABI checks.
-4. Restore verified incremental SDK/native/Cargo reuse while invalidating stale
-   success evidence. Test dependency, profile, feature and SDK patch changes
-   against clean outputs.
-5. Finish exact-head app/service, native and firmware qualification. Keep all
-   security/lifecycle gates; prior-head results are not evidence for a new head.
+The source selectors and public software-composition path are stable. #269
+replaces the detector's hand-written manifest traversal with target-qualified
+Cargo selection, filters private NuttX helper sources by consumed HAL packages,
+and qualifies optional/inactive/transitive dependency cases using real Cargo.
+External camera-path consumption is checked from a separate application
+workspace and lockfile.
+
+Legacy platform-specific factory aliases are kept only for compatibility and
+are hidden from primary API docs. Their removal is an API compatibility decision,
+not a reason to invent adapters or merge distinct file and UDP semantics.
+Platform-independent recording and UDP remain available on qualified std OSes,
+and contract-only core/WASM builds remain intentionally lightweight.
+
+Follow-up engineering distinct from the HAL's core API is explicitly recorded
+in `docs/build-system.md`: strict standalone package publishing, automatic
+incremental SDK/native rebuild caching, and optional NuttX mock driver graph
+exclusion. Those changes must have independent acceptance tests rather than
+altering this design without evidence.
+
+The exact PR-head portable/native/firmware matrix and actual physical-device
+tests determine what is qualified; source organization and host tests alone
+do not establish hardware performance or binary size.
