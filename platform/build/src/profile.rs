@@ -591,7 +591,7 @@ mod tests {
         };
         let helpers = profile.native_helpers_for(&root, &camera).unwrap();
         assert!(!helpers.is_empty());
-        assert!(helpers.iter().all(|p| p.to_string_lossy().contains("/hal/camera/")));
+        assert!(helpers.iter().all(|p| p.starts_with(root.join("hal").join("camera"))));
         let unused = crate::selection::CargoSelection { packages: BTreeSet::new() };
         assert!(profile.native_helpers_for(&root, &unused).unwrap().is_empty());
     }
