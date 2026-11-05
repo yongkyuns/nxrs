@@ -214,7 +214,10 @@ class DeploymentTests(unittest.TestCase):
         for capability in ('wifi', 'imu', 'gnss'):
             self.assertIn(f'cargo:rerun-if-changed={self.root / "hal" / capability / "Cargo.toml"}', lines)
 
-    def test_detector_model_dependencies_follow_product_and_transitive_service(self):
+    def test_deployment_preflight_defers_target_cargo_selection_without_sdk(self):
+        # Synthetic test manifests deliberately are not buildable Cargo packages.
+        # The preflight must report unresolved features rather than invent a host
+        # approximation for target-conditional or optional dependencies.
         service = self.root / 'service/detection/Cargo.toml'
         service.parent.mkdir(parents=True)
         service.write_text('[package]\nname="detection"\n[dependencies]\nvision={path="../../hal/detector"}\n')
@@ -222,27 +225,27 @@ class DeploymentTests(unittest.TestCase):
         self.profile('camera', '[hal]\ndetector="linux"\n[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
         self.profile('vww', 'extends="camera"\n[detector]\nmodel="vww"\nstack-bytes=524288\nsample-ms=2000\n')
         self.profile('video', 'extends="camera"\ndetector={}\n[hal]\ndetector="none"\n')
-        for name, feature in [('camera', 'pico-model'), ('vww', 'person-model')]:
+        for name in ('camera', 'vww', 'video'):
             with self.subTest(platform=name):
                 result = CHECK.validate(self.app, name, 'linux')
-                self.assertEqual(result['model_features'], [f'nxrs-detector/{feature}'])
+                self.assertIsNone(result['model_features'])
+                self.assertEqual(result['model_resolution'], 'pending-exact-target-cargo')
                 self.assertEqual(len(result['profiles']), 1 if name == 'camera' else 2)
-        result = CHECK.validate(self.app, 'video', 'linux')
-        self.assertIsNone(result['detector'])
-        self.assertEqual(result['model_features'], [])
         self.assertEqual(PLATFORM.detector_config(PLATFORM.resolve('camera', self.root))['model'], 'pico')
+        self.assertIsNone(CHECK.validate(self.app, 'video', 'linux')['detector'])
 
-    def test_detector_dependencies_are_absent_without_a_consuming_product(self):
+    def test_deployment_preflight_never_guesses_optional_or_target_dependencies(self):
         self.profile('camera', '[hal]\ndetector="linux"\n[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
         original = self.app.read_text()
         for extra in ('', '[dev-dependencies]\nvision={path="../../hal/detector"}\n',
                       '[target.\'cfg(unix)\'.dev-dependencies]\nvision={path="../../hal/detector"}\n',
-                      '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector",optional=true}\n'):
+                      '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector",optional=true}\n',
+                      '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector"}\n'):
             with self.subTest(extra=extra):
                 self.app.write_text(original + extra)
-                self.assertEqual(CHECK.validate(self.app, 'camera', 'linux')['model_features'], [])
-        self.app.write_text(original + '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector"}\n')
-        self.assertEqual(CHECK.validate(self.app, 'camera', 'linux')['model_features'], ['nxrs-detector/pico-model'])
+                result = CHECK.validate(self.app, 'camera', 'linux')
+                self.assertIsNone(result['model_features'])
+                self.assertEqual(result['model_resolution'], 'pending-exact-target-cargo')
 
     def test_invalid_detector_configuration_is_rejected(self):
         for config in ('model="unknown"\nstack-bytes=1\nsample-ms=1',
