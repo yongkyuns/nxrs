@@ -88,9 +88,13 @@ edition = "2021"
 [workspace]
 [dependencies]
 camera = {{package = "nxrs-camera", path = {:?}}}
-"#, checkout.join("hal/camera")));
+imu = {{package = "nxrs-imu", path = {:?}}}
+gnss = {{package = "nxrs-gnss", path = {:?}}}
+"#, checkout.join("hal/camera"), checkout.join("hal/imu"), checkout.join("hal/gnss")));
     put(&root.join("src/main.rs"), r#"fn main() {
     let _ = camera::open();
+    let _ = imu::open();
+    let _ = gnss::open();
 }
 "#);
     cargo(&["generate-lockfile", "--offline"], root);
@@ -99,5 +103,7 @@ camera = {{package = "nxrs-camera", path = {:?}}}
         &root.join("Cargo.toml"), &Options::default(),
         Path::new(&host_target(&mut Command::new("rustc")).unwrap()), Command::new("cargo")
     ).unwrap();
-    assert!(selected.contains("nxrs-camera"));
+    for package in ["nxrs-camera", "nxrs-imu", "nxrs-gnss"] {
+        assert!(selected.contains(package), "{package}: external dependency omitted");
+    }
 }
