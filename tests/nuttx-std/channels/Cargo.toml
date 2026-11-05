@@ -1,0 +1,6 @@
+[workspace]
+[package]
+name = "completed-transfer-controls"
+version = "0.1.0"
+edition = "2021"
+publish = false

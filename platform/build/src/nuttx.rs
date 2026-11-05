@@ -581,7 +581,6 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         let file = file.map_err(|e| e.to_string())?;
         reuse::copy_if_changed(&file.path(), &entry.join(file.file_name()))?;
     }
-    let (sources, objects) = stage_helpers(&sources, &entry)?;
     let mut radio_inputs = Vec::new();
     if !radio.is_empty() {
         let (wifi, length, bt) = crate::radio::prepare(root, &out, radio)?;
@@ -654,6 +653,8 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     } else {
         sdk::prepare(root, &original_sysroot, &out, tools.sdk)?
     };
+    sources.extend(sdk::native_sources(&sysroot, &out.join("std-patch.json"))?);
+    let (sources, objects) = stage_helpers(&sources, &entry)?;
     let rustc = sysroot.join("bin/rustc");
     let mut target_arg = PathBuf::from(target);
     if tools.esp {

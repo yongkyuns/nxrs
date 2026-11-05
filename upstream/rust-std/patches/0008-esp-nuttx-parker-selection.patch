@@ -1,0 +1,12 @@
+--- a/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/mod.rs
++++ b/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/mod.rs
+@@ -29,6 +29,9 @@
+     } else if #[cfg(target_os = "xous")] {
+         mod xous;
+         pub use xous::Parker;
++    } else if #[cfg(target_os = "nuttx")] {
++        mod nuttx;
++        pub use nuttx::Parker;
+     } else if #[cfg(target_family = "unix")] {
+         mod pthread;
+         pub use pthread::Parker;

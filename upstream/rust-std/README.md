@@ -7,6 +7,28 @@ Preparation patches only a private, source-pinned SDK; the target ABI gate
 checks the actual compiled binding before firmware linking. See
 [patchset provenance](../../docs/upstream-patchsets.md).
 
+## Native NuttX channel and parking
+
+NuttX bounded channels use one Rust-owned transaction for the ring and FIFO
+waiters. Completion, timeout, disconnect and ownership stay in Rust; allocation,
+message destruction and native wakeups occur after unlocking. Native parking
+uses a coalesced semaphore permit with monotonic deadlines and EINTR handling.
+Zero-capacity and unbounded channels retain the upstream implementation.
+
+Preparation selects these modules once at the OS boundary. Both pinned Rust
+SDKs consume the same implementation bodies; only their module selectors differ.
+The SDK ledger records source preimages, patches and the tiny native lock binding.
+The NuttX build verifies and stages that binding automatically, including when
+reusing a prepared SDK. Apps need no feature or native source argument. Installed
+SDKs remain unchanged. Completion publication does not borrow the whole waiter
+across its final release store; the owner may retire that stack immediately.
+A retained `Thread` owns notification after publication.
+
+The normal target ABI gate also checks semaphore storage/alignment and
+`SEM_PRIO_NONE`. See the [ownership controls](../../tests/nuttx-std/channels/README.md)
+and [matched performance results](../../docs/std-channel-performance.md) for
+validation and remaining limits.
+
 ## Optional NuttX std math RFC
 
 This is an **inactive evaluation patch**, not a replacement for the qualified

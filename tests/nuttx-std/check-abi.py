@@ -22,7 +22,7 @@ TARGETS = {
 }
 SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t']
 OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
-          'pthread_cond_t', 'pthread_condattr_t']
+          'pthread_cond_t', 'pthread_condattr_t', 'sem_t']
 # This libc target does not export PTHREAD_MUTEX_RECURSIVE; do not fabricate it.
 CONSTANTS = ['CLOCK_MONOTONIC', 'CLOCK_REALTIME', 'ETIMEDOUT', 'EINTR', 'EBADF',
              'F_GETFD', 'PTHREAD_MUTEX_NORMAL', 'SIGPIPE']
@@ -81,6 +81,8 @@ def fields(poll_fixed=False):
                          f'size_of_val(&unsafe {{ core::mem::zeroed::<libc::pollfd>() }}.{member})', 'exact'))
     constants = CONSTANTS + (['POLLIN', 'POLLOUT', 'POLLERR', 'POLLHUP', 'POLLNVAL'] if poll_fixed else [])
     rows.extend((name, name, f'libc::{name}', 'exact') for name in constants)
+    # The native std parker passes this header-owned value through sem_setprotocol.
+    rows.append(('SEM_PRIO_NONE', 'SEM_PRIO_NONE', '0', 'exact'))
     rows.extend((name, f'(uintptr_t){name}', f'libc::{name}', 'exact') for name in SIGNAL_HANDLERS)
     return rows
 
@@ -120,16 +122,19 @@ def compare(c_values, rust_values, fixes, poll_fixed=False):
 
 def self_test():
     c = {row[0]: 4 for row in fields()}
-    c.update(SIGPIPE=13, SIG_DFL=0, SIG_ERR=0xffffffff)
+    c.update(SIGPIPE=13, SIG_DFL=0, SIG_ERR=0xffffffff, SEM_PRIO_NONE=0)
     rust = dict(c)
     for key, (cv, rv) in {**KNOWN_POLLFDS, 'SIG_IGN': (0, 1)}.items():
         c[key], rust[key] = cv, rv
     assert compare(c, rust, True)['probe_abi_compatible']
-    larger = dict(rust, **{'pthread_mutex_t.size': 64})
+    larger = dict(rust, **{'pthread_mutex_t.size': 64, 'sem_t.size': 32})
     assert compare(c, larger, True)['probe_abi_compatible']
     bad_cases = [(c, rust, False), (c, dict(rust, **{'timespec.size': 8}), True),
                  (c, dict(rust, **{'pthread_attr_t.size': 1}), True),
                  (c, dict(rust, **{'pthread_cond_t.align': 1}), True),
+                 (c, dict(rust, **{'sem_t.size': 1}), True),
+                 (c, dict(rust, **{'sem_t.align': 1}), True),
+                 (c, dict(rust, **{'SEM_PRIO_NONE': 1}), True),
                  (c, dict(rust, **{'CLOCK_MONOTONIC': 99}), True),
                  (c, dict(rust, **{'pollfd.size': 24}), True),
                  (dict(c, SIG_IGN=2), rust, True),
@@ -163,7 +168,7 @@ def self_test():
             raise AssertionError('accepted an unqualified Rust poll import')
     print('PASS: 4 unsafe-import rejection controls and 2 valid symbol controls')
     native = {row[0]: 4 for row in fields(True)}
-    native.update(SIG_IGN=0, SIG_DFL=0, SIG_ERR=0xffffffff)
+    native.update(SIG_IGN=0, SIG_DFL=0, SIG_ERR=0xffffffff, SEM_PRIO_NONE=0)
     rust = dict(native, SIG_IGN=1)
     assert compare(native, rust, True, True)['poll_abi_compatible']
     for name, _, _, _ in fields(True):
@@ -220,7 +225,7 @@ def run(out, target=TARGET, target_spec=None):
     assert libs[0]['package_id'].endswith('libc@' + version), 'review ABI checks for a new libc'
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <time.h>\n#include <sys/types.h>\n#include <poll.h>\n'
-                '#include <pthread.h>\n#include <errno.h>\n#include <fcntl.h>\n#include <signal.h>\n'
+                '#include <pthread.h>\n#include <semaphore.h>\n#include <errno.h>\n#include <fcntl.h>\n#include <signal.h>\n'
                 '#include <dirent.h>\n#include <sys/stat.h>\n#include <sys/socket.h>\n'
                 '__attribute__((section(".nxrs_abi"), used))\n'
                 'const uint32_t nxrs_abi[] = {\n'

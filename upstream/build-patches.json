@@ -89,7 +89,8 @@
       "0102-camera-stop-acknowledgement.patch",
       "0103-esp32s3-config-partition.patch",
       "0104-esp32s3-m5-cores3-raw-resources.patch",
-      "0105-sched-migrate-affinity-with-empty-ready-queue.patch"
+      "0105-sched-migrate-affinity-with-empty-ready-queue.patch",
+      "0106-esp32s3-direct-voluntary-switch.patch"
     ]
   },
   "mcuboot": {
