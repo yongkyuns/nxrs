@@ -395,23 +395,8 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .filter(|n| *n > 0 && *n <= 128)
         .ok_or("build jobs must be between 1 and 128")?;
     let tools = Tools::select(root, target, p)?;
-    let mut sources = p.native_helpers(root)?;
-    sources.extend(options.helpers.iter().map(|path| {
-        if path.is_absolute() {
-            path.clone()
-        } else {
-            root.join(path)
-        }
-    }));
-    for path in &sources {
-        if !path.is_file() {
-            return Err(format!("missing native helper: {}", path.display()));
-        }
-    }
-    let model_features = p.model_features(root, &app.manifest)?;
     let out = build::prepare_output(root, out)?;
     for input in std::iter::once(&app.manifest)
-        .chain(sources.iter())
         .chain(signing.iter().flat_map(|s| [&s.key, &s.root]))
     {
         if input
@@ -453,7 +438,6 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         let file = file.map_err(|e| e.to_string())?;
         fs::copy(file.path(), entry.join(file.file_name())).map_err(|e| e.to_string())?;
     }
-    let (sources, objects) = stage_helpers(&sources, &entry)?;
     let radio = match p.data.get("radio-firmware") {
         None => "",
         Some(value) => value.as_str().ok_or("radio-firmware must be a string")?,
@@ -586,6 +570,29 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             .join("downloads.sha256");
         fs::copy(downloads, out.join("downloads.sha256")).map_err(|e| e.to_string())?;
     }
+    // The exact custom NuttX target and SDK compiler exist now. Never
+    // approximate Cargo's graph from profile bindings or raw manifests.
+    let mut metadata = tools.command(tools.cargo.to_str().ok_or("cargo path UTF-8")?);
+    metadata.env("RUSTC", &rustc)
+        .env("CARGO_BUILD_RUSTC", &rustc)
+        .env("NXRS_PLATFORM", p.name());
+    let selected = crate::selection::CargoSelection::resolve(
+        &app.manifest, options, &target_arg, metadata
+    )?;
+    let model_features = p.model_features(&selected)?;
+    let mut sources = p.native_helpers_for(root, &selected)?;
+    sources.extend(options.helpers.iter().map(|path| {
+        if path.is_absolute() { path.clone() } else { root.join(path) }
+    }));
+    for path in &sources {
+        if !path.is_file() {
+            return Err(format!("missing native helper: {}", path.display()));
+        }
+        if path.canonicalize().map_err(|e| e.to_string())?.starts_with(&out) {
+            return Err("build inputs must be outside the owned output directory".into());
+        }
+    }
+    let (sources, objects) = stage_helpers(&sources, &entry)?;
     let target_dir = env::var_os("NXRS_SHARED_CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| out.join("cargo"));
