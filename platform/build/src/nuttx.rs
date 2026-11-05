@@ -283,7 +283,7 @@ impl Tools {
 }
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
     options.validate_for_backend("nuttx")?;
-    let deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
+    let mut deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
     let target = string(&p.data, "target")?;
     let board = string(&p.data, "board")?;
     let machine = string(&p.data, "machine")?;
@@ -580,6 +580,9 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         &app.manifest, options, &target_arg, metadata
     )?;
     let model_features = p.model_features(&selected)?;
+    deployment["model_features"] = json!(model_features);
+    deployment.as_object_mut().unwrap().remove("model_resolution");
+    write_json(&out.join("provider-selection.json"), &deployment)?;
     let mut sources = p.native_helpers_for(root, &selected)?;
     sources.extend(options.helpers.iter().map(|path| {
         if path.is_absolute() { path.clone() } else { root.join(path) }
