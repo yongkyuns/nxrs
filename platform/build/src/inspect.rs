@@ -61,8 +61,10 @@ pub fn query(request: Value) -> Result<Value> {
                 }
                 None => crate::selection::host_target(&mut std::process::Command::new("rustc"))?,
             };
-            let mut options = crate::build::Options::default();
-            options.no_default_features = request["no_default_features"].as_bool().unwrap_or(false);
+            let mut options = crate::build::Options {
+                no_default_features: request["no_default_features"].as_bool().unwrap_or(false),
+                ..Default::default()
+            };
             if let Some(features) = request["features"].as_array() {
                 for feature in features {
                     options.features.push(feature.as_str().ok_or("features must be strings")?.into());
