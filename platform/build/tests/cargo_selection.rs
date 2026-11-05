@@ -93,8 +93,8 @@ gnss = {{package = "nxrs-gnss", path = {:?}}}
 "#, checkout.join("hal/camera"), checkout.join("hal/imu"), checkout.join("hal/gnss")));
     put(&root.join("src/main.rs"), r#"fn main() {
     let _ = camera::open();
-    let _ = imu::open;
-    let _ = gnss::open;
+    let _ = imu::open(|_| Ok(()));
+    let _ = gnss::open(|_| Ok(()));
 }
 "#);
     cargo(&["generate-lockfile", "--offline"], root);
