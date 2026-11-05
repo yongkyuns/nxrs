@@ -260,7 +260,11 @@ pub fn host(
         .args(["--bin", &app.bin])
         .env("NXRS_PLATFORM", profile.name())
         .env("CARGO_TARGET_DIR", out.join("cargo"));
-    options.configure_cargo(&mut command, &profile.model_features(root, &app.manifest)?);
+    let target = crate::selection::host_target(&mut Command::new("rustc"))?;
+    let selected = crate::selection::CargoSelection::resolve(
+        &app.manifest, options, Path::new(&target), Command::new("cargo"),
+    )?;
+    options.configure_cargo(&mut command, &profile.model_features(&selected)?);
     run(&mut command)
 }
 pub fn std_source(messages: &Path, sysroot: &Path, rustc: &Path, out: &Path) -> Result<()> {
