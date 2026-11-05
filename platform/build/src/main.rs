@@ -276,6 +276,8 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let mut capability = None;
     let mut features = None;
     let mut helpers = false;
+    let mut target = None;
+    let mut options = build::Options::default();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -284,32 +286,41 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             "--capability" => capability = Some(args.next().ok_or("missing --capability value")?),
             "--model-features" => features = Some(args.next().ok_or("missing manifest path")?),
             "--native-helpers" => helpers = true,
+            "--cargo-target" => target = Some(args.next().ok_or("missing --cargo-target")?),
+            "--features" | "--feature" => {
+                let value = args.next().ok_or("missing Cargo feature list")?;
+                options.features.extend(value.split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|s| !s.is_empty()).map(str::to_owned));
+            }
+            "--no-default-features" => options.no_default_features = true,
             _ => return Err(format!("unknown profile argument {arg}")),
         }
     }
-    let profile =
-        nxrs_build::profile::Profile::resolve(root, name.ok_or("profile requires --platform")?)?;
+    let profile = Profile::resolve(root, name.ok_or("profile requires --platform")?)?;
     if let Some(os) = os {
         profile.validate_target(os)?;
     }
     if let Some(capability) = capability {
         for line in profile.cargo_output(
-            root,
-            capability,
-            os.ok_or("--capability requires --target-os")?,
+            root, capability, os.ok_or("--capability requires --target-os")?
         )? {
             println!("{line}");
         }
     } else if let Some(manifest) = features {
-        println!(
-            "{}",
-            serde_json::to_string(&profile.model_features(root, &root.join(manifest))?).unwrap()
-        );
+        options.validate()?;
+        let target = match target {
+            Some(target) => target.to_string(),
+            None if profile.data.get("board").is_some() => {
+                return Err("NuttX model selection requires --cargo-target <qualified-target.json>".into());
+            }
+            None => nxrs_build::selection::host_target(&mut std::process::Command::new("rustc"))?,
+        };
+        let selected = nxrs_build::selection::CargoSelection::resolve(
+            &root.join(manifest), &options, Path::new(&target), std::process::Command::new("cargo"),
+        )?;
+        println!("{}", serde_json::to_string(&profile.model_features(&selected)?).unwrap());
     } else if helpers {
-        println!(
-            "{}",
-            serde_json::to_string(&profile.native_helpers(root)?).unwrap()
-        );
+        println!("{}", serde_json::to_string(&profile.native_helpers(root)?).unwrap());
     } else {
         println!("{}", serde_json::to_string_pretty(&profile.json()).unwrap());
     }
