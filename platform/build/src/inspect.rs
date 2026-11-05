@@ -52,10 +52,28 @@ pub fn query(request: Value) -> Result<Value> {
             request["os"].as_str().ok_or("missing target OS")?
         )?)),
         "native-helpers" => Ok(json!(p.native_helpers(&root)?)),
-        "model-features" => Ok(json!(p.model_features(
-            &root,
-            Path::new(request["manifest"].as_str().ok_or("missing manifest")?)
-        )?)),
+        "model-features" => {
+            let manifest = Path::new(request["manifest"].as_str().ok_or("missing manifest")?);
+            let target = match request["cargo_target"].as_str() {
+                Some(target) => target.to_owned(),
+                None if p.data.get("board").is_some() => {
+                    return Err("NuttX model resolution requires an exact cargo_target spec".into());
+                }
+                None => crate::selection::host_target(&mut std::process::Command::new("rustc"))?,
+            };
+            let mut options = crate::build::Options::default();
+            options.no_default_features = request["no_default_features"].as_bool().unwrap_or(false);
+            if let Some(features) = request["features"].as_array() {
+                for feature in features {
+                    options.features.push(feature.as_str().ok_or("features must be strings")?.into());
+                }
+            }
+            options.validate()?;
+            let selected = crate::selection::CargoSelection::resolve(
+                manifest, &options, Path::new(&target), std::process::Command::new("cargo"),
+            )?;
+            Ok(json!(p.model_features(&selected)?))
+        },
         "detector" => Ok(p
             .detector()?
             .map(|d| {
