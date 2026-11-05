@@ -29,9 +29,26 @@ impl App {
             .as_str()
             .ok_or("missing package name")?
             .to_owned();
-        let meta = data
-            .pointer("/package/metadata/nxrs/firmware")
+        let nxrs = data.pointer("/package/metadata/nxrs");
+        if let Some(nxrs) = nxrs {
+            let fields = nxrs.as_object().ok_or("nxrs metadata must be a table")?;
+            if fields.keys().any(|k| !["firmware", "required-capabilities"].contains(&k.as_str())) {
+                return Err("unknown nxrs application metadata field".into());
+            }
+        }
+        let meta = data.pointer("/package/metadata/nxrs/firmware")
             .unwrap_or(&Value::Null);
+        if !meta.is_null() {
+            let fields = meta.as_object().ok_or("firmware metadata must be a table")?;
+            if fields.keys().any(|k| !["bin", "command", "priority", "stack-size"].contains(&k.as_str())) {
+                return Err("unknown firmware metadata field".into());
+            }
+            for key in ["bin", "command"] {
+                if meta.get(key).is_some_and(|v| !v.is_string()) {
+                    return Err(format!("invalid firmware {key}"));
+                }
+            }
+        }
         let bin = bin
             .or_else(|| meta["bin"].as_str())
             .or_else(|| {
