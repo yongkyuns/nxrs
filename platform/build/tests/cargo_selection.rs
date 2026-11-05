@@ -18,7 +18,7 @@ fn optional_alias_default_features_and_inactive_target_follow_actual_cargo_graph
     let root = &temp.0;
     put(&root.join("Cargo.toml"), r#"[workspace]
 resolver = "2"
-members = ["app", "detector", "imu"]
+members = ["app", "detector", "imu", "service"]
 [workspace.dependencies]
 sensor_alias = { package = "nxrs-detector", path = "detector" }
 "#);
@@ -27,17 +27,17 @@ sensor_alias = { package = "nxrs-detector", path = "detector" }
             &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"));
         put(&root.join(format!("{folder}/src/lib.rs")), "pub fn live() {}\n");
     }
-    put(&root.join("app/Cargo.toml"), r#"[package]
+    put(&root.join("service/Cargo.toml"), r#"[package]\nname = "detection-service"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nsensor_alias = { workspace = true }\n"#);\n    put(&root.join("service/src/lib.rs"), "pub fn ready() {}\\n");\n    put(&root.join("app/Cargo.toml"), r#"[package]
 name = "external-app"
 version = "0.1.0"
 edition = "2021"
 [dependencies]
-sensor_alias = { workspace = true, optional = true }
+sensor_alias = { workspace = true, optional = true }\nservice = { path = "../service", optional = true }
 [target.'cfg(target_os = "none")'.dependencies]
 imu_alias = { package = "nxrs-imu", path = "../imu" }
 [features]
 default = ["sensor"]
-sensor = ["dep:sensor_alias"]
+sensor = ["dep:sensor_alias"]\nvia-service = ["dep:service"]
 "#);
     put(&root.join("app/src/main.rs"), "fn main() {}\n");
     cargo(&["generate-lockfile", "--offline", "--manifest-path", "app/Cargo.toml"], root);
@@ -53,7 +53,7 @@ sensor = ["dep:sensor_alias"]
     let enabled = Options { features: vec!["sensor".into()], no_default_features: true,
                             ..Options::default() };
     assert!(select(&enabled).contains("nxrs-detector"));
-    // Confirm the exact same feature combination is accepted by Cargo itself.
+    let transitive = Options { features: vec!["via-service".into()],\n        no_default_features: true, ..Options::default() };\n    assert!(select(&transitive).contains("nxrs-detector"),\n        "a selected transitive service must activate the detector");\n    // Confirm the exact same feature combination is accepted by Cargo itself.
     cargo(&["check", "--locked", "--offline", "--manifest-path", "app/Cargo.toml",
            "--no-default-features", "--features", "sensor", "--target", &target], root);
 }
