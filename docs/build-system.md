@@ -48,7 +48,11 @@ profiles under `platform/profiles` and `platform/nuttx/platforms` select hardwar
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 
-The CLI and HAL build scripts share one Rust profile resolver. Model dependency
+Each HAL owns its local `build.rs`; it depends on `platform/build-support`,
+which contains profile validation and native build utilities. The CLI depends on
+the same support package. A HAL never builds or depends on the deployment CLI.
+The detector's shared host SDK adapter is an ordinary detector-owned build-support
+package. The CLI and HAL build scripts share one Rust profile resolver. Model dependency
 features follow the profile automatically. There is no shell environment-file
 interpreter or Python platform resolver. Existing qualification entry scripts
 are compatibility adapters; numerical reference/oracle tests remain independent.
@@ -107,14 +111,26 @@ still follow the selected product profile.
 with comma- or space-separated values, plus `--no-default-features`. The same
 feature arguments reach the native, NuttX and Web Cargo invocations. Cargo owns
 the dependency and feature semantics, including dependencies' own defaults.
-Dry runs reject backend-incompatible switches before any build starts; they do
-not claim compiler, SDK, binary-target or physical-resource qualification.
+The controller queries Cargo's production graph using that complete build command,
+including the real target/compiler and any Cargo configuration. Cargo resolves
+optional and target dependencies, aliases and workspace inheritance. A profile's
+detector model is added through the app's enabled direct detector dependency; the
+model is not forwarded through services or selected in an app manifest. An
+external transitive-only detector cannot be given a feature by Cargo and fails
+with a direct-dependency diagnostic.
+
+Dry runs reject backend-incompatible switches before any build starts. Their
+`dependency_resolution` is explicitly `pending` and `model_features` is null;
+resolving a NuttX custom target waits for its actual compiler and target spec.
+Completed builds record the Cargo-selected packages and verified model features.
+Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 
 IMU's BMI270 dependencies and GNSS's UBX dependencies are normal target
 dependencies only on NuttX. Host driver unit tests use dev-dependencies. Thus
 portable contract and host/WASM mock **library** builds omit those driver graphs;
-unit tests intentionally compile them. A mock library targeting NuttX still
-includes them and is part of the remaining selection work below.
+unit tests intentionally compile them. NuttX consumers include those ordinary
+NuttX driver dependencies even when a profile selects a mock. Profile admission
+is Rust module wiring, not an extra Cargo dependency resolver or provider feature.
 
 The isolation audit uses full Cargo package metadata and observed compiler
 artifacts. It checks target packages separately from host build tools, retains
@@ -122,82 +138,76 @@ registry packages, rejects unknown artifact identities, and records the observed
 sets. `provider-selection.json` describes profile bindings, including available
 bindings that an application may not consume; it is not a compiled-package list.
 
-## Remaining-work case after the Rust controller migration
+## Incremental builds and evidence
 
-The baseline is [#254](https://github.com/yongkyuns/nxrs/pull/254), merged as
-`36627ce`. It replaced the product shell/Python orchestration with one Rust
-controller, introduced real TOML parsing, and retained Cargo, NuttX Make/Kconfig,
-native ABI checks and independent qualification programs. Keep that boundary:
-the next work should remove duplicate dependency interpretation and improve
-reuse, without adding a capability solver or generated application graph.
+Normal builds preserve Cargo output. NuttX also retains its configured native
+trees and private SDK, and Web retains its private SDK, when a completed build's
+inputs and retained bytes still match. The identity includes profile/Kconfig,
+entry settings, user features, pinned upstream/patch inputs, selected SDK and
+compiler, and the build controller. Cargo and Make still run on every invocation;
+they decide which compilation units are fresh. Generated files retain their
+modification time when their content is unchanged.
 
-This follow-up implements ordinary feature controls, target-scoped sensor
-dependencies, complete isolation evidence, explicit-root/help/preflight fixes,
-and native-header input tracking. It does not enable persistent firmware build
-caches or independently package the HALs. The following order separates those
-remaining changes and makes their acceptance measurable.
+Use `--clean` to discard owned compilation state and build again. Incompatible
+configuration or SDK inputs also invalidate the retained configuration. A build
+removes its completed-cache marker before work starts and writes it only after
+all required checks succeed, so an interrupted build cannot qualify the next
+reuse. A changed retained native header or private SDK file invalidates that
+completed state.
 
-### 1. Finish exact dependency selection
+Success evidence has a separate lifecycle. Each invocation removes prior image,
+ABI, source-selection and provenance results and regenerates them from its Cargo
+messages and actual artifacts. If Cargo reuses the Rust executable, its previous
+linker receipt is accepted only with the completed cache and the exact executable
+digest; `link-reuse.json` identifies that reuse. The native image is inspected
+again. A failed rebuild leaves no current success bundle. Web recreates `site/`
+and chooses its JS/WASM pair from the selected binary's Cargo artifact, so old
+outputs from another binary cannot become the new site.
 
-- Replace `profile.rs::uses_detector`, which currently follows local manifest
-  paths, skips optional dependencies, and traverses inactive target tables.
-  Preserve automatic profile/model selection with ordinary Cargo inputs; use
-  Cargo's selected dependency information wherever inspection remains necessary.
-  Do not add another dependency resolver or assume `metadata.packages` is the
-  application's compiled closure.
-- Carry the actual manifest, enabled features/defaults, target and compiler
-  through that decision. A host `cargo metadata --filter-platform` cannot query
-  the custom Xtensa NuttX target without its qualified compiler/target spec.
-  Preserve SDK-free configuration dry runs or explicitly report that dependency
-  resolution remains pending; do not substitute a host graph for a target graph.
-- Prove model activation for an enabled optional detector dependency, exclusion
-  for an inactive target dependency, and correct package aliases/workspace
-  inheritance. Verify the resulting feature arguments with Cargo itself.
-- If contract/mock builds on NuttX must also omit sensor drivers, select their
-  optional dependencies before Cargo resolution. `build.rs`-emitted cfg cannot
-  activate or remove dependencies. Upfront cfg in rustflags is a different
-  mechanism, but the controller must deliberately propagate it; the NuttX
-  backend currently constructs its own encoded rustflags.
+`platform/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
+C compiler to check unchanged freshness, same-path header/source changes and
+exclusion of an unconsumed helper. `native_header_freshness.rs` retains the TLS
+and detector checks, including changed symlinked architecture headers. These are
+build ownership tests; target libc ABI and physical device behavior retain their
+separate qualification gates.
 
-### 2. Make development rebuilds incremental
+## Native helper ownership
 
-- Preserve Cargo output and an isolated configured NuttX tree across compatible
-  builds; continue invoking Cargo and Make. Keep an explicit clean qualification
-  path. Current NuttX/Web builds still reset their generated build directories.
-- Track all native ABI/config inputs before enabling reuse. TLS and detector
-  adapters now watch the configured NuttX header tree, including symlinked
-  architecture headers. Their Cargo regression checks unchanged freshness,
-  same-path header edits, and rejection after required headers become invalid.
-- Verify cached SDK/compiler identity and patch hashes. Associate cached linker
-  evidence with the exact artifact digest, or regenerate inspection evidence.
-  Clear current success records separately from reusable compilation state.
-- Acceptance: an unchanged second build reuses work; Rust and native-header
-  edits rebuild their actual dependents; configuration/SDK changes cannot reuse
-  incompatible objects; each evidence bundle describes the image it accompanies.
+The NuttX controller configures Make and generates target headers before invoking
+Cargo. A target in the ordinary application Makefile exports its selected C
+compiler, archiver and flags into `native-context.json`, including the target and
+configured-header digest. Each consumed HAL's local build script then compiles
+only that package's private ABI sources into its own archive. The native build
+continues to own OS drivers, registration and final image startup.
 
-### 3. Let each HAL own its NuttX C-helper compilation
+Helpers for optional functionality follow the owning package's Cargo feature
+through `package.metadata.nxrs.platform.<os>.required-features`; the detector's
+PICO compute context is one example. This gate does not select an OS or admit a
+capability. Header, source and native-context changes are Cargo build inputs.
+Profile-wide helper enumeration has been removed. Explicit `--target-c-source`
+inputs are reserved for qualification/application integration code, not production
+HAL helpers. Link maps and symbol checks still establish what the image retains.
 
-`native_helpers()` currently selects C sources from every NuttX-bound HAL in the
-profile. Move private helper compilation into the owning crate after the
-controller prepares the actual NuttX headers, SDK context and compiler/ABI
-settings. Leave OS drivers and image startup in the native build. Acceptance:
-an app without a HAL dependency does not compile its private C sources; an app
-using it passes the existing real-target ABI/link checks. Link maps must support
-any claim about retained image bytes; source exclusion alone is not that proof.
+## External applications and package boundaries
 
-### 4. Qualify independent application/package reuse
+An external product has its own workspace, lockfile and handwritten `main()`.
+Pass its manifest to the same frontend and select the NXRS profile/SDK root
+explicitly with `--workspace-root`. For direct Cargo builds with a profile,
+`NXRS_SDK_ROOT` supplies that root; in-checkout builds can discover it. The SDK
+root provides profiles and pinned native inputs and need not be the application's
+Cargo workspace. No source path outside an ordinary dependency package supplies
+its build script or production Rust modules.
 
-Start with one application outside `app/`, with its own workspace and lockfile,
-normal Cargo dependencies and handwritten `main()`. Distinguish its workspace
-from the NXRS SDK/profile root. Test renamed/inherited dependencies and Cargo
-binary discovery rather than adding app-specific build wrappers.
-
-HALs still depend on checkout-relative build scripts/shared source and the
-non-publishable full `nxrs-build` package. If independent package consumption
-requires it, move build scripts/sources inside their packages and extract only
-the small reusable build support. Do not split the runtime into more framework
-layers. Tighten NXRS-owned metadata field validation as part of the external
-consumer test, including mistyped entry fields and unknown resource settings.
+Shared acquisition/session code is the normal `nxrs-acquisition` dependency.
+Linux Wi-Fi and BLE share the `nxrs-linux-gio` package and one private GIO native
+archive; radio schemas and device policy stay in their HALs. Unbound and mock
+builds do not compile the GLib helper. `tests/host/test_external_consumers.py`
+copies only declared normal/build dependency packages to a detached location,
+generates a new lockfile, and exercises renamed dependencies, real replay,
+recording and UDP, mock sensor joins, and joint Linux radio linking. It also
+rejects profile use without an explicit SDK root in that detached location.
+This establishes external application/package composition, not a crates.io
+publication contract or new device qualification.
 
 Physical multi-device ownership is a separate HAL task. The current IMU lease
 is global; two physical devices require explicit provider resources and

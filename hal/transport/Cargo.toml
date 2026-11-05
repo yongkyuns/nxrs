@@ -2,14 +2,34 @@
 name = "nxrs-transport"
 version.workspace = true
 edition.workspace = true
-build = "../../platform/hal-build.rs"
+build = "build.rs"
 
 [lib]
 name = "transport"
+
+[features]
+# Shared std sockets are selected independently of hardware/profile admission.
+udp = []
+
+[[example]]
+name = "native_send"
+required-features = ["udp"]
+
+[[test]]
+name = "native_udp"
+required-features = ["udp"]
+
+[[test]]
+name = "std_udp"
+required-features = ["udp"]
+
+[[test]]
+name = "typed_udp"
+required-features = ["udp"]
 
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "linux", "macos", "windows", "nuttx"]
 
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-build-support = { path = "../../platform/build-support" }

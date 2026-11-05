@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use nxrs_applications::{CameraProduct, Error as AppError};
 use camera::{Camera, Capture, DeviceError, Format, PixelFormat, ReplayCamera};
-use storage::{read_record, FileRecorder, StorageLimits};
-use transport::UdpTransport;
+use storage::recording::{read_record, FileRecorder, StorageLimits};
+use transport::udp::UdpTransport;
 use camera_service::{CameraService, Error as CameraError, Frames};
 use recording_service::Error as RecordingError;
 
@@ -77,11 +77,12 @@ fn externally_placed_slices_are_validated_before_device_start() {
     }
     let mut history = [0u8; 4];
     let mut staging = [0u8; 4];
-    let service = CameraService::<_, 4, 1, &mut [u8]>::with_buffers(
-        Device, [&mut history[..]], &mut staging[..],
-    ).unwrap();
-    assert_eq!(service.latest_sequence(), 0);
-    drop(service);
+    {
+        let service = CameraService::<_, 4, 1, &mut [u8]>::with_buffers(
+            Device, [&mut history[..]], &mut staging[..],
+        ).unwrap();
+        assert_eq!(service.latest_sequence(), 0);
+    }
     assert!(matches!(CameraService::<_, 4, 1, &mut [u8]>::with_buffers(
         Device, [&mut history[..]], &mut staging[..3],
     ), Err(CameraError::InvalidCapacity)));

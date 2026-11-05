@@ -1,5 +1,0 @@
-# Instrumented USERLED qualification, not a physical GPIO board profile.
-execution = "nuttx"
-
-[hal]
-led = "nuttx"

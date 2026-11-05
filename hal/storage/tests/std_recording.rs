@@ -88,10 +88,18 @@ fn shared_recording_commits_owned_frames_and_joins_without_hardware_admission() 
 }
 
 #[test]
-fn explicit_shared_factory_flushes_a_real_record() {
+fn explicit_recording_constructor_flushes_a_real_record() {
     let temp = Temp::new();
     let directory = temp.0.join("factory");
-    let mut recorder = storage::recording::storage(directory.to_str().unwrap(), 1, 4, 1).unwrap();
+    let mut recorder = FileRecorder::create_new(
+        &directory,
+        StorageLimits {
+            queued_records: 1,
+            max_frame_bytes: 4,
+            max_records: 1,
+        },
+    )
+    .unwrap();
     recorder.append(frame(1, &[5; 4])).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -112,17 +120,32 @@ fn explicit_shared_factory_flushes_a_real_record() {
 fn invalid_limits_are_rejected_before_creating_a_directory() {
     let temp = Temp::new();
     let directory = temp.0.join("invalid");
-    let result = storage::recording::storage(directory.to_str().unwrap(), 0, 4, 1);
-    assert_eq!(result.err().expect("zero queue is invalid").kind(), io::ErrorKind::InvalidInput);
+    let result = FileRecorder::create_new(
+        &directory,
+        StorageLimits {
+            queued_records: 0,
+            max_frame_bytes: 4,
+            max_records: 1,
+        },
+    );
+    assert_eq!(
+        result.err().expect("zero queue is invalid").kind(),
+        io::ErrorKind::InvalidInput
+    );
     assert!(!directory.exists());
 }
 
-#[cfg(not(hal_enabled))]
+#[cfg(not(all(hal_enabled, target_os = "nuttx")))]
 #[test]
-fn legacy_unbound_factory_does_not_silently_become_real_recording() {
+fn unbound_record_file_acquisition_does_not_substitute_directory_recording() {
     let temp = Temp::new();
     let directory = temp.0.join("not-admitted");
-    let result = storage::storage(directory.to_str().unwrap(), 1, 4, 1);
-    assert_eq!(result.err().expect("legacy admission must be preserved").kind(), io::ErrorKind::Unsupported);
+    let result = storage::create_record_file(directory.to_str().unwrap(), 1, 4);
+    assert_eq!(
+        result
+            .err()
+            .expect("record-file acquisition must be explicit"),
+        DeviceError::Unsupported
+    );
     assert!(!directory.exists());
 }

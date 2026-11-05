@@ -2,7 +2,7 @@
 name = "nxrs-gnss"
 version.workspace = true
 edition.workspace = true
-build = "../../platform/hal-build.rs"
+build = "build.rs"
 
 [lib]
 name = "gnss"
@@ -14,6 +14,9 @@ platforms = ["mock", "nuttx"]
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
+[target.'cfg(not(target_os = "none"))'.dependencies]
+nxrs-acquisition = { path = "../../driver/acquisition" }
+
 [target.'cfg(target_os = "nuttx")'.dependencies]
 kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }
 
@@ -22,4 +25,4 @@ kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"
 kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }
 
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-build-support = { path = "../../platform/build-support" }

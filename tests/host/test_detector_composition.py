@@ -15,18 +15,21 @@ class DetectorCompositionTests(unittest.TestCase):
         cls.temporary = tempfile.TemporaryDirectory()
         cls.directory = Path(cls.temporary.name)
         cls.executables = {}
-        result = subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-build', '--lib',
-                                 '--message-format=json'], cwd=ROOT, check=True,
+        result = subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-build-support', '-p', 'nxrs-detector-build-support', '--lib',
+                                 '--message-format=json', '--target-dir', str(cls.directory / 'cargo')], cwd=ROOT, check=True,
                                 capture_output=True, text=True, timeout=120)
-        library = next(Path(path) for line in result.stdout.splitlines()
-                       if (record := json.loads(line)).get('reason') == 'compiler-artifact'
-                       and record['target']['name'] == 'nxrs_build'
-                       for path in record['filenames'] if path.endswith('.rlib'))
+        libraries = {record['target']['name']: Path(path) for line in result.stdout.splitlines()
+                     if (record := json.loads(line)).get('reason') == 'compiler-artifact'
+                     and record['target']['name'] in ('nxrs_build_support', 'nxrs_detector_build_support')
+                     for path in record['filenames'] if path.endswith('.rlib')}
+        library = libraries['nxrs_build_support']
+        externs = [argument for name, path in libraries.items()
+                   for argument in ('--extern', name + '=' + str(path))]
         for name, path in [('hal', 'hal/detector/build.rs'),
                            ('stream', 'tests/nuttx-std/stream/build.rs')]:
             executable = cls.directory / (name + ('.exe' if os.name == 'nt' else ''))
             subprocess.run(['rustc', '--edition=2024', str(ROOT / path), '-o', str(executable),
-                            '--extern', 'nxrs_build=' + str(library), '-L', 'dependency=' + str(library.parent / 'deps'), '-Cpanic=abort'],
+                            *externs, '-L', 'dependency=' + str(library.parent / 'deps'), '-Cpanic=abort'],
                            cwd=ROOT, check=True, capture_output=True, text=True, timeout=60)
             cls.executables[name] = executable
 
@@ -77,7 +80,7 @@ class DetectorCompositionTests(unittest.TestCase):
                     self.assertEqual('mod batch;' in text, suffix == '' and features == ('PROBE',))
                     self.assertIn('esp32s3-camera-stream.toml', result.stdout)
 
-    def test_backend_derives_features_before_any_native_build(self):
+    def test_dry_run_leaves_model_dependency_resolution_pending(self):
         for suffix, expected in [('', ['nxrs-detector/pico-model']),
                                  ('-vww', ['nxrs-detector/person-model']), ('-video', [])]:
             for manifest, dependencies in [('tests/nuttx-std/stream/Cargo.toml', expected),
@@ -88,7 +91,9 @@ class DetectorCompositionTests(unittest.TestCase):
                             '--out', str(self.directory / 'firmware'), '--feature', 'probe']
                     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=120)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(json.loads(result.stdout)['deployment']['model_features'], dependencies)
+                    deployment = json.loads(result.stdout)['deployment']
+                    self.assertIsNone(deployment['model_features'])
+                    self.assertEqual(deployment['dependency_resolution']['status'], 'pending')
                     self.assertFalse((self.directory / 'firmware').exists())
                     rejected = subprocess.run([*args, '--feature', 'nxrs-detector/pico-model'],
                                               cwd=ROOT, capture_output=True, text=True, timeout=120)

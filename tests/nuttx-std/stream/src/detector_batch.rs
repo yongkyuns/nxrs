@@ -6,15 +6,15 @@ use std::{
 };
 const LIMIT: usize = 153600;
 unsafe extern "C" {
-    fn nxrs_detector_console_mode(saved: *mut u32, raw: i32) -> i32;
-    fn nxrs_stream_console_ready() -> i32;
+    fn console_mode(descriptor: i32, saved: *mut u32, raw: i32) -> i32;
+    fn console_ready(descriptor: i32) -> i32;
 }
 struct Raw([u32; 6]);
 impl Raw {
     fn enter() -> Result<Self, String> {
         let mut value = Self([0; 6]);
         // SAFETY: target-header termios translation receives six writable fields.
-        if unsafe { nxrs_detector_console_mode(value.0.as_mut_ptr(), 1) } != 0 {
+        if unsafe { console_mode(0, value.0.as_mut_ptr(), 1) } != 0 {
             return Err("raw console mode".into());
         }
         Ok(value)
@@ -23,7 +23,7 @@ impl Raw {
 impl Drop for Raw {
     fn drop(&mut self) {
         // SAFETY: restore only the fields captured by this native console owner.
-        let _ = unsafe { nxrs_detector_console_mode(self.0.as_mut_ptr(), 0) };
+        let _ = unsafe { console_mode(0, self.0.as_mut_ptr(), 0) };
     }
 }
 fn read_exact(input: &mut impl Read, buffer: &mut [u8]) -> Result<(), String> {
@@ -37,7 +37,7 @@ fn read_exact(input: &mut impl Read, buffer: &mut [u8]) -> Result<(), String> {
             ));
         }
         // SAFETY: target-header readiness observes this task's standard input only.
-        match unsafe { nxrs_stream_console_ready() } {
+        match unsafe { console_ready(0) } {
             n if n < 0 => return Err("batch serial closed".into()),
             0 => std::thread::yield_now(),
             _ => match input.read(&mut buffer[offset..]) {

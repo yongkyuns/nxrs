@@ -32,8 +32,31 @@ impl App {
         let meta = data
             .pointer("/package/metadata/nxrs/firmware")
             .unwrap_or(&Value::Null);
+        if !meta.is_null()
+            && !meta.as_object().is_some_and(|fields| {
+                fields
+                    .keys()
+                    .all(|key| ["bin", "command", "priority", "stack-size"].contains(&key.as_str()))
+            })
+        {
+            return Err(
+                "firmware metadata must contain only bin, command, priority and stack-size".into(),
+            );
+        }
+        let text = |key: &str| -> Result<Option<&str>> {
+            meta.get(key)
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .ok_or_else(|| format!("firmware {key} must be a nonempty string"))
+                })
+                .transpose()
+        };
+        let declared_bin = text("bin")?;
+        let declared_command = text("command")?;
         let bin = bin
-            .or_else(|| meta["bin"].as_str())
+            .or(declared_bin)
             .or_else(|| {
                 data["bin"]
                     .as_array()
@@ -42,8 +65,7 @@ impl App {
             })
             .unwrap_or(&package)
             .to_owned();
-        let command = meta["command"]
-            .as_str()
+        let command = declared_command
             .map(str::to_owned)
             .unwrap_or_else(|| bin.replace('-', "_"));
         let number = |key: &str, default| match meta.get(key) {
@@ -76,8 +98,43 @@ pub fn name(value: &str) -> bool {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
 }
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+
+    #[test]
+    fn external_entry_metadata_rejects_mistyped_fields_instead_of_defaulting() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let manifest = temporary.0.join("Cargo.toml");
+        let prefix = "[package]\nname=\"external-entry\"\nversion=\"0.0.0\"\n[package.metadata.nxrs.firmware]\n";
+        for fields in [
+            "bin=17",
+            "command=false",
+            "priority=\"100\"",
+            "stack_size=4096",
+            "stack-size=0",
+        ] {
+            fs::write(&manifest, format!("{prefix}{fields}\n")).unwrap();
+            assert!(App::load(&manifest, None).is_err(), "{fields}");
+        }
+        fs::write(&manifest,format!("{prefix}bin=\"product\"\ncommand=\"start_product\"\npriority=80\nstack-size=16384\n")).unwrap();
+        let app = App::load(&manifest, None).unwrap();
+        assert_eq!(
+            (
+                app.bin.as_str(),
+                app.command.as_str(),
+                app.priority,
+                app.stack
+            ),
+            ("product", "start_product", 80, 16384)
+        );
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Options {
+    pub clean: bool,
     pub features: Vec<String>,
     pub no_default_features: bool,
     pub helpers: Vec<PathBuf>,
@@ -248,10 +305,13 @@ pub fn host(
     options: &Options,
 ) -> Result<()> {
     let os = std::env::consts::OS;
-    let evidence = deployment::validate(root, &app.manifest, profile, os)?;
+    let mut evidence = deployment::validate(root, &app.manifest, profile, os)?;
     options.validate_for_backend(os)?;
     let out = prepare_output(root, out)?;
-    write_json(&out.join("provider-selection.json"), &evidence)?;
+    if options.clean {
+        crate::remove_dir(&out.join("cargo"))?;
+    }
+    crate::remove_file(&out.join("provider-selection.json"))?;
     let mut command = Command::new("cargo");
     command
         .current_dir(root)
@@ -259,8 +319,13 @@ pub fn host(
         .arg(&app.manifest)
         .args(["--bin", &app.bin])
         .env("NXRS_PLATFORM", profile.name())
+        .env("NXRS_SDK_ROOT", root)
         .env("CARGO_TARGET_DIR", out.join("cargo"));
-    options.configure_cargo(&mut command, &profile.model_features(root, &app.manifest)?);
+    options.configure_cargo(&mut command, &[]);
+    let selection = crate::cargo_graph::resolve(&mut command, profile)?;
+    evidence["dependency_resolution"] = selection.json();
+    evidence["model_features"] = json!(selection.model_features);
+    write_json(&out.join("provider-selection.json"), &evidence)?;
     run(&mut command)
 }
 pub fn std_source(messages: &Path, sysroot: &Path, rustc: &Path, out: &Path) -> Result<()> {

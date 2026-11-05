@@ -1,7 +1,7 @@
 //! Shared std UDP I/O; target socket ABI details belong to the standard library.
 #![forbid(unsafe_code)]
 
-use crate::{DeviceError, Transport};
+use crate::{DeviceError, PacketSink};
 use std::io;
 use std::net::Ipv6Addr;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -46,7 +46,7 @@ impl UdpTransport {
     }
 }
 
-impl Transport for UdpTransport {
+impl PacketSink for UdpTransport {
     fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
         if packet.is_empty() {
             return Err(DeviceError::InvalidData);
@@ -55,8 +55,8 @@ impl Transport for UdpTransport {
     }
 }
 
-/// Compatibility IPv4 constructor for the qualified NuttX fixtures.
-/// Its zero-length datagram contract differs from the native PacketSink facade.
+/// IPv4 datagram output, including zero-length datagrams.
+/// The packet-oriented UdpTransport deliberately rejects empty packets.
 pub struct UdpSender {
     socket: UdpTransport,
 }
@@ -75,18 +75,10 @@ impl UdpSender {
     }
 }
 
-impl Transport for UdpSender {
+impl PacketSink for UdpSender {
     fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
         self.socket.submit(packet)
     }
-}
-
-/// Compatibility parser. New consumers should pass SocketAddr to UdpTransport.
-pub fn transport(peer: &str) -> io::Result<impl Transport> {
-    let peer: SocketAddr = peer
-        .parse()
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    UdpTransport::connect(peer)
 }
 
 fn submission_result(result: io::Result<usize>, expected: usize) -> Result<(), DeviceError> {
@@ -127,7 +119,6 @@ mod tests {
         ] {
             assert_eq!(submission_result(Err(kind.into()), 4), Err(expected));
         }
-        assert!(transport("not-a-numeric-address:9000").is_err());
     }
 
     #[test]

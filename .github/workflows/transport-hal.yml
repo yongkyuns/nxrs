@@ -6,11 +6,10 @@ on:
       - 'hal/storage/**'
       - 'hal/camera/**'
       - 'hal/common/**'
-      - 'hal/support/**'
       - 'app/**'
       - 'service/**'
       - 'shared/messaging/**'
-      - 'platform/hal-build.rs'
+      - 'platform/build-support/**'
       - 'platform/profiles/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'
@@ -48,19 +47,19 @@ jobs:
           python tools/check-hal-isolation.py --capability transport --out target/transport-isolation
       - name: Check socket ownership, rejection and app startup allocation
         run: |
-          NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport
-          NXRS_PLATFORM=linux cargo test --locked -p nxrs-transport
+          NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport --features udp
+          NXRS_PLATFORM=linux cargo test --locked -p nxrs-transport --features udp
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-applications --bin nxrs
       - name: Real loopback UDP without a hardware profile
         run: |
-          env -u NXRS_PLATFORM cargo test --locked -p nxrs-transport --test std_udp --test typed_udp
-          env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
+          env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-transport --features udp --all-targets -- -D warnings
       - name: CLI disk and UDP outputs under unset, mock and native profiles
         run: python tests/host/test-native-runner.py
       - name: Lint portable and native transport selections
         run: |
-          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
-          NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
+          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --features udp --all-targets -- -D warnings
+          NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-transport --features udp --all-targets -- -D warnings
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

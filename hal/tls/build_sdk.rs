@@ -1,5 +1,5 @@
 //! Build the pinned TLS SDK against the same private ABI/configuration headers.
-use nxrs_build::{archive, find_program, hash, native, output, read_json, Result};
+use nxrs_build_support::{archive, find_program, hash, native, output, read_json, Result};
 use std::{env, fs, path::Path, process::Command};
 
 pub(crate) fn nuttx_headers(include: &Path) -> Result<()> {
@@ -16,7 +16,7 @@ pub(crate) fn nuttx_headers(include: &Path) -> Result<()> {
 }
 
 pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
-    let root = here.join("../..");
+    let root = nxrs_build_support::sdk_root(here)?;
     let pin = read_json(&root.join("upstream/mbedtls/source.json"))?;
     let archive = env::var_os("NXRS_TLS_ARCHIVE")
         .map(std::path::PathBuf::from)
@@ -40,7 +40,7 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     let ffi = here.join("src/sdk/ffi");
     let mut compiler = env::var("CC").unwrap_or("cc".into());
     let mut archiver = env::var("AR").unwrap_or("ar".into());
-    let mut flags = nxrs_build::split_flags(&env::var("CFLAGS").unwrap_or_default())?;
+    let mut flags = nxrs_build_support::split_flags(&env::var("CFLAGS").unwrap_or_default())?;
     flags.extend(["-ffunction-sections".into(), "-fdata-sections".into()]);
     let mut cross = vec![];
     if target.contains("nuttx") {
@@ -72,8 +72,8 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     let archiver = find_program(&archiver)?;
     let archiver = archiver.to_str().ok_or("archiver path must be UTF-8")?;
     let directory = out.join("sdk");
-    nxrs_build::remove_file(&directory.join("CMakeCache.txt"))?;
-    nxrs_build::remove_dir(&directory.join("CMakeFiles"))?;
+    nxrs_build_support::remove_file(&directory.join("CMakeCache.txt"))?;
+    nxrs_build_support::remove_dir(&directory.join("CMakeFiles"))?;
     let configs = [
         format!(
             "-DMBEDTLS_CONFIG_FILE=\"{}\"",
@@ -104,7 +104,7 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
                 "-DCMAKE_C_FLAGS={}",
                 flags
                     .iter()
-                    .map(|s| nxrs_build::shell_quote(s))
+                    .map(|s| nxrs_build_support::shell_quote(s))
                     .collect::<Vec<_>>()
                     .join(" ")
             ))
@@ -152,7 +152,7 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
         output(Command::new(compiler).args(a))?;
     }
     let native = out.join("libtls_abi.a");
-    nxrs_build::remove_file(&native)?;
+    nxrs_build_support::remove_file(&native)?;
     output(
         Command::new(archiver)
             .arg("rcs")

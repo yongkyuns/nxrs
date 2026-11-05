@@ -1,12 +1,11 @@
 mod build_sdk;
-#[path = "../../platform/hal-build.rs"]
-mod selection;
 use std::{env, path::PathBuf};
 fn main() {
-    if selection::configure() == "none" {
+    if nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}")) == "none" {
         return;
     }
     let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let root = nxrs_build_support::sdk_root(&directory).unwrap_or_else(|error| panic!("{error}"));
     for name in [
         "NXRS_TLS_ARCHIVE",
         "NXRS_NUTTX_INCLUDE",
@@ -20,8 +19,7 @@ fn main() {
     for path in [
         directory.join("src/sdk/ffi"),
         directory.join("build_sdk.rs"),
-        directory.join("../../upstream/mbedtls/source.json"),
-        directory.join("../../tests/tls/ffi"),
+        root.join("upstream/mbedtls/source.json"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }

@@ -9,7 +9,7 @@ mod update {
     use std::time::{Duration, Instant};
 
     unsafe extern "C" {
-        fn nxrs_stream_console_ready() -> i32;
+        fn console_ready(descriptor: i32) -> i32;
     }
     struct Input {
         file: std::fs::File,
@@ -25,8 +25,8 @@ mod update {
                 if Instant::now() >= deadline {
                     return Err(std::io::ErrorKind::TimedOut.into());
                 }
-                // SAFETY: existing mechanical fixture ABI polls this stdin.
-                match unsafe { nxrs_stream_console_ready() } {
+                // SAFETY: the console package's target-header ABI polls this stdin.
+                match unsafe { console_ready(0) } {
                     n if n < 0 => return Err(std::io::ErrorKind::BrokenPipe.into()),
                     0 => std::thread::sleep(Duration::from_millis(1)),
                     _ => match self.file.read(&mut bytes[offset..]) {
@@ -76,13 +76,13 @@ mod update {
         use std::os::fd::AsFd;
         use wifi::QuiescenceControl;
         unsafe extern "C" {
-            fn nxrs_detector_console_mode(saved: *mut u32, raw: i32) -> i32;
+            fn console_mode(descriptor: i32, saved: *mut u32, raw: i32) -> i32;
         }
         struct Raw([u32; 6]);
         impl Drop for Raw {
             fn drop(&mut self) {
                 // SAFETY: restore the target-header fields saved by this owner.
-                let _ = unsafe { nxrs_detector_console_mode(self.0.as_mut_ptr(), 0) };
+                let _ = unsafe { console_mode(0, self.0.as_mut_ptr(), 0) };
             }
         }
 
@@ -95,8 +95,8 @@ mod update {
             .try_clone_to_owned()
             .map_err(|e| format!("stdin {e:?}"))?;
         let mut saved = [0; 6];
-        // SAFETY: the existing fixture shim saves six scalar termios fields.
-        if unsafe { nxrs_detector_console_mode(saved.as_mut_ptr(), 1) } != 0 {
+        // SAFETY: the console package saves six target-header termios fields.
+        if unsafe { console_mode(0, saved.as_mut_ptr(), 1) } != 0 {
             return Err("raw input".into());
         }
         let _raw = Raw(saved);
@@ -142,7 +142,7 @@ mod update {
     mod tests {
         use super::*;
         #[unsafe(no_mangle)]
-        extern "C" fn nxrs_stream_console_ready() -> i32 {
+        extern "C" fn console_ready(_descriptor: i32) -> i32 {
             1
         }
 

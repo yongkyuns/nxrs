@@ -1,7 +1,7 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
 
-use crate::mock_acquisition::Session;
+type Session = acquisition::mock::Session<DeviceError>;
 use crate::{DeviceError, Event, Imu, ImuSample};
 
 #[derive(Default)]
@@ -41,7 +41,11 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     sink: S,
 ) -> Result<impl Imu + Send + 'static, DeviceError> {
     let mut model = SyntheticImu::default();
-    Session::start(sink, std::time::Duration::from_millis(10), move |now| {
-        Event::Sample(model.sample(now).expect("synthetic sample"))
-    })
+    Session::start(
+        sink,
+        std::time::Duration::from_millis(10),
+        DeviceError::Io,
+        Event::Failed,
+        move |now| Event::Sample(model.sample(now).expect("synthetic sample")),
+    )
 }

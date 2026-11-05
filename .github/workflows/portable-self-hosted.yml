@@ -10,7 +10,8 @@ on:
       - 'app/nxrs/**'
       - 'hal/**'
       - 'shared/messaging/**'
-      - 'platform/hal-build.rs'
+      - 'driver/**'
+      - 'platform/build-support/**'
       - 'platform/profiles/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'
@@ -72,11 +73,17 @@ jobs:
         run: |
           # Exact-head gate for the app -> HAL platform provider-boundary migration.
           cargo +1.90.0 test --locked
+          cargo +1.90.0 test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
           NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-native-integration
           NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
           NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
+
+      - name: Qualify explicit recording and UDP software
+        run: |
+          cargo +1.90.0 test --locked -p nxrs-storage --features recording
+          cargo +1.90.0 test --locked -p nxrs-transport --features udp
 
       - name: Qualify isolated storage ownership and bytes
         run: |

@@ -61,9 +61,11 @@ fn native_adapters_track_same_path_header_changes() {
         format!(
             "[package]\nname = \"native-header-fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
              [features]\ndetector = []\n\
-             [build-dependencies]\nnxrs-build = {{ path = {:?} }}\n\
+             [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n\
+             nxrs-detector-build-support = {{ path = {:?} }}\n\
              [workspace]\n",
-            root
+            root.join("../build-support"),
+            root.join("../../hal/detector/build-support"),
         ),
     )
     .unwrap();
@@ -75,9 +77,7 @@ fn native_adapters_track_same_path_header_changes() {
 #[allow(dead_code)]
 #[path = {tls:?}]
 mod tls;
-#[allow(dead_code)]
-#[path = {detector:?}]
-mod detector;
+use nxrs_detector_build_support as detector;
 fn main() {{
     use std::io::Write;
     println!("cargo:rerun-if-changed=build.rs");
@@ -94,7 +94,6 @@ fn main() {{
 }}
 "#,
             tls = root.join("../../hal/tls/build_sdk.rs"),
-            detector = root.join("../../hal/detector/build_esp_dl.rs"),
         ),
     )
     .unwrap();

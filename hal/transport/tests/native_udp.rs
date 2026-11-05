@@ -1,9 +1,8 @@
-#![cfg(all(hal_enabled, not(target_os = "nuttx")))]
-
 use std::net::UdpSocket;
 use std::time::Duration;
 
-use transport::{transport, DeviceError, Transport, UdpTransport};
+use transport::udp::UdpTransport;
+use transport::{DeviceError, PacketSink};
 
 #[test]
 fn independent_sockets_preserve_packet_bytes_and_peer_ownership() {
@@ -39,10 +38,10 @@ fn independent_sockets_preserve_packet_bytes_and_peer_ownership() {
 }
 
 #[test]
-fn rejected_packets_are_not_submitted_and_factory_rejects_non_numeric_addresses() {
+fn rejected_packets_are_not_submitted() {
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     receiver.set_nonblocking(true).unwrap();
-    let mut sender = transport(&receiver.local_addr().unwrap().to_string()).unwrap();
+    let mut sender = UdpTransport::connect(receiver.local_addr().unwrap()).unwrap();
     assert_eq!(sender.send(&[]), Err(DeviceError::InvalidData));
     let oversized = vec![0; 65_508]; // Keep the large test payload off the stack.
     assert_eq!(sender.send(&oversized), Err(DeviceError::InvalidData));
@@ -50,5 +49,4 @@ fn rejected_packets_are_not_submitted_and_factory_rejects_non_numeric_addresses(
         receiver.recv(&mut [0; 1]).unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
     );
-    assert!(transport("not-a-numeric-address:9000").is_err());
 }

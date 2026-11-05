@@ -35,9 +35,7 @@ pub(crate) mod device {
         ) -> i32;
         fn nxrs_stream_metrics(values: *mut u32, times: *mut u64) -> i32;
         fn nxrs_stream_address(address: *mut u8) -> i32;
-        fn nxrs_stream_console_ready() -> i32;
-
-        fn camera_worker_priority(priority: i32) -> i32;
+        fn console_ready(descriptor: i32) -> i32;
 
         fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
@@ -324,10 +322,8 @@ pub(crate) mod device {
                         stack_bytes: super::model::STACK_BYTES,
                     },
                     || {
-                        // SAFETY: target-header scheduler call affects this worker only.
-                        if unsafe { camera_worker_priority(90) } != 0 {
-                            return Err(Error::Worker);
-                        }
+                        execution::configure_current(execution::Priority::Normal)
+                            .map_err(|_| Error::Worker)?;
                         stage("detection_worker");
                         report_model_stack();
                         stage("detection_person");
@@ -401,7 +397,7 @@ pub(crate) mod device {
                 if stop_control.is_none() && *duration == super::session::Duration::Continuous {
                     // TLS mode gives the sole UART reader to the TLS worker.
                     // Plain HTTP retains its existing bounded stop parser.
-                    let ready = unsafe { nxrs_stream_console_ready() };
+                    let ready = unsafe { console_ready(0) };
                     if ready > 0 {
                         let mut input = [0; 16];
                         if let Ok(count) = std::io::stdin().read(&mut input) {
@@ -498,8 +494,7 @@ pub(crate) mod device {
             {
                 return Ok(());
             }
-            if stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2)
-            {
+            if stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2) {
                 return Ok(());
             }
             if stats.captured == 0 || stats.stream.frames_completed == 0 {
@@ -516,8 +511,8 @@ pub(crate) mod device {
             Ok(())
         })();
         let stats = live.stats();
-        let renewal = result.is_ok()
-            && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2);
+        let renewal =
+            result.is_ok() && stop_control.is_some_and(|flag| flag.load(Ordering::Acquire) == 2);
         let stopped = if trial && !renewal && result.is_ok() {
             home_cam::startup::retire_healthy(live, now(origin), STARTUP_HEALTH_AGE_MS)
                 .map(RunOutcome::Healthy)
@@ -716,10 +711,8 @@ pub(crate) mod device {
                             },
                             move || {
                                 // Keep model observations schedulable during encryption.
-                                // SAFETY: target-header call affects this TLS worker only.
-                                if unsafe { camera_worker_priority(80) } != 0 {
-                                    return Err(home_cam::Error::Worker);
-                                }
+                                execution::configure_current(execution::Priority::Background)
+                                    .map_err(|_| home_cam::Error::Worker)?;
                                 super::console::initialize(stop)
                             },
                         );

@@ -19,7 +19,7 @@ on:
       - 'hal/tls/**'
       - 'upstream/mbedtls/**'
       - 'platform/nuttx/platforms/pico2*.toml'
-      - 'platform/hal-build.rs'
+      - 'platform/build-support/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'platform/build/**'
       - 'tools/platform_config.py'

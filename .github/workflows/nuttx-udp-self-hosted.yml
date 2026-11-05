@@ -9,7 +9,7 @@ on:
       - 'tests/nuttx-std/**'
       - 'hal/transport/**'
       - 'hal/common/**'
-      - 'platform/hal-build.rs'
+      - 'platform/build-support/**'
       - 'platform/profiles/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'

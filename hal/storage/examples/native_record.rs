@@ -1,8 +1,7 @@
 //! Storage-only fixture: std files and worker, no camera/transport provider.
-#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
-use storage::{Capture, FileRecorder, Format, Frame, PixelFormat, Storage, StorageLimits};
+use storage::recording::{FileRecorder, StorageLimits};
+use storage::{Capture, Format, Frame, PixelFormat, Storage};
 
-#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = std::env::args()
         .nth(1)
@@ -36,10 +35,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage.finish().map_err(|e| format!("commit: {e:?}"))?;
     println!("STORAGE_ONLY_PASS");
     Ok(())
-}
-
-#[cfg(not(all(hal_enabled, not(target_os = "nuttx"))))]
-fn main() {
-    eprintln!("This example requires the matching desktop OS profile in NXRS_PLATFORM");
-    std::process::exit(2);
 }

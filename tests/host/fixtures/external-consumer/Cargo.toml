@@ -1,0 +1,26 @@
+[package]
+name = "independent-product"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[features]
+wifi = ["dep:wireless"]
+ble = ["dep:bluetooth"]
+radios = ["wifi", "ble"]
+
+[dependencies]
+frames = { package = "nxrs-camera", path = "deps/hal/camera", features = ["replay"] }
+archive = { package = "nxrs-storage", path = "deps/hal/storage", features = ["recording"] }
+packets = { package = "nxrs-transport", path = "deps/hal/transport", features = ["udp"] }
+motion = { package = "nxrs-imu", path = "deps/hal/imu" }
+position = { package = "nxrs-gnss", path = "deps/hal/gnss" }
+wireless = { package = "nxrs-wifi", path = "deps/hal/wifi", optional = true }
+bluetooth = { package = "nxrs-ble", path = "deps/hal/ble", optional = true }

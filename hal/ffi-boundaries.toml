@@ -1,4 +1,4 @@
-# Private native ABI inventory. Behavior belongs in the owning Rust HAL.
+# Private native ABI inventory. Behavior belongs in the owning Rust HAL or driver.
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
@@ -42,9 +42,9 @@ kind = "abi"
 reason = "Target-header hardware RNG configuration admission. Rust acquires the descriptor and owns source/SDK failure policy."
 
 [[bridge]]
-path = "hal/ble/src/platform/linux/ffi/gio.c"
+path = "driver/linux/gio/src/platform/linux/ffi/gio.c"
 kind = "abi"
-reason = "GLib header constants and opaque GError field access. Rust performs D-Bus calls, schemas, error policy and callback ownership."
+reason = "GLib header constants and opaque GError field access, owned once by the shared GIO driver crate. Rust HALs retain NetworkManager/BlueZ schemas, error policy, resource lifetime and callback ownership."
 
 [[bridge]]
 path = "hal/ble/src/platform/macos/ffi/gatt.m"
@@ -94,11 +94,6 @@ kind = "abi"
 reason = "Target-header USERLED ioctl argument construction only; Rust owns the File and validates the public contract."
 
 [[bridge]]
-path = "hal/wifi/src/platform/linux/ffi/gio.c"
-kind = "abi"
-reason = "GLib header constants and opaque GError field access. Rust owns NetworkManager schemas, activation, address validation and rollback."
-
-[[bridge]]
 path = "hal/wifi/src/platform/macos/ffi/wifi.m"
 kind = "abi"
 reason = "CoreWLAN/CoreLocation object fields, individual SDK operations and interface-address layouts absent from std. Rust owns selection, ownership and rollback."
@@ -124,7 +119,7 @@ kind = "abi"
 reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owning Rust provider."
 
 [[bridge]]
-path = "hal/detector/src/compute/esp_dl/ffi/compat.hpp"
+path = "hal/detector/build-support/src/ffi/compat.hpp"
 kind = "abi"
 reason = "Mechanical allocator/timing hooks required by the pinned ESP-DL numerical SDK on std and NuttX. No Rust caller consumes these POSIX aliases; Rust owns JPEG validation, model output policy, worker synchronization and shutdown. The SDK launches no tasks."
 allowed_calls = ["clock_gettime"]

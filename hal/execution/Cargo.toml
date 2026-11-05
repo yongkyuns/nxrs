@@ -2,7 +2,7 @@
 name = "nxrs-execution"
 version.workspace = true
 edition.workspace = true
-build = "../../platform/hal-build.rs"
+build = "build.rs"
 
 [lib]
 name = "execution"
@@ -12,4 +12,4 @@ kind = "hal-capability"
 platforms = ["nuttx"]
 
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-build-support = { path = "../../platform/build-support" }

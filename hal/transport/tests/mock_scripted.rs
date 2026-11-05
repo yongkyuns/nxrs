@@ -1,6 +1,6 @@
 #![cfg(hal_mock)]
 
-use transport::{DeviceError, MockTransport, Transport};
+use transport::{DeviceError, MockTransport, PacketSink};
 
 #[test]
 fn scripted_rejection_accepts_nothing_and_success_owns_the_packet() {

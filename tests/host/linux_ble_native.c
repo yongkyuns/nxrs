@@ -12,7 +12,7 @@
 static gint clock_offset;
 int64_t radio_test_clock(int64_t real) {return real+g_atomic_int_get(&clock_offset);}
 bool radio_test_fast(void) {return false;}
-#include "../../hal/ble/src/platform/linux/ffi/gio.c"
+#include "../../driver/linux/gio/src/platform/linux/ffi/gio.c"
 #include "../../tests/host/native_radio_abi/nxrs_ble_gatt.h"
 #include <errno.h>
 #define BLUEZ "org.bluez"

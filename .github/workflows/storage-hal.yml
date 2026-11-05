@@ -5,11 +5,10 @@ on:
       - 'hal/storage/**'
       - 'hal/camera/**'
       - 'hal/common/**'
-      - 'hal/support/**'
       - 'app/**'
       - 'service/**'
       - 'shared/messaging/**'
-      - 'platform/hal-build.rs'
+      - 'platform/build-support/**'
       - 'platform/profiles/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'
@@ -46,16 +45,16 @@ jobs:
           python tools/check-hal-isolation.py --capability storage --out target/storage-isolation
       - name: Preserve worker failure, saturation and barrier tests
         run: |
-          NXRS_PLATFORM=mock cargo test --locked -p nxrs-storage
-          NXRS_PLATFORM=linux cargo test --locked -p nxrs-storage
+          NXRS_PLATFORM=mock cargo test --locked -p nxrs-storage --features recording
+          NXRS_PLATFORM=linux cargo test --locked -p nxrs-storage --features recording
       - name: Real recording without a hardware profile
         run: |
-          env -u NXRS_PLATFORM cargo test --locked -p nxrs-storage --test std_recording
-          env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-storage --features recording --test std_recording
+          env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-storage --features recording --all-targets -- -D warnings
       - name: Lint portable and native storage selections
         run: |
-          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
-          NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
+          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-storage --features recording --all-targets -- -D warnings
+          NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-storage --features recording --all-targets -- -D warnings
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

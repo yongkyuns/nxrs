@@ -324,6 +324,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-acquisition"
+version = "0.1.0"
+dependencies = [
+ "nxrs-messaging",
+]
+
+[[package]]
 name = "nxrs-allocation-probe"
 version = "0.1.0"
 
@@ -351,8 +358,9 @@ dependencies = [
 name = "nxrs-ble"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
  "nxrs-hal-common",
+ "nxrs-linux-gio",
  "nxrs-messaging",
 ]
 
@@ -360,7 +368,7 @@ dependencies = [
 name = "nxrs-boot"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -369,6 +377,16 @@ version = "0.1.0"
 
 [[package]]
 name = "nxrs-build"
+version = "0.1.0"
+dependencies = [
+ "nxrs-build-support",
+ "nxrs-detector-build-support",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
+name = "nxrs-build-support"
 version = "0.1.0"
 dependencies = [
  "regex",
@@ -383,7 +401,7 @@ dependencies = [
 name = "nxrs-camera"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -397,7 +415,7 @@ dependencies = [
 name = "nxrs-config"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -411,7 +429,7 @@ dependencies = [
 name = "nxrs-console"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -436,8 +454,16 @@ version = "0.1.0"
 dependencies = [
  "microflow",
  "nalgebra",
- "nxrs-build",
+ "nxrs-build-support",
+ "nxrs-detector-build-support",
  "zune-jpeg",
+]
+
+[[package]]
+name = "nxrs-detector-build-support"
+version = "0.1.0"
+dependencies = [
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -462,7 +488,7 @@ dependencies = [
 name = "nxrs-execution"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -481,7 +507,8 @@ name = "nxrs-gnss"
 version = "0.1.0"
 dependencies = [
  "kinavis-ubx",
- "nxrs-build",
+ "nxrs-acquisition",
+ "nxrs-build-support",
  "nxrs-messaging",
 ]
 
@@ -517,7 +544,8 @@ version = "0.1.0"
 dependencies = [
  "bmi2",
  "embedded-hal",
- "nxrs-build",
+ "nxrs-acquisition",
+ "nxrs-build-support",
  "nxrs-messaging",
 ]
 
@@ -525,7 +553,14 @@ dependencies = [
 name = "nxrs-led"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-linux-gio"
+version = "0.1.0"
+dependencies = [
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -643,13 +678,15 @@ name = "nxrs-std-stream"
 version = "0.1.0"
 dependencies = [
  "nxrs-boot",
- "nxrs-build",
+ "nxrs-build-support",
  "nxrs-camera",
  "nxrs-config",
  "nxrs-connectivity-service",
+ "nxrs-console",
  "nxrs-detection-service",
  "nxrs-detector",
  "nxrs-enrollment",
+ "nxrs-execution",
  "nxrs-home-cam",
  "nxrs-std-wifi",
  "nxrs-stream-service",
@@ -696,7 +733,7 @@ dependencies = [
 name = "nxrs-storage"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
  "nxrs-camera",
 ]
 
@@ -719,29 +756,30 @@ dependencies = [
 name = "nxrs-tls"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
 name = "nxrs-transport"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
 name = "nxrs-watchdog"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]
 name = "nxrs-wifi"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
  "nxrs-hal-common",
+ "nxrs-linux-gio",
  "nxrs-messaging",
 ]
 

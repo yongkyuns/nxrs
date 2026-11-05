@@ -5,3 +5,6 @@ edition.workspace = true
 
 [dependencies]
 nxrs-led = { path = "../../../hal/led" }
+
+[package.metadata.nxrs]
+required-capabilities = ["led"]

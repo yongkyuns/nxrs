@@ -24,3 +24,12 @@ CFLAGS += ${INCDIR_PREFIX}"$(TOPDIR)/arch/arm/src/common"
 endif
 
 include $(APPDIR)/Application.mk
+
+# Export the same native compiler/ABI flags used for this application. The
+# consuming HAL build scripts own private helper compilation and archives.
+.PHONY: nxrs-native-context
+nxrs-native-context:
+	$(file >$(NXRS_NATIVE_CONTEXT_DIR)/cc.txt,$(CC))
+	$(file >$(NXRS_NATIVE_CONTEXT_DIR)/ar.txt,$(AR))
+	$(file >$(NXRS_NATIVE_CONTEXT_DIR)/cflags.txt,$(CFLAGS) ${INCDIR_PREFIX}"$(TOPDIR)")
+	@:

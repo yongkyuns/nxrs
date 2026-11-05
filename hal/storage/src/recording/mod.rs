@@ -2,26 +2,9 @@
 #![forbid(unsafe_code)]
 
 mod writer;
-use crate::{DeviceError, Storage};
+use crate::DeviceError;
 use std::io;
-#[allow(unused_imports)]
 pub use writer::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
-
-pub fn storage(
-    directory: &str,
-    queued_records: usize,
-    max_frame_bytes: usize,
-    max_records: u64,
-) -> io::Result<impl Storage> {
-    FileRecorder::create_new(
-        directory,
-        StorageLimits {
-            queued_records,
-            max_frame_bytes,
-            max_records,
-        },
-    )
-}
 
 fn device_error(error: io::Error) -> DeviceError {
     // File-worker errors are terminal; Busy belongs to the live queue/barrier.

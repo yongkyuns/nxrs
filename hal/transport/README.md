@@ -1,54 +1,53 @@
-# Packet output, not a general transport HAL
+# Packet output
 
 `PacketSink::send(&[u8])` is an optional output boundary for packet-producing
-logic such as telemetry. It submits one complete packet with explicit local
-acceptance or rejection. It is not interthread communication, a socket API,
-connection management, or a reliable-delivery protocol. `Transport` is only the
-compatibility name for the identical trait, not a second abstraction.
+logic such as telemetry. It accepts or rejects one complete packet locally.
+A plain `FnMut(&[u8]) -> Result<(), DeviceError>` implements the contract, so a
+caller can inject a collector or callback without a provider registry or thread.
+Services whose operation is specifically a UDP socket may use `std::net`
+directly. Internal thread communication uses channels.
 
-A plain `FnMut(&[u8]) -> Result<(), DeviceError>` implements PacketSink. A caller
-can inject a bounded collector or callback without a provider crate, heap
-allocation, registration, or thread. Services therefore depend only on the
-backend-free packet contract when their output must remain configurable.
+`PacketSink` is the sole trait name. The former `Transport` alias and
+profile-dependent `open()`/`transport()` factories have been removed; applications
+choose the concrete operation they intend to perform.
 
-## Standard-library UDP
+## Explicit UDP functionality
 
-All supported OS implementations share one Rust `std::net::UdpSocket`
-implementation in `src/udp.rs`; there is no OS-specific socket code:
+The additive `udp` Cargo feature exposes one shared implementation using
+`std::net::UdpSocket`. It has no default, OS whitelist or hardware-profile
+requirement. Contract-only builds remain `no_std`.
 
-| Provider | Tested purpose |
-| --- | --- |
-| linux / macos / windows | Linux/macOS/Windows nonblocking std UDP with numeric addresses. |
-| nuttx | NuttX nonblocking std UDP after the socket ABI/runtime qualification. |
-| mock | Scripted tests; owned packets and errors, not network I/O. |
+```toml
+[dependencies]
+nxrs-transport = { path = "../../hal/transport", features = ["udp"] }
+```
 
-Platform selection exposes the existing constructor appropriate to each profile.
-The NuttX-facing constructor contains no socket FFI or descriptor wrapper. Its
-`UdpSender` binds an ephemeral IPv4 socket, connects it with `std::net`, sets
-nonblocking mode, and adapts send results to `DeviceError`. The underlying
-standard-library path is qualified by `tests/nuttx-std/udp`: the target build
-checks the exact Rust/C socket ABI and then executes the provider in fresh NuttX
-kernels.
+| Operation | Public constructor | Packet contract |
+| --- | --- | --- |
+| Numeric IPv4 or IPv6 packet output | `udp::UdpTransport::connect(SocketAddr)` or `::bind(local, peer)` | Nonempty packets up to 65,507 bytes. |
+| IPv4 datagram output | `udp::UdpSender::connect([u8; 4], port)` | Includes zero-length datagrams, preserving the qualified NuttX fixture behavior. |
+| Scripted acceptance and failures | `MockTransport::default()` with a mock profile | Owned in-memory packets and explicit errors; no network I/O. |
 
-The old scalar UDP C bridge is no longer a HAL implementation. A copy remains
-only under `tests/nuttx/c` for the older core-only integration fixture, whose
-Rust target has no standard library. That compatibility code is test-local and
-must not be selected by a std-based application.
+Both UDP types share the same socket submission implementation. Inputs are typed
+numeric addresses, so no name resolution occurs during submission. Sockets are
+nonblocking; `Busy` requests a later owner retry, not spinning. Success means
+local acceptance, not remote receipt. Validation rejects oversized packets
+before submitting bytes.
 
-Ordinary browser execution must choose an actual web output or an explicit
-network gateway. Pthread support does not provide direct browser UDP, and a
-WebSocket is not an interchangeable UDP implementation.
+Explicit UDP alongside a mock profile still performs real socket I/O. This is a
+software operation selected by its Cargo feature, never a fallback from a
+failed hardware factory. There is no per-OS UDP provider code or descriptor
+wrapper. The NuttX socket path still requires its std ABI/runtime qualification.
 
-## Acceptance and ownership
+## Verification
 
-Success means local socket acceptance only, not remote delivery. Errors accept
-no part of a packet. Borrowed bytes are not retained. The native provider rejects
-empty packets by contract; the NuttX provider preserves the prior NuttX behavior
-and accepts valid zero-length UDP datagrams. Both reject payloads larger than
-65,507 bytes and map transient nonblocking/interrupted sends to `Busy`.
+```sh
+cargo test --locked -p nxrs-transport --features udp
+cargo run --locked -p nxrs-transport --features udp --example native_send -- 127.0.0.1:9000
+```
 
-Run the native fixture with `NXRS_PLATFORM=linux cargo run -p nxrs-transport --example native_send -- 127.0.0.1:9000`.
-The shared isolation tooling checks the compiled platform selection.
-The NuttX std
-provider is compiled and executed by the separate NuttX UDP qualification rather
-than by a fake core-only target.
+The loopback tests retain packet-byte and socket-owner checks, independent
+sockets, invalid-packet rejection without submission, local-address inspection
+and the distinct empty-datagram contracts. Run software tests with no profile
+and with mock/native profiles. Physical NuttX UDP qualification remains under
+`tests/nuttx-std/udp`.

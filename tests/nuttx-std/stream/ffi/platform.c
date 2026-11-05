@@ -20,9 +20,6 @@
 #include "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/esp_hw_support/include/esp_private/esp_clk.h"
 #endif
 
-int console_ready(int descriptor);
-int console_mode(int descriptor, uint32_t saved[6], int raw);
-
 uint32_t nxrs_stream_cpu_frequency(void)
 {
 #ifdef CONFIG_ARCH_CHIP_ESP32S3
@@ -43,14 +40,6 @@ int nxrs_stream_worker_stack(uint32_t values[2])
 #else
   return -1;
 #endif
-}
-
-/* Mechanical, fixture-only target pollfd/event translation. */
-
-
-int nxrs_stream_console_ready(void)
-{
-  return console_ready(STDIN_FILENO);
 }
 
 int nxrs_stream_address(uint8_t address[4])
@@ -117,14 +106,3 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
   times[2] = (uint64_t)cpu.tv_sec * 1000000 + cpu.tv_nsec / 1000;
   return 0;
 }
-
-/* Serial-only fixture ABI: save/restore termios fields; Rust owns the session. */
-
-
-int nxrs_detector_console_mode(uint32_t saved[6], int raw)
-{
-  return console_mode(STDIN_FILENO, saved, raw);
-}
-
-int execution_current_priority(int priority);
-int camera_worker_priority(int priority) { return execution_current_priority(priority); }

@@ -130,14 +130,9 @@ pub fn run(root: &Path, command: &str, args: &[String]) -> Result<()> {
                 &["--manifest-path", "--profile", "--target-os", "--out"],
                 &[],
             )?;
-            let selected_root = deployment::workspace_root(&a.path("--manifest-path")?)?;
-            let p = Profile::resolve(&selected_root, a.get("--profile")?)?;
-            let evidence = deployment::validate(
-                &selected_root,
-                &a.path("--manifest-path")?,
-                &p,
-                a.get("--target-os")?,
-            )?;
+            let p = Profile::resolve(root, a.get("--profile")?)?;
+            let evidence =
+                deployment::validate(root, &a.path("--manifest-path")?, &p, a.get("--target-os")?)?;
             if let Some(path) = a.values.get("--out") {
                 write_json(Path::new(path), &evidence)?;
             }

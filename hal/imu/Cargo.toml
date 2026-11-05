@@ -2,7 +2,7 @@
 name = "nxrs-imu"
 version.workspace = true
 edition.workspace = true
-build = "../../platform/hal-build.rs"
+build = "build.rs"
 
 [lib]
 name = "imu"
@@ -14,6 +14,9 @@ platforms = ["mock", "nuttx"]
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
+[target.'cfg(not(target_os = "none"))'.dependencies]
+nxrs-acquisition = { path = "../../driver/acquisition" }
+
 [target.'cfg(target_os = "nuttx")'.dependencies]
 bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"
@@ -24,4 +27,4 @@ bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"
 
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-build-support = { path = "../../platform/build-support" }

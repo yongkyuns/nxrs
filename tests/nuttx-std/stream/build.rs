@@ -1,10 +1,7 @@
-#[path = "../../../platform/detector-build.rs"]
-mod product;
-
 fn main() {
-    let root =
-        std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../..");
-    let config = product::configure(&root);
+    let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let config =
+        nxrs_build_support::detector_config(&manifest).unwrap_or_else(|error| panic!("{error}"));
     let enabled = config.is_some();
     let stack = config.as_ref().map_or(128 * 1024, |c| c.stack_bytes);
     let interval = config.as_ref().map_or(750, |c| c.sample_ms);

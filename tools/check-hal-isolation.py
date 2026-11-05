@@ -12,6 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 HOST_PLATFORM = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
 CAPABILITIES = ("camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble")
+EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording", "transport": "udp"}
 
 
 def host_dependencies(metadata, target_packages):
@@ -38,6 +39,9 @@ def host_dependencies(metadata, target_packages):
         for dep in nodes[identity]["deps"]:
             if any(kind["kind"] in {None, "build"} for kind in dep["dep_kinds"]):
                 pending.append(dep["pkg"])
+    assert not any(package["id"] in allowed and package["name"] == "nxrs-build"
+                   for package in metadata["packages"]), \
+        "HAL build dependencies must not compile the build controller"
     return allowed
 
 
@@ -160,8 +164,7 @@ def run(out, capabilities=CAPABILITIES):
                 expected.add("nxrs-hal-common")
         if capability == "storage":
             expected.add("nxrs-camera")
-        expected = {workspace[name] for name in expected}
-        host = host_dependencies(metadata, expected)
+        base_expected = expected
         cases = [("contract-core", None, "none", "thumbv6m-none-eabi", None),
                  ("contract-wasm", None, "none", "wasm32-unknown-unknown", None)]
         if capability not in {"wifi", "ble"}:
@@ -170,6 +173,13 @@ def run(out, capabilities=CAPABILITIES):
             example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
             cases.append((HOST_PLATFORM, HOST_PLATFORM, HOST_PLATFORM, None, example))
         for label, profile, provider, target, example in cases:
+            expected = set(base_expected)
+            # The sensor manifests declare their shared task owner on targets
+            # with std. The Cortex-M0 contract case must keep that crate out.
+            if capability in {"imu", "gnss"} and target != "thumbv6m-none-eabi":
+                expected.add("nxrs-acquisition")
+            expected = {workspace[name] for name in expected}
+            host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
             target = target or host_target
             with tempfile.TemporaryDirectory(prefix=label + "-", dir=out) as directory:
@@ -179,8 +189,8 @@ def run(out, capabilities=CAPABILITIES):
                     env["NXRS_PLATFORM"] = profile
                 command = ["cargo", "build", "--locked", "-p", package]
                 command += ["--example", example] if example else ["--lib"]
-                if capability == "camera" and example:
-                    command += ["--features", "replay"]
+                if example:
+                    command += ["--features", EXAMPLE_FEATURES[capability]]
                 # Even native builds use an explicit target: Cargo then puts
                 # target libraries and host build dependencies in distinct dirs.
                 command += ["--target", target]
@@ -205,6 +215,7 @@ def run(out, capabilities=CAPABILITIES):
                         if capability == "storage":
                             oracle("storage").check_records(destination)
                 report.append({"case": label, "platform": profile, "provider": provider, "target": target,
+                               "features": [EXAMPLE_FEATURES[capability]] if example else [],
                                "compiled_packages": sorted({names[identity] for ids in compiled.values() for identity in ids}),
                                "artifacts": {scope: [{"id": identity, "name": names[identity]} for identity in sorted(ids)]
                                              for scope, ids in compiled.items()}})

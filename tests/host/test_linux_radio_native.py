@@ -107,14 +107,12 @@ class LinuxRadioNativeTests(unittest.TestCase):
         import platform
         machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(
             platform.machine().lower(), platform.machine().lower())
-        for capability in ("wifi", "ble"):
-            with self.subTest(capability=capability):
-                self.link_native_archive(capability, machine)
+        self.link_native_archive(machine)
 
-    def link_native_archive(self, capability, machine):
+    def link_native_archive(self, machine):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            directives = hal_native.build(ROOT / "hal" / capability, "linux",
+            directives = hal_native.build(ROOT / "driver/linux/gio", "linux",
                                           machine + "-unknown-linux-gnu", directory)
             flags = []
             for directive in directives:
@@ -125,7 +123,7 @@ class LinuxRadioNativeTests(unittest.TestCase):
                 elif directive.startswith("cargo:rustc-link-arg="):
                     flags.append(directive.split("=", 1)[1])
             source = directory / "link.c"
-            source.write_text(f'extern int {capability}_gio_constant(unsigned);\nint main(void) {{ return {capability}_gio_constant(0) != 1; }}\n')
+            source.write_text('extern int nxrs_gio_constant(unsigned);\nint main(void) { return nxrs_gio_constant(0) != 1; }\n')
             binary = directory / "link"
             subprocess.run([*self.compiler, str(source),
                             "-o", str(binary), *flags], check=True, timeout=60)

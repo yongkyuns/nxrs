@@ -26,8 +26,9 @@ ALLOWED = {
     'mock': {'api'},
     'driver': {'api', 'driver', 'shared'},
     'shared': {'shared'},
-    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
-    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test', 'shared'},
+    'build-support': {'build-support'},
+    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared', 'build-support'},
+    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test', 'shared', 'build-support'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared'}
 PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
@@ -58,9 +59,13 @@ def layer(path: Path) -> str:
     parts = path.parts
     if not parts:
         raise ValueError('a package cannot live at the virtual workspace root')
+    if parts == ('platform', 'build-support'):
+        return 'build-support'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
             return 'api'
+        if len(parts) == 3 and parts[-1] == 'build-support':
+            return 'build-support'
         if len(parts) == 2 and parts[1] not in {'common', 'support', 'platform'}:
             return 'hal'
         raise ValueError(f'HAL must be one capability crate, not a nested contract/provider package: {path}')
@@ -99,9 +104,14 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             if dep.get('kind') == 'dev':
                 dep_path = dep.get('path')
                 destination = by_path.get(Path(dep_path).resolve()) if dep_path else None
-                if destination and ((role in {'app', 'service'} and roles[destination] == 'platform')
+                if destination and ((role in {'app', 'service'} and roles[destination] in {'platform', 'build-support'})
                                     or (role == 'platform' and roles[destination] == 'app')):
                     errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
+                if (destination and role in {'hal', 'driver', 'build-support'}
+                        and paths[destination] == Path('platform/build')):
+                    errors.append(f"{package['name']}: HAL and driver tooling must not depend on the build controller")
+                if destination and role in {'hal', 'driver'} and roles[destination] == 'build-support':
+                    errors.append(f"{package['name']}: HAL and driver build helpers must be build dependencies")
                 continue
             context = f"{package['name']} ({paths[identity]}) -> {dep['name']}"
             dep_path = dep.get('path')
@@ -112,11 +122,14 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: shared radio identities must remain dependency-free')
                 if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
                     errors.append(f'{context}: common contains radio identities and bounded payloads only')
-                # Host-only selection/native build tooling replaces the included Python resolver.
-                # Runtime HAL edges, and every app/service edge, remain forbidden.
-                if (role == 'hal' and dep.get('kind') == 'build'
-                        and destination == ('platform', 'build')):
+                # A HAL/driver can use generic host helpers or its own SDK build
+                # package. These are build edges only, never target libraries.
+                if (role in {'hal', 'driver'} and dep.get('kind') == 'build'
+                        and (destination == ('platform', 'build-support')
+                             or (role == 'hal' and destination == (*source, 'build-support')))):
                     continue
+                if (source == ('platform', 'build-support') and destination[0] == 'hal'):
+                    errors.append(f'{context}: generic build support must not depend on capability-specific tooling')
                 if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
@@ -133,12 +146,82 @@ def inspect(metadata: dict, root: Path) -> list[str]:
     return errors
 
 
+def requires_test(attributes: str) -> bool:
+    """Recognize attributes that cannot enable an item in a production build."""
+    def condition(expression):
+        expression = expression.strip()
+        if expression == 'test':
+            return True
+        group = re.fullmatch(r'(all|any)\s*\((.*)\)', expression, flags=re.S)
+        if not group:
+            return False
+        arguments, start, depth = [], 0, 0
+        body = group[2]
+        for index, char in enumerate(body):
+            depth += (char == '(') - (char == ')')
+            if char == ',' and depth == 0:
+                arguments.append(body[start:index])
+                start = index + 1
+        arguments.append(body[start:])
+        conditions = [condition(value) for value in arguments if value.strip()]
+        return any(conditions) if group[1] == 'all' else all(conditions)
+
+    for attribute in re.findall(r'#\s*\[([^\]]*)\]', attributes, flags=re.S):
+        cfg = re.fullmatch(r'\s*cfg\s*\((.*)\)\s*', attribute, flags=re.S)
+        if cfg and condition(re.sub(r'"[^"\n]*"', 'value', cfg[1])):
+            return True
+    return False
+
+
+def inspect_source_ownership(directory: Path, root: Path, owners: set[Path]) -> list[str]:
+    """Rust source belongs to its Cargo package; test witnesses remain explicit."""
+    errors = []
+    manifest = directory / 'Cargo.toml'
+    build = tomllib.loads(manifest.read_text()).get('package', {}).get('build')
+    if isinstance(build, str) and not (directory / build).resolve().is_relative_to(directory):
+        errors.append(f'{manifest.relative_to(root)}: build scripts must belong to their Cargo package')
+    attributes = r'(?:#\s*\[[^\]]*\]\s*)+'
+    module = re.compile(r'(' + attributes + r')(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*;', re.S)
+    literal_include = re.compile(r'\binclude!\s*\(\s*"([^"\n]+)"\s*,?\s*\)')
+    manifest_include = re.compile(
+        r'\binclude!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)'
+        r'((?:\s*,\s*"[^"\n]*")+)\s*,?\s*\)\s*,?\s*\)')
+    for path in directory.rglob('*.rs'):
+        relative = path.relative_to(directory)
+        if 'target' in relative.parts or '.git' in relative.parts or relative.parts[0] == 'tests':
+            continue
+        # Nested SDK build packages own their own sources and are checked once.
+        if next(parent for parent in path.parents if parent in owners) != directory:
+            continue
+        text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        references = []
+        for item in module.finditer(text):
+            for value in re.findall(r'\bpath\s*=\s*"([^"\n]+)"', item[1]):
+                references.append(((path.parent / value).resolve(), item[1]))
+        for item in literal_include.finditer(text):
+            guard = re.search(r'(' + attributes + r')$', text[:item.start()], flags=re.S)
+            references.append(((path.parent / item[1]).resolve(), guard[1] if guard else ''))
+        for item in manifest_include.finditer(text):
+            suffix = ''.join(re.findall(r'"([^"\n]*)"', item[1]))
+            guard = re.search(r'(' + attributes + r')$', text[:item.start()], flags=re.S)
+            references.append((Path(str(directory) + suffix).resolve(), guard[1] if guard else ''))
+        for source, guard in references:
+            owner = next((parent for parent in source.parents if parent in owners), None)
+            if source.is_relative_to(directory) and owner in {None, directory}:
+                continue
+            if source.is_relative_to(root / 'tests') and requires_test(guard):
+                continue
+            errors.append(f'{path.relative_to(root)}: cross-package Rust source imports must use Cargo dependencies')
+    return errors
+
+
 def inspect_sources(metadata: dict, root: Path) -> list[str]:
     """Check the inventory and source-level markers without scanning dependencies."""
     root = root.resolve()
     errors: list[str] = inspect_dependency_capsule(root)
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
+    owners = {manifest.parent for manifest in manifests}
     for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests', 'shared']:
         for directory, children, files in os.walk(root / name):
             children[:] = [child for child in children if child not in {'target', '.git'}]
@@ -176,6 +259,8 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             role = layer(directory.relative_to(root))
         except ValueError:
             continue
+        if role != 'test':
+            errors.extend(inspect_source_ownership(directory, root, owners))
         if role in {'app', 'service', 'shared'}:
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             manifest_text = (directory / 'Cargo.toml').read_text()
@@ -347,7 +432,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if path in declared:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
-    native_roots = [root / 'hal']
+    native_roots = [root / 'hal', root / 'driver']
     actual = {path.relative_to(root).as_posix(): path for native_root in native_roots for path in native_root.rglob('*')
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
@@ -355,7 +440,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
         if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
-                or re.fullmatch(r'hal/detector/src/compute/esp_dl/ffi/.+', relative)
+                or re.fullmatch(r'driver/(?:[^/]+/)+src/platform/(?:[^/]+/)+ffi/.+', relative)
+                or re.fullmatch(r'hal/[^/]+/build-support/src/ffi/.+', relative)
                 or re.fullmatch(r'hal/tls/src/sdk/ffi/.+', relative)):
             errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')
         entry = declared.get(relative)

@@ -3,6 +3,11 @@ name = "nxrs-nuttx-app"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Only the ordinary-std executable selects sockets; ARCH_SIM keeps its local
+# core-only compatibility output and compiles the HAL contracts alone.
+udp = ["nxrs-transport/udp"]
+
 [lib]
 crate-type = ["staticlib"]
 test = false
@@ -11,6 +16,7 @@ doctest = false
 [[bin]]
 name = "nxrs-nuttx-std-app"
 path = "src/main.rs"
+required-features = ["udp"]
 
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }

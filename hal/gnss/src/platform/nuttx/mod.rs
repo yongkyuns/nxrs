@@ -1,8 +1,6 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
-use crate::acquisition::Worker;
 use crate::{DeviceError, Event, Gnss};
-#[path = "../../../../../driver/nuttx/readiness.rs"]
-mod readiness;
+use acquisition::{readiness, Worker};
 use core::sync::atomic::{AtomicU8, Ordering};
 use std::{
     fs::{File, OpenOptions},
@@ -147,7 +145,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     sink: S,
 ) -> Result<impl Gnss + Send + 'static, DeviceError> {
     let mut device = acquire()?;
-    let cancel = readiness::Cancel::new().map_err(|_| DeviceError::Io)?;
+    let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();
     let stack = option_env!("GNSS_STACK_BYTES")
         .and_then(|v| v.parse().ok())
@@ -162,7 +160,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
             let origin = std::time::Instant::now();
             let result = (|| {
                 while !stop.load(Ordering::Acquire) {
-                    if !readiness::wait(&device.receiver.io.port.file, &wake)
+                    if !readiness::wait(&device.receiver.io.port.file, &wake, ffi::wait)
                         .map_err(|_| DeviceError::Io)?
                     {
                         break;

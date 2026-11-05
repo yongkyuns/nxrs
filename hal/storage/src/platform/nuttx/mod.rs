@@ -6,18 +6,22 @@ use crate::{DeviceError, Frame, Storage};
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 
-pub fn open(path: &str, max_records: u64, max_frame: usize) -> Result<impl Storage, DeviceError> {
+pub fn create_record_file(
+    path: &str,
+    max_records: u64,
+    max_frame: usize,
+) -> Result<impl Storage, DeviceError> {
     FileStorage::create(path, max_records, max_frame)
 }
 
 /// Synchronous bounded record sink. Append rolls back partial writes; a failed
 /// rollback permanently poisons the sink. Flush confirms file synchronization.
-pub struct FileStorage {
+struct FileStorage {
     records: RecordFile<File>,
 }
 
 impl FileStorage {
-    pub fn create(path: &str, max_records: u64, max_frame: usize) -> Result<Self, DeviceError> {
+    fn create(path: &str, max_records: u64, max_frame: usize) -> Result<Self, DeviceError> {
         validate_limits(max_records, max_frame)?;
         let file = OpenOptions::new()
             .read(true)
@@ -40,8 +44,6 @@ impl Storage for FileStorage {
         self.records.flush()
     }
 }
-
-pub use crate::recording::storage;
 
 #[cfg(test)]
 mod tests {

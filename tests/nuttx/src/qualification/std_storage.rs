@@ -1,11 +1,11 @@
 //! Ordinary-std target probe of the production Rust record writer.
-use storage::{Capture, DeviceError, FileStorage, Format, Frame, PixelFormat, Storage};
+use storage::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
 
 pub fn run() {
     let path = "/rcam/std-storage.rcam";
-    let mut writer = FileStorage::create(path, 2, 4).expect("std storage create");
+    let mut writer = storage::create_record_file(path, 2, 4).expect("std storage create");
     assert!(matches!(
-        FileStorage::create(path, 2, 4),
+        storage::create_record_file(path, 2, 4),
         Err(DeviceError::Busy)
     ));
     for sequence in 1..=2 {

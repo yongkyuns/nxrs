@@ -7,6 +7,8 @@ edition.workspace = true
 probe = ["nxrs-detector/probe"]
 
 [dependencies]
+nxrs-console = { path = "../../../hal/console" }
+nxrs-execution = { path = "../../../hal/execution" }
 nxrs-enrollment = { path = "../../../service/enrollment" }
 nxrs-config = { path = "../../../hal/config" }
 nxrs-boot = { path = "../../../hal/boot" }
@@ -25,4 +27,4 @@ nxrs-std-wifi = { path = "../wifi" }
 required-capabilities = ["camera", "wifi"]
 
 [build-dependencies]
-nxrs-build = { path = "../../../platform/build" }
+nxrs-build-support = { path = "../../../platform/build-support" }
