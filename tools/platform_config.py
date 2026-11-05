@@ -59,8 +59,14 @@ def native_helpers(platform, root=ROOT):
     return [Path(path) for path in _query('native-helpers', platform, root=root)]
 
 
-def model_features(platform, manifest, root=ROOT):
-    return _query('model-features', platform, root=root, manifest=str(manifest))
+def model_features(platform, manifest, root=ROOT, *, cargo_target=None,
+                   features=(), no_default_features=False):
+    """Resolve through Cargo. NuttX callers must supply the qualified target JSON."""
+    request = dict(manifest=str(manifest), features=list(features),
+                   no_default_features=no_default_features)
+    if cargo_target is not None:
+        request['cargo_target'] = str(cargo_target)
+    return _query('model-features', platform, root=root, **request)
 
 
 def detector_config(platform):
