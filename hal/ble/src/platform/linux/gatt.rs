@@ -353,17 +353,21 @@ impl Actor {
             ),
             (&*self.daemon, OBJECTS, "InterfacesRemoved", Some("/"), None),
         ] {
-            self.watches.push(bus.subscribe(
-                name,
-                interface,
-                member,
-                path,
-                arg,
-                signal,
-                data,
-                detached,
-                &self.context,
-            ));
+            // SAFETY: the actor retains Signals and dispatches this context until
+            // every subscription's detached callback has retired its reference.
+            self.watches.push(unsafe {
+                bus.subscribe(
+                    name,
+                    interface,
+                    member,
+                    path,
+                    arg,
+                    signal,
+                    data,
+                    detached,
+                    &self.context,
+                )
+            });
         }
         self.bus = Some(bus);
         Ok(())
@@ -651,7 +655,7 @@ impl Actor {
         let timer = unsafe { gio::g_timeout_source_new(250) };
         unsafe {
             gio::g_source_set_callback(timer, tick, std::ptr::null_mut(), None);
-            gio::g_source_attach(timer, self.context.0)
+            gio::g_source_attach(timer, self.context.as_ptr())
         };
         loop {
             self.refresh();
@@ -750,7 +754,9 @@ impl Backend for Executor {
         let spawn = std::thread::Builder::new()
             .name("ble-gatt".into())
             .spawn(move || {
-                let context = Context::retain(context as G);
+                // SAFETY: CONTROL owns a process-lifetime context; this actor is
+                // its sole dispatcher, and retires callbacks before it exits.
+                let context = unsafe { Context::retain(context as G) };
                 Actor {
                     session,
                     capacity,

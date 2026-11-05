@@ -177,7 +177,7 @@ impl Failure {
         out
     }
 }
-pub struct V(pub G);
+pub struct V(G);
 impl Drop for V {
     fn drop(&mut self) {
         unsafe { g_variant_unref(self.0) }
@@ -197,6 +197,9 @@ impl V {
     }
     pub fn len(&self) -> usize {
         unsafe { g_variant_n_children(self.0) }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
     pub fn child(&self, index: usize) -> Self {
         assert!(index < self.len());
@@ -304,13 +307,27 @@ pub fn checksum(parts: &[&[u8]]) -> [u8; 32] {
         out
     }
 }
-pub struct Context(pub G);
+pub struct Context(G);
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Context {
-    pub fn retain(context: G) -> Self {
+    /// Retain an additional reference to an existing main context.
+    ///
+    /// # Safety
+    /// `context` must be a non-null, live `GMainContext` for this call. The caller
+    /// must preserve the thread-affinity requirements of callbacks dispatched
+    /// through the retained context.
+    pub unsafe fn retain(context: G) -> Self {
         Self(unsafe { g_main_context_ref(context) })
     }
     pub fn new() -> Self {
         Self(unsafe { g_main_context_new() })
+    }
+    pub fn as_ptr(&self) -> G {
+        self.0
     }
     pub fn push(&self) {
         unsafe { g_main_context_push_thread_default(self.0) }
@@ -335,7 +352,7 @@ impl Drop for Context {
         unsafe { g_main_context_unref(self.0) }
     }
 }
-pub struct Bus(pub G);
+pub struct Bus(G);
 impl Bus {
     pub fn open() -> Result<Self, Failure> {
         let mut error = null_mut();
@@ -407,7 +424,7 @@ impl Bus {
         timeout: i32,
         context: &Context,
     ) -> Rc<Reply> {
-        // Rc keeps a shared allocation stable while GIO holds its callback pointer.
+        // The callback owns a reference even if the caller drops its pending reply.
         let reply = Rc::new(Reply(RefCell::new(None)));
         context.push();
         unsafe {
@@ -423,14 +440,21 @@ impl Bus {
                 timeout,
                 null_mut(),
                 replied,
-                Rc::as_ptr(&reply).cast_mut().cast(),
+                Rc::into_raw(Rc::clone(&reply)).cast_mut().cast(),
             )
         };
         context.pop();
         reply
     }
+    /// Subscribe to signals on the supplied main context.
+    ///
+    /// # Safety
+    /// `data` must satisfy both callbacks' pointer and thread-affinity contracts
+    /// until GIO invokes `destroy`, which may occur after `unsubscribe` returns.
+    /// Neither callback may unwind across the native ABI. The caller must keep
+    /// the context available for callback retirement before releasing `data`.
     #[allow(clippy::too_many_arguments)] // Mirrors the native subscription and lifetime hooks.
-    pub fn subscribe(
+    pub unsafe fn subscribe(
         &self,
         name: &str,
         interface: &str,
@@ -484,6 +508,8 @@ impl Reply {
     }
 }
 unsafe extern "C" fn replied(bus: G, result: G, data: G) {
+    // SAFETY: start transfers one Rc reference to this one-shot GIO callback.
+    let pending = unsafe { Rc::from_raw(data.cast::<Reply>()) };
     let mut error = null_mut();
     let v = unsafe { g_dbus_connection_call_finish(bus, result, &mut error) };
     let reply = if v.is_null() {
@@ -491,11 +517,21 @@ unsafe extern "C" fn replied(bus: G, result: G, data: G) {
     } else {
         Ok(V(v))
     };
-    unsafe { &*data.cast::<Reply>() }.0.replace(Some(reply));
+    pending.0.replace(Some(reply));
 }
+/// Retain a reference to a variant borrowed from a native callback.
+///
+/// # Safety
+/// `value` must be a non-null, live `GVariant` for the duration of this call.
+/// The borrowed reference remains owned by its original owner.
 pub unsafe fn borrowed_variant(value: G) -> V {
     V(unsafe { g_variant_ref(value) })
 }
+/// Copy a string borrowed from a native callback; null means an empty string.
+///
+/// # Safety
+/// A non-null `value` must point to a readable, NUL-terminated string that remains
+/// valid and unmodified for the duration of this call.
 pub unsafe fn borrowed_text(value: *const c_char) -> String {
     unsafe { text(value) }
 }

@@ -125,6 +125,12 @@ fn main() {
         .success());
     assert_eq!(runs(root, &build(root, &[])), 1);
     assert_eq!(runs(root, &build(root, &[])), 1);
+    // NuttX Make writes and removes this temporary file after Cargo. No header
+    // changed, so directory mtime churn must not rerun the owning HAL's script.
+    let temporary_header = include.join("nuttx/config.h.tmp");
+    fs::write(&temporary_header, "temporary generated configuration").unwrap();
+    fs::remove_file(&temporary_header).unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 1);
     fs::write(&header, "#define DEVICE_ABI 8\n").unwrap();
     let stale = build(root, &[]);
     assert!(!stale.status.success());
@@ -136,12 +142,17 @@ fn main() {
     assert_eq!(runs(root, &build(root, &[])), 2);
     fs::write(private.join("context.h"), "#define CONTEXT_ABI 4\n").unwrap();
     assert_eq!(runs(root, &build(root, &[])), 3);
+    // Used headers outside include/ are tracked by compiler dependencies, too.
+    fs::remove_file(private.join("context.h")).unwrap();
+    assert!(!build(root, &[]).status.success());
+    fs::write(private.join("context.h"), "#define CONTEXT_ABI 4\n").unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 4);
     fs::write(
         root.join("selected/src/platform/nuttx/ffi/value.c"),
         "#include <nuttx/config.h>\nint device_value(void) { return DEVICE_ABI + 1; }\n",
     )
     .unwrap();
-    assert_eq!(runs(root, &build(root, &[])), 4);
+    assert_eq!(runs(root, &build(root, &[])), 5);
     let included = build(root, &["--features", "unused-helper"]);
     assert!(!included.status.success());
     assert!(String::from_utf8_lossy(&included.stderr)

@@ -104,16 +104,26 @@ class UpstreamLayoutTests(unittest.TestCase):
             self.assertEqual(_query('source-revision',{},root=root,name='nuttx'),new)
 
     def test_builders_do_not_fall_back_to_last_committed_dependency_pins(self):
-        for filename in ("tools/build-nuttx-sim.sh",
-                         "tests/nuttx-std/build.sh", "tests/nuttx-std/userled/build.sh"):
+        for filename in ("tools/build-nuttx-sim.sh", "tests/nuttx-std/build.sh"):
             with self.subTest(builder=filename):
                 text = (ROOT / filename).read_text()
                 self.assertIn("rev-parse", text)
                 self.assertNotIn("HEAD:external/", text)
                 self.assertIn(":external/", text)
                 self.assertIn("nxrs_dirty=", text)
-                if filename != "tests/nuttx-std/userled/build.sh":
-                    self.assertIn("tools/nuttx-version.py", text)
+                self.assertIn("tools/nuttx-version.py", text)
+
+        # USERLED delegates source preparation and provenance to the same
+        # frontend whose staged-pin behavior is exercised above.
+        userled = (ROOT / "tests/nuttx-std/userled/build.sh").read_text()
+        self.assertIn("tools/build-nuttx-std-app.sh", userled)
+        self.assertNotIn("HEAD:external/", userled)
+        adapter = (ROOT / "tools/build-nuttx-std-app.sh").read_text()
+        self.assertIn('cargo nxrs nuttx-build "$@"', adapter)
+        controller = (ROOT / "platform/build/src/nuttx.rs").read_text()
+        self.assertIn('source::revision(root, "nuttx")?', controller)
+        self.assertIn('source::revision(root, "nuttx-apps")?', controller)
+        self.assertIn("nxrs_dirty=", controller)
 
     def test_dependency_packages_leave_platform_integration_in_place(self):
         for component in ("nuttx", "nuttx-apps", "esp-hal-3rdparty", "rust-llvm", "rust-std"):

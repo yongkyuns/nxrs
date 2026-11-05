@@ -92,7 +92,7 @@ fn sdk_identity(installed: &Path, emcc: &str, emcc_program: &Path) -> Result<Val
     // rust-src. Same-path changes to any of those bytes invalidate the copy.
     Ok(json!({
         "installed": installed,
-        "rust_sdk": reuse::snapshot(installed, &["bin", "lib"])?,
+        "rust_sdk": reuse::sdk_snapshot(installed)?,
         "emscripten": emcc.trim(),
         "emcc_program": emcc_program,
         "emcc_sha256": hash(emcc_program)?,
@@ -508,8 +508,10 @@ mod tests {
         let app = selected_app.unwrap();
         let artifact = selected_artifact(&outputs.join(""), &app).unwrap();
         assert_eq!(
-            Path::new(artifact["manifest_path"].as_str().unwrap()),
-            app.manifest
+            Path::new(artifact["manifest_path"].as_str().unwrap())
+                .canonicalize()
+                .unwrap(),
+            app.manifest.canonicalize().unwrap()
         );
         assert!(artifact["package_id"]
             .as_str()
@@ -523,6 +525,21 @@ mod tests {
                 .unwrap_err()
                 .contains("found 2")
         );
+        #[cfg(unix)]
+        {
+            // Cargo reports canonical paths even when a caller uses an alias,
+            // including macOS's /var versus /private/var temporary directory.
+            let alias = temp.0.join("selected-alias");
+            std::os::unix::fs::symlink(app.manifest.parent().unwrap(), &alias).unwrap();
+            let app = App {
+                manifest: alias.join("Cargo.toml"),
+                ..app
+            };
+            assert_eq!(
+                selected_artifact(&outputs.join(""), &app).unwrap(),
+                artifact
+            );
+        }
     }
 
     #[test]

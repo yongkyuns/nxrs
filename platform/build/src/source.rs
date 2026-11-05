@@ -24,7 +24,10 @@ pub fn revision(root: &Path, name: &str) -> Result<String> {
 }
 pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Result<()> {
     if destination.exists() {
-        return Err("source archive destination already exists".into());
+        return Err(format!(
+            "source archive destination already exists: {}",
+            destination.display()
+        ));
     }
     fs::create_dir(destination).map_err(|e| e.to_string())?;
     let mut child = git(source)

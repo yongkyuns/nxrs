@@ -534,7 +534,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         "size":size,"trace":trace,"immediate":immediate,"abi":abi,
         "nuttx":source::revision(root,"nuttx")?,"apps":source::revision(root,"nuttx-apps")?,
         "build_inputs":reuse::snapshot(root,&["upstream","platform/nuttx/std-app"])?,
-        "sdk":sdk_input,"sdk_inputs":reuse::snapshot(sdk_input,&["bin","lib"])?,
+        "sdk":sdk_input,"sdk_inputs":reuse::sdk_snapshot(sdk_input)?,
         "compiler":hash(&tools.rustc)?,"native_compiler":hash(&tools.program(&format!("{}gcc",tools.prefix))?)?,
         "controller":hash(&env::current_exe().map_err(|e|e.to_string())?)?,"helpers":helper_inputs,
         "hal_cache":env::var_os("NXRS_ESP_HAL_3RDPARTY_CACHE"),
@@ -1140,6 +1140,7 @@ fn native_context(
     }
     let context = json!({"schema":1,"target":target,"directory":entry,
         "include":nuttx.join("include"),"config_sha256":hash(&nuttx.join("include/nuttx/config.h"))?,
+        "headers_sha256":crate::hash_bytes(&serde_json::to_vec(&reuse::snapshot(nuttx,&["include"])?).map_err(|e|e.to_string())?),
         "cc":cc,"ar":ar,"cflags":words("cflags")?});
     let path = out.join("native-context.json");
     reuse::write_if_changed(
@@ -1601,7 +1602,7 @@ mod rebuild_tests {
         fs::write(nuttx.join("include/nuttx/config.h"), "#define DEVICE 1\n").unwrap();
         fs::write(
             apps.join("Make.defs"),
-            "CC = cc\nAR = ar rcs\nCFLAGS = -O2 -DDEVICE_ABI=7\nINCDIR_PREFIX = -I\n",
+            "CC = cc\nAR = ar rcs\nCFLAGS = -O2 -DDEVICE_ABI=7 -DQUOTED=\"two words\" -DSINGLE=\"it's literal\" -DDOLLAR='$$literal' -DBACKTICK='`literal`' -DSUBSTITUTION='$$(touch exported-command-ran)'\nINCDIR_PREFIX = -I\n",
         )
         .unwrap();
         fs::write(apps.join("Application.mk"), "").unwrap();
@@ -1627,6 +1628,12 @@ mod rebuild_tests {
         );
         let flags = data["cflags"].as_array().unwrap();
         assert!(flags.contains(&json!("-DDEVICE_ABI=7")));
+        assert!(flags.contains(&json!("-DQUOTED=two words")));
+        assert!(flags.contains(&json!("-DSINGLE=it's literal")));
+        assert!(flags.contains(&json!("-DDOLLAR=$literal")));
+        assert!(flags.contains(&json!("-DBACKTICK=`literal`")));
+        assert!(flags.contains(&json!("-DSUBSTITUTION=$(touch exported-command-ran)")));
+        assert!(!entry.join("exported-command-ran").exists());
         assert!(flags.contains(&json!(format!("-I{}", nuttx.display()))));
         assert!(Path::new(data["cc"][0].as_str().unwrap()).is_absolute());
         assert!(Path::new(data["ar"][0].as_str().unwrap()).is_absolute());
@@ -1634,6 +1641,47 @@ mod rebuild_tests {
         let before = path.metadata().unwrap().modified().unwrap();
         native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
         assert_eq!(path.metadata().unwrap().modified().unwrap(), before);
+
+        // Make's temporary config file must not defeat otherwise fresh Cargo artifacts.
+        let temporary_header = nuttx.join("include/nuttx/config.h.tmp");
+        fs::write(&temporary_header, "temporary").unwrap();
+        fs::remove_file(&temporary_header).unwrap();
+        native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        assert_eq!(path.metadata().unwrap().modified().unwrap(), before);
+
+        // New configured headers have no existing Cargo watch. Their inventory
+        // changes the context, and removal restores the original content identity.
+        let added = nuttx.join("include/nuttx/added.hpp");
+        fs::write(&added, "#define ADDED 1\n").unwrap();
+        native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        assert_ne!(
+            crate::read_json(&path).unwrap()["headers_sha256"],
+            data["headers_sha256"]
+        );
+        fs::remove_file(&added).unwrap();
+        native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        assert_eq!(
+            crate::read_json(&path).unwrap()["headers_sha256"],
+            data["headers_sha256"]
+        );
+
+        // Architecture include directories are symlinks. Retargeting one must
+        // invalidate even when the two selected headers have identical bytes.
+        for name in ["arch-one", "arch-two"] {
+            fs::create_dir(nuttx.join(name)).unwrap();
+            fs::write(nuttx.join(name).join("abi.h"), "#define ABI 1\n").unwrap();
+        }
+        let link = nuttx.join("include/arch");
+        std::os::unix::fs::symlink(nuttx.join("arch-one"), &link).unwrap();
+        native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        let first_arch = crate::read_json(&path).unwrap()["headers_sha256"].clone();
+        fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(nuttx.join("arch-two"), &link).unwrap();
+        native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        assert_ne!(
+            crate::read_json(&path).unwrap()["headers_sha256"],
+            first_arch
+        );
     }
 }
 

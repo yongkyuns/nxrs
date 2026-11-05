@@ -263,17 +263,21 @@ impl State {
                 Some(&*self.daemon),
             ),
         ] {
-            self.subscriptions.push(self.bus.subscribe(
-                name,
-                interface,
-                member,
-                path,
-                arg,
-                signal,
-                data,
-                detached,
-                &self.events,
-            ));
+            // SAFETY: detach pumps this context until every detached callback
+            // has run, while this state retains the referenced Signals.
+            self.subscriptions.push(unsafe {
+                self.bus.subscribe(
+                    name,
+                    interface,
+                    member,
+                    path,
+                    arg,
+                    signal,
+                    data,
+                    detached,
+                    &self.events,
+                )
+            });
         }
         self.signals.reports.borrow_mut().scanning = true;
         let reply = self.bus.start(

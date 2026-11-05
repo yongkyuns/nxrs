@@ -32,7 +32,7 @@ fn command(words: &[String]) -> Result<Command> {
     Ok(command)
 }
 
-fn headers(path: &Path, seen: &mut BTreeSet<PathBuf>, directives: &mut Vec<String>) -> Result<()> {
+fn input(path: &Path, directives: &mut Vec<String>) -> Result<()> {
     directives.push(format!("cargo:rerun-if-changed={}", path.display()));
     let resolved = path
         .canonicalize()
@@ -40,13 +40,20 @@ fn headers(path: &Path, seen: &mut BTreeSet<PathBuf>, directives: &mut Vec<Strin
     if resolved != path {
         directives.push(format!("cargo:rerun-if-changed={}", resolved.display()));
     }
-    if !seen.insert(resolved) {
-        return Ok(());
-    }
+    Ok(())
+}
+
+fn headers(path: &Path, seen: &mut BTreeSet<PathBuf>, directives: &mut Vec<String>) -> Result<()> {
     if path.is_dir() {
+        let resolved = path.canonicalize().map_err(|e| e.to_string())?;
+        if !seen.insert(resolved) {
+            return Ok(());
+        }
         for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
             headers(&entry.map_err(|e| e.to_string())?.path(), seen, directives)?;
         }
+    } else if path.extension().is_some_and(|e| e == "h" || e == "hpp") {
+        input(path, directives)?;
     }
     Ok(())
 }
@@ -140,6 +147,9 @@ fn compile(
     let ar = words(&data, "ar")?;
     let flags = words(&data, "cflags")?;
     directives.push(format!("cargo:rerun-if-changed={}", context.display()));
+    // Make creates and removes config.h.tmp even when config.h is unchanged.
+    // Watch files, not generated directories. The frontend's context includes
+    // the configured header inventory, so additions still invalidate Cargo.
     headers(&include, &mut BTreeSet::new(), &mut directives)?;
     let source_directory = capability.join("src/platform/nuttx/ffi");
     headers(&source_directory, &mut BTreeSet::new(), &mut directives)?;
@@ -169,7 +179,7 @@ fn compile(
                 directory.join(dependency)
             };
             // The architecture's private context headers can live outside include/.
-            headers(&path, &mut BTreeSet::new(), &mut directives)?;
+            input(&path, &mut directives)?;
         }
         objects.push(object);
     }
@@ -231,6 +241,11 @@ mod tests {
         )
         .unwrap();
         assert!(directives.contains(&format!("cargo:rerun-if-changed={}", config.display())));
+        assert!(!directives.contains(&format!("cargo:rerun-if-changed={}", include.display())));
+        assert!(!directives.contains(&format!(
+            "cargo:rerun-if-changed={}",
+            include.join("nuttx").display()
+        )));
         let archive = out.join("libsensor_native.a");
         let main = temp.0.join("main.c");
         fs::write(

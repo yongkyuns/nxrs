@@ -16,6 +16,7 @@ const RECORD: &str = ".nxrs-build-cache.json";
 fn visit(
     root: &Path,
     path: &Path,
+    allowed: &[PathBuf],
     seen: &mut BTreeSet<PathBuf>,
     files: &mut BTreeMap<String, String>,
 ) -> Result<()> {
@@ -31,7 +32,7 @@ fn visit(
     let resolved = path
         .canonicalize()
         .map_err(|e| format!("{}: {e}", path.display()))?;
-    if !resolved.starts_with(root) {
+    if !allowed.iter().any(|base| resolved.starts_with(base)) {
         return Err(format!(
             "cached build input escapes its owned tree: {}",
             path.display()
@@ -51,7 +52,7 @@ fn visit(
             if entry.file_name().is_some_and(|name| name == ".git") {
                 continue;
             }
-            visit(root, &entry, seen, files)?;
+            visit(root, &entry, allowed, seen, files)?;
         }
     } else if path.is_file() {
         files.insert(format!("{}:bytes", relative.display()), hash(path)?);
@@ -63,11 +64,27 @@ fn visit(
 
 /// Content identity, including additions, removals and symlink destinations.
 pub fn snapshot(root: &Path, paths: &[&str]) -> Result<Value> {
+    snapshot_with_library(root, paths, false)
+}
+
+/// Installed toolchains may link Rust sources to a separately unpacked library.
+/// Read and identify that selected source tree without treating it as owned
+/// output. Retained private SDKs still use the strict `snapshot` boundary.
+pub fn sdk_snapshot(root: &Path) -> Result<Value> {
+    snapshot_with_library(root, &["bin", "lib"], true)
+}
+
+fn snapshot_with_library(root: &Path, paths: &[&str], linked_library: bool) -> Result<Value> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let mut allowed = vec![root.clone()];
+    let library = root.join("lib/rustlib/src/rust/library");
+    if linked_library && library.is_symlink() {
+        allowed.push(library.canonicalize().map_err(|e| e.to_string())?);
+    }
     let mut files = BTreeMap::new();
     let mut seen = BTreeSet::new();
     for name in paths {
-        visit(&root, &root.join(name), &mut seen, &mut files)?;
+        visit(&root, &root.join(name), &allowed, &mut seen, &mut files)?;
     }
     Ok(json!(files))
 }
@@ -126,6 +143,36 @@ pub fn copy_if_changed(source: &Path, destination: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_sdk_source_links_are_identified_without_relaxing_owned_outputs() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let sdk = temp.0.join("installed");
+        fs::create_dir_all(sdk.join("bin")).unwrap();
+        fs::create_dir_all(sdk.join("lib/rustlib/src/rust")).unwrap();
+        fs::write(sdk.join("bin/rustc"), "compiler").unwrap();
+        let source = temp.0.join("unpacked-library");
+        fs::create_dir_all(source.join("std/src")).unwrap();
+        let file = source.join("std/src/lib.rs");
+        fs::write(&file, "original source").unwrap();
+        let link = sdk.join("lib/rustlib/src/rust/library");
+        std::os::unix::fs::symlink(&source, &link).unwrap();
+        let original = sdk_snapshot(&sdk).unwrap();
+        assert!(snapshot(&sdk, &["bin", "lib"]).is_err());
+        assert_eq!(fs::read(&file).unwrap(), b"original source");
+        fs::write(&file, "changed source").unwrap();
+        assert_ne!(sdk_snapshot(&sdk).unwrap(), original);
+        fs::write(&file, "original source").unwrap();
+        assert_eq!(sdk_snapshot(&sdk).unwrap(), original);
+        let replacement = temp.0.join("replacement-library");
+        fs::create_dir_all(replacement.join("std/src")).unwrap();
+        fs::write(replacement.join("std/src/lib.rs"), "original source").unwrap();
+        fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&replacement, &link).unwrap();
+        assert_ne!(sdk_snapshot(&sdk).unwrap(), original);
+        assert!(snapshot(&sdk, &["bin", "lib"]).is_err());
+    }
 
     #[test]
     fn unchanged_native_and_sdk_bytes_are_reused_but_mutations_are_not() {
