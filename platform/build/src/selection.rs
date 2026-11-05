@@ -32,6 +32,15 @@ fn selected_packages(metadata: &Value, manifest: &Path) -> Result<BTreeSet<Strin
         p["id"].as_str().ok_or("missing package ID")?,
         p["name"].as_str().ok_or("missing package name")?,
     ))).collect::<Result<_>>()?;
+    // Proc macros are host-compiled tools even though the dependency kind is
+    // recorded as "normal". Never traverse through them to activate a firmware
+    // HAL just because a host macro implementation happens to use that crate.
+    let proc_macros: BTreeSet<&str> = packages.iter()
+        .filter(|p| p["targets"].as_array().is_some_and(|targets| targets.iter().any(|t| {
+            t["kind"].as_array().is_some_and(|kinds| kinds.iter().any(|kind| kind == "proc-macro"))
+        })))
+        .filter_map(|p| p["id"].as_str())
+        .collect();
     let nodes: BTreeMap<&str, &Value> = metadata["resolve"]["nodes"].as_array()
         .ok_or("missing Cargo resolve nodes")?.iter()
         .map(|node| Ok((node["id"].as_str().ok_or("missing node ID")?, node)))
@@ -41,6 +50,7 @@ fn selected_packages(metadata: &Value, manifest: &Path) -> Result<BTreeSet<Strin
     let mut selected = BTreeSet::new();
     while let Some(id) = pending.pop() {
         if !visited.insert(id) { continue; }
+        if id != root_id && proc_macros.contains(id) { continue; }
         selected.insert((*identities.get(id).ok_or("unknown Cargo package")?).to_owned());
         let node = nodes.get(id).ok_or("missing resolved Cargo node")?;
         for dependency in node["deps"].as_array().ok_or("missing node dependencies")? {
@@ -82,6 +92,19 @@ mod tests {
         let mut dev_only = data;
         dev_only["resolve"]["nodes"][0]["deps"][0]["dep_kinds"] = json!([{"kind":"dev"}]);
         assert_eq!(selected_packages(&dev_only, &manifest).unwrap(),
+            BTreeSet::from(["app".to_owned()]));
+        let mut macro_only = dev_only;
+        macro_only["packages"].as_array_mut().unwrap().push(json!({
+            "id":"macro", "name":"host-derive",
+            "manifest_path":d.0.join("macro/Cargo.toml"),
+            "targets":[{"kind":["proc-macro"]}]
+        }));
+        macro_only["resolve"]["nodes"].as_array_mut().unwrap().push(json!({
+            "id":"macro", "deps":[{"pkg":"detector","dep_kinds":[{"kind":null}]}]
+        }));
+        macro_only["resolve"]["nodes"][0]["deps"] =
+            json!([{"pkg":"macro","dep_kinds":[{"kind":null}]}]);
+        assert_eq!(selected_packages(&macro_only, &manifest).unwrap(),
             BTreeSet::from(["app".to_owned()]));
     }
 }
