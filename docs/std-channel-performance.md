@@ -21,9 +21,10 @@ Four changes address the measured slowdown:
   flavor dispatch copies their algorithms into bounded callers, increasing hot
   code size and stack frames. The channel algorithms and APIs remain unchanged.
 
-The final candidate passed one paired primary matrix and one separate
-hardware-counter matrix: 66 replayed fresh-boot captures. Three further fresh
-boots per image reproduce the focal latency result. Samples were not pooled.
+The final single-transport images passed one paired primary matrix and one
+separate hardware-counter matrix: 64 replayed fresh-boot captures covering all
+16 matched cases per kernel. Nine additional captures compare three fresh boots
+each of the mixed NuttX image, std-only NuttX image and Zephyr. Samples were not pooled.
 In matched hot placement, sustained throughput is 321k versus 264k messages/s with one producer,
 and 272k versus 234k with four. Rust/std uses 3–18% less whole-core active CPU.
 The same hardware counters include IRQ and scheduler work; native thread counters
@@ -31,19 +32,32 @@ have incompatible attribution and must not be compared directly.
 
 Native switching reduced the 64-byte/four-producer p99 from 86.250 to
 84.875 µs. Keeping alternate flavors out of line reduces it to 84.6875 µs,
-matching Zephyr. Other normal p99 cases are lower with std. Exploratory threshold
+matching Zephyr. The std-only fixture measures 84.625 µs with the same SDK;
+that additional timer tick accompanies a different fixture image, not another
+queue algorithm change. Other normal p99 cases are lower with std. Exploratory threshold
 miss counts are never higher; both have zero 100 µs misses in the focal case.
 Some smaller-message and paced maximum samples remain higher with std; this is
 not dominance at every quantile. Normal cases have zero loss and preserve
 payload, per-producer FIFO and joined reclamation. Overload admits the same
 message identities, and all admitted messages are delivered.
 
-The image uses 72,976 IRAM text bytes versus Zephyr's 52,684. Outlining alternate
+The std-only image uses 65,644 IRAM text bytes versus Zephyr's 52,684.
+The mixed image uses 72,976 bytes. Outlining alternate
 flavors saves 6,304 text bytes and 6,144 bytes of shared SRAM reservation, with
 no added thread storage or live heap use. Total savings from the original hot
 placement are 34,712 text bytes and 34,560 bytes of shared SRAM reservation.
 These include OS, runtime and fixture code, not isolated queue storage. The
-Rust image retains 5,595 bytes of additional native-control workload code.
+mixed image retains an additional native-control workload and native queue code;
+selecting only the measured transport removes 7,332 more IRAM bytes. This is a
+fixture correction, separate from the SDK optimization.
+
+The remaining 12,960-byte difference comprises 2,903 bytes of native runtime,
+5,245 bytes of Rust synchronization/runtime, 4,627 bytes of workload/adapter
+difference and 185 bytes of alignment. The
+[entry-selection patch](../tests/nuttx-std/channels/mpsc-fixture-entry.patch)
+selects the existing transport before execution. The timed engine, arrival
+schedules, metrics and native adapters are unchanged; the native diagnostic
+remains available in its retained separate image.
 Matched placement is not an ordinary-placement, cross-build or resource-parity
 claim. Native GCC14.2/14.3
 differ, clocks lack external calibration, and three boots establish descriptive
@@ -68,14 +82,14 @@ and both SDK host suites are separate from ESP32-S3 hardware evidence. The
 semaphore ABI gate checks storage/alignment and the header-owned protocol value.
 
 Measurements use the frozen comparison fixture at
-`a8a1b1baa05aeca76264e882ed31c3b2baa9973d` with retained source, compiler, ELF,
+`a8a1b1baa05aeca76264e882ed31c3b2baa9973d` plus the entry-selection patch, with retained source, compiler, ELF,
 image and placement receipts. Raw device/session identifiers, consoles, SDKs and
 flash backups remain private. Every flash campaign restored and verified the
 original image. The P1 campaign reverified an existing full backup after fresh
 read transport failures; no successful new full read is claimed. Its clean
 digest test-image preparation does not fix normal frontend digest packaging.
 
-The 20,292-byte full-image IRAM gap and higher extreme samples remain open.
+The 12,960-byte full-image IRAM gap and higher extreme samples remain open.
 The comparison's `physical_timing_qualified` and `production_qualified` flags remain false;
 these are nominal-clock physical observations, not calibrated product-deadline
 qualification. They do not establish universal parity or general SMP qualification.

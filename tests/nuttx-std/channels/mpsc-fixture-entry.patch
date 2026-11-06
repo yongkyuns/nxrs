@@ -1,0 +1,72 @@
+--- a/tests/mpsc-comparison/rust/src/lib.rs
++++ b/tests/mpsc-comparison/rust/src/lib.rs
+@@ -39,7 +39,7 @@
+     }
+ }
+
+-pub fn execute(args: &[&str]) {
++fn execute(args: &[&str], backend: &str, run: fn(engine::Mode, usize, usize, usize, usize)) {
+     static USED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+     check(
+         !USED.swap(true, core::sync::atomic::Ordering::Relaxed),
+@@ -67,17 +67,16 @@
+             && samples % producers == 0,
+         "configuration",
+     );
+-    match args[1] {
+-        "std" => transport::run_std(mode, producers, payload, capacity, samples),
+-        "native" => {
+-            if payload == 16 {
+-                engine::run::<transport::Native<4>, 4>(mode, producers, capacity, samples);
+-            } else {
+-                engine::run::<transport::Native<16>, 16>(mode, producers, capacity, samples);
+-            }
+-        }
+-        _ => check(false, "backend"),
+-    }
++    check(args[1] == backend, "backend");
++    run(mode, producers, payload, capacity, samples);
++}
++
++pub fn execute_std(args: &[&str]) {
++    execute(args, "std", transport::run_std);
++}
++
++pub fn execute_native(args: &[&str]) {
++    execute(args, "native", transport::run_native);
+ }
+
+ #[cfg(target_os = "none")]
+@@ -112,7 +111,7 @@
+         count += 1;
+     }
+     check(count == 6, "command-count");
+-    execute(&words);
++    execute_native(&words);
+ }
+
+ #[cfg(target_os = "none")]
+--- a/tests/mpsc-comparison/rust/src/main.rs
++++ b/tests/mpsc-comparison/rust/src/main.rs
+@@ -1,5 +1,5 @@
+ fn main() {
+     let args: Vec<_> = std::env::args().collect();
+     let words: Vec<_> = args[1..].iter().map(String::as_str).collect();
+-    mpsc_comparison::execute(&words);
++    mpsc_comparison::execute_std(&words);
+ }
+--- a/tests/mpsc-comparison/rust/src/transport.rs
++++ b/tests/mpsc-comparison/rust/src/transport.rs
+@@ -88,3 +88,12 @@
+ pub fn run_std(_: engine::Mode, _: usize, _: usize, _: usize, _: usize) {
+     check(false, "std-not-qualified-on-this-runtime");
+ }
++
++
++pub fn run_native(mode: engine::Mode, n: usize, bytes: usize, capacity: usize, samples: usize) {
++    if bytes == 16 {
++        engine::run::<Native<4>, 4>(mode, n, capacity, samples);
++    } else {
++        engine::run::<Native<16>, 16>(mode, n, capacity, samples);
++    }
++}

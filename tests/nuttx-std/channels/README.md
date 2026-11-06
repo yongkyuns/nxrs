@@ -13,3 +13,13 @@ timeouts, reentrant destruction, unrelated park permits, zero/unbounded channels
 and notification after the completed owner has joined. The host supplies mutual
 exclusion; target interrupt masking and native NuttX parking require separate
 device qualification. No installed SDK is changed.
+
+## Hardware comparison fixture
+
+The [entry-selection patch](mpsc-fixture-entry.patch) applies to the frozen MPSC
+fixture at `a8a1b1baa05aeca76264e882ed31c3b2baa9973d`. Its executable entry selects
+std on NuttX and the native queue on Zephyr. The timed engine, arrival schedules,
+metrics and native adapters remain shared. Retain the older mixed NuttX image
+for its separate native diagnostic; carrying both transports in the measured
+image inflates its memory cost. See the
+[comparison report](../../../docs/std-channel-performance.md).
