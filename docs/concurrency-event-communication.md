@@ -300,9 +300,11 @@ handling remains integrated into the service's one selection point.
 4. Integrate one event-producing HAL and coarse processing service; qualify provider
    cancellation and data normalization before broader migration.
 
-The current `hal/gnss/src/api.rs` still has synchronous `Gnss::fix`; the event-producing
-session described here is not yet implemented. The existing event-demo topology
-remains portability/stress evidence, not the required product decomposition.
+The [GNSS HAL](../hal/gnss/README.md#event-driven-session) implements bounded event
+delivery through `open(sink)` and a session with explicit `request_stop()` and
+`join()`. Its worker mechanics are shared through `driver/acquisition`. The
+existing event-demo topology remains portability/stress evidence, not the
+required product decomposition.
 See [architecture.md](architecture.md) and [event-driven-demo.md](event-driven-demo.md).
 
 Tests must cover typed multi-source delivery, isolated capacity, important-full

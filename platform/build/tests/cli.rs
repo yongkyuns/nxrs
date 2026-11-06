@@ -193,6 +193,161 @@ fn build_paths_are_relative_to_the_selected_root() {
 }
 
 #[test]
+fn malformed_application_metadata_fails_before_build_planning() {
+    let root = fixture();
+    let manifest = root.0.join("app/probe/Cargo.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    for (metadata, expected) in [
+        (
+            "[package.metadata]\nnxrs = \"bad\"\n",
+            "package.metadata.nxrs must be a table",
+        ),
+        (
+            "[package.metadata]\nnxrs = [\"bad\"]\n",
+            "package.metadata.nxrs must be a table",
+        ),
+        (
+            "[package.metadata.nxrs.firmare]\nstack-size = 16384\n",
+            "package.metadata.nxrs.firmare",
+        ),
+        (
+            "[package.metadata.nxrs]\npriority = 80\n",
+            "package.metadata.nxrs.priority",
+        ),
+        (
+            "[package.metadata.nxrs]\nrequired-capabilites = [\"camera\"]\n",
+            "package.metadata.nxrs.required-capabilites",
+        ),
+        (
+            "[package.metadata.nxrs]\nqualification-only = \"true\"\n",
+            "package.metadata.nxrs.qualification-only must be a boolean",
+        ),
+    ] {
+        fs::write(&manifest, format!("{original}\n{metadata}")).unwrap();
+        let output = frontend(
+            &root.0,
+            &root.0,
+            &[
+                "build",
+                "--manifest-path",
+                "app/probe/Cargo.toml",
+                "--profile",
+                "host",
+                "--out",
+                "artifacts",
+                "--dry-run",
+            ],
+        );
+        assert!(output.stdout.is_empty(), "do not publish a defaulted plan");
+        let error = failure(output);
+        assert!(error.contains(expected), "{metadata}: {error}");
+        assert!(!root.0.join("artifacts").exists());
+    }
+}
+
+#[test]
+fn deployment_preflight_rejects_misspelled_requirements_without_evidence() {
+    let root = fixture();
+    let manifest = root.0.join("app/probe/Cargo.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    fs::write(
+        &manifest,
+        format!("{original}\n[package.metadata.nxrs]\nrequired-capabilites = [\"camera\"]\n"),
+    )
+    .unwrap();
+    let output = frontend(
+        &root.0,
+        &root.0,
+        &[
+            "check",
+            "--manifest-path",
+            "app/probe/Cargo.toml",
+            "--profile",
+            "host",
+            "--target-os",
+            env::consts::OS,
+            "--out",
+            "preflight.json",
+        ],
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "do not publish admission evidence"
+    );
+    let error = failure(output);
+    assert!(
+        error.contains("package.metadata.nxrs.required-capabilites"),
+        "{error}"
+    );
+    assert!(!root.0.join("preflight.json").exists());
+}
+
+#[test]
+fn valid_application_metadata_and_qualification_fixture_keep_working() {
+    let root = fixture();
+    let manifest = root.0.join("app/probe/Cargo.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    for (metadata, command) in [
+        ("", "cli_probe"),
+        (
+            "[package.metadata.other_tool]\nfirmare = \"independent\"\n",
+            "cli_probe",
+        ),
+        ("[package.metadata.nxrs]\n", "cli_probe"),
+        (
+            "[package.metadata.nxrs]\nqualification-only = false\n",
+            "cli_probe",
+        ),
+        (
+            "[package.metadata.nxrs]\nrequired-capabilities = []\nqualification-only = true\n\
+             [package.metadata.nxrs.firmware]\ncommand = \"start_probe\"\npriority = 80\nstack-size = 16384\n",
+            "start_probe",
+        ),
+    ] {
+        fs::write(&manifest, format!("{original}\n{metadata}")).unwrap();
+        let output = success(frontend(
+            &root.0,
+            &root.0,
+            &[
+                "build",
+                "--manifest-path",
+                "app/probe/Cargo.toml",
+                "--profile",
+                "host",
+                "--out",
+                "artifacts",
+                "--dry-run",
+            ],
+        ));
+        let plan: Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(plan["bin"], "cli-probe");
+        assert_eq!(plan["command"], command);
+        assert!(!root.0.join("artifacts").exists());
+    }
+
+    // Preserve the real qualification entry, not only a synthetic metadata table.
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let output = success(frontend(
+        &repository,
+        &root.0,
+        &[
+            "build",
+            "--manifest-path",
+            "tests/service-footprint/Cargo.toml",
+            "--profile",
+            env::consts::OS,
+            "--dry-run",
+        ],
+    ));
+    let plan: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(plan["bin"], "cq-scale");
+    assert_eq!(plan["command"], "cq_scale");
+}
+
+#[test]
 fn dry_run_rejects_options_for_another_backend() {
     let root = fixture();
     for profile in ["host", "browser"] {
