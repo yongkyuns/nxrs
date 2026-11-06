@@ -4,7 +4,7 @@
      }
  
      /// Attempts to send a message into the channel.
-+    #[inline(never)]
++    #[cfg_attr(target_os = "nuttx", inline(never))]
      pub(crate) fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
          self.send(msg, None).map_err(|err| match err {
              SendTimeoutError::Disconnected(msg) => TrySendError::Disconnected(msg),
@@ -12,7 +12,7 @@
      }
  
      /// Sends a message into the channel.
-+    #[inline(never)]
++    #[cfg_attr(target_os = "nuttx", inline(never))]
      pub(crate) fn send(
          &self,
          msg: T,
@@ -20,7 +20,7 @@
      }
  
      /// Attempts to receive a message without blocking.
-+    #[inline(never)]
++    #[cfg_attr(target_os = "nuttx", inline(never))]
      pub(crate) fn try_recv(&self) -> Result<T, TryRecvError> {
          let token = &mut Token::default();
  
@@ -28,7 +28,7 @@
      }
  
      /// Receives a message from the channel.
-+    #[inline(never)]
++    #[cfg_attr(target_os = "nuttx", inline(never))]
      pub(crate) fn recv(&self, deadline: Option<Instant>) -> Result<T, RecvTimeoutError> {
          let token = &mut Token::default();
          loop {

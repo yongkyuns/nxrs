@@ -21,6 +21,12 @@ numbers come from the [recorded campaign summary][campaign] at revision
 raw captures are retained privately; the [evidence section](#evidence-and-reproduction)
 distinguishes those reported observations from what this checkout can reproduce.
 
+A subsequent review scoped the unbounded/rendezvous outlining annotations to
+`#[cfg_attr(target_os = "nuttx", inline(never))]`. On NuttX they still resolve to
+`inline(never)`; the runtime implementation bodies are unchanged. No hardware
+rerun accompanies that scope change. All physical numbers below continue to
+describe the recorded campaign above.
+
 ## The path we want to keep simple
 
 A provider waits for device readiness, reads and normalizes the data, then
@@ -82,9 +88,19 @@ APIs; the OS-specific implementation is selected below that boundary. Existing
 application-facing channel API. The complete service path was not physically
 remeasured by this channel fixture.
 
-## What changed underneath the API
+## Why patch std, and what changed?
 
-The investigation found several costs worth addressing independently.
+There are two jobs here. First, the pinned Rust and libc inputs need to match
+NuttX's native layouts and initialization rules. For example, the
+[complete pollfd binding][pollfd-abi] and [std initialization patch][pollfd-init]
+make polling pass a correctly laid out, initialized native object. Those are
+target compatibility fixes. The channel work then makes implementation choices
+for queue coordination, waiting and code placement on this RTOS.
+
+Upstream [bounded channels][mpsc] already use a preallocated buffer of fixed
+size. Keeping queue storage bounded did not require a replacement backend.
+The questions here are how that buffer and its waiters make progress under
+NuttX scheduling, and how much time and memory the channel path uses.
 
 **The queue and its waiters now share one transaction.** The
 [bounded-channel backend][queue-patch] owns its ring and waiter lists in Rust.
@@ -95,13 +111,13 @@ while its owner is preempted. Waiting, native notification and message
 destruction happen after the guard is released. Moving a payload still takes
 work inside that transaction, so payload size belongs in the timing budget.
 
-**Sleeping has an explicit notification contract.** The [NuttX parker][parker]
-uses a native semaphore with one coalesced permit: repeated notifications do not
-build an unbounded notification count. Timed waits use a monotonic deadline and
-retry interrupted waits. A retained thread handle keeps notification storage
-alive even if the completed receiver exits before the sender finishes waking it.
-This is part of preserving ownership and wakeup behavior, as well as reducing
-work on the handoff path.
+**Sleeping uses a native NuttX notification path.** The [NuttX parker][parker]
+implements std's existing [single-permit contract][park] with a native semaphore:
+repeated notifications coalesce. Timed waits use a monotonic deadline and retry
+interrupted waits. A retained thread handle keeps notification storage alive
+even if the completed receiver exits before the sender finishes waking it.
+The implementation changes how this OS sleeps and wakes while preserving that
+notification contract.
 
 **The voluntary switch uses a direct native entry where qualified.** The
 [ESP32-S3 switch patch][switch] builds the full native context and shares the
@@ -113,10 +129,23 @@ syscall path.
 **Code placement and inlining affect the result.** Putting frequently executed
 synchronization code in internal instruction RAM, or IRAM, avoids depending on
 flash-cache behavior for those operations. Keeping unbounded and rendezvous
-operations out of line also avoids copying their algorithms into bounded
-callers through flavor dispatch. The [SDK patch description][std-patches]
+operations out of line on NuttX also avoids copying their algorithms into
+bounded callers through flavor dispatch. The [SDK patch description][std-patches]
 records that separation. These are changes beneath the API, with real linked
 code and shared-SRAM costs to account for.
+
+The new queue and parker are selected only for `target_os = "nuttx"`. The
+[unbounded][unbounded-boundaries] and [rendezvous][rendezvous-boundaries]
+outlining annotations now use that same condition, leaving those flavors'
+algorithms upstream. [SDK preparation][sdk] patches a private source copy;
+normal host builds continue using their prebuilt std. These gates limit where
+the new implementation runs; they do not establish performance on other targets
+or every channel flavor.
+
+The hardware tables describe the combined configuration. They do not isolate
+the timing or CPU contribution of the queue replacement from the parker,
+context switch and placement changes. The separate footprint controls below
+answer narrower questions about linked memory costs.
 
 None of this removes the scheduler from event delivery. A send can wake another
 thread, that thread can preempt the sender, and the receiver can wait behind
@@ -355,8 +384,11 @@ reproduction boundaries:
 The host runner verifies the queue patch, copies a prepared SDK privately,
 changes only the module selector for the test, rebuilds std, and checks that
 Cargo compiled the actual native queue body. Its host lock and parking do not
-qualify target interrupt exclusion or NuttX semaphore behavior. With a prepared
-SDK from the normal frontend and a new output directory, run:
+qualify target interrupt exclusion or NuttX semaphore behavior. These are
+semantic controls, not host performance comparisons; the unbounded/rendezvous
+checks establish basic compatibility, without measuring those flavors' timing
+or memory costs. With a prepared SDK from the normal frontend and a new output
+directory, run:
 
 ```sh
 python3 tests/nuttx-std/channels/run.py \
@@ -399,8 +431,14 @@ device restoration and test-image provenance details.
 [communication]: concurrency-event-communication.md
 [owner]: ../tests/nuttx-std/wifi/README.md
 [sync-channel]: https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+[mpsc]: https://doc.rust-lang.org/std/sync/mpsc/
+[park]: https://doc.rust-lang.org/std/thread/fn.park.html
+[pollfd-abi]: ../upstream/libc/patches/0001-nuttx-pollfd-abi.patch
+[pollfd-init]: ../upstream/rust-std/patches/0001-native-pollfd-initialization.patch
 [queue-patch]: ../upstream/rust-std/patches/0007-nuttx-bounded-channel.patch
 [parker]: ../upstream/rust-std/patches/0002-nuttx-parker.patch
+[unbounded-boundaries]: ../upstream/rust-std/patches/0010-unbounded-operation-boundaries.patch
+[rendezvous-boundaries]: ../upstream/rust-std/patches/0011-rendezvous-operation-boundaries.patch
 [switch]: ../upstream/nuttx/patches/0106-esp32s3-direct-voluntary-switch.patch
 [std-patches]: ../upstream/rust-std/README.md
 [phase-patch]: ../tests/nuttx-std/channels/mpsc-fixture-phase.patch

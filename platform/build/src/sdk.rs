@@ -361,6 +361,103 @@ fn local_libc_lock(text: &str, version: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_outlining_is_selected_only_for_nuttx() {
+        // Compile the actual patch annotations, not a rebuilt std. no_core lets
+        // real target configurations select cfgs without foreign sysroots or
+        // linkers; the original unconditional annotation is a regression control.
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let patches = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../upstream/rust-std/patches");
+        let annotation =
+            regex::Regex::new(r"(?m)^\+\s+(#\[[^\n]+\])\n +pub\(crate\) fn (\w+)\(").unwrap();
+        let mut source = String::from(
+            r#"#![feature(no_core, lang_items)]
+#![allow(internal_features)]
+#![no_core]
+#[lang = "pointee_sized"] pub trait PointeeSized {}
+#[lang = "meta_sized"] pub trait MetaSized: PointeeSized {}
+#[lang = "sized"] pub trait Sized: MetaSized {}
+#[no_mangle]
+#[inline(never)]
+pub extern "C" fn unconditional_control() {}
+#[no_mangle]
+pub extern "C" fn upstream_control() {}
+"#,
+        );
+        let mut symbols = vec![];
+        for (flavor, patch) in [
+            ("list", "0010-unbounded-operation-boundaries.patch"),
+            ("zero", "0011-rendezvous-operation-boundaries.patch"),
+        ] {
+            let text = read(&patches.join(patch)).unwrap();
+            let operations = annotation.captures_iter(&text).collect::<Vec<_>>();
+            assert_eq!(operations.len(), 4, "{patch}: expected four operations");
+            for operation in operations {
+                assert!(["try_send", "send", "try_recv", "recv"].contains(&&operation[2]));
+                let symbol = format!("{flavor}_{}", &operation[2]);
+                source.push_str(&format!(
+                    "{}\n#[no_mangle]\npub extern \"C\" fn {symbol}() {{}}\n",
+                    &operation[1]
+                ));
+                symbols.push(symbol);
+            }
+        }
+        let input = temp.0.join("channel_scope.rs");
+        fs::write(&input, source).unwrap();
+        let definitions = regex::Regex::new(r"(?m)^define [^\n]*@(\w+)\([^\n]* #(\d+) \{").unwrap();
+        let attributes = regex::Regex::new(r"(?m)^attributes #(\d+) = \{([^\n]*)\}").unwrap();
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        for (target, nuttx) in [
+            ("x86_64-unknown-linux-gnu", false),
+            ("x86_64-apple-darwin", false),
+            ("x86_64-pc-windows-msvc", false),
+            ("riscv32imac-unknown-nuttx-elf", true),
+        ] {
+            let ir = temp.0.join(format!("{target}.ll"));
+            let result = Command::new(&rustc)
+                .arg(&input)
+                .args([
+                    "--crate-type=lib",
+                    "--edition=2021",
+                    "--emit=llvm-ir",
+                    "-Copt-level=0",
+                    "--target",
+                    target,
+                    "-o",
+                ])
+                .arg(&ir)
+                .env("RUSTC_BOOTSTRAP", "1")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{target}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let ir = read(&ir).unwrap();
+            let groups = attributes
+                .captures_iter(&ir)
+                .map(|capture| {
+                    (
+                        capture[1].to_owned(),
+                        capture[2].split_ascii_whitespace().any(|s| s == "noinline"),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let outlined = definitions
+                .captures_iter(&ir)
+                .map(|capture| (capture[1].to_owned(), groups[&capture[2]]))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            assert_eq!(outlined.len(), 10, "{target}: missing compiler definitions");
+            assert!(outlined["unconditional_control"], "{target}: old behavior");
+            assert!(!outlined["upstream_control"], "{target}: upstream behavior");
+            for symbol in &symbols {
+                assert_eq!(outlined[symbol], nuttx, "{target}: {symbol}");
+            }
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_private_sdk_cannot_rewrite_an_external_lockfile() {
