@@ -7,9 +7,36 @@ use crate::{
 use serde_json::{json, Value};
 use std::path::Path;
 
+/// Validate application metadata before optional fields can silently fall back.
+pub(crate) fn validate_metadata(app: &Value) -> Result<()> {
+    if let Some(nxrs) = app.pointer("/package/metadata/nxrs") {
+        let fields = nxrs
+            .as_object()
+            .ok_or("package.metadata.nxrs must be a table")?;
+        if let Some(key) = fields.keys().find(|key| {
+            !matches!(
+                key.as_str(),
+                "firmware" | "required-capabilities" | "qualification-only"
+            )
+        }) {
+            return Err(format!(
+                "unknown application metadata field package.metadata.nxrs.{key}"
+            ));
+        }
+        if fields
+            .get("qualification-only")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err("package.metadata.nxrs.qualification-only must be a boolean".into());
+        }
+    }
+    Ok(())
+}
+
 pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result<Value> {
     let path = path.canonicalize().map_err(|e| e.to_string())?;
     let app = manifest(&path)?;
+    validate_metadata(&app)?;
     let hal = root.join("hal").canonicalize().map_err(|e| e.to_string())?;
     if let Some(deps) = app["dependencies"].as_object() {
         for (alias, dep) in deps {

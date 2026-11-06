@@ -43,8 +43,13 @@ the Emscripten thread qualification; hardware HALs are unbound. Stock
 The application's firmware metadata table owns entry facts: binary, command,
 priority and stack size. Optional `required-capabilities` metadata supplies early
 admission checks; Cargo dependencies select components. App/service source and
-manifests stay platform-free. Declarative
-profiles under `platform/profiles` and `platform/nuttx/platforms` select hardware
+manifests stay platform-free. Application-entry metadata under
+`package.metadata.nxrs` accepts `firmware`, `required-capabilities`, and the boolean
+`qualification-only` fixture marker. Build planning and deployment preflight both
+validate this parent table and reject unknown fields, so misspelled metadata cannot
+silently select firmware defaults or skip capability admission. Other tools' metadata stays
+independent. Declarative profiles under `platform/profiles` and
+`platform/nuttx/platforms` select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 

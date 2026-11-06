@@ -29,6 +29,7 @@ impl App {
             .as_str()
             .ok_or("missing package name")?
             .to_owned();
+        deployment::validate_metadata(&data)?;
         let meta = data
             .pointer("/package/metadata/nxrs/firmware")
             .unwrap_or(&Value::Null);
