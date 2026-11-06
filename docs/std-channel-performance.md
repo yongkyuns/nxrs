@@ -51,10 +51,18 @@ observer. Samples were not pooled.
 Delivery median, p99 and maximum are never higher with std across the matched
 primary cases. Scheduled-release p99 and exploratory threshold miss counts are
 also never higher; both have zero 100 µs misses in the 64-byte/four-producer case.
-The curves still cross: single-producer backpressure p99.9 is 34.1875 versus
-32.5 µs. This is not dominance at every quantile. Normal cases have zero loss;
-payload, per-producer FIFO and joined reclamation pass. Overload admits the same
-message identities, and every admitted message is delivered.
+The curves still cross: primary single-producer backpressure p99.9 is 34.1875
+versus 32.5 µs. The independent CPU-counter image reverses that ranking:
+33.6875 versus 34.25 µs. Retained timestamps locate a 6.5625 µs excess in receiver
+validation after `recv` returns in the primary image, and a 6.9375 µs excess
+between send calls in the counter image. The p99.9-defining primary sample
+waits across that outside-channel pause. Worker source is identical across
+observers. Both pauses occur near 10 ms, consistent with the configured 100-Hz
+interrupt period; the exact IRQ was not recorded. These are real wall delays,
+not subtracted from results. No samples are pooled and no quantile-universal
+claim is made. Normal cases have zero loss; payload, per-producer FIFO and joined
+reclamation pass. Overload admits the same message identities, and every admitted
+message is delivered.
 
 Rust/std uses 3.9–18.3% less whole-core active CPU per delivered message. Every
 std upper observation bound is below the corresponding Zephyr lower bound.
