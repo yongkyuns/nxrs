@@ -35,6 +35,7 @@ PLATFORM_NAMES = {
     "esp32s3-qemu-mock",
     "esp32s3-userled",
     "esp32s3-service-footprint",
+    "esp32s3-sync-iram",
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
@@ -148,6 +149,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-service-footprint": {},
+                            "esp32s3-sync-iram": {},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},

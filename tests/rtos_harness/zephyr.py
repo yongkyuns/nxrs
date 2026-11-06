@@ -4,10 +4,12 @@ import re
 import subprocess
 
 BOARD = 'esp32s3_devkitm/esp32s3/procpu'
-ZEPHYR_SHA = '75f67d766726351b30199f9a2bf55803d717a3be'
+ZEPHYR_VERSION = '4.5.0'
+SDK_VERSION = '1.0.1'
+ZEPHYR_SHA = '41d10b59730406bbab4ca9f1fbbe9e96aafb4966'
 PINS = {
-    'espressif': 'af6cfa2e3e7098b596062ab516b80a48a7ba7332',
-    'xtensa': '3cc9e3a9360be5c96c956dce84064b85439b6769',
+    'espressif': 'cc81db00233af6020f2fea9fbb0d0098fb3d0d86',
+    'xtensa': '60224c27bed1466287f0246ac04c902b92331c29',
 }
 
 
@@ -33,9 +35,9 @@ def check_checkout(path, name, expected=None):
 
 def input_revisions(args):
     zephyr = check_checkout(args.zephyr, 'Zephyr')
-    release = git(args.zephyr, 'rev-parse', 'v4.3.1^{commit}')
+    release = git(args.zephyr, 'rev-parse', f'v{ZEPHYR_VERSION}^{{commit}}')
     if zephyr != release or zephyr != ZEPHYR_SHA:
-        raise ValueError(f'Zephyr must be v4.3.1 at {ZEPHYR_SHA}; got {zephyr}')
+        raise ValueError(f'Zephyr must be v{ZEPHYR_VERSION} at {ZEPHYR_SHA}; got {zephyr}')
     return {'zephyr': zephyr,
             'hal_espressif': check_checkout(args.espressif, 'hal_espressif', PINS['espressif']),
             'hal_xtensa': check_checkout(args.xtensa, 'hal_xtensa', PINS['xtensa'])}

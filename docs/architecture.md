@@ -8,10 +8,11 @@ device access, including the Rust `std` boundary and private device-control
 glue, is defined in [NuttX device access from Rust](nuttx-device-access.md).
 The [roadmap](architecture-and-roadmap.md) describes remaining migrations.
 
-The [concurrency and event communication design discussion](concurrency-event-communication.md)
-records a proposed revision to active ownership and inter-service communication.
-It is intentionally non-normative while the ownership boundaries, wait backend,
-typed-message transport and bulk-data path are still being discussed.
+The [concurrency and event communication guide](concurrency-event-communication.md)
+records the ownership, acquisition and typed-delivery requirements. Multi-queue
+transport and target-specific performance retain explicit qualification
+boundaries. The [std channel performance analysis](std-channel-performance.md)
+explains the current evidence for the bounded single-inbox path.
 
 ## Applications
 
@@ -137,12 +138,12 @@ reproduction steps, sample accuracy, physical FPS and remaining limitations.
 
 ## Event-driven service communication
 
-> **Current implementation, not settled target architecture.** The section below
-> documents the existing event-demo topology and its qualification properties.
-> In particular, the current IMU/GNSS-to-Fusion high-rate message paths should
-> not be generalized into a rule that normal data flow crosses active-object
-> queues. The proposed coarse ownership/control-plane model is discussed in
-> [concurrency and event communication](concurrency-event-communication.md).
+The section below documents the existing event-demo topology. Messages cross
+meaningful ownership boundaries; the demo does not prescribe an active queue
+between every processing stage. The
+[communication guide](concurrency-event-communication.md) defines provider
+acquisition, admission and lifecycle requirements, including separate queues
+where an owner needs independent capacity for different event classes.
 
 Active services use a **single-owner, single-inbox, run-to-completion** execution
 model built on Rust `std` synchronization primitives.

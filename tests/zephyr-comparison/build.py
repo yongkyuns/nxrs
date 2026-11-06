@@ -88,7 +88,7 @@ def config_report(text):
 
 def readelf_for(sdk):
     sdk = Path(sdk).resolve(strict=True)
-    tool = (sdk / 'xtensa-espressif_esp32s3_zephyr-elf' / 'bin' /
+    tool = (sdk / 'gnu' / 'xtensa-espressif_esp32s3_zephyr-elf' / 'bin' /
             'xtensa-espressif_esp32s3_zephyr-elf-readelf')
     if not tool.is_file() or not os.access(tool, os.X_OK):
         raise ValueError(f'expected ESP32-S3 SDK readelf executable is missing: {tool}')

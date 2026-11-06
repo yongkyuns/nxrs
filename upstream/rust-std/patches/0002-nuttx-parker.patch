@@ -1,13 +1,99 @@
---- a/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/pthread.rs
-+++ b/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/pthread.rs
-@@ -27,6 +27,10 @@
-             lock: Mutex::new(),
-             cvar: Condvar::new(),
-         });
+--- /dev/null
++++ b/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/nuttx.rs
+@@ -0,0 +1,96 @@
++//! NuttX single-permit parking using its native, non-cancellation-point waits.
++//! Native negative errors are handled here without POSIX errno/cancellation veneers.
 +
-+        // NuttX libc bindings do not encode its configured static mutex initializer.
-+        #[cfg(target_os = "nuttx")]
-+        Pin::new_unchecked(&mut (*parker).lock).init();
- 
-         Pin::new_unchecked(&mut (*parker).cvar).init();
-     }
++use crate::cell::UnsafeCell;
++use crate::mem::MaybeUninit;
++use crate::pin::Pin;
++use crate::sync::atomic::{
++    AtomicUsize,
++    Ordering::{Acquire, Release},
++};
++use crate::sys::pal::time::{TIMESPEC_MAX, Timespec};
++use crate::time::Duration;
++
++unsafe extern "C" {
++    fn nxsem_wait(sem: *mut libc::sem_t) -> libc::c_int;
++    fn nxsem_post(sem: *mut libc::sem_t) -> libc::c_int;
++    fn sem_init(sem: *mut libc::sem_t, shared: libc::c_int, value: libc::c_uint) -> libc::c_int;
++    fn sem_destroy(sem: *mut libc::sem_t) -> libc::c_int;
++    fn sem_setprotocol(sem: *mut libc::sem_t, protocol: libc::c_int) -> libc::c_int;
++    fn nxsem_clockwait(
++        sem: *mut libc::sem_t,
++        clock: libc::clockid_t,
++        deadline: *const libc::timespec,
++    ) -> libc::c_int;
++}
++
++pub struct Parker {
++    notified: AtomicUsize,
++    semaphore: UnsafeCell<MaybeUninit<libc::sem_t>>,
++}
++unsafe impl Send for Parker {}
++unsafe impl Sync for Parker {}
++
++impl Parker {
++    // The native semaphore address stays stable throughout Thread's lifetime.
++    pub unsafe fn new_in_place(parker: *mut Self) {
++        unsafe {
++            parker.write(Self {
++                notified: AtomicUsize::new(0),
++                semaphore: UnsafeCell::new(MaybeUninit::uninit()),
++            });
++            let sem = (*parker).semaphore.get().cast();
++            assert_eq!(sem_init(sem, 0, 0), 0);
++            // NuttX semaphore.h: SEM_PRIO_NONE = 0. A notification semaphore
++            // has no resource owner and must not perform priority inheritance.
++            assert_eq!(sem_setprotocol(sem, 0), 0);
++        }
++    }
++    fn sem(&self) -> *mut libc::sem_t {
++        self.semaphore.get().cast()
++    }
++
++    pub unsafe fn park(self: Pin<&Self>) {
++        loop {
++            let result = unsafe { nxsem_wait(self.sem()) };
++            if result == 0 {
++                assert_eq!(self.notified.swap(0, Acquire), 1);
++                return;
++            }
++            assert_eq!(result, -libc::EINTR);
++        }
++    }
++    pub unsafe fn park_timeout(self: Pin<&Self>, duration: Duration) {
++        let deadline = Timespec::now(libc::CLOCK_MONOTONIC)
++            .checked_add_duration(&duration)
++            .and_then(|t| t.to_timespec())
++            .unwrap_or(TIMESPEC_MAX);
++        loop {
++            let result = unsafe { nxsem_clockwait(self.sem(), libc::CLOCK_MONOTONIC, &deadline) };
++            if result == 0 {
++                assert_eq!(self.notified.swap(0, Acquire), 1);
++                return;
++            }
++            match -result {
++                libc::EINTR => continue,
++                libc::ETIMEDOUT => return,
++                error => panic!("unexpected sem_clockwait error: {error}"),
++            }
++        }
++    }
++    pub fn unpark(self: Pin<&Self>) {
++        // Every unpark performs a release, including coalesced notifications.
++        // Only false -> true posts. The owner clears notified *after* a native
++        // permit is consumed, so at most one post/permit is outstanding. A
++        // timeout leaves this state intact: a racing post belongs to next park.
++        if self.notified.swap(1, Release) == 0 {
++            assert_eq!(unsafe { nxsem_post(self.sem()) }, 0);
++        }
++    }
++}
++impl Drop for Parker {
++    fn drop(&mut self) {
++        // Thread/Thread handles retain the Parker through in-flight unpark.
++        assert_eq!(unsafe { sem_destroy(self.sem()) }, 0);
++    }
++}

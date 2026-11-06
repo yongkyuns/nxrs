@@ -38,4 +38,6 @@ nxrs_core.o: $(NXRS_SIM_LIB)
 	$(LD) -r --whole-archive $(NXRS_SIM_LIB) --no-whole-archive -o $@
 endif
 
+# Generated only for the std path; core-only qualification has no SDK helpers.
+-include std-native.mk
 include $(APPDIR)/Application.mk

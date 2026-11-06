@@ -16,6 +16,12 @@ that exist; it does not imply that every radio or board is supported.
 Hardware qualification scope, limitations and measured results remain in the
 individual fixture guides and evidence documents linked from the README.
 
+The [event communication guide](concurrency-event-communication.md) explains
+provider ownership, bounded delivery and the owner's wait loop.
+[Measuring Rust std in nxrs's event-driven core](std-channel-performance.md)
+walks through the performance and memory evidence for that model, from channel
+storage and thread stacks to physical handoff measurements and their scope.
+
 The [security design and release requirements](security.md) records the trust
 boundaries, explicit non-FIPS deployment decision and evidence needed for
 authenticated transport, firmware integrity, key lifecycle and protected storage.

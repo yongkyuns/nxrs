@@ -44,6 +44,27 @@ def function_definition(text, signature):
 
 
 class PatchSeriesTests(unittest.TestCase):
+    def test_direct_switch_admission_preserves_other_targets_and_abis(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        header = (source / "arch/xtensa/include/irq.h").read_text()
+        begin = header.index("#if defined(CONFIG_ARCH_CHIP_ESP32S3)")
+        end = header.index("#define up_switch_context", begin)
+        probe = header[begin:end] + "void switch_probe(void) { XTENSA_SWITCH_CONTEXT(); }\n"
+        cases = [((), True), (("-UCONFIG_ARCH_CHIP_ESP32S3",), False),
+                 (("-UCONFIG_BUILD_FLAT",), False), (("-DCONFIG_SMP",), False),
+                 (("-D__XTENSA_CALL0_ABI__",), False)]
+        for overrides, direct in cases:
+            with self.subTest(overrides=overrides):
+                result = subprocess.run(
+                    ["cc", "-E", "-P", "-x", "c", "-DCONFIG_ARCH_CHIP_ESP32S3",
+                     "-DCONFIG_BUILD_FLAT", *overrides, "-"],
+                    input=probe, text=True, capture_output=True, check=True,
+                ).stdout.split("void switch_probe(void)", 1)[1]
+                self.assertEqual("xtensa_switch_context();" in result, direct)
+                self.assertEqual("sys_call0(SYS_switch_context);" in result, not direct)
+
     def test_bluetooth_interface_name_matches_native_adapter_contract(self):
         registration = (ROOT / "external/nuttx/net/netdev/netdev_register.c").read_text()
         self.assertRegex(registration, re.compile(

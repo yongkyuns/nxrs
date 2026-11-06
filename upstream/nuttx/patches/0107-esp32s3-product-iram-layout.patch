@@ -1,0 +1,16 @@
+--- a/boards/xtensa/esp32s3/common/scripts/esp32s3_sections.ld
++++ b/boards/xtensa/esp32s3/common/scripts/esp32s3_sections.ld
+@@ -156,6 +156,8 @@
+     /* Code marked as running out of IRAM */
+ 
+     *(.iram1 .iram1.*)
++#include "product_iram.ld"
++
+     esp32s3_start.*(.literal .text .literal.* .text.*)
+     esp32s3_region.*(.literal .text .literal.* .text.*)
+     *libcoexist.a:(.coexiram .coexiram.*)
+--- /dev/null
++++ b/boards/xtensa/esp32s3/common/scripts/product_iram.ld
+@@ -0,0 +1,2 @@
++/* Product-owned IRAM selectors. Empty unless the product stages a layout.
++ * Keep application identities and runtime behavior out of this file. */

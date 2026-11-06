@@ -35,6 +35,37 @@ fn array(value: &Value, key: &str) -> Result<Vec<String>> {
             .collect(),
     }
 }
+fn iram_layout_source(root: &Path, profile: &Profile) -> Result<Option<PathBuf>> {
+    let Some(layout) = profile.data.get("iram-layout") else {
+        return Ok(None);
+    };
+    if profile.data["target"] != "xtensa-esp32s3-nuttx" {
+        return Err("iram-layout requires an ESP32-S3 target".into());
+    }
+    let layout = layout
+        .as_str()
+        .ok_or("iram-layout must name a linker fragment")?;
+    let directory = root
+        .join("platform/nuttx/linker")
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let source = root
+        .join(layout)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if !source.starts_with(&directory) || source.extension().is_none_or(|x| x != "ld") {
+        return Err("iram-layout must stay under platform/nuttx/linker".into());
+    }
+    Ok(Some(source))
+}
+fn stage_iram_layout(source: &Path, nuttx: &Path) -> Result<Vec<PathBuf>> {
+    let destination = nuttx.join("boards/xtensa/esp32s3/common/scripts/product_iram.ld");
+    if !destination.is_file() {
+        return Err("NuttX is missing the product IRAM linker hook".into());
+    }
+    reuse::copy_if_changed(source, &destination)?;
+    Ok(vec![source.to_path_buf(), destination])
+}
 fn line(key: &str, value: &str) -> String {
     if value == "n" {
         format!("# CONFIG_{key} is not set")
@@ -471,7 +502,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .filter(|n| *n > 0 && *n <= 128)
         .ok_or("build jobs must be between 1 and 128")?;
     let tools = Tools::select(root, target, p)?;
-    let sources: Vec<_> = options
+    let mut sources: Vec<_> = options
         .helpers
         .iter()
         .map(|path| {
@@ -487,9 +518,11 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             return Err(format!("missing native helper: {}", path.display()));
         }
     }
+    let iram_layout = iram_layout_source(root, p)?;
     let out = build::prepare_output(root, out)?;
     for input in std::iter::once(&app.manifest)
         .chain(sources.iter())
+        .chain(iram_layout.iter())
         .chain(signing.iter().flat_map(|s| [&s.key, &s.root]))
     {
         if input
@@ -529,6 +562,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .collect::<Result<Vec<_>>>()?;
     let cache_inputs = json!({
         "profile":p.data,"configuration":values,"application":app.manifest,
+        "iram_layout":iram_layout.as_ref().map(|source| hash(source)).transpose()?,
         "entry":[app.command.clone(),app.priority.to_string(),app.stack.to_string()],
         "features":options.features,"no_default_features":options.no_default_features,
         "size":size,"trace":trace,"immediate":immediate,"abi":abi,
@@ -575,13 +609,16 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         }
         source::stamp(root, &nuttx, &source::revision(root, "nuttx")?)?;
     }
+    let iram_inputs = match iram_layout {
+        Some(source) => stage_iram_layout(&source, &nuttx)?,
+        None => vec![],
+    };
     let entry = apps.join("examples/nxrs_std_app");
     fs::create_dir_all(&entry).map_err(|e| e.to_string())?;
     for file in fs::read_dir(root.join("platform/nuttx/std-app")).map_err(|e| e.to_string())? {
         let file = file.map_err(|e| e.to_string())?;
         reuse::copy_if_changed(&file.path(), &entry.join(file.file_name()))?;
     }
-    let (sources, objects) = stage_helpers(&sources, &entry)?;
     let mut radio_inputs = Vec::new();
     if !radio.is_empty() {
         let (wifi, length, bt) = crate::radio::prepare(root, &out, radio)?;
@@ -654,6 +691,8 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     } else {
         sdk::prepare(root, &original_sysroot, &out, tools.sdk)?
     };
+    sources.extend(sdk::native_sources(&sysroot, &out.join("std-patch.json"))?);
+    let (sources, objects) = stage_helpers(&sources, &entry)?;
     let rustc = sysroot.join("bin/rustc");
     let mut target_arg = PathBuf::from(target);
     if tools.esp {
@@ -1055,6 +1094,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         out.join("provider-selection.json"),
     ];
     inputs.extend(p.sources.clone());
+    inputs.extend(iram_inputs);
     inputs.extend(radio_inputs);
     inputs.extend(sources);
     for file in fs::read_dir(&entry).map_err(|e| e.to_string())? {
@@ -1349,6 +1389,35 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn product_iram_layout_is_staged_and_recorded_without_app_wiring() {
+        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+        let layouts = temp.0.join("platform/nuttx/linker");
+        let native = temp.0.join("nuttx");
+        let staged = native.join("boards/xtensa/esp32s3/common/scripts/product_iram.ld");
+        fs::create_dir_all(&layouts).unwrap();
+        fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        fs::write(&staged, "/* default */").unwrap();
+        let source = layouts.join("sync.ld");
+        fs::write(&source, "*(.text.sync .literal.sync)\n").unwrap();
+        let mut profile = Profile {
+            data: json!({"target":"xtensa-esp32s3-nuttx"}),
+            sources: vec![],
+        };
+        assert!(iram_layout_source(&temp.0, &profile).unwrap().is_none());
+        profile.data["iram-layout"] = json!("platform/nuttx/linker/sync.ld");
+        let selected = iram_layout_source(&temp.0, &profile).unwrap().unwrap();
+        let inputs = stage_iram_layout(&selected, &native).unwrap();
+        assert_eq!(inputs, [source.canonicalize().unwrap(), staged.clone()]);
+        assert_eq!(read(&staged).unwrap(), read(&source).unwrap());
+        profile.data["target"] = json!("thumbv7em-nuttx-eabihf");
+        assert!(iram_layout_source(&temp.0, &profile).is_err());
+        profile.data["target"] = json!("xtensa-esp32s3-nuttx");
+        fs::write(temp.0.join("outside.ld"), "outside").unwrap();
+        profile.data["iram-layout"] = json!("outside.ld");
+        assert!(iram_layout_source(&temp.0, &profile).is_err());
+        assert_eq!(read(&staged).unwrap(), read(&source).unwrap());
+    }
     #[cfg(unix)]
     #[test]
     fn copied_hal_cache_cannot_clean_the_original_worktree() {

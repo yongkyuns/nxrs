@@ -3,6 +3,10 @@
 Portable Rust firmware apps composed from reusable services, with device and
 operating-system I/O behind common HAL contracts.
 
+[Measuring Rust std in nxrs's event-driven core](docs/std-channel-performance.md)
+explains the bounded inbox architecture and its current timing and memory
+evidence on ESP32-S3.
+
 For measured platform tradeoffs on ESP32-S3, start with the independent
 [NuttX, Zephyr and Embassy analysis](docs/rtos-comparison.md). The secondary
 [Rust std footprint analysis](docs/rust-std-footprint.md) examines application

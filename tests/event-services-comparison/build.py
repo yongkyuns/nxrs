@@ -133,7 +133,7 @@ def build(args):
             shutil.copy2(stage/'zephyr/zephyr.elf',out/'app.elf')
             shutil.copy2(stage/'zephyr/zephyr.bin',out/'image.bin')
             shutil.copy2(stage/'zephyr/.config',out/'resolved.config')
-            readelf=args.sdk/'xtensa-espressif_esp32s3_zephyr-elf/bin/xtensa-espressif_esp32s3_zephyr-elf-readelf'
+            readelf=args.sdk/'gnu/xtensa-espressif_esp32s3_zephyr-elf/bin/xtensa-espressif_esp32s3_zephyr-elf-readelf'
         else:
             nuttx=args.nuttx_tree.resolve()/'nuttx';apps=args.nuttx_tree.resolve()/'apps'
             env=os.environ.copy()

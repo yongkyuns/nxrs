@@ -1,0 +1,378 @@
+From: nxrs contributors
+Subject: [PATCH] xtensa/esp32s3: avoid exception dispatch for voluntary switches
+
+Build the native full context directly for ESP32-S3 flat UP windowed-ABI
+calls made with interrupts excluded. Preserve window spilling, general,
+loop, TLS and coprocessor state, scheduler/critical-section commit,
+interrupt-stack ownership and the native full restore. Other targets,
+SMP, protected builds and call0 retain the syscall route.
+
+Keep ordinary interrupt backtraces on their existing EPC source. Only the
+direct entry takes its synthetic resume PC from the saved frame.
+
+--- a/arch/xtensa/include/irq.h
++++ b/arch/xtensa/include/irq.h
+@@ -531,11 +531,21 @@
+ }
+ #endif
+ 
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(CONFIG_BUILD_FLAT) && \
++    !defined(CONFIG_SMP) && !defined(__XTENSA_CALL0_ABI__)
++#ifndef __ASSEMBLY__
++void xtensa_switch_context(void);
++#endif
++#  define XTENSA_SWITCH_CONTEXT() xtensa_switch_context()
++#else
++#  define XTENSA_SWITCH_CONTEXT() sys_call0(SYS_switch_context)
++#endif
++
+ #define up_switch_context(tcb, rtcb)   \
+   do {                                 \
+     if (!up_interrupt_context())       \
+       {                                \
+-        sys_call0(SYS_switch_context); \
++        XTENSA_SWITCH_CONTEXT();       \
+       }                                \
+     UNUSED(rtcb);                      \
+   } while (0)
+--- a/arch/xtensa/src/common/xtensa_irqdispatch.c
++++ b/arch/xtensa/src/common/xtensa_irqdispatch.c
+@@ -44,6 +44,71 @@
+  * Public Functions
+  ****************************************************************************/
+ 
++/* Shared scheduler/address-environment commit for interrupt and cooperative
++ * switches. The outgoing full frame must already be stored in xcp.regs.
++ */
++
++static struct tcb_s *switch_tasks(struct tcb_s **running_task)
++{
++  struct tcb_s *tcb;
++
++  tcb = this_task();
++
++  /* Check for a context switch.  If a context switch occurred, then
++   * current_regs will have a different value than it did on entry.
++   */
++
++  if (*running_task != tcb)
++    {
++#ifdef CONFIG_ARCH_ADDRENV
++      /* Make sure that the address environment for the previously
++       * running task is closed down gracefully (data caches dump,
++       * MMU flushed) and set up the address environment for the new
++       * thread at the head of the ready-to-run list.
++       */
++
++      addrenv_switch(tcb);
++      tcb = this_task();
++#endif
++
++      /* Update scheduler parameters */
++
++      nxsched_switch_context(*running_task, tcb);
++
++      /* Record the new "running" task when context switch occurred.
++       * g_running_tasks[] is only used by assertion logic for reporting
++       * crashes.
++       */
++
++      *running_task = tcb;
++    }
++
++  return tcb;
++}
++
++/* Task-context switches do not enter the CPU exception/IRQ dispatch path.
++ * Keep the same TCB frame ownership and scheduler/critical-section handling.
++ */
++
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(CONFIG_BUILD_FLAT) && \
++    !defined(CONFIG_SMP) && !defined(__XTENSA_CALL0_ABI__)
++uint32_t *xtensa_switch_context_prepare(uint32_t *regs)
++{
++  struct tcb_s **running_task = &g_running_tasks[this_cpu()];
++  struct tcb_s *tcb;
++
++  DEBUGASSERT(!up_interrupt_context());
++  up_set_interrupt_context(true);
++  (*running_task)->xcp.regs = regs;
++  restore_critical_section(this_task(), this_cpu());
++  tcb = switch_tasks(running_task);
++  up_set_interrupt_context(false);
++  regs = tcb->xcp.regs;
++  tcb->xcp.regs = NULL;
++  return regs;
++}
++#endif
++
+ uint32_t *xtensa_irq_dispatch(int irq, uint32_t *regs)
+ {
+   struct tcb_s **running_task = &g_running_tasks[this_cpu()];
+@@ -77,36 +142,7 @@
+   /* Deliver the IRQ */
+ 
+   irq_dispatch(irq, regs);
+-  tcb = this_task();
+-
+-  /* Check for a context switch.  If a context switch occurred, then
+-   * current_regs will have a different value than it did on entry.
+-   */
+-
+-  if (*running_task != tcb)
+-    {
+-#ifdef CONFIG_ARCH_ADDRENV
+-      /* Make sure that the address environment for the previously
+-       * running task is closed down gracefully (data caches dump,
+-       * MMU flushed) and set up the address environment for the new
+-       * thread at the head of the ready-to-run list.
+-       */
+-
+-      addrenv_switch(tcb);
+-      tcb = this_task();
+-#endif
+-
+-      /* Update scheduler parameters */
+-
+-      nxsched_switch_context(*running_task, tcb);
+-
+-      /* Record the new "running" task when context switch occurred.
+-       * g_running_tasks[] is only used by assertion logic for reporting
+-       * crashes.
+-       */
+-
+-      *running_task = tcb;
+-    }
++  tcb = switch_tasks(running_task);
+ 
+   /* Set irq flag */
+ 
+--- a/arch/xtensa/src/common/xtensa.h
++++ b/arch/xtensa/src/common/xtensa.h
+@@ -228,6 +228,7 @@
+ 
+ uint32_t *xtensa_int_decode(uint32_t *cpuints, uint32_t *regs);
+ uint32_t *xtensa_irq_dispatch(int irq, uint32_t *regs);
++uint32_t *xtensa_switch_context_prepare(uint32_t *regs);
+ void xtensa_enable_cpuint(uint32_t *shadow, uint32_t intnum);
+ void xtensa_disable_cpuint(uint32_t *shadow, uint32_t intnum);
+ void xtensa_panic(int xptcode, uint32_t *regs) noreturn_function;
+--- a/arch/xtensa/src/common/xtensa_macros.S
++++ b/arch/xtensa/src/common/xtensa_macros.S
+@@ -164,7 +164,7 @@
+  *
+  ****************************************************************************/
+ 
+-	.macro	exception_backtrace	sa level
++	.macro	exception_backtrace	sa level from_frame=0
+ 
+ #if !defined(__XTENSA_CALL0_ABI__) && defined(CONFIG_XTENSA_INTBACKTRACE)
+ 	l32i    a3, \sa, (4 * REG_A0)    /* Copy pre-exception a0 (return address) */
+@@ -177,7 +177,11 @@
+ 	 * last run instruction.
+ 	 */
+ 
++	.if \from_frame
++	l32i    a0, \sa, (4 * REG_PC)   /* Return address for debug backtrace */
++	.else
+ 	rsr     a0, EPC_1 + \level - 1   /* Return address for debug backtrace */
++	.endif
+ 	movi    a4, 0xc0000000           /* Constant with top 2 bits set (call size) */
+ 	or      a0, a0, a4               /* Set top 2 bits */
+ 	addx2   a0, a4, a0               /* Clear top bit to simulate a call4 size */
+--- a/arch/xtensa/src/common/xtensa_user_handler.S
++++ b/arch/xtensa/src/common/xtensa_user_handler.S
+@@ -313,6 +313,10 @@
+ 	 */
+ 
+ 	mov		a2, RETVAL							/* Switch to the new register save area */
++
++	.global _xtensa_context_return
++	.hidden _xtensa_context_return
++_xtensa_context_return:
+ 
+ 	/* Set PS.EXCM to 1 */
+ 
+--- a/arch/xtensa/src/common/xtensa_context.S
++++ b/arch/xtensa/src/common/xtensa_context.S
+@@ -65,53 +65,13 @@
+ #include "chip.h"
+ #include "syscall.h"
+ #include "xtensa_asm_utils.h"
++#include "xtensa_macros.S"
+ 
+ #if XCHAL_CP_NUM > 0
+ #  include "xtensa_coproc.S"
+ #endif
+ 
+-/****************************************************************************
+- * Public Functions
+- ****************************************************************************/
+-
+-/****************************************************************************
+- * Name: _xtensa_context_save
+- *
+- * Description:
+- *
+- *   NOTE: MUST BE CALLED ONLY BY 'CALL0' INSTRUCTION!
+- *
+- *   This function saves Xtensa processor state.
+- *   It is called directly by interrupt handling logic with interrupts
+- *   disabled.  Registers PC, PS, A0, A1 (SP), A2 and A3 are saved before
+- *   calling this function.
+- *
+- *   The counterpart to this function is _xtensa_context_restore().
+- *
+- * Entry Conditions:
+- *   - A0  = Return address to caller.
+- *   - Other processor state except PC, PS, A0, A1 (SP), A2 and A3 are as at
+- *     the point of interruption.
+- *
+- * Exit conditions:
+- *   - A0  = Return address in caller.
+- *
+- * Assumptions:
+- *   - Caller is expected to have saved PC, PS, A0, A1 (SP), and A2.
+- *   - If windowed ABI, PS.EXCM = 1 (exceptions disabled).
+- *
+- ****************************************************************************/
+-
+-	.section HANDLER_SECTION, "ax"
+-	.global	_xtensa_context_save
+-	.type	_xtensa_context_save, @function
+-
+-	.align	4
+-	.literal_position
+-	.align	4
+-
+-_xtensa_context_save:
+-
++.macro context_save_general
+ 	s32i	a3,  sp, (4 * REG_A3)
+ 	s32i	a4,  sp, (4 * REG_A4)
+ 	s32i	a5,  sp, (4 * REG_A5)
+@@ -152,6 +112,52 @@
+ 	rsr		a3, LCOUNT
+ 	s32i	a3, sp, (4 * REG_LCOUNT)
+ #endif
++
++.endm
++
++/****************************************************************************
++ * Public Functions
++ ****************************************************************************/
++
++/****************************************************************************
++ * Name: _xtensa_context_save
++ *
++ * Description:
++ *
++ *   NOTE: MUST BE CALLED ONLY BY 'CALL0' INSTRUCTION!
++ *
++ *   This function saves Xtensa processor state.
++ *   It is called directly by interrupt handling logic with interrupts
++ *   disabled.  Registers PC, PS, A0, A1 (SP), A2 and A3 are saved before
++ *   calling this function.
++ *
++ *   The counterpart to this function is _xtensa_context_restore().
++ *
++ * Entry Conditions:
++ *   - A0  = Return address to caller.
++ *   - Other processor state except PC, PS, A0, A1 (SP), A2 and A3 are as at
++ *     the point of interruption.
++ *
++ * Exit conditions:
++ *   - A0  = Return address in caller.
++ *
++ * Assumptions:
++ *   - Caller is expected to have saved PC, PS, A0, A1 (SP), and A2.
++ *   - If windowed ABI, PS.EXCM = 1 (exceptions disabled).
++ *
++ ****************************************************************************/
++
++	.section HANDLER_SECTION, "ax"
++	.global	_xtensa_context_save
++	.type	_xtensa_context_save, @function
++
++	.align	4
++	.literal_position
++	.align	4
++
++_xtensa_context_save:
++
++	context_save_general
+ 
+ #ifndef __XTENSA_CALL0_ABI__
+ 	/* To spill the reg windows, temp. need pre-interrupt stack ptr and
+@@ -208,6 +214,7 @@
+ 
+ #endif
+ 
++.Lcontext_save_coprocessors:
+ #if XCHAL_CP_NUM > 0
+ 	xtensa_coproc_savestate
+ #endif
+@@ -312,3 +319,63 @@
+ 
+ 	.size	_xtensa_context_restore, . - _xtensa_context_restore
+ 
++
++/****************************************************************************
++ * Direct voluntary switch for ESP32-S3 flat, UP, windowed-ABI task context.
++ *
++ * The caller already excludes interrupts. Build the SAME full context as an
++ * exception, including coprocessor/TLS/loop state through the native save.
++ * Keep the normal interrupt-stack, debug-frame and full restore machinery.
++ * Only hardware exception entry and generic IRQ vector dispatch are avoided.
++ * Other build/ABI modes keep the existing syscall route.
++ ****************************************************************************/
++
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(CONFIG_BUILD_FLAT) && \
++    !defined(CONFIG_SMP) && !defined(__XTENSA_CALL0_ABI__)
++
++	.section HANDLER_SECTION, "ax"
++	.align 4
++	.literal_position
++	.global xtensa_switch_context
++	.type xtensa_switch_context, @function
++
++/* Registers/ABI state are already spilled by the task entry. Unlike the
++ * exception entry, no EXCM transition or EPC1 preservation is needed.
++ * General/coprocessor snapshots are otherwise exactly the native full frame.
++ */
++	.type _xtensa_context_save_spilled, @function
++_xtensa_context_save_spilled:
++	context_save_general
++	j .Lcontext_save_coprocessors
++	.size _xtensa_context_save_spilled, . - _xtensa_context_save_spilled
++
++	.align 4
++xtensa_switch_context:
++	entry sp, 16
++	SPILL_ALL_WINDOWS
++	addi sp, sp, -XCPTCONTEXT_SIZE
++	s32i a0, sp, (4 * REG_A0)
++	s32i a2, sp, (4 * REG_A2)
++	addi a0, sp, XCPTCONTEXT_SIZE
++	s32i a0, sp, (4 * REG_A1)
++	rsr a0, PS
++	s32i a0, sp, (4 * REG_PS)
++	movi a0, .Lcooperative_resume
++	s32i a0, sp, (4 * REG_PC)
++	call0 _xtensa_context_save_spilled
++
++	mov a12, sp
++#if CONFIG_ARCH_INTERRUPTSTACK > 15
++	setintstack a13 a14
++#endif
++	ps_setup 1 a0
++	exception_backtrace a12 1 1
++	mov ARG1, a12
++	CALL xtensa_switch_context_prepare
++	mov a2, RETVAL
++	call0 _xtensa_context_return
++
++.Lcooperative_resume:
++	retw
++	.size xtensa_switch_context, . - xtensa_switch_context
++#endif

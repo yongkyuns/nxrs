@@ -1,0 +1,600 @@
+--- a/lib/rustlib/src/rust/library/std/src/sync/mpmc/mod.rs
++++ b/lib/rustlib/src/rust/library/std/src/sync/mpmc/mod.rs
+@@ -136,6 +136,7 @@
+ // IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ // DEALINGS IN THE SOFTWARE.
+ 
++#[cfg_attr(target_os = "nuttx", path = "../../sys/sync/mpmc/nuttx/mod.rs")]
+ mod array;
+ mod context;
+ mod counter;
+--- /dev/null
++++ b/lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/mod.rs
+@@ -0,0 +1,571 @@
++//! Bounded channels with one native transaction for the ring and its waiters.
++//! The guard serializes completion, timeout and disconnect. Native notification,
++//! allocation, waiting and message destruction happen after releasing the guard.
++use super::error::*;
++use crate::{
++    cell::UnsafeCell,
++    collections::VecDeque,
++    marker::PhantomData,
++    mem::MaybeUninit,
++    ops::{Deref, DerefMut},
++    ptr,
++    sync::atomic::{AtomicU8, Ordering::{Acquire, Release}},
++    thread::{self, Thread},
++    time::Instant,
++};
++
++#[derive(Debug, Default)]
++pub(crate) struct ArrayToken;
++unsafe extern "C" {
++    fn __rust_nuttx_spin_init(storage: *mut ());
++    fn __rust_nuttx_spin_lock(storage: *mut ()) -> usize;
++    fn __rust_nuttx_spin_unlock(storage: *mut (), flags: usize);
++}
++
++#[derive(Clone, Copy, PartialEq)]
++#[repr(u8)]
++enum Outcome {
++    Pending,
++    Transferred,
++    Disconnected,
++}
++
++// Owned storage lets admission helpers report status without returning T
++// through intermediate enums. A committed output remains owned across unwind.
++struct Packet<T> {
++    value: MaybeUninit<T>,
++    occupied: bool,
++}
++impl<T> Packet<T> {
++    fn empty() -> Self {
++        Self {
++            value: MaybeUninit::uninit(),
++            occupied: false,
++        }
++    }
++    fn new(value: T) -> Self {
++        Self {
++            value: MaybeUninit::new(value),
++            occupied: true,
++        }
++    }
++    fn put(&mut self, value: T) {
++        assert!(!self.occupied);
++        self.value.write(value);
++        self.occupied = true;
++    }
++    fn take(&mut self) -> T {
++        assert!(self.occupied);
++        self.occupied = false;
++        // The live bit is set only after initialization and cleared before
++        // ownership leaves this packet. There is exactly one reader/drop.
++        unsafe { self.value.assume_init_read() }
++    }
++}
++impl<T> Drop for Packet<T> {
++    fn drop(&mut self) {
++        if self.occupied {
++            unsafe { self.value.assume_init_drop() };
++        }
++    }
++}
++
++struct Node<T> {
++    prev: UnsafeCell<*mut Node<T>>,
++    next: UnsafeCell<*mut Node<T>>,
++    listed: UnsafeCell<bool>,
++    outcome: AtomicU8,
++    message: UnsafeCell<Packet<T>>,
++    thread: Thread,
++}
++impl<T> Node<T> {
++    fn new(message: Packet<T>) -> Self {
++        Self {
++            prev: UnsafeCell::new(ptr::null_mut()),
++            next: UnsafeCell::new(ptr::null_mut()),
++            listed: UnsafeCell::new(false),
++            outcome: AtomicU8::new(Outcome::Pending as u8),
++            message: UnsafeCell::new(message),
++            thread: thread::current_or_unnamed(),
++        }
++    }
++    fn outcome(&self) -> Outcome {
++        match self.outcome.load(Acquire) {
++            value if value == Outcome::Transferred as u8 => Outcome::Transferred,
++            value if value == Outcome::Disconnected as u8 => Outcome::Disconnected,
++            _ => Outcome::Pending,
++        }
++    }
++    // SAFETY: the matcher has removed this node and finished every payload/link
++    // access. Retain a cloned Thread for the later notification. The owner may
++    // retire its stack immediately after this store, so no whole-node reference
++    // may remain live across publication (the Thread field is not UnsafeCell).
++    unsafe fn complete(node: *mut Self, outcome: Outcome) {
++        unsafe { (*node).outcome.store(outcome as u8, Release) };
++    }
++    fn pointer(&self) -> *mut Self {
++        (self as *const Self).cast_mut()
++    }
++    fn park(&self, deadline: Option<Instant>) {
++        // This node is created and parked only by its owning thread. The
++        // immutable handle may also be cloned by a matcher under the guard.
++        unsafe {
++            if let Some(end) = deadline {
++                self.thread
++                    .park_timeout(end.saturating_duration_since(Instant::now()));
++            } else {
++                self.thread.park();
++            }
++        }
++    }
++}
++
++struct Waiters<T> {
++    head: *mut Node<T>,
++    tail: *mut Node<T>,
++}
++impl<T> Waiters<T> {
++    fn new() -> Self {
++        Self {
++            head: ptr::null_mut(),
++            tail: ptr::null_mut(),
++        }
++    }
++    // All node access is serialized by the channel guard. Owners keep their
++    // stack packet pinned until completion is observed or removal is joined.
++    unsafe fn push(&mut self, node: *mut Node<T>) {
++        unsafe {
++            *(*node).prev.get() = self.tail;
++            *(*node).next.get() = ptr::null_mut();
++            *(*node).listed.get() = true;
++            if self.tail.is_null() {
++                self.head = node
++            } else {
++                *(*self.tail).next.get() = node
++            }
++            self.tail = node;
++        }
++    }
++    unsafe fn remove(&mut self, node: *mut Node<T>) {
++        unsafe {
++            if !*(*node).listed.get() {
++                return;
++            }
++            let prev = *(*node).prev.get();
++            let next = *(*node).next.get();
++            if prev.is_null() {
++                self.head = next
++            } else {
++                *(*prev).next.get() = next
++            }
++            if next.is_null() {
++                self.tail = prev
++            } else {
++                *(*next).prev.get() = prev
++            }
++            *(*node).listed.get() = false;
++        }
++    }
++    unsafe fn take(&mut self) -> Option<(*mut Node<T>, Thread)> {
++        unsafe {
++            let node = self.head;
++            if node.is_null() {
++                return None;
++            }
++            // Retain the native parker before publishing an outcome. Its
++            // owner may return and exit before the eventual unpark finishes.
++            let notification = (*node).thread.clone();
++            self.remove(node);
++            debug_assert!((*node).outcome() == Outcome::Pending);
++            Some((node, notification))
++        }
++    }
++}
++
++struct Inner<T> {
++    buffer: VecDeque<T>,
++    senders: Waiters<T>,
++    receivers: Waiters<T>,
++    disconnected: bool,
++}
++pub(crate) struct Channel<T> {
++    gate: UnsafeCell<MaybeUninit<[usize; 2]>>,
++    inner: UnsafeCell<Inner<T>>,
++    cap: usize,
++}
++// Queue state and packets are accessed under the native guard, including by
++// owners after every wake. Payload ownership moves exactly once under that guard.
++unsafe impl<T: Send> Send for Channel<T> {}
++unsafe impl<T: Send> Sync for Channel<T> {}
++
++struct Guard<'a, T> {
++    channel: &'a Channel<T>,
++    wake: Option<Thread>,
++    flags: usize,
++    thread: PhantomData<*mut ()>,
++}
++impl<T> Deref for Guard<'_, T> {
++    type Target = Inner<T>;
++    fn deref(&self) -> &Inner<T> {
++        unsafe { &*self.channel.inner.get() }
++    }
++}
++impl<T> DerefMut for Guard<'_, T> {
++    fn deref_mut(&mut self) -> &mut Inner<T> {
++        unsafe { &mut *self.channel.inner.get() }
++    }
++}
++impl<T> Drop for Guard<'_, T> {
++    fn drop(&mut self) {
++        let wake = self.wake.take();
++        unsafe { __rust_nuttx_spin_unlock(self.channel.gate.get().cast(), self.flags) };
++        // No packet access follows publication. Only this retained thread
++        // handle crosses unlock; another CPU may already retire the packet.
++        if let Some(thread) = wake {
++            thread.unpark();
++        }
++    }
++}
++
++// A reservation borrows the guard and does not change queue/waiter state.
++// Ownership moves only at write, while the same native guard is still held.
++enum SendSlot<'a, T> {
++    Buffer(&'a mut VecDeque<T>),
++    Receiver {
++        waiters: &'a mut Waiters<T>,
++        wake: &'a mut Option<Thread>,
++    },
++}
++impl<T> SendSlot<'_, T> {
++    fn write(self, msg: T) {
++        match self {
++            Self::Buffer(buffer) => {
++                // Admission established spare preallocated capacity. The
++                // exclusive slot borrow prevents that capacity changing.
++                buffer.push_back(msg);
++            }
++            Self::Receiver { waiters, wake } => {
++                let (node, notification) = unsafe { waiters.take() }.unwrap();
++                *wake = Some(notification);
++                unsafe {
++                    (*(*node).message.get()).put(msg);
++                    Node::complete(node, Outcome::Transferred);
++                };
++            }
++        }
++    }
++}
++// A readable slot borrows the same guard through extraction and refill.
++// Returning T directly avoids staging every ready receive through Packet<T>.
++struct RecvSlot<'a, T> {
++    buffer: &'a mut VecDeque<T>,
++    senders: &'a mut Waiters<T>,
++    wake: &'a mut Option<Thread>,
++}
++impl<T> RecvSlot<'_, T> {
++    fn read(self) -> T {
++        // The slot established a nonempty, preallocated buffer under this
++        // guard. Refilling uses its vacated capacity and cannot allocate.
++        let msg = self.buffer.pop_front().unwrap();
++        if let Some((node, notification)) = unsafe { self.senders.take() } {
++            *self.wake = Some(notification);
++            self.buffer.push_back(unsafe { (*(*node).message.get()).take() });
++            unsafe { Node::complete(node, Outcome::Transferred) };
++        }
++        msg
++    }
++}
++impl<T> Guard<'_, T> {
++    fn recv_slot(&mut self) -> Result<RecvSlot<'_, T>, TryRecvError> {
++        let inner = unsafe { &mut *self.channel.inner.get() };
++        if inner.buffer.is_empty() {
++            return Err(if inner.disconnected {
++                TryRecvError::Disconnected
++            } else {
++                TryRecvError::Empty
++            });
++        }
++        Ok(RecvSlot {
++            buffer: &mut inner.buffer,
++            senders: &mut inner.senders,
++            wake: &mut self.wake,
++        })
++    }
++    fn send_slot(&mut self) -> Result<SendSlot<'_, T>, TrySendError<()>> {
++        // This is the same protected access as DerefMut, split into queue
++        // state and the guard's deferred-notification field for the slot.
++        let inner = unsafe { &mut *self.channel.inner.get() };
++        if inner.disconnected {
++            return Err(TrySendError::Disconnected(()));
++        }
++        if inner.buffer.is_empty() && !inner.receivers.head.is_null() {
++            return Ok(SendSlot::Receiver {
++                waiters: &mut inner.receivers,
++                wake: &mut self.wake,
++            });
++        }
++        if inner.buffer.len() == self.channel.cap {
++            return Err(TrySendError::Full(()));
++        }
++        Ok(SendSlot::Buffer(&mut inner.buffer))
++    }
++}
++
++struct Registration<'a, T> {
++    channel: &'a Channel<T>,
++    node: &'a Node<T>,
++    sending: bool,
++    armed: bool,
++}
++impl<T> Drop for Registration<'_, T> {
++    fn drop(&mut self) {
++        if self.armed {
++            let mut inner = self.channel.lock();
++            unsafe {
++                if self.sending {
++                    inner.senders.remove(self.node.pointer())
++                } else {
++                    inner.receivers.remove(self.node.pointer())
++                }
++            }
++        }
++    }
++}
++
++impl<T> Channel<T> {
++    pub(crate) fn with_capacity(cap: usize) -> Self {
++        assert!(cap > 0);
++        let buffer = VecDeque::with_capacity(cap);
++        let gate = UnsafeCell::new(MaybeUninit::<[usize; 2]>::uninit());
++        unsafe { __rust_nuttx_spin_init(gate.get().cast()) };
++        Self {
++            gate,
++            inner: UnsafeCell::new(Inner {
++                buffer,
++                senders: Waiters::new(),
++                receivers: Waiters::new(),
++                disconnected: false,
++            }),
++            cap,
++        }
++    }
++    fn lock(&self) -> Guard<'_, T> {
++        let flags = unsafe { __rust_nuttx_spin_lock(self.gate.get().cast()) };
++        Guard {
++            channel: self,
++            wake: None,
++            flags,
++            thread: PhantomData,
++        }
++    }
++    pub(crate) fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
++        let mut inner = self.lock();
++        match inner.send_slot() {
++            Ok(slot) => {
++                slot.write(msg);
++                Ok(())
++            }
++            Err(TrySendError::Disconnected(())) => Err(TrySendError::Disconnected(msg)),
++            Err(TrySendError::Full(())) => Err(TrySendError::Full(msg)),
++        }
++    }
++    pub(crate) fn try_recv(&self) -> Result<T, TryRecvError> {
++        let mut inner = self.lock();
++        match inner.recv_slot() {
++            Ok(slot) => Ok(slot.read()),
++            Err(error) => Err(error),
++        }
++    }
++    pub(crate) fn send(
++        &self,
++        msg: T,
++        deadline: Option<Instant>,
++    ) -> Result<(), SendTimeoutError<T>> {
++        let msg = {
++            let mut inner = self.lock();
++            match inner.send_slot() {
++                Ok(slot) => {
++                    slot.write(msg);
++                    return Ok(());
++                }
++                Err(TrySendError::Disconnected(())) => {
++                    return Err(SendTimeoutError::Disconnected(msg));
++                }
++                Err(TrySendError::Full(())) => msg,
++            }
++        };
++        let node = Node::new(Packet::new(msg));
++        let mut registration = Registration {
++            channel: self,
++            node: &node,
++            sending: true,
++            armed: false,
++        };
++        let expired = deadline.is_some_and(|d| Instant::now() >= d);
++        let mut inner = self.lock();
++        match inner.send_slot() {
++            Ok(slot) => {
++                slot.write(unsafe { (*node.message.get()).take() });
++                return Ok(());
++            }
++            Err(TrySendError::Disconnected(())) => {
++                drop(inner);
++                return Err(SendTimeoutError::Disconnected(unsafe {
++                    (*node.message.get()).take()
++                }));
++            }
++            Err(TrySendError::Full(())) => {}
++        }
++        if expired {
++            drop(inner);
++            return Err(SendTimeoutError::Timeout(unsafe {
++                (*node.message.get()).take()
++            }));
++        }
++        unsafe { inner.senders.push(node.pointer()) };
++        registration.armed = true;
++        drop(inner);
++        loop {
++            node.park(deadline);
++            let outcome = node.outcome();
++            if outcome != Outcome::Pending {
++                registration.armed = false;
++                return match outcome {
++                    Outcome::Transferred => Ok(()),
++                    Outcome::Disconnected => Err(SendTimeoutError::Disconnected(unsafe {
++                        (*node.message.get()).take()
++                    })),
++                    Outcome::Pending => unreachable!(),
++                };
++            }
++            let expired = deadline.is_some_and(|d| Instant::now() >= d);
++            if !expired {
++                continue;
++            }
++            let mut inner = self.lock();
++            let outcome = node.outcome();
++            unsafe { inner.senders.remove(node.pointer()) };
++            registration.armed = false;
++            drop(inner);
++            return match outcome {
++                Outcome::Transferred => Ok(()),
++                Outcome::Disconnected => Err(SendTimeoutError::Disconnected(unsafe {
++                    (*node.message.get()).take()
++                })),
++                Outcome::Pending => Err(SendTimeoutError::Timeout(unsafe {
++                    (*node.message.get()).take()
++                })),
++            };
++        }
++    }
++    pub(crate) fn recv(&self, deadline: Option<Instant>) -> Result<T, RecvTimeoutError> {
++        {
++            let mut inner = self.lock();
++            match inner.recv_slot() {
++                Ok(slot) => return Ok(slot.read()),
++                Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
++                Err(TryRecvError::Empty) => {}
++            }
++        }
++        let node = Node::new(Packet::empty());
++        let mut registration = Registration {
++            channel: self,
++            node: &node,
++            sending: false,
++            armed: false,
++        };
++        let expired = deadline.is_some_and(|d| Instant::now() >= d);
++        let mut inner = self.lock();
++        match inner.recv_slot() {
++            Ok(slot) => {
++                let msg = slot.read();
++                drop(inner);
++                return Ok(msg);
++            }
++            Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
++            Err(TryRecvError::Empty) => {}
++        }
++        if expired {
++            return Err(RecvTimeoutError::Timeout);
++        }
++        unsafe { inner.receivers.push(node.pointer()) };
++        registration.armed = true;
++        drop(inner);
++        loop {
++            node.park(deadline);
++            let outcome = node.outcome();
++            if outcome != Outcome::Pending {
++                registration.armed = false;
++                return match outcome {
++                    Outcome::Transferred => Ok(unsafe { (*node.message.get()).take() }),
++                    Outcome::Disconnected => Err(RecvTimeoutError::Disconnected),
++                    Outcome::Pending => unreachable!(),
++                };
++            }
++            let expired = deadline.is_some_and(|d| Instant::now() >= d);
++            if !expired {
++                continue;
++            }
++            let mut inner = self.lock();
++            let outcome = node.outcome();
++            unsafe { inner.receivers.remove(node.pointer()) };
++            registration.armed = false;
++            drop(inner);
++            return match outcome {
++                Outcome::Transferred => Ok(unsafe { (*node.message.get()).take() }),
++                Outcome::Disconnected => Err(RecvTimeoutError::Disconnected),
++                Outcome::Pending => Err(RecvTimeoutError::Timeout),
++            };
++        }
++    }
++    fn disconnect(&self, receivers: bool) -> bool {
++        let mut inner = self.lock();
++        let changed = !inner.disconnected;
++        inner.disconnected = true;
++        let discarded = if receivers {
++            Some(crate::mem::take(&mut inner.buffer))
++        } else {
++            None
++        };
++        drop(inner);
++        loop {
++            let mut inner = self.lock();
++            let selected = unsafe {
++                if receivers {
++                    inner.senders.take()
++                } else {
++                    inner.receivers.take()
++                }
++            };
++            if let Some((node, wake)) = selected {
++                inner.wake = Some(wake);
++                unsafe { Node::complete(node, Outcome::Disconnected) };
++            } else {
++                break;
++            }
++        }
++        drop(discarded);
++        changed
++    }
++    pub(crate) fn disconnect_senders(&self) -> bool {
++        self.disconnect(false)
++    }
++    pub(crate) unsafe fn disconnect_receivers(&self) -> bool {
++        self.disconnect(true)
++    }
++    pub(crate) fn capacity(&self) -> Option<usize> {
++        Some(self.cap)
++    }
++    pub(crate) fn len(&self) -> usize {
++        self.lock().buffer.len()
++    }
++    pub(crate) fn is_empty(&self) -> bool {
++        self.len() == 0
++    }
++    pub(crate) fn is_full(&self) -> bool {
++        self.len() == self.cap
++    }
++    pub(crate) fn is_disconnected(&self) -> bool {
++        self.lock().disconnected
++    }
++}
+--- /dev/null
++++ b/lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c
+@@ -0,0 +1,13 @@
++/* Header ABI translation only; all queue behavior is Rust. */
++#include <stdint.h>
++#include <nuttx/spinlock.h>
++_Static_assert(sizeof(spinlock_t) <= 2 * sizeof(uintptr_t), "spinlock storage size");
++_Static_assert(_Alignof(spinlock_t) <= _Alignof(uintptr_t), "spinlock storage alignment");
++_Static_assert(sizeof(irqstate_t) <= sizeof(uintptr_t), "interrupt state ABI");
++void __rust_nuttx_spin_init(void *storage) { spin_lock_init((spinlock_t *)storage); }
++uintptr_t __rust_nuttx_spin_lock(void *storage) {
++  return (uintptr_t)spin_lock_irqsave((volatile spinlock_t *)storage);
++}
++void __rust_nuttx_spin_unlock(void *storage, uintptr_t flags) {
++  spin_unlock_irqrestore((volatile spinlock_t *)storage, (irqstate_t)flags);
++}
