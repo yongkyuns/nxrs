@@ -1,0 +1,30 @@
+--- a/tests/mpsc-comparison/rust/src/engine.rs
++++ b/tests/mpsc-comparison/rust/src/engine.rs
+@@ -284,17 +284,20 @@
+             }
+             offer(ctx, role, WARM + index, planned, ctx.mode.blocking());
+         }
++        p::gate_post(PRODUCED);
++    }
++    // The controller closes timing/counters before releasing RETIRE. Endpoint
++    // diagnostics must not delay delivery of a producer's final message.
++    p::gate_wait(RETIRE + role - 1);
++    let end_priority = p::priority();
++    if role > 1 {
+         check(
+-            p::priority() == SHARED.roles[role].start_priority.load(Acquire),
++            end_priority == SHARED.roles[role].start_priority.load(Acquire),
+             "producer-priority",
+         );
+-        p::gate_post(PRODUCED);
+-    }
+-    SHARED.roles[role]
+-        .end_priority
+-        .store(p::priority(), Release);
++    }
++    SHARED.roles[role].end_priority.store(end_priority, Release);
+     SHARED.roles[role].end_policy.store(p::policy(), Release);
+-    p::gate_wait(RETIRE + role - 1);
+ }
+ pub fn run<C: Channel<W>, const W: usize>(
+     mode: Mode,

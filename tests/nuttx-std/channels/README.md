@@ -23,3 +23,10 @@ metrics and native adapters remain shared. Retain the older mixed NuttX image
 for its separate native diagnostic; carrying both transports in the measured
 image inflates its memory cost. See the
 [comparison report](../../../docs/std-channel-performance.md).
+
+The [phase-ordering patch](mpsc-fixture-phase.patch) moves endpoint priority and
+policy queries after the existing retirement barrier, once timing and CPU
+counters have closed. Priority validation and joined cleanup remain required.
+Earlier captures include these diagnostics before the final message is received.
+The corrected ordering passed both physical matrices and three fresh boots of
+the four-producer paced case per runtime; see the comparison report.
