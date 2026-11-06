@@ -1,0 +1,262 @@
+{
+  "schema": "channel-progress-physical-campaign-plan-v1",
+  "campaign": "pr255-esp32s3-candidate-13323366472",
+  "artifact": {
+    "workflow_run": 41827567717,
+    "id": 13323366472,
+    "name": "channel-progress-esp32s3-ram-prefix-digest-v1-build-only",
+    "archive_sha256": "590825c94af16032a6ae4c9adf6dc69597f8a585725a7d74e5c7df56de8aabf1",
+    "archive_bytes": 38967155,
+    "archive_members": 337,
+    "expanded_bytes": 455540814,
+    "root_directory": "esp32s3-ram-prefix-digest-v1"
+  },
+  "source": {
+    "head": "499a4a6a18397410c1d5b12d716bd6a1b44bca56",
+    "revision": "9c08fb5ff5ec9237f25340b643cc19b4b2394d01",
+    "tree": "ec57055f6ca9cdd85f233ee6bc2d8560c2232ff2",
+    "input_count": 163,
+    "inventory_sha256": "e48bcabb215f902920a7f998a49b79f2f82e3d01a06ddfa4a117bb53e7f73cef",
+    "inventory_policy": "esp32s3-channel-progress-inputs-v1"
+  },
+  "platform": "esp32s3-service-footprint",
+  "target": "xtensa-esp32s3-nuttx",
+  "boot_image_profile": "ram-prefix-digest-v1",
+  "flash_bytes": 16777216,
+  "builds": [
+    {
+      "mode": "direct-reserved",
+      "build_id": "e71b25d59eae16f9f82efd9d039da9a6269010986bc60fb12380d55e5d4376f0",
+      "build_receipt_sha256": "befbb8209c4a11577145a3ed004e449936fb03914966f73688dbb8c3ff5e87ef",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "dfbec267f7900135962c98f36805c0f4438de9dee7cb44e5407a60746fb23071",
+      "image_bytes": 16777216,
+      "original_image_sha256": "7c0ca15689c05e2c1f38ac24233eaad700e7069919a57150b383faf2e1a9d02a"
+    },
+    {
+      "mode": "direct-published",
+      "build_id": "ecdf1845b6a8b17b20fc6a92a3f35e43ed74174617597fbcd19658da719a4e33",
+      "build_receipt_sha256": "8b9f1761fec941a21cf08dab39f65abeed32ddbe55c38210e115d422a6df619c",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "4a4fb34088f74eb5e58fa9c7e77e16def19f376482c2f38d2a732c447966392c",
+      "image_bytes": 16777216,
+      "original_image_sha256": "e5770f6e559e7b358a69b321781fccb09f44cf79ad0f3520c60dbf0b4ddba4fc"
+    },
+    {
+      "mode": "select-reserved",
+      "build_id": "6eebf4c6cd50939c4d2647e6ef8ae975a3abfd40ed22b3c372646b860f6cb7ea",
+      "build_receipt_sha256": "080a021ae8f4c9d3bcc771f8cb01306f1c170514f93bfccf08dd1ea97ab1098c",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "bf85a077f242eb3274c4863c1166d79142cebf383f0f659ac6d5e1b45e3c699f",
+      "image_bytes": 16777216,
+      "original_image_sha256": "01c0bbbc6731089b2f88bca344f05abf387ac302c31561ba12069d9c8a9bd116"
+    },
+    {
+      "mode": "select-published",
+      "build_id": "6453f4563c515355676de5010d3b1c92c0d504941b9f70f0b0d6fdefc0f21e10",
+      "build_receipt_sha256": "81515acc02be6aaad21c7bc608c925861a8d229ad073700492a0e1a22c24bdb9",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "b49b192c11bd66a3f994d34caab73b1dec80efd754e7273761db7c2219f5b5d2",
+      "image_bytes": 16777216,
+      "original_image_sha256": "866bb2a1bed1ff1d36badf2bc7aecb691824b290950f35a75cc10b11c8566462"
+    },
+    {
+      "mode": "send-reserved",
+      "build_id": "cb7921077e7ff8f2b7bd01d9c8e60bafde255365aacc0226c2b512b2b17a0eb2",
+      "build_receipt_sha256": "c556cf655724fe8f5fbea69f1ac516d293f334f89e000139069d556d84a3f486",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "b04c3249e2947362cb2abf5a1ebdd145a5fd024cf356a2b2c846a952d4619ab0",
+      "image_bytes": 16777216,
+      "original_image_sha256": "e3890fc2bcf0a0e25579aa60cc63ff4bb7efe87e8ac3dc6cb8baaf03f75e2c2e"
+    },
+    {
+      "mode": "send-reclaimed",
+      "build_id": "e46b4a87dd0e2654068d358116ed2e424f0485a58dd964a95cd3fb9a4020b7ac",
+      "build_receipt_sha256": "ddf50585d3c7d785abcec6f56d8f25e4991b8612328260550b65bfb9ec8a3ffd",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "0099d56d6b59d32c7ad5a70b769a558e5e5b65843786529c3f79823b72b0c290",
+      "image_bytes": 16777216,
+      "original_image_sha256": "a055fb743f9ad9601f91478c8255e3d62e1bc72e65ce29c6e08ce35eec42b47e"
+    },
+    {
+      "mode": "std-mutex-suite",
+      "build_id": "dec61f0a3ee30a8226ce7098e61e253d37a075ceb484853b55f62cdea5bc64ec",
+      "build_receipt_sha256": "7dd8bade136ab26d672dc84bf49e51ab8af7ed3cf664bd049b02e3313a830791",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "236b3b277580809b83bb23568c5c3b62e7cdcde9a292a8926e60043d14747034",
+      "image_bytes": 16777216,
+      "original_image_sha256": "cb43491f16343d1b170f1ec1bccd1c61014676484a11d5a2896b4a056767643a"
+    },
+    {
+      "mode": "fifo-channel-suite",
+      "build_id": "3ffbfa8b467f016fa0925d824649b1ed572ca46d9f439239745f0baccc267a78",
+      "build_receipt_sha256": "4770070cb46495be69057b402ddeab25195bb39f85d42bc7ddb454b9d10e2a72",
+      "image_file": "firmware/nuttx/nuttx.rom-digest.bin",
+      "image_sha256": "9559c8a1a5e1a94c80428bcf5de7a6f06986cb3305a7ad0e42eb7660a331cdd9",
+      "image_bytes": 16777216,
+      "original_image_sha256": "da3f44190eb0d6f68f9c7cd9a8794316b41b291795eb864e059bc19a7ce1d930"
+    }
+  ],
+  "cases": [
+    {
+      "index": 1,
+      "family": "crossbeam",
+      "mode": "direct-reserved",
+      "build_mode": "direct-reserved",
+      "run_path": "runs/crossbeam/direct-reserved/run",
+      "expected_no_repair_exit": 2
+    },
+    {
+      "index": 2,
+      "family": "crossbeam",
+      "mode": "direct-published",
+      "build_mode": "direct-published",
+      "run_path": "runs/crossbeam/direct-published/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 3,
+      "family": "crossbeam",
+      "mode": "select-reserved",
+      "build_mode": "select-reserved",
+      "run_path": "runs/crossbeam/select-reserved/run",
+      "expected_no_repair_exit": 2
+    },
+    {
+      "index": 4,
+      "family": "crossbeam",
+      "mode": "select-published",
+      "build_mode": "select-published",
+      "run_path": "runs/crossbeam/select-published/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 5,
+      "family": "crossbeam",
+      "mode": "send-reserved",
+      "build_mode": "send-reserved",
+      "run_path": "runs/crossbeam/send-reserved/run",
+      "expected_no_repair_exit": 2
+    },
+    {
+      "index": 6,
+      "family": "crossbeam",
+      "mode": "send-reclaimed",
+      "build_mode": "send-reclaimed",
+      "run_path": "runs/crossbeam/send-reclaimed/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 7,
+      "family": "std",
+      "mode": "mutex-admit-held",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/mutex-admit-held/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 8,
+      "family": "std",
+      "mode": "mutex-admit-released",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/mutex-admit-released/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 9,
+      "family": "std",
+      "mode": "mutex-take-held",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/mutex-take-held/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 10,
+      "family": "std",
+      "mode": "mutex-take-released",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/mutex-take-released/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 11,
+      "family": "std",
+      "mode": "condvar-wait-publish",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/condvar-wait-publish/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 12,
+      "family": "std",
+      "mode": "condvar-publish-before-wait",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/condvar-publish-before-wait/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 13,
+      "family": "std",
+      "mode": "condvar-close-wait",
+      "build_mode": "std-mutex-suite",
+      "run_path": "runs/std/condvar-close-wait/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 14,
+      "family": "fifo",
+      "mode": "fifo-try-recv-reserved",
+      "build_mode": "fifo-channel-suite",
+      "run_path": "runs/fifo/fifo-try-recv-reserved/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 15,
+      "family": "fifo",
+      "mode": "fifo-try-recv-published",
+      "build_mode": "fifo-channel-suite",
+      "run_path": "runs/fifo/fifo-try-recv-published/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 16,
+      "family": "fifo",
+      "mode": "fifo-select-reserved",
+      "build_mode": "fifo-channel-suite",
+      "run_path": "runs/fifo/fifo-select-reserved/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 17,
+      "family": "fifo",
+      "mode": "fifo-select-published",
+      "build_mode": "fifo-channel-suite",
+      "run_path": "runs/fifo/fifo-select-published/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 18,
+      "family": "fifo",
+      "mode": "fifo-try-send-reserved",
+      "build_mode": "fifo-channel-suite",
+      "run_path": "runs/fifo/fifo-try-send-reserved/run",
+      "expected_no_repair_exit": 0
+    },
+    {
+      "index": 19,
+      "family": "fifo",
+      "mode": "fifo-try-send-reclaimed",
+      "build_mode": "fifo-channel-suite",
+      "run_path": "runs/fifo/fifo-try-send-reclaimed/run",
+      "expected_no_repair_exit": 0
+    }
+  ],
+  "physical_execution_verified": false,
+  "physical_progress_qualified": false,
+  "priority_progress_qualified": false,
+  "physical_timing_qualified": false,
+  "timing_qualified": false,
+  "hard_realtime_bound": false,
+  "production_transport_qualified": false,
+  "scope": "Fixed offline handoff for eight existing candidate images and nineteen one-command fresh-boot cases. Operator records do not independently authenticate devices, flashing, ownership or timing."
+}

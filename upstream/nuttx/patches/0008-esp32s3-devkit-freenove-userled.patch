@@ -70,7 +70,7 @@ new file mode 100644
 +#include <stdbool.h>
 +#include <stdint.h>
 +
-+#include "esp32s3_gpio.h"
++#include "esp_gpio.h"
 +
 +/* Freenove ESP32-S3-WROOM Blink tutorial: active-high onboard LED, GPIO2. */
 +
@@ -78,8 +78,8 @@ new file mode 100644
 +
 +uint32_t board_userled_initialize(void)
 +{
-+  esp32s3_configgpio(FREENOVE_LED_GPIO, INPUT | OUTPUT);
-+  esp32s3_gpiowrite(FREENOVE_LED_GPIO, false);
++  esp_configgpio(FREENOVE_LED_GPIO, INPUT | OUTPUT);
++  esp_gpiowrite(FREENOVE_LED_GPIO, false);
 +  return 1;
 +}
 +
@@ -87,18 +87,18 @@ new file mode 100644
 +{
 +  if (led == 0)
 +    {
-+      esp32s3_gpiowrite(FREENOVE_LED_GPIO, ledon);
++      esp_gpiowrite(FREENOVE_LED_GPIO, ledon);
 +    }
 +}
 +
 +void board_userled_all(uint32_t ledset)
 +{
-+  esp32s3_gpiowrite(FREENOVE_LED_GPIO, (ledset & 1u) != 0);
++  esp_gpiowrite(FREENOVE_LED_GPIO, (ledset & 1u) != 0);
 +}
 +
 +#ifdef CONFIG_USERLED_LOWER_READSTATE
 +void board_userled_getall(uint32_t *ledset)
 +{
-+  *ledset = esp32s3_gpioread(FREENOVE_LED_GPIO) ? 1u : 0u;
++  *ledset = esp_gpioread(FREENOVE_LED_GPIO) ? 1u : 0u;
 +}
 +#endif

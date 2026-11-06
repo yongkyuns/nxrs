@@ -1,0 +1,348 @@
+name: Crossbeam fixed-priority progress witnesses
+
+on:
+  pull_request:
+    paths:
+      - 'tests/channel-progress/**'
+      - 'tests/channel-progress-physical/**'
+      - 'tests/std-channel-perf/native.*'
+      - 'tests/std-channel-perf/rust/src/native.rs'
+      - 'tests/std-channel-perf/build.py'
+      - 'tests/std-channel-perf/prepare-std.py'
+      - 'tests/std-channel-perf/simpleboot_digest.py'
+      - 'tests/std-channel-perf/inspect_esp_image.py'
+      - 'tests/nuttx-std/prepare-std.py'
+      - 'tests/nuttx-std/check-abi.py'
+      - 'tests/nuttx-std/link.py'
+      - 'platform/build/**'
+      - 'upstream/build-patches.json'
+      - '.cargo/config.toml'
+      - 'tests/std-channel-perf/build_inputs.py'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'tools/platform_config.py'
+      - 'tools/apply-nuttx-patches.py'
+      - 'tools/nuttx-version.py'
+      - 'upstream/rust-std/**'
+      - 'upstream/libc/**'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'upstream/nuttx-apps/patches/**'
+      - 'platform/nuttx/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/channel-progress.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/channel-progress/**'
+      - 'tests/channel-progress-physical/**'
+      - 'tests/std-channel-perf/native.*'
+      - 'tests/std-channel-perf/rust/src/native.rs'
+      - 'tests/std-channel-perf/build.py'
+      - 'tests/std-channel-perf/prepare-std.py'
+      - 'tests/std-channel-perf/simpleboot_digest.py'
+      - 'tests/std-channel-perf/inspect_esp_image.py'
+      - 'tests/nuttx-std/**'
+      - 'platform/build/**'
+      - 'upstream/build-patches.json'
+      - '.cargo/config.toml'
+      - 'tests/std-channel-perf/build_inputs.py'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'tools/platform_config.py'
+      - 'tools/apply-nuttx-patches.py'
+      - 'tools/nuttx-version.py'
+      - 'upstream/rust-std/**'
+      - 'upstream/libc/**'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'upstream/nuttx-apps/patches/**'
+      - 'platform/nuttx/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/channel-progress.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: channel-progress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+      - name: Source, evidence and architecture refusal controls
+        run: |
+          python3 -m unittest discover -s tests/channel-progress -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/channel-progress-physical -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/host -p test_architecture.py -v
+          python3 -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+          python3 tools/check-architecture.py
+      - name: Ordinary Crossbeam host smoke and target-claim refusal
+        run: |
+          cargo +1.90.0 fmt --check -p nxrs-channel-progress
+          cargo +1.90.0 test --locked -p nxrs-channel-progress
+          cargo +1.90.0 clippy --locked -p nxrs-channel-progress --all-targets -- -D warnings
+          CARGO_PROFILE_RELEASE_LTO=false cargo +1.90.0 build --locked --release -p nxrs-channel-progress
+          mkdir -p target/channel-progress-host
+          timeout 30 target/release/channel-progress host-functional > target/channel-progress-host/console.log
+          python3 tests/channel-progress/analyze.py target/channel-progress-host/console.log --output target/channel-progress-host/analysis.json
+          if python3 tests/channel-progress/analyze.py target/channel-progress-host/console.log --require-no-repair; then
+            echo 'A host smoke test cannot admit the NuttX priority contract' >&2
+            exit 1
+          fi
+          if target/release/channel-progress select-reserved > target/channel-progress-host/refused-target.log 2>&1; then
+            echo 'Host witness must refuse target qualification' >&2
+            exit 1
+          fi
+          if target/release/channel-progress mutex-admit-held > target/channel-progress-host/refused-mutex-target.log 2>&1; then
+            echo 'Host primitive witness must refuse target qualification' >&2
+            exit 1
+          fi
+          if target/release/channel-progress fifo-select-reserved > target/channel-progress-host/refused-fifo-target.log 2>&1; then
+            echo 'Host FIFO witness must refuse target qualification' >&2
+            exit 1
+          fi
+          git archive --format=tar.gz --output=target/channel-progress-host/source.tar.gz HEAD
+          git rev-parse HEAD > target/channel-progress-host/source-revision.txt
+          sha256sum target/channel-progress-host/source.tar.gz > target/channel-progress-host/source.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: channel-progress-host-functional
+          path: target/channel-progress-host/
+
+  arm:
+    needs: host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Pinned Rust and ARM prerequisites
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs libncurses-dev python3-venv xxd
+          python3 -m venv target/channel-progress-venv
+          target/channel-progress-venv/bin/pip install kconfiglib==14.1.0
+          echo "$GITHUB_WORKSPACE/target/channel-progress-venv/bin" >> "$GITHUB_PATH"
+      - name: Equal FIFO reservation contract, six fresh boots of one exact image
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/channel-progress/fifo/mps2"
+          python3 tests/channel-progress/build.py --platform mps2-an521-mock --mode fifo-channel-suite --out "$out"
+          for mode in fifo-try-recv-reserved fifo-try-recv-published fifo-select-reserved fifo-select-published fifo-try-send-reserved fifo-try-send-reclaimed; do
+            run="$out/cases/$mode/run"
+            python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$run"
+            python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
+              --output "$run/acceptance.json" --require-no-repair
+          done
+          python3 tests/channel-progress/fifo_cohort.py "$out/cases" \
+            --output "$out/cohort.json" --require-no-repair
+          rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
+      - name: Six exact-source cases, each on a fresh single-core NuttX boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in direct-reserved direct-published select-reserved select-published send-reserved send-reclaimed; do
+            out="target/channel-progress/mps2/$mode"
+            python3 tests/channel-progress/build.py --platform mps2-an521-mock --mode "$mode" --out "$out"
+            python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$out/run"
+            case "$mode" in
+              direct-published|select-published|send-reclaimed)
+                python3 tests/channel-progress/analyze.py "$out/run/console.log" --build-receipt "$out/run/build.json" --require-no-repair
+                ;;
+            esac
+            # Both a demonstrated stall and unrepaired completion are valid
+            # diagnostic results. The analyzer records their different gates.
+            # Keep evidence and each image; free only private disposable caches.
+            rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
+          done
+          python3 tests/channel-progress/cohort.py target/channel-progress/mps2 \
+            --output target/channel-progress/mps2/cohort.json
+          # Preserve the complete diagnostic even when the no-repair contract
+          # fails. An invalid/missing/mixed cohort is always a workflow failure.
+          gate=0
+          python3 tests/channel-progress/cohort.py target/channel-progress/mps2 \
+            --output target/channel-progress/mps2/acceptance.json --require-no-repair || gate=$?
+          test "$gate" = 0 || test "$gate" = 2
+      - name: Prewarmed std transfer primitives, one fresh boot per case
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/channel-progress/std-transfer/mps2"
+          python3 tests/channel-progress/build.py --platform mps2-an521-mock --mode std-mutex-suite --out "$out"
+          for mode in mutex-admit-held mutex-admit-released mutex-take-held mutex-take-released condvar-wait-publish condvar-publish-before-wait condvar-close-wait; do
+            run="$out/cases/$mode/run"
+            python3 tests/channel-progress/capture.py qemu --build-directory "$out" --mode "$mode" --output "$run"
+            python3 tests/channel-progress/analyze.py "$run/console.log" --build-receipt "$run/build.json" \
+              --output "$run/acceptance.json" --require-no-repair
+          done
+          python3 tests/channel-progress/std_cohort.py "$out/cases" \
+            --output "$out/cohort.json" --require-no-repair
+          rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
+      - name: Complete source-bound P1 replay with named acceptance gates
+        run: |
+          python3 tests/channel-progress/replay.py target/channel-progress \
+            --output target/channel-progress/replay.json --require-no-repair std fifo
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: channel-progress-arm-diagnostics
+          path: |
+            target/channel-progress/**/build.json
+            target/channel-progress/**/build.log
+            target/channel-progress/mps2/cohort.json
+            target/channel-progress/mps2/acceptance.json
+            target/channel-progress/fifo/mps2/cohort.json
+            target/channel-progress/std-transfer/mps2/cohort.json
+            target/channel-progress/replay.json
+            target/channel-progress/**/run/
+            target/channel-progress/**/crossbeam/*.json
+            target/channel-progress/**/crossbeam/*.toml
+            target/channel-progress/**/crossbeam/*.patch
+            target/channel-progress/**/crossbeam/original/*.crate
+            target/channel-progress/**/prepared/*.json
+            target/channel-progress/**/prepared/fifo-kernel/
+            target/channel-progress/**/firmware/*.json
+            target/channel-progress/**/firmware/*.config
+            target/channel-progress/**/firmware/*.txt
+            target/channel-progress/**/firmware/nuttx/nuttx
+            target/channel-progress/**/workspace/Cargo.*
+
+  esp32s3:
+    name: ESP32-S3 ${{ matrix.boot_image_profile }} (build only)
+    needs: host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - boot_image_profile: platform-default
+            modes: select-reserved select-published std-mutex-suite fifo-channel-suite
+            output_root: target/channel-progress/esp32s3
+            artifact_name: channel-progress-esp32s3-build-only
+          - boot_image_profile: ram-prefix-digest-v1
+            modes: direct-reserved direct-published select-reserved select-published send-reserved send-reclaimed std-mutex-suite fifo-channel-suite
+            output_root: target/channel-progress/esp32s3-ram-prefix-digest-v1
+            artifact_name: channel-progress-esp32s3-ram-prefix-digest-v1-build-only
+    env:
+      BOOT_IMAGE_PROFILE: ${{ matrix.boot_image_profile }}
+      BUILD_MODES: ${{ matrix.modes }}
+      BUILD_ROOT: ${{ matrix.output_root }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Xtensa prerequisites
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 xxd
+          python3 -m venv target/channel-progress-venv
+          target/channel-progress-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/channel-progress-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Hash-pinned Xtensa SDK
+        run: bash tools/install-qemu-tools.sh
+      - name: ESP32-S3 images for the named boot profile (build only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r -a modes <<< "$BUILD_MODES"
+          for mode in "${modes[@]}"; do
+            out="$BUILD_ROOT/$mode"
+            python3 tests/channel-progress/build.py --platform esp32s3-service-footprint \
+              --mode "$mode" --boot-image-profile "$BOOT_IMAGE_PROFILE" --out "$out"
+            rm -rf "$out/prepared/toolchain" "$out/firmware/cargo" "$out/crossbeam/sources"
+          done
+      - name: Verify complete image set and retained profile proof
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path("tests/channel-progress").resolve()))
+          import analyze
+
+          profile = os.environ["BOOT_IMAGE_PROFILE"]
+          root = Path(os.environ["BUILD_ROOT"])
+          expected = {
+              "platform-default": {
+                  "select-reserved", "select-published",
+                  analyze.STD_TRANSFER_BUILD_MODE, analyze.FIFO_BUILD_MODE,
+              },
+              "ram-prefix-digest-v1": (analyze.CHANNEL_MODES - {"host-functional"}) | {
+                  analyze.STD_TRANSFER_BUILD_MODE, analyze.FIFO_BUILD_MODE,
+              },
+          }[profile]
+          requested = os.environ["BUILD_MODES"].split()
+          if len(requested) != len(expected) or set(requested) != expected:
+              raise SystemExit("profile matrix does not select the complete expected mode set")
+          if set(Path("target/channel-progress").iterdir()) != {root}:
+              raise SystemExit("unexpected profile root in ESP artifact")
+          if {path.name for path in root.iterdir()} != expected:
+              raise SystemExit("missing or unexpected ESP image directory")
+          sources = None
+          for mode in sorted(expected):
+              receipt = analyze.build_receipt(root / mode, mode)
+              if (receipt.get("boot_image_profile") != profile
+                      or receipt.get("platform") != "esp32s3-service-footprint"
+                      or receipt.get("target") != "xtensa-esp32s3-nuttx"):
+                  raise SystemExit(f"wrong platform or boot profile: {mode}")
+              if (receipt.get("source_revision") != os.environ["GITHUB_SHA"]
+                      or receipt.get("source_dirty") is not False):
+                  raise SystemExit(f"image does not bind the clean workflow revision: {mode}")
+              if sources is not None and receipt["source_sha256"] != sources:
+                  raise SystemExit(f"source inventory changed between ESP images: {mode}")
+              sources = receipt["source_sha256"]
+              print("CHANNEL_PROGRESS_IMAGE_VERIFIED", profile, mode,
+                    receipt["build_id"], receipt["image_sha256"])
+          print("CHANNEL_PROGRESS_IMAGE_SET_COMPLETE", profile, len(expected))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            target/channel-progress/**/build.json
+            target/channel-progress/**/build.log
+            target/channel-progress/**/crossbeam/*.json
+            target/channel-progress/**/crossbeam/*.toml
+            target/channel-progress/**/crossbeam/*.patch
+            target/channel-progress/**/crossbeam/original/*.crate
+            target/channel-progress/**/prepared/*.json
+            target/channel-progress/**/prepared/fifo-kernel/
+            target/channel-progress/**/firmware/*.json
+            target/channel-progress/**/firmware/*.config
+            target/channel-progress/**/firmware/*.txt
+            target/channel-progress/**/firmware/nuttx/nuttx
+            target/channel-progress/**/firmware/nuttx/nuttx.merged.bin
+            target/channel-progress/**/firmware/nuttx/nuttx.rom-digest.bin
+            target/channel-progress/**/firmware/nuttx/arch/xtensa/src/common/espressif/esp_loader.c
+            target/channel-progress/**/firmware/0107-xtensa-simpleboot-hash-offset.patch
+            target/channel-progress/**/workspace/Cargo.*

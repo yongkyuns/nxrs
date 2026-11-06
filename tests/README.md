@@ -8,6 +8,7 @@ Use a fixture guide for its scope and setup.
 | Event services | Current independent-service comparison across NuttX C/Rust, Zephyr C and Embassy Rust. | [Guide](event-services-comparison/README.md) |
 | Service footprint | Before/after Rust/NuttX runtime entry, worker and queue comparisons. | [Guide](service-footprint/README.md) |
 | Service qualification | Lean C/Rust LED-service image, RAM, delivery, restart and fault qualification. | [Guide](service-qualification/README.md) |
+| Std channel qualification | Verified blocked-receiver measurements and an actual-std fixed-priority progress witness; separate from native queue results. | [Guide](std-channel-perf/README.md) |
 | Arithmetic parity | Arithmetic correctness and compiler/device qualification; supporting developer evidence. | [Guide](arithmetic-parity/README.md) |
 | Historical Zephyr | Older producer/worker/reply workload; keep results separate from event services. | [Guide](zephyr-comparison/README.md) |
 | Historical Embassy | Same older workload with Embassy tasks; keep results separate. | [Guide](embassy-comparison/README.md) |

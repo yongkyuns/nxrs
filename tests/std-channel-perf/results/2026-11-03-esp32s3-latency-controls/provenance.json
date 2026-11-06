@@ -1,0 +1,19 @@
+{
+  "schema": "std-channel-physical-provenance-v1",
+  "pr": 259,
+  "tested_head": "2b84a8b37193fb5839ec9a9a7fa6baad4a28eb53",
+  "ci_checkout_revision": "32dca9f1ff869d27a556c65cbc03f4f58676ac9f",
+  "workflow_run": 41749212399,
+  "artifact_id": 13286185090,
+  "artifact_sha256": "bc584a1f6ae2018dc2ed85f518cbf99e9ea4182da8443921b9c94e5e92d55356",
+  "build_id": "5067c5db0afde2932e79ba446a51bb02201ab35373d5ce45d14d118af1054803",
+  "image_sha256": "7ab92e67f5442d324abeb753266edfac64206230e8ac06972162e17bd0123943",
+  "firmware_inputs_match_count": 127,
+  "all_artifact_hashes_verified": true,
+  "capture_sources_sha256": {
+    "capture.py": "f0e37bf5d23dd5563c91df4224a1808a03668bc07ebdb7cd1dfdad6d607539a0",
+    "analyze.py": "6ba89a8413ed6fb569ab3b4a5697dc6423d3704fa71610eb1c5f5809850a3f27",
+    "phase_analysis.py": "c7ce8533004b0e901aa2a7805d51cc466986ee3d2fdf8a344f4b0850d10624d5",
+    "analyze_alternation.py": "88ba5291ce41ee46e1ba2d8c589700e83499798ed2d675478755d7cdea5f288d"
+  }
+}

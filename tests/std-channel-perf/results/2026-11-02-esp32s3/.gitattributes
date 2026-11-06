@@ -1,0 +1,4 @@
+# Preserve the exact hashed serial and receipt bytes.
+* -text
+*.log -whitespace
+*.patch -whitespace

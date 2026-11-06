@@ -1,0 +1,23 @@
+[package]
+name = "nxrs-event-path-perf"
+version.workspace = true
+edition.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+nxrs-messaging = { path = "../../../shared/messaging" }
+nxrs-imu = { path = "../../../hal/imu" }
+crossbeam-channel = "=0.5.17"
+
+[package.metadata.nxrs.firmware]
+bin = "event-path-perf"
+command = "event_path_perf"
+priority = 100
+stack-size = 65536
+
+[[bin]]
+name = "event-path-perf"
+path = "src/main.rs"
+
+

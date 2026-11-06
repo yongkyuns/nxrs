@@ -34,6 +34,16 @@ and retired investigation tools are not silently renumbered.
 | JPEG capture | 0073–0075, 0079–0085 | Sensor-before-DMA sequencing, bounded JPEG/queue ownership, continuous capture synchronization, configurable VGA capacity, bounded cache work, standard quality control and initialized scalar-control wrappers |
 | Xtensa Espressif interrupt ownership | 0072 | Release NuttX-owned callback adapters after successful interrupt detach; retain them on failure for retry |
 | ESP32-S3 performance accounting | 0076 | Initialize hardware-counter conversion with the actual configured CPU frequency before scheduler accounting |
+| ARMv8-M monotonic time | 0106 | Keep SysTick pending/count snapshots coherent across a wrap and distinguish raw zero from sub-microsecond rounding |
+
+Patch 0106 fixes two ARMv8-M SysTick readout errors exposed by the std-channel
+fixture: combining a pre-wrap count with a post-wrap pending bit, and mistaking
+a positive count rounded to zero microseconds for a reset. Both can move
+`CLOCK_MONOTONIC` backwards. The native regression executes the original and
+patched functions with scripted hardware transitions, including reset and
+callback controls. The fix preserves the existing limitation that one pending
+bit cannot reconstruct multiple wraps during a long interrupt mask; it does not
+establish physical timer accuracy or channel speed.
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps

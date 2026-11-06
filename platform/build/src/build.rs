@@ -140,6 +140,8 @@ pub struct Options {
     pub helpers: Vec<PathBuf>,
     pub enable: Vec<String>,
     pub disable: Vec<String>,
+    /// Integer Kconfig assignments for explicitly selected NuttX experiments.
+    pub integers: Vec<(String, u32)>,
     pub abi: Option<String>,
     pub size: bool,
     pub trace: bool,
@@ -147,7 +149,12 @@ pub struct Options {
 }
 impl Options {
     pub fn validate(&self) -> Result<()> {
-        for symbol in self.enable.iter().chain(&self.disable) {
+        for symbol in self
+            .enable
+            .iter()
+            .chain(&self.disable)
+            .chain(self.integers.iter().map(|(name, _)| name))
+        {
             if !symbol
                 .as_bytes()
                 .first()
@@ -161,6 +168,14 @@ impl Options {
         }
         if let Some(symbol) = self.enable.iter().find(|s| self.disable.contains(s)) {
             return Err(format!("Conflicting Kconfig request: {symbol}"));
+        }
+        for (index, (symbol, _)) in self.integers.iter().enumerate() {
+            if self.enable.contains(symbol)
+                || self.disable.contains(symbol)
+                || self.integers[..index].iter().any(|(key, _)| key == symbol)
+            {
+                return Err(format!("Conflicting Kconfig request: {symbol}"));
+            }
         }
         for feature in &self.features {
             if feature
@@ -201,6 +216,7 @@ impl Options {
             && (!self.helpers.is_empty()
                 || !self.enable.is_empty()
                 || !self.disable.is_empty()
+                || !self.integers.is_empty()
                 || self.abi.is_some()
                 || self.size
                 || self.trace
@@ -399,4 +415,31 @@ pub fn cargo_messages(command: &mut Command, path: &Path) -> Result<()> {
         return Err(format!("Cargo build failed: {status}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod integer_kconfig_controls {
+    use super::Options;
+
+    #[test]
+    fn integer_overrides_are_typed_nuttx_only_and_cannot_conflict() {
+        let mut options = Options::default();
+        options.integers.push(("CMSDK_UART0_TX_IRQ".into(), 48));
+        assert!(options.validate().is_ok());
+        assert!(options.validate_for_backend("nuttx").is_ok());
+        assert!(options.validate_for_backend("linux").is_err());
+
+        options.integers.push(("CMSDK_UART0_TX_IRQ".into(), 49));
+        assert!(options.validate().is_err());
+        options.integers.pop();
+        options.enable.push("CMSDK_UART0_TX_IRQ".into());
+        assert!(options.validate().is_err());
+        options.enable.clear();
+        options.disable.push("CMSDK_UART0_TX_IRQ".into());
+        assert!(options.validate().is_err());
+        options.disable.clear();
+        options.integers.clear();
+        options.integers.push(("bad-name".into(), 48));
+        assert!(options.validate().is_err());
+    }
 }
