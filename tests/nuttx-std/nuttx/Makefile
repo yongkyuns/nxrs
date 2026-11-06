@@ -10,4 +10,6 @@ EXTOBJS = rust_std.o
 rust_std.o: $(NXRS_STD_ELF)
 	$(OBJCOPY) --redefine-sym main=rust_std_main $< $@
 
+# Generated from the prepared SDK's verified native-source ledger.
+-include std-native.mk
 include $(APPDIR)/Application.mk

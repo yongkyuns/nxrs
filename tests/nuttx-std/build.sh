@@ -122,10 +122,11 @@ if test "$INTEGRATION" = 1; then
   cp "$ROOT/hal/camera/src/platform/nuttx/ffi/"{close.c,status.h} "$APP/"
   rm -f "$APP/transport.c" "$APP/transport.h"
 else
-  mkdir -p "$OUT/apps/examples/nxrs_std"
-  cp "$ROOT/tests/nuttx-std/nuttx/"* "$OUT/apps/examples/nxrs_std/"
+  APP="$OUT/apps/examples/nxrs_std"
+  mkdir -p "$APP"
+  cp "$ROOT/tests/nuttx-std/nuttx/"* "$APP/"
   if test "$PROFILE" = resources; then
-    cp "$ROOT/tests/nuttx-std/resources/nuttx/"* "$OUT/apps/examples/nxrs_std/"
+    cp "$ROOT/tests/nuttx-std/resources/nuttx/"* "$APP/"
   fi
 fi
 cd "$OUT/nuttx"
@@ -254,7 +255,8 @@ export NUTTX_STD_SYSROOT="$("$SOURCE_RUSTC" --print sysroot)"
 case "${NUTTX_STD_COMPAT_FIXES:-0}" in
   0) printf '%s\n' '{"mode":"upstream-unmodified"}' > "$OUT/std-patch.json" ;;
   1)
-    python3 tests/nuttx-std/prepare-std.py --source "$("$SOURCE_RUSTC" --print sysroot)" --output "$OUT" --sdk "$SDK"
+    python3 tests/nuttx-std/prepare-std.py --source "$("$SOURCE_RUSTC" --print sysroot)" \
+      --output "$OUT" --sdk "$SDK" --native-app "$APP"
     export NUTTX_STD_SYSROOT="$OUT/toolchain"
     ;;
   *) echo "NUTTX_STD_COMPAT_FIXES must be 0 or 1" >&2; exit 1 ;;

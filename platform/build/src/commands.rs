@@ -43,6 +43,29 @@ impl Args {
         std::path::absolute(self.get(key)?).map_err(|e| e.to_string())
     }
 }
+
+fn native_app(out: &Path, app: &Path) -> Result<PathBuf> {
+    let out = out.canonicalize().map_err(|e| e.to_string())?;
+    let app = app.canonicalize().map_err(|e| e.to_string())?;
+    if !app.starts_with(out.join("apps")) || !app.join("Makefile").is_file() {
+        return Err(
+            "native SDK app must be an existing Makefile directory inside output/apps".into(),
+        );
+    }
+    Ok(app)
+}
+
+/// Legacy qualification builds use the same ledger checks and helper staging as
+/// the ordinary NuttX frontend, then let the target Makefile compile the sources.
+fn stage_std_native(sysroot: &Path, receipt: &Path, app: &Path) -> Result<()> {
+    let sources = sdk::native_sources(sysroot, receipt)?;
+    let (_, names) = crate::nuttx::stage_helpers(&sources, app)?;
+    crate::reuse::write_if_changed(
+        &app.join("std-native.mk"),
+        format!("CSRCS += {}\n", names.join(" ")).as_bytes(),
+    )
+}
+
 pub fn run(root: &Path, command: &str, args: &[String]) -> Result<()> {
     match command {
         "prepare-browser-std" => {
@@ -139,17 +162,22 @@ pub fn run(root: &Path, command: &str, args: &[String]) -> Result<()> {
             println!("{}", crate::json::to_string_pretty(&evidence).unwrap());
         }
         "prepare-std" => {
-            let a = Args::parse(args, &["--source", "--output", "--sdk"], &[])?;
-            println!(
-                "{}",
-                sdk::prepare(
-                    root,
-                    &a.path("--source")?,
-                    &a.path("--output")?,
-                    a.get("--sdk")?
-                )?
-                .display()
-            );
+            let a = Args::parse(
+                args,
+                &["--source", "--output", "--sdk", "--native-app"],
+                &[],
+            )?;
+            let out = a.path("--output")?;
+            let app = a
+                .values
+                .get("--native-app")
+                .map(|path| native_app(&out, Path::new(path)))
+                .transpose()?;
+            let sysroot = sdk::prepare(root, &a.path("--source")?, &out, a.get("--sdk")?)?;
+            if let Some(app) = app {
+                stage_std_native(&sysroot, &out.join("std-patch.json"), &app)?;
+            }
+            println!("{}", sysroot.display());
         }
         "patch-source" => {
             let a = Args::parse(
@@ -253,4 +281,143 @@ pub fn run(root: &Path, command: &str, args: &[String]) -> Result<()> {
         _ => return Err(format!("unknown build utility {command}")),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn native_app_must_stay_in_the_owned_apps_tree() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let out = temp.0.join("output");
+        let app = out.join("apps/examples/probe");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(app.join("Makefile"), "# fixture").unwrap();
+        assert_eq!(native_app(&out, &app).unwrap(), app.canonicalize().unwrap());
+
+        let outside = temp.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("Makefile"), "# untouched").unwrap();
+        let args = [
+            "--source".into(),
+            temp.0.join("missing-sdk").display().to_string(),
+            "--output".into(),
+            out.display().to_string(),
+            "--sdk".into(),
+            "nightly-2025-09-15".into(),
+            "--native-app".into(),
+            outside.display().to_string(),
+        ];
+        assert!(run(&temp.0, "prepare-std", &args)
+            .unwrap_err()
+            .contains("inside output/apps"));
+        assert!(!out.join("toolchain").exists());
+        assert_eq!(
+            fs::read_to_string(outside.join("Makefile")).unwrap(),
+            "# untouched"
+        );
+        #[cfg(unix)]
+        {
+            let link = out.join("apps/escaped");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            assert!(native_app(&out, &link).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_std_makefiles_link_the_verified_sdk_binding() {
+        use std::process::Command;
+
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let out = temp.0.join("output");
+        let sysroot = out.join("toolchain");
+        fs::create_dir_all(&sysroot).unwrap();
+        let binding = "lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c";
+        // Compile the actual patched binding; the header below substitutes only
+        // the target operations, so this proves build wiring rather than IRQ ABI.
+        crate::run(
+            Command::new("git")
+                .current_dir(&sysroot)
+                .args(["apply", &format!("--include={binding}")])
+                .arg(root.join("upstream/rust-std/patches/0007-nuttx-bounded-channel.patch")),
+        )
+        .unwrap();
+        let source = sysroot.join(binding);
+        let receipt = out.join("std-patch.json");
+        let apps = out.join("apps");
+        fs::create_dir_all(apps.join("include/nuttx")).unwrap();
+        fs::write(apps.join("Make.defs"), "").unwrap();
+        fs::write(
+            apps.join("include/nuttx/spinlock.h"),
+            "typedef uintptr_t spinlock_t;\ntypedef uintptr_t irqstate_t;\n\
+             static inline void spin_lock_init(spinlock_t *p) { *p = 0; }\n\
+             static inline irqstate_t spin_lock_irqsave(volatile spinlock_t *p) { *p = 1; return 7; }\n\
+             static inline void spin_unlock_irqrestore(volatile spinlock_t *p, irqstate_t f) { *p = f; }\n",
+        )
+        .unwrap();
+        fs::write(
+            apps.join("probe.c"),
+            "#include <stdint.h>\n\
+             void __rust_nuttx_spin_init(void *);\n\
+             uintptr_t __rust_nuttx_spin_lock(void *);\n\
+             void __rust_nuttx_spin_unlock(void *, uintptr_t);\n\
+             int main(void) { uintptr_t storage[2]; __rust_nuttx_spin_init(storage);\n\
+               uintptr_t flags = __rust_nuttx_spin_lock(storage);\n\
+               __rust_nuttx_spin_unlock(storage, flags); return storage[0] != 7; }\n",
+        )
+        .unwrap();
+        fs::write(
+            apps.join("Application.mk"),
+            ".PHONY: sdk-native-probe\nsdk-native-probe:\n\
+             \t$(CC) -std=c11 -Wall -Werror -I$(APPDIR)/include $(APPDIR)/probe.c \
+               $(filter target_helper_%.c,$(CSRCS)) -o $@\n",
+        )
+        .unwrap();
+        for (index, template) in [
+            "tests/nuttx-std/nuttx/Makefile",
+            "tests/nuttx-std/resources/nuttx/Makefile",
+            "platform/nuttx/qualification/Makefile",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let app = apps.join(format!("examples/probe{index}"));
+            fs::create_dir_all(&app).unwrap();
+            fs::copy(root.join(template), app.join("Makefile")).unwrap();
+            let app = native_app(&out, &app).unwrap();
+            let mut make = Command::new("make");
+            make.current_dir(&app).args([
+                "--no-print-directory",
+                &format!("APPDIR={}", apps.display()),
+                "NXRS_STD_ELF=unused.o",
+                "sdk-native-probe",
+            ]);
+            let missing = make.output().unwrap();
+            assert!(
+                !missing.status.success(),
+                "{template} omitted the missing-symbol witness"
+            );
+            assert!(String::from_utf8_lossy(&missing.stderr).contains("__rust_nuttx_spin_"));
+
+            write_json(&receipt, &crate::json::json!({})).unwrap();
+            assert!(stage_std_native(&sysroot, &receipt, &app).is_err());
+            assert!(!app.join("std-native.mk").exists());
+            write_json(
+                &receipt,
+                &crate::json::json!({"native_sources":[{"path":binding,"sha256":crate::hash(&source).unwrap()}]}),
+            )
+            .unwrap();
+            stage_std_native(&sysroot, &receipt, &app).unwrap();
+            assert_eq!(
+                fs::read(app.join("target_helper_0.c")).unwrap(),
+                fs::read(&source).unwrap()
+            );
+            crate::run(&mut make).unwrap();
+            crate::run(&mut Command::new(app.join("sdk-native-probe"))).unwrap();
+        }
+    }
 }
