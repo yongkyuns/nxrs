@@ -68,6 +68,10 @@
 *libarch.a:xtensa_sigdeliver.o(.literal .text .literal.* .text.*)
 *libc.a:pthread_*.*(.literal .text .literal.* .text.*)
 *libc.a:sem_*.*(.literal .text .literal.* .text.*)
+/* Pending-signal checks execute on the ordinary semaphore blocking path. */
+*(.literal.sigemptyset .text.sigemptyset)
+*(.literal.nxsig_nandset .text.nxsig_nandset)
+*(.literal.sigisemptyset .text.sigisemptyset)
 *(.literal.*std4sync4mpmc5array* .text.*std4sync4mpmc5array*)
 *(.literal.*std4sync4mpmc7counter* .text.*std4sync4mpmc7counter*)
 *(.literal.*std4sync4mpmc*Sender* .text.*std4sync4mpmc*Sender*)

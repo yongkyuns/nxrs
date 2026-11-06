@@ -30,3 +30,13 @@ counters have closed. Priority validation and joined cleanup remain required.
 Earlier captures include these diagnostics before the final message is received.
 The corrected ordering passed both physical matrices and three fresh boots of
 the four-producer paced case per runtime; see the comparison report.
+
+Apply the same [fixture IRAM fragment](mpsc-fixture-iram.ld) to both kernels,
+alongside their native queue/wait/scheduler IRAM policy. It covers workers,
+transport adapters, clock/gate wrappers and scheduled-release callbacks. Verify
+the linked symbols and their successful bounded-operation callees, including
+literal-loaded Xtensa calls; a section selector alone is not proof. Native
+callbacks must resolve to the same qualified hot path. Setup, reporting,
+retirement diagnostics, reclamation and unselected channel flavors retain normal
+placement. Match logical operations rather than compiled byte counts; record
+each image's total IRAM and shared-SRAM cost separately.

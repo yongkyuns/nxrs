@@ -7,6 +7,22 @@ SDK 1.0.1. Both kernels use the same pinned ESP 1.90 Rust compiler and measureme
 engine. Zephyr calls native `k_msgq` from a core-only Rust fixture; this is not a
 Zephyr std port.
 
+Fair placement means equivalent executed hot operations reside in IRAM on both
+kernels, rather than equal compiled byte counts. Apply the same
+[fixture fragment](../tests/nuttx-std/channels/mpsc-fixture-iram.ld) to both:
+workers, channel adapters, clock/gate wrappers and scheduled-release callbacks.
+Audit linked targets and native queue, wait and scheduler callees, including
+Xtensa literal-loaded calls. Memory-copy primitives use the same SoC ROM entries.
+Setup, reporting, retirement diagnostics and joined reclamation keep normal
+placement; native SDK IRAM requirements remain intact.
+
+The final audit caught extra Zephyr queue wrappers still in flash, plus three
+ordinary NuttX semaphore pending-signal helpers. The shared fixture fragment and
+synchronization profile now cover those paths. Rust archives, workloads and OS
+configurations are unchanged. NuttX relinks byte-identical native inputs; Zephyr
+uses its normal native build to regenerate address-dependent ISR tables.
+Earlier measurements remain controls; the results below use corrected placement.
+
 Four runtime changes address the measured slowdown:
 
 - Match hot code placement in internal instruction RAM. Flash-cache misses and
@@ -22,7 +38,7 @@ Four runtime changes address the measured slowdown:
   otherwise copies their algorithms into bounded callers, enlarging hot code and
   stack frames. Channel algorithms and APIs remain unchanged.
 
-Two fixture corrections are separate from those runtime improvements. The
+Two other fixture corrections are separate from those runtime improvements. The
 [entry-selection patch](../tests/nuttx-std/channels/mpsc-fixture-entry.patch)
 selects one transport per image. Carrying an unused native-control workload in
 the NuttX image inflated its memory cost; that diagnostic remains in a separate
@@ -31,8 +47,9 @@ retained image. The
 moves endpoint priority/policy queries after the existing retirement barrier,
 once timing and CPU counters have closed. Validation and joined cleanup remain
 required. These test-only queries previously delayed delivery of producers' final
-messages. On three corrected fresh boots, the four-producer paced maximum is
-8.0 µs with std, down from 25.1875 µs; Zephyr measures 10.0625–10.125 µs.
+messages. The diagnostic-only control reduces the four-producer paced std maximum
+from 25.1875 to 8.0 µs. The current matched-placement repeats give 8.0 µs
+on all three std boots and 10.0625 µs on all three Zephyr boots.
 The queue, SDK, arrival schedule and message timestamps did not change.
 
 The current images passed 64 replayed fresh-boot captures covering all 16 matched
@@ -43,28 +60,23 @@ observer. Samples were not pooled.
 
 | Primary observation | Rust std / NuttX | Zephyr |
 | --- | ---: | ---: |
-| Sustained messages/s, one producer | 322,970 | 263,874 |
-| Sustained messages/s, four producers | 273,376 | 233,910 |
-| 64-byte/four-producer delivery p99 | 84.500 µs | 85.4375 µs |
-| IRAM text, including OS and fixture | 60,576 bytes | 52,552 bytes |
+| Sustained messages/s, one producer | 323,246 | 265,050 |
+| Sustained messages/s, four producers | 273,677 | 234,836 |
+| 64-byte/four-producer delivery p99 | 84.500 µs | 85.3125 µs |
+| IRAM text, including OS and fixture | 61,492 bytes | 53,392 bytes |
 
-Delivery median, p99 and maximum are never higher with std across the matched
-primary cases. Scheduled-release p99 and exploratory threshold miss counts are
-also never higher; both have zero 100 µs misses in the 64-byte/four-producer case.
-The curves still cross: primary single-producer backpressure p99.9 is 34.1875
-versus 32.5 µs. The independent CPU-counter image reverses that ranking:
-33.6875 versus 34.25 µs. Retained timestamps locate a 6.5625 µs excess in receiver
-validation after `recv` returns in the primary image, and a 6.9375 µs excess
-between send calls in the counter image. The p99.9-defining primary sample
-waits across that outside-channel pause. Worker source is identical across
-observers. Both pauses occur near 10 ms, consistent with the configured 100-Hz
-interrupt period; the exact IRQ was not recorded. These are real wall delays,
-not subtracted from results. No samples are pooled and no quantile-universal
-claim is made. Normal cases have zero loss; payload, per-producer FIFO and joined
-reclamation pass. Overload admits the same message identities, and every admitted
-message is delivered.
+Delivery median and p99 are never higher with std across matched primary
+cases, including successful/rejected admission and release-lateness p99.
+Scheduled-release p99 and exploratory threshold miss counts are also never
+higher; both have zero 100 µs misses in the 64-byte/four-producer case. Tail
+curves cross: single-producer/16-byte stream p99.9 is 34.0 versus 33.3125 µs,
+and maximum is 34.4375 versus 33.9375 µs. The 64-byte stream p99.9 is 60.0625
+versus 59.125 µs. These wall delays remain in the results; no quantile-universal
+claim or latency subtraction is made. Normal cases have zero loss; payload,
+per-producer FIFO and joined reclamation pass. Overload admits the same message
+identities, and every admitted message is delivered.
 
-Rust/std uses 3.9–18.3% less whole-core active CPU per delivered message. Every
+Rust/std uses 3.8–18.0% less whole-core active CPU per delivered message. Every
 std upper observation bound is below the corresponding Zephyr lower bound.
 These counters include IRQ, scheduler and idle-loop work; native thread counters
 have incompatible attribution and must not be compared directly.
@@ -77,20 +89,21 @@ and 4,864 bytes of shared SRAM reservation in a separate relink control with all
 74 frozen build inputs unchanged. The endpoint correction also changes code
 generation; its smaller image is not another queue optimization.
 
-The remaining IRAM text gap is 8,024 bytes: native runtime is 1,797 bytes smaller,
-Rust synchronization/runtime adds 5,245, workload/adapter code adds 4,451, and
-alignment adds 125. Map-origin categories include inlined channel code; these
-are full-image costs, not isolated queue storage. The runtime IRAM span from
-vectors through the end marker is 61,696 versus 54,408 bytes, including padding
-and Zephyr's intervening loader text.
+The IRAM text difference is 8,100 bytes: native runtime/fixture code is 1,723
+bytes smaller with NuttX, Rust synchronization/runtime adds 5,245, workload/adapter
+code adds 4,455, and alignment adds 123. Map-origin categories include inlined
+channel code; these are full-image costs, not isolated queue storage. Including
+vectors, padding and Zephyr's separate loader, runtime spans are 62,720 versus
+55,248 bytes: a 7,472-byte difference. Equivalent hot placement is the acceptance
+criterion; identical OS image sizes are not required.
 
 Whole-image RAM also includes different runtime provisioning. Accounting for
 IRAM/DRAM aliasing once, linked reservations plus captured live heap are:
 
 | Stream case, capacity eight | Rust std / NuttX | Zephyr |
 | --- | ---: | ---: |
-| One producer, 16-byte payload | 243,560 bytes | 258,600 bytes |
-| Four producers, 64-byte payload | 294,408 bytes | 258,600 bytes |
+| One producer, 16-byte payload | 244,584 bytes | 259,432 bytes |
+| Four producers, 64-byte payload | 295,432 bytes | 259,432 bytes |
 
 These exclude free heap and cache/ROM/RTC reservations, and are live occupancy,
 not qualified startup peaks. Zephyr always reserves five worker stacks and a
@@ -109,7 +122,9 @@ cost: its linked system-heap buffer/control reserve 4,180/24 bytes. The pinned
 NuttX high-water counter counts its 368-byte allocator context twice, confirmed
 by source, compiled DWARF size and the captures. Raw records remain unchanged;
 that counter is not used as a qualified peak. SoC caches match: 16/32 KiB I/D
-cache, eight ways and 32-byte hardware lines. Full resource parity remains open.
+cache, eight ways and 32-byte hardware lines. The four-producer/64-byte std
+case retains 142,376 bytes of free heap; the additional IRAM does not exhaust
+shared SRAM in this fixture. This is not a camera-product memory qualification.
 
 The `esp32s3-sync-iram` product profile selects synchronization placement through
 `iram-layout`. The frontend stages the platform-owned fragment and records its
