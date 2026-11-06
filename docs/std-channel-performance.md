@@ -6,7 +6,7 @@ SDK 1.0.1. Rust uses the same pinned ESP 1.90 compiler and workload on both
 kernels. Zephyr calls native `k_msgq` from a core-only Rust test fixture;
 this is not a Zephyr std port.
 
-Three changes address the measured slowdown:
+Four changes address the measured slowdown:
 
 - Match hot code placement in internal instruction RAM. Flash-cache misses and
   alignment explained large earlier variations.
@@ -17,35 +17,43 @@ Three changes address the measured slowdown:
   windowed-ABI builds. Preserve register/window, TLS, loop and coprocessor state,
   scheduler commit and native restoration; other targets/modes retain syscall
   switching.
+- Keep unbounded and rendezvous operation boundaries out of line. Otherwise,
+  flavor dispatch copies their algorithms into bounded callers, increasing hot
+  code size and stack frames. The channel algorithms and APIs remain unchanged.
 
-Three paired primary passes and three separate hardware-counter passes produced
-198 replayed fresh-boot captures. The final bounded-path placement passed one
-paired primary and one hardware-counter pass (66 further captures). Samples
-were not pooled. In matched hot
-placement, sustained throughput is 321k versus 264k messages/s with one producer,
+The final candidate passed one paired primary matrix and one separate
+hardware-counter matrix: 66 replayed fresh-boot captures. Three further fresh
+boots per image reproduce the focal latency result. Samples were not pooled.
+In matched hot placement, sustained throughput is 321k versus 264k messages/s with one producer,
 and 272k versus 234k with four. Rust/std uses 3–18% less whole-core active CPU.
 The same hardware counters include IRQ and scheduler work; native thread counters
 have incompatible attribution and must not be compared directly.
 
-The native switch removes 88% of the final 64-byte/four-producer p99 gap:
-86.250 → 84.875 µs, versus Zephyr's 84.6875 µs. The remaining 0.22% deficit is
-repeatable. Both have zero exploratory 100 µs misses in that case. Other normal
-p99 cases are lower with std; normal cases have zero loss and preserve payload,
-per-producer FIFO and joined reclamation.
+Native switching reduced the 64-byte/four-producer p99 from 86.250 to
+84.875 µs. Keeping alternate flavors out of line reduces it to 84.6875 µs,
+matching Zephyr. Other normal p99 cases are lower with std. Exploratory threshold
+miss counts are never higher; both have zero 100 µs misses in the focal case.
+Some smaller-message and paced maximum samples remain higher with std; this is
+not dominance at every quantile. Normal cases have zero loss and preserve
+payload, per-producer FIFO and joined reclamation. Overload admits the same
+message identities, and all admitted messages are delivered.
 
-The narrower image uses 79,280 IRAM text bytes versus Zephyr's 52,684, saving
-28,408 text bytes and 28,416 bytes of shared SRAM reservation from the earlier
-placement. These include OS, runtime and fixture code, not isolated queue
-storage. The Rust image also retains native-control workers. Matched placement is not an
-ordinary-placement, cross-build or resource-parity claim. Native GCC14.2/14.3
+The image uses 72,976 IRAM text bytes versus Zephyr's 52,684. Outlining alternate
+flavors saves 6,304 text bytes and 6,144 bytes of shared SRAM reservation, with
+no added thread storage or live heap use. Total savings from the original hot
+placement are 34,712 text bytes and 34,560 bytes of shared SRAM reservation.
+These include OS, runtime and fixture code, not isolated queue storage. The
+Rust image retains 5,595 bytes of additional native-control workload code.
+Matched placement is not an ordinary-placement, cross-build or resource-parity
+claim. Native GCC14.2/14.3
 differ, clocks lack external calibration, and three boots establish descriptive
-repeatability rather than statistical confidence; the narrower placement has
-one paired pass per observer. The upgrade itself did not
-improve this matched Zephyr fixture; its compiler changed too.
+repeatability rather than statistical confidence; the final full matrices have
+one paired pass per observer. The upgrade itself did not improve this matched
+Zephyr fixture; its compiler changed too.
 
 The `esp32s3-sync-iram` product profile selects native synchronization and
-bounded Rust channel placement through `iram-layout`. The frontend stages its platform-owned linker
-fragment and records both source and staged hashes. Applications keep ordinary
+bounded Rust channel placement through `iram-layout`. The frontend stages its
+platform-owned linker fragment and records both source and staged hashes. Applications keep ordinary
 std APIs. Rendezvous/unbounded APIs remain compiled; their out-of-line helpers
 stay in flash. The comparison additionally places its workload functions in IRAM;
 that fixture-specific placement is not part of the product profile. A normal
@@ -67,7 +75,7 @@ original image. The P1 campaign reverified an existing full backup after fresh
 read transport failures; no successful new full read is claimed. Its clean
 digest test-image preparation does not fix normal frontend digest packaging.
 
-The residual tail difference and memory parity remain open. The comparison's
-`physical_timing_qualified` and `production_qualified` flags remain false;
+The 20,292-byte full-image IRAM gap and higher extreme samples remain open.
+The comparison's `physical_timing_qualified` and `production_qualified` flags remain false;
 these are nominal-clock physical observations, not calibrated product-deadline
 qualification. They do not establish universal parity or general SMP qualification.

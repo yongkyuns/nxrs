@@ -1,0 +1,34 @@
+--- a/lib/rustlib/src/rust/library/std/src/sync/mpmc/zero.rs
++++ b/lib/rustlib/src/rust/library/std/src/sync/mpmc/zero.rs
+@@ -139,6 +139,7 @@
+     }
+ 
+     /// Attempts to send a message into the channel.
++    #[inline(never)]
+     pub(crate) fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
+         let token = &mut Token::default();
+         let mut inner = self.inner.lock().unwrap();
+@@ -159,6 +160,7 @@
+     }
+ 
+     /// Sends a message into the channel.
++    #[inline(never)]
+     pub(crate) fn send(
+         &self,
+         msg: T,
+@@ -215,6 +217,7 @@
+     }
+ 
+     /// Attempts to receive a message without blocking.
++    #[inline(never)]
+     pub(crate) fn try_recv(&self) -> Result<T, TryRecvError> {
+         let token = &mut Token::default();
+         let mut inner = self.inner.lock().unwrap();
+@@ -232,6 +235,7 @@
+     }
+ 
+     /// Receives a message from the channel.
++    #[inline(never)]
+     pub(crate) fn recv(&self, deadline: Option<Instant>) -> Result<T, RecvTimeoutError> {
+         let token = &mut Token::default();
+         let mut inner = self.inner.lock().unwrap();

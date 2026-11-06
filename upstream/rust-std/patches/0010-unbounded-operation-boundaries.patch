@@ -1,0 +1,34 @@
+--- a/lib/rustlib/src/rust/library/std/src/sync/mpmc/list.rs
++++ b/lib/rustlib/src/rust/library/std/src/sync/mpmc/list.rs
+@@ -393,6 +393,7 @@
+     }
+ 
+     /// Attempts to send a message into the channel.
++    #[inline(never)]
+     pub(crate) fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
+         self.send(msg, None).map_err(|err| match err {
+             SendTimeoutError::Disconnected(msg) => TrySendError::Disconnected(msg),
+@@ -401,6 +402,7 @@
+     }
+ 
+     /// Sends a message into the channel.
++    #[inline(never)]
+     pub(crate) fn send(
+         &self,
+         msg: T,
+@@ -412,6 +414,7 @@
+     }
+ 
+     /// Attempts to receive a message without blocking.
++    #[inline(never)]
+     pub(crate) fn try_recv(&self) -> Result<T, TryRecvError> {
+         let token = &mut Token::default();
+ 
+@@ -423,6 +426,7 @@
+     }
+ 
+     /// Receives a message from the channel.
++    #[inline(never)]
+     pub(crate) fn recv(&self, deadline: Option<Instant>) -> Result<T, RecvTimeoutError> {
+         let token = &mut Token::default();
+         loop {

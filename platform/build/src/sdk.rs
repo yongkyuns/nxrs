@@ -53,6 +53,14 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
             "std/src/sync/mpmc/mod.rs",
             "673033034eff5cb4b657dcfd7ddc2ae93b26da0a",
         ),
+        (
+            "std/src/sync/mpmc/list.rs",
+            "050f26b097a0ef14ecbe26ca1b72f461f55dfe91",
+        ),
+        (
+            "std/src/sync/mpmc/zero.rs",
+            "f1ecf80fcb9f6f65e29bcb21529b8847f43a8139",
+        ),
         ("std/src/sys/pal/unix/mod.rs", unix),
         ("std/src/sys/net/connection/socket/unix.rs", socket),
     ];
@@ -122,6 +130,14 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
             "std/src/sync/mpmc/mod.rs" => vec![(
                 "0007-nuttx-bounded-channel.patch",
                 "std-bounded-channel.patch",
+            )],
+            "std/src/sync/mpmc/list.rs" => vec![(
+                "0010-unbounded-operation-boundaries.patch",
+                "std-unbounded-boundaries.patch",
+            )],
+            "std/src/sync/mpmc/zero.rs" => vec![(
+                "0011-rendezvous-operation-boundaries.patch",
+                "std-rendezvous-boundaries.patch",
             )],
             "std/src/sys/pal/unix/mod.rs" => vec![
                 (

@@ -14,6 +14,9 @@ waiters. Completion, timeout, disconnect and ownership stay in Rust; allocation,
 message destruction and native wakeups occur after unlocking. Native parking
 uses a coalesced semaphore permit with monotonic deadlines and EINTR handling.
 Zero-capacity and unbounded channels retain the upstream implementation.
+Their operation boundaries stay out of line so flavor dispatch does not copy
+those algorithms into bounded-channel callers. This also lets product linker
+policy keep alternate flavors in flash.
 
 Preparation selects these modules once at the OS boundary. Both pinned Rust
 SDKs consume the same implementation bodies; only their module selectors differ.
