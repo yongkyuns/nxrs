@@ -1,6 +1,6 @@
 //! Platform Rust implementation and its private SDK glue.
 use crate::shared::Station;
-mod gio;
+use linux_gio as gio;
 mod station;
 
 pub(super) use station::State;

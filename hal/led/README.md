@@ -46,14 +46,13 @@ Before adding this provider to a production product platform:
 
 1. Configure/register the board's NuttX USERLED device and select the provider in
    that product platform, not in application/service manifests.
-2. Add `hal/led/src/platform/nuttx/ffi/userled.c` to that firmware's **target** C sources,
-   compiled with the exact configured NuttX headers/toolchain. Link it in the same
-   image as the Rust binary; do not compile it as HOSTSRC. The selected platform
-   must include the helper in target C sources.
-3. The default provider binding is `/dev/userleds`. A target integration may set
-   the build-time `NXRS_USERLED_PATH` environment variable when compiling the
-   provider. This is a provisional provider-local binding, not a new platform
-   schema; no board profile currently forwards or enables it.
+2. Build through the NuttX frontend, which supplies the configured target
+   compiler and headers to the LED package's build script. That package owns
+   `userled.c` and its archive; firmware Makefiles need no copied HAL sources.
+3. The default provider binding is `/dev/userleds`. A target profile may set
+   `[led].device` to a different `/dev/` path. The build script validates it and
+   emits `NXRS_USERLED_PATH`; the `esp32s3-userled` qualification profile selects
+   `/dev/nxrs-userled`.
 4. Qualify File open/drop, native control signatures, positive-errno translation,
    supported masks (including holes/high bit), on/off, failed query cleanup, and
    repeated lifecycle against the pinned target. Confirm the required driver is

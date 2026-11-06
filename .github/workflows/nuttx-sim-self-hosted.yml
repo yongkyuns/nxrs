@@ -7,8 +7,8 @@ on:
     paths:
       - 'hal/camera/**'
       - 'hal/storage/**'
-      - 'hal/support/nuttx/**'
-      - 'platform/hal-build.rs'
+      - 'hal/transport/**'
+      - 'platform/build-support/**'
       - 'platform/profiles/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'

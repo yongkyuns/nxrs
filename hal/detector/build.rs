@@ -1,14 +1,10 @@
-mod build_esp_dl;
+use nxrs_detector_build_support as build_esp_dl;
 mod compile_model;
-#[path = "../../platform/detector-build.rs"]
-mod product;
-#[path = "../../platform/hal-build.rs"]
-mod selection;
 use std::{env, path::PathBuf};
 fn main() {
-    selection::configure();
-    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
-    let budget = product::configure(&root);
+    let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let budget =
+        nxrs_build_support::detector_config(&directory).unwrap_or_else(|error| panic!("{error}"));
     if let Some(config) = &budget {
         let pico = env::var_os("CARGO_FEATURE_PICO_MODEL").is_some();
         let vww = env::var_os("CARGO_FEATURE_PERSON_MODEL").is_some();
@@ -20,6 +16,7 @@ fn main() {
             "Detector dependencies do not match the product profile. Use the product build frontend, which includes its selected model automatically."
         );
     }
+    nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}"));
     let value = budget.as_ref().map_or("None".to_owned(), |b| {
         format!(
             "Some(crate::ExecutionBudget {{ stack_bytes: {}, sample_interval_ms: {} }})",
@@ -35,8 +32,7 @@ fn main() {
     if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none() {
         return;
     }
-    let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let root = directory.parent().unwrap().parent().unwrap();
+    let root = nxrs_build_support::sdk_root(&directory).unwrap_or_else(|error| panic!("{error}"));
     for name in ["NXRS_PICO_SDK", "CXX", "AR", "NXRS_NUTTX_INCLUDE"] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -51,7 +47,7 @@ fn main() {
         .unwrap_or_else(|| root.join("target/pico-sdk"));
     println!("cargo:rerun-if-changed={}", sdk.display());
     build_esp_dl::build(
-        root,
+        &root,
         &sdk,
         &PathBuf::from(env::var_os("OUT_DIR").unwrap()),
         &env::var("TARGET").unwrap(),

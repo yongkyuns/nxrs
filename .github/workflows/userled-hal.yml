@@ -5,8 +5,9 @@ on:
     paths:
       - 'hal/led/**'
       - 'hal/common/**'
-      - 'platform/hal-build.rs'
+      - 'platform/build-support/**'
       - 'platform/profiles/**'
+      - 'platform/nuttx/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tools/check-hal-isolation.py'

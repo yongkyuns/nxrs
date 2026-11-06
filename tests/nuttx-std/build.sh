@@ -47,7 +47,7 @@ case "$PROFILE" in
   integration-esp32s3)
     OUT="$ROOT/target/nuttx-qemu"
     BIN=nxrs-nuttx-std-app
-    CARGO_ARGS=(-p nxrs-nuttx-app)
+    CARGO_ARGS=(-p nxrs-nuttx-app --features udp)
     PROBE_SOURCE=tests/nuttx/src/main.rs
     ENTRY=rc_rust_std_main
     TARGET=xtensa-esp32s3-nuttx
@@ -117,6 +117,8 @@ if test "$INTEGRATION" = 1; then
   mkdir -p "$APP"
   cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
   cp "$ROOT/tests/nuttx/c/"* "$APP/"
+  # The test-local DeviceCamera/OwnedFd interposes the real close bridge.
+  # The nuttx-std profile leaves the production camera provider unbound.
   cp "$ROOT/hal/camera/src/platform/nuttx/ffi/"{close.c,status.h} "$APP/"
   rm -f "$APP/transport.c" "$APP/transport.h"
 else

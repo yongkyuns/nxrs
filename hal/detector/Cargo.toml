@@ -32,5 +32,10 @@ required-features = ["pico-model"]
 kind = "hal-capability"
 platforms = ["linux", "macos", "windows", "nuttx"]
 
+[package.metadata.nxrs.platform.nuttx]
+# Only PICO acquires the target compute-context lease.
+required-features = ["pico-model"]
+
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-detector-build-support = { path = "build-support" }
+nxrs-build-support = { path = "../../platform/build-support" }

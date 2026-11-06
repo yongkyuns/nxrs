@@ -1,0 +1,11 @@
+[package]
+name = "nxrs-acquisition"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+name = "acquisition"
+
+[dependencies]
+nxrs-messaging = { path = "../../shared/messaging", default-features = false }

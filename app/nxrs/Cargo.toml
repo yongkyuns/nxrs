@@ -4,9 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-# The CLI consumes explicit file replay. Core-only library consumers opt out.
+# The replay CLI composes file replay, queued recording and UDP. Core-only
+# library consumers opt out without compiling these std operations.
 default = ["replay"]
-replay = ["nxrs-camera/replay"]
+replay = ["nxrs-camera/replay", "nxrs-storage/recording", "nxrs-transport/udp"]
 
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }

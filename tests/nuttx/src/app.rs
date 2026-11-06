@@ -6,7 +6,7 @@ use nxrs_applications::{AppState, CameraProduct, Progress};
 use camera::{Camera, DeviceError, Format, PixelFormat};
 use nuttx_support::DeviceCamera;
 use nuttx_support::FileStorage;
-use transport::Transport;
+use transport::PacketSink;
 use camera_service::{CameraState, CaptureProgress};
 
 extern "C" {
@@ -25,7 +25,7 @@ pub fn run<T, N, S>(
     sleep_ms: S,
 ) -> i32
 where
-    T: Transport,
+    T: PacketSink,
     N: Fn() -> u64,
     S: Fn(u64),
 {

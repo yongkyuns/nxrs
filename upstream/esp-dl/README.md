@@ -12,7 +12,7 @@ initializers. Rust applies it and verifies every prepared source hash.
 Every generated call requests synchronous single-core execution. This capsule
 provides numerical operations, not an RTOS compatibility layer.
 
-The HAL-owned `hal/detector/graph.rs` reads the pinned EDL2 model at build time, validates its 114
+The HAL-owned `hal/detector/build-support/src/graph.rs` reads the pinned EDL2 model at build time, validates its 114
 operators and exact input/output protocol, and creates a fixed numerical graph.
 There is no runtime model parser or loader. Its aligned lifetime arena allocates
 an output before retiring inputs and retains all six result heads. Host weights
@@ -23,7 +23,7 @@ flash reads during convolution. Its S3 size is 343,120 bytes. The native SDK
 owner destroys operators and tensor views before freeing this block and its
 activation arena; an initial parameter-allocation failure frees the arena.
 
-The owning HAL's `build_esp_dl.rs` compiles the selected SDK subset. C++
+The owning HAL's `nxrs-detector-build-support` package compiles the selected SDK subset. C++
 uses text-section literals; assembly explicitly uses separate literal sections.
 With inline literals, SDK labels placed before `ENTRY` can point at data. This
 was caught on the physical S3. The Rust builder checks every global SDK assembly

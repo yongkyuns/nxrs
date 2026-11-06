@@ -8,7 +8,7 @@
 use core::ffi::c_int;
 
 use nuttx_support::{status, OwnedFd};
-use transport::{DeviceError, Transport};
+use transport::{DeviceError, PacketSink};
 
 extern "C" {
     fn rc_nx_udp_open(address: *const u8, port: u16) -> c_int;
@@ -29,7 +29,7 @@ impl UdpSender {
     }
 }
 
-impl Transport for UdpSender {
+impl PacketSink for UdpSender {
     fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
         if packet.len() > 65_507 {
             return Err(DeviceError::InvalidData);

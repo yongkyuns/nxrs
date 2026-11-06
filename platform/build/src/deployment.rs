@@ -5,17 +5,7 @@ use crate::{
     Result,
 };
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
-pub fn workspace_root(path: &Path) -> Result<PathBuf> {
-    let path = path.canonicalize().map_err(|e| e.to_string())?;
-    for parent in path.ancestors().skip(1) {
-        let m = parent.join("Cargo.toml");
-        if m.is_file() && manifest(&m)?.get("workspace").is_some() {
-            return Ok(parent.into());
-        }
-    }
-    Err("no enclosing Cargo workspace".into())
-}
+use std::path::Path;
 
 pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result<Value> {
     let path = path.canonicalize().map_err(|e| e.to_string())?;
@@ -48,7 +38,9 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
                         })
                     })
                 }) {
-                    return Err(format!("application dependency {alias} selects a provider feature; choose one platform"));
+                    return Err(format!(
+                        "application dependency {alias} selects a provider feature; choose one platform"
+                    ));
                 }
             }
         }
@@ -91,6 +83,6 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         d
     });
     Ok(
-        json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":profile.model_features(root,&path)?,"providers":providers,"profiles":sources}),
+        json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":null,"dependency_resolution":{"status":"pending","reason":"requires the build's Cargo features, target and compiler"},"providers":providers,"profiles":sources}),
     )
 }

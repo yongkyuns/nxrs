@@ -18,7 +18,7 @@ class HalIsolationTests(unittest.TestCase):
         self.directory = Path(self.tmp.name).resolve()
         self.target = 'fixture-target'
         self.names = {'hal': 'nxrs-camera', 'common': 'nxrs-shared',
-                      'build': 'nxrs-build', 'registry': 'serde',
+                      'build': 'nxrs-build-support', 'registry': 'serde',
                       'driver': 'unexpected-driver', 'macro': 'derive',
                       'dev': 'test-only'}
         self.expected = {'hal', 'common'}
@@ -30,8 +30,9 @@ class HalIsolationTests(unittest.TestCase):
                  'build': [edge('registry'), edge('driver'), edge('dev', 'dev')],
                  'macro': [edge('registry')]}
         self.metadata = {
-            'packages': [{'id': identity, 'targets': [{'kind': ['proc-macro' if identity == 'macro' else 'lib']}]}
-                         for identity in self.names],
+            'packages': [{'id': identity, 'name': name,
+                          'targets': [{'kind': ['proc-macro' if identity == 'macro' else 'lib']}]}
+                         for identity, name in self.names.items()],
             'resolve': {'nodes': [{'id': identity, 'deps': edges.get(identity, [])} for identity in self.names]},
         }
         self.host = CHECK.host_dependencies(self.metadata, self.expected)
@@ -55,6 +56,16 @@ class HalIsolationTests(unittest.TestCase):
 
     def test_host_allowance_follows_cargo_build_and_macro_edges_not_dev_or_target_edges(self):
         self.assertEqual(self.host, {'build', 'registry', 'driver', 'macro'})
+
+    def test_build_controller_is_rejected_even_as_a_declared_transitive_host_dependency(self):
+        self.metadata['packages'].append({'id': 'controller', 'name': 'nxrs-build',
+                                          'targets': [{'kind': ['lib']}]})
+        nodes = self.metadata['resolve']['nodes']
+        nodes.append({'id': 'controller', 'deps': []})
+        build = next(node for node in nodes if node['id'] == 'build')
+        build['deps'].append({'pkg': 'controller', 'dep_kinds': [{'kind': None}]})
+        with self.assertRaisesRegex(AssertionError, 'must not compile the build controller'):
+            CHECK.host_dependencies(self.metadata, self.expected)
 
     def test_observed_registry_host_artifacts_are_recorded(self):
         compiled = self.check(self.valid_artifacts())

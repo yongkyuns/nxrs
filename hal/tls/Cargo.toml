@@ -15,4 +15,4 @@ kind = "hal-capability"
 platforms = ["linux", "macos", "nuttx"]
 
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-build-support = { path = "../../platform/build-support" }

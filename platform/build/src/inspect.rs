@@ -51,11 +51,6 @@ pub fn query(request: Value) -> Result<Value> {
             request["capability"].as_str().ok_or("missing capability")?,
             request["os"].as_str().ok_or("missing target OS")?
         )?)),
-        "native-helpers" => Ok(json!(p.native_helpers(&root)?)),
-        "model-features" => Ok(json!(p.model_features(
-            &root,
-            Path::new(request["manifest"].as_str().ok_or("missing manifest")?)
-        )?)),
         "detector" => Ok(p
             .detector()?
             .map(|d| {

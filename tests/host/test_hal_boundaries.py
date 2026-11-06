@@ -96,6 +96,29 @@ class HalBoundariesTests(unittest.TestCase):
         source.write_text('void *context(void) { return calloc(1, 32); }')
         self.assertTrue(any('ordinary I/O/runtime' in error for error in self.errors()))
 
+    def test_driver_and_sdk_build_packages_retain_native_inventory_and_behavior_checks(self):
+        for name in ('driver/linux/gio/src/platform/linux/ffi/gio.c',
+                     'hal/detector/build-support/src/ffi/compat.hpp'):
+            with self.subTest(path=name):
+                source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
+                self.assertTrue(any('documented ABI boundary' in error for error in self.errors()))
+                self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')
+                self.assertEqual(self.errors(), [])
+                source.write_text('void *hidden_worker(void) { return pthread_create(0); }')
+                self.assertTrue(any('ordinary I/O/runtime' in error for error in self.errors()))
+                source.unlink()
+                self.assertTrue(any('stale native boundary' in error for error in self.errors()))
+                self.write('hal/ffi-boundaries.toml', '')
+
+    def test_driver_and_sdk_glue_cannot_move_outside_the_owning_source_module(self):
+        for name in ('driver/linux/gio/ffi/gio.c', 'hal/detector/build-support/compat.hpp'):
+            with self.subTest(path=name):
+                source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
+                self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')
+                self.assertTrue(any('beside its owning Rust provider' in error for error in self.errors()))
+                source.unlink()
+                self.write('hal/ffi-boundaries.toml', '')
+
     def test_scalar_bridge_cannot_hide_ordinary_posix_or_runtime_behavior(self):
         self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/platform/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         for call in ('open', 'write', 'ftruncate', 'socket', 'pthread_create', 'calloc', 'g_thread_try_new', 'g_usleep', 'clock_gettime'):

@@ -8,10 +8,10 @@ Only the hardware lower half is an instrumented test implementation. It records
 output state and callback counts; this is not physical GPIO/LED qualification.
 
 The target binary uses the portable `led::open()` / `Led::set()` API. The
-builder selects `NXRS_PLATFORM=nuttx-userled`; no provider Cargo feature is
+builder selects `NXRS_PLATFORM=esp32s3-userled`; no provider Cargo feature is
 passed. No host FFI stubs or mock Rust provider are linked. The test path is
-bound using the provider's existing compile-time `NXRS_USERLED_PATH`, not a new
-public API.
+bound by `[led].device` in that profile and emitted as `NXRS_USERLED_PATH`
+by the package build script.
 A separate deliberately failing VFS node verifies the real native ioctl error
 path and failed-acquisition close before registering the real USERLED driver.
 
@@ -30,13 +30,14 @@ source target/qemu-tools/environment.sh
 python3 tests/nuttx-std/userled/run.py
 ```
 
-The builder reuses the existing ESP32-S3 std bootstrap rather than creating a
-second SDK/ABI setup. It then cleans the intermediate image, adds the target
-fixture/helper, enables USERLED, builds the actual LED binary, and regenerates
-final ABI/symbol/hash evidence. Only the final rebuilt image is run. The initial
-thread-probe build in the build log is not evidence that the LED test passed.
-Outputs use the existing `target/nuttx-esp32s3-std` working directory; do not run
-both builders concurrently in one checkout.
+The ordinary NuttX build frontend builds the LED binary directly with the
+`esp32s3-userled` profile and regenerates final ABI, symbol, and hash evidence.
+The LED Cargo package compiles its own target-header helper into its native
+archive; the only explicitly staged C source is the instrumented lower-half
+fixture. The partial Rust ELF must define `userled_supported` and `userled_set`,
+while the fixture and libc imports remain unresolved until the final NuttX link.
+Outputs use `target/nuttx-esp32s3-std`; do not run the legacy std-probe builder
+concurrently in that directory.
 
 The GitHub workflow retains final firmware, config, toolchain provenance,
 compiler-artifact evidence for the unified `nxrs-led` crate root target `led`,

@@ -496,7 +496,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-build"
+name = "nxrs-build-support"
 version = "0.1.0"
 dependencies = [
  "regex",
@@ -511,7 +511,7 @@ dependencies = [
 name = "nxrs-camera"
 version = "0.1.0"
 dependencies = [
- "nxrs-build",
+ "nxrs-build-support",
 ]
 
 [[package]]

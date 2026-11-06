@@ -40,7 +40,3 @@ where
         self(packet)
     }
 }
-
-// Compatibility name for existing core-only fixtures. This is the same trait,
-// not a second interface or a blanket adapter between competing abstractions.
-pub use PacketSink as Transport;

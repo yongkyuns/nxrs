@@ -2,7 +2,7 @@
 use crate::shared::{Report, ScanBackend};
 #[cfg(not(test))]
 pub(crate) mod gatt;
-mod gio;
+use linux_gio as gio;
 mod identity;
 mod scan;
 

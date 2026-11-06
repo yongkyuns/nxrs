@@ -23,8 +23,8 @@ pub struct UserLeds {
 }
 
 impl UserLeds {
-    /// Resource binding is provider-local. The build may override the default
-    /// through NXRS_USERLED_PATH; portable callers never supply a device path.
+    /// The selected profile binds the device through NXRS_USERLED_PATH;
+    /// portable callers never supply a device path.
     #[cfg_attr(
         all(test, not(all(hal_enabled, target_os = "nuttx"))),
         allow(dead_code)

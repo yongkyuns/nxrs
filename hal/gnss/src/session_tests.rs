@@ -1,8 +1,6 @@
 //! Task-context admission/lifecycle witnesses; not IRQ or hardware qualification.
-use crate::{
-    acquisition::{Wake, Worker},
-    DeliveryError, DeviceError, Rejected,
-};
+use crate::{DeliveryError, DeviceError, Rejected};
+use acquisition::{Wake, Worker};
 use std::{
     io,
     sync::{

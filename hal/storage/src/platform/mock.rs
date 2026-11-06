@@ -4,6 +4,10 @@ use crate::{Capture, DeviceError, Frame, Storage};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
+#[path = "unbound.rs"]
+mod unbound;
+pub use unbound::create_record_file;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredFrame {
     pub sequence: u64,
@@ -59,23 +63,3 @@ impl Storage for MockStorage {
         Ok(())
     }
 }
-
-pub fn open() -> impl crate::Storage {
-    MockStorage::default()
-}
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-#[path = "unbound.rs"]
-mod unbound;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub use unbound::storage;

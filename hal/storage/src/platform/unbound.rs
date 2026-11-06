@@ -1,14 +1,16 @@
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub fn storage(
-    _: &str,
-    _: usize,
-    _: usize,
-    _: u64,
-) -> std::io::Result<crate::recording::FileRecorder> {
-    Err(std::io::ErrorKind::Unsupported.into())
+//! Unavailable synchronous record-file acquisition. Never fall back to other I/O.
+use crate::{DeviceError, Frame, Storage};
+
+struct Unconfigured;
+impl Storage for Unconfigured {
+    fn append(&mut self, _: Frame<'_>) -> Result<(), DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
+    fn flush(&mut self) -> Result<(), DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
+}
+
+pub fn create_record_file(_: &str, _: u64, _: usize) -> Result<impl Storage, DeviceError> {
+    Err::<Unconfigured, _>(DeviceError::Unsupported)
 }

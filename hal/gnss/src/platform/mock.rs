@@ -1,7 +1,7 @@
 //! Deterministic synthetic GNSS for architecture demonstrations.
 #![forbid(unsafe_code)]
 
-use crate::mock_acquisition::Session;
+type Session = acquisition::mock::Session<DeviceError>;
 use crate::{DeviceError, Event, Gnss, GnssFix};
 
 #[derive(Default)]
@@ -45,7 +45,11 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     sink: S,
 ) -> Result<impl Gnss + Send + 'static, DeviceError> {
     let mut model = SyntheticGnss::default();
-    Session::start(sink, std::time::Duration::from_millis(200), move |now| {
-        Event::Fix(model.fix(now).expect("synthetic sample"))
-    })
+    Session::start(
+        sink,
+        std::time::Duration::from_millis(200),
+        DeviceError::Io,
+        Event::Failed,
+        move |now| Event::Fix(model.fix(now).expect("synthetic sample")),
+    )
 }

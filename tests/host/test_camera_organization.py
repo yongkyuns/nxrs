@@ -56,7 +56,9 @@ class CameraOrganizationTests(unittest.TestCase):
             manifest = tomllib.loads((ROOT / 'tests' / name / 'Cargo.toml').read_text())
             self.assertIs(manifest['dependencies']['nxrs-applications']['default-features'], False)
         manifest = tomllib.loads((ROOT / 'app/nxrs/Cargo.toml').read_text())
-        self.assertEqual(manifest['features']['replay'], ['nxrs-camera/replay'])
+        self.assertEqual(manifest['features']['replay'], [
+            'nxrs-camera/replay', 'nxrs-storage/recording', 'nxrs-transport/udp',
+        ])
         self.assertEqual(manifest['bin'][0]['required-features'], ['replay'])
 
 

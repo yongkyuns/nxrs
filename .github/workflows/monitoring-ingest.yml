@@ -13,7 +13,7 @@ on:
       - 'tests/nuttx-std/tls-identity/**'
       - 'upstream/mbedtls/**'
       - 'platform/profiles/linux*.toml'
-      - 'platform/hal-build.rs'
+      - 'platform/build-support/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tools/hal_native.py'

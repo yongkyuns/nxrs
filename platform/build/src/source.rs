@@ -24,7 +24,10 @@ pub fn revision(root: &Path, name: &str) -> Result<String> {
 }
 pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Result<()> {
     if destination.exists() {
-        return Err("source archive destination already exists".into());
+        return Err(format!(
+            "source archive destination already exists: {}",
+            destination.display()
+        ));
     }
     fs::create_dir(destination).map_err(|e| e.to_string())?;
     let mut child = git(source)
@@ -219,27 +222,7 @@ pub fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
         .arg(destination))
 }
 
-/// A pinned file inventory permits SDK preparation without copying unrelated vendor tooling.
-pub fn verify_inventory(ledger: &Path, destination: &Path) -> Result<()> {
-    let pin = read_json(ledger)?;
-    let identity = read_json(&destination.join("prepared.json"))?;
-    if identity["ledger_sha256"] != hash(ledger)? || identity["files"] != pin["prepared_files"] {
-        return Err("prepared SDK inventory differs from pinned ledger".into());
-    }
-    for (name, expected) in identity["files"]
-        .as_object()
-        .ok_or("invalid prepared inventory")?
-    {
-        let path = safe_path(
-            &destination.canonicalize().map_err(|e| e.to_string())?,
-            name,
-        )?;
-        if hash(&path)? != expected.as_str().ok_or("invalid prepared SDK hash")? {
-            return Err(format!("prepared SDK changed: {name}"));
-        }
-    }
-    Ok(())
-}
+pub use nxrs_build_support::source::verify_inventory;
 pub fn prepare_inventory(
     ledger: &Path,
     patch_file: &Path,

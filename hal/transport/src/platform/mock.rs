@@ -1,6 +1,6 @@
 //! Scripted packet acceptance for tests; not network delivery.
 #![forbid(unsafe_code)]
-use crate::{DeviceError, Transport};
+use crate::{DeviceError, PacketSink};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
@@ -22,7 +22,7 @@ impl Default for MockTransport {
     }
 }
 
-impl Transport for MockTransport {
+impl PacketSink for MockTransport {
     fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
         self.sends += 1;
         if let Some(error) = self.send_errors.pop_front() {
@@ -35,23 +35,3 @@ impl Transport for MockTransport {
         Ok(())
     }
 }
-
-pub fn open() -> impl crate::Transport {
-    MockTransport::default()
-}
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-#[path = "unbound.rs"]
-mod unbound;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "nuttx"
-))]
-pub use unbound::transport;

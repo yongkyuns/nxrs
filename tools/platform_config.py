@@ -35,7 +35,6 @@ def _query(action, data=None, root=ROOT, **arguments):
 
 CAPABILITIES = set(_query('capabilities'))
 HOST_OS = {'linux', 'macos', 'windows'}
-MODEL_FEATURES = {'vww': 'person-model', 'pico': 'pico-model'}
 
 
 def load(path):
@@ -55,12 +54,6 @@ def cargo_output(platform, capability, target_os, root=ROOT):
     return _query('cargo', platform, root=root, capability=capability, os=target_os)
 
 
-def native_helpers(platform, root=ROOT):
-    return [Path(path) for path in _query('native-helpers', platform, root=root)]
-
-
-def model_features(platform, manifest, root=ROOT):
-    return _query('model-features', platform, root=root, manifest=str(manifest))
 
 
 def detector_config(platform):

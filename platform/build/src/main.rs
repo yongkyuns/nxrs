@@ -55,6 +55,7 @@ Selection:
                               repeat as needed; --feature is an alias
   --no-default-features       Disable the application's default Cargo features
   --out <path>                Override the build output directory
+  --clean                     Discard owned compilation caches before building
   --dry-run                   Validate selection and print it without building
 
 Browser builds:
@@ -81,8 +82,6 @@ fn profile_usage() -> &'static str {
     "usage:
   cargo nxrs profile --platform <profile> [--target-os <os>]
   cargo nxrs profile --platform <profile> --capability <capability> --target-os <os>
-  cargo nxrs profile --platform <profile> --model-features <manifest-path>
-  cargo nxrs profile --platform <profile> --native-helpers
 
 Manifest paths are relative to the selected Nxrs workspace unless absolute."
 }
@@ -154,6 +153,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
                 options.features.extend(features);
             }
             "--no-default-features" => options.no_default_features = true,
+            "--clean" => options.clean = true,
             "--target-c-source" => options
                 .helpers
                 .push(root.join(args.next().ok_or("missing helper source")?)),
@@ -274,16 +274,12 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let mut name = None;
     let mut os = None;
     let mut capability = None;
-    let mut features = None;
-    let mut helpers = false;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--platform" => name = Some(args.next().ok_or("missing --platform value")?),
             "--target-os" => os = Some(args.next().ok_or("missing --target-os value")?),
             "--capability" => capability = Some(args.next().ok_or("missing --capability value")?),
-            "--model-features" => features = Some(args.next().ok_or("missing manifest path")?),
-            "--native-helpers" => helpers = true,
             _ => return Err(format!("unknown profile argument {arg}")),
         }
     }
@@ -300,16 +296,6 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         )? {
             println!("{line}");
         }
-    } else if let Some(manifest) = features {
-        println!(
-            "{}",
-            serde_json::to_string(&profile.model_features(root, &root.join(manifest))?).unwrap()
-        );
-    } else if helpers {
-        println!(
-            "{}",
-            serde_json::to_string(&profile.native_helpers(root)?).unwrap()
-        );
     } else {
         println!("{}", serde_json::to_string_pretty(&profile.json()).unwrap());
     }

@@ -123,13 +123,17 @@ A build without `NXRS_PLATFORM`
 compiles portable contracts/common code, with no implicit hardware or mock.
 Explicit software functionality, such as camera file replay, may be requested
 through Cargo without hardware admission; it does not select a physical backend.
-The `storage::recording` and `transport::udp` modules similarly expose shared
-qualified Rust std file/UDP operations without selecting a hardware provider.
-Profile-admitted root acquisition functions and legacy root storage/transport
-aliases retain their existing behavior, including `Unsupported` when unbound.
+The additive `recording` and `udp` Cargo features expose `storage::recording`
+and `transport::udp` without selecting a hardware provider. They have no OS
+whitelist or default feature. The old profile-dependent storage/transport root
+factories and software type aliases have been removed. Synchronous NuttX record
+files use the fixed `storage::create_record_file(path, max_records, max_frame_bytes)`
+factory, which returns `Unsupported` when that acquisition is unbound. Explicit
+`MockStorage` and `MockTransport` fixture constructors remain separate from real
+file/socket operations.
 
 `NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT as well as the
-existing native file/socket adapters. Both reuse their capability's controller
+explicit shared file/socket operations. Both reuse their capability's controller
 and worker. CoreWLAN calls are synchronous; CoreBluetooth callbacks stay on a
 serial SDK queue and the scan worker drains bounded reports. No additional
 service or Rust runtime is introduced.
@@ -143,10 +147,11 @@ device objects alone are not discoveries. Discovery is bounded/best-effort.
 Discovery start/stop retains ownership through uncertain replies; callbacks retire before release. Linux GATT uses the
 same public client API with a private native GIO executor, described below.
 Private-bus tests cover IPC and lifecycle, not Linux RF hardware.
-The GIO dependency is selected only for these native bridges, not embedded or
-radio-free builds.
-Selected native C/Objective-C helpers compile against the installed SDK through
-the shared build helper; firmware builds do not compile or link these helpers.
+The shared `nxrs-linux-gio` package is a Linux target dependency of the two
+radio HALs. Its build script compiles one GLib helper archive only for a native
+radio binding; contract/mock builds need no GLib SDK. Other target graphs omit
+this package. Selected C/Objective-C helpers compile against their actual target
+SDK through the shared build support; embedded builds use their own NuttX helpers.
 
 ## Source organization
 
@@ -163,8 +168,7 @@ hal/wifi/
       mod.rs               capability admission and acquisition wiring
       nuttx/               NuttX Rust implementation
         ffi/               minimal target-header C helpers
-      linux/               Linux Rust implementation
-        ffi/               minimal GLib header access
+      linux/               Linux Rust implementation using nxrs-linux-gio
       macos/               macOS Rust implementation
         ffi/               minimal Objective-C SDK binding
 ~~~
@@ -195,8 +199,11 @@ handling needs no per-platform copy. Radio control is a separate capability:
 std TCP/UDP sockets do not provide Wi-Fi association, BLE discovery or GATT.
 Provider code should contain those native protocols, with generic behavior in
 shared Rust controllers/workers. The Linux providers intentionally share the
-same GIO/D-Bus resource/call protocol via `driver/linux/gio.rs`; its local wiring
-supplies SDK symbols, while each HAL retains its schemas and device policy.
+same GIO/D-Bus resource/call protocol through the normal `nxrs-linux-gio` Cargo
+package under `driver/linux/gio/`. That package owns its one native ABI bridge;
+each HAL retains its schemas and device policy. IMU and GNSS similarly depend
+on `nxrs-acquisition` for shared session/mock/readiness machinery. Neither
+consumer source-includes Rust from a sibling package; capability errors stay local.
 
 Private FFI is owned by the provider that consumes it and lives beside that
 provider's Rust implementation. There is no parallel capability-level FFI tree.
@@ -230,10 +237,14 @@ code; only reviewed native adapter modules permit it. Unselected provider
 modules are excluded by conditional compilation. Host-injected unit tests
 may compile native source against fakes; that is not hardware qualification.
 
-The build-only shared script `platform/hal-build.rs` uses the host-only
-`platform/build` library to validate the selected profile against Rust's target.
-HAL crates may depend on this library only through `[build-dependencies]`; runtime
-HAL edges and all app/service edges to platform code remain forbidden.
+Each HAL owns its local `build.rs` and uses the host-only `nxrs-build-support`
+package to validate the selected profile against Rust's target. The detector
+also uses its own `nxrs-detector-build-support` package for the shared SDK adapter.
+The deployment CLI reuses these packages, while HAL build scripts never depend
+on the CLI. Only build-dependency edges may enter these host support packages;
+runtime HAL edges and all app/service edges to platform code remain forbidden.
+External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
+workspace. In-checkout builds can discover the SDK root.
 It emits only `hal_enabled` for a bound OS implementation or `hal_mock` for an
 explicit fixture; unbound capabilities emit neither. These booleans express
 capability admission, not platform identity, and belong only in module/acquisition
@@ -247,7 +258,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 | --- | --- | --- |
 | `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
-| `replay` | Camera HAL and its consumers' Cargo manifests | Include explicit std file replay; does not select or require a hardware backend |
+| `replay`, `recording`, `udp` | Owning HAL and its consumers' Cargo manifests | Include explicit std software operations; do not select or require a hardware backend |
 | `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |
 | `probe` | Owning crate and qualification fixtures | Enable optional measurements and test witnesses |
 
@@ -259,10 +270,17 @@ directory. Keep test-only provider injection explicit at module boundaries.
 Services consume `detector::Detector` directly and have no model feature
 forwarding or model compatibility facade. A product profile's `[detector]` table
 selects `model = "pico"` or `"vww"`, `stack-bytes` and `sample-ms`. The firmware
-frontend derives the required internal Cargo feature when the app's ordinary
-production dependencies reach the detector HAL. Products without that dependency
-do not acquire model dependencies just because a platform offers detection.
-Neither app/service manifests nor a separate model switch select dependencies.
+frontend asks Cargo for the selected production graph with the build's actual
+compiler, target, configuration, features and default-feature settings. It derives
+the required internal model feature only when Cargo selects the detector HAL.
+The application declares the detector as an enabled direct normal dependency;
+renamed dependencies and consumer-workspace inheritance work normally. Cargo
+cannot activate an arbitrary transitive dependency's feature from an external
+application, so a transitive-only detector produces an explicit composition error
+before compilation. Services do not forward model features. Products without the
+selected detector dependency do not acquire model dependencies just because a
+platform offers detection. App/service manifests and CLI switches do not select
+the model; the product profile owns that choice.
 An empty table disables the optional detection composition; the video baseline
 also unbinds its detector HAL. Missing or conflicting model dependencies in a
 configured product fail before model compilation. There is no generated model
@@ -321,8 +339,12 @@ as build inputs. Switching platform in an existing target directory therefore
 reruns selection. Normal third-party dependencies still use Cargo manifests;
 conditional Rust modules do not replace Cargo dependency management.
 
-Native C helpers follow the platform's HAL bindings automatically. Additional
-application-specific C sources remain explicit application integration inputs.
+Each consumed HAL owns its native C helper compilation through its package-local
+build script. A profile binding alone cannot cause an unconsumed HAL's sources
+to compile. For NuttX, the controller prepares the headers and captures Make's
+actual compiler/ABI flags before Cargo runs; the owning HAL builds a private
+archive with that context. Additive functionality features can gate their own
+helpers. Additional qualification C sources remain explicit integration inputs.
 Helpers compile with the configured target headers, never as host objects.
 Dependency changes remain traceable patches under `upstream/`.
 

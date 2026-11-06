@@ -2,6 +2,7 @@
 execution = "nuttx"
 
 [hal]
-camera = "nuttx"
+# Camera/close faults use the explicitly staged test-local DeviceCamera ABI.
+camera = "none"
 storage = "nuttx"
 transport = "nuttx"

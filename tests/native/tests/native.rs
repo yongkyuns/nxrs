@@ -7,8 +7,10 @@ use std::time::{Duration, Instant};
 
 use nxrs_applications::CameraProduct;
 use camera::{Camera, Capture, DeviceError, Format, Frame, PixelFormat, ReplayCamera};
-use storage::{read_record, FileRecorder, Storage, StorageLimits};
-use transport::{Transport, UdpTransport};
+use storage::recording::{read_record, FileRecorder, StorageLimits};
+use storage::Storage;
+use transport::udp::UdpTransport;
+use transport::PacketSink;
 use nxrs_applications::Error;
 use recording_service::Error as RecordingError;
 

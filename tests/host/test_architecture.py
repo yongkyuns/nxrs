@@ -25,6 +25,8 @@ class ArchitectureTests(unittest.TestCase):
                                ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
                                ('driver', 'driver/demo'), ('platform', 'platform/build'),
+                               ('build-support', 'platform/build-support'),
+                               ('camera-build', 'hal/camera/build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
             self.package(name, location)
         self.metadata = {'packages': list(self.packages.values()),
@@ -96,12 +98,92 @@ class ArchitectureTests(unittest.TestCase):
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
 
-    def test_host_build_exception_does_not_allow_runtime_or_app_edges(self):
-        for source in ('camera','app','service'):
-            for kind in (None,'dev','build'):
-                self.add(source,'platform',kind=kind)
-                self.assertEqual(bool(self.violations()),not(source=='camera' and kind in ('build','dev')))
+    def test_hal_and_driver_build_helpers_are_only_host_build_dependencies(self):
+        for source, destination in [('camera', 'build-support'), ('camera', 'camera-build'),
+                                    ('driver', 'build-support')]:
+            with self.subTest(source=source, destination=destination):
+                self.add(source, destination, kind='build')
+                self.assertEqual(self.violations(), [])
                 self.packages[source]['dependencies'].clear()
+                for extra in ({}, {'optional': True}, {'kind': 'dev'},
+                              {'target': 'cfg(target_os = "linux")'}, {'rename': 'innocent'}):
+                    self.add(source, destination, **extra)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'].clear()
+
+    def test_build_controller_cannot_enter_hal_driver_or_support_graphs(self):
+        for source in ('camera', 'driver', 'build-support', 'camera-build', 'app', 'service'):
+            for kind in (None, 'dev', 'build'):
+                with self.subTest(source=source, kind=kind):
+                    self.add(source, 'platform', kind=kind)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'].clear()
+
+    def test_owned_sdk_build_helpers_keep_their_direction_and_consumers(self):
+        self.add('camera-build', 'build-support')
+        self.add('platform', 'camera-build')
+        self.add('platform', 'build-support')
+        self.assertEqual(self.violations(), [])
+        for source, destination in [('build-support', 'camera-build'),
+                                    ('camera-build', 'camera'), ('camera-build', 'driver'),
+                                    ('storage', 'camera-build'), ('driver', 'camera-build'),
+                                    ('app', 'build-support'), ('service', 'camera-build')]:
+            for kind in (None, 'build'):
+                with self.subTest(source=source, destination=destination, kind=kind):
+                    self.add(source, destination, kind=kind)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'].pop()
+
+    def test_build_scripts_cannot_escape_their_package(self):
+        manifest = self.root / 'hal/camera/Cargo.toml'
+        original = manifest.read_text()
+        manifest.write_text(original + 'build="build.rs"\n')
+        self.assertEqual(self.violations(), [])
+        manifest.write_text(original + 'build="../../platform/build-support/build.rs"\n')
+        self.assertTrue(any('build scripts must belong' in error for error in self.violations()))
+
+    def test_rust_sources_use_cargo_edges_instead_of_cross_package_includes(self):
+        for name in ('camera', 'driver', 'build-support', 'platform'):
+            path = Path(self.packages[name]['manifest_path']).parent / 'src/lib.rs'
+            original = path.read_text()
+            for code in ['#[path="../../../shared/messaging/src/lib.rs"] mod hidden;',
+                         '#[cfg_attr(test, path="../../../shared/messaging/src/lib.rs")] mod hidden;',
+                         'include!("../../../shared/messaging/src/lib.rs");',
+                         'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../shared/messaging/src/lib.rs"));']:
+                with self.subTest(package=name, code=code):
+                    path.write_text(original + code)
+                    self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
+            path.write_text(original)
+        path = self.root / 'hal/camera/src/lib.rs'
+        path.write_text(path.read_text() + '#[path="../build-support/src/lib.rs"] mod nested;')
+        self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
+
+    def test_local_sources_and_generated_outputs_remain_ordinary_rust(self):
+        path = self.root / 'hal/camera/src/lib.rs'
+        path.write_text(path.read_text() + '\n'.join([
+            '#[path="helper.rs"] mod helper;',
+            'include!("helper.rs");',
+            'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/helper.rs"));',
+            'include!(concat!(env!("OUT_DIR"), "/generated.rs"));',
+            '// #[path="../../../shared/messaging/src/lib.rs"] mod documentation;',
+        ]))
+        self.assertEqual(self.violations(), [])
+
+    def test_cross_package_witnesses_require_an_effective_test_guard(self):
+        path = self.root / 'hal/camera/src/lib.rs'
+        original = path.read_text()
+        witness = '#[path="../../../tests/host/witness.rs"] mod witness;'
+        for guard in ('#[cfg(test)]', '#[cfg(all(test, feature="probe"))]',
+                      '#[cfg(all(feature="probe", test))]',
+                      '#[cfg(any(all(test, feature="one"), all(test, feature="two")))]'):
+            with self.subTest(guard=guard):
+                path.write_text(original + guard + witness)
+                self.assertEqual(self.violations(), [])
+        for guard in ('', '#[cfg(feature="probe")]', '#[cfg(any(test, feature="probe"))]',
+                      '#[cfg(not(test))]'):
+            with self.subTest(guard=guard):
+                path.write_text(original + guard + witness)
+                self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
         for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
@@ -335,6 +417,8 @@ class PublicNamespaceTests(unittest.TestCase):
         for member in workspace['members']:
             path = Path(member)
             if path.parts[0] not in {'hal', 'service'}:
+                continue
+            if CHECK.layer(path) == 'build-support':
                 continue
             data = tomllib.loads((root / member / 'Cargo.toml').read_text())
             name = data.get('lib', {}).get('name', data['package']['name'].replace('-', '_'))

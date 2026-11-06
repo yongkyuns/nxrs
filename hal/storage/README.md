@@ -1,76 +1,75 @@
 # Frame-record storage
 
-This domain extracts the existing frame-record acceptance/flush contract. It is
-not a replacement for std::fs, std::io, or a new general filesystem interface.
-It preserves queue acceptance versus commitment, overload, rollback and failure
-semantics. Production execution timekeeping continues to use std::time.
+The `Storage` trait owns frame-record acceptance and flush semantics. Camera
+supplies the frame schema; storage owns its errors and I/O policy. Ordinary
+files and I/O continue to use `std::fs` and `std::io` directly.
 
-The storage API owns `storage::DeviceError`. It reuses camera frame types, but
-storage failures are independent of `camera::DeviceError`.
+## Choose the operation explicitly
 
-| Provider | Supported profile and behavior |
-| --- | --- |
-| std | Linux/macOS/Windows std files and bounded std worker. Exclusive recording directories and RCAMREC1 files. |
-| nuttx | Rust std file acquisition and shared append/rollback implementation. Synchronous bounded-fixture profile, not a production filesystem deadline promise. |
-| mock | Explicit in-memory scripted storage for std/WASM tests, not persistence. |
+| Operation | Public API | Availability |
+| --- | --- | --- |
+| Queued directory recording | `recording::FileRecorder::create_new(path, StorageLimits)` | Additive `recording` Cargo feature; requires Rust std, independently of a hardware profile. |
+| Read one committed record | `recording::read_record(path, max_frame_bytes)` | Same `recording` feature. |
+| Synchronous append/rollback record file | `create_record_file(path, max_records, max_frame_bytes)` | Configured NuttX storage acquisition; otherwise returns `Unsupported`. |
+| Scripted acceptance and failures | `MockStorage::default()` | Explicit mock profile; no filesystem I/O. |
 
-The single `nxrs-storage` crate declares supported providers in Cargo metadata.
-Set `NXRS_PLATFORM` to a checked-in profile to select one; unset builds select
-`none`. Providers reject unsupported targets.
-Core-only compatibility providers live under `tests/nuttx/support`; production
-NuttX storage requires Rust std. There is no
-default provider or placeholder web implementation.
+There is no generic `open()` whose signature changes with the profile, no
+profile-selected directory-recorder fallback and no root aliases for shared
+software types. The synchronous record-file factory has one signature and hides
+its implementation type. An unbound or mock profile never substitutes a
+scripted store or queued directory recorder for that operation.
 
-The native nxrs profile requests storage through
-`storage::open(...)` and injects the returned capability into the
-existing recording service. The profile owns provider selection; the app does
-not depend on provider packages. Factories do
-not construct services or drive the app.
+Contract-only builds remain `no_std`. Directory recording has no default feature
+and uses no OS whitelist. A consumer declares the software it needs normally:
 
-## Preserved semantics
+```toml
+[dependencies]
+nxrs-storage = { path = "../../hal/storage", features = ["recording"] }
+```
 
-Native append means bounded queue admission, not durable commitment. Flush uses
-the existing FIFO barrier, returning Busy until acknowledged; worker failure is
-sticky.
+The native `nxrs` replay CLI forwards this feature alongside camera replay and
+UDP. Services consume only the `Storage` contract. Core-only compatibility
+providers remain test-local under `tests/nuttx/support`.
 
-The native worker now preallocates exactly `queued_records + 1` payload buffers
-during construction: at most `queued_records` waiting records plus one record
-owned by the writer. Append reserves a queue credit and a free owned buffer
-before copying the borrowed frame, so a saturated queue returns Busy without a
-payload copy or allocation. The worker returns the queue credit when it dequeues
-the request and returns the payload buffer only after I/O completion/discard.
+## Queued recording semantics
 
-`finish()` explicitly closes submission, drains, and joins and may block on OS
-filesystem I/O. `Drop` closes submission but never joins; after a successful
-flush all accepted records are already committed, so the normal app can drop
-without hiding an unbounded filesystem wait in its owner loop. Dropping without
-flush/finish does not promise completion.
+Append means bounded queue admission. The writer preallocates exactly
+`queued_records + 1` payload buffers during construction: at most
+`queued_records` waiting records plus one record owned by the writer. Append
+reserves a queue credit and free owned buffer before copying the borrowed frame,
+so saturation returns `Busy` without copying or allocating a payload. The
+worker returns the queue credit on dequeue and the payload buffer only after
+I/O completion or discard following a sticky failure.
 
-NuttX storage uses `OpenOptions`, `Write::write_all`, `Seek`, `File::set_len`,
-and `File::sync_all` directly. The shared Rust writer rolls back a failed append;
-failed truncation or repositioning poisons the sink, and subsequent append/flush
-calls perform no further I/O. Resource acquisition remains provider-local and
-creates an exclusive file with mode 0600. No production storage C bridge remains.
+`flush()` is a FIFO commit barrier. `Busy` asks the owner to retry later; success
+confirms all prior accepted records committed. A worker failure remains sticky.
+`finish()` closes submission, drains and joins and may block on filesystem I/O.
+`Drop` closes submission without joining. Dropping without flush or finish does
+not promise completion.
 
-Host-injected Rust I/O tests cover EINTR, short writes, write-zero, rollback,
-quota preservation, sync retry and sticky poison. The older target syscall
-fault suite now exercises only `tests/nuttx/support`; its historical evidence
-must not be presented as qualification of the new Rust std writer.
+## Synchronous record-file semantics
 
-## Qualification
+The NuttX factory creates an exclusive file with mode 0600. Rust owns the file
+and uses `OpenOptions`, `Write::write_all`, `Seek`, `File::set_len` and
+`File::sync_all` directly. The shared writer rolls back failed appends. Failed
+truncation or repositioning poisons the sink; later append/flush calls perform
+no further I/O. This operation remains separate from queued directory recording.
+No production storage C bridge is needed.
 
-Run the standalone fixture with `NXRS_PLATFORM=linux cargo run -p nxrs-storage --example native_record`.
-The shared isolation tooling is being updated for the consolidated crate layout.
-Tests cover queue-credit
-backpressure, preallocated buffer reuse, commit failure, partial writes, FIFO
-flush barriers, explicit finish, and nonblocking Drop while the worker is
-deliberately stalled.
+## Verification
 
-The camera API dependency supplies the existing Frame schema only. This is a
-frame recorder, not a claim that all future storage consumers must use camera
-metadata. Generalizing that record model is outside this extraction.
+```sh
+cargo test --locked -p nxrs-storage --features recording
+cargo run --locked -p nxrs-storage --features recording --example native_record -- /tmp/new-recording
+```
 
-These tests do not prove storage-only MCU driver exclusion, physical flash
-reliability, browser storage I/O, or NuttX integration of the actual app binary.
-The historical target fault coverage applies to the test-local compatibility
-adapter. The new std writer still requires NuttX target execution qualification.
+The software tests run without a profile and with explicit mock/native profiles.
+They retain actual committed-byte checks, exclusive creation, queue credits,
+preallocated-buffer reuse, commit failure, FIFO flush barriers, explicit finish
+and nonblocking Drop while a worker is deliberately stalled. Host-injected
+synchronous I/O tests retain EINTR, short writes, write-zero, rollback, quota,
+sync retry and sticky-poison coverage.
+
+Host tests do not establish physical flash reliability or NuttX execution.
+The older target syscall fault suite exercises `tests/nuttx/support`; its
+historical evidence is not qualification of the production Rust std writer.

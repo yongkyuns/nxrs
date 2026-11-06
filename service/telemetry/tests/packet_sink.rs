@@ -1,7 +1,7 @@
 //! Packet-producing behavior needs no socket or mock HAL crate.
 use camera::{Capture, Format, Frame, PixelFormat};
 use telemetry_service::{Error, Telemetry, TelemetryService, TelemetryStats};
-use transport::{DeviceError, PacketSink, Transport};
+use transport::{DeviceError, PacketSink};
 
 fn frame() -> Frame<'static> {
     Frame {
@@ -58,15 +58,4 @@ fn rejection_is_reported_without_retrying_or_counting_acceptance() {
         assert_eq!(service.stats(), TelemetryStats { accepted: 1, errors: 1 });
     }
     assert_eq!(calls, 2);
-}
-
-#[test]
-fn legacy_transport_name_is_the_identical_trait() {
-    fn send_old(sink: &mut dyn Transport) { sink.send(b"old").unwrap(); }
-    fn send_new(sink: &mut dyn PacketSink) { sink.send(b"new").unwrap(); }
-    let mut count = 0;
-    let mut sink = |_: &[u8]| { count += 1; Ok(()) };
-    send_old(&mut sink);
-    send_new(&mut sink);
-    assert_eq!(count, 2);
 }

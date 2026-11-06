@@ -9,7 +9,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def static_backend(directory, source, *, test=False, capability=None):
+def static_backend(directory, source, *, test=False, capability=None, linux=False):
     extra = []
     if capability:
         messaging = directory / "libmessaging.rlib"
@@ -18,6 +18,14 @@ def static_backend(directory, source, *, test=False, capability=None):
         subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--crate-name=hal_common", "--crate-type=rlib", str(ROOT / "hal/common/src/lib.rs"), "-o", str(common)], check=True, capture_output=True)
         extra = ["--extern", "hal_common=" + str(common), "--extern", "messaging=" + str(messaging)]
         source = f'#[path = {json.dumps(str(ROOT / ("hal/" + capability + "/src/api.rs")))}] mod api; pub use api::*;\n' + source
+    if linux:
+        gio = directory / "liblinux_gio.rlib"
+        subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2024",
+                        "--crate-name=linux_gio", "--crate-type=rlib",
+                        *(["--cfg", "test", "--cfg", 'feature="probe"'] if test else []),
+                        str(ROOT / "driver/linux/gio/src/lib.rs"), "-o", str(gio)],
+                       check=True, capture_output=True)
+        extra.extend(["--extern", "linux_gio=" + str(gio)])
     if capability == 'ble':
         controller = json.dumps(str(ROOT / 'hal/ble/src/controller.rs'))
         client = json.dumps(str(ROOT / 'hal/ble/src/gatt/client.rs'))
@@ -50,15 +58,14 @@ def wifi_backend(directory, platform):
     behavior = json.dumps(str(ROOT / f'hal/wifi/src/platform/{platform}/station.rs'))
     contract = json.dumps(str(ROOT / 'hal/wifi/src/shared/station.rs'))
     shim = json.dumps(str(ROOT / 'tests/host/radio_shims/wifi.rs'))
-    gio = json.dumps(str(ROOT / 'hal/wifi/src/platform/linux/gio.rs'))
-    modules = f'#[path = {gio}] mod gio;' if platform == 'linux' else ''
+    modules = 'use linux_gio as gio;' if platform == 'linux' else ''
     return static_backend(directory, f"""
 #[path = {contract}] mod contract;
 use contract::Station;
 {modules}
 #[path = {behavior}] mod behavior;
 #[path = {shim}] mod witness;
-""", test=True, capability='wifi')
+""", test=True, capability='wifi', linux=platform == 'linux')
 
 
 def macos_wifi(directory):
@@ -100,9 +107,10 @@ def linux_wifi(directory):
 
 def linux_ble(directory):
     modules = {name: json.dumps(str(ROOT / ('hal/ble/src/platform/linux/' + name + '.rs')))
-               for name in ('gio', 'identity', 'scan', 'gatt')}
+               for name in ('identity', 'scan', 'gatt')}
     raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     source = '\n'.join(f'#[path = {path}] mod {"backend_impl" if name == "gatt" else name};' for name, path in modules.items())
     return static_backend(directory, scan_contract() + f"""
+use linux_gio as gio;
 {source}
-""", test=True, capability='ble')
+""", test=True, capability='ble', linux=True)

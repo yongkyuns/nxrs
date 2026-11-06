@@ -27,7 +27,8 @@ impl Signal {
                     *ready = Some(irq.read()?);
                 }
                 if !ready.unwrap_or(false)
-                    && !readiness::wait(&irq.file, cancel).map_err(|_| DeviceError::Io)?
+                    && !readiness::wait(&irq.file, cancel, ffi::wait)
+                        .map_err(|_| DeviceError::Io)?
                 {
                     return Ok(false);
                 }

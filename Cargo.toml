@@ -9,6 +9,10 @@ members = [
     "app/ao-stress",
     "app/home-cam",
     "platform/build",
+    "platform/build-support",
+    "hal/detector/build-support",
+    "driver/acquisition",
+    "driver/linux/gio",
     "hal/detector",
     "service/camera",
     "service/detection",
@@ -106,6 +110,14 @@ opt-level = 3
 
 [profile.dev]
 panic = "abort"
+
+# The development frontend verifies retained SDK/native bytes on every build.
+# Keep that check inexpensive without weakening its content-based identity.
+[profile.dev.package.nxrs-build-support]
+opt-level = 2
+
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 panic = "abort"

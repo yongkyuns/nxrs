@@ -68,9 +68,11 @@ requirements, not aspirational guidance.
   implementation and constructor. All HAL selectors must name their exports;
   wildcard re-exports in selectors or crate roots are forbidden by the audit.
   Storage recording and transport UDP are explicitly accessible as
-  `storage::recording` and `transport::udp` on qualified std targets, regardless
-  of hardware admission. Legacy root factories preserve profile-based selection
-  and must never silently become software fallbacks.
+  `storage::recording` and `transport::udp` through the additive, nondefault
+  `recording` and `udp` Cargo features, regardless of hardware admission. Use
+  their explicit constructors; do not restore profile-dependent root factories
+  or OS whitelists. The distinct synchronous `create_record_file` acquisition
+  keeps one signature and an explicit unavailable result.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
   default and no hardware-profile requirement. Its native CLI forwards that

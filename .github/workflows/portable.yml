@@ -126,11 +126,11 @@ jobs:
       - name: Portable applications, mocks and actual native adapters
         run: |
           cargo test --locked
-          cargo test --locked -p nxrs-build
+          cargo test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
       - name: Real shared file and UDP APIs without hardware admission
         run: |
-          cargo test --locked -p nxrs-storage --test std_recording
-          cargo test --locked -p nxrs-transport --test std_udp
+          cargo test --locked -p nxrs-storage --features recording --test std_recording
+          cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
       - name: Event-driven native owner unit tests
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}
@@ -182,6 +182,8 @@ jobs:
           cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
           cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
           python tests/host/test_linux_radio_native.py
+      - name: Detached consumers use declared Cargo dependencies
+        run: python -m unittest discover -s tests/host -p test_external_consumers.py -v
       - name: Native simulator and bounded worker
         env:
           NXRS_PLATFORM: mock

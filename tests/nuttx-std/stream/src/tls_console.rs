@@ -1,4 +1,8 @@
 //! Trusted USB provisioning for the physical camera TLS qualification fixture.
+// This qualification calls private descriptor ABIs directly, so name their
+// owning Cargo package explicitly for the Rust/native partial link.
+#[cfg(target_os = "nuttx")]
+extern crate console as _;
 
 fn invalid() -> home_cam::Error {
     home_cam::Error::Tls(tls::Error::InvalidInput)
@@ -55,8 +59,8 @@ fn parse_time_response(bytes: &[u8], sequence: u64) -> Result<Response, tls::Err
 #[cfg(target_os = "nuttx")]
 mod device {
     use super::*;
-    use home_cam::TlsIdentity;
     use enrollment::MAX_ENROLLMENT;
+    use home_cam::TlsIdentity;
     use std::{
         io::{Read, Write},
         sync::{

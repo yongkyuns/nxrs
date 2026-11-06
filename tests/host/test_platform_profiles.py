@@ -33,6 +33,7 @@ PLATFORM_NAMES = {
     "pico2w-ble",
     "mps2-an521-mock",
     "esp32s3-qemu-mock",
+    "esp32s3-userled",
     "esp32s3-service-footprint",
     "esp32s3-wifi",
     "esp32s3-ble",
@@ -147,6 +148,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-service-footprint": {},
+                            "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
@@ -164,6 +166,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "pico2w-radio": {"wifi": "nuttx", "ble": "nuttx"},
                             "pico2w-wifi": {"wifi": "nuttx"},
                             "pico2w-ble": {"ble": "nuttx"}}
+                for name, bindings in expected.items():
+                    if name.startswith("esp32s3-camera-stream") or name == "esp32s3-camera-tls":
+                        bindings.update(console="nuttx", execution="nuttx")
                 self.assertEqual(features, expected.get(platform.stem,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)
@@ -304,7 +309,10 @@ class FirmwareFrontendTests(unittest.TestCase):
         base = tomllib.loads((PLATFORMS / 'esp32s3-camera.toml').read_text())
         data = tomllib.loads((PLATFORMS / 'esp32s3-camera-stream.toml').read_text())
         self.assertEqual(data['extends'], 'esp32s3-camera')
-        self.assertEqual(data['hal'], {'wifi': 'nuttx', 'detector': 'nuttx'})
+        self.assertEqual(data['hal'], {'wifi': 'nuttx', 'detector': 'nuttx',
+                                       'console': 'nuttx', 'execution': 'nuttx'})
+        self.assertEqual(data['console'], {'device': '/dev/ttyACM0'})
+        self.assertEqual(data['scheduling'], {'background': 80, 'normal': 90})
         config = data['kconfig']
         for setting in base['kconfig']['set']:
             if setting.startswith(('ESP32S3_CAM_', 'ESP32S3_I2C0_')):

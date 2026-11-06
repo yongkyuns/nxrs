@@ -2,7 +2,7 @@
 name = "nxrs-wifi"
 version.workspace = true
 edition.workspace = true
-build = "../../platform/hal-build.rs"
+build = "build.rs"
 
 [features]
 probe = []
@@ -21,8 +21,8 @@ platforms = ["nuttx", "linux", "macos"]
 [package.metadata.nxrs.platform.macos]
 frameworks = ["CoreWLAN", "CoreLocation", "Foundation"]
 
-[package.metadata.nxrs.platform.linux]
-pkg-config = ["gio-2.0"]
+[target.'cfg(target_os = "linux")'.dependencies]
+nxrs-linux-gio = { path = "../../driver/linux/gio", features = ["wifi"] }
 
 [build-dependencies]
-nxrs-build = { path = "../../platform/build" }
+nxrs-build-support = { path = "../../platform/build-support" }

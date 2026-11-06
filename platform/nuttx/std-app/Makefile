@@ -24,3 +24,14 @@ CFLAGS += ${INCDIR_PREFIX}"$(TOPDIR)/arch/arm/src/common"
 endif
 
 include $(APPDIR)/Application.mk
+
+# Export the same native compiler/ABI flags used for this application. The
+# consuming HAL build scripts own private helper compilation and archives.
+# POSIX printf also works with the GNU Make 3.81 shipped by macOS. Quote the
+# complete value so flags retain literal quotes, dollars and shell syntax.
+nxrs_shell_quote = '$(subst ','"'"',$(1))'
+.PHONY: nxrs-native-context
+nxrs-native-context:
+	@printf '%s\n' $(call nxrs_shell_quote,$(CC)) > $(call nxrs_shell_quote,$(NXRS_NATIVE_CONTEXT_DIR)/cc.txt)
+	@printf '%s\n' $(call nxrs_shell_quote,$(AR)) > $(call nxrs_shell_quote,$(NXRS_NATIVE_CONTEXT_DIR)/ar.txt)
+	@printf '%s\n' $(call nxrs_shell_quote,$(CFLAGS) ${INCDIR_PREFIX}"$(TOPDIR)") > $(call nxrs_shell_quote,$(NXRS_NATIVE_CONTEXT_DIR)/cflags.txt)
