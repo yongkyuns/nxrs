@@ -1,6 +1,7 @@
 # Rust std channels versus Zephyr
 
-The ESP32-S3 comparison uses Zephyr 4.5.0 at
+The ESP32-S3 comparison pins NuttX at
+`2b5c0de5e933281c209f954a63b99cf10c132346` and Zephyr 4.5.0 at
 `41d10b59730406bbab4ca9f1fbbe9e96aafb4966`, its manifest-pinned modules and
 SDK 1.0.1. Both kernels use the same pinned ESP 1.90 Rust compiler and measurement
 engine. Zephyr calls native `k_msgq` from a core-only Rust fixture; this is not a
@@ -71,9 +72,36 @@ generation; its smaller image is not another queue optimization.
 The remaining IRAM text gap is 8,024 bytes: native runtime is 1,797 bytes smaller,
 Rust synchronization/runtime adds 5,245, workload/adapter code adds 4,451, and
 alignment adds 125. Map-origin categories include inlined channel code; these
-are full-image costs, not isolated queue storage. The runtime IRAM span from vectors through the end marker is 61,696 versus
-54,408 bytes, including padding and Zephyr's intervening loader text. Heap and
-thread storage are separate budgets. Full resource parity remains open.
+are full-image costs, not isolated queue storage. The runtime IRAM span from
+vectors through the end marker is 61,696 versus 54,408 bytes, including padding
+and Zephyr's intervening loader text.
+
+Whole-image RAM also includes different runtime provisioning. Accounting for
+IRAM/DRAM aliasing once, linked reservations plus captured live heap are:
+
+| Stream case, capacity eight | Rust std / NuttX | Zephyr |
+| --- | ---: | ---: |
+| One producer, 16-byte payload | 243,560 bytes | 258,600 bytes |
+| Four producers, 64-byte payload | 294,408 bytes | 258,600 bytes |
+
+These exclude free heap and cache/ROM/RTC reservations, and are live occupancy,
+not qualified startup peaks. Zephyr always reserves five worker stacks and a
+4,096-byte queue buffer. NuttX allocates for the selected case. For the four-
+producer/64-byte case, NuttX's queue-plus-worker live allocation is 84,728 bytes
+above baseline; capacity-normalized Zephyr objects total 83,216 bytes. That
+1,512-byte difference includes thread/runtime metadata; the normalized number
+is a derived object sum, not a measured smaller Zephyr image. Increasing queue
+capacity or payload has exactly the payload-storage cost in the captured std
+cases. The larger whole-image difference is predominantly fixed image/runtime
+cost, not per-message storage. Requested controller/worker stacks are 32/16 KiB;
+observed workload highwaters fit both implementations' usable stacks.
+
+Zephyr's zero heap records are an unsupported reader, not evidence of zero heap
+cost: its linked system-heap buffer/control reserve 4,180/24 bytes. The pinned
+NuttX high-water counter counts its 368-byte allocator context twice, confirmed
+by source, compiled DWARF size and the captures. Raw records remain unchanged;
+that counter is not used as a qualified peak. SoC caches match: 16/32 KiB I/D
+cache, eight ways and 32-byte hardware lines. Full resource parity remains open.
 
 The `esp32s3-sync-iram` product profile selects synchronization placement through
 `iram-layout`. The frontend stages the platform-owned fragment and records its
