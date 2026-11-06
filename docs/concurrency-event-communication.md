@@ -26,6 +26,11 @@ is a legitimate asynchronous boundary even when measurements are periodic.
 This is an in-process Rust application model. Neither availability of `std` nor
 an upstream crate's desktop support qualifies a NuttX or browser target.
 
+The [std channel performance analysis](std-channel-performance.md) connects
+these requirements to the bounded inbox implementation and its reported
+ESP32-S3 timing and memory observations. It distinguishes many producers sharing
+one inbox from selection across independently bounded queues.
+
 ## Ownership and the HAL boundary
 
 The service owns application state, processing policy and HAL session lifecycle.
@@ -204,13 +209,17 @@ Use positive-capacity bounded channels with a fixed set of participants and
 selection arms. Do not create channels/selectors/threads during normal dispatch.
 Prefer fixed-arm macros to constructing a dynamic `Select` repeatedly.
 
-Neither `std::sync::mpsc::sync_channel` nor Crossbeam's bounded implementation
-promises that all blocking bookkeeping is allocated at construction. Both have
-an internal blocking context and waiter bookkeeping; the std implementation
-was derived from Crossbeam. Fixed message storage does not prove allocation-free
-waiting. Conversely, bookkeeping that is allocated once and reused is not the
-same as allocation per message. Audit the pinned sources and measure both.
-[Std implementation][std-implementation], [Crossbeam source][cb-source]
+Neither `std::sync::mpsc::sync_channel` nor Crossbeam's bounded API promises an
+allocation-free lifecycle. Allocation behavior depends on the selected source:
+the [generic std implementation][std-implementation] and
+[Crossbeam][cb-source] have their own blocking bookkeeping, while nxrs's pinned
+NuttX SDK uses the [bounded queue/waiter backend](std-channel-performance.md#where-the-memory-goes)
+described in the performance analysis. That backend preallocates the ring and
+keeps blocked-operation waiters on caller stacks. Thread/parker setup and
+payload-owned buffers still need accounting. Fixed message storage does not
+prove allocation-free waiting; reusable first-use bookkeeping is also different
+from allocation per message. Audit the pinned sources and measure the complete
+path.
 
 Record construction, first blocking use, repeated ready-path operations,
 repeated blocking/timeouts, overload and teardown separately. First-blocking

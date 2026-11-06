@@ -14,7 +14,7 @@ and notification after the completed owner has joined. The host supplies mutual
 exclusion; target interrupt masking and native NuttX parking require separate
 device qualification. No installed SDK is changed.
 
-## Hardware comparison fixture
+## Physical measurement fixture
 
 The [entry-selection patch](mpsc-fixture-entry.patch) applies to the frozen MPSC
 fixture at `a8a1b1baa05aeca76264e882ed31c3b2baa9973d`. Its executable entry selects
@@ -22,14 +22,20 @@ std on NuttX and the native queue on Zephyr. The timed engine, arrival schedules
 metrics and native adapters remain shared. Retain the older mixed NuttX image
 for its separate native diagnostic; carrying both transports in the measured
 image inflates its memory cost. See the
-[comparison report](../../../docs/std-channel-performance.md).
+[event-driven performance analysis](../../../docs/std-channel-performance.md).
+
+The complete base fixture, observer overlays and raw device captures are
+retained privately; `tests/mpsc-comparison/` is not included in this checkout.
+These patches make the fixture corrections inspectable, but do not by themselves
+reproduce the hardware tables. The host controls above are a separate executable
+validation of the queue body.
 
 The [phase-ordering patch](mpsc-fixture-phase.patch) moves endpoint priority and
 policy queries after the existing retirement barrier, once timing and CPU
 counters have closed. Priority validation and joined cleanup remain required.
 Earlier captures include these diagnostics before the final message is received.
 The corrected ordering passed both physical matrices and three fresh boots of
-the four-producer paced case per runtime; see the comparison report.
+the four-producer paced case per runtime; see the measurement analysis.
 
 Apply the same [fixture IRAM fragment](mpsc-fixture-iram.ld) to both kernels,
 alongside their native queue/wait/scheduler IRAM policy. It covers workers,

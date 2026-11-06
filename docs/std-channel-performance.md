@@ -1,160 +1,412 @@
-# Rust std channels versus Zephyr
+# Measuring Rust std in nxrs's event-driven core
 
-The ESP32-S3 comparison pins NuttX at
-`2b5c0de5e933281c209f954a63b99cf10c132346` and Zephyr 4.5.0 at
-`41d10b59730406bbab4ca9f1fbbe9e96aafb4966`, its manifest-pinned modules and
-SDK 1.0.1. Both kernels use the same pinned ESP 1.90 Rust compiler and measurement
-engine. Zephyr calls native `k_msgq` from a core-only Rust fixture; this is not a
-Zephyr std port.
+nxrs is meant to let us write firmware with ordinary Rust: owned state, small
+typed messages, threads when work needs independent execution, and a blocking
+wait when there is nothing useful to do. The question behind this work was
+practical: what do those familiar `std` facilities cost on a microcontroller?
+Could a channel hide allocation, expensive wakeups, or enough code and stack
+usage to make that programming model awkward?
 
-Fair placement means equivalent executed hot operations reside in IRAM on both
-kernels, rather than equal compiled byte counts. Apply the same
-[fixture fragment](../tests/nuttx-std/channels/mpsc-fixture-iram.ld) to both:
-workers, channel adapters, clock/gate wrappers and scheduled-release callbacks.
-Audit linked targets and native queue, wait and scheduler callees, including
-Xtensa literal-loaded calls. Memory-copy primitives use the same SoC ROM entries.
-Setup, reporting, retirement diagnostics and joined reclamation keep normal
-placement; native SDK IRAM requirements remain intact.
+The work in [#272][pr] makes the cost of one central building block much more
+concrete. On ESP32-S3, a NuttX-specific implementation behind the normal bounded
+channel API has reported physical delivery, throughput and memory measurements,
+alongside source-level ownership checks and executable controls. That supports
+continuing with nxrs's bounded inbox architecture. Application deadlines and
+resource budgets still belong to the application that uses it.
 
-The final audit caught extra Zephyr queue wrappers still in flash, plus three
-ordinary NuttX semaphore pending-signal helpers. The shared fixture fragment and
-synchronization profile now cover those paths. Rust archives, workloads and OS
-configurations are unchanged. NuttX relinks byte-identical native inputs; Zephyr
-uses its normal native build to regenerate address-dependent ISR tables.
-Earlier measurements remain controls; the results below use corrected placement.
+This article explains the architecture, the implementation being measured, and
+how to read the results without needing the earlier issue discussions. Hardware
+numbers come from the [recorded campaign summary][campaign] at revision
+`3410313500a29d31c5c45d2183cd3bc599969ae7`. The complete measurement fixture and
+raw captures are retained privately; the [evidence section](#evidence-and-reproduction)
+distinguishes those reported observations from what this checkout can reproduce.
 
-Four runtime changes address the measured slowdown:
+## The path we want to keep simple
 
-- Match hot code placement in internal instruction RAM. Flash-cache misses and
-  alignment explained large earlier variations. Startup, peripheral setup and
-  diagnostics retain normal SDK placement; native IRAM requirements remain intact.
-- Select a Rust-owned NuttX bounded queue/waiter transaction and native
-  single-permit semaphore parking through std's OS module wiring. Applications
-  retain ordinary `std::sync::mpsc::sync_channel` APIs.
-- Build the full voluntary-switch context directly on ESP32-S3 flat, single-core,
-  windowed-ABI builds. Preserve register/window, TLS, loop and coprocessor state,
-  scheduler commit and native restoration; other modes retain syscall switching.
-- Keep unbounded and rendezvous operation boundaries out of line. Flavor dispatch
-  otherwise copies their algorithms into bounded callers, enlarging hot code and
-  stack frames. Channel algorithms and APIs remain unchanged.
+A provider waits for device readiness, reads and normalizes the data, then
+offers a typed event from task context. The receiving service owns its state,
+wakes on its inbox, runs ordinary synchronous Rust methods, and returns to its
+wait. Local processing uses direct calls and borrows. Messages are for useful
+ownership boundaries; there is no need to put every calculation on a thread.
 
-Two other fixture corrections are separate from those runtime improvements. The
-[entry-selection patch](../tests/nuttx-std/channels/mpsc-fixture-entry.patch)
-selects one transport per image. Carrying an unused native-control workload in
-the NuttX image inflated its memory cost; that diagnostic remains in a separate
-retained image. The
-[phase-ordering patch](../tests/nuttx-std/channels/mpsc-fixture-phase.patch)
-moves endpoint priority/policy queries after the existing retirement barrier,
-once timing and CPU counters have closed. Validation and joined cleanup remain
-required. These test-only queries previously delayed delivery of producers' final
-messages. The diagnostic-only control reduces the four-producer paced std maximum
-from 25.1875 to 8.0 µs. The current matched-placement repeats give 8.0 µs
-on all three std boots and 10.0625 µs on all three Zephyr boots.
-The queue, SDK, arrival schedule and message timestamps did not change.
+```mermaid
+flowchart TD
+    I["IMU provider"] --> Q["Bounded typed inbox"]
+    G["GNSS provider"] --> Q
+    C["Commands and peer events"] --> Q
+    Q --> W["One owner waits and receives"]
+    W --> H["Synchronous state update"]
+    H --> W
+```
 
-The current images passed 64 replayed fresh-boot captures covering all 16 matched
-cases per kernel in a primary matrix and a separate hardware-counter matrix.
-Six additional captures repeat the four-producer paced case three times per
-kernel. Both kernels have identical complete source inventories within each
-observer. Samples were not pooled.
+That topology already exists. The [messaging implementation][messaging] wraps
+`std::sync::mpsc::sync_channel` directly: cloned senders feed one queue, a unique
+`Inbox` owns the receiver, and `Inbox::wait` calls `recv` or `recv_timeout`.
+It adds no forwarding thread or intermediate queue. The [fusion service][fusion]
+uses source-specific inputs to put IMU and GNSS events into the same inbox.
 
-| Primary observation | Rust std / NuttX | Zephyr |
-| --- | ---: | ---: |
-| Sustained messages/s, one producer | 323,246 | 265,050 |
-| Sustained messages/s, four producers | 273,677 | 234,836 |
-| 64-byte/four-producer delivery p99 | 84.500 µs | 85.3125 µs |
-| IRAM text, including OS and fixture | 61,492 bytes | 53,392 bytes |
+The distinction for the measurements is that **several providers can
+share one inbox and one blocking wait**. Four producers do not require four
+queues. Separate queues become useful when an owner needs independent capacity
+for stop requests, important events and ordinary measurements. Selecting among
+those queues is another operation, with its own progress, allocation and fairness
+questions. The [communication guide][communication] and
+[three-class owner fixture][owner] describe that extension; this campaign measures
+a single bounded standard channel.
 
-Delivery median and p99 are never higher with std across matched primary
-cases, including successful/rejected admission and release-lateness p99.
-Scheduled-release p99 and exploratory threshold miss counts are also never
-higher; both have zero 100 µs misses in the 64-byte/four-producer case. Tail
-curves cross: single-producer/16-byte stream p99.9 is 34.0 versus 33.3125 µs,
-and maximum is 34.4375 versus 33.9375 µs. The 64-byte stream p99.9 is 60.0625
-versus 59.125 µs. These wall delays remain in the results; no quantile-universal
-claim or latency subtraction is made. Normal cases have zero loss; payload,
-per-producer FIFO and joined reclamation pass. Overload admits the same message
-identities, and every admitted message is delivered.
+The surrounding contracts remain explicit. Providers must handle full queues,
+retain terminal failures, wake acquisition on cancellation, and finish cleanup
+before releasing resources. Interrupt handlers only issue qualified native
+notifications; they do not call standard channels or service handlers. Those
+rules are part of the [existing acquisition and lifecycle model][communication].
 
-Rust/std uses 3.8–18.0% less whole-core active CPU per delivered message. Every
-std upper observation bound is below the corresponding Zephyr lower bound.
-These counters include IRQ, scheduler and idle-loop work; native thread counters
-have incompatible attribution and must not be compared directly.
+## Which part of std are we talking about?
 
-Outlining alternate flavors saves 6,304 IRAM text bytes and 6,144 bytes of shared
-SRAM reservation, without added thread storage or live heap use. Selecting only
-the measured transport removes another 7,332 IRAM bytes from the mixed fixture.
-Removing extra startup/peripheral/diagnostic promotions saves 4,760 text bytes
-and 4,864 bytes of shared SRAM reservation in a separate relink control with all
-74 frozen build inputs unchanged. The endpoint correction also changes code
-generation; its smaller image is not another queue optimization.
+Here, a channel means a **positive-capacity `sync_channel`**. Its bounded buffer
+holds at most the configured number of messages. `send` can wait for capacity;
+`try_send` returns the original message when the buffer is full or disconnected.
+The receiver can block until data arrives. The public API documents these
+[semantics][sync-channel].
 
-The IRAM text difference is 8,100 bytes: native runtime/fixture code is 1,723
-bytes smaller with NuttX, Rust synchronization/runtime adds 5,245, workload/adapter
-code adds 4,455, and alignment adds 123. Map-origin categories include inlined
-channel code; these are full-image costs, not isolated queue storage. Including
-vectors, padding and Zephyr's separate loader, runtime spans are 62,720 versus
-55,248 bytes: a 7,472-byte difference. Equivalent hot placement is the acceptance
-criterion; identical OS image sizes are not required.
+`std::sync::mpsc::channel()` has an unbounded buffer, and `sync_channel(0)` is a
+rendezvous channel with no queued capacity. Neither is the measured bounded
+buffer. They remain available, but choosing them changes the resource or waiting
+contract. A `try_` method avoids waiting for queue capacity; the name alone does
+not establish a fixed execution time or make the operation safe in an ISR.
 
-Whole-image RAM also includes different runtime provisioning. Accounting for
-IRAM/DRAM aliasing once, linked reservations plus captured live heap are:
+The implementation also matters. These results concern nxrs's **pinned, patched
+NuttX std**, prepared in a private SDK. They are not a measurement of every
+upstream standard library or target. Application source still uses normal Rust
+APIs; the OS-specific implementation is selected below that boundary. Existing
+`messaging` users therefore reach the same primitive without adopting another
+application-facing channel API. The complete service path was not physically
+remeasured by this channel fixture.
 
-| Stream case, capacity eight | Rust std / NuttX | Zephyr |
-| --- | ---: | ---: |
-| One producer, 16-byte payload | 244,584 bytes | 259,432 bytes |
-| Four producers, 64-byte payload | 295,432 bytes | 259,432 bytes |
+## What changed underneath the API
 
-These exclude free heap and cache/ROM/RTC reservations, and are live occupancy,
-not qualified startup peaks. Zephyr always reserves five worker stacks and a
-4,096-byte queue buffer. NuttX allocates for the selected case. For the four-
-producer/64-byte case, NuttX's queue-plus-worker live allocation is 84,728 bytes
-above baseline; capacity-normalized Zephyr objects total 83,216 bytes. That
-1,512-byte difference includes thread/runtime metadata; the normalized number
-is a derived object sum, not a measured smaller Zephyr image. Increasing queue
-capacity or payload has exactly the payload-storage cost in the captured std
-cases. The larger whole-image difference is predominantly fixed image/runtime
-cost, not per-message storage. Requested controller/worker stacks are 32/16 KiB;
-observed workload highwaters fit both implementations' usable stacks.
+The investigation found several costs worth addressing independently.
 
-Zephyr's zero heap records are an unsupported reader, not evidence of zero heap
-cost: its linked system-heap buffer/control reserve 4,180/24 bytes. The pinned
-NuttX high-water counter counts its 368-byte allocator context twice, confirmed
-by source, compiled DWARF size and the captures. Raw records remain unchanged;
-that counter is not used as a qualified peak. SoC caches match: 16/32 KiB I/D
-cache, eight ways and 32-byte hardware lines. The four-producer/64-byte std
-case retains 142,376 bytes of free heap; the additional IRAM does not exhaust
-shared SRAM in this fixture. This is not a camera-product memory qualification.
+**The queue and its waiters now share one transaction.** The
+[bounded-channel backend][queue-patch] owns its ring and waiter lists in Rust.
+A short native guard protects admission, removal, completion, timeout and
+disconnect. On the single-core configuration, the guard excludes interrupts
+while the transaction runs. A ring reservation cannot be left half-published
+while its owner is preempted. Waiting, native notification and message
+destruction happen after the guard is released. Moving a payload still takes
+work inside that transaction, so payload size belongs in the timing budget.
 
-The `esp32s3-sync-iram` product profile selects synchronization placement through
-`iram-layout`. The frontend stages the platform-owned fragment and records its
-source and staged hashes. Applications keep ordinary std APIs; optional channel
-flavors remain compiled, with their out-of-line helpers in flash. The comparison
-additionally places workload functions in IRAM; that fixture placement is not
-part of the product profile. An earlier normal frontend build checks unchanged
-wiring and target ABI. The layout-only change passes frozen-input native
-relinking and the focused staging test. This is not an ordinary-app physical
-performance result. `ESP32S3_RUN_IRAM` instead loads the entire image.
+**Sleeping has an explicit notification contract.** The [NuttX parker][parker]
+uses a native semaphore with one coalesced permit: repeated notifications do not
+build an unbounded notification count. Timed waits use a monotonic deadline and
+retry interrupted waits. A retained thread handle keeps notification storage
+alive even if the completed receiver exits before the sender finishes waking it.
+This is part of preserving ownership and wakeup behavior, as well as reducing
+work on the handoff path.
 
-Validation retains native state/preemption/signal/TLS tests, ordinary Rust
-thread/channel checks, seven unchanged P1 primitive cases, and the
-[host ownership controls](../tests/nuttx-std/channels/README.md). P1 does not
-qualify an arbitrary-priority three-class transport. ARM32 compilation and both
-SDK host suites are separate from ESP32-S3 evidence. The semaphore ABI gate
-checks storage/alignment and the header-owned protocol value.
+**The voluntary switch uses a direct native entry where qualified.** The
+[ESP32-S3 switch patch][switch] builds the full native context and shares the
+scheduler's commit and restoration path. It preserves register windows, thread
+local state, loop state and coprocessor handling. This entry applies to flat,
+single-core, windowed-ABI ESP32-S3 builds. Other execution modes retain the
+syscall path.
 
-Measurements retain fixture `a8a1b1baa05aeca76264e882ed31c3b2baa9973d`, pinned
-Zephyr/CPU-observer overlays and the entry/phase patches. Exact source snapshots,
-compiler, ELF, image and placement receipts are retained privately with raw
-sessions and backups. Every flash campaign restored
-and independently verified the original image. Campaigns reverified an existing
-full backup after fresh-read transport failures; no successful new full read is
-claimed. Private digest-image preparation does not fix normal frontend packaging.
+**Code placement and inlining affect the result.** Putting frequently executed
+synchronization code in internal instruction RAM, or IRAM, avoids depending on
+flash-cache behavior for those operations. Keeping unbounded and rendezvous
+operations out of line also avoids copying their algorithms into bounded
+callers through flavor dispatch. The [SDK patch description][std-patches]
+records that separation. These are changes beneath the API, with real linked
+code and shared-SRAM costs to account for.
 
-Matched hot placement is not an ordinary-placement or cross-build claim. Native
-GCC 14.2/14.3 differ, clocks lack external calibration, and three boots establish
-descriptive repeatability rather than statistical confidence. Full matrices have
-one paired pass per observer. The Zephyr upgrade itself did not improve the
-matched fixture; its compiler changed too. `physical_timing_qualified` and
-`production_qualified` remain false: these are nominal-clock physical comparisons,
-not calibrated product-deadline or general SMP qualification.
+None of this removes the scheduler from event delivery. A send can wake another
+thread, that thread can preempt the sender, and the receiver can wait behind
+other work. That is why an elapsed send-to-receive interval cannot be read as
+the CPU cost of a queue instruction sequence.
+
+## Reading the physical measurements
+
+The retained campaign used ESP32-S3 hardware and a common measurement engine.
+It covered one and four producers, payload and capacity variations, streaming,
+paced delivery and overload. A native queue fixture was used as a reference
+control for the engine and placement work. On that reference, Rust called
+Zephyr's native `k_msgq`; it did not run a Zephyr std port.
+
+There were 16 cases per runtime in a primary timing matrix and a separate
+hardware-counter matrix: 64 fresh-boot captures altogether. Three additional
+boots per runtime repeated the four-producer paced case, bringing the total to
+70. Each full matrix had one pass per observer. Only the focal case had those
+three additional repeats, and samples from different images or observers were
+not pooled. The [campaign record][campaign] is the source for the observations
+below.
+
+| Reported std / NuttX observation | Value |
+| --- | ---: |
+| Sustained stream, one producer | 323,246 messages/s |
+| Sustained stream, four producers | 273,677 messages/s |
+| Delivery p99, four producers and 64-byte payload | 84.500 µs |
+| Paced four-producer maximum, three focal boots | 8.0 µs on each boot |
+| Single-producer 16-byte stream, p99.9 / maximum | 34.0 / 34.4375 µs |
+| 64-byte stream, p99.9 | 60.0625 µs |
+
+These are observations from different cases. In particular, the published
+summary does not attach a payload/capacity pair to the two throughput rows or
+publish the full per-case sample counts, arrival rates and priority settings.
+Those entries describe the recorded stream tests; they are not a complete
+configuration recipe or a way to infer latency at a particular sensor rate.
+
+The useful takeaway is that this bounded thread-to-thread path has demonstrated
+substantial sustained delivery and measured latency distributions on the
+target. Turning that into an application budget requires knowing what is inside
+each interval:
+
+| Measurement | What it tells us |
+| --- | --- |
+| Delivery latency | Elapsed handoff delay, including queue residence and scheduling between producer and receiver |
+| Sustained throughput | Completed work under the fixture's producer/consumer arrangement, without real acquisition or application processing |
+| p99, p99.9 and maximum | The observed distribution and tail of that case; a maximum is not a worst-case execution bound |
+| Whole-core active CPU per delivered message | A separate counter observation including IRQ, scheduler and idle-loop activity; it is not the reciprocal of throughput |
+| Joined reclamation | The fixture completed its worker cleanup; this does not measure a product's cancellation latency |
+
+Normal cases reported no loss, valid payloads and preserved per-producer FIFO
+order. In overload, every admitted message was delivered and rejection was
+observable. That establishes useful queue behavior for the recorded workloads.
+It does not establish deterministic order between independent producers, fair
+service under every priority arrangement, or bounded shutdown for a real driver.
+
+The CPU campaign was recorded separately because instrumentation can change the
+image and its timing. Its published summary contains relative observations, but
+no absolute active-cycle or CPU-time table from which to build an nxrs workload
+budget. We therefore do not turn the throughput figures into a CPU percentage.
+Native per-thread counters also have different attribution from the whole-core
+observer. Isolated context-switch costs, wakeup counts and idle residency are
+not supplied by this summary.
+
+### One useful lesson from the tail measurements
+
+An earlier fixture queried endpoint priority and scheduling policy before its
+measurement interval had fully closed. Those diagnostics could delay delivery
+of a producer's final message. Moving them after the existing retirement barrier
+changed the four-producer paced std maximum from 25.1875 to 8.0 µs in the
+diagnostic control. The final placement-corrected repeats also recorded 8.0 µs
+on all three std boots. Validation and joined cleanup still ran.
+
+That was a [fixture correction][phase-patch], not a channel optimization. The
+queue, arrival schedule and message timestamps did not change. It is a good
+example of why a long tail needs attribution: the extra delay can be real while
+the cause sits outside the operation being investigated. Reported delays remain
+in their respective results; we do not subtract a guessed scheduler or interrupt
+cost to make a cleaner channel number.
+
+## Where the memory goes
+
+The memory question is easier to reason about once we separate four things:
+queue storage, participant state, thread stacks and the linked runtime/image.
+
+### The queue has a fixed buffer; the whole system has more state
+
+The [selected backend][queue-patch] constructs a `VecDeque` with space for the
+positive capacity. Admitted ready-path sends and receive/refill operations reuse
+that storage. Blocked operations keep an intrusive waiter on the calling
+thread's stack; a blocked sender retains its pending value there. The source
+does not create a new heap queue node for every message.
+
+For a capacity of eight, the raw inline-payload arithmetic is small:
+
+| Inline payload size | Eight payload slots |
+| --- | ---: |
+| 16 bytes | 128 bytes |
+| 64 bytes | 512 bytes |
+
+These are calculated storage components, not measured total channel allocations.
+They exclude channel/control objects, allocator rounding, thread/parker state
+and stacks. A `Vec`, `String` or `Box` carried inside a message can own additional
+memory independently of the ring. The campaign reports that changing capacity
+or payload in its captured std cases changed storage by the corresponding
+payload amount; that observation is specific to those types and configurations.
+
+Capacity bounds messages **in the buffer**. It does not include messages held
+by blocked senders, currently executing handlers or upstream drivers. A useful
+firmware budget therefore includes queue slots, bounded pending producer work,
+owned payload buffers, thread stacks, runtime metadata and service state.
+Bounding the participants matters as well as bounding the queue. Inline values
+in stack waiters are covered by the stack reservation; their separately owned
+heap buffers are additional. Count each allocation once.
+
+The implementation gives a concrete reason to expect reuse on the ready path.
+It does not prove that all of `std`, thread creation, first blocking use or an
+application's message construction is allocation-free. Construction, first use,
+steady state, timeout, overload and teardown still need separate allocation
+observations on the selected runtime. This campaign's live snapshots alone
+cannot establish long-duration leak or fragmentation behavior.
+
+### Stacks and runtime provisioning are much larger than the payload ring
+
+The campaign accounts for linked reservations plus captured live heap, counting
+IRAM/DRAM aliases only once:
+
+| Std / NuttX stream case, capacity eight | Accounted live RAM |
+| --- | ---: |
+| One producer, 16-byte payload | 244,584 bytes |
+| Four producers, 64-byte payload | 295,432 bytes |
+
+Those are whole-fixture observations. They include the OS/runtime and worker
+provisioning; they are not a per-queue charge or the minimum memory needed by an
+nxrs service. They exclude free heap and cache/ROM/RTC reservations. The larger
+case retained 142,376 bytes of free heap.
+
+For the four-producer, 64-byte case, queue-plus-worker live allocation was
+84,728 bytes above the retained baseline. Controller and worker stack requests
+were 32 KiB and 16 KiB respectively. Four producers plus one receiver already
+represent 80 KiB of requested worker-stack capacity before metadata and queue
+storage. That arithmetic explains why reading the whole increment as “channel
+overhead” would be misleading. Requested stack sizes are provisioning choices;
+observed high-water marks fitting within them do not establish minimal safe
+stack sizes for future handlers.
+
+The native reference also made different provisioning choices: it reserved five
+worker stacks and a 4,096-byte queue buffer regardless of the selected case,
+while NuttX allocated for that case. A capacity-normalized reference object sum
+was 83,216 bytes, compared with the 84,728-byte std live increment. The resulting
+1,512-byte difference includes thread/runtime metadata and uses a derived
+reference sum; it cannot be assigned to a queue object or described as a
+measured alternative image. This control is useful mainly because it exposes
+what must be counted before attributing memory to a library API.
+
+There is also a measurement wrinkle: the pinned NuttX allocator high-water
+counter double-counts its 368-byte allocator context. The campaign retained the
+raw records and did not use that counter as a qualified startup peak. The
+reference's zero heap readings came from an unsupported reader; its linked heap
+buffer/control still reserved 4,180/24 bytes. Neither a live snapshot nor an
+unsupported zero reading establishes peak memory use.
+
+### Hot code uses SRAM too
+
+The final std / NuttX fixture contains **61,492 bytes of IRAM text**. Its runtime
+IRAM span, including vectors and padding, is **62,720 bytes**. Both are complete
+OS/runtime/fixture measurements. Inlined channel code can appear under a caller's
+symbol, so map-origin categories are not a clean price tag for the queue.
+
+Several retained controls helped account for that footprint:
+
+| Separate control | Reported change |
+| --- | --- |
+| Outline unbounded/rendezvous operations | 6,304 fewer IRAM text bytes and 6,144 fewer bytes of shared-SRAM reservation; no additional live heap or thread storage in that control |
+| Select only the measured transport in each image | 7,332 fewer IRAM bytes than the mixed diagnostic image |
+| Remove extra startup/peripheral/diagnostic promotions | 4,760 fewer text bytes and 4,864 fewer bytes of shared-SRAM reservation in the frozen-input relink control |
+
+These controls have their own baselines. Adding their deltas does not reconstruct
+a universal std footprint. The [entry-selection patch][entry-patch] removes an
+unused workload from the measured image; it does not change the queue algorithm.
+Likewise, moving diagnostics changes code generation as well as observation
+order. The older [std footprint study](rust-std-footprint.md) uses a different
+workload and compiler cohort and remains separate evidence.
+
+## What this means for firmware development
+
+The evidence supports keeping ordinary Rust ownership, threads and bounded
+inboxes as the foundation. We have an inspectable implementation, explicit
+message ownership, and concrete target observations of the transport's time and
+memory costs. Applications can keep their existing composition and APIs while
+platform support evolves underneath.
+
+The next useful measurements follow the architecture's actual boundaries:
+
+| Boundary | What to establish when a product uses it |
+| --- | --- |
+| Provider to inbox to useful handler | Acquisition-to-handler latency, source rate, burst handling and CPU time with real processing enabled |
+| Several independent admission classes | Selection allocation, priority progress, ordinary-event fairness and stop latency under sustained traffic |
+| Runtime and payload storage | Initialization and first-use costs, repeated blocking/timeouts, peak heap, stack high-water and bounded retained buffers |
+| Lifecycle | Cancellation wakes device waits; full queues cannot prevent shutdown; callbacks and workers finish before reclamation |
+| Product placement and load | Final code/IRAM/RAM budgets and timing with the chosen peripherals, interrupts and concurrent work |
+
+For a simple one-inbox owner, the current `messaging` API already supplies the
+intended wait shape. For an owner needing independent stop/important/ordinary
+capacity, standard receivers cannot be passed to Crossbeam's selector. The
+existing selection fixture and its participant/progress qualification remain
+separate work. These results neither require migrating all inboxes nor qualify
+that selection path by association.
+
+The [synchronization profile][profile] selects the platform-owned IRAM fragment
+through `iram-layout`; applications keep ordinary std calls. The physical
+fixture additionally placed its workers, adapters and measurement wrappers in
+IRAM. That extra fixture placement is not part of the product profile. Merely
+selecting the profile therefore does not reproduce the table's application
+performance. `ESP32S3_RUN_IRAM`, which loads the entire image, is another choice.
+
+The clocks in this campaign use nominal conversion without external deadline
+calibration. The recorded repeats describe those boots, and the full matrices
+have one pass per observer. The evidence flags `physical_timing_qualified` and
+`production_qualified` remain false. This is useful physical transport evidence
+for continued development; calibrated deadlines, SMP behavior and complete
+camera/navigation product budgets still need their corresponding measurements.
+
+## Evidence and reproduction
+
+The public implementation and the historical device campaign have different
+reproduction boundaries:
+
+| Evidence | Available here | What it establishes |
+| --- | --- | --- |
+| Queue/parker/switch patches and SDK wiring | [Std patchset][std-patches], [SDK preparation][sdk], [switch patch][switch] | Exact implementation and target admission rules that can be reviewed |
+| Native queue body on a host | [Host controls][controls] | Capacity/errors, producer FIFO, MPMC ownership, disconnect/drop, timeout races, reentrant destruction, unrelated park permits, other-flavor compatibility and notification after owner exit |
+| Native target qualification | Reported in the [campaign record][campaign] | State/preemption/signal/TLS checks, ordinary thread/channel checks and seven retained priority-progress primitive cases; these do not qualify arbitrary selected-owner scheduling |
+| Physical timing and resource tables | Summary above; full fixture/overlays/receipts/captures retained privately | Historical campaign observations; they cannot currently be regenerated from a clean checkout |
+
+The host runner verifies the queue patch, copies a prepared SDK privately,
+changes only the module selector for the test, rebuilds std, and checks that
+Cargo compiled the actual native queue body. Its host lock and parking do not
+qualify target interrupt exclusion or NuttX semaphore behavior. With a prepared
+SDK from the normal frontend and a new output directory, run:
+
+```sh
+python3 tests/nuttx-std/channels/run.py \
+  --prepared-sdk PREPARED --out NEW_OUTPUT
+```
+
+The retained device campaign used these identities:
+
+| Input | Recorded identity |
+| --- | --- |
+| NuttX base | `2b5c0de5e933281c209f954a63b99cf10c132346` |
+| Rust compiler | Pinned ESP Rust 1.90 distribution; [download pins][pins] |
+| Frozen MPSC fixture | `a8a1b1baa05aeca76264e882ed31c3b2baa9973d`, plus the recorded observer overlays and entry/phase patches |
+| Native reference | Zephyr 4.5.0 at `41d10b59730406bbab4ca9f1fbbe9e96aafb4966`, manifest-pinned modules and SDK 1.0.1 |
+| Native compilers | GCC 14.2 / 14.3; separate native build inputs |
+| SoC caches | 16 KiB instruction / 32 KiB data, eight ways, 32-byte hardware lines |
+
+The same [fixture IRAM fragment][fixture-iram] was applied to both runtimes.
+The campaign audited the linked worker, adapter, clock/gate, release-callback,
+queue, wait and scheduler paths, including literal-loaded Xtensa calls. Memory
+copies used the same SoC ROM entries. Setup, reporting, retirement diagnostics
+and joined reclamation retained normal placement. The final audit corrected
+residual flash-resident helpers; earlier placements remain separate controls.
+Equivalent executed operations, rather than equal compiled byte counts, defined
+the placement condition.
+
+`tests/mpsc-comparison/`, the base to which the retained fixture patches apply,
+is not included at this revision. Its recorded commit is not available from
+the public repository. A sanitized fixture and aggregate result bundle with
+per-case configuration, sample counts, distributions/counters, reporting scripts
+and image/source identities would make the physical tables independently
+reproducible without publishing device identifiers or flash backups. The host
+controls above do not fill that gap. The pinned campaign record retains the
+device restoration and test-image provenance details.
+
+[pr]: https://github.com/yongkyuns/nxrs/pull/272
+[campaign]: https://github.com/yongkyuns/nxrs/blob/3410313500a29d31c5c45d2183cd3bc599969ae7/docs/std-channel-performance.md
+[messaging]: ../shared/messaging/src/channel.rs
+[fusion]: ../service/navigation/src/fusion.rs
+[communication]: concurrency-event-communication.md
+[owner]: ../tests/nuttx-std/wifi/README.md
+[sync-channel]: https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+[queue-patch]: ../upstream/rust-std/patches/0007-nuttx-bounded-channel.patch
+[parker]: ../upstream/rust-std/patches/0002-nuttx-parker.patch
+[switch]: ../upstream/nuttx/patches/0106-esp32s3-direct-voluntary-switch.patch
+[std-patches]: ../upstream/rust-std/README.md
+[phase-patch]: ../tests/nuttx-std/channels/mpsc-fixture-phase.patch
+[entry-patch]: ../tests/nuttx-std/channels/mpsc-fixture-entry.patch
+[profile]: ../platform/nuttx/platforms/esp32s3-sync-iram.toml
+[controls]: ../tests/nuttx-std/channels/README.md
+[sdk]: ../platform/build/src/sdk.rs
+[pins]: ../tests/event-services-comparison/setup-pins.json
+[fixture-iram]: ../tests/nuttx-std/channels/mpsc-fixture-iram.ld

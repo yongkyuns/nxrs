@@ -29,7 +29,7 @@ A retained `Thread` owns notification after publication.
 
 The normal target ABI gate also checks semaphore storage/alignment and
 `SEM_PRIO_NONE`. See the [ownership controls](../../tests/nuttx-std/channels/README.md)
-and [matched performance results](../../docs/std-channel-performance.md) for
+and [event-driven performance analysis](../../docs/std-channel-performance.md) for
 validation and remaining limits.
 
 ## Optional NuttX std math RFC
