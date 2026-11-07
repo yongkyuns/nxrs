@@ -6,13 +6,14 @@ the module/factory boundary. Shared controllers, workers and I/O algorithms do
 not inspect platform identity. Factories supply worker budgets and providers
 report capabilities.
 
-The [peripheral composition target](../docs/peripheral-composition.md) separates
-sensor-specific driver packages from capability implementations. A private HAL
-module translates each supported sensor API into common capability behavior;
-OS factories supply resources through existing Rust interfaces such as
-embedded-hal. The [implementation plan](../docs/peripheral-composition-plan.md)
-defines when current profile/mock selection can be retired and how simulation
-becomes a separate coordinated platform. These interfaces are pending migration.
+The [peripheral composition architecture](../docs/peripheral-composition.md)
+separates sensor-specific driver packages from capability implementations. A
+private HAL module translates each supported sensor API into common capability
+behavior. OS factories supply resources through existing Rust interfaces such as
+embedded-hal. IMU and GNSS hardware profiles resolve concrete device bindings.
+The separate simulation profile supplies both capabilities from one coordinated
+session. The [implementation plan](../docs/peripheral-composition-plan.md)
+records the migration and qualification gates.
 
 OS implementations live in each HAL's `src/platform/`, named `linux`,
 `macos`, `windows`, or `nuttx`, matching the profile bindings in the root

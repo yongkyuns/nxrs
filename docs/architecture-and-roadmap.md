@@ -7,12 +7,11 @@
 **Status:** Staged design. Current implementation and qualification are recorded in
 [architecture.md](architecture.md) and [nuttx-std.md](nuttx-std.md).
 
-The next peripheral migration is specified by the
-[composition architecture](peripheral-composition.md) and its
-[implementation sequence](peripheral-composition-plan.md). That sequence is the
-current plan for reusable sensor drivers, OS resource adapters, profile overlays
-and coordinated simulation; the historical stages below retain their original
-scope.
+The [peripheral composition architecture](peripheral-composition.md) covers the
+implemented IMU and GNSS driver split, OS resource adapters, profile overlays,
+and coordinated simulation. Its [implementation plan](peripheral-composition-plan.md)
+defines the remaining physical qualification. The historical stages below
+retain their original scope.
 
 ## Decision
 

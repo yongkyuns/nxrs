@@ -5,11 +5,12 @@ commands. The active architecture and device-access guides are
 [source ownership](architecture.md), [HAL ownership](hal-platform-architecture.md)
 and [NuttX device access](nuttx-device-access.md).
 
-The [peripheral composition architecture](peripheral-composition.md) specifies
-the next driver/resource/profile separation. Its
-[step-by-step implementation plan](peripheral-composition-plan.md) includes
-file ownership, dependencies, compatibility gates and verification commands.
-These documents distinguish proposed interfaces from current implementation.
+The [peripheral composition architecture](peripheral-composition.md) describes
+how IMU and GNSS use reusable drivers, OS resources, and resolved profiles. The
+[implementation plan](peripheral-composition-plan.md) records file ownership,
+dependencies, compatibility gates, and verification commands. See its
+[physical qualification step](peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines)
+for the remaining on-board validation and measurements.
 
 Each `hal/<capability>` is one crate. Its contract is in `src/api.rs`, selected
 Rust implementations stay private under `src/platform/`, and target-specific
