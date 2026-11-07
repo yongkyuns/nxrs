@@ -13,7 +13,7 @@ pub(crate) const DEFAULT_CONFIG: Config = Config {
     max_delivery_interval_us: nxrs_bmi270::SAMPLE_INTERVAL_US,
 };
 
-pub(crate) const CAPABILITIES: Capabilities = Capabilities {
+const CAPABILITIES: Capabilities = Capabilities {
     rates_millihz: &[25_000, 50_000, DEFAULT_RATE_MILLIHZ, 200_000],
     accel_ranges: &[
         AccelRange::G2,
@@ -55,13 +55,11 @@ fn map_sample(sequence: u64, now_ms: u64, sample_interval_us: u32, sample: Sampl
     }
 }
 
-impl<B: I2c, D: DelayNs> Sensor<B, D> {
-    pub(crate) fn open(
-        bus: B,
-        address: u8,
-        delay: D,
-        config: AppliedConfig,
-    ) -> Result<Self, DeviceError> {
+impl<B: I2c, D: DelayNs> super::Sensor<B, D> for Sensor<B, D> {
+    const DEFAULT: Config = DEFAULT_CONFIG;
+    const CAPABILITIES: Capabilities = CAPABILITIES;
+
+    fn open(bus: B, address: u8, delay: D, config: AppliedConfig) -> Result<Self, DeviceError> {
         use nxrs_bmi270::{AccelRange as Acc, GyroRange as Gyro, Rate};
         let settings = nxrs_bmi270::Config {
             rate: match config.rate_millihz {
@@ -92,15 +90,15 @@ impl<B: I2c, D: DelayNs> Sensor<B, D> {
         })
     }
 
-    pub(crate) fn stop(&mut self) -> Result<(), DeviceError> {
+    fn stop(&mut self) -> Result<(), DeviceError> {
         self.driver.stop().map_err(map_error)
     }
-    pub(crate) fn applied_config(&self) -> AppliedConfig {
+    fn applied_config(&self) -> AppliedConfig {
         self.config
     }
 
     /// `now_ms` is the host reception time shared by the samples in this drain.
-    pub(crate) fn drain(
+    fn drain(
         &mut self,
         now_ms: u64,
         mut emit: impl FnMut(ImuSample) -> bool,

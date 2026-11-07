@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-lsm6dso"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+embedded-hal = "=1.0.0"

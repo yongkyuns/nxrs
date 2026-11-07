@@ -55,7 +55,7 @@ struct Binding<'a> {
 }
 include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 fn main() {
-    let model = match MODEL { SensorModel::Bmi270 => "bmi270" };
+    let model = match MODEL { SensorModel::Bmi270 => "bmi270", SensorModel::Lsm6dso => "lsm6dso" };
     println!("{model} {} {} {} {:?} {STACK_BYTES}",
         BINDING.path, BINDING.address, BINDING.frequency, BINDING.irq_path);
 }
@@ -75,10 +75,15 @@ fn main() {
          [devices.imu]\naddress = 105\n",
     )
     .unwrap();
+    let replacement = sdk.join("tests/host/fixtures/lsm6dso-overlay.toml");
     let receipt = root.join("resolved-profile.json");
     for (overlays, expected) in [
         (&[][..], "bmi270 /dev/i2c0 104 400000 None 16384"),
         (&[patch][..], "bmi270 /dev/i2c1 105 100000 None 16384"),
+        (
+            &[replacement][..],
+            "lsm6dso /dev/i2c1 106 100000 None 16384",
+        ),
         (&[][..], "bmi270 /dev/i2c0 104 400000 None 16384"),
     ] {
         let profile =
