@@ -4,8 +4,16 @@ Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` befor
 changing a HAL, its platform wiring, or a native bridge. These are implementation
 requirements, not aspirational guidance.
 
-- Keep each hardware-resource abstraction and its implementations in its HAL
-  crate. Use `hal/<capability>/src/platform/` for implementations; the root
+- For peripheral composition work, also read `docs/peripheral-composition.md`
+  and follow `docs/peripheral-composition-plan.md` in dependency order. Their
+  schema and overlay interfaces are staged targets. Preserve existing selection
+  entry points until the corresponding migration gates pass.
+- Keep each capability's API, normalization and acquisition implementations in
+  its HAL crate. Reusable chip protocols belong in `driver/<device>` packages
+  with sensor-specific APIs and existing Rust bus traits. Drivers must not depend
+  on capability HALs, applications or services. HALs translate driver types and
+  errors into their own contract. Use `hal/<capability>/src/platform/` for OS
+  implementations; the root
   `platform/` tree owns product profiles and build wiring, not HAL code.
   Profile bindings name actual operating systems: `linux`, `macos`, `windows`,
   or `nuttx`; `mock` is an explicit test fixture. Rust `std` is an available
@@ -13,6 +21,14 @@ requirements, not aspirational guidance.
   Shared Rust behavior belongs in ordinary modules outside `src/platform/`;
   OS-specific code stays under its actual OS directory. Do not copy std code
   into OS folders or reintroduce `std`/`native` pseudo-platforms.
+
+- Product profiles own device/resource composition. NuttX BSP/configuration owns
+  MCU wiring and registration. A resolved hardware profile must select concrete
+  supported devices; simulation uses a separate explicit profile and coordinated
+  session. Legacy mock bindings remain fixture/migration inputs until replaced.
+  Generate only validated constants and checked-in factory selections. Cargo
+  dependencies must be declared before build scripts run. Keep runtime policy
+  out of build support and preserve detached-consumer qualification.
 
 - Each capability owns its Rust API and errors. Share a contract only when the
   consumers intentionally implement the same protocol. Similar enum variants

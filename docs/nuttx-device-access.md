@@ -17,6 +17,11 @@ Portable applications and services see only typed capability APIs. They never
 see device paths, file descriptors, `ioctl` request numbers, NuttX C structs,
 or NuttX-specific error values.
 
+The [peripheral composition design](peripheral-composition.md) and its
+[migration steps](peripheral-composition-plan.md) extend this boundary to
+Nxrs-owned Rust peripheral drivers over NuttX bus resources. Their profile and
+overlay interfaces are staged targets.
+
 ## 1. Architecture
 
 A typical physical NuttX capability has this shape:
@@ -280,7 +285,8 @@ configuration enum solely to represent provider-specific resource descriptions.
 
 ## 8. Relationship to NuttX upper/lower-half drivers
 
-Nxrs should reuse NuttX's driver model rather than mirror it.
+The resource exposed by NuttX may be a complete device or a raw bus/controller.
+The profile and selected HAL implementation determine which is consumed.
 
 NuttX remains responsible for low-level hardware integration such as:
 
@@ -292,6 +298,18 @@ NuttX remains responsible for low-level hardware integration such as:
 - implementation of `open/read/write/ioctl/poll` semantics.
 
 The Nxrs Rust HAL begins at the user-facing driver contract exposed by NuttX.
+
+For a raw bus, a Rust resource adapter implements an existing interface such as
+`embedded_hal::i2c::I2c` through the NuttX descriptor. A reusable package under
+`driver/<device>` owns the peripheral protocol. The capability HAL owns the
+translation into common observations and the acquisition lifecycle. The current
+BMI270 implementation already uses raw I2C and a Rust protocol adapter, though
+its extraction into a driver package is pending.
+
+For a complete NuttX device driver, the capability can consume that registered
+interface directly. A resource must have one active driver owner. The CoreS3
+raw-I2C profile therefore disables NuttX's BMI270 driver. Existing camera and
+radio paths retain their qualified SDK/kernel ownership.
 
 ~~~text
 Rust capability semantics
@@ -326,6 +344,14 @@ elsewhere.
 
 Do not expose raw descriptor readiness as application policy solely because the
 underlying NuttX device uses a file descriptor.
+
+In protected builds, MCU interrupt entry and bus/DMA control remain privileged.
+Nxrs user-mode acquisition waits for retained kernel notification and then
+performs sensor transactions through the device interface. GPIO acknowledgement
+and clearing a sensor's FIFO/status interrupt are distinct operations. Qualify
+their ordering, rearming, cancellation and shutdown for the actual target.
+Host tests and QEMU do not establish physical interrupt latency. The stock
+CoreS3 M135 module has unwired IMU interrupts and exercises periodic FIFO wakes.
 
 ## 10. ABI qualification
 
@@ -386,8 +412,9 @@ The following are architectural invariants:
 - No generic Nxrs POSIX/device framework is introduced.
 - Unselected capability providers and their exclusive glue are absent from the
   production dependency graph.
-- Adding a new physical device should primarily add Rust code to its capability,
-  not a parallel C adapter stack.
+- New Nxrs-owned peripherals place reusable chip behavior in driver packages and
+  capability translation in their HAL. Existing std and embedded-hal interfaces
+  connect these layers, with private native glue only where the OS ABI needs it.
 
 See [HAL capability architecture](hal-platform-architecture.md),
 [architecture](architecture.md), [NuttX std qualification](nuttx-std.md), and

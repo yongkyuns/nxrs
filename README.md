@@ -79,6 +79,12 @@ build, such as `linux`, `mock`, or `host-demo`. There is no global `hal/platform
 package, provider registry, giant HAL object, xtask, generated app manifest, or
 general runtime framework.
 
+The [peripheral composition design](docs/peripheral-composition.md) describes
+reusable Rust chip drivers, embedded-hal resource adapters and validated profile
+overlays. Its [implementation plan](docs/peripheral-composition-plan.md) gives
+ordered tasks and acceptance checks. The new configuration syntax and simulator
+are staged work; existing build commands below describe current behavior.
+
 ## Event-driven architecture demo
 
 `app/event-demo` is the reference app for service-owned execution **and

@@ -53,6 +53,13 @@ independent. Declarative profiles under `platform/profiles` and
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 
+The staged [peripheral composition design](peripheral-composition.md) extends
+these profiles with device instances, resource references, roles and ordered
+overlays. Its [implementation plan](peripheral-composition-plan.md) specifies
+resolver/build-script agreement, input fingerprints, Cargo dependency handling
+and detached-consumer checks. The new schema, `--overlay` option and resolved
+profile input are proposed interfaces until those steps are implemented.
+
 Each HAL owns its local `build.rs`; it depends on `platform/build-support`,
 which contains profile validation and native build utilities. The CLI depends on
 the same support package. A HAL never builds or depends on the deployment CLI.
