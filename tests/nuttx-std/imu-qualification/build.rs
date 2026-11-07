@@ -9,8 +9,8 @@ fn main() {
 
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let source_directory = manifest.join("ffi");
-    let sources =
-        ["notes.c", "resources.c", "worker.c"].map(|source| source_directory.join(source));
+    let sources = ["delivery_marker.c", "notes.c", "resources.c", "worker.c"]
+        .map(|source| source_directory.join(source));
     for source in &sources {
         assert!(
             source.is_file(),

@@ -1,8 +1,8 @@
 # Explicit probe-only sensor-output-ready reference: retain INT1 on GPIO16 for
 # FIFO wake and route BMI270 INT2 to the external analyzer. Shared DRDY reflects
-# both accel and gyro; it is not an accel-only cue.
+# both accel and gyro. GPIO15 emits the fixture's task-context delivery edges.
 extends = "esp32s3-devkit-imu-qualification"
 
 [init]
 stack-bytes = 16384
-args = ["--sensor-reference"]
+args = ["--sensor-reference", "--delivery-marker"]
