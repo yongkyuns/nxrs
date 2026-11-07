@@ -1,0 +1,6 @@
+# Protected counterpart to the explicit sensor-reference qualification image.
+extends = "esp32s3-devkit-imu-protected-qualification"
+
+[init]
+stack-bytes = 16384
+args = ["--sensor-reference"]

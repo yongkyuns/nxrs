@@ -15,6 +15,8 @@ const FIFO_CTRL2: u8 = 0x08;
 const FIFO_CTRL3: u8 = 0x09;
 const FIFO_CTRL4: u8 = 0x0a;
 const INT1_CTRL: u8 = 0x0d;
+const INT2_CTRL: u8 = 0x0e;
+const COUNTER_BDR_REG1: u8 = 0x0b;
 const FIFO_STATUS1: u8 = 0x3a;
 const FIFO_DATA_OUT_TAG: u8 = 0x78;
 const FIFO_WATERMARK_WORDS: u16 = 4;
@@ -197,6 +199,7 @@ pub struct Lsm6dso<B> {
     config: Config,
     pending_accel: Option<(u8, [i16; 3])>,
     pending_gyro: Option<(u8, [i16; 3])>,
+    reference_state: Option<(u8, u8)>,
 }
 
 fn read_reg<B: I2c>(bus: &mut B, address: u8, reg: u8) -> Result<u8, Error> {
@@ -302,7 +305,32 @@ impl<B: I2c> Lsm6dso<B> {
             config,
             pending_accel: None,
             pending_gyro: None,
+            reference_state: None,
         })
+    }
+
+    /// Route the accelerometer output-ready signal to INT2 as a 75 us pulse.
+    /// Call `stop` if setup fails after accessing the sensor.
+    pub fn enable_sensor_reference(&mut self) -> Result<(), Error> {
+        if self.reference_state.is_some() {
+            return Err(Error::InvalidData);
+        }
+        let old_int2 = read_reg(&mut self.bus, self.address, INT2_CTRL)?;
+        let old_counter = read_reg(&mut self.bus, self.address, COUNTER_BDR_REG1)?;
+        self.reference_state = Some((old_int2, old_counter));
+        write_reg(
+            &mut self.bus,
+            self.address,
+            COUNTER_BDR_REG1,
+            old_counter | 0x80,
+        )?;
+        write_reg(&mut self.bus, self.address, INT2_CTRL, old_int2 | 0x01)?;
+        if read_reg(&mut self.bus, self.address, COUNTER_BDR_REG1)? != (old_counter | 0x80)
+            || read_reg(&mut self.bus, self.address, INT2_CTRL)? != (old_int2 | 0x01)
+        {
+            return Err(Error::InvalidData);
+        }
+        Ok(())
     }
 
     pub const fn config(&self) -> Config {
@@ -311,6 +339,16 @@ impl<B: I2c> Lsm6dso<B> {
 
     pub fn stop(&mut self) -> Result<(), Error> {
         let mut first_error = None;
+        let reference_state = self.reference_state;
+        if let Some((old_int2, old_counter)) = reference_state {
+            for (reg, value) in [(INT2_CTRL, old_int2), (COUNTER_BDR_REG1, old_counter)] {
+                if write_reg(&mut self.bus, self.address, reg, value).is_err()
+                    && first_error.is_none()
+                {
+                    first_error = Some(Error::Bus);
+                }
+            }
+        }
         for reg in [INT1_CTRL, FIFO_CTRL4, CTRL1_XL, CTRL2_G] {
             if write_reg(&mut self.bus, self.address, reg, 0).is_err() && first_error.is_none() {
                 first_error = Some(Error::Bus);
@@ -327,6 +365,18 @@ impl<B: I2c> Lsm6dso<B> {
                 Ok(_) if first_error.is_none() => first_error = Some(Error::InvalidData),
                 Err(error) if first_error.is_none() => first_error = Some(error),
                 _ => {}
+            }
+        }
+        if let Some((old_int2, old_counter)) = reference_state {
+            let int_ok = read_reg(&mut self.bus, self.address, INT2_CTRL) == Ok(old_int2);
+            let counter_ok =
+                read_reg(&mut self.bus, self.address, COUNTER_BDR_REG1) == Ok(old_counter);
+            if !int_ok || !counter_ok {
+                if first_error.is_none() {
+                    first_error = Some(Error::InvalidData);
+                }
+            } else {
+                self.reference_state = None;
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -532,6 +582,34 @@ mod tests {
         let sensor = Lsm6dso::open_configured(Bus::new(), 0x6b, Delay, config).unwrap();
         assert_eq!(sensor.bus.regs[CTRL1_XL as usize], 0x24);
         assert_eq!(sensor.bus.regs[CTRL2_G as usize], 0x22);
+    }
+
+    #[test]
+    fn optional_accel_ready_reference_is_pulsed_on_int2_and_cleans_up() {
+        let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
+        sensor.bus.regs[INT2_CTRL as usize] = 0x40;
+        sensor.bus.regs[COUNTER_BDR_REG1 as usize] = 0x05;
+        sensor.enable_sensor_reference().unwrap();
+        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0x38);
+        assert_eq!(sensor.bus.regs[INT2_CTRL as usize], 0x41);
+        assert_eq!(sensor.bus.regs[COUNTER_BDR_REG1 as usize], 0x85);
+        sensor.stop().unwrap();
+        assert_eq!(sensor.bus.regs[INT2_CTRL as usize], 0x40);
+        assert_eq!(sensor.bus.regs[COUNTER_BDR_REG1 as usize], 0x05);
+        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0);
+    }
+
+    #[test]
+    fn optional_accel_ready_reference_partial_write_failure_cleans_up() {
+        let bus = Bus::new();
+        let mut sensor = Lsm6dso::open(bus, 0x6a, Delay).unwrap();
+        sensor.bus.failed_write = Some(COUNTER_BDR_REG1);
+        assert_eq!(sensor.enable_sensor_reference(), Err(Error::Bus));
+        sensor.bus.failed_write = None;
+        sensor.stop().unwrap();
+        assert_eq!(sensor.bus.regs[INT2_CTRL as usize], 0);
+        assert_eq!(sensor.bus.regs[COUNTER_BDR_REG1 as usize], 0);
+        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0);
     }
 
     #[test]

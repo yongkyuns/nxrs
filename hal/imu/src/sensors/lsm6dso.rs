@@ -113,4 +113,8 @@ impl<B: I2c, D: DelayNs> super::Sensor<B, D> for Sensor<B> {
     fn stop(&mut self) -> Result<(), DeviceError> {
         self.driver.stop().map_err(map_error)
     }
+
+    fn enable_sensor_reference(&mut self) -> Result<(), DeviceError> {
+        self.driver.enable_sensor_reference().map_err(map_error)
+    }
 }

@@ -119,6 +119,33 @@ scheduled interval. The heap values cover the allocator arena visible through
 `mallinfo`, including kernel allocations if it is shared. Retain the
 `resource_schema: 1` summary along with the effective config and binary hash.
 
+## Capture sensor-side timing and loss
+
+Use `esp32s3-devkit-imu-sensor-reference` or
+`esp32s3-devkit-imu-protected-sensor-reference` with `--features probe`. These
+profiles pass `--sensor-reference` to the fixture. Apply the chosen sensor
+overlay and leave its wake mode fixed across the flat and protected pair.
+Connect INT2, SCL, and SDA to voltage-compatible logic analyzer inputs with
+common ground. Keep INT1 wired to GPIO16 for the wired BMI270 test and include
+it in the capture for the electrical wake measurement.
+
+- BMI270 INT2 carries the shared data-ready signal. Establish the relationship
+  between pulses and paired FIFO frames on the actual breakout before counting
+  samples from it. Decode completed reads from register `0x26` as 12-byte
+  frames in this configuration. [Bosch BMI270 datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi270-ds000.pdf)
+- LSM6DSO INT2 carries pulsed accelerometer data-ready. Decode the seven-byte
+  tagged reads from `0x78`, pairing accelerometer and gyroscope records by
+  their FIFO slot. Verify the relationship between reference edges and the
+  resulting pairs before counting complete samples. [ST LSM6DSO datasheet](https://www.st.com/resource/en/datasheet/lsm6dso.pdf)
+
+Record FIFO occupancy at the capture boundaries and the exact target address.
+Pair output-ready edges with acknowledged FIFO reads on the analyzer clock.
+Exclude startup, partial frames, and boundary samples with unresolved backlog.
+An overflow or an ambiguous edge-to-frame mapping leaves sample age
+unqualified. Report observed source edges, complete FIFO frames, and software
+queue losses separately. Joining analyzer and NuttX timestamps requires a
+shared marker or a verified clock mapping.
+
 ## Evidence to collect for S8
 
 - The HAL sequence and queue-drop counter identify delivery gaps after samples

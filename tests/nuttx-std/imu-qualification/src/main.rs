@@ -88,6 +88,38 @@ fn report(
 }
 
 fn main() -> ExitCode {
+    let mut sensor_reference = false;
+    let mut invalid_arguments = false;
+    for arg in std::env::args().skip(1) {
+        if arg == "--sensor-reference" && !sensor_reference {
+            sensor_reference = true;
+        } else {
+            invalid_arguments = true;
+        }
+    }
+    if invalid_arguments {
+        eprintln!("unsupported argument");
+        return report(
+            "invalid_arguments",
+            0,
+            Duration::ZERO,
+            Observations::default(),
+            0,
+            None,
+        );
+    }
+    #[cfg(not(feature = "probe"))]
+    if sensor_reference {
+        eprintln!("--sensor-reference requires the probe feature");
+        return report(
+            "sensor_reference_unavailable",
+            0,
+            Duration::ZERO,
+            Observations::default(),
+            0,
+            None,
+        );
+    }
     #[cfg(all(feature = "probe", target_os = "nuttx"))]
     let mut notes = match notes::Notes::open() {
         Ok(notes) => notes,
@@ -144,7 +176,12 @@ fn main() -> ExitCode {
     let (timing, opened) = {
         let timing = std::sync::Arc::new(timing::Recorder::default());
         let observer = timing.clone();
-        let opened = imu::probe::open_configured(CONFIG, sink, move |event| observer.record(event));
+        let observe = move |event| observer.record(event);
+        let opened = if sensor_reference {
+            imu::probe::open_sensor_reference_configured(CONFIG, sink, observe)
+        } else {
+            imu::probe::open_configured(CONFIG, sink, observe)
+        };
         (timing, opened)
     };
     #[cfg(not(feature = "probe"))]

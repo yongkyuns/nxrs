@@ -127,3 +127,38 @@ fn devkit_uses_the_same_bus_and_irq_in_both_modes_and_can_select_periodic_lsm6ds
     assert_eq!(binding.address, 0x6a);
     assert_eq!(binding.irq_path, None);
 }
+
+#[test]
+fn sensor_reference_is_an_explicit_init_argument_in_both_modes() {
+    let repo = Repo::new();
+    let app = repo.app("tests/nuttx-std/imu-qualification/Cargo.toml");
+    for (base, reference, mode) in [
+        (
+            "esp32s3-devkit-imu-qualification",
+            "esp32s3-devkit-imu-sensor-reference",
+            "flat",
+        ),
+        (
+            "esp32s3-devkit-imu-protected-qualification",
+            "esp32s3-devkit-imu-protected-sensor-reference",
+            "protected",
+        ),
+    ] {
+        let base = repo.profile(base);
+        let reference = repo.profile(reference);
+        assert!(base.data["init"]["args"].is_null());
+        assert_eq!(
+            reference.data["init"]["args"],
+            json!(["--sensor-reference"])
+        );
+        assert_eq!(base.data["kconfig"], reference.data["kconfig"]);
+        assert_eq!(
+            base.composition().unwrap().unwrap().imu(),
+            reference.composition().unwrap().unwrap().imu()
+        );
+        assert_eq!(
+            repo.validate(&app, &reference).unwrap()["nuttx-build-mode"],
+            mode
+        );
+    }
+}

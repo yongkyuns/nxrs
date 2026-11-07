@@ -10,6 +10,7 @@ pub(crate) trait Sensor<B: I2c, D: DelayNs>: Sized {
     const CAPABILITIES: Capabilities;
 
     fn open(bus: B, address: u8, delay: D, config: AppliedConfig) -> Result<Self, DeviceError>;
+    fn enable_sensor_reference(&mut self) -> Result<(), DeviceError>;
     fn applied_config(&self) -> AppliedConfig;
     fn drain(
         &mut self,

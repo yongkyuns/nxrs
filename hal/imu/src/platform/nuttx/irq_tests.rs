@@ -26,6 +26,7 @@ struct Fake {
     fail_register: bool,
     fail_unregister: bool,
     fail_stop: bool,
+    fail_reference: bool,
     irq_asserted: bool,
     registrations: usize,
     unregisters: usize,
@@ -48,6 +49,7 @@ impl Fake {
             fail_register: false,
             fail_unregister: false,
             fail_stop: false,
+            fail_reference: false,
             irq_asserted: true,
             registrations: 0,
             unregisters: 0,
@@ -77,6 +79,10 @@ mod ffi {
             .first()
             .ok_or_else(|| io::Error::other("missing register"))? as usize;
         if r.is_empty() {
+            if f.fail_reference && w == [0x54, 0x0a] {
+                f.regs[reg] = w[1];
+                return Err(io::Error::other("reference output write acknowledgement"));
+            }
             if reg == 0x58 && w.get(1) == Some(&0) {
                 f.ops.push(Op::Stop);
                 if f.fail_stop {
@@ -486,6 +492,39 @@ fn failed_stop_or_detach_quarantines_without_repeating_release() {
         assert_eq!(OWNED.load(Ordering::Relaxed), 2);
         assert_eq!((f.registrations, f.unregisters), (0, 1));
         assert_eq!(f.ops, [Op::Stop, Op::Detach]);
+    }
+}
+
+#[cfg(feature = "probe")]
+#[test]
+fn partial_reference_setup_releases_the_sensor_and_checks_irq_detach() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for fail_unregister in [false, true] {
+        reset();
+        {
+            let mut fake = FAKE.lock().unwrap();
+            fake.fail_reference = true;
+            fake.fail_unregister = fail_unregister;
+        }
+        let trace = trace::Trace::new(|_| {}).with_sensor_reference(true);
+        assert_eq!(
+            device::Device::<Bmi270Sensor>::acquire(
+                binding(file.path(), Some(file.path())),
+                default_config(),
+                trace,
+            )
+            .err(),
+            Some(crate::DeviceError::Io)
+        );
+        let fake = FAKE.lock().unwrap();
+        assert_eq!(fake.ops, [Op::Stop, Op::Detach]);
+        assert_eq!(fake.regs[0x54] & 0x08, 0);
+        assert_eq!(fake.regs[0x58], 0);
+        assert_eq!(
+            OWNED.load(Ordering::Relaxed),
+            if fail_unregister { 2 } else { 0 }
+        );
     }
 }
 
