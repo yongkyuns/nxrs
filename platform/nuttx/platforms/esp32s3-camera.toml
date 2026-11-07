@@ -7,6 +7,9 @@ image = "nuttx.bin"
 requires-qemu = false
 hal = { camera = "nuttx" }
 
+[camera]
+device = "/dev/video0"
+
 [kconfig]
 enable = [
   "RAW_BINARY", "ESP32S3_SPIRAM", "ESP32S3_SPIRAM_MODE_OCT",

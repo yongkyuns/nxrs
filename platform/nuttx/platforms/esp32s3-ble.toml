@@ -7,6 +7,9 @@ image = "nuttx.merged.bin"
 requires-qemu = false
 hal = { ble = "nuttx" }
 
+[ble]
+scan-interface = "bnep0"
+
 [kconfig]
 enable = [
   "ESP32S3_QEMU_IMAGE", "ESP32S3_SPIRAM", "ESP32S3_SPIRAM_MODE_OCT",

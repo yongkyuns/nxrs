@@ -511,29 +511,28 @@ impl Profile {
                 return Err("LED device configuration requires a valid NuttX device path".into());
             }
         }
+        if let Some(v) = self.data.get("camera") {
+            if self.binding("camera") != "nuttx"
+                || !keys(v, &["device"], &[])
+                || !device(&v["device"])
+            {
+                return Err("camera.device requires a valid NuttX device path".into());
+            }
+        }
+        if let Some(v) = self.data.get("ble") {
+            if self.binding("ble") != "nuttx"
+                || !keys(v, &["scan-interface"], &[])
+                || !v["scan-interface"]
+                    .as_str()
+                    .is_some_and(|name| matches(name, r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"))
+            {
+                return Err("ble.scan-interface requires a valid NuttX interface name".into());
+            }
+        }
         self.network_initialization()?;
-        let graph = self.composition()?;
-        match (
-            self.binding("gnss"),
-            self.data.get("gnss"),
-            graph.as_ref().and_then(Composition::gnss),
-        ) {
-            ("nuttx", None, None) => return Err("gnss requires device configuration".into()),
-            (provider, Some(_), _) if provider != "nuttx" => {
-                return Err("gnss device configuration requires its NuttX binding".into())
-            }
-            ("nuttx", Some(v), Some(_)) => {
-                sensor_stack(v)?;
-                if !keys(v, &[], &["stack-bytes"])
-                    && !keys(v, &["device", "baud"], &["stack-bytes"])
-                {
-                    return Err("invalid GNSS UART binding".into());
-                }
-            }
-            ("nuttx", Some(_), None) => {
-                return Err("gnss requires a resolved device binding".into())
-            }
-            _ => {}
+        self.composition()?;
+        if self.binding("gnss") != "nuttx" && self.data.get("gnss").is_some() {
+            return Err("gnss device configuration requires its NuttX binding".into());
         }
         Ok(())
     }
@@ -651,6 +650,20 @@ impl Profile {
                 self.data["led"]["device"]
                     .as_str()
                     .unwrap_or("/dev/userleds")
+                    .into(),
+            ),
+            "camera" if self.binding(capability) == "nuttx" => env(
+                "CAMERA_DEVICE",
+                self.data["camera"]["device"]
+                    .as_str()
+                    .unwrap_or("/dev/video0")
+                    .into(),
+            ),
+            "ble" if self.binding(capability) == "nuttx" => env(
+                "BLE_SCAN_INTERFACE",
+                self.data["ble"]["scan-interface"]
+                    .as_str()
+                    .unwrap_or("bnep0")
                     .into(),
             ),
             "execution" if self.binding(capability) != "none" => {
@@ -783,6 +796,53 @@ mod tests {
         let mut wrong_provider = base;
         wrong_provider.data["hal"]["led"] = json!("mock");
         assert!(wrong_provider.validate_resources().is_err());
+    }
+
+    #[test]
+    fn native_camera_and_ble_bind_profile_resources() {
+        for (name, capability, key, variable, default, alternate, invalid) in [
+            (
+                "esp32s3-camera",
+                "camera",
+                "device",
+                "CAMERA_DEVICE",
+                "/dev/video0",
+                "/dev/video2",
+                "/dev/../video0",
+            ),
+            (
+                "esp32s3-ble",
+                "ble",
+                "scan-interface",
+                "BLE_SCAN_INTERFACE",
+                "bnep0",
+                "bnep7",
+                "bnep123456789012",
+            ),
+        ] {
+            let mut profile = Profile::resolve(&root(), name).unwrap();
+            assert_eq!(profile.data[capability][key], default);
+            profile.data[capability][key] = json!(alternate);
+            profile.validate_resources().unwrap();
+            assert!(profile
+                .cargo_output(&root(), capability, "nuttx")
+                .unwrap()
+                .contains(&format!("cargo:rustc-env={variable}={alternate}")));
+
+            profile.data[capability][key] = json!(invalid);
+            assert!(profile.validate_resources().is_err());
+            profile.data[capability][key] = json!(alternate);
+            profile.data["hal"][capability] = json!("mock");
+            assert!(profile.validate_resources().is_err());
+
+            profile.data["hal"][capability] = json!("nuttx");
+            profile.data.as_object_mut().unwrap().remove(capability);
+            profile.validate_resources().unwrap();
+            assert!(profile
+                .cargo_output(&root(), capability, "nuttx")
+                .unwrap()
+                .contains(&format!("cargo:rustc-env={variable}={default}")));
+        }
     }
     #[test]
     fn every_tracked_profile_resolves() {

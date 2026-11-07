@@ -39,7 +39,7 @@ static ACQUIRED: AtomicBool = AtomicBool::new(false);
 const BUFFER_COUNT: usize = 2;
 
 #[cfg(not(test))]
-const DEVICE_PATH: &str = "/dev/video0";
+const DEVICE_PATH: &str = env!("CAMERA_DEVICE");
 // Host tests exercise the production ownership code without camera hardware.
 #[cfg(test)]
 const DEVICE_PATH: &str = "/dev/null";

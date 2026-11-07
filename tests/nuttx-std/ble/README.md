@@ -272,7 +272,8 @@ NuttX HCI host, not a rejected controller command. Patch 0017 fixes ownership
 and expired-waiter cleanup; it adds no application retry. Neither diagnostic
 recurred in the final Pico sequence. These short checks do not establish
 long-term reliability, physical transport-fault recovery or USB interoperability.
-The ESP adapter uses NuttX's `bnep0`, protected by a host C-bridge test.
+The ESP profile selects NuttX's `bnep0` through `[ble].scan-interface`.
+The host C-bridge test verifies that scan ioctls use the configured name.
 The tested ESP `nuttx.bin` is 497,248 bytes, SHA-256
 `1fc219e725dfd97d14e2ba7aa47e80dffcb2cb33aa688ab7faa94d9a4359b878`;
 the patched Pico image is 469,912 bytes (168 bytes more), SHA-256

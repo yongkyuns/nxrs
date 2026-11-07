@@ -262,6 +262,13 @@ bus = "receiver_uart"
 gnss = "navigation"
 ~~~
 
+Camera and BLE bind the native subsystem interfaces they use. On NuttX,
+`[camera].device` names the video node and `[ble].scan-interface` names the
+interface used by scan ioctls. The firmware profiles declare these resources.
+For older profiles the defaults are `/dev/video0` and `bnep0`. NuttX owns
+camera capture and Bluetooth controller registration. The Rust providers own
+capture and scan lifecycle. GATT uses the NuttX host's connection APIs.
+
 Validate missing references, disabled/removed required devices, incompatible
 role assignments, duplicate physical endpoint/address claims, exclusive IRQ/CS
 claims and invalid resource requirements. Shared I2C buses are valid. Conflicting
