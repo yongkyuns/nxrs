@@ -629,6 +629,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-protected-runtime-witness"
+version = "0.1.0"
+dependencies = [
+ "nxrs-acquisition",
+]
+
+[[package]]
 name = "nxrs-recording-service"
 version = "0.1.0"
 dependencies = [

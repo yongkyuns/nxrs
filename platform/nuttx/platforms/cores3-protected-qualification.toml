@@ -1,0 +1,6 @@
+# Cross-link only until the protected runtime and hardware witnesses pass.
+extends = "cores3-imu-qualification"
+
+[build]
+size-optimized = true
+protected-runtime = true

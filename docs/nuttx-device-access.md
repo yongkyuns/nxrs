@@ -357,10 +357,11 @@ CoreS3 M135 module has unwired IMU interrupts and exercises periodic FIFO wakes.
 
 The [protected IMU ABI witness](../tests/nuttx-std/imu-protected/README.md)
 cross-links the production I²C and GPIO ABI bridges in ESP32-S3 userspace and
-checks their syscall entry points. Nxrs's product builder still requires
-`CONFIG_BUILD_FLAT=y`. The witness uses a separate target build for protected
-qualification. Its target execution and the physical timing matrix are separate
-gates in [S8](peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines).
+checks their syscall entry points. Product builds require `CONFIG_BUILD_FLAT=y`.
+The CoreS3 Rust qualification profile explicitly selects protected direct init
+with one Rust task group. The builder verifies the two-pass configuration and
+records both images. Target execution and physical timing are separate gates in
+[S8](peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines).
 
 ## 10. ABI qualification
 

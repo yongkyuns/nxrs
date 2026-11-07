@@ -112,6 +112,12 @@ jobs:
       - name: Qualify the standalone peripheral drivers
         run: cargo +1.90.0 test --locked -p nxrs-lsm6dso -p nxrs-ubx-driver
 
+      - name: Check the Rust runtime witness on the host
+        run: |
+          result=$(cargo +1.90.0 run --locked -p nxrs-protected-runtime-witness)
+          echo "$result"
+          test "$result" = 'S8_PROTECTED_RUST_PASS cycles=8 tls_destructors=8'
+
       - name: Run service-owned std demo
         shell: bash
         run: |
@@ -259,6 +265,13 @@ jobs:
           source target/qemu-tools/environment.sh
           bash tests/nuttx-std/imu-protected/build.sh target/firmware/event-demo/imu-protected
 
+      - name: Cross-link the protected Rust runtime witness
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml
+          --profile cores3-protected-qualification
+          --out target/firmware/event-demo/rust-protected
+
       - name: Retain deployment evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -280,6 +293,13 @@ jobs:
             target/firmware/event-demo/imu-protected/*.log
             target/firmware/event-demo/imu-protected/*.config
             target/firmware/event-demo/imu-protected/*.sha256
+            target/firmware/event-demo/rust-protected/nuttx/nuttx.bin
+            target/firmware/event-demo/rust-protected/nuttx/nuttx_user.bin
+            target/firmware/event-demo/rust-protected/nuttx/nuttx_user.elf
+            target/firmware/event-demo/rust-protected/*.config
+            target/firmware/event-demo/rust-protected/*.json
+            target/firmware/event-demo/rust-protected/*.sha256
+            target/firmware/event-demo/rust-protected/*.txt
           if-no-files-found: warn
 
 

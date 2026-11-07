@@ -47,3 +47,32 @@ also exercises the VFS syscall boundary with deterministic test devices. The
 GPIO edge comes from a kernel timer, and I²C reads come from a test lower half.
 Physical IRQ timing, sensor behavior and the Rust acquisition lifecycle require
 the [S8 physical matrix](../../../docs/peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines).
+
+## Rust runtime witness
+
+Build the same qualification application for flat and protected CoreS3. It
+starts eight acquisition workers in succession, cancels each through a bounded
+notification, joins it, and checks its Rust thread-local destructor ran once.
+Both profiles directly start one application. The protected build uses
+group-local pthread keys. The fixture exercises worker lifecycle without a sensor.
+
+```sh
+cargo +1.90.0 nxrs build \
+  --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml \
+  --profile cores3-imu-qualification --out target/s8-runtime-flat
+cargo +1.90.0 nxrs build \
+  --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml \
+  --profile cores3-protected-qualification --out target/s8-runtime-protected
+```
+
+The protected output records the kernel and userspace flash offsets, sizes and
+hashes in `protected-images.json`. The pair requires a matching legacy ESP32-S3
+bootloader and partition table. Use the effective configuration to verify that
+layout and both image hashes before loading an authorized board. Use the CoreS3
+console selected by `resolved.config`.
+
+For each mode, require exactly one `S8_PROTECTED_RUST_PASS cycles=8 tls_destructors=8`
+within 60 seconds of boot. A failure marker, panic, reboot before the pass, or
+missed deadline fails the run. Restore and verify the baseline afterward.
+The host run and target cross-links are recorded separately from these target
+runtime results.

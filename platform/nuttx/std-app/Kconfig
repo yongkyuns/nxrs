@@ -1,4 +1,4 @@
 config EXAMPLES_NXRS_STD_APP
 	bool "Nxrs ordinary Rust std application"
 	default n
-	depends on BUILD_FLAT && !DISABLE_PTHREAD
+	depends on (BUILD_FLAT || BUILD_PROTECTED) && !DISABLE_PTHREAD

@@ -73,14 +73,32 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
     }
     profile.validate_target(os)?;
     let composition = profile.composition()?;
-    if composition
+    let qualification = composition
         .as_ref()
-        .is_some_and(|graph| graph.mode() == nxrs_build_support::composition::Mode::Qualification)
+        .is_some_and(|graph| graph.mode() == nxrs_build_support::composition::Mode::Qualification);
+    if qualification
         && app.pointer("/package/metadata/nxrs/qualification-only") != Some(&Value::Bool(true))
     {
         return Err(
             "qualification composition requires package.metadata.nxrs.qualification-only = true"
                 .into(),
+        );
+    }
+    let protected = match profile.data.pointer("/build/protected-runtime") {
+        None => false,
+        Some(value) => value
+            .as_bool()
+            .ok_or("build.protected-runtime must be a boolean")?,
+    };
+    if protected
+        && (!qualification
+            || os != "nuttx"
+            || profile.data["target"] != "xtensa-esp32s3-nuttx"
+            || !profile.data.get("init").is_some_and(Value::is_object)
+            || profile.data.get("mcuboot").is_some())
+    {
+        return Err(
+            "protected runtime requires unsigned, direct-init ESP32-S3 qualification".into(),
         );
     }
     if let Some(required) = app.pointer("/package/metadata/nxrs/required-capabilities") {
@@ -116,6 +134,9 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         d
     });
     let mut evidence = json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":null,"dependency_resolution":{"status":"pending","reason":"requires the build's Cargo features, target and compiler"},"providers":providers,"profiles":sources});
+    if os == "nuttx" {
+        evidence["nuttx-build-mode"] = json!(if protected { "protected" } else { "flat" });
+    }
     if let Some(graph) = composition {
         evidence["resolved-composition"] = profile.composition_report(&graph);
     }
