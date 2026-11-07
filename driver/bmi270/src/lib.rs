@@ -9,9 +9,6 @@ use bmi2::{types::*, Bmi2, I2cAddr};
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 
 const BURST: u16 = 32;
-const ODR: Odr = Odr::Odr100;
-// BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
-pub const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (ODR as u8);
 const FRAME_BYTES: u16 = 12;
 // One complete frame is enough to raise a FIFO watermark interrupt.
 const WATERMARK_BYTES: u16 = FRAME_BYTES;
@@ -19,7 +16,108 @@ pub struct Bmi270<B: I2c, D: DelayNs> {
     bus: B,
     delay: D,
     address: I2cAddr,
+    config: Config,
 }
+
+/// Sensor-specific acquisition settings. Defaults preserve the established HAL behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Config {
+    pub rate: Rate,
+    pub accel_range: AccelRange,
+    pub gyro_range: GyroRange,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            rate: Rate::Hz100,
+            accel_range: AccelRange::G4,
+            gyro_range: GyroRange::Dps2000,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rate {
+    Hz25,
+    Hz50,
+    Hz100,
+    Hz200,
+}
+
+impl Rate {
+    const fn odr(self) -> Odr {
+        match self {
+            Self::Hz25 => Odr::Odr25,
+            Self::Hz50 => Odr::Odr50,
+            Self::Hz100 => Odr::Odr100,
+            Self::Hz200 => Odr::Odr200,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccelRange {
+    G2,
+    G4,
+    G8,
+    G16,
+}
+
+impl AccelRange {
+    const fn register(self) -> AccRange {
+        match self {
+            Self::G2 => AccRange::Range2g,
+            Self::G4 => AccRange::Range4g,
+            Self::G8 => AccRange::Range8g,
+            Self::G16 => AccRange::Range16g,
+        }
+    }
+
+    const fn full_scale_g(self) -> f32 {
+        match self {
+            Self::G2 => 2.0,
+            Self::G4 => 4.0,
+            Self::G8 => 8.0,
+            Self::G16 => 16.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GyroRange {
+    Dps125,
+    Dps250,
+    Dps500,
+    Dps1000,
+    Dps2000,
+}
+
+impl GyroRange {
+    const fn register(self) -> GyrRangeVal {
+        match self {
+            Self::Dps125 => GyrRangeVal::Range125,
+            Self::Dps250 => GyrRangeVal::Range250,
+            Self::Dps500 => GyrRangeVal::Range500,
+            Self::Dps1000 => GyrRangeVal::Range1000,
+            Self::Dps2000 => GyrRangeVal::Range2000,
+        }
+    }
+
+    const fn full_scale_dps(self) -> f32 {
+        match self {
+            Self::Dps125 => 125.0,
+            Self::Dps250 => 250.0,
+            Self::Dps500 => 500.0,
+            Self::Dps1000 => 1000.0,
+            Self::Dps2000 => 2000.0,
+        }
+    }
+}
+
+// Retained for consumers that use the driver's established default cadence.
+// BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
+pub const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (Odr::Odr100 as u8);
 /// Failures from BMI270 protocol operations, independent of any capability HAL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -43,7 +141,16 @@ fn error<E>(error: bmi2::types::Error<E>) -> Error {
     }
 }
 impl<B: I2c, D: DelayNs> Bmi270<B, D> {
-    pub fn open(mut bus: B, address: u8, mut delay: D) -> Result<Self, Error> {
+    pub fn open(bus: B, address: u8, delay: D) -> Result<Self, Error> {
+        Self::open_configured(bus, address, delay, Config::default())
+    }
+
+    pub fn open_configured(
+        mut bus: B,
+        address: u8,
+        mut delay: D,
+        config: Config,
+    ) -> Result<Self, Error> {
         let address = match address {
             0x68 => I2cAddr::Default,
             0x69 => I2cAddr::Alternative,
@@ -70,23 +177,25 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
         let mut driver =
             Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
         driver.disable_power_save().map_err(error)?;
-        driver.set_acc_range(AccRange::Range4g).map_err(error)?;
+        driver
+            .set_acc_range(config.accel_range.register())
+            .map_err(error)?;
         driver
             .set_gyr_range(GyrRange {
-                range: GyrRangeVal::Range2000,
+                range: config.gyro_range.register(),
                 ois_range: OisRange::Range2000,
             })
             .map_err(error)?;
         driver
             .set_acc_conf(AccConf {
-                odr: ODR,
+                odr: config.rate.odr(),
                 bwp: AccBwp::NormAvg4,
                 filter_perf: PerfMode::Perf,
             })
             .map_err(error)?;
         driver
             .set_gyr_conf(GyrConf {
-                odr: ODR,
+                odr: config.rate.odr(),
                 bwp: GyrBwp::Norm,
                 noise_perf: PerfMode::Perf,
                 filter_perf: PerfMode::Perf,
@@ -167,8 +276,12 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
             .map_err(error)?;
         // Decoder assumptions must match the configuration actually accepted.
         for (register, expected, mask) in [
-            (0x40, ODR as u8, 0x0f),
-            (0x42, ODR as u8, 0x0f),
+            (0x40, config.rate.odr() as u8, 0x0f),
+            (0x42, config.rate.odr() as u8, 0x0f),
+            (0x41, config.accel_range.register() as u8, 0x03),
+            // The pinned bmi2 decoder masks away the valid 125 dps code (4).
+            // Read the physical range and unchanged OIS setting from the register.
+            (0x43, config.gyro_range.register() as u8 | 0x08, 0x0f),
             (0x45, 0x88, 0xff),
             (0x46, WATERMARK_BYTES as u8, 0xff),
             (0x47, (WATERMARK_BYTES >> 8) as u8, 0xff),
@@ -189,6 +302,7 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
             bus,
             delay,
             address,
+            config,
         })
     }
     pub fn stop(&mut self) -> Result<(), Error> {
@@ -261,6 +375,9 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
         }
         let mut remaining = count;
         let mut bytes = [0; 60];
+        let accel = 9.80665 * self.config.accel_range.full_scale_g() / 32768.0;
+        let gyro =
+            core::f32::consts::PI / 180.0 * self.config.gyro_range.full_scale_dps() / 32768.0;
         while remaining != 0 {
             let n = remaining.min(bytes.len());
             self.bus
@@ -268,8 +385,6 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
                 .map_err(|_| Error::Bus)?;
             for frame in bytes[..n].chunks_exact(12) {
                 let axis = |i| f32::from(i16::from_le_bytes([frame[i], frame[i + 1]]));
-                let accel = 9.80665 / 8192.0;
-                let gyro = core::f32::consts::PI / 180.0 * 2000.0 / 32768.0;
                 if !emit(Sample {
                     accel_mps2: [axis(6) * accel, axis(8) * accel, axis(10) * accel],
                     gyro_rps: [axis(0) * gyro, axis(2) * gyro, axis(4) * gyro],
@@ -306,6 +421,7 @@ mod tests {
         fifo: Vec<u8>,
         cursor: usize,
         fail_data: bool,
+        mismatch_read: Option<(u8, u8)>,
         startup_reads: usize,
         ready_after: usize,
     }
@@ -319,6 +435,7 @@ mod tests {
                 fifo: Vec::new(),
                 cursor: 0,
                 fail_data: false,
+                mismatch_read: None,
                 startup_reads: 0,
                 ready_after: 3,
             }
@@ -366,9 +483,16 @@ mod tests {
                         bytes.copy_from_slice(&self.fifo[self.cursor..self.cursor + bytes.len()]);
                         self.cursor += bytes.len();
                     }
-                    _ => bytes.copy_from_slice(
-                        &self.registers[usize::from(reg[0])..usize::from(reg[0]) + bytes.len()],
-                    ),
+                    _ => {
+                        bytes.copy_from_slice(
+                            &self.registers[usize::from(reg[0])..usize::from(reg[0]) + bytes.len()],
+                        );
+                        if let Some((mismatch_reg, mask)) = self.mismatch_read {
+                            if reg[0] == mismatch_reg && !bytes.is_empty() {
+                                bytes[0] ^= mask;
+                            }
+                        }
+                    }
                 },
                 _ => return Err(ErrorKind::Other),
             }
@@ -389,12 +513,53 @@ mod tests {
         assert_eq!(sensor.delay.startup_waits, 3);
         assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr100 as u8);
         assert_eq!(sensor.bus.registers[0x42] & 0x0f, Odr::Odr100 as u8);
+        assert_eq!(sensor.bus.registers[0x41] & 0x03, AccRange::Range4g as u8);
+        assert_eq!(sensor.bus.registers[0x43] & 0x0f, 0x08);
         assert_eq!(&sensor.bus.registers[0x46..0x48], &[12, 0]);
         assert_eq!(sensor.bus.registers[0x49], 0xc0);
         assert_eq!(sensor.bus.registers[0x58], 0x0b); // WM/full/error; no DRDY polling.
         sensor.stop().unwrap();
         assert_eq!(sensor.bus.registers[0x58], 0);
         assert_eq!(sensor.bus.registers[0x7d], 0);
+    }
+
+    #[test]
+    fn configured_rate_and_ranges_are_read_back_and_used_for_conversion() {
+        let config = Config {
+            rate: Rate::Hz50,
+            accel_range: AccelRange::G8,
+            gyro_range: GyroRange::Dps125,
+        };
+        let mut sensor =
+            Bmi270::<_, Delay>::open_configured(Bus::new(), 0x68, Delay::new(), config).unwrap();
+        assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr50 as u8);
+        assert_eq!(sensor.bus.registers[0x42] & 0x0f, Odr::Odr50 as u8);
+        assert_eq!(sensor.bus.registers[0x41] & 0x03, AccRange::Range8g as u8);
+        assert_eq!(sensor.bus.registers[0x43] & 0x0f, 0x0c);
+        for axis in [0_i16, 0, 16384, 16384, 0, 0] {
+            sensor.bus.fifo.extend_from_slice(&axis.to_le_bytes());
+        }
+        let mut sample = None;
+        assert_eq!(
+            sensor.drain(|value| {
+                sample = Some(value);
+                true
+            }),
+            Ok(Some(1))
+        );
+        let sample = sample.unwrap();
+        assert!((sample.accel_mps2[0] - 4.0 * 9.80665).abs() < 1e-4);
+        assert!((sample.gyro_rps[2] - 125.0 * core::f32::consts::PI / 180.0 / 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn configured_initialization_rejects_readback_mismatch() {
+        let mut bus = Bus::new();
+        bus.mismatch_read = Some((0x43, 0x01));
+        assert_eq!(
+            Bmi270::<_, Delay>::open_configured(bus, 0x68, Delay::new(), Config::default(),).err(),
+            Some(Error::InvalidData)
+        );
     }
     #[test]
     fn fifo_requires_both_sensors_ready_and_initialization_has_a_deadline() {

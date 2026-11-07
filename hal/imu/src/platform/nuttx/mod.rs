@@ -1,5 +1,9 @@
 //! Profile-selected NuttX IMU factory.
-use crate::{session::Session, DeviceError, Event, Imu};
+use crate::{
+    sensors::bmi270::{CAPABILITIES, DEFAULT_CONFIG},
+    session::Session,
+    AppliedConfig, Capabilities, Config, DeviceError, Event, Imu,
+};
 use acquisition::readiness;
 use core::sync::atomic::AtomicU8;
 use device::{Binding, Device};
@@ -29,7 +33,19 @@ fn binding() -> Result<Binding<'static>, DeviceError> {
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Imu + Send + 'static, DeviceError> {
-    let device = Device::acquire(binding()?)?;
+    open_configured(DEFAULT_CONFIG, sink).map(|(session, _)| session)
+}
+
+pub fn capabilities() -> Option<Capabilities> {
+    Some(CAPABILITIES)
+}
+
+pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+    config: Config,
+    sink: S,
+) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
+    let device = Device::acquire(binding()?, config)?;
+    let applied = device.applied_config();
     let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();
     let stack = option_env!("IMU_STACK_BYTES")
@@ -38,4 +54,5 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     Session::start(stack, cancel, sink, move |stop, emit| {
         device.run(stop, &wake, emit)
     })
+    .map(|session| (session, applied))
 }
