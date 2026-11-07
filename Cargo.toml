@@ -12,6 +12,7 @@ members = [
     "platform/build-support",
     "hal/detector/build-support",
     "driver/acquisition",
+    "driver/bmi270",
     "driver/linux/gio",
     "hal/detector",
     "service/camera",

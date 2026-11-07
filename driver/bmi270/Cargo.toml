@@ -1,0 +1,8 @@
+[package]
+name = "nxrs-bmi270"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bmi2 = "=0.1.2"
+embedded-hal = "=1.0.0"

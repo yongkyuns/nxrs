@@ -59,7 +59,7 @@ impl I2c for Bus {
     }
 }
 struct Device {
-    sensor: crate::bmi270::Sensor<Bus, Delay>,
+    sensor: crate::sensors::bmi270::Sensor<Bus, Delay>,
     signal: signal::Signal,
     cleaned: bool,
     _lease: Lease,
@@ -121,16 +121,17 @@ fn acquire() -> Result<Device, DeviceError> {
         .write(true)
         .open(path)
         .map_err(|_| DeviceError::Io)?;
-    let sensor =
-        crate::bmi270::Sensor::open(Bus { file, frequency }, address).map_err(|error| {
+    let sensor = crate::sensors::bmi270::Sensor::open(Bus { file, frequency }, address).map_err(
+        |error| {
             // An interrupted configuration may have left the sensor active. Do not
             // admit a second owner when its final state was not verified.
             OWNED.store(2, Ordering::Release);
             error
-        })?;
+        },
+    )?;
     Ok(Device {
         sensor,
-        signal: signal::Signal::new(irq, crate::bmi270::FIFO_WAKE_PERIOD),
+        signal: signal::Signal::new(irq, crate::sensors::bmi270::FIFO_WAKE_PERIOD),
         cleaned: false,
         _lease: lease,
     })

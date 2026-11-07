@@ -25,6 +25,7 @@ class ArchitectureTests(unittest.TestCase):
                                ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
                                ('driver', 'driver/demo'), ('platform', 'platform/build'),
+                               ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
                                ('build-support', 'platform/build-support'),
                                ('camera-build', 'hal/camera/build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
@@ -37,7 +38,7 @@ class ArchitectureTests(unittest.TestCase):
         directory = self.root / location
         (directory / 'src').mkdir(parents=True)
         (directory / 'Cargo.toml').write_text(f'[package]\nname="{name}"\n')
-        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble', 'hal/detector') else 'forbid'
+        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble', 'hal/detector', 'hal/imu') else 'forbid'
         (directory / 'src/lib.rs').write_text(f'#![no_std]\n#![{marker}(unsafe_code)]\n')
         if location.startswith('app/'):
             (directory / 'src/main.rs').write_text('#![forbid(unsafe_code)]\nfn main() {}\n')
@@ -97,6 +98,25 @@ class ArchitectureTests(unittest.TestCase):
         self.add('support', 'camera')
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
+
+    def test_sensor_drivers_are_consumed_by_hals_not_apps_or_services(self):
+        self.add('imu', 'bmi270')
+        self.assertEqual(self.violations(), [])
+        self.add('bmi270', 'imu')
+        self.assertTrue(self.violations())
+        self.packages['bmi270']['dependencies'].clear()
+        for source in ('app', 'service'):
+            self.add(source, 'bmi270')
+            self.assertTrue(self.violations())
+            self.packages[source]['dependencies'].clear()
+
+        for source in ('app', 'service'):
+            source_dir = Path(self.packages[source]['manifest_path']).parent
+            (source_dir / 'src/entry.rs').write_text(
+                '#[path="../../../driver/bmi270/src/lib.rs"] mod hidden;'
+            )
+            self.assertTrue(any('cross-package Rust source' in issue for issue in self.violations()))
+            (source_dir / 'src/entry.rs').unlink()
 
     def test_hal_and_driver_build_helpers_are_only_host_build_dependencies(self):
         for source, destination in [('camera', 'build-support'), ('camera', 'camera-build'),

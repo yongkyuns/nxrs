@@ -41,10 +41,9 @@ PORTABLE_EXTERNAL: set[str] = set()
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    # Pinned no_std register driver and its I2C/delay traits. The IMU HAL admits
-    # only bounded configuration and nonpanicking operations, with an exact
-    # post-init status check; no Linux backend or driver runtime is selected.
-    'nxrs-imu': {'bmi2', 'embedded-hal'},
+    # Embedded bus traits for the IMU's NuttX I2C resource adapter. Chip protocol
+    # dependencies belong to the independent driver package.
+    'nxrs-imu': {'embedded-hal'},
     # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
     'nxrs-gnss': {'kinavis-ubx'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},

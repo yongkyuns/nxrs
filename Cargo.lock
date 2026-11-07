@@ -365,6 +365,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-bmi270"
+version = "0.1.0"
+dependencies = [
+ "bmi2",
+ "embedded-hal",
+]
+
+[[package]]
 name = "nxrs-boot"
 version = "0.1.0"
 dependencies = [
@@ -542,9 +550,9 @@ dependencies = [
 name = "nxrs-imu"
 version = "0.1.0"
 dependencies = [
- "bmi2",
  "embedded-hal",
  "nxrs-acquisition",
+ "nxrs-bmi270",
  "nxrs-build-support",
  "nxrs-messaging",
 ]

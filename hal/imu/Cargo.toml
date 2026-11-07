@@ -18,12 +18,11 @@ nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 nxrs-acquisition = { path = "../../driver/acquisition" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
-bmi2 = "=0.1.2"
+nxrs-bmi270 = { path = "../../driver/bmi270" }
 embedded-hal = "=1.0.0"
 
 [dev-dependencies]
-# Host tests exercise the physical driver's bounded configuration and FIFO codec.
-bmi2 = "=0.1.2"
+nxrs-bmi270 = { path = "../../driver/bmi270" }
 embedded-hal = "=1.0.0"
 
 [build-dependencies]
