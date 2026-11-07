@@ -472,8 +472,10 @@ fn dropping_owner_retries_transient_stop_failure_and_releases_lease() {
         || state.lock().unwrap().closes == 1,
         "scanner was not closed after retry succeeded",
     );
-    let lease = Lease::acquire().expect("lease should release only after native stop and close");
-    drop(lease);
+    wait_for(
+        || Lease::acquire().is_ok(),
+        "lease was not released after native stop and close",
+    );
 }
 
 #[test]

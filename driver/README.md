@@ -12,10 +12,10 @@ sensor-specific configuration, samples and errors over `embedded-hal` interfaces
 They have no dependency on capability HALs or profile selection. Each consuming
 HAL owns normalization into its public contract and acquisition lifecycle.
 Retain existing upstream dependencies and protocol corrections when extracting
-a driver. `bmi270/` is the reusable no_std BMI270 protocol package; its tests
-cover bounded initialization, exact configuration readback, FIFO decoding and
-stop behavior. Follow the [migration plan](../docs/peripheral-composition-plan.md)
-for the remaining capability/resource composition steps.
+a driver. `bmi270/` and `lsm6dso/` own their respective IMU protocols. `ubx/`
+owns receiver-specific GNSS behavior. Keep protocol tests with each driver
+and use the [implementation plan](../docs/peripheral-composition-plan.md) for
+capability integration and physical qualification gates.
 
 The synthetic NuttX sensor and syscall fault injectors are qualification-only
 fixtures in `tests/nuttx/c`, not production drivers. Scripted HAL substitutes live
