@@ -111,12 +111,42 @@ pub fn build(
             .ok_or("NuttX HAL helpers need the configured native context; use cargo nxrs build")?,
     );
     compile(
-        capability, suffix, target, out, sources, &context, directives,
+        &capability.join("src/platform/nuttx/ffi"),
+        suffix,
+        target,
+        out,
+        sources,
+        &context,
+        directives,
+    )
+}
+
+/// Compile explicitly selected fixture sources with the resolved NuttX ABI.
+/// This is for target qualification witnesses, not production HAL providers.
+pub fn build_sources(
+    source_directory: &Path,
+    suffix: &str,
+    target: &str,
+    out: &Path,
+    sources: &[&PathBuf],
+) -> Result<Vec<String>> {
+    let context = PathBuf::from(
+        env::var_os("NXRS_NUTTX_NATIVE_CONFIG")
+            .ok_or("NuttX fixture helpers need the configured native context; use cargo nxrs build")?,
+    );
+    compile(
+        source_directory,
+        suffix,
+        target,
+        out,
+        sources,
+        &context,
+        vec!["cargo:rerun-if-env-changed=NXRS_NUTTX_NATIVE_CONFIG".into()],
     )
 }
 
 fn compile(
-    capability: &Path,
+    source_directory: &Path,
     suffix: &str,
     target: &str,
     out: &Path,
@@ -151,8 +181,7 @@ fn compile(
     // Watch files, not generated directories. The frontend's context includes
     // the configured header inventory, so additions still invalidate Cargo.
     headers(&include, &mut BTreeSet::new(), &mut directives)?;
-    let source_directory = capability.join("src/platform/nuttx/ffi");
-    headers(&source_directory, &mut BTreeSet::new(), &mut directives)?;
+    headers(source_directory, &mut BTreeSet::new(), &mut directives)?;
     fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let fresh = crate::TempDir::new(out)?;
     let mut objects = Vec::new();
@@ -164,7 +193,7 @@ fn compile(
                 .current_dir(&directory)
                 .args(&flags)
                 .arg("-I")
-                .arg(&source_directory)
+                .arg(source_directory)
                 .arg("-c")
                 .arg(source)
                 .arg("-o")

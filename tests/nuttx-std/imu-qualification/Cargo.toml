@@ -23,3 +23,6 @@ stack-size = 32768
 [[bin]]
 name = "imu-qualification"
 path = "src/main.rs"
+
+[build-dependencies]
+nxrs-build-support = { path = "../../../platform/build-support" }
