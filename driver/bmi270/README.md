@@ -1,10 +1,12 @@
 # BMI270 driver
 
 `nxrs-bmi270` contains the synchronous BMI270 protocol over `embedded-hal`
-`I2c` and `DelayNs`. It is `no_std` and owns chip initialization, the exact
-configuration readback, bounded headerless FIFO decode, sensor-specific errors
-and stop operations. `Sample` contains physical SI values; reception time and
-delivery sequencing belong to the consuming capability.
+`I2c` and a caller-supplied `DelayNs` instance. It is `no_std` and owns chip
+initialization, the exact configuration readback, bounded headerless FIFO
+decode, sensor-specific errors and stop operations. `Sample` contains physical
+SI values; reception time and delivery sequencing belong to the consuming
+capability. Initialization and stop operations reuse the owned delay instance;
+the driver requires no `Default` delay constructor.
 
 The driver retains `bmi2` 0.1.2 and `embedded-hal` 1.0.0. Initialization loads
 `bmi2::config::BMI270_CONFIG_FILE`, the Bosch BMI270 configuration blob bundled

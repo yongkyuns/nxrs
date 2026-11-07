@@ -7,10 +7,10 @@ cancellation without a hidden join; the worker retains resources through cleanup
 
 The [composition design](../../docs/peripheral-composition.md) places reusable
 BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
-acquisition lifecycle in this crate. S1 is implemented; NuttX resource
-acquisition remains in the current provider until S2. Profile selection,
-capability configuration, device graph, overlays and coordinated simulation
-remain pending later steps in the [migration plan](../../docs/peripheral-composition-plan.md).
+acquisition lifecycle in this crate. The NuttX factory assembles its separate
+I2C and wake resources into one acquisition session. Configured capability
+requests, profile composition, overlays and coordinated simulation remain
+pending in the [migration plan](../../docs/peripheral-composition-plan.md).
 
 The no_std `nxrs-bmi270` package exposes sensor-specific errors and physical
 samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).
@@ -31,6 +31,11 @@ rejections are counted by `dropped()`; terminal errors remain observable through
 `join()` and are retried as a bounded single pending fault event.
 
 The NuttX provider owns the I2C File and an optional platform-registered GPIO descriptor.
+Its I2C adapter admits one read, one write or a repeated-start write/read pair,
+with at most 64 bytes in each direction. Other operation sequences fail without
+bus I/O. The host bridge witness checks message layout and cancellation using
+fake target headers. The CoreS3 cross-build checks the actual target headers and
+linkage. Neither measures physical bus or interrupt timing.
 NuttX handles interrupt notification; Rust channels are only used in task context.
 A configured IRQ uses its GPIO descriptor. With no IRQ resource, the provider
 explicitly selects an ODR-derived timer: 100 Hz gives a 10 ms wake period for

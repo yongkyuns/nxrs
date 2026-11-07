@@ -1,9 +1,9 @@
 # Peripheral composition implementation plan
 
 Status — executable work breakdown for the
-[target architecture](peripheral-composition.md). S0 behavior inventory and S1
-BMI270 driver extraction are complete with host qualification; later steps are
-pending.
+[target architecture](peripheral-composition.md). S0–S2 cover the behavior
+baseline, reusable BMI270 driver and NuttX resource split. Physical qualification
+remains gated by S8.
 Baseline inspected at `3961a15d` on November 7, 2026. Recheck paths and APIs on the
 branch used for each step. The architecture document defines the target contract.
 This plan defines migration order and acceptance evidence.

@@ -34,8 +34,7 @@ mod tests {
     #[test]
     fn early_wakes_keep_the_deadline_and_late_wakes_do_not_accumulate_ticks() {
         let start = Instant::now();
-        let period = crate::sensors::bmi270::FIFO_WAKE_PERIOD;
-        assert_eq!(period, Duration::from_millis(10));
+        let period = Duration::from_millis(10);
         let mut clock = Cadence::new(start, period);
         assert!(!clock.take_due(start + Duration::from_millis(9)));
         assert_eq!(
