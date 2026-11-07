@@ -59,7 +59,7 @@ class ArchitectureTests(unittest.TestCase):
         selector = directory / 'mod.rs'
         for exports in ['pub(super) use selected::open;',
                         'pub use selected::{open, Camera};',
-                        'pub(super) use selected::open;\n#[cfg(hal_mock)] pub use selected::{CameraAction, MockCamera, FORMAT};']:
+                        'pub(super) use selected::open;\n#[cfg(hal_provider = "mock")] pub use selected::{CameraAction, MockCamera, FORMAT};']:
             with self.subTest(exports=exports):
                 selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
                 self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])

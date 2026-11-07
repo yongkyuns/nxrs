@@ -167,8 +167,6 @@ pub fn configure_hal_with(
     prepare: impl FnOnce(&profile::Profile, &str, &Path) -> Result<()>,
 ) -> Result<String> {
     use std::{env, path::PathBuf};
-    println!("cargo:rustc-check-cfg=cfg(hal_enabled)");
-    println!("cargo:rustc-check-cfg=cfg(hal_mock)");
     println!(
         "cargo:rustc-check-cfg=cfg(hal_provider, values(\"hardware\", \"mock\", \"simulation\"))"
     );

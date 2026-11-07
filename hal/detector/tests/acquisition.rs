@@ -1,5 +1,5 @@
 #[cfg(any(
-    not(hal_enabled),
+    not(hal_provider = "hardware"),
     not(any(feature = "person-model", feature = "pico-model"))
 ))]
 #[test]
@@ -11,7 +11,11 @@ fn unbound_contract_does_not_implicitly_open_a_mock() {
     ));
 }
 
-#[cfg(all(hal_enabled, feature = "person-model", not(feature = "pico-model")))]
+#[cfg(all(
+    hal_provider = "hardware",
+    feature = "person-model",
+    not(feature = "pico-model")
+))]
 #[test]
 fn presence_provider_reports_its_limits_and_rejects_required_localization() {
     use detector::{Config, Detector, DeviceError, Image};
@@ -35,7 +39,11 @@ fn presence_provider_reports_its_limits_and_rejects_required_localization() {
     assert!(result.objects.is_empty());
 }
 
-#[cfg(all(feature = "probe", feature = "pico-model", not(hal_enabled)))]
+#[cfg(all(
+    feature = "probe",
+    feature = "pico-model",
+    not(hal_provider = "hardware")
+))]
 #[test]
 fn unbound_qualification_does_not_acquire_an_engine() {
     use detector::{Config, DeviceError};

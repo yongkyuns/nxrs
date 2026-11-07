@@ -2,7 +2,7 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(hal_provider = "hardware", test))]
 extern crate std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

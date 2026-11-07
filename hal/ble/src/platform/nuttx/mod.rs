@@ -25,7 +25,7 @@ pub(crate) fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 
 #[cfg(not(test))]
 pub(crate) mod gatt;
 
-#[cfg(hal_enabled)]
+#[cfg(hal_provider = "hardware")]
 pub(crate) fn gatt_driver<const N: usize>(
     wake: impl Fn() + Send + Sync + 'static,
 ) -> Result<impl crate::gatt::Driver<N>, crate::Error> {

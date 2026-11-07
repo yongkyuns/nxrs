@@ -1,4 +1,4 @@
-#![cfg(hal_mock)]
+#![cfg(hal_provider = "mock")]
 
 use storage::{Capture, DeviceError, Format, Frame, MockStorage, PixelFormat, Storage};
 

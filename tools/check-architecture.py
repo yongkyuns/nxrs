@@ -463,6 +463,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         # SDK callbacks are ABI operations. These retired high-level symbols
         # instead connected Rust modules to Rust modules through a C protocol.
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        if re.search(r'\b(?:hal_enabled|hal_mock)\b', text):
+            errors.append(f'{relative}: use the resolved hal_provider selector')
         if re.search(r'\bfn\s+(?:(?:nxrs_)?host_wifi_\w+|(?:nxrs_)?host_ble_scan_\w+|'
                      r'(?:nxrs_)?ble_gatt_(?:open|submit|poll|recover|close)|'
                      r'(?:nxrs_)?ble_peer_lookup(?:_rust)?)\s*\(', text):

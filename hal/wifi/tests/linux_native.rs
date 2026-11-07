@@ -1,8 +1,8 @@
 #![cfg(all(
     target_os = "linux",
     any(
-        all(hal_enabled, target_os = "linux"),
-        all(hal_enabled, target_os = "macos")
+        all(hal_provider = "hardware", target_os = "linux"),
+        all(hal_provider = "hardware", target_os = "macos")
     )
 ))]
 

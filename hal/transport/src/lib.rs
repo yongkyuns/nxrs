@@ -2,7 +2,7 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_mock, test))]
+#[cfg(any(hal_provider = "mock", test))]
 extern crate alloc;
 #[cfg(any(feature = "udp", test))]
 extern crate std;
@@ -13,5 +13,5 @@ mod platform;
 #[cfg(feature = "udp")]
 pub mod udp;
 
-#[cfg(hal_mock)]
+#[cfg(hal_provider = "mock")]
 pub use platform::MockTransport;

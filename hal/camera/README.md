@@ -26,8 +26,8 @@ No OS whitelist or profile-derived cfg chooses the replay implementation.
 The established root names `camera::replay(...)`, `camera::camera(...)` and
 `camera::ReplayCamera` remain explicit compatibility aliases behind that same
 feature. They are not backend-dependent exports. Prefer the `camera::replay`
-namespace for new code. Scripted fixture exports remain explicitly gated by
-`hal_mock`; they are never selected by a missing hardware binding.
+namespace for new code. Scripted fixture exports require a mock profile. An
+unbound profile selects the unavailable factory.
 
 The native `nxrs` CLI enables replay through its default `replay` feature and
 keeps its existing invocation. Consumers of its contract-only application

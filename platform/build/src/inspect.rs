@@ -63,8 +63,9 @@ pub fn query(request: Value) -> Result<Value> {
             })
             .unwrap_or(Value::Null)),
         "network" => Ok(json!(p.network_initialization()?)),
-        "imu" => Ok(p.imu_config()?.unwrap_or(Value::Null)),
-        "gnss" => Ok(p.gnss_config()?.unwrap_or(Value::Null)),
+        "composition" => Ok(p
+            .composition()?
+            .map_or(Value::Null, |graph| p.composition_report(&graph))),
         "scheduling" | "console" => {
             p.validate_resources()?;
             if action == "console" {

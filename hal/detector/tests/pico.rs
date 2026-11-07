@@ -1,4 +1,4 @@
-#![cfg(all(feature = "pico-model", hal_enabled))]
+#![cfg(all(feature = "pico-model", hal_provider = "hardware"))]
 use detector::{Config, Detector, DeviceError, Image};
 const PERSON: &[u8] = include_bytes!("../../../tests/nuttx-std/detection/person.jpg");
 const BACKGROUND: &[u8] = include_bytes!("../../../tests/nuttx-std/detection/background.jpg");

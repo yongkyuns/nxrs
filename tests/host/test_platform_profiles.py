@@ -196,19 +196,23 @@ class FirmwareFrontendTests(unittest.TestCase):
         data = PLATFORM_CONFIG.resolve("m5stack-cores3-gnss")
         self.assertIn("USEC_PER_TICK=1000", data["kconfig"]["set"])
         self.assertIn("CONFIG_USEC_PER_TICK=1000", data["kconfig"]["require"])
-        self.assertEqual(PLATFORM_CONFIG.gnss_config(data),
-                         {"device": "/dev/ttyS1", "baud": 38400, "stack-bytes": 16384})
-        self.assertEqual(PLATFORM_CONFIG.imu_config(data),
-                         {"driver": "bmi270", "device": "/dev/i2c0",
-                          "address": 0x68, "frequency": 400000, "stack-bytes": 16384, "irq-device": ""})
-        for function, path, value in (
-                (PLATFORM_CONFIG.gnss_config, ("resources", "receiver_uart", "baud"), True),
-                (PLATFORM_CONFIG.gnss_config, ("resources", "receiver_uart", "device"), "/dev/../ttyS1"),
-                (PLATFORM_CONFIG.imu_config, ("devices", "motion", "address"), 0x70),
-                (PLATFORM_CONFIG.imu_config, ("resources", "sensor_bus", "frequency"), 0),
-                (PLATFORM_CONFIG.imu_config, ("devices", "motion", "wake"),
-                 {"kind": "interrupt", "resource": "missing"}),
-                (PLATFORM_CONFIG.gnss_config, ("gnss", "stack-bytes"), 1)):
+        graph = data["resolved-composition"]["graph"]
+        self.assertEqual(graph["resources"]["receiver_uart"],
+                         {"kind": "uart", "device": "/dev/ttyS1", "baud": 38400})
+        self.assertEqual(graph["resources"]["sensor_bus"],
+                         {"kind": "i2c", "device": "/dev/i2c0", "frequency": 400000})
+        self.assertEqual(graph["devices"]["motion"]["address"], 0x68)
+        self.assertEqual(graph["devices"]["motion"]["wake"], {"kind": "periodic"})
+        self.assertEqual((graph["stack_bytes"], graph["gnss_stack_bytes"]), (16384, 16384))
+        for path, value in (
+                (("resources", "receiver_uart", "baud"), True),
+                (("resources", "receiver_uart", "device"), "/dev/../ttyS1"),
+                (("devices", "motion", "address"), 0x70),
+                (("resources", "sensor_bus", "frequency"), 0),
+                (("devices", "motion", "wake"), {"kind": "interrupt", "resource": "missing"}),
+                (("gnss", "stack-bytes"), 1),
+                (("hal", "gnss"), "mock"),
+                (("hal", "imu"), "mock")):
             with self.subTest(path=path, value=value):
                 invalid = copy.deepcopy(data)
                 record = invalid
@@ -216,11 +220,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                     record = record[key]
                 record[path[-1]] = value
                 with self.assertRaises(ValueError):
-                    function(invalid)
-        for function, key in ((PLATFORM_CONFIG.gnss_config, "gnss"),
-                              (PLATFORM_CONFIG.imu_config, "imu")):
-            with self.assertRaises(ValueError):
-                function({**data, "hal": {**data["hal"], key: "mock"}})
+                    PLATFORM_CONFIG.composition_config(invalid)
 
     def test_detector_smp_experiment_keeps_product_single_core(self):
         product = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')

@@ -68,7 +68,7 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual({key: profile['hal'][key] for key in ('wifi', 'ble')},
                                  {'wifi': name, 'ble': name})
                 for capability in ('wifi', 'ble'):
-                    self.assertIn('cargo:rustc-cfg=hal_enabled',
+                    self.assertIn('cargo:rustc-cfg=hal_provider="hardware"',
                                   PLATFORM.cargo_output(profile, capability, name))
                 PLATFORM.validate_target(profile, name)
                 other = 'macos' if name == 'linux' else 'linux'
@@ -139,7 +139,7 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual(profile['hal'][capability], name)
                 cfgs = [line for line in PLATFORM.cargo_output(profile, capability, name)
                         if line.startswith('cargo:rustc-cfg=')]
-                self.assertEqual(cfgs, ['cargo:rustc-cfg=hal_enabled'])
+                self.assertEqual(cfgs, ['cargo:rustc-cfg=hal_provider="hardware"'])
                 for wrong in ('none', 'unknown', 'nuttx'):
                     with self.assertRaises(ValueError):
                         PLATFORM.validate_target(profile, wrong)

@@ -84,19 +84,20 @@ def check(text, names, expected, host, directory, target):
     return actual
 
 
+def provider_cfgs(provider):
+    if provider == "none":
+        return []
+    mode = provider if provider in {"mock", "simulation"} else "hardware"
+    return [f'hal_provider="{mode}"']
+
+
 def check_selection(text, names, package, provider):
     reports = [r for line in text.splitlines() if line.strip()
                if (r := json.loads(line)).get("reason") == "build-script-executed"
                and names.get(r["package_id"]) == package]
     assert len(reports) == 1, "missing/duplicate platform build-script evidence"
     cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("hal_", "nxrs_hal_"))]
-    if provider == "none":
-        expected = []
-    elif package in {"nxrs-imu", "nxrs-gnss"}:
-        mode = "hardware" if provider == "nuttx" else provider
-        expected = [f'hal_provider="{mode}"']
-    else:
-        expected = ["hal_mock" if provider == "mock" else "hal_enabled"]
+    expected = provider_cfgs(provider)
     assert cfgs == expected, f"wrong capability selection: {cfgs} != {expected}"
 
 
@@ -119,7 +120,7 @@ def self_test():
                "filenames": [str(directory / target / "debug/deps" / (i + ".rlib"))]} for i in ids),
             *({"reason": "compiler-artifact", "package_id": i, "target": {"kind": ["lib"]},
                "filenames": [str(directory / "debug/deps" / (i + ".rlib"))]} for i in host),
-            {"reason": "build-script-executed", "package_id": "hal", "cfgs": ([] if provider == "none" else ["hal_mock" if provider == "mock" else "hal_enabled"])},
+            {"reason": "build-script-executed", "package_id": "hal", "cfgs": provider_cfgs(provider)},
             {"reason": "build-finished", "success": success}])
     expected = {"hal"}
     host = {"registry-build-dependency"}
@@ -251,10 +252,12 @@ def run(out, capabilities=CAPABILITIES):
                                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
             assert result.returncode == 0, result.stderr
             check_selection(result.stdout, names, "nxrs-camera", provider)
-        env["RUSTFLAGS"] = '--cfg hal_mock'
-        result = subprocess.run(["cargo", "check", "--locked", "-p", "nxrs-camera", "--lib"],
-                                cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
-        assert result.returncode != 0 and "NXRS_PLATFORM" in result.stderr, "manual cfg bypass accepted"
+        for selector in ('hal_mock', 'hal_provider="mock"'):
+            env["CARGO_ENCODED_RUSTFLAGS"] = "--cfg\x1f" + selector
+            result = subprocess.run(["cargo", "check", "--locked", "-p", "nxrs-camera", "--lib"],
+                                    cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+            assert result.returncode != 0 and "NXRS_PLATFORM" in result.stderr, \
+                f"manual cfg bypass accepted: {selector}"
     (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"PASS: {len(report)} clean builds, native oracles, incremental platform switches and rejection controls")
 

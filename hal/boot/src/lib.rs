@@ -51,9 +51,9 @@ pub trait Control {
     fn confirm(&mut self) -> Result<(), DeviceError>;
 }
 
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(hal_provider = "hardware", test))]
 mod control;
 mod platform;
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(hal_provider = "hardware", test))]
 mod staging;
 pub use platform::open;

@@ -49,7 +49,7 @@ class CameraOrganizationTests(unittest.TestCase):
             self.assertEqual(target['required-features'], ['replay'])
         for path in (CAMERA / 'src/replay').rglob('*.rs'):
             with self.subTest(path=path):
-                self.assertNotRegex(code(path), r'\b(?:hal_enabled|hal_mock|target_os|NXRS_PLATFORM)\b')
+                self.assertNotRegex(code(path), r'\b(?:hal_provider|hal_enabled|hal_mock|target_os|NXRS_PLATFORM)\b')
 
     def test_core_only_library_fixtures_do_not_enable_cli_replay(self):
         for name in ('portable', 'nuttx'):

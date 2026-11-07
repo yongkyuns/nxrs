@@ -1,6 +1,6 @@
 //! One resolver for CLI builds and HAL build scripts.
 use crate::{
-    composition::{self, Composition, ImuModel},
+    composition::{self, Composition},
     hash_bytes, overlay, read, Result,
 };
 use regex::Regex;
@@ -150,7 +150,7 @@ impl Profile {
             return Err("at most 64 overlays can be selected for a profile".into());
         }
         if (!declared.is_empty() || !cli.is_empty()) && profile.data.get("composition").is_none() {
-            profile.translate_legacy_overlay_base()?;
+            return Err("overlays require a v1 peripheral composition".into());
         }
         for (path, kind) in declared
             .into_iter()
@@ -272,23 +272,6 @@ impl Profile {
         Ok(resolved)
     }
 
-    fn translate_legacy_overlay_base(&mut self) -> Result<()> {
-        let graph = self
-            .composition()?
-            .ok_or("overlays require a peripheral composition")?;
-        let graph = json!(graph);
-        let source = self
-            .origins
-            .get("imu")
-            .cloned()
-            .ok_or("legacy IMU source missing")?;
-        overlay::merge(&mut self.data, &graph, &source, &mut self.origins, false)?;
-        self.data["composition"] = json!({"version": graph["version"], "mode": graph["mode"]});
-        self.data["imu"] = json!({"stack-bytes": graph["stack_bytes"]});
-        self.origins.insert("composition".into(), source);
-        Ok(())
-    }
-
     pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
         self.sources.iter().chain(
             self.inputs
@@ -384,30 +367,6 @@ impl Profile {
             "semantic-digest": hash_bytes(semantic.to_string().as_bytes()),
             "input-fingerprint": self.input_fingerprint(),
         })
-    }
-    /// Preserve the legacy inspection and Cargo environment shape at one boundary.
-    pub fn imu_config(&self) -> Result<Option<Value>> {
-        let graph = self.composition()?;
-        Ok(graph.as_ref().and_then(Composition::imu).map(|binding| {
-            json!({
-                "driver": match binding.model { ImuModel::Bmi270 => "bmi270", ImuModel::Lsm6dso => "lsm6dso" },
-                "device": binding.path,
-                "address": binding.address,
-                "frequency": binding.frequency,
-                "irq-device": binding.irq_path.unwrap_or(""),
-                "stack-bytes": binding.stack_bytes,
-            })
-        }))
-    }
-    pub fn gnss_config(&self) -> Result<Option<Value>> {
-        let graph = self.composition()?;
-        Ok(graph.as_ref().and_then(Composition::gnss).map(|binding| {
-            json!({
-                "device": binding.path,
-                "baud": binding.baud,
-                "stack-bytes": binding.stack_bytes,
-            })
-        }))
     }
     pub fn validate_target(&self, os: &str) -> Result<()> {
         if let Some(list) = self.data.get("target-os") {
@@ -680,40 +639,6 @@ impl Profile {
                     }
                 }
             }
-            "gnss" | "imu" if self.binding(capability) == "nuttx" => {
-                let c = if capability == "imu" {
-                    self.imu_config()?
-                        .ok_or("imu requires device configuration")?
-                } else {
-                    self.gnss_config()?
-                        .ok_or("gnss requires device configuration")?
-                };
-                let keys = if capability == "gnss" {
-                    vec!["device", "baud", "stack-bytes"]
-                } else {
-                    vec![
-                        "device",
-                        "address",
-                        "frequency",
-                        "stack-bytes",
-                        "irq-device",
-                    ]
-                };
-                for key in keys {
-                    let value = c[key]
-                        .as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| c[key].to_string());
-                    env(
-                        &format!(
-                            "{}_{}",
-                            capability.to_uppercase(),
-                            key.replace('-', "_").to_uppercase()
-                        ),
-                        value,
-                    )
-                }
-            }
             "wifi" if self.binding(capability) == "nuttx" => {
                 env("WIFI_INITIALIZATION", self.network_initialization()?.into())
             }
@@ -766,20 +691,13 @@ impl Profile {
                 .iter()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
-        match (capability, self.binding(capability)) {
-            ("imu" | "gnss", "none") => {}
-            ("imu" | "gnss", "nuttx") => {
-                output.push("cargo:rustc-cfg=hal_provider=\"hardware\"".into())
-            }
-            ("imu" | "gnss", provider @ ("mock" | "simulation")) => {
-                output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
-            }
-            ("imu" | "gnss", provider) => {
-                return Err(format!("unsupported {capability} provider {provider}"));
-            }
-            (_, "none") => {}
-            (_, "mock") => output.push("cargo:rustc-cfg=hal_mock".into()),
-            _ => output.push("cargo:rustc-cfg=hal_enabled".into()),
+        let provider = match self.binding(capability) {
+            "none" => None,
+            mode @ ("mock" | "simulation") => Some(mode),
+            _ => Some("hardware"),
+        };
+        if let Some(provider) = provider {
+            output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
         }
         Ok(output)
     }
@@ -838,21 +756,14 @@ mod tests {
         }
     }
     #[test]
-    fn gnss_cli_values_come_from_the_resolved_uart_binding() {
+    fn physical_sensor_cargo_output_only_selects_the_provider() {
         let profile = Profile::resolve(&root(), "m5stack-cores3-gnss").unwrap();
-        assert_eq!(
-            profile.gnss_config().unwrap(),
-            Some(json!({
-                "device":"/dev/ttyS1", "baud":38400, "stack-bytes":16384
-            }))
-        );
-        let output = profile.cargo_output(&root(), "gnss", "nuttx").unwrap();
-        for expected in [
-            "cargo:rustc-env=GNSS_DEVICE=/dev/ttyS1",
-            "cargo:rustc-env=GNSS_BAUD=38400",
-            "cargo:rustc-env=GNSS_STACK_BYTES=16384",
-        ] {
-            assert!(output.contains(&expected.to_string()), "missing {expected}");
+        for capability in ["imu", "gnss"] {
+            let output = profile.cargo_output(&root(), capability, "nuttx").unwrap();
+            assert!(output.contains(&"cargo:rustc-cfg=hal_provider=\"hardware\"".into()));
+            assert!(!output
+                .iter()
+                .any(|line| line.starts_with("cargo:rustc-env=")));
         }
     }
     #[test]

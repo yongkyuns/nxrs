@@ -1,10 +1,10 @@
 # Peripheral composition architecture
 
-The profile resolver accepts the v1 hardware IMU graph and translates legacy
-IMU profiles into that graph. The existing factory consumes the resolved binding
-through its Cargo environment fields. The resolver applies ordered overlays and
-reports graph and input fingerprints. The generated factory and resolved-profile
-handoff follow in the [implementation plan](peripheral-composition-plan.md).
+A named profile and its ordered overlays resolve to one validated composition.
+Hardware profiles bind IMU and GNSS roles to concrete sensors and NuttX
+resources. The simulation profile binds those roles to one shared scenario.
+Build scripts verify the resolved profile and generate typed values for the
+HAL factories. See the [implementation and qualification plan](peripheral-composition-plan.md).
 
 ## Ownership
 
@@ -60,22 +60,24 @@ only when multiple implementations actually need the same operations.
 
 ~~~text
 driver/bmi270/                         reusable sensor-specific Rust crate
-driver/lsm6dso/                        added when this device is supported
+driver/lsm6dso/                        reusable tagged-FIFO IMU driver
+driver/ubx/                            reusable M9 protocol driver
 hal/imu/
   bindings/                           supported compatible/bus schemas
   src/api.rs                          application-facing IMU contract
   src/sensors/bmi270.rs                IMU implementation using the chip driver
-  src/sensors/lsm6dso.rs               added with driver and qualification
+  src/sensors/lsm6dso.rs               IMU implementation using the chip driver
   src/session.rs                      capability-local shared execution policy
-  src/simulation.rs                   adapter to a coordinated simulation session
+  src/platform/simulation.rs          adapter to a coordinated simulation session
   src/platform/mod.rs                 selected acquisition exports
   src/platform/nuttx/mod.rs            factory using resolved bindings
   src/platform/nuttx/i2c.rs            embedded-hal implementation
   src/platform/nuttx/irq.rs            cancellable notification ownership
   src/platform/nuttx/ffi/              mechanical native ABI translation
-  src/platform/macos/                 added for an implemented macOS source
 platform/nuttx/platforms/              existing product and qualification profiles
-platform/profiles/                     existing host profiles and future sim profile
+hal/gnss/                              UART binding, UBX policy and simulation adapter
+shared/simulation/                     seeded scenario and logical clock
+platform/profiles/                     host, simulation and qualification profiles
 platform/build-support/                shared host-only resolution and emission
 platform/build/                        build CLI and Cargo orchestration
 ~~~
@@ -148,12 +150,17 @@ imu = "motion"
 stack-bytes = 16384
 ~~~
 
-The existing `[hal] imu = "nuttx"` selects the OS integration during migration.
-It must agree with the target and resolved device. The physical model is selected
-only by `compatible`. Legacy `imu.driver`, `device`, `address`, `frequency` and
-`irq-device` cannot coexist with a v1 IMU role. `imu.stack-bytes` remains an
-execution budget. The capability API owns ODR and full-scale requests.
-`imu::open(sink)` uses the selected sensor's defaults.
+The `[hal] imu = "nuttx"` binding selects NuttX integration for this role.
+The device's `compatible` selects the sensor. The capability API owns ODR and
+full-scale requests. `imu::open(sink)` uses the selected sensor's defaults.
+
+Composition version 1 is the migration boundary for physical sensor profiles.
+Move legacy IMU driver, address and wake settings into the device record,
+and move paths, bus speeds and IRQ endpoints into resources. Move legacy GNSS
+UART path and baud settings into a UART resource. Assign each default device
+through `[roles]`. The `[imu]` and `[gnss]` tables can supply `stack-bytes`.
+The resolver rejects unversioned sensor bindings and legacy physical fields
+before SDK setup.
 
 For wired hardware, replace the whole wake table with `kind = "interrupt"` and
 `resource = "imu_irq"`. Declare that resource with `kind = "gpio-interrupt"`,
@@ -194,14 +201,13 @@ The build frontend writes `resolved-profile.json` into the owned build output
 and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
 it. Direct Cargo consumers select a named profile and its declared overlays
-through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. The NuttX IMU build script emits
-typed resources and a model selector for the checked-in Rust factory.
+through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. The IMU and GNSS build scripts emit typed
+resources for their checked-in NuttX factories.
 
-Legacy IMU profiles expose the same graph for overlays, with device `imu`, bus
-`legacy_i2c` and optional interrupt resource `legacy_irq`. The
-`resolved-composition` report includes ordered source hashes, field provenance,
-a semantic digest of the normalized graph and target, and a separate input
-fingerprint for the exact source bytes, catalog and resolver revision.
+The `resolved-composition` report includes ordered source hashes, field
+provenance, a semantic digest of the normalized graph and target, and a separate
+input fingerprint for the exact source bytes, catalog and resolver revision.
+Use this report to inspect the device and resource binding before a build.
 
 Apply the following merge rules in order.
 
@@ -296,10 +302,9 @@ atomically and never rewrite source profiles.
 Equivalent input selections through either entry point must produce the same
 typed graph and digest. Invalid/stale selections fail before native compilation.
 
-For migrated capabilities, the selected physical, simulation or unavailable
-factory replaces independent `hal_mock`/`hal_enabled` admission. Existing cfgs
-remain in unmigrated capabilities until their normal entry points and fixtures
-are migrated. Contract-only builds retain explicit unavailable factories.
+Each HAL selects one factory through the resolved provider. Contract-only
+builds retain explicit unavailable factories. Test fixtures require an explicit
+profile or test injection.
 Selected exports remain named and factory-local. Generated wiring needs audit
 coverage and cannot introduce OS branches into shared algorithms.
 
@@ -310,8 +315,7 @@ Hardware profiles reject simulated sources. Simulation profiles reject physical
 device claims. Mixed fault-injection images use separately classified test-only
 qualification profiles with `mode = "qualification"`, admitted only for an
 application marked `package.metadata.nxrs.qualification-only = true`. An overlay
-cannot change the mode. Legacy fixtures keep their current entry points until
-their explicit migration step.
+cannot change the mode. Independent scripted fixtures keep their named qualification entry points.
 
 The coordinated engine owns logical time, seeded scenario state and stable event
 ordering. HAL endpoints project the same world into IMU, GNSS and other supported

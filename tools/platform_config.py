@@ -60,12 +60,8 @@ def detector_config(platform):
     return _query('detector', platform)
 
 
-def gnss_config(platform):
-    return _query('gnss', platform)
-
-
-def imu_config(platform):
-    return _query('imu', platform)
+def composition_config(platform):
+    return _query('composition', platform)
 
 
 def scheduling_config(platform):
