@@ -362,6 +362,14 @@ addresses, and IRQs must not appear in application or portable service policy.
 Repository-owned low-level protocols belong in `driver/`. Existing physical
 NuttX drivers can remain under `external/nuttx` when reused directly.
 
+The [peripheral composition target](peripheral-composition.md) makes chip drivers
+reusable through existing Rust resource traits. Sensor-specific HAL modules own
+translation into the capability API; OS factories construct them from resolved
+device and resource bindings. Profiles and explicit overlays select instances
+and roles. The [implementation plan](peripheral-composition-plan.md) stages this
+change from the existing BMI270 path, with protected-mode and physical evidence
+kept separate from host validation.
+
 ## platform/ directory
 
 platform/ is target/build integration, not the HAL abstraction:

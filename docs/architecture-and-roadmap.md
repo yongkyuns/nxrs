@@ -7,6 +7,13 @@
 **Status:** Staged design. Current implementation and qualification are recorded in
 [architecture.md](architecture.md) and [nuttx-std.md](nuttx-std.md).
 
+The next peripheral migration is specified by the
+[composition architecture](peripheral-composition.md) and its
+[implementation sequence](peripheral-composition-plan.md). That sequence is the
+current plan for reusable sensor drivers, OS resource adapters, profile overlays
+and coordinated simulation; the historical stages below retain their original
+scope.
+
 ## Decision
 
 Each `app/<name>` is a normal Cargo binary with a handwritten `src/main.rs`.

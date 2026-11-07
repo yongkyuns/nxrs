@@ -5,6 +5,12 @@ commands. The active architecture and device-access guides are
 [source ownership](architecture.md), [HAL ownership](hal-platform-architecture.md)
 and [NuttX device access](nuttx-device-access.md).
 
+The [peripheral composition architecture](peripheral-composition.md) specifies
+the next driver/resource/profile separation. Its
+[step-by-step implementation plan](peripheral-composition-plan.md) includes
+file ownership, dependencies, compatibility gates and verification commands.
+These documents distinguish proposed interfaces from current implementation.
+
 Each `hal/<capability>` is one crate. Its contract is in `src/api.rs`, selected
 Rust implementations stay private under `src/platform/`, and target-specific
 NuttX C helpers live beside their Rust provider in its `ffi/` directory. A single `NXRS_PLATFORM` value selects

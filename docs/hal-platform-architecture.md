@@ -4,6 +4,13 @@ Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
 `imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
+The staged [peripheral composition design](peripheral-composition.md) defines
+reusable sensor-specific drivers, embedded-hal resource adapters and validated
+device/role bindings in the existing profiles. Follow its
+[implementation plan](peripheral-composition-plan.md) for migration. Current
+profile syntax and admission flags described below remain implemented behavior
+until each capability's replacement passes its normal-entry-point checks.
+
 ## Required implementation boundaries
 
 The capability API and implementation are Rust. Rust owns validation, resource
@@ -174,6 +181,12 @@ hal/wifi/
 ~~~
 
 HALs retain both the hardware-resource abstraction and its implementations.
+Reusable chip protocols belong in `driver/<device>` and expose sensor-specific
+APIs over existing bus traits. A capability's private sensor implementation
+translates those APIs into its own observations, configuration and errors.
+Drivers have no dependency on the capability HAL. OS resource adapters remain
+with their consuming provider, or move to a dedicated resource HAL when shared
+by real consumers. Product profiles supply concrete resource bindings.
 The root `platform/` tree supplies product profiles and build wiring; HAL code
 does not move there. A profile's `[hal]` values name actual OS implementations:
 `linux`, `macos`, `windows`, or `nuttx`. The matching OS must equal Rust's
@@ -245,12 +258,19 @@ on the CLI. Only build-dependency edges may enter these host support packages;
 runtime HAL edges and all app/service edges to platform code remain forbidden.
 External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
 workspace. In-checkout builds can discover the SDK root.
-It emits only `hal_enabled` for a bound OS implementation or `hal_mock` for an
+The current resolver emits `hal_enabled` for a bound OS implementation or `hal_mock` for an
 explicit fixture; unbound capabilities emit neither. These booleans express
 capability admission, not platform identity, and belong only in module/acquisition
 wiring. OS modules use Rust's `target_os` at that boundary. Do not add a second
 OS-valued cfg, per-OS Cargo features, or platform branches in shared algorithms.
 There is no runtime registry or platform dependency above the HAL.
+
+For migrated capabilities, the composition design replaces those admission
+flags with a resolved physical, simulation or unavailable factory. Explicit
+overlays produce one validated configuration before compilation. This transition
+must preserve contract-only builds, existing fixtures and detached consumers.
+Ordinary driver dependencies remain Cargo declarations; a HAL build script
+cannot enable an optional dependency after Cargo has resolved the graph.
 
 Keep conditional compilation at a small set of ownership boundaries:
 
