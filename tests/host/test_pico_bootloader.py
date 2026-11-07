@@ -88,6 +88,44 @@ class MacUnmountTests(unittest.TestCase):
         pending[0]["IORegistryEntryChildren"] = []
         self.assertIsNone(RESET.bootloader_disks(pending, self.serial))
 
+    def unpublished(self):
+        registry = self.registry(media=False)
+        registry[0]["IORegistryEntryChildren"].extend([
+            {"IOObjectClass": "IOUSBHostInterface", "bInterfaceClass": 0xff},
+            {"IOObjectClass": "IOBlockStorageDriver"},
+        ])
+        return registry
+
+    def test_unpublished_media_requires_complete_exact_device_inspection(self):
+        self.assertEqual(RESET._unpublished_boot_media(self.unpublished(), self.serial), 10)
+        for registry in (self.registry(media=False), self.registry(), []):
+            self.assertIsNone(RESET._unpublished_boot_media(registry, self.serial))
+        registry = self.unpublished()
+        registry[0]["IORegistryEntryChildren"].append({"IOObjectClass": "IOMedia"})
+        self.assertIsNone(RESET._unpublished_boot_media(registry, self.serial))
+
+    def test_no_media_after_wait_allows_reboot_only_for_same_usb_instance(self):
+        for transition in ("absent", "replaced", "published", "incomplete"):
+            final = self.unpublished()
+            if transition == "replaced":
+                final[0]["IORegistryEntryID"] = 11
+            elif transition == "published":
+                final[0]["IORegistryEntryChildren"].append({"BSD Name": "disk7"})
+            elif transition == "incomplete":
+                final = self.registry(media=False)
+            with self.subTest(transition=transition), \
+                 patch.object(RESET.sys, "platform", "darwin"), \
+                 patch.object(RESET.time, "monotonic", side_effect=[0, 0, 1]), \
+                 patch.object(RESET.time, "sleep"), \
+                 patch.object(RESET, "_bootloader_registry", side_effect=[self.unpublished(), final]), \
+                 patch.object(RESET, "_run") as command:
+                if transition == "absent":
+                    RESET.unmount_bootloader(self.serial, timeout=1)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "refusing reboot"):
+                        RESET.unmount_bootloader(self.serial, timeout=1)
+                command.assert_not_called()
+
     def test_registry_expands_only_the_exact_chip_after_shallow_selection(self):
         for located in (True, False):
             with self.subTest(located=located):

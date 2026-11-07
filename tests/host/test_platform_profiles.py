@@ -31,11 +31,13 @@ PLATFORM_NAMES = {
     "pico2-tls",
     "pico2w-wifi",
     "pico2w-ble",
+    "pico2w-mpsc",
     "mps2-an521-mock",
     "esp32s3-qemu-mock",
     "esp32s3-userled",
     "esp32s3-service-footprint",
     "esp32s3-sync-iram",
+    "esp32s3-mpsc",
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
@@ -150,6 +152,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-service-footprint": {},
                             "esp32s3-sync-iram": {},
+                            "esp32s3-mpsc": {},
+                            "pico2w-mpsc": {},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
@@ -371,10 +375,10 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertFalse(any("SSID" in setting or "PASSPHRASE" in setting or
                              "FIRMWARE_BIN_PATH" in setting for setting in config["set"]))
 
-    def test_usb_bootloader_trigger_is_limited_to_pico_radio_development(self):
+    def test_usb_bootloader_trigger_is_limited_to_pico_development(self):
         for path in PLATFORMS.glob("*.toml"):
             config = PLATFORM_CONFIG.resolve(path.stem)["kconfig"]
-            enabled = path.stem in ("pico2w-wifi", "pico2w-ble", "pico2w-radio")
+            enabled = path.stem in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):

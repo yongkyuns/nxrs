@@ -102,17 +102,44 @@ def stock_boot_disk(disks, metadata):
             and metadata[1].get("Size") == 128 * 1024 * 1024 - 512)
 
 
+def _unpublished_boot_media(registry, chip_serial):
+    """An attached ROM storage driver without media cannot have a mount."""
+    devices = _bootloader_devices(registry, chip_serial)
+    if not devices:
+        return None
+    nodes = list(_nodes(devices.values()))
+    interfaces = [node.get("bInterfaceClass") for node in nodes
+                  if node.get("IOObjectClass") == "IOUSBHostInterface"]
+    if (set(interfaces) != {8, 0xff}
+            or not any(node.get("IOObjectClass") == "IOBlockStorageDriver" for node in nodes)
+            or any("BSD Name" in node or node.get("IOObjectClass") == "IOMedia" for node in nodes)):
+        return None
+    return next(iter(devices))
+
+
 def unmount_bootloader(chip_serial, timeout=10, *, allow_force=False):
     """Keep PICOBOOT available, but detach its macOS filesystem before reset."""
     if sys.platform != "darwin":
         return
     deadline = time.monotonic() + timeout
+    unpublished = None
     while time.monotonic() < deadline:
-        disks = bootloader_disks(_bootloader_registry(chip_serial), chip_serial)
+        registry = _bootloader_registry(chip_serial)
+        disks = bootloader_disks(registry, chip_serial)
         if disks is not None:
             break
+        current = _unpublished_boot_media(registry, chip_serial)
+        if unpublished is not None and current != unpublished:
+            raise RuntimeError("Requested RP2350 storage identity changed; refusing reboot")
+        unpublished = current
         time.sleep(0.2)
     else:
+        # macOS can attach the ROM's storage driver without publishing a disk.
+        # After waiting, confirm the same USB instance still has no media; do
+        # not confuse this with a busy, mounted or incompletely inspected disk.
+        if unpublished is not None and _unpublished_boot_media(
+                _bootloader_registry(chip_serial), chip_serial) == unpublished:
+            return
         raise RuntimeError("Requested RP2350 disk did not finish enumerating; refusing reboot")
     if not disks:
         return

@@ -1,0 +1,13 @@
+/* ESP32-S3 WROOM N16R8, attached through its built-in USB Serial/JTAG port. */
+/ {
+  chosen {
+    zephyr,console = &usb_serial;
+    zephyr,shell-uart = &usb_serial;
+  };
+};
+&cpu0 { clock-frequency = <240000000>; };
+&flash0 { reg = <0 0x1000000>; };
+&usb_serial { status = "okay"; };
+&uart0 { status = "disabled"; };
+&wifi { status = "disabled"; };
+&esp32_bt_hci { status = "disabled"; };
