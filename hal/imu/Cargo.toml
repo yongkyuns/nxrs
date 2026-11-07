@@ -11,6 +11,9 @@ name = "imu"
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
 
+[features]
+probe = []
+
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 

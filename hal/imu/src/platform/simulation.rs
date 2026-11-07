@@ -1,4 +1,7 @@
 //! Normalize observations from the profile's shared simulation session.
+#[cfg(all(feature = "probe", not(target_os = "none")))]
+pub(crate) use crate::probe::unsupported as open_probed;
+
 use crate::{
     session::Session, AccelRange, AppliedConfig, Capabilities, Config, DeviceError, Event,
     GyroRange, Imu, ImuSample,

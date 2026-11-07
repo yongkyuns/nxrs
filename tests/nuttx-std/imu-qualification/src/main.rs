@@ -1,13 +1,18 @@
 //! Observe one bounded acquisition window through the public IMU HAL.
 #![forbid(unsafe_code)]
 
-use imu::{AccelRange, Config, DeviceError, Event, GyroRange, Imu};
+#[cfg(not(feature = "probe"))]
+use imu::Imu;
+use imu::{AccelRange, Config, DeviceError, Event, GyroRange};
 use messaging::{bounded, DeliveryError, Rejected};
 use std::{
     process::ExitCode,
     sync::mpsc::{RecvTimeoutError, TrySendError},
     time::{Duration, Instant},
 };
+
+#[cfg(feature = "probe")]
+mod timing;
 
 const WINDOW: Duration = Duration::from_secs(60);
 const NO_STREAM: Duration = Duration::from_secs(3);
@@ -88,7 +93,16 @@ fn main() -> ExitCode {
         })
     };
     let mut seen = Observations::default();
-    let (mut device, applied) = match imu::open_configured(CONFIG, sink) {
+    #[cfg(feature = "probe")]
+    let (timing, opened) = {
+        let timing = std::sync::Arc::new(timing::Recorder::default());
+        let observer = timing.clone();
+        let opened = imu::probe::open_configured(CONFIG, sink, move |event| observer.record(event));
+        (timing, opened)
+    };
+    #[cfg(not(feature = "probe"))]
+    let opened = imu::open_configured(CONFIG, sink);
+    let (mut device, applied) = match opened {
         Ok(opened) => opened,
         Err(error) => return report("open_failed", 0, Duration::ZERO, seen, 0, Some(error)),
     };
@@ -123,6 +137,12 @@ fn main() -> ExitCode {
     let stopped = device.request_stop();
     let joined = device.join();
     let fault = joined.err().or(stopped.err()).or(fault);
+    #[cfg(feature = "probe")]
+    let reason = if !timing.report() && reason == "duration_complete" {
+        "invalid_timing"
+    } else {
+        reason
+    };
     report(
         reason,
         applied.rate_millihz,

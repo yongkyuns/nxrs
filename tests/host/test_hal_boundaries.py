@@ -47,8 +47,8 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/imu/src/platform/nuttx/mod.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
             let device = match MODEL {
-                SensorModel::Bmi270 => acquire::<Bmi270>(BINDING, config, sink),
-                SensorModel::Lsm6dso => acquire::<Lsm6dso>(BINDING, config, sink),
+                SensorModel::Bmi270 => acquire::<Bmi270>(BINDING, config, sink, trace),
+                SensorModel::Lsm6dso => acquire::<Lsm6dso>(BINDING, config, sink, trace),
             };
             Session::start(STACK_BYTES, cancel, sink, run)
         ''')

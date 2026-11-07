@@ -16,15 +16,16 @@ impl Cadence {
     pub(crate) fn remaining(&self, now: Instant) -> Duration {
         self.next.saturating_duration_since(now)
     }
-    pub(crate) fn take_due(&mut self, now: Instant) -> bool {
+    pub(crate) fn take_due(&mut self, now: Instant) -> Option<Instant> {
         if now < self.next {
-            return false;
+            return None;
         }
+        let due = self.next;
         self.next += self.period;
         if self.next <= now {
             self.next = now + self.period;
         }
-        true
+        Some(due)
     }
 }
 
@@ -36,15 +37,18 @@ mod tests {
         let start = Instant::now();
         let period = Duration::from_millis(10);
         let mut clock = Cadence::new(start, period);
-        assert!(!clock.take_due(start + Duration::from_millis(9)));
+        assert_eq!(clock.take_due(start + Duration::from_millis(9)), None);
         assert_eq!(
             clock.remaining(start + Duration::from_millis(9)),
             Duration::from_millis(1)
         );
-        assert!(clock.take_due(start + period));
+        assert_eq!(clock.take_due(start + period), Some(start + period));
         assert_eq!(clock.remaining(start + period), period);
-        assert!(clock.take_due(start + period * 10));
-        assert!(!clock.take_due(start + period * 10));
+        assert_eq!(
+            clock.take_due(start + period * 10),
+            Some(start + period * 2)
+        );
+        assert_eq!(clock.take_due(start + period * 10), None);
         assert_eq!(clock.remaining(start + period * 10), period);
     }
 }

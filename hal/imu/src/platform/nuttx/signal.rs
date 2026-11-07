@@ -12,6 +12,11 @@ pub(super) enum Signal {
     Interrupt { irq: Irq, ready: Option<bool> },
     Periodic(Cadence),
 }
+
+pub(super) struct Wake {
+    pub(super) periodic_deadline: Option<Instant>,
+}
+
 impl Signal {
     pub(super) fn new(irq: Option<Irq>, period: Duration) -> Self {
         match irq {
@@ -19,7 +24,7 @@ impl Signal {
             None => Self::Periodic(Cadence::new(Instant::now(), period)),
         }
     }
-    pub(super) fn wait(&mut self, cancel: &File) -> Result<bool, DeviceError> {
+    pub(super) fn wait(&mut self, cancel: &File) -> Result<Option<Wake>, DeviceError> {
         match self {
             Self::Interrupt { irq, ready } => {
                 // Close the sensor-enable/initial-wait race without losing a level.
@@ -30,10 +35,12 @@ impl Signal {
                     && !readiness::wait(&irq.file, cancel, ffi::wait)
                         .map_err(|_| DeviceError::Io)?
                 {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 irq.read()?; // acknowledge the GPIO notification before FIFO I/O
-                Ok(true)
+                Ok(Some(Wake {
+                    periodic_deadline: None,
+                }))
             }
             Self::Periodic(clock) => loop {
                 let timeout = clock
@@ -42,9 +49,15 @@ impl Signal {
                     .div_ceil(1_000_000)
                     .min(i32::MAX as u128) as i32;
                 match ffi::tick(cancel.as_raw_fd(), timeout) {
-                    Ok(false) => return Ok(false),
-                    Ok(true) if clock.take_due(Instant::now()) => return Ok(true),
-                    Ok(true) => {} // early/spurious wake: retain the absolute deadline
+                    Ok(false) => return Ok(None),
+                    Ok(true) => {
+                        // Early or spurious wakes retain the absolute deadline.
+                        if let Some(deadline) = clock.take_due(Instant::now()) {
+                            return Ok(Some(Wake {
+                                periodic_deadline: Some(deadline),
+                            }));
+                        }
+                    }
                     Err(e) if e.kind() == ErrorKind::Interrupted => {}
                     Err(_) => return Err(DeviceError::Io),
                 }

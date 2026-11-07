@@ -109,8 +109,11 @@ jobs:
             -p nxrs-imu -p nxrs-gnss \
             --target thumbv6m-none-eabi
 
-      - name: Qualify the standalone peripheral drivers
-        run: cargo +1.90.0 test --locked -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-imu-qualification
+      - name: Qualify the standalone peripheral drivers and IMU timing probe
+        run: >-
+          cargo +1.90.0 test --locked
+          -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-imu -p nxrs-imu-qualification
+          --features nxrs-imu-qualification/probe
 
       - name: Check the Rust runtime witness on the host
         run: |
@@ -277,6 +280,7 @@ jobs:
           cargo +1.90.0 nxrs build
           --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml
           --profile esp32s3-devkit-imu-protected-qualification
+          --features probe
           --out target/firmware/event-demo/imu-wired-protected
 
       - name: Retain deployment evidence

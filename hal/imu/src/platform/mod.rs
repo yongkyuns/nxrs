@@ -15,3 +15,6 @@
 )]
 mod selected;
 pub use selected::{capabilities, open, open_configured};
+
+#[cfg(all(feature = "probe", not(target_os = "none")))]
+pub(crate) use selected::open_probed;
