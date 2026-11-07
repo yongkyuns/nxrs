@@ -1,0 +1,101 @@
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_i2c.c b/arch/xtensa/src/esp32s3/esp32s3_i2c.c
+index 7963d73..abdb54e 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_i2c.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_i2c.c
+@@ -43,6 +43,10 @@
+ #include <nuttx/i2c/i2c_master.h>
+ #include <nuttx/mutex.h>
+ #include <nuttx/power/pm.h>
++#ifdef CONFIG_I2C_SCHED_NOTES
++#  include <nuttx/sched_note.h>
++#  include <string.h>
++#endif
+ #include <nuttx/semaphore.h>
+ 
+ #include <arch/board/board.h>
+@@ -1145,12 +1149,21 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
+ 
+   DEBUGASSERT(count > 0);
+ 
++#ifdef CONFIG_I2C_SCHED_NOTES
++  sched_note_beginex(NOTE_TAG_DRIVERS, "nxrs.i2c.esp32s3_lock_wait");
++#endif
+   ret = nxmutex_lock(&priv->lock);
++#ifdef CONFIG_I2C_SCHED_NOTES
++  sched_note_endex(NOTE_TAG_DRIVERS, "nxrs.i2c.esp32s3_lock_wait");
++#endif
+   if (ret < 0)
+     {
+       return ret;
+     }
+ 
++#ifdef CONFIG_I2C_SCHED_NOTES
++  sched_note_beginex(NOTE_TAG_DRIVERS, "nxrs.i2c.esp32s3_service");
++#endif
+   /* Hold the domain out of light sleep for the whole transfer -- see the
+    * comment on i2c_pm_stay() above.
+    */
+@@ -1274,6 +1287,9 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
+       i2cinfo("Message %" PRIu8 " transfer complete.\n", priv->msgid);
+     }
+ 
++#ifdef CONFIG_I2C_SCHED_NOTES
++  sched_note_endex(NOTE_TAG_DRIVERS, "nxrs.i2c.esp32s3_service");
++#endif
+   /* Dump the trace result */
+ 
+   i2c_tracedump(priv);
+diff --git a/drivers/i2c/Kconfig b/drivers/i2c/Kconfig
+index fe71e38..a1ab8e4 100644
+--- a/drivers/i2c/Kconfig
++++ b/drivers/i2c/Kconfig
+@@ -131,6 +131,15 @@ config I2C_DRIVER
+ 		this driver is to support I2C testing.  It is not suitable for use
+ 		in any real driver application.
+ 
++config I2C_SCHED_NOTES
++	bool "I2C scheduler-note timing"
++	default n
++	depends on I2C_DRIVER && SCHED_INSTRUMENTATION_DUMP
++	---help---
++		Emit scheduler-note timing scopes for I2C character-driver lock wait,
++		ESP32-S3 controller lock wait, and ESP32-S3 transfer service. This is
++		intended for opt-in qualification only.
++
+ menu "I2C Multiplexer Support"
+ 
+ config I2CMULTIPLEXER_PCA9540BDP
+diff --git a/drivers/i2c/i2c_driver.c b/drivers/i2c/i2c_driver.c
+index a9f3bb2..fc05840 100644
+--- a/drivers/i2c/i2c_driver.c
++++ b/drivers/i2c/i2c_driver.c
+@@ -38,6 +38,9 @@
+ #include <nuttx/fs/fs.h>
+ #include <nuttx/i2c/i2c_master.h>
+ #include <nuttx/mutex.h>
++#ifdef CONFIG_I2C_SCHED_NOTES
++#  include <nuttx/sched_note.h>
++#endif
+ 
+ /****************************************************************************
+  * Pre-processor Definitions
+@@ -263,7 +266,19 @@ static int i2cdrvr_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+ #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+   /* Get exclusive access to the I2C driver state structure */
+ 
++#ifdef CONFIG_I2C_SCHED_NOTES
++  if (cmd == I2CIOC_TRANSFER)
++    {
++      sched_note_beginex(NOTE_TAG_DRIVERS, "nxrs.i2c.char_lock_wait");
++    }
++#endif
+   ret = nxmutex_lock(&priv->lock);
++#ifdef CONFIG_I2C_SCHED_NOTES
++  if (cmd == I2CIOC_TRANSFER)
++    {
++      sched_note_endex(NOTE_TAG_DRIVERS, "nxrs.i2c.char_lock_wait");
++    }
++#endif
+   if (ret < 0)
+     {
+       return ret;
