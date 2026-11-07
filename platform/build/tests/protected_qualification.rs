@@ -99,7 +99,7 @@ fn protected_runtime_requires_unsigned_direct_init_qualification() {
 }
 
 #[test]
-fn devkit_uses_the_same_bus_and_irq_in_both_modes_and_can_select_periodic_lsm6dso() {
+fn devkit_uses_the_same_bus_in_both_modes_and_supports_periodic_controls() {
     let repo = Repo::new();
     let flat = repo.profile("esp32s3-devkit-imu-qualification");
     let protected = repo.profile("esp32s3-devkit-imu-protected-qualification");
@@ -112,6 +112,27 @@ fn devkit_uses_the_same_bus_and_irq_in_both_modes_and_can_select_periodic_lsm6ds
     assert_eq!(Some(binding), protected_graph.imu());
     assert_eq!(binding.path, "/dev/i2c0");
     assert_eq!(binding.irq_path, Some("/dev/gpio2"));
+
+    for profile in [
+        "esp32s3-devkit-imu-qualification",
+        "esp32s3-devkit-imu-protected-qualification",
+    ] {
+        let periodic = Profile::resolve_with_overlays(
+            &repo.root,
+            profile,
+            &[PathBuf::from(
+                "tests/nuttx-std/imu-qualification/overlays/bmi270-periodic.toml",
+            )],
+        )
+        .unwrap();
+        let graph = periodic.composition().unwrap().unwrap();
+        let periodic = graph.imu().unwrap();
+        assert_eq!(periodic.path, binding.path);
+        assert_eq!(periodic.address, binding.address);
+        assert_eq!(periodic.frequency, binding.frequency);
+        assert_eq!(periodic.model, binding.model);
+        assert_eq!(periodic.irq_path, None);
+    }
 
     let lsm = Profile::resolve_with_overlays(
         &repo.root,

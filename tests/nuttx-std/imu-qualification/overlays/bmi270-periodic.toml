@@ -1,0 +1,3 @@
+# Compare periodic and wired wakes on the same DevKit BMI270 and raw bus.
+[devices.motion.wake]
+kind = "periodic"

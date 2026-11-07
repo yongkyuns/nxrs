@@ -17,8 +17,10 @@ for the full timing matrix.
    image.
 3. For a CoreS3 K128 with M135, use `cores3-imu-qualification` and
    `cores3-protected-qualification`. Both use the module's BMI270 at `0x68` on
-   `/dev/i2c0`. The `cores3-onboard-bmi270.toml` overlay selects the K128's
-   onboard sensor at `0x69` for a separate periodic case. [CoreS3 pin map](https://docs.m5stack.com/en/core/CoreS3) · [M135 connection](https://docs.m5stack.com/en/module/Module_GNSS)
+   `/dev/i2c0`. M5Stack lists the M135 at `0x69`. Check the module's address
+   switch and verify its `0x68` response before using these profiles. The
+   `cores3-onboard-bmi270.toml` overlay selects the K128's onboard sensor at
+   `0x69` for a separate periodic case. [CoreS3 pin map](https://docs.m5stack.com/en/core/CoreS3) · [M135 connection](https://docs.m5stack.com/en/module/Module_GNSS)
 4. Use `overlays/lsm6dso.toml` for a wired LSM6DSO at `0x6a` on the same
    registered sensor bus. The overlay selects periodic wake and retains the
    profile's bus speed. [LSM6DSO electrical interface](https://www.st.com/resource/en/datasheet/lsm6dso.pdf)
@@ -26,8 +28,10 @@ for the full timing matrix.
    use `esp32s3-devkit-imu-qualification` and
    `esp32s3-devkit-imu-protected-qualification`. Verify the breakout's I/O
    voltage and common ground. The profile uses GPIO8 for SDA, GPIO9 for SCL
-   and GPIO16 for the BMI270's active-high INT1. The LSM6DSO overlay can reuse
-   the same I²C wiring for a periodic run. [DevKitC-1 pin map](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/index.html)
+   and GPIO16 for the BMI270's active-high INT1. Use
+   `overlays/bmi270-periodic.toml` to switch the same DevKit and BMI270 to
+   periodic wake. The LSM6DSO overlay can reuse the I²C wiring for a periodic
+   run. [DevKitC-1 pin map](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/index.html)
 
 ## Build and capture
 
@@ -66,36 +70,41 @@ bucket counts observations above the last bound. Each histogram includes
 An incomplete drain, missing I²C observation or dropped probe event invalidates
 the timing run. Keep a matched baseline without the probe to assess overhead.
 
-## Capture scheduler notes on the wired DevKit
+## Capture scheduler and I²C notes
 
-Use the two DevKit profiles above, `--features probe`, and these additional
-build flags in both modes.
+Use `--features probe` and these additional build flags in both modes.
 
 ```sh
 --kconfig-enable ARCH_PERF_EVENTS \
 --kconfig-enable PERF_OVERFLOW_CORRECTION \
 --kconfig-enable SCHED_INSTRUMENTATION \
 --kconfig-enable SCHED_INSTRUMENTATION_FILTER \
---kconfig-enable SCHED_INSTRUMENTATION_SWITCH \
---kconfig-enable SCHED_INSTRUMENTATION_IRQHANDLER \
+--kconfig-enable SCHED_INSTRUMENTATION_DUMP \
+--kconfig-enable I2C_SCHED_NOTES \
 --kconfig-enable DRIVERS_NOTE \
 --kconfig-enable DRIVERS_NOTECTL \
 --kconfig-enable DRIVERS_NOTERAM \
 --kconfig-enable DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE
 ```
 
-Check the effective config for a single core, an 8 KiB note ring, and initial
-filter mode zero. The fixture clears the ring and records a 200 ms window
-starting at the first accepted sample. It filters IRQ notes to the GPIO
-controller vector. GPIO16 must be the only active GPIO interrupt on the board.
-The fixture disables capture at the deadline and prints the trace after join.
+For the wired DevKit run, also add `--kconfig-enable SCHED_INSTRUMENTATION_SWITCH`
+and `--kconfig-enable SCHED_INSTRUMENTATION_IRQHANDLER`. GPIO16 must be the
+only active GPIO interrupt on the board. The collector filters IRQ notes to
+the GPIO controller vector. Omit those two flags for periodic wake.
+
+Check the effective config for a single core, a 32 KiB note ring, and
+pseudo-filesystem operations enabled. The fixture disables tracing during setup,
+clears the ring, and records a 200 ms window starting at the first accepted
+sample. It disables capture at the deadline and prints the trace after join.
 
 Validate the serial capture with
 `python3 tests/host/imu_scheduler_trace.py console.log`. Retain the raw
-transcript and parsed result together. The result measures GPIO dispatch entry
-to the NuttX post-IRQ worker switch timestamp for attributable wakes. Use an
-external capture to measure electrical edge and wire time. Keep a build without
-the note Kconfig flags for an overhead comparison.
+transcript and parsed result together. The report separates character-driver
+mutex wait, controller mutex wait, and controller service. In wired mode it
+also reports GPIO dispatch entry to worker switch, character-driver entry,
+and controller-service entry where the records can be paired. Use an external
+capture for electrical edge and wire time. Keep a build without the note
+Kconfig flags for an overhead comparison.
 
 ## Capture worker and allocator usage
 

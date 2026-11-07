@@ -291,6 +291,8 @@ jobs:
           --kconfig-enable SCHED_INSTRUMENTATION_FILTER
           --kconfig-enable SCHED_INSTRUMENTATION_SWITCH
           --kconfig-enable SCHED_INSTRUMENTATION_IRQHANDLER
+          --kconfig-enable SCHED_INSTRUMENTATION_DUMP
+          --kconfig-enable I2C_SCHED_NOTES
           --kconfig-enable DRIVERS_NOTE
           --kconfig-enable DRIVERS_NOTECTL
           --kconfig-enable DRIVERS_NOTERAM
