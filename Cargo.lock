@@ -519,6 +519,7 @@ dependencies = [
  "nxrs-acquisition",
  "nxrs-build-support",
  "nxrs-messaging",
+ "nxrs-simulation",
 ]
 
 [[package]]
@@ -557,6 +558,7 @@ dependencies = [
  "nxrs-build-support",
  "nxrs-lsm6dso",
  "nxrs-messaging",
+ "nxrs-simulation",
 ]
 
 [[package]]
@@ -639,6 +641,10 @@ version = "0.1.0"
 dependencies = [
  "nxrs-messaging",
 ]
+
+[[package]]
+name = "nxrs-simulation"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-simulator"

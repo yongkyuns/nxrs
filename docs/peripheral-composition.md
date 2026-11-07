@@ -270,7 +270,7 @@ transitive and detached consumers before changing this rule.
 Retain `NXRS_PLATFORM` for direct Cargo use and `NXRS_SDK_ROOT` for detached
 consumers. Such consumers use a named profile with declared overlays. Ad hoc CLI
 overlays are normalized into a per-build resolved-profile file under the owned
-output directory, passed to HAL build scripts through a planned
+output directory, passed to HAL build scripts through the
 `NXRS_RESOLVED_PROFILE` input. If combined with a named profile, identities must
 agree. Validate the file version, both fingerprints and target by re-resolving
 the recorded inputs. Retain all input paths for Cargo rebuild tracking. Write
@@ -311,6 +311,17 @@ deterministic. Service deadlines affecting a deterministic trial need an explici
 logical-clock/wake input or a scheduler harness. Until that is qualified, report
 deterministic source playback separately from deterministic application behavior.
 Existing independent mock-session tests remain explicit fixture tests.
+
+The `simulation` host profile declares a seed and the IMU and GNSS endpoint IDs.
+Run the existing navigation demo with `cargo nxrs build --app event-demo --profile simulation`
+and then `target/build/event-demo/simulation/cargo/release/event-demo`.
+One wall-paced logical clock starts after both endpoints register. They observe
+the same seeded east–west trajectory. Each endpoint is exclusive and uses a
+bounded drop-oldest queue with observable sequence gaps. A test harness can own
+a `Simulation` directly and advance it in integer microseconds.
+The independent scripted mocks remain available through the qualification
+profiles. Determinism covers generated observations and their event keys.
+The event-demo's services still use host scheduling.
 
 A native macOS or Linux source may satisfy a role directly through an OS API.
 It supplies the same HAL contract and validates its own binding schema. Bus-based

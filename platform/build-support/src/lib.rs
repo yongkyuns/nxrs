@@ -61,6 +61,30 @@ pub fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
     fs::write(path, data + "\n").map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Emit the validated simulation seed and endpoint identities for a HAL build.
+pub fn write_simulation_config(profile: &profile::Profile, out: &Path) -> Result<()> {
+    let composition = profile
+        .composition()?
+        .ok_or("simulation configuration requires a peripheral composition")?;
+    let spec = composition
+        .simulation()
+        .ok_or("profile does not select simulation")?;
+    let sources = spec
+        .endpoints
+        .iter()
+        .map(|source| match source {
+            composition::SimulationEndpoint::Imu => "simulation::Source::Imu",
+            composition::SimulationEndpoint::Gnss => "simulation::Source::Gnss",
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let generated = format!(
+        "const SIM_SEED: u64 = {};\nconst SIM_SOURCES: &[simulation::Source] = &[{}];\n",
+        spec.seed, sources
+    );
+    fs::write(out.join("simulation_config.rs"), generated).map_err(|error| error.to_string())
+}
+
 /// Resolve product profiles and pinned SDK inputs explicitly for external users.
 /// In-tree builds may discover the checkout by its declared profile directories.
 pub fn sdk_root(manifest: &Path) -> Result<std::path::PathBuf> {
@@ -145,11 +169,15 @@ pub fn configure_hal_with(
     use std::{env, path::PathBuf};
     println!("cargo:rustc-check-cfg=cfg(hal_enabled)");
     println!("cargo:rustc-check-cfg=cfg(hal_mock)");
+    println!(
+        "cargo:rustc-check-cfg=cfg(hal_provider, values(\"hardware\", \"mock\", \"simulation\"))"
+    );
     for name in [
         "CARGO_CFG_HAL_ENABLED",
         "CARGO_CFG_HAL_MOCK",
         "CARGO_CFG_NXRS_HAL_PLATFORM",
         "CARGO_CFG_NXRS_PROVIDER",
+        "CARGO_CFG_HAL_PROVIDER",
     ] {
         if env::var_os(name).is_some() {
             return Err("Select one NXRS_PLATFORM, not hand-written provider cfg flags".into());

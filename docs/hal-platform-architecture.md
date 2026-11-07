@@ -258,17 +258,14 @@ on the CLI. Only build-dependency edges may enter these host support packages;
 runtime HAL edges and all app/service edges to platform code remain forbidden.
 External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
 workspace. In-checkout builds can discover the SDK root.
-The current resolver emits `hal_enabled` for a bound OS implementation or `hal_mock` for an
-explicit fixture; unbound capabilities emit neither. These booleans express
-capability admission, not platform identity, and belong only in module/acquisition
-wiring. OS modules use Rust's `target_os` at that boundary. Do not add a second
-OS-valued cfg, per-OS Cargo features, or platform branches in shared algorithms.
-There is no runtime registry or platform dependency above the HAL.
+The resolver emits one `hal_provider` value for IMU and GNSS. Their profile
+selects a NuttX provider, a coordinated host simulation source or an explicit
+mock fixture. The module boundary uses `target_os` for the actual NuttX target.
+Other HALs retain `hal_enabled` and `hal_mock` as admission gates during
+migration. Unbound capabilities compile their contract and unavailable factory.
+Keep provider selection in HAL wiring and keep shared algorithms independent
+of it. Product builds and detached Cargo consumers use the same resolver.
 
-For migrated capabilities, the composition design replaces those admission
-flags with a resolved physical, simulation or unavailable factory. Explicit
-overlays produce one validated configuration before compilation. This transition
-must preserve contract-only builds, existing fixtures and detached consumers.
 Ordinary driver dependencies remain Cargo declarations; a HAL build script
 cannot enable an optional dependency after Cargo has resolved the graph.
 
@@ -276,7 +273,8 @@ Keep conditional compilation at a small set of ownership boundaries:
 
 | Control | Owner | Purpose |
 | --- | --- | --- |
-| `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
+| `hal_provider` | IMU and GNSS module/acquisition wiring | Select the resolved provider or compile the unavailable factory |
+| `hal_enabled`, `hal_mock` | Remaining HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
 | `replay`, `recording`, `udp` | Owning HAL and its consumers' Cargo manifests | Include explicit std software operations; do not select or require a hardware backend |
 | `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |
@@ -333,8 +331,8 @@ identifiers and environment variables retain their external namespacing.
 Profiles live in `platform/nuttx/platforms` (firmware) and
 `platform/profiles` (desktop and legacy fixtures). Names are unique across both
 locations. A product variant may extend an actual OS or board profile and override
-selected `[hal]` bindings. `host-demo` and `host-imu` explicitly select synthetic
-sensors without inheriting a fictitious runtime platform. Core-only compilation
+selected `[hal]` bindings. `simulation` runs coordinated IMU and GNSS.
+`host-demo` and `host-imu` remain independent scripted fixtures. Core-only compilation
 checks are legacy contract tests, not a bare-metal product platform.
 
 An optional NuttX profile `cpus = 1` or `2` derives the SMP enablement, CPU count

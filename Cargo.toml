@@ -24,6 +24,7 @@ members = [
     "service/stream",
     "service/connectivity",
     "shared/messaging",
+    "shared/simulation",
     "service/navigation",
     "service/recording",
     "service/telemetry",

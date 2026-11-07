@@ -36,6 +36,7 @@ class HalBoundariesTests(unittest.TestCase):
                               'let x = cfg!(nxrs_hal_platform = "nuttx");',
                               '#[cfg(hal_enabled)] fn f() {}',
                               '#[cfg(hal_mock)] fn f() {}',
+                              '#[cfg(hal_provider = "simulation")] fn f() {}',
                               'let x = option_env!("NXRS_PLATFORM");'):
                 with self.subTest(module=module, selection=selection):
                     path = self.write('hal/demo/src/' + module, selection)

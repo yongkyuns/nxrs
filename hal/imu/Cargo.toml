@@ -9,13 +9,16 @@ name = "imu"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-platforms = ["mock", "nuttx"]
+platforms = ["mock", "nuttx", "simulation"]
 
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 nxrs-acquisition = { path = "../../driver/acquisition" }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
 nxrs-bmi270 = { path = "../../driver/bmi270" }

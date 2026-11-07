@@ -90,7 +90,13 @@ def check_selection(text, names, package, provider):
                and names.get(r["package_id"]) == package]
     assert len(reports) == 1, "missing/duplicate platform build-script evidence"
     cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("hal_", "nxrs_hal_"))]
-    expected = [] if provider == "none" else ["hal_mock" if provider == "mock" else "hal_enabled"]
+    if provider == "none":
+        expected = []
+    elif package in {"nxrs-imu", "nxrs-gnss"}:
+        mode = "hardware" if provider == "nuttx" else provider
+        expected = [f'hal_provider="{mode}"']
+    else:
+        expected = ["hal_mock" if provider == "mock" else "hal_enabled"]
     assert cfgs == expected, f"wrong capability selection: {cfgs} != {expected}"
 
 
@@ -169,6 +175,8 @@ def run(out, capabilities=CAPABILITIES):
                  ("contract-wasm", None, "none", "wasm32-unknown-unknown", None)]
         if capability not in {"wifi", "ble"}:
             cases.append(("mock-wasm", "mock", "mock", "wasm32-unknown-unknown", None))
+        if capability in {"imu", "gnss"}:
+            cases.append(("simulation-host", "simulation", "simulation", None, None))
         if capability in {"camera", "storage", "transport"}:
             example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
             cases.append((HOST_PLATFORM, HOST_PLATFORM, HOST_PLATFORM, None, example))
@@ -178,6 +186,8 @@ def run(out, capabilities=CAPABILITIES):
             # with std. The Cortex-M0 contract case must keep that crate out.
             if capability in {"imu", "gnss"} and target != "thumbv6m-none-eabi":
                 expected.add("nxrs-acquisition")
+            if label == "simulation-host":
+                expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
             host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
