@@ -1,0 +1,70 @@
+Subject: [PATCH] esp32s3-devkit: configure the GPIO IRQ endpoint for IMU use
+
+Base: apache/nuttx 2b5c0de5e933281c209f954a63b99cf10c132346 (13.1.0), after Nxrs patches 0008 and 0068
+
+Make the GPIO interrupt pin and edge mode selectable by a board profile. Keep
+the stock BOOT-button GPIO0, falling-edge, pull-up behavior as the default.
+The DevKit qualification selects exposed GPIO16 and rising-edge, pull-down for
+the BMI270's active-high push-pull INT1 output.
+
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig b/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
+@@ -31,4 +31,21 @@
+ 	help
+ 	  Register the standard video capture device as /dev/video0.
+ 
++config ESP32S3_DEVKIT_GPIO_IRQ_PIN
++	int "GPIO pin for the board interrupt endpoint"
++	depends on DEV_GPIO && ESPRESSIF_GPIO_IRQ
++	default 0
++	range 0 48
++	---help---
++		Select the GPIO assigned to /dev/gpio2. The stock default of GPIO0
++		preserves the BOOT-button interrupt behavior.
++
++config ESP32S3_DEVKIT_GPIO_IRQ_RISING
++	bool "Configure the board interrupt endpoint for rising edges"
++	depends on DEV_GPIO && ESPRESSIF_GPIO_IRQ
++	default n
++	---help---
++		Use a pull-down and rising-edge interrupt for active-high devices.
++		The default remains the stock BOOT-button pull-up and falling edge.
++
+ endif # ARCH_BOARD_ESP32S3_DEVKIT
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_gpio.c b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_gpio.c
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_gpio.c
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_gpio.c
+@@ -73,7 +73,15 @@
+  * used. This is the BOOT button.
+  */
+ 
+-#define GPIO_IRQPIN1 0
++#define GPIO_IRQPIN1 CONFIG_ESP32S3_DEVKIT_GPIO_IRQ_PIN
++
++#ifdef CONFIG_ESP32S3_DEVKIT_GPIO_IRQ_RISING
++#  define GPIO_IRQ_PINTYPE GPIO_INTERRUPT_RISING_PIN
++#  define GPIO_IRQ_CONFIG  (INPUT_FUNCTION_2 | PULLDOWN | RISING)
++#else
++#  define GPIO_IRQ_PINTYPE GPIO_INTERRUPT_PIN
++#  define GPIO_IRQ_CONFIG  (INPUT_FUNCTION_2 | PULLUP | FALLING)
++#endif
+ 
+ /* Dedicated GPIO pins. GPIO4 and GPIO5 is used as an example, any other
+  * GPIOs could be used.
+@@ -501,12 +509,11 @@ int esp32s3_gpio_init(void)
+       /* Setup and register the GPIO pin */
+ 
+-      g_gpint[i].esp32s3gpio.gpio.gp_pintype = GPIO_INTERRUPT_PIN;
++      g_gpint[i].esp32s3gpio.gpio.gp_pintype = GPIO_IRQ_PINTYPE;
+       g_gpint[i].esp32s3gpio.gpio.gp_ops     = &gpint_ops;
+       g_gpint[i].esp32s3gpio.id              = i;
+       gpio_pin_register(&g_gpint[i].esp32s3gpio.gpio, pincount);
+ 
+       /* Configure the pins that will be used as interrupt input */
+ 
+-      esp_configgpio(g_gpiointinputs[i],
+-                     INPUT_FUNCTION_2 | PULLUP | FALLING);
++      esp_configgpio(g_gpiointinputs[i], GPIO_IRQ_CONFIG);
+ 
+       pincount++;

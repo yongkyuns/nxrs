@@ -53,6 +53,7 @@ members = [
     "tests/browser-threads",
     "tests/nuttx-std/resources",
     "tests/nuttx-std/imu-protected/runtime",
+    "tests/nuttx-std/imu-qualification",
     "tests/nuttx-std/udp",
     "tests/nuttx-std/userled",
     "tests/nuttx-std/tls-identity",

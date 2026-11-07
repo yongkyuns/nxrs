@@ -1,0 +1,22 @@
+[package]
+name = "nxrs-imu-qualification"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-imu = { path = "../../../hal/imu" }
+nxrs-messaging = { path = "../../../shared/messaging" }
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["imu"]
+
+[package.metadata.nxrs.firmware]
+bin = "imu-qualification"
+command = "imu_qualification"
+priority = 100
+stack-size = 32768
+
+[[bin]]
+name = "imu-qualification"
+path = "src/main.rs"
