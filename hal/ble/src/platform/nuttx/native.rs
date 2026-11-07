@@ -8,7 +8,7 @@ use crate::worker::{ScanReport, Scanner};
 use crate::Error;
 use crate::Uuid;
 #[cfg(not(test))]
-use std::ffi::c_int;
+use std::ffi::{c_char, c_int, CStr};
 #[cfg(not(test))]
 use std::io;
 #[cfg(not(test))]
@@ -17,12 +17,24 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 #[cfg(not(test))]
 unsafe extern "C" {
     fn ble_scan_open() -> c_int;
-    fn ble_scan_check(fd: c_int) -> c_int;
-    fn ble_scan_start(fd: c_int) -> c_int;
-    fn ble_scan_get(fd: c_int, records: *mut RawRecord, capacity: u8, count: *mut u8) -> c_int;
-    fn ble_scan_stop(fd: c_int) -> c_int;
-
+    fn ble_scan_check(fd: c_int, interface: *const c_char) -> c_int;
+    fn ble_scan_start(fd: c_int, interface: *const c_char) -> c_int;
+    fn ble_scan_get(
+        fd: c_int,
+        interface: *const c_char,
+        records: *mut RawRecord,
+        capacity: u8,
+        count: *mut u8,
+    ) -> c_int;
+    fn ble_scan_stop(fd: c_int, interface: *const c_char) -> c_int;
 }
+
+#[cfg(not(test))]
+const SCAN_INTERFACE: &CStr =
+    match CStr::from_bytes_with_nul(concat!(env!("BLE_SCAN_INTERFACE"), "\0").as_bytes()) {
+        Ok(name) => name,
+        Err(_) => panic!("invalid BLE scan interface"),
+    };
 
 /// Fixed width bridge layout is private to the NuttX adapter.
 #[repr(C)]
@@ -76,7 +88,12 @@ impl Native {
             self.fd = Some(unsafe { OwnedFd::from_raw_fd(fd) });
         }
         // SAFETY: fd remains owned by self for this synchronous ioctl.
-        status(unsafe { ble_scan_check(self.fd.as_ref().unwrap().as_raw_fd()) })
+        status(unsafe {
+            ble_scan_check(
+                self.fd.as_ref().unwrap().as_raw_fd(),
+                SCAN_INTERFACE.as_ptr(),
+            )
+        })
     }
 }
 #[cfg(not(test))]
@@ -112,7 +129,7 @@ impl Scanner for Native {
         let fd = self.fd.as_ref().unwrap().as_raw_fd();
         peers::scanning(fd, true)?;
         // Keep GATT exclusion until stop succeeds, including failed starts.
-        status(unsafe { ble_scan_start(fd) })
+        status(unsafe { ble_scan_start(fd, SCAN_INTERFACE.as_ptr()) })
     }
     fn get(
         &mut self,
@@ -126,6 +143,7 @@ impl Scanner for Native {
         status(unsafe {
             ble_scan_get(
                 fd,
+                SCAN_INTERFACE.as_ptr(),
                 raw.as_mut_ptr(),
                 u8::try_from(raw.len()).map_err(|_| Error::InvalidValue)?,
                 &mut count,
@@ -154,7 +172,7 @@ impl Scanner for Native {
     fn stop_scan(&mut self) -> Result<(), Error> {
         let fd = self.fd.as_ref().ok_or(Error::Unavailable)?.as_raw_fd();
         // SAFETY: live descriptor; C issues synchronous SIOCBTSCANSTOP.
-        status(unsafe { ble_scan_stop(fd) })?;
+        status(unsafe { ble_scan_stop(fd, SCAN_INTERFACE.as_ptr()) })?;
         peers::scanning(fd, false)
     }
     fn close(&mut self) {

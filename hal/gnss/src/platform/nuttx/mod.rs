@@ -23,6 +23,8 @@ struct Port {
     file: File,
     saved: [u8; 64],
     restored: bool,
+    // Released after restoring the UART and closing its descriptor.
+    _lease: Lease,
 }
 impl Port {
     fn restore(&mut self) -> Result<(), DeviceError> {
@@ -41,25 +43,21 @@ impl Drop for Port {
         let _ = self.restore();
     }
 }
-struct Serial {
-    port: Port,
-    _lease: Lease,
-}
-impl Read for Serial {
+impl Read for Port {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.port.file.read(bytes)
+        self.file.read(bytes)
     }
 }
-impl Write for Serial {
+impl Write for Port {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.port.file.write(bytes)
+        self.file.write(bytes)
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.port.file.flush()
+        self.file.flush()
     }
 }
 struct Device {
-    receiver: crate::receiver::Receiver<Serial>,
+    receiver: crate::receiver::Receiver<Port>,
     cleaned: bool,
 }
 impl Device {
@@ -69,7 +67,7 @@ impl Device {
         }
         self.cleaned = true;
         let receiver = self.receiver.restore();
-        let port = self.receiver.io_mut().port.restore();
+        let port = self.receiver.io_mut().restore();
         if receiver.is_err() || port.is_err() {
             OWNED.store(2, Ordering::Release);
         }
@@ -104,13 +102,10 @@ fn acquire() -> Result<Device, DeviceError> {
         file,
         saved,
         restored: false,
+        _lease: lease,
     };
     ffi::configure(port.file.as_raw_fd(), &port.saved, BAUD).map_err(|_| DeviceError::Io)?;
-    // Port restores/closes before the lease can admit another receiver.
-    let mut receiver = crate::receiver::Receiver::new(Serial {
-        port,
-        _lease: lease,
-    });
+    let mut receiver = crate::receiver::Receiver::new(port);
     if let Err(error) = receiver.configure() {
         if receiver.restore().is_err() {
             OWNED.store(2, Ordering::Release);
@@ -133,7 +128,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
         let origin = std::time::Instant::now();
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
-                if !readiness::wait(&device.receiver.io().port.file, &wake, ffi::wait)
+                if !readiness::wait(&device.receiver.io().file, &wake, ffi::wait)
                     .map_err(|_| DeviceError::Io)?
                 {
                     break;

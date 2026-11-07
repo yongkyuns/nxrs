@@ -13,6 +13,7 @@ use std::{
 pub(crate) type Origins = BTreeMap<String, PathBuf>;
 
 const GRAPH_TABLES: &[&str] = &["resources", "devices", "roles"];
+pub(crate) const NATIVE_ENDPOINT_TABLES: &[&str] = &["camera", "ble"];
 const REMOVALS: &[(&str, &str)] = &[
     ("remove-devices", "devices"),
     ("remove-resources", "resources"),
@@ -21,8 +22,8 @@ const REMOVALS: &[(&str, &str)] = &[
 
 /// Merge one profile graph or explicit overlay into `data`.
 ///
-/// Profiles only contribute composition graph tables. Explicit overlays are
-/// constrained to those tables and the three explicit removal lists.
+/// Merge graph tables and native endpoint bindings. Explicit overlays may also
+/// remove graph records.
 pub(crate) fn merge(
     data: &mut Value,
     input: &Value,
@@ -37,6 +38,7 @@ pub(crate) fn merge(
     if overlay {
         for key in input_table.keys() {
             if !GRAPH_TABLES.contains(&key.as_str())
+                && !NATIVE_ENDPOINT_TABLES.contains(&key.as_str())
                 && !REMOVALS.iter().any(|(remove, _)| remove == key)
             {
                 return Err(error(path, key, "field is not allowed in an overlay"));
@@ -53,6 +55,13 @@ pub(crate) fn merge(
             continue;
         };
         merge_table(data, incoming, table, path, origins)?;
+    }
+    for &table in NATIVE_ENDPOINT_TABLES {
+        if let Some(incoming) = input_table.get(table) {
+            data[table] = incoming.clone();
+            clear_origin_tree(origins, table);
+            note_tree(origins, table, incoming, path);
+        }
     }
 
     if overlay {

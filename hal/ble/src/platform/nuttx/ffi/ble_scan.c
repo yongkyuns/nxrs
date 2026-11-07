@@ -11,8 +11,6 @@
 #include <netpacket/bluetooth.h>
 #include <nuttx/wireless/bluetooth/bt_ioctl.h>
 
-/* NuttX registers NET_LL_BLUETOOTH controllers as bnep%d, not Linux hci%d. */
-#define NXRS_BLE_NAME "bnep0"
 #define NXRS_BLE_DATA 64
 
 /* Private fixed-width ABI. Target bt_scanresponse_s and btreq_s stay in C. */
@@ -25,8 +23,21 @@ struct ble_scan_record
   uint8_t data[NXRS_BLE_DATA];
 };
 
-static int ioctl_status(int fd, int command, struct btreq_s *request)
+static int ioctl_status(int fd, int command, const char *interface,
+                        struct btreq_s *request)
 {
+  if (interface == NULL || interface[0] == '\0')
+    {
+      return EINVAL;
+    }
+
+  size_t size = strlen(interface) + 1;
+  if (size > sizeof(request->btr_name))
+    {
+      return ENAMETOOLONG;
+    }
+
+  memcpy(request->btr_name, interface, size);
   if (ioctl(fd, command, (unsigned long)(uintptr_t)request) < 0)
     {
       return errno != 0 ? errno : EIO;
@@ -42,23 +53,21 @@ int ble_scan_open(void)
 }
 
 /* Verify that this socket's native ioctl path can address the controller. */
-int ble_scan_check(int fd)
+int ble_scan_check(int fd, const char *interface)
 {
   struct btreq_s request = {0};
-  memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
-  return ioctl_status(fd, SIOCGBTINFO, &request);
+  return ioctl_status(fd, SIOCGBTINFO, interface, &request);
 }
 
-int ble_scan_start(int fd)
+int ble_scan_start(int fd, const char *interface)
 {
   struct btreq_s request = {0};
-  memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
   request.btr_dupenable = true;
-  return ioctl_status(fd, SIOCBTSCANSTART, &request);
+  return ioctl_status(fd, SIOCBTSCANSTART, interface, &request);
 }
 
-int ble_scan_get(int fd, struct ble_scan_record *output,
-                      uint8_t capacity, uint8_t *count)
+int ble_scan_get(int fd, const char *interface, struct ble_scan_record *output,
+                 uint8_t capacity, uint8_t *count)
 {
   struct bt_scanresponse_s native[8] = {0};
   struct btreq_s request = {0};
@@ -70,10 +79,9 @@ int ble_scan_get(int fd, struct ble_scan_record *output,
       return EINVAL;
     }
 
-  memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
   request.btr_nrsp = capacity;
   request.btr_rsp = native;
-  result = ioctl_status(fd, SIOCBTSCANGET, &request);
+  result = ioctl_status(fd, SIOCBTSCANGET, interface, &request);
   if (result != 0)
     {
       return result;
@@ -104,12 +112,11 @@ int ble_scan_get(int fd, struct ble_scan_record *output,
   return 0;
 }
 
-int ble_scan_stop(int fd)
+int ble_scan_stop(int fd, const char *interface)
 {
   struct btreq_s request = {0};
   int result;
-  memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
-  result = ioctl_status(fd, SIOCBTSCANSTOP, &request);
+  result = ioctl_status(fd, SIOCBTSCANSTOP, interface, &request);
   /* No registered scan is also quiet, e.g. start failed before registration.
    * The patched host retains registration until a disable is acknowledged.
    */
