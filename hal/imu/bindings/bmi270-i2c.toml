@@ -1,0 +1,8 @@
+version = 1
+
+[[binding]]
+compatible = "bosch,bmi270"
+bus = "i2c"
+model = "bmi270"
+addresses = [104, 105]
+frequencies = [100000, 400000]

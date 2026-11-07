@@ -15,11 +15,11 @@ pub fn query(request: Value) -> Result<Value> {
         return Ok(json!(crate::profile::CAPABILITIES));
     }
     if action == "resolve" {
-        return Ok(Profile::resolve(
+        return Profile::resolve(
             &root,
             request["name"].as_str().ok_or("missing profile name")?,
         )?
-        .json());
+        .json();
     }
     let mut data = request["data"].clone();
     if !data.is_object() {
@@ -63,7 +63,8 @@ pub fn query(request: Value) -> Result<Value> {
             })
             .unwrap_or(Value::Null)),
         "network" => Ok(json!(p.network_initialization()?)),
-        "gnss" | "imu" | "scheduling" | "console" => {
+        "imu" => Ok(p.imu_config()?.unwrap_or(Value::Null)),
+        "gnss" | "scheduling" | "console" => {
             p.validate_resources()?;
             let mut v = p.data[action].clone();
             if v.is_null() {
@@ -76,13 +77,8 @@ pub fn query(request: Value) -> Result<Value> {
             if action == "console" {
                 return Ok(v["device"].clone());
             }
-            if ["gnss", "imu"].contains(&action) {
-                if v.get("stack-bytes").is_none() {
-                    v["stack-bytes"] = json!(16384);
-                }
-                if action == "imu" && v.get("irq-device").is_none() {
-                    v["irq-device"] = json!("");
-                }
+            if action == "gnss" && v.get("stack-bytes").is_none() {
+                v["stack-bytes"] = json!(16384);
             }
             Ok(v)
         }

@@ -3,6 +3,7 @@
 pub use regex;
 pub use serde_json as json;
 pub mod archive;
+pub mod composition;
 pub mod native;
 mod native_nuttx;
 pub mod profile;

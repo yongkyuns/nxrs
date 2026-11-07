@@ -73,6 +73,17 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         }
     }
     profile.validate_target(os)?;
+    let composition = profile.composition()?;
+    if composition
+        .as_ref()
+        .is_some_and(|graph| graph.mode() == nxrs_build_support::composition::Mode::Qualification)
+        && app.pointer("/package/metadata/nxrs/qualification-only") != Some(&Value::Bool(true))
+    {
+        return Err(
+            "qualification composition requires package.metadata.nxrs.qualification-only = true"
+                .into(),
+        );
+    }
     if let Some(required) = app.pointer("/package/metadata/nxrs/required-capabilities") {
         let required = required
             .as_array()
@@ -109,7 +120,9 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         }
         d
     });
-    Ok(
-        json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":null,"dependency_resolution":{"status":"pending","reason":"requires the build's Cargo features, target and compiler"},"providers":providers,"profiles":sources}),
-    )
+    let mut evidence = json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":null,"dependency_resolution":{"status":"pending","reason":"requires the build's Cargo features, target and compiler"},"providers":providers,"profiles":sources});
+    if let Some(graph) = composition {
+        evidence["resolved-composition"] = profile.composition_report(&graph);
+    }
+    Ok(evidence)
 }

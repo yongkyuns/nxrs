@@ -1,10 +1,9 @@
 # Peripheral composition architecture
 
-Status — target design for staged implementation. The profiles, bindings and
-overlay syntax below are proposed interfaces. This documentation change does
-not implement them. Follow the [implementation plan](peripheral-composition-plan.md)
-in dependency order. Existing profiles and qualification evidence remain the
-baseline until each migration step passes its acceptance checks.
+The profile resolver accepts the v1 hardware IMU graph and translates legacy
+IMU profiles into that graph. The existing factory consumes the resolved binding
+through its Cargo environment fields. Overlay composition and generated factory
+selection follow in the [implementation plan](peripheral-composition-plan.md).
 
 ## Ownership
 
@@ -152,8 +151,8 @@ The existing `[hal] imu = "nuttx"` selects the OS integration during migration.
 It must agree with the target and resolved device. The physical model is selected
 only by `compatible`. Legacy `imu.driver`, `device`, `address`, `frequency` and
 `irq-device` cannot coexist with a v1 IMU role. `imu.stack-bytes` remains an
-execution budget. Existing sensor operating settings remain fixed during the
-structural migration. Configurable ODR/ranges are a subsequent API step.
+execution budget. The capability API owns ODR and full-scale requests.
+`imu::open(sink)` uses the selected sensor's defaults.
 
 For wired hardware, replace the whole wake table with `kind = "interrupt"` and
 `resource = "imu_irq"`. Declare that resource with `kind = "gpio-interrupt"`,
@@ -178,6 +177,8 @@ resolution maps the binding to a reviewed HAL constructor and ordinary Cargo
 dependency. Driver crates remain independent of that catalog. Constructors are
 allowlisted implementations. Profiles cannot supply Rust paths or executable
 code. Unknown models, duplicate binding matches and unsupported buses fail.
+Profile inspection and build dry runs report the normalized graph, profile
+sources and binding catalog path under `resolved-composition`.
 
 Use explicit ordered overlays. The proposed CLI adds repeatable `--overlay`
 arguments to build and profile inspection. A named profile may also declare an

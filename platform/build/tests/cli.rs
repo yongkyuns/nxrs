@@ -58,6 +58,40 @@ path = "src/main.rs"
     root
 }
 
+fn write_imu_fixture(root: &Path) {
+    fs::create_dir_all(root.join("hal/imu")).unwrap();
+    fs::write(
+        root.join("hal/imu/Cargo.toml"),
+        "[package]\nname = \"nxrs-imu\"\nversion = \"0.1.0\"\n[package.metadata.nxrs]\nplatforms = [\"nuttx\"]\n",
+    )
+    .unwrap();
+}
+
+fn write_imu_profile(root: &Path, name: &str, body: &str) {
+    fs::write(
+        root.join(format!("platform/profiles/{name}.toml")),
+        format!(
+            "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\ntarget = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n[hal]\nimu = \"nuttx\"\n{body}"
+        ),
+    )
+    .unwrap();
+}
+
+fn legacy_imu_profile() -> &'static str {
+    "[imu]\ndriver = \"bmi270\"\ndevice = \"/dev/i2c0\"\naddress = 104\nfrequency = 400000\nstack-bytes = 16384\n"
+}
+
+fn typed_imu_profile(mode: &str) -> String {
+    format!(
+        "[composition]\nversion = 1\nmode = \"{mode}\"\n\
+         [resources.sensor_bus]\nkind = \"i2c\"\ndevice = \"/dev/i2c0\"\nfrequency = 400000\n\
+         [devices.motion]\ncompatible = \"bosch,bmi270\"\nbus = \"sensor_bus\"\naddress = 104\n\
+         [devices.motion.wake]\nkind = \"periodic\"\n\
+         [roles]\nimu = \"motion\"\n\
+         [imu]\nstack-bytes = 16384\n"
+    )
+}
+
 fn frontend(root: &Path, cwd: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nxrs-build"))
         .current_dir(cwd)
@@ -135,6 +169,162 @@ fn profile_honors_the_explicit_root_from_another_directory() {
             .to_str()
             .unwrap()
     );
+}
+
+#[test]
+fn profile_cli_unifies_legacy_and_v1_imu_and_reports_composition_provenance() {
+    let root = fixture();
+    write_imu_fixture(&root.0);
+    write_imu_profile(&root.0, "legacy-imu", legacy_imu_profile());
+    write_imu_profile(&root.0, "typed-imu", &typed_imu_profile("hardware"));
+
+    let cargo_lines = |profile: &str| {
+        success(frontend(
+            &root.0,
+            &root.0,
+            &[
+                "profile",
+                "--platform",
+                profile,
+                "--target-os",
+                "nuttx",
+                "--capability",
+                "imu",
+            ],
+        ))
+        .lines()
+        .filter(|line| line.starts_with("cargo:rustc-env=IMU_"))
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+    };
+    let legacy = cargo_lines("legacy-imu");
+    let typed = cargo_lines("typed-imu");
+    assert_eq!(legacy, typed);
+    assert_eq!(
+        legacy,
+        [
+            "cargo:rustc-env=IMU_DEVICE=/dev/i2c0",
+            "cargo:rustc-env=IMU_ADDRESS=104",
+            "cargo:rustc-env=IMU_FREQUENCY=400000",
+            "cargo:rustc-env=IMU_STACK_BYTES=16384",
+            "cargo:rustc-env=IMU_IRQ_DEVICE=",
+        ]
+    );
+
+    let profile: Value = serde_json::from_str(&success(frontend(
+        &root.0,
+        &root.0,
+        &["profile", "--platform", "typed-imu"],
+    )))
+    .unwrap();
+    let composition = &profile["resolved-composition"];
+    assert!(composition.is_object(), "{profile}");
+    assert!(composition["graph"].is_object(), "{composition}");
+    assert!(composition["sources"].is_array(), "{composition}");
+    assert!(!composition["sources"].as_array().unwrap().is_empty());
+    assert_eq!(
+        composition["sources"][0],
+        root.0
+            .join("platform/profiles/typed-imu.toml")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(
+        composition["binding-sources"][0],
+        "hal/imu/bindings/bmi270-i2c.toml"
+    );
+}
+
+#[test]
+fn build_dry_run_admits_v1_required_imu_without_sdk_and_rejects_bad_default_roles() {
+    let root = fixture();
+    write_imu_fixture(&root.0);
+    let manifest = root.0.join("app/probe/Cargo.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    fs::write(
+        &manifest,
+        format!("{original}\n[package.metadata.nxrs]\nrequired-capabilities = [\"imu\"]\n"),
+    )
+    .unwrap();
+
+    let mut no_role = typed_imu_profile("hardware");
+    no_role = no_role.replace("imu = \"motion\"\n", "");
+    write_imu_profile(&root.0, "missing-role", &no_role);
+    let mut dangling_role = typed_imu_profile("hardware");
+    dangling_role = dangling_role.replace("imu = \"motion\"", "imu = \"missing\"");
+    write_imu_profile(&root.0, "dangling-role", &dangling_role);
+    write_imu_profile(&root.0, "typed-imu", &typed_imu_profile("hardware"));
+
+    for profile in ["missing-role", "dangling-role"] {
+        let output = frontend(
+            &root.0,
+            &root.0,
+            &[
+                "build",
+                "--manifest-path",
+                "app/probe/Cargo.toml",
+                "--profile",
+                profile,
+                "--dry-run",
+            ],
+        );
+        assert!(output.stdout.is_empty(), "do not publish an invalid plan");
+        let error = failure(output);
+        assert!(error.contains("imu"), "{profile}: {error}");
+    }
+
+    let plan: Value = serde_json::from_str(&success(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "build",
+            "--manifest-path",
+            "app/probe/Cargo.toml",
+            "--profile",
+            "typed-imu",
+            "--dry-run",
+        ],
+    )))
+    .unwrap();
+    assert_eq!(plan["backend"], "nuttx");
+    assert_eq!(plan["deployment"]["providers"][0]["capability"], "imu");
+    assert!(!root.0.join("target").exists());
+}
+
+#[test]
+fn qualification_composition_requires_an_explicit_qualification_application() {
+    let root = fixture();
+    write_imu_fixture(&root.0);
+    write_imu_profile(
+        &root.0,
+        "imu-qualification",
+        &typed_imu_profile("qualification"),
+    );
+    let manifest = root.0.join("app/probe/Cargo.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    let args = [
+        "build",
+        "--manifest-path",
+        "app/probe/Cargo.toml",
+        "--profile",
+        "imu-qualification",
+        "--dry-run",
+    ];
+
+    let error = failure(frontend(&root.0, &root.0, &args));
+    assert!(error.contains("qualification-only"), "{error}");
+
+    fs::write(
+        &manifest,
+        format!(
+            "{original}\n[package.metadata.nxrs]\nqualification-only = true\nrequired-capabilities = [\"imu\"]\n"
+        ),
+    )
+    .unwrap();
+    let plan: Value = serde_json::from_str(&success(frontend(&root.0, &root.0, &args))).unwrap();
+    assert_eq!(plan["backend"], "nuttx");
 }
 
 #[test]

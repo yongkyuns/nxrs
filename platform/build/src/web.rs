@@ -295,7 +295,7 @@ pub fn build(
         .map(|path| hash(path))
         .transpose()?;
     let cache_inputs = json!({
-        "profile":p.json(), "profile_sources":deployment["profiles"],
+        "profile":p.json()?, "profile_sources":deployment["profiles"],
         "application":app.manifest, "package":app.package, "binary":app.bin,
         "features":options.features, "no_default_features":options.no_default_features,
         "fix":fix, "toolchain":TOOLCHAIN, "target":TARGET,
