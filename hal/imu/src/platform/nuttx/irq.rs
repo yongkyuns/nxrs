@@ -1,14 +1,28 @@
 //! GPIO registration ownership. Notification/callback storage stays in NuttX.
 use crate::DeviceError;
 use core::sync::atomic::Ordering;
-use std::{fs::File, os::fd::AsRawFd};
+use std::{
+    fs::{File, OpenOptions},
+    os::fd::AsRawFd,
+};
 
 pub(super) struct Irq {
     pub(super) file: File,
     registered: bool,
 }
 impl Irq {
-    pub(super) fn register(file: File) -> Result<Self, DeviceError> {
+    pub(super) fn open(path: &str) -> Result<Self, DeviceError> {
+        let file = OpenOptions::new().read(true).open(path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                DeviceError::Unsupported
+            } else {
+                DeviceError::Io
+            }
+        })?;
+        Self::register(file)
+    }
+
+    fn register(file: File) -> Result<Self, DeviceError> {
         super::ffi::irq_check(file.as_raw_fd()).map_err(|_| DeviceError::Unsupported)?;
         if super::ffi::irq_register(file.as_raw_fd()).is_err() {
             // NuttX increments register_count before attach/enable may fail.

@@ -13,6 +13,8 @@ mod platform;
 // Host contract tests do not select the NuttX sensor constructor.
 #[cfg_attr(test, allow(dead_code))]
 mod sensors;
+#[cfg(hal_enabled)]
+mod session;
 pub use platform::open;
 
 #[cfg(test)]

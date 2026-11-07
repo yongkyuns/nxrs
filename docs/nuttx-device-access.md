@@ -304,8 +304,9 @@ For a raw bus, a Rust resource adapter implements an existing interface such as
 `driver/<device>` owns the peripheral protocol. The capability HAL owns the
 translation into common observations and the acquisition lifecycle. The BMI270
 protocol now lives in the no_std `nxrs-bmi270` package; `hal/imu/src/sensors/bmi270.rs`
-maps its samples and errors into the IMU contract. NuttX I2C resource acquisition
-remains in the IMU provider pending S2.
+maps its samples and errors into the IMU contract. The NuttX provider's
+`i2c.rs` owns the bus descriptor and bounds transfers. Its device owner holds
+the sensor and wake resources through acquisition and joined cleanup.
 
 For a complete NuttX device driver, the capability can consume that registered
 interface directly. A resource must have one active driver owner. The CoreS3

@@ -3,7 +3,6 @@ use crate::{DeviceError, ImuSample};
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 use nxrs_bmi270::{Bmi270, Sample};
 
-pub(crate) const FIFO_WAKE_PERIOD: core::time::Duration = nxrs_bmi270::FIFO_WAKE_PERIOD;
 const SAMPLE_INTERVAL_US: u32 = nxrs_bmi270::SAMPLE_INTERVAL_US;
 
 pub(crate) struct Sensor<B: I2c, D: DelayNs> {
@@ -30,10 +29,10 @@ fn map_sample(sequence: u64, now_ms: u64, sample: Sample) -> ImuSample {
     }
 }
 
-impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
-    pub(crate) fn open(bus: B, address: u8) -> Result<Self, DeviceError> {
+impl<B: I2c, D: DelayNs> Sensor<B, D> {
+    pub(crate) fn open(bus: B, address: u8, delay: D) -> Result<Self, DeviceError> {
         Ok(Self {
-            driver: Bmi270::open(bus, address).map_err(map_error)?,
+            driver: Bmi270::open(bus, address, delay).map_err(map_error)?,
             sequence: 0,
         })
     }
@@ -41,9 +40,10 @@ impl<B: I2c, D: DelayNs + Default> Sensor<B, D> {
     pub(crate) fn stop(&mut self) -> Result<(), DeviceError> {
         self.driver.stop().map_err(map_error)
     }
-}
+    pub(crate) fn sample_period(&self) -> core::time::Duration {
+        core::time::Duration::from_micros(u64::from(SAMPLE_INTERVAL_US))
+    }
 
-impl<B: I2c, D: DelayNs> Sensor<B, D> {
     /// `now_ms` is the host reception time shared by the samples in this drain.
     pub(crate) fn drain(
         &mut self,

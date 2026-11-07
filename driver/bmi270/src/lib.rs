@@ -13,14 +13,12 @@ const ODR: Odr = Odr::Odr100;
 // BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
 pub const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (ODR as u8);
 const FRAME_BYTES: u16 = 12;
-// Wake for each sample so fusion need not wait for a multi-frame batch.
+// One complete frame is enough to raise a FIFO watermark interrupt.
 const WATERMARK_BYTES: u16 = FRAME_BYTES;
-pub const FIFO_WAKE_PERIOD: core::time::Duration =
-    core::time::Duration::from_micros(SAMPLE_INTERVAL_US as u64);
 pub struct Bmi270<B: I2c, D: DelayNs> {
     bus: B,
+    delay: D,
     address: I2cAddr,
-    _delay: core::marker::PhantomData<D>,
 }
 /// Failures from BMI270 protocol operations, independent of any capability HAL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,8 +42,8 @@ fn error<E>(error: bmi2::types::Error<E>) -> Error {
         _ => Error::InvalidData,
     }
 }
-impl<B: I2c, D: DelayNs + Default> Bmi270<B, D> {
-    pub fn open(mut bus: B, address: u8) -> Result<Self, Error> {
+impl<B: I2c, D: DelayNs> Bmi270<B, D> {
+    pub fn open(mut bus: B, address: u8, mut delay: D) -> Result<Self, Error> {
         let address = match address {
             0x68 => I2cAddr::Default,
             0x69 => I2cAddr::Alternative,
@@ -53,7 +51,7 @@ impl<B: I2c, D: DelayNs + Default> Bmi270<B, D> {
         };
         {
             let mut setup =
-                Bmi2::<_, _, 64>::new_i2c(&mut bus, D::default(), address, Burst::new(BURST));
+                Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
             if setup.get_chip_id().map_err(error)? != 0x24 {
                 return Err(Error::InvalidData);
             }
@@ -70,7 +68,7 @@ impl<B: I2c, D: DelayNs + Default> Bmi270<B, D> {
             return Err(Error::InvalidData);
         }
         let mut driver =
-            Bmi2::<_, D, 64>::new_i2c(&mut bus, D::default(), address, Burst::new(BURST));
+            Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
         driver.disable_power_save().map_err(error)?;
         driver.set_acc_range(AccRange::Range4g).map_err(error)?;
         driver
@@ -104,19 +102,22 @@ impl<B: I2c, D: DelayNs + Default> Bmi270<B, D> {
             .map_err(error)?;
         // Startup is bounded initialization, not a periodic acquisition path.
         // Different accel/gyro startup times must not enter a headerless FIFO.
-        let mut startup_delay = D::default();
         let mut ready = false;
         for _ in 0..100 {
-            let status = driver.get_status().map_err(error)?;
+            let mut startup =
+                Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
+            let status = startup.get_status().map_err(error)?;
             if status.acc_data_ready && status.gyr_data_ready {
                 ready = true;
                 break;
             }
-            startup_delay.delay_ms(1);
+            delay.delay_ms(1);
         }
         if !ready {
             return Err(Error::Timeout);
         }
+        let mut driver =
+            Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
         driver
             .set_fifo_downs(FifoDowns {
                 gyr_downs: 0,
@@ -186,13 +187,17 @@ impl<B: I2c, D: DelayNs + Default> Bmi270<B, D> {
         }
         Ok(Self {
             bus,
+            delay,
             address,
-            _delay: core::marker::PhantomData,
         })
     }
     pub fn stop(&mut self) -> Result<(), Error> {
-        let mut driver =
-            Bmi2::<_, D, 64>::new_i2c(&mut self.bus, D::default(), self.address, Burst::new(BURST));
+        let mut driver = Bmi2::<_, _, 64>::new_i2c(
+            &mut self.bus,
+            &mut self.delay,
+            self.address,
+            Burst::new(BURST),
+        );
         driver
             .set_int_map_data(IntMapData {
                 int1: MapData {
@@ -231,8 +236,7 @@ impl<B: I2c, D: DelayNs + Default> Bmi270<B, D> {
         }
         Ok(())
     }
-}
-impl<B: I2c, D: DelayNs> Bmi270<B, D> {
+
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
     pub fn drain(&mut self, mut emit: impl FnMut(Sample) -> bool) -> Result<Option<usize>, Error> {
         let mut status = [0];
@@ -284,10 +288,18 @@ mod tests {
     use super::*;
     use embedded_hal::i2c::{ErrorKind, ErrorType, Operation};
     use std::vec::Vec;
-    #[derive(Default)]
-    struct Delay;
+    struct Delay {
+        startup_waits: u8,
+    }
+    impl Delay {
+        fn new() -> Self {
+            Self { startup_waits: 0 }
+        }
+    }
     impl DelayNs for Delay {
-        fn delay_ns(&mut self, _: u32) {}
+        fn delay_ns(&mut self, ns: u32) {
+            self.startup_waits += u8::from(ns == 1_000_000);
+        }
     }
     struct Bus {
         registers: [u8; 128],
@@ -369,11 +381,12 @@ mod tests {
             let mut bus = Bus::new();
             bus.registers[0x21] = status;
             assert!(matches!(
-                Bmi270::<_, Delay>::open(bus, 0x68),
+                Bmi270::<_, Delay>::open(bus, 0x68, Delay::new()),
                 Err(Error::InvalidData)
             ));
         }
-        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
+        assert_eq!(sensor.delay.startup_waits, 3);
         assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr100 as u8);
         assert_eq!(sensor.bus.registers[0x42] & 0x0f, Odr::Odr100 as u8);
         assert_eq!(&sensor.bus.registers[0x46..0x48], &[12, 0]);
@@ -388,15 +401,15 @@ mod tests {
         let mut bus = Bus::new();
         bus.ready_after = 100;
         assert!(matches!(
-            Bmi270::<_, Delay>::open(bus, 0x68),
+            Bmi270::<_, Delay>::open(bus, 0x68, Delay::new()),
             Err(Error::Timeout)
         ));
-        let sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        let sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         assert_eq!(sensor.bus.startup_reads, 4);
     }
     #[test]
     fn each_available_frame_is_delivered_without_waiting_for_a_batch() {
-        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         for _ in 1..=3 {
             sensor.bus.fifo.extend_from_slice(&[0; 12]);
             let mut samples = Vec::new();
@@ -417,7 +430,7 @@ mod tests {
     }
     #[test]
     fn fifo_bursts_preserve_all_samples_order_units_and_nominal_interval() {
-        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         for _ in 0..7 {
             for axis in [0_i16, 0, 16384, 8192, -8192, 0] {
                 sensor.bus.fifo.extend_from_slice(&axis.to_le_bytes());
@@ -441,7 +454,7 @@ mod tests {
     }
     #[test]
     fn overflow_partial_frames_io_and_closed_consumers_are_explicit() {
-        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68).unwrap();
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         sensor.bus.registers[0x1d] = 1;
         assert_eq!(sensor.drain(|_| true), Err(Error::Overflow));
         sensor.bus.registers[0x1d] = 0;

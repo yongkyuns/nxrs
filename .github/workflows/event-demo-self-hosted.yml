@@ -227,6 +227,9 @@ jobs:
             --image target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
             --log target/firmware/event-demo/esp32s3-qemu-mock/console.log
 
+      - name: Cross-build the CoreS3 sensor deployment
+        run: cargo +1.90.0 nxrs build --app event-demo --platform cores3 --out target/firmware/event-demo/cores3
+
       - name: Retain deployment evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
