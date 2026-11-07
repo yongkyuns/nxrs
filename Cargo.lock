@@ -515,11 +515,11 @@ dependencies = [
 name = "nxrs-gnss"
 version = "0.1.0"
 dependencies = [
- "kinavis-ubx",
  "nxrs-acquisition",
  "nxrs-build-support",
  "nxrs-messaging",
  "nxrs-simulation",
+ "nxrs-ubx-driver",
 ]
 
 [[package]]
@@ -787,6 +787,13 @@ name = "nxrs-transport"
 version = "0.1.0"
 dependencies = [
  "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-ubx-driver"
+version = "0.1.0"
+dependencies = [
+ "kinavis-ubx",
 ]
 
 [[package]]

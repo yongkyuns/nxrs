@@ -21,11 +21,11 @@ nxrs-acquisition = { path = "../../driver/acquisition" }
 nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
-kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }
+nxrs-ubx-driver = { path = "../../driver/ubx" }
 
 [dev-dependencies]
 # Host tests exercise the physical receiver's bounded UBX protocol.
-kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }
+nxrs-ubx-driver = { path = "../../driver/ubx" }
 
 [build-dependencies]
 nxrs-build-support = { path = "../../platform/build-support" }

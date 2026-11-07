@@ -14,6 +14,7 @@ members = [
     "driver/acquisition",
     "driver/bmi270",
     "driver/lsm6dso",
+    "driver/ubx",
     "driver/linux/gio",
     "hal/detector",
     "service/camera",

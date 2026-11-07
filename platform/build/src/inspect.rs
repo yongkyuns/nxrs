@@ -64,23 +64,16 @@ pub fn query(request: Value) -> Result<Value> {
             .unwrap_or(Value::Null)),
         "network" => Ok(json!(p.network_initialization()?)),
         "imu" => Ok(p.imu_config()?.unwrap_or(Value::Null)),
-        "gnss" | "scheduling" | "console" => {
+        "gnss" => Ok(p.gnss_config()?.unwrap_or(Value::Null)),
+        "scheduling" | "console" => {
             p.validate_resources()?;
-            let mut v = p.data[action].clone();
-            if v.is_null() {
-                return Ok(match action {
-                    "scheduling" => json!({}),
-                    "console" => json!(""),
-                    _ => Value::Null,
-                });
-            }
             if action == "console" {
-                return Ok(v["device"].clone());
+                return Ok(p.data["console"]
+                    .get("device")
+                    .cloned()
+                    .unwrap_or(json!("")));
             }
-            if action == "gnss" && v.get("stack-bytes").is_none() {
-                v["stack-bytes"] = json!(16384);
-            }
-            Ok(v)
+            Ok(p.data.get("scheduling").cloned().unwrap_or(json!({})))
         }
         "link-arguments" => {
             let args = request["args"]

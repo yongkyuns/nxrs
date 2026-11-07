@@ -1,0 +1,7 @@
+version = 1
+
+[[binding]]
+compatible = "u-blox,neo-m9n"
+bus = "uart"
+model = "neo-m9n"
+bauds = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]

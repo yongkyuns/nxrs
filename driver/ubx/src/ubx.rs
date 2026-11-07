@@ -1,29 +1,28 @@
-//! M9 message admission/normalization; UBX framing and codecs are independent.
-use crate::{DeviceError, GnssFix};
+//! M9 message admission and normalization; wire framing/codecs use kinavis-ubx.
+use crate::{DriverError, NavPvt};
 use kinavis_ubx::{config, ConfigKey, Deframer, Event as WireEvent, Layers, Message, PollLayer};
 
 pub(super) enum Event {
-    Fix(Result<GnssFix, DeviceError>),
+    NavPvt(Result<NavPvt, DriverError>),
     Rate(u8),
     Ack(bool),
     Invalid,
 }
+
 pub(super) struct Decoder {
     parser: Deframer<92>,
-    sequence: u64,
-    last_epoch: Option<u32>,
 }
+
 impl Default for Decoder {
     fn default() -> Self {
         Self {
             parser: Deframer::new(),
-            sequence: 0,
-            last_epoch: None,
         }
     }
 }
+
 impl Decoder {
-    pub(super) fn consume(&mut self, bytes: &[u8], now_ms: u64, mut emit: impl FnMut(Event)) {
+    pub(super) fn consume(&mut self, bytes: &[u8], mut emit: impl FnMut(Event)) {
         for &byte in bytes {
             let frame = match self.parser.push(byte) {
                 Some(WireEvent::Frame(frame)) => frame,
@@ -35,26 +34,23 @@ impl Decoder {
             };
             match (frame.class, frame.id) {
                 (1, 7) => {
-                    // The codec supports an older 84B NAV-PVT too and wraps
-                    // longitudes/courses. M9 requires 92B and in-domain values;
-                    // reject malformed wire values before that normalization.
                     let raw = frame.payload;
                     if raw.len() != 92 {
                         emit(Event::Invalid);
                         continue;
                     }
-                    // Unavailable solution fields are unspecified. Classify
-                    // validity before the codec interprets any coordinates.
                     if raw[21] & 1 == 0 || raw[78] & 1 != 0 || !matches!(raw[20], 2 | 3) {
-                        emit(Event::Fix(Err(DeviceError::Busy)));
+                        emit(Event::NavPvt(Err(DriverError::NoFix)));
                         continue;
                     }
                     let lon = i32::from_le_bytes(raw[24..28].try_into().unwrap());
+                    let lat = i32::from_le_bytes(raw[28..32].try_into().unwrap());
                     let course = i32::from_le_bytes(raw[64..68].try_into().unwrap());
                     if !(-1_800_000_000..=1_800_000_000).contains(&lon)
+                        || !(-900_000_000..=900_000_000).contains(&lat)
                         || !(-18_000_000..=36_000_000).contains(&course)
                     {
-                        emit(Event::Invalid);
+                        emit(Event::NavPvt(Err(DriverError::InvalidData)));
                         continue;
                     }
                 }
@@ -65,23 +61,22 @@ impl Decoder {
                 Ok(Message::NavPvt(p)) => {
                     let speed = p.ground_speed.metres_per_second();
                     if speed < 0.0 {
-                        emit(Event::Fix(Err(DeviceError::InvalidData)));
+                        emit(Event::NavPvt(Err(DriverError::InvalidData)));
                         continue;
                     }
-                    if self.last_epoch == Some(p.itow) {
-                        continue;
-                    }
-                    self.last_epoch = Some(p.itow);
-                    self.sequence = self.sequence.saturating_add(1);
-                    emit(Event::Fix(Ok(GnssFix {
-                        sequence: self.sequence,
-                        timestamp_ms: now_ms,
+                    let speed_accuracy = p.speed_accuracy.metres_per_second();
+                    let heading_accuracy = p.heading_accuracy.degrees().to_radians();
+                    let heading = (speed > speed_accuracy
+                        && heading_accuracy < 180.0_f64.to_radians())
+                    .then(|| p.heading_of_motion.degrees().to_radians() as f32);
+                    emit(Event::NavPvt(Ok(NavPvt {
+                        itow_ms: p.itow,
                         latitude_deg: p.position.latitude().degrees(),
                         longitude_deg: p.position.longitude().degrees(),
                         speed_mps: speed as f32,
-                        course_rad: (speed > p.speed_accuracy.metres_per_second()
-                            && p.heading_accuracy.degrees() < 180.0)
-                            .then(|| p.heading_of_motion.degrees().to_radians() as f32),
+                        speed_accuracy_mps: speed_accuracy as f32,
+                        heading_rad: heading,
+                        heading_accuracy_rad: heading_accuracy as f32,
                     })));
                 }
                 Ok(Message::Ack { class: 6, id: 0x8a }) => emit(Event::Ack(true)),
@@ -109,6 +104,7 @@ impl Decoder {
         }
     }
 }
+
 #[derive(Default)]
 pub(super) struct Command {
     bytes: [u8; 24],
