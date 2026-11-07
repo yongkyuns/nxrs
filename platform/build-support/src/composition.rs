@@ -32,7 +32,8 @@ pub struct Composition {
     resources: BTreeMap<String, Resource>,
     devices: BTreeMap<String, Device>,
     roles: BTreeMap<String, String>,
-    imu_model: ImuModel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imu_model: Option<ImuModel>,
     stack_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     simulation: Option<SimulationSpec>,
@@ -84,7 +85,7 @@ impl Composition {
             },
         };
         Some(ImuBinding {
-            model: self.imu_model,
+            model: self.imu_model?,
             path,
             address: device.address,
             frequency: *frequency,
@@ -384,7 +385,8 @@ pub(crate) fn resolve_with_origins(
             resources: BTreeMap::new(),
             devices: BTreeMap::new(),
             roles: BTreeMap::new(),
-            stack_bytes: 16384,
+            imu_model: None,
+            stack_bytes,
             simulation,
         }));
     }
@@ -420,7 +422,7 @@ pub(crate) fn resolve_with_origins(
         resources,
         devices,
         roles,
-        imu_model,
+        imu_model: Some(imu_model),
         stack_bytes,
         simulation,
     };
@@ -502,7 +504,7 @@ fn resolve_legacy(
         resources,
         devices,
         roles,
-        imu_model,
+        imu_model: Some(imu_model),
         stack_bytes: crate::profile::sensor_stack(value)?,
         simulation: None,
     };
@@ -1125,6 +1127,7 @@ mod tests {
         assert_eq!(composition.imu(), None);
         let encoded = serde_json::to_value(&composition).unwrap();
         assert_eq!(encoded["simulation"]["seed"], 274);
+        assert!(encoded.get("imu_model").is_none());
         assert_eq!(encoded["simulation"]["endpoints"], json!(["imu", "gnss"]));
     }
 
