@@ -302,9 +302,10 @@ The Nxrs Rust HAL begins at the user-facing driver contract exposed by NuttX.
 For a raw bus, a Rust resource adapter implements an existing interface such as
 `embedded_hal::i2c::I2c` through the NuttX descriptor. A reusable package under
 `driver/<device>` owns the peripheral protocol. The capability HAL owns the
-translation into common observations and the acquisition lifecycle. The current
-BMI270 implementation already uses raw I2C and a Rust protocol adapter, though
-its extraction into a driver package is pending.
+translation into common observations and the acquisition lifecycle. The BMI270
+protocol now lives in the no_std `nxrs-bmi270` package; `hal/imu/src/sensors/bmi270.rs`
+maps its samples and errors into the IMU contract. NuttX I2C resource acquisition
+remains in the IMU provider pending S2.
 
 For a complete NuttX device driver, the capability can consume that registered
 interface directly. A resource must have one active driver owner. The CoreS3

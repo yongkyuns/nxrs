@@ -5,15 +5,19 @@
 to wake acquisition, disable the sensor/IRQ and reclaim its worker. Drop requests
 cancellation without a hidden join; the worker retains resources through cleanup.
 
-The [composition target](../../docs/peripheral-composition.md) moves reusable
-BMI270 behavior into `driver/bmi270`, retains IMU normalization in this crate,
-and separates NuttX resource acquisition from sensor construction. Follow
-[steps S0–S8](../../docs/peripheral-composition-plan.md) for the first physical
-slice. Today the NuttX factory directly constructs BMI270; the profile's driver
-field validates that fixed choice. The capabilities/configuration API, device
-graph, overlays and coordinated simulator described in that design are pending.
+The [composition design](../../docs/peripheral-composition.md) places reusable
+BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
+acquisition lifecycle in this crate. S1 is implemented; NuttX resource
+acquisition remains in the current provider until S2. Profile selection,
+capability configuration, device graph, overlays and coordinated simulation
+remain pending later steps in the [migration plan](../../docs/peripheral-composition-plan.md).
 
-The portable BMI270 adapter uses the pinned `bmi2` driver over `embedded-hal` I2C.
+The no_std `nxrs-bmi270` package exposes sensor-specific errors and physical
+samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).
+This HAL maps those into `DeviceError` and `ImuSample`, assigning the monotonic
+host reception time, sequence and nominal interval at delivery.
+
+The driver uses the `embedded-hal` I2C and delay traits.
 It waits for both sensors to finish startup, then enables acquisition with equal 100 Hz ODR,
 a one-frame FIFO watermark, headerless combined
 gyro/accel frames and INT1 watermark/full/error notifications. FIFO format is

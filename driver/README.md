@@ -7,13 +7,15 @@ bus traits; OS driver implementations can use their OS APIs. Drivers must not
 depend on application/service policy or platform launchers.
 
 The [peripheral composition design](../docs/peripheral-composition.md) makes this
-split explicit. Chip packages such as the planned `driver/bmi270/` expose their
+split explicit. Chip packages such as `driver/bmi270/` expose their
 sensor-specific configuration, samples and errors over `embedded-hal` interfaces.
 They have no dependency on capability HALs or profile selection. Each consuming
 HAL owns normalization into its public contract and acquisition lifecycle.
 Retain existing upstream dependencies and protocol corrections when extracting
-a driver. Follow the [migration plan](../docs/peripheral-composition-plan.md);
-the current BMI270 adapter still lives in `hal/imu/src/bmi270.rs`.
+a driver. `bmi270/` is the reusable no_std BMI270 protocol package; its tests
+cover bounded initialization, exact configuration readback, FIFO decoding and
+stop behavior. Follow the [migration plan](../docs/peripheral-composition-plan.md)
+for the remaining capability/resource composition steps.
 
 The synthetic NuttX sensor and syscall fault injectors are qualification-only
 fixtures in `tests/nuttx/c`, not production drivers. Scripted HAL substitutes live

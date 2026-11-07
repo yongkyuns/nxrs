@@ -45,6 +45,8 @@ jobs:
         run: python -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
+      - name: Qualify reusable BMI270 protocol driver
+        run: cargo test --locked -p nxrs-bmi270
       - name: Consolidated probes and typed experiment cases
         run: |
           cargo test --locked -p nxrs-boot --lib
@@ -214,6 +216,8 @@ jobs:
         run: cargo check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
       - name: Compile allocation-free radio contracts and controllers
         run: cargo check --locked -p nxrs-wifi -p nxrs-ble --no-default-features --lib --target thumbv6m-none-eabi
+      - name: Compile reusable sensor driver for Cortex-M0
+        run: cargo check --locked -p nxrs-bmi270 --lib --target thumbv6m-none-eabi
       - name: Verify sensor contract and mock dependency isolation
         run: python3 tools/check-hal-isolation.py --capability imu --capability gnss --out target/sensor-isolation
 
