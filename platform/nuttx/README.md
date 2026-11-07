@@ -29,12 +29,12 @@ This is the Nxrs equivalent of the useful board/product-description role that
 Zephyr's board DTS/overlays provide, without introducing Devicetree or another
 runtime configuration framework.
 
-The [peripheral composition proposal](../../docs/peripheral-composition.md)
-extends these existing TOML profiles with validated resources, device instances,
-capability roles and explicit overlays. NuttX BSP/Kconfig remains authoritative
-for MCU wiring. The proposed syntax is pending; follow the
-[implementation plan](../../docs/peripheral-composition-plan.md) for resolution,
-build integration and compatibility gates.
+The [peripheral composition design](../../docs/peripheral-composition.md)
+defines the implemented versioned profile schema for validated resources,
+device instances, capability roles and explicit overlays. NuttX BSP/Kconfig
+remains authoritative for MCU wiring. The
+[implementation plan](../../docs/peripheral-composition-plan.md) records the
+migration and the hardware qualification evidence that remains pending.
 
 ## Build mechanics
 

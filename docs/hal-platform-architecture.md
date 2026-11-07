@@ -4,12 +4,13 @@ Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
 `imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
-The staged [peripheral composition design](peripheral-composition.md) defines
-reusable sensor-specific drivers, embedded-hal resource adapters and validated
-device/role bindings in the existing profiles. Follow its
-[implementation plan](peripheral-composition-plan.md) for migration. Current
-profile syntax and admission flags described below remain implemented behavior
-until each capability's replacement passes its normal-entry-point checks.
+The implemented [peripheral composition design](peripheral-composition.md)
+defines reusable sensor-specific drivers, embedded-hal resource adapters and
+validated device/role bindings in profiles. The
+[implementation plan](peripheral-composition-plan.md) records the migration
+and its qualification evidence. Composition version 1 and ordered overlays
+resolve the supported hardware bindings for physical IMU and GNSS roles. Named
+test and qualification profiles can select explicit mock bindings.
 
 ## Required implementation boundaries
 
@@ -101,7 +102,9 @@ under `tests/`.
 
 ## One platform selection
 
-The developer selects the application and a complete product platform:
+The developer selects the application and a complete product profile. For
+example, `pico2-mock` is an explicit NuttX qualification profile with mock IMU
+and GNSS providers.
 
 ~~~sh
 cargo nxrs build --app event-demo --profile pico2-mock
@@ -117,7 +120,9 @@ NuttX implementation and configures the CYW43439 driver. The ESP32-S3 profile
 uses the same Rust implementation and different native driver configuration.
 Do not duplicate Rust adapters merely because the boards differ.
 
-For desktop/test builds, select one profile for the entire Cargo invocation:
+For desktop/test builds, select one profile for the entire Cargo invocation.
+`mock` is an explicit portable fixture profile, `host-demo` selects mock demo
+sensors, and `simulation` selects the coordinated seeded IMU/GNSS source.
 
 ~~~sh
 NXRS_PLATFORM=linux cargo test --locked -p nxrs-native-integration
