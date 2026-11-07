@@ -329,9 +329,11 @@ clocks or retain mutable scenario state across completed runs.
 Readiness barriers must register all expected endpoints before time advances.
 Delivery uses stable event keys and bounded acknowledgement, cancellation and
 loss policies. Seeded samples alone do not make application execution
-deterministic. Service deadlines affecting a deterministic trial need an explicit
-logical-clock/wake input or a scheduler harness. Until that is qualified, report
-deterministic source playback separately from deterministic application behavior.
+deterministic. The event-demo supplies monotonic elapsed time to its pause,
+resume and stop schedule. A focused test supplies logical times and compares
+the ordered control decisions across different wake sequences. The live demo
+still uses host worker scheduling. Qualifying repeatable service transcripts
+requires a harness that coordinates delivery and wakes across those workers.
 Existing independent mock-session tests remain explicit fixture tests.
 
 The `simulation` host profile declares a seed and the IMU and GNSS endpoint IDs.

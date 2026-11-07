@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use navigation::{FusionService, GnssService, HealthService, ImuService};
 
+mod orchestration;
+
 fn duration_from_args() -> Result<Duration, Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let Some(first) = args.next() else {
@@ -45,45 +47,44 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("  app orchestration = create -> connect -> start -> command -> stop");
 
     let started = Instant::now();
-    let deadline = started + duration;
-    let total_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
-    let phase1_at = started + Duration::from_millis((total_ms / 3).max(1));
-    let phase2_at = started + Duration::from_millis((total_ms.saturating_mul(2) / 3).max(2));
-
+    let mut schedule = orchestration::Schedule::new(duration);
     let mut phase1_done = false;
     let mut phase2_done = false;
     let mut health = HealthService::default();
     let mut observed = 0u64;
 
-    while Instant::now() < deadline {
-        let now = Instant::now();
-
-        if !phase1_done && now >= phase1_at {
-            gnss.pause()?;
-            let imu_status = imu.status()?;
-            let gnss_status = gnss.status()?;
-            println!(
-                "CONTROL phase=1 imu_sampling={} gnss_sampling={} imu_produced={} gnss_produced={}",
-                imu_status.sampling,
-                gnss_status.sampling,
-                imu_status.stats.produced,
-                gnss_status.stats.produced,
-            );
-            phase1_done = true;
+    'observe: loop {
+        let elapsed = started.elapsed();
+        while let Some(decision) = schedule.advance(elapsed) {
+            match decision {
+                orchestration::Decision::PauseGnss => {
+                    gnss.pause()?;
+                    let imu_status = imu.status()?;
+                    let gnss_status = gnss.status()?;
+                    println!(
+                        "CONTROL phase=1 imu_sampling={} gnss_sampling={} imu_produced={} gnss_produced={}",
+                        imu_status.sampling,
+                        gnss_status.sampling,
+                        imu_status.stats.produced,
+                        gnss_status.stats.produced,
+                    );
+                    phase1_done = true;
+                }
+                orchestration::Decision::ResumeGnss => {
+                    gnss.resume()?;
+                    let imu_status = imu.status()?;
+                    let gnss_status = gnss.status()?;
+                    println!(
+                        "CONTROL phase=2 gnss_sampling={} imu_produced={} gnss_produced={}",
+                        gnss_status.sampling, imu_status.stats.produced, gnss_status.stats.produced,
+                    );
+                    phase2_done = true;
+                }
+                orchestration::Decision::Stop => break 'observe,
+            }
         }
 
-        if !phase2_done && now >= phase2_at {
-            gnss.resume()?;
-            let imu_status = imu.status()?;
-            let gnss_status = gnss.status()?;
-            println!(
-                "CONTROL phase=2 gnss_sampling={} imu_produced={} gnss_produced={}",
-                gnss_status.sampling, imu_status.stats.produced, gnss_status.stats.produced,
-            );
-            phase2_done = true;
-        }
-
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = duration.saturating_sub(started.elapsed());
         let wait = remaining.min(Duration::from_millis(50));
         match fusion.recv_timeout(wait) {
             Ok(state) => {
