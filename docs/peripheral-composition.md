@@ -218,8 +218,11 @@ Apply the following merge rules in order.
    hashes and ordering. Intentional later overrides are deterministic. Malformed
    inputs and conflicting final resource claims fail with source locations.
 
-An overlay for a supported replacement sensor can therefore contain this
-complete device replacement, while retaining `roles.imu = "motion"`.
+An LSM6DSO overlay can replace the device while retaining
+`roles.imu = "motion"`. The NuttX binding supports periodic FIFO drains.
+The driver reports its nominal rate as 104 Hz at the default setting.
+The CoreS3 replacement overlay qualifies compilation only. A board with
+the declared bus and replacement sensor is needed for physical measurements.
 
 ~~~toml
 [devices.motion]

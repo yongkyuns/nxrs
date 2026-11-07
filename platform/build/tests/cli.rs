@@ -233,7 +233,7 @@ fn profile_cli_unifies_legacy_and_v1_imu_and_reports_composition_provenance() {
     );
     assert_eq!(
         composition["binding-sources"][0],
-        "hal/imu/bindings/bmi270-i2c.toml"
+        "hal/imu/bindings/i2c.toml"
     );
 }
 

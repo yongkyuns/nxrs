@@ -1,0 +1,17 @@
+version = 1
+
+[[binding]]
+compatible = "bosch,bmi270"
+bus = "i2c"
+model = "bmi270"
+addresses = [104, 105]
+frequencies = [100000, 400000]
+interrupt = true
+
+[[binding]]
+compatible = "st,lsm6dso"
+bus = "i2c"
+model = "lsm6dso"
+addresses = [106, 107]
+frequencies = [100000, 400000]
+interrupt = false
