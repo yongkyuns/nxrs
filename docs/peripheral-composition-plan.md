@@ -231,6 +231,11 @@ periodic/FIFO path. Select an IRQ-wired fixture for interrupt evidence.
    Build ABI witnesses for syscall pointers, ioctl layouts, buffer lifetime,
    interruption, cancellation and shutdown. Unsupported target mechanisms are
    blocking findings for the protected-mode claim.
+   Run the [ESP32-S3 protected ABI witness](../tests/nuttx-std/imu-protected/README.md)
+   first. Collect its separate kernel and userspace link evidence, then boot it
+   on an authorized DevKit and require the serial pass marker within the declared
+   deadline. This witness uses deterministic kernel test devices. The matrix
+   below requires the Rust acquisition path and physical sensors.
 2. Prepare bounded recovery and an independently verified baseline before changing
    firmware. Keep signing/enrollment/runtime secrets outside tracked artifacts.
 3. Define workload, ODR, watermark, FIFO headroom and latency/loss budgets before

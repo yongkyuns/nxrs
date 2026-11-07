@@ -254,6 +254,11 @@ jobs:
           --overlay tests/host/fixtures/lsm6dso-overlay.toml
           --out target/firmware/event-demo/cores3-lsm6dso
 
+      - name: Cross-link the protected ESP32-S3 IMU ABI witness
+        run: |
+          source target/qemu-tools/environment.sh
+          bash tests/nuttx-std/imu-protected/build.sh target/firmware/event-demo/imu-protected
+
       - name: Retain deployment evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -271,6 +276,10 @@ jobs:
             target/firmware/event-demo/esp32s3-qemu-mock/*.config
             target/firmware/event-demo/esp32s3-qemu-mock/*.sha256
             target/firmware/event-demo/esp32s3-qemu-mock/abi-*
+            target/firmware/event-demo/imu-protected/*.txt
+            target/firmware/event-demo/imu-protected/*.log
+            target/firmware/event-demo/imu-protected/*.config
+            target/firmware/event-demo/imu-protected/*.sha256
           if-no-files-found: warn
 
 
