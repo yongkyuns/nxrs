@@ -1,0 +1,22 @@
+[package]
+name = "nxrs-protected-runtime-witness"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-acquisition = { path = "../../../../driver/acquisition" }
+
+[package.metadata.nxrs]
+qualification-only = true
+
+[package.metadata.nxrs.firmware]
+bin = "protected-runtime-witness"
+command = "protected_runtime_witness"
+priority = 100
+stack-size = 8192
+
+[[bin]]
+name = "protected-runtime-witness"
+path = "src/main.rs"
+bench = false

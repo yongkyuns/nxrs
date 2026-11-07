@@ -111,10 +111,15 @@ Keys without destructors keep their values until all passes finish; Rust's
 `CURRENT` handle must remain visible to the deferred cleanup guard. The
 global key table therefore tracks whether a key is allocated separately
 from its optional destructor. Key scope defaults group-local and destructor
-passes default to one when not selected by nxrs. All nxrs Rust std
-firmware builds require these settings. The global key limit is
+passes default to one when left at the upstream default. Nxrs flat Rust std
+builds require these settings. The global key limit is
 `CONFIG_TLS_NELEM` for the whole image, which is appropriate for the cached
 keys in this linked runtime but should be considered before upstreaming.
+
+The [protected CoreS3 qualification](../tests/nuttx-std/imu-protected/README.md#rust-runtime-witness)
+uses one direct-init Rust task group with group-local pthread keys and four
+destructor passes. Its target runtime witness checks thread cleanup across
+repeated worker starts and joins.
 
 The host patch tests exercise application, provenance, source drift, and
 reapplication. The MPS2 QEMU check remains the behavioral gate for destructor

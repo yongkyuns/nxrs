@@ -234,8 +234,10 @@ periodic/FIFO path. Select an IRQ-wired fixture for interrupt evidence.
    Run the [ESP32-S3 protected ABI witness](../tests/nuttx-std/imu-protected/README.md)
    first. Collect its separate kernel and userspace link evidence, then boot it
    on an authorized DevKit and require the serial pass marker within the declared
-   deadline. This witness uses deterministic kernel test devices. The matrix
-   below requires the Rust acquisition path and physical sensors.
+   deadline. This witness uses deterministic kernel test devices. Cross-build
+   and boot the [Rust runtime witness](../tests/nuttx-std/imu-protected/README.md#rust-runtime-witness)
+   in both modes to check group-local TLS, cancellation and joined cleanup.
+   The matrix below requires the Rust acquisition path and physical sensors.
 2. Prepare bounded recovery and an independently verified baseline before changing
    firmware. Keep signing/enrollment/runtime secrets outside tracked artifacts.
 3. Define workload, ODR, watermark, FIFO headroom and latency/loss budgets before

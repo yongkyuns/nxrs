@@ -92,7 +92,9 @@
       "0105-sched-migrate-affinity-with-empty-ready-queue.patch",
       "0106-esp32s3-direct-voluntary-switch.patch",
       "0107-esp32s3-product-iram-layout.patch",
-      "0108-xtensa-simpleboot-hash-offset.patch"
+      "0108-xtensa-simpleboot-hash-offset.patch",
+      "0109-esp32s3-cores3-protected-memory-map.patch",
+      "0110-esp32s3-protected-toolchain-libm.patch"
     ]
   },
   "mcuboot": {

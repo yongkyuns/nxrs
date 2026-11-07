@@ -1,0 +1,8 @@
+# Direct-init qualification with the CoreS3 sensor resources.
+extends = "m5stack-cores3-gnss"
+
+[composition]
+version = 1
+mode = "qualification"
+
+[init]

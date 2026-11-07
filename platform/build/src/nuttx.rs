@@ -124,7 +124,12 @@ pub fn required(config: &str, requirements: &[String], forbid: &str) -> Result<(
     }
     Ok(())
 }
-fn standard(profile: &Profile) -> BTreeMap<String, String> {
+const ESP32S3_KERNEL_OFFSET: u64 = 0x10000;
+const ESP32S3_KERNEL_SIZE: u64 = 0x80000;
+// Match the pinned ESP32-S3 PREBUILD formula before compiling Rust helpers.
+const ESP32S3_USERSPACE: u64 = 0x3c000030 + ESP32S3_KERNEL_SIZE;
+
+fn standard(profile: &Profile, protected: bool) -> BTreeMap<String, String> {
     let mut v = BTreeMap::new();
     for key in [
         "EXAMPLES_NXRS_STD_APP",
@@ -133,9 +138,11 @@ fn standard(profile: &Profile) -> BTreeMap<String, String> {
         "SCHED_WAITPID",
         "SCHED_HAVE_PARENT",
         "SCHED_CHILD_STATUS",
-        "TLS_GLOBAL_KEYS",
     ] {
         v.insert(key.into(), "y".into());
+    }
+    if !protected {
+        v.insert("TLS_GLOBAL_KEYS".into(), "y".into());
     }
     if profile.data.get("init").is_none() {
         for key in ["NSH_DISABLEBG", "NSH_ARGCAT"] {
@@ -151,6 +158,42 @@ fn standard(profile: &Profile) -> BTreeMap<String, String> {
         v.insert(key.into(), value.into());
     }
     v
+}
+
+fn protected_images(out: &Path, nuttx: &Path, config: &str) -> Result<Vec<PathBuf>> {
+    let flash_mib = [4u64, 8, 16, 32]
+        .into_iter()
+        .find(|size| {
+            let flag = format!("CONFIG_ESP32S3_FLASH_{size}M=y");
+            config.lines().any(|line| line == flag)
+        })
+        .ok_or("unsupported protected ESP32-S3 flash size")?;
+    let user_offset = ESP32S3_KERNEL_OFFSET + ESP32S3_KERNEL_SIZE;
+    let mut regions = Vec::new();
+    for (file, offset, limit) in [
+        ("nuttx.bin", ESP32S3_KERNEL_OFFSET, user_offset),
+        ("nuttx_user.bin", user_offset, flash_mib * 1024 * 1024),
+    ] {
+        let path = nuttx.join(file);
+        let bytes = path
+            .metadata()
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .len();
+        if bytes == 0 || bytes > limit - offset {
+            return Err(format!("{file} does not fit its protected flash region"));
+        }
+        regions.push(json!({"file":format!("nuttx/{file}"),"offset":offset,"size":bytes,"sha256":hash(&path)?}));
+    }
+    let receipt = out.join("protected-images.json");
+    write_json(
+        &receipt,
+        &json!({"schema":1,"format":"esp32s3-legacy","flash_size":flash_mib * 1024 * 1024,"regions":regions}),
+    )?;
+    Ok(vec![
+        nuttx.join("nuttx_user.elf"),
+        nuttx.join("nuttx_user.bin"),
+        receipt,
+    ])
 }
 fn helper_identity(source: &Path) -> Result<Value> {
     let source = source.canonicalize().map_err(|e| e.to_string())?;
@@ -394,6 +437,7 @@ impl Tools {
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
     options.validate_for_backend("nuttx")?;
     let mut deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
+    let protected = deployment["nuttx-build-mode"] == "protected";
     let target = string(&p.data, "target")?;
     let board = string(&p.data, "board")?;
     let machine = string(&p.data, "machine")?;
@@ -407,6 +451,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
                     "size-optimized",
                     "trace-only-backtrace",
                     "panic-immediate-abort",
+                    "protected-runtime",
                 ]
                 .contains(&s.as_str())
             })
@@ -430,7 +475,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         Some(value) => value.as_str().ok_or("build.abi-profile must be a string")?,
         None => options.abi.as_deref().unwrap_or("active"),
     };
-    if !["active", "minimal"].contains(&abi) {
+    if !["active", "minimal"].contains(&abi) || (protected && abi != "active") {
         return Err("invalid ABI profile".into());
     }
     let signed = p.data.get("mcuboot").is_some();
@@ -487,9 +532,37 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         values.insert(key.into(), "n".into());
         requirements.push(line(key, "n"));
     }
-    let standard = standard(p);
+    let standard = standard(p, protected);
     requirements.extend(standard.iter().map(|(k, v)| line(k, v)));
-    requirements.push("CONFIG_BUILD_FLAT=y".into());
+    if protected {
+        let mode = BTreeMap::<String, String>::from([
+            ("BUILD_PROTECTED".into(), "y".into()),
+            ("ESP32S3_WCL".into(), "y".into()),
+            ("ESP32S3_APP_FORMAT_LEGACY".into(), "y".into()),
+            ("RAW_BINARY".into(), "y".into()),
+            (
+                "ESP32S3_KERNEL_OFFSET".into(),
+                format!("{ESP32S3_KERNEL_OFFSET:#x}"),
+            ),
+            (
+                "ESP32S3_KERNEL_IMAGE_SIZE".into(),
+                format!("{ESP32S3_KERNEL_SIZE:#x}"),
+            ),
+            ("NUTTX_USERSPACE".into(), format!("{ESP32S3_USERSPACE:#x}")),
+            (
+                "PASS1_BUILDIR".into(),
+                "\"boards/xtensa/esp32s3/common/kernel\"".into(),
+            ),
+        ]);
+        requirements.extend(mode.iter().map(|(k, v)| line(k, v)));
+        requirements.extend([
+            "CONFIG_BUILD_2PASS=y".into(),
+            "CONFIG_ARCH_USE_MPU=y".into(),
+        ]);
+        values.extend(mode);
+    } else {
+        requirements.push("CONFIG_BUILD_FLAT=y".into());
+    }
     values.extend(standard);
     let forbid = match k.get("forbid-regex") {
         None => "",
@@ -652,23 +725,40 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             .current_dir(&nuttx)
             .arg("olddefconfig"))?;
     }
-    required(&read(&nuttx.join(".config"))?, &requirements, forbid)?;
-    if read(&nuttx.join(".config"))?
-        .lines()
-        .any(|line| line == "CONFIG_ETC_ROMFS=y")
+    let config = read(&nuttx.join(".config"))?;
+    required(&config, &requirements, forbid)?;
+    if protected
+        && config
+            .lines()
+            .any(|line| line == "CONFIG_TLS_GLOBAL_KEYS=y")
     {
+        return Err("protected direct-init qualification requires group-local pthread keys".into());
+    }
+    if config.lines().any(|line| line == "CONFIG_ETC_ROMFS=y") {
         tools.program("genromfs")?;
     }
-    if read(&nuttx.join(".config"))?
-        .lines()
-        .any(|s| s == "CONFIG_SIG_DEFAULT=y")
-    {
+    if config.lines().any(|s| s == "CONFIG_SIG_DEFAULT=y") {
         return Err("unqualified SIG_DEFAULT configuration".into());
     }
-    run(tools.command("make").current_dir(&nuttx).args([
-        "include/nuttx/config.h",
-        &format!("CROSSDEV={}", tools.prefix),
-    ]))?;
+    // The pinned hook would rewrite the userspace address already resolved above.
+    let prebuild = protected.then_some("PREBUILD=");
+    run(tools
+        .command("make")
+        .current_dir(&nuttx)
+        .args([
+            "include/nuttx/config.h",
+            &format!("CROSSDEV={}", tools.prefix),
+        ])
+        .args(prebuild))?;
+    if protected {
+        required(
+            &read(&nuttx.join("include/nuttx/config.h"))?,
+            &[format!(
+                "#define CONFIG_NUTTX_USERSPACE {ESP32S3_USERSPACE:#x}"
+            )],
+            "",
+        )?;
+    }
     fs::copy(nuttx.join(".config"), out.join("resolved.config")).map_err(|e| e.to_string())?;
     write_json(&out.join("provider-selection.json"), &deployment)?;
     let sysroot = if let Some(shared) = shared_sysroot {
@@ -771,6 +861,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     if !objects.is_empty() {
         make_args.push(format!("NXRS_TARGET_C_SOURCE={}", objects.join(" ")));
     }
+    make_args.extend(prebuild.map(str::to_owned));
     if tools.esp {
         make_args.push("ESPTOOL_BINDIR=.".into());
         if !reused {
@@ -954,6 +1045,10 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .arg(&nuttx)
         .arg(format!("-j{jobs}"))
         .args(&make_args))?;
+    let config = read(&nuttx.join(".config"))?;
+    if protected {
+        required(&config, &requirements, forbid)?;
+    }
     fs::copy(nuttx.join(".config"), out.join("resolved.config")).map_err(|e| e.to_string())?;
     if let Some(signing) = signing {
         signing.sign(
@@ -969,7 +1064,25 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             .arg(nuttx.join("nuttx")),
     )?;
     let entry_symbol = format!("{}_main", app.command);
-    let mut needed = vec![(entry_symbol.as_str(), "TtWw"), ("nx_start", "TtWw")];
+    require_symbols(&symbols, &[("nx_start", "TtWw")])?;
+    let user_symbols = if protected {
+        if symbols
+            .lines()
+            .any(|line| line.split_whitespace().last() == Some(entry_symbol.as_str()))
+        {
+            return Err("protected application entry is present in the kernel ELF".into());
+        }
+        let user_symbols = output(
+            tools
+                .command(&format!("{}nm", tools.prefix))
+                .arg("--defined-only")
+                .arg(nuttx.join("nuttx_user.elf")),
+        )?;
+        Some(user_symbols)
+    } else {
+        None
+    };
+    let mut needed = vec![(entry_symbol.as_str(), "TtWw")];
     if abi == "active" {
         needed.extend([
             ("pthread_create", "TtWw"),
@@ -977,7 +1090,10 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             ("clock_gettime", "TtWw"),
         ]);
     }
-    require_symbols(&symbols, &needed)?;
+    require_symbols(user_symbols.as_deref().unwrap_or(&symbols), &needed)?;
+    if let Some(user_symbols) = user_symbols {
+        fs::write(out.join("user-symbols.txt"), user_symbols).map_err(|e| e.to_string())?;
+    }
     fs::write(out.join("symbols.txt"), symbols).map_err(|e| e.to_string())?;
     for (tool, args, file) in [
         ("size", vec!["-A"], "image-size.txt"),
@@ -1031,6 +1147,10 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         "provider_selection=provider-selection.json".into(),
         format!("app_command={}", app.command),
         format!("abi_profile={abi}"),
+        format!(
+            "nuttx_build_mode={}",
+            deployment["nuttx-build-mode"].as_str().unwrap()
+        ),
         format!("size_optimized={}", size as u8),
         format!("trace_only_backtrace={}", trace as u8),
         format!("panic_immediate_abort={}", immediate as u8),
@@ -1096,6 +1216,9 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         out.join("resolved.config"),
         out.join("provider-selection.json"),
     ];
+    if protected {
+        inputs.extend(protected_images(&out, &nuttx, &config)?);
+    }
     inputs.extend(p.source_paths().cloned());
     inputs.extend(iram_inputs);
     inputs.extend(radio_inputs);
@@ -1121,7 +1244,14 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         &cache_inputs,
         &retained.iter().map(String::as_str).collect::<Vec<_>>(),
     )?;
-    println!("NuttX image: {}", image.display());
+    if protected {
+        println!(
+            "NuttX protected image pair: {}",
+            out.join("protected-images.json").display()
+        );
+    } else {
+        println!("NuttX image: {}", image.display());
+    }
     Ok(())
 }
 pub fn isolated_hal(nuttx: &Path, hal: &Path) -> Result<PathBuf> {
@@ -1396,12 +1526,36 @@ mod tests {
     #[test]
     fn direct_application_init_does_not_require_a_shell() {
         let mut profile = Profile::from_data(json!({}), vec![]);
-        assert_eq!(standard(&profile)["NSH_ARGCAT"], "y");
+        assert_eq!(standard(&profile, false)["NSH_ARGCAT"], "y");
         profile.data["init"] = json!({});
-        let settings = standard(&profile);
+        let settings = standard(&profile, false);
         assert!(!settings.contains_key("NSH_ARGCAT"));
         assert!(!settings.contains_key("NSH_DISABLEBG"));
         assert_eq!(settings["TLS_GLOBAL_KEYS"], "y");
+        assert!(!standard(&profile, true).contains_key("TLS_GLOBAL_KEYS"));
+    }
+    #[test]
+    fn protected_image_pair_records_both_regions_and_rejects_overlap() {
+        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+        let out = &temp.0;
+        let nuttx = out.join("nuttx");
+        fs::create_dir(&nuttx).unwrap();
+        let kernel = nuttx.join("nuttx.bin");
+        let user = nuttx.join("nuttx_user.bin");
+        fs::write(&kernel, b"kernel").unwrap();
+        let config = "CONFIG_ESP32S3_FLASH_16M=y";
+        assert!(protected_images(out, &nuttx, config).is_err());
+        fs::write(user, b"userspace").unwrap();
+        protected_images(out, &nuttx, config).unwrap();
+        let receipt = crate::read_json(&out.join("protected-images.json")).unwrap();
+        assert_eq!(receipt["regions"][0]["offset"], 0x10000);
+        assert_eq!(receipt["regions"][1]["offset"], 0x90000);
+        assert_eq!(receipt["regions"][1]["size"], 9);
+        fs::File::create(kernel)
+            .unwrap()
+            .set_len(ESP32S3_KERNEL_SIZE + 1)
+            .unwrap();
+        assert!(protected_images(out, &nuttx, config).is_err());
     }
     #[test]
     fn product_iram_layout_is_staged_and_recorded_without_app_wiring() {

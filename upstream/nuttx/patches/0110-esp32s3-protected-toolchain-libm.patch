@@ -1,0 +1,22 @@
+Subject: [PATCH] esp32s3: link the selected toolchain libm in protected userspace
+
+Base: apache/nuttx 2b5c0de5e933281c209f954a63b99cf10c132346 (13.1.0)
+
+Use the target's toolchain math archive for the user link when Kconfig
+selects it. Keep it inside the user library group for libc dependencies.
+
+diff --git a/boards/xtensa/esp32s3/common/kernel/Makefile b/boards/xtensa/esp32s3/common/kernel/Makefile
+--- a/boards/xtensa/esp32s3/common/kernel/Makefile
++++ b/boards/xtensa/esp32s3/common/kernel/Makefile
+@@ -44,6 +44,11 @@
+ 
+ USER_LDLIBS = $(patsubst lib%,-l%,$(basename $(notdir $(USERLIBS))))
+ USER_LIBGCC = "${shell "$(CC)" $(ARCHCPUFLAGS) -print-libgcc-file-name}"
++
++ifeq ($(CONFIG_LIBM_TOOLCHAIN),y)
++  USER_LIBM = $(shell $(CC) $(ARCHCPUFLAGS) --print-file-name=libm.a)
++  USER_LDLIBS += "$(USER_LIBM)"
++endif
+ 
+ # Source files
+ 
