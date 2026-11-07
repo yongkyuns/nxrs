@@ -1,5 +1,8 @@
 //! One resolver for CLI builds and HAL build scripts.
-use crate::{read, Result};
+use crate::{
+    composition::{self, Composition, ImuModel},
+    read, Result,
+};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::{
@@ -60,7 +63,7 @@ fn keys(v: &Value, required: &[&str], optional: &[&str]) -> bool {
                 .all(|k| required.contains(&k.as_str()) || optional.contains(&k.as_str()))
     })
 }
-fn sensor_stack(v: &Value) -> Result<u64> {
+pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
     let stack = v
         .get("stack-bytes")
         .unwrap_or(&Value::Null)
@@ -154,10 +157,48 @@ impl Profile {
     pub fn binding(&self, capability: &str) -> &str {
         self.data["hal"][capability].as_str().unwrap_or("none")
     }
-    pub fn json(&self) -> Value {
+    pub fn composition(&self) -> Result<Option<Composition>> {
+        composition::resolve(&self.data, self.binding("imu")).map_err(|error| {
+            match self.sources.last() {
+                Some(path) => format!("{}: {error}", path.display()),
+                None => error,
+            }
+        })
+    }
+    pub fn json(&self) -> Result<Value> {
         let mut value = self.data.clone();
-        value["sources"] = json!(self.sources);
-        value
+        let fields = value.as_object_mut().ok_or("profile must be a table")?;
+        fields.insert("sources".into(), json!(self.sources));
+        fields.remove("resolved-composition");
+        if let Some(graph) = self.composition()? {
+            fields.insert(
+                "resolved-composition".into(),
+                self.composition_report(&graph),
+            );
+        }
+        Ok(value)
+    }
+    pub fn composition_report(&self, graph: &Composition) -> Value {
+        let binding_sources = graph
+            .imu()
+            .map(|_| composition::BINDING_SCHEMA_PATH)
+            .into_iter()
+            .collect::<Vec<_>>();
+        json!({"graph": graph, "sources": self.sources, "binding-sources": binding_sources})
+    }
+    /// Preserve the legacy inspection and Cargo environment shape at one boundary.
+    pub fn imu_config(&self) -> Result<Option<Value>> {
+        let graph = self.composition()?;
+        Ok(graph.as_ref().and_then(Composition::imu).map(|binding| {
+            json!({
+                "driver": match binding.model { ImuModel::Bmi270 => "bmi270" },
+                "device": binding.path,
+                "address": binding.address,
+                "frequency": binding.frequency,
+                "irq-device": binding.irq_path.unwrap_or(""),
+                "stack-bytes": binding.stack_bytes,
+            })
+        }))
     }
     pub fn validate_target(&self, os: &str) -> Result<()> {
         if let Some(list) = self.data.get("target-os") {
@@ -277,21 +318,9 @@ impl Profile {
             }
         }
         self.network_initialization()?;
-        for capability in ["gnss", "imu"] {
-            let Some(v) = self.data.get(capability) else {
-                if self.binding(capability) == "nuttx" {
-                    return Err(format!("{capability} requires device configuration"));
-                } else {
-                    continue;
-                }
-            };
-            if self.binding(capability) != "nuttx" {
-                return Err(format!(
-                    "{capability} device configuration requires its NuttX binding"
-                ));
-            }
-            sensor_stack(v)?;
-            if capability == "gnss" {
+        match (self.binding("gnss"), self.data.get("gnss")) {
+            ("nuttx", Some(v)) => {
+                sensor_stack(v)?;
                 if !keys(v, &["device", "baud"], &["stack-bytes"])
                     || !device(&v["device"])
                     || !v["baud"].as_u64().is_some_and(|n| {
@@ -300,23 +329,14 @@ impl Profile {
                 {
                     return Err("invalid GNSS UART binding".into());
                 }
-            } else if !keys(
-                v,
-                &["driver", "device", "address", "frequency"],
-                &["stack-bytes", "irq-device"],
-            ) || v["driver"] != "bmi270"
-                || !device(&v["device"])
-                || !v["address"]
-                    .as_u64()
-                    .is_some_and(|n| [0x68, 0x69].contains(&n))
-                || !v["frequency"]
-                    .as_u64()
-                    .is_some_and(|n| [100000, 400000].contains(&n))
-                || v.get("irq-device").is_some_and(|v| v != "" && !device(v))
-            {
-                return Err("invalid BMI270 I2C binding".into());
             }
+            ("nuttx", None) => return Err("gnss requires device configuration".into()),
+            (_, Some(_)) => {
+                return Err("gnss device configuration requires its NuttX binding".into())
+            }
+            _ => {}
         }
+        self.composition()?;
         Ok(())
     }
     pub fn network_initialization(&self) -> Result<&str> {
@@ -422,12 +442,14 @@ impl Profile {
                 }
             }
             "gnss" | "imu" if self.binding(capability) == "nuttx" => {
-                let c = &self.data[capability];
-                let mut c = c.clone();
-                c["stack-bytes"] = json!(sensor_stack(&c)?);
-                if capability == "imu" && c.get("irq-device").is_none() {
-                    c["irq-device"] = json!("")
-                }
+                let c = if capability == "imu" {
+                    self.imu_config()?
+                        .ok_or("imu requires device configuration")?
+                } else {
+                    let mut c = self.data["gnss"].clone();
+                    c["stack-bytes"] = json!(sensor_stack(&c)?);
+                    c
+                };
                 let keys = if capability == "gnss" {
                     vec!["device", "baud", "stack-bytes"]
                 } else {
@@ -483,6 +505,12 @@ impl Profile {
                 .iter()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
+        if self.binding("imu") == "nuttx" {
+            output.push(format!(
+                "cargo:rerun-if-changed={}",
+                root.join(composition::BINDING_SCHEMA_PATH).display()
+            ));
+        }
         let mut manifests: BTreeSet<PathBuf> = self.data["hal"]
             .as_object()
             .unwrap()

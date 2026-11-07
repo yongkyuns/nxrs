@@ -297,7 +297,10 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             println!("{line}");
         }
     } else {
-        println!("{}", serde_json::to_string_pretty(&profile.json()).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&profile.json()?).map_err(|error| error.to_string())?
+        );
     }
     Ok(ExitCode::SUCCESS)
 }
