@@ -1,0 +1,13 @@
+# Build qualification for a replacement sensor. This is not the stock M135 wiring.
+[resources.alternate_i2c]
+kind = "i2c"
+device = "/dev/i2c1"
+frequency = 100000
+
+[devices.imu]
+compatible = "st,lsm6dso"
+bus = "alternate_i2c"
+address = 0x6a
+
+[devices.imu.wake]
+kind = "periodic"

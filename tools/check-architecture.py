@@ -382,7 +382,9 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     include = 'include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));'
     if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
         errors.append(f'{relative(nuttx)}: include only the fixed imu_config.rs file from this HAL OUT_DIR')
-    if not re.search(r'match\s+MODEL\s*\{\s*SensorModel::Bmi270\s*=>\s*Device::acquire\(BINDING,\s*config\)\??\s*,?\s*\}', source):
+    models = {'Bmi270': 'bmi270', 'Lsm6dso': 'lsm6dso'}
+    branches = re.findall(r'SensorModel::(\w+)\s*=>\s*acquire::<(\w+)>\(BINDING,\s*config,\s*sink\)', source)
+    if sorted(branches) != sorted((model, model) for model in models):
         errors.append(f'{relative(nuttx)}: generated model selection must map to its checked-in typed constructor')
     if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
         errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
@@ -396,10 +398,11 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     emitter_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', emitter.read_text(), flags=re.S)
     # The emitter may escape profile strings and place parsed numeric fields, but
     # generated identifiers and constructor names must remain fixed Rust syntax.
+    model_map = re.findall(r'ImuModel::(\w+)\s*=>\s*"SensorModel::(\w+)"', emitter_source)
+    if sorted(model_map) != sorted((model, model) for model in models):
+        errors.append(f'{relative(emitter)}: generated model enum must use the checked-in allowlist')
     required = [
-        r'let\s+model\s*=\s*match\s+binding\.model\s*\{\s*'
-        r'nxrs_build_support::composition::ImuModel::Bmi270\s*=>\s*"SensorModel::Bmi270"\s*,?\s*\}',
-        r'enum SensorModel\s*\{\{\s*Bmi270\s*\}\}',
+        r'enum SensorModel\s*\{\{\s*Bmi270,\s*Lsm6dso\s*\}\}',
         r'const MODEL:\s*SensorModel\s*=\s*\{model\}',
         r'const BINDING:\s*Binding<\'static>\s*=\s*Binding\s*\{\{',
         r'const STACK_BYTES:\s*usize\s*=\s*\{stack_bytes\}',
@@ -410,8 +413,9 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     ]
     if any(not re.search(pattern, emitter_source) for pattern in required):
         errors.append(f'{relative(emitter)}: generated Rust must use the allowlisted typed model and escaped binding literals')
-    if not (hal / 'src/sensors/bmi270.rs').is_file():
-        errors.append('hal/imu: generated BMI270 selection has no checked-in sensor implementation')
+    for model, file in models.items():
+        if not (hal / f'src/sensors/{file}.rs').is_file():
+            errors.append(f'hal/imu: generated {model} selection has no checked-in sensor implementation')
     return errors
 
 

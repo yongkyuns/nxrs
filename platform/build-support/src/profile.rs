@@ -381,7 +381,7 @@ impl Profile {
         let graph = self.composition()?;
         Ok(graph.as_ref().and_then(Composition::imu).map(|binding| {
             json!({
-                "driver": match binding.model { ImuModel::Bmi270 => "bmi270" },
+                "driver": match binding.model { ImuModel::Bmi270 => "bmi270", ImuModel::Lsm6dso => "lsm6dso" },
                 "device": binding.path,
                 "address": binding.address,
                 "frequency": binding.frequency,

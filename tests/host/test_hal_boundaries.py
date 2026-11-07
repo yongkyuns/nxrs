@@ -47,7 +47,8 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/imu/src/platform/nuttx/mod.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
             let device = match MODEL {
-                SensorModel::Bmi270 => Device::acquire(BINDING, config)?,
+                SensorModel::Bmi270 => acquire::<Bmi270>(BINDING, config, sink),
+                SensorModel::Lsm6dso => acquire::<Lsm6dso>(BINDING, config, sink),
             };
             Session::start(STACK_BYTES, cancel, sink, run)
         ''')
@@ -60,9 +61,10 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/imu/build/emit.rs', '''
             let model = match binding.model {
                 nxrs_build_support::composition::ImuModel::Bmi270 => "SensorModel::Bmi270",
+                nxrs_build_support::composition::ImuModel::Lsm6dso => "SensorModel::Lsm6dso",
             };
             let source = format!(
-                "enum SensorModel {{ Bmi270 }}\\n\\
+                "enum SensorModel {{ Bmi270, Lsm6dso }}\\n\\
                  const MODEL: SensorModel = {model};\\n\\
                  const BINDING: Binding<'static> = Binding {{ path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path} }};\\n\\
                  const STACK_BYTES: usize = {stack_bytes};\\n",
@@ -70,6 +72,7 @@ class HalBoundariesTests(unittest.TestCase):
             );
         ''')
         self.write('hal/imu/src/sensors/bmi270.rs', 'pub struct Sensor;')
+        self.write('hal/imu/src/sensors/lsm6dso.rs', 'pub struct Sensor;')
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
 
         build = self.root / 'hal/imu/build.rs'

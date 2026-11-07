@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Checked-in capability-owned binding catalog embedded in the resolver.
-pub const BINDING_SCHEMA_PATH: &str = "hal/imu/bindings/bmi270-i2c.toml";
-const CATALOG_SOURCE: &str = include_str!("../../../hal/imu/bindings/bmi270-i2c.toml");
+pub const BINDING_SCHEMA_PATH: &str = "hal/imu/bindings/i2c.toml";
+const CATALOG_SOURCE: &str = include_str!("../../../hal/imu/bindings/i2c.toml");
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -17,10 +17,11 @@ pub enum Mode {
     Qualification,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ImuModel {
     Bmi270,
+    Lsm6dso,
 }
 
 /// Normalized graph. Maps serialize in key order and endpoint paths are normalized.
@@ -31,6 +32,7 @@ pub struct Composition {
     resources: BTreeMap<String, Resource>,
     devices: BTreeMap<String, Device>,
     roles: BTreeMap<String, String>,
+    imu_model: ImuModel,
     stack_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     simulation: Option<SimulationSpec>,
@@ -82,7 +84,7 @@ impl Composition {
             },
         };
         Some(ImuBinding {
-            model: ImuModel::Bmi270,
+            model: self.imu_model,
             path,
             address: device.address,
             frequency: *frequency,
@@ -155,9 +157,10 @@ struct Catalog {
 struct CatalogBinding {
     compatible: String,
     bus: String,
-    model: String,
+    model: ImuModel,
     addresses: Vec<u8>,
     frequencies: Vec<u32>,
+    interrupt: bool,
 }
 
 /// Resolve the IMU part of a profile. `imu_provider` is its selected HAL
@@ -410,13 +413,14 @@ pub(crate) fn resolve_with_origins(
     validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
     validate_provider_mode(imu_provider, header.mode, &devices, &roles)
         .map_err(|e| diagnostic(origins, "composition.mode", &e))?;
-    validate_graph(&catalog, &resources, &devices, &roles, origins)?;
+    let imu_model = validate_graph(&catalog, &resources, &devices, &roles, origins)?;
     let graph = Composition {
         version: header.version,
         mode: header.mode,
         resources,
         devices,
         roles,
+        imu_model,
         stack_bytes,
         simulation,
     };
@@ -490,23 +494,18 @@ fn resolve_legacy(
         },
     );
     let roles = BTreeMap::from([("imu".into(), "imu".into())]);
+    validate_provider_mode(provider, Mode::Hardware, &devices, &roles)?;
+    let imu_model = validate_graph(catalog, &resources, &devices, &roles, origins)?;
     let graph = Composition {
         version: 1,
         mode: Mode::Hardware,
         resources,
         devices,
         roles,
+        imu_model,
         stack_bytes: crate::profile::sensor_stack(value)?,
         simulation: None,
     };
-    validate_provider_mode(provider, graph.mode, &graph.devices, &graph.roles)?;
-    validate_graph(
-        catalog,
-        &graph.resources,
-        &graph.devices,
-        &graph.roles,
-        origins,
-    )?;
     Ok(graph)
 }
 
@@ -516,7 +515,7 @@ fn validate_graph(
     devices: &BTreeMap<String, Device>,
     roles: &BTreeMap<String, String>,
     origins: &BTreeMap<String, PathBuf>,
-) -> Result<()> {
+) -> Result<ImuModel> {
     if catalog.version != 1 {
         return Err(diagnostic(
             origins,
@@ -569,13 +568,6 @@ fn validate_graph(
     for (id, device) in devices {
         let binding = binding_for(catalog, &device.compatible, "i2c")
             .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
-        if binding.model != "bmi270" {
-            return Err(diagnostic(
-                origins,
-                &format!("devices.{id}.compatible"),
-                "binding catalog selects an unsupported IMU model",
-            ));
-        }
         if !binding.addresses.contains(&device.address) {
             return Err(diagnostic(
                 origins,
@@ -633,6 +625,13 @@ fn validate_graph(
             ));
         }
         if let Wake::Interrupt { resource } = &device.wake {
+            if !binding.interrupt {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.wake.kind"),
+                    &format!("{} does not support interrupt wake", device.compatible),
+                ));
+            }
             match resources.get(resource).ok_or_else(|| {
                 diagnostic_related(
                     origins,
@@ -672,15 +671,15 @@ fn validate_graph(
             "composition must assign the default IMU device",
         )
     })?;
-    if !devices.contains_key(role_device) {
-        return Err(diagnostic_related(
+    let device = devices.get(role_device).ok_or_else(|| {
+        diagnostic_related(
             origins,
             "roles.imu",
             &[&format!("devices.{role_device}")],
             &format!("references unknown device {role_device}"),
-        ));
-    }
-    Ok(())
+        )
+    })?;
+    Ok(binding_for(catalog, &device.compatible, "i2c")?.model)
 }
 
 fn validate_provider_mode(
@@ -1038,6 +1037,26 @@ mod tests {
         let mut mixed = distinct;
         mixed["hal"] = json!({"imu":"nuttx","gnss":"mock"});
         assert!(resolve(&mixed, "nuttx").unwrap_err().contains("mock HAL"));
+    }
+
+    #[test]
+    fn replacement_lsm6dso_requires_its_own_address_and_periodic_wakes() {
+        let mut replacement = profile("hardware", "/dev/i2c1", 106, json!({"kind":"periodic"}));
+        replacement["devices"]["motion"]["compatible"] = json!("st,lsm6dso");
+        let resolved = resolve(&replacement, "nuttx").unwrap().unwrap();
+        let binding = resolved.imu().unwrap();
+        assert_eq!(binding.model, ImuModel::Lsm6dso);
+        assert_eq!((binding.path, binding.address), ("/dev/i2c1", 106));
+
+        replacement["devices"]["motion"]["address"] = json!(104);
+        assert!(resolve(&replacement, "nuttx")
+            .unwrap_err()
+            .contains("address"));
+        replacement["devices"]["motion"]["address"] = json!(106);
+        replacement["devices"]["motion"]["wake"] = json!({"kind":"interrupt","resource":"irq"});
+        assert!(resolve(&replacement, "nuttx")
+            .unwrap_err()
+            .contains("does not support interrupt wake"));
     }
 
     #[test]

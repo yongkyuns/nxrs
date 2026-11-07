@@ -22,10 +22,12 @@ nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
 nxrs-bmi270 = { path = "../../driver/bmi270" }
+nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 embedded-hal = "=1.0.0"
 
 [dev-dependencies]
 nxrs-bmi270 = { path = "../../driver/bmi270" }
+nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 embedded-hal = "=1.0.0"
 
 [build-dependencies]

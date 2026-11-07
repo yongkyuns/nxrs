@@ -17,6 +17,8 @@ on:
       - 'hal/gnss/**'
       - 'hal/common/**'
       - 'driver/acquisition/**'
+      - 'driver/lsm6dso/**'
+      - 'tests/host/fixtures/lsm6dso-overlay.toml'
       - 'platform/nuttx/std-app/**'
       - 'platform/build/**'
       - '.cargo/config.toml'
@@ -105,6 +107,9 @@ jobs:
           cargo +1.90.0 check --locked \
             -p nxrs-imu -p nxrs-gnss \
             --target thumbv6m-none-eabi
+
+      - name: Qualify the standalone LSM6DSO driver
+        run: cargo +1.90.0 test --locked -p nxrs-lsm6dso
 
       - name: Run service-owned std demo
         shell: bash
@@ -241,6 +246,12 @@ jobs:
 
       - name: Cross-build the CoreS3 sensor deployment
         run: cargo +1.90.0 nxrs build --app event-demo --platform cores3 --out target/firmware/event-demo/cores3
+
+      - name: Cross-build the replacement IMU overlay
+        run: >-
+          cargo +1.90.0 nxrs build --app event-demo --platform cores3
+          --overlay tests/host/fixtures/lsm6dso-overlay.toml
+          --out target/firmware/event-demo/cores3-lsm6dso
 
       - name: Retain deployment evidence
         if: always()
