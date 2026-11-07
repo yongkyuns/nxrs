@@ -17,6 +17,7 @@ pub struct Bmi270<B: I2c, D: DelayNs> {
     delay: D,
     address: I2cAddr,
     config: Config,
+    reference_enabled: bool,
 }
 
 /// Sensor-specific acquisition settings. Defaults preserve the established HAL behavior.
@@ -303,30 +304,75 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
             delay,
             address,
             config,
+            reference_enabled: false,
         })
     }
-    pub fn stop(&mut self) -> Result<(), Error> {
+
+    /// Route the shared accelerometer and gyroscope data-ready signal to INT2.
+    /// Call `stop` if setup fails after accessing the sensor.
+    pub fn enable_sensor_reference(&mut self) -> Result<(), Error> {
+        // Once the first write is attempted, the ordinary stop path owns cleanup.
+        self.reference_enabled = true;
         let mut driver = Bmi2::<_, _, 64>::new_i2c(
             &mut self.bus,
             &mut self.delay,
             self.address,
             Burst::new(BURST),
         );
+        let map = driver.get_int_map_data().map_err(error)?.to_reg() | IntMapDataMask::DRDY_INT2;
         driver
-            .set_int_map_data(IntMapData {
-                int1: MapData {
-                    ffull: false,
-                    fwm: false,
-                    drdy: false,
-                    err: false,
-                },
-                int2: MapData {
-                    ffull: false,
-                    fwm: false,
-                    drdy: false,
-                    err: false,
-                },
-            })
+            .set_int_map_data(IntMapData::from_reg(map))
+            .map_err(error)?;
+        let pin = IntIoCtrl {
+            level: OutputLevel::ActiveHigh,
+            od: OutputBehavior::PushPull,
+            output_en: true,
+            input_en: false,
+        };
+        let pin_config = pin.to_reg();
+        driver
+            .set_int2_io_ctrl(IntIoCtrl::from_reg(pin_config))
+            .map_err(error)?;
+        if driver.get_int_map_data().map_err(error)?.to_reg() != map
+            || driver.get_int2_io_ctrl().map_err(error)?.to_reg() != pin_config
+        {
+            return Err(Error::InvalidData);
+        }
+        Ok(())
+    }
+    pub fn stop(&mut self) -> Result<(), Error> {
+        let reference_enabled = self.reference_enabled;
+        let mut driver = Bmi2::<_, _, 64>::new_i2c(
+            &mut self.bus,
+            &mut self.delay,
+            self.address,
+            Burst::new(BURST),
+        );
+        let reference_stopped = if reference_enabled {
+            let stopped = driver
+                .set_int2_io_ctrl(IntIoCtrl {
+                    level: OutputLevel::ActiveHigh,
+                    od: OutputBehavior::PushPull,
+                    output_en: false,
+                    input_en: false,
+                })
+                .map_err(error)
+                .and_then(|()| {
+                    let pin = driver.get_int2_io_ctrl().map_err(error)?;
+                    if pin.output_en || pin.input_en {
+                        return Err(Error::InvalidData);
+                    }
+                    Ok(())
+                });
+            if stopped.is_ok() {
+                self.reference_enabled = false;
+            }
+            stopped
+        } else {
+            Ok(())
+        };
+        driver
+            .set_int_map_data(IntMapData::from_reg(0))
             .map_err(error)?;
         driver
             .set_int1_io_ctrl(IntIoCtrl {
@@ -348,7 +394,10 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
         if state.aux_en || state.gyr_en || state.acc_en || state.temp_en {
             return Err(Error::Bus);
         }
-        Ok(())
+        if reference_enabled && driver.get_int_map_data().map_err(error)?.to_reg() != 0 {
+            return Err(Error::InvalidData);
+        }
+        reference_stopped
     }
 
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
@@ -521,6 +570,31 @@ mod tests {
         sensor.stop().unwrap();
         assert_eq!(sensor.bus.registers[0x58], 0);
         assert_eq!(sensor.bus.registers[0x7d], 0);
+    }
+
+    #[test]
+    fn optional_shared_drdy_reference_uses_int2_and_cleans_up() {
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
+        assert_eq!(sensor.bus.registers[0x58], 0x0b);
+        assert_eq!(sensor.bus.registers[0x54], 0);
+        sensor.bus.registers[0x58] |= 0x80;
+        sensor.enable_sensor_reference().unwrap();
+        assert_eq!(sensor.bus.registers[0x58], 0xcb);
+        assert_eq!(sensor.bus.registers[0x54], 0x0a);
+        sensor.stop().unwrap();
+        assert_eq!(sensor.bus.registers[0x58], 0);
+        assert_eq!(sensor.bus.registers[0x54], 0x02);
+    }
+
+    #[test]
+    fn optional_shared_drdy_reference_readback_failure_is_cleaned_by_stop() {
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
+        sensor.bus.mismatch_read = Some((0x58, 0x40));
+        assert_eq!(sensor.enable_sensor_reference(), Err(Error::InvalidData));
+        sensor.bus.mismatch_read = None;
+        sensor.stop().unwrap();
+        assert_eq!(sensor.bus.registers[0x58], 0);
+        assert_eq!(sensor.bus.registers[0x54], 0x02);
     }
 
     #[test]

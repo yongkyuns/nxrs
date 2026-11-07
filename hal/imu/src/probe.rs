@@ -23,7 +23,18 @@ pub fn open_configured(
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     observe: impl Fn(Timing) + Send + Sync + 'static,
 ) -> Result<(Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
-    platform::open_probed(config, sink, observe)
+    platform::open_probed(config, sink, observe, false)
+}
+
+/// Open a physical probe with the sensor-specific external data-ready reference
+/// enabled. This is an explicit qualification path and is unavailable without
+/// the `probe` feature or on platforms without a physical provider.
+pub fn open_sensor_reference_configured(
+    config: Config,
+    sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
+    observe: impl Fn(Timing) + Send + Sync + 'static,
+) -> Result<(Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
+    platform::open_probed(config, sink, observe, true)
 }
 
 #[allow(dead_code, reason = "Only providers without timing use this fallback.")]
@@ -31,6 +42,7 @@ pub(crate) fn unsupported(
     _: Config,
     _: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     _: impl Fn(Timing) + Send + Sync + 'static,
+    _: bool,
 ) -> Result<(Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
     Err(DeviceError::Unsupported)
 }

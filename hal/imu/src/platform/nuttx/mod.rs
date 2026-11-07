@@ -53,8 +53,10 @@ pub(crate) fn open_probed(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     observe: impl Fn(crate::probe::Timing) + Send + Sync + 'static,
+    sensor_reference: bool,
 ) -> Result<(std::boxed::Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
-    let (session, applied) = open_with_trace(config, sink, Trace::new(observe))?;
+    let trace = Trace::new(observe).with_sensor_reference(sensor_reference);
+    let (session, applied) = open_with_trace(config, sink, trace)?;
     Ok((std::boxed::Box::new(session), applied))
 }
 

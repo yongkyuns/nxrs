@@ -8,6 +8,8 @@ use {crate::probe::Timing, std::sync::Arc};
 pub(super) struct Trace {
     #[cfg(feature = "probe")]
     observer: Option<Arc<dyn Fn(Timing) + Send + Sync>>,
+    #[cfg(feature = "probe")]
+    sensor_reference: bool,
 }
 
 impl Trace {
@@ -15,6 +17,28 @@ impl Trace {
     pub(super) fn new(observe: impl Fn(Timing) + Send + Sync + 'static) -> Self {
         Self {
             observer: Some(Arc::new(observe)),
+            sensor_reference: false,
+        }
+    }
+
+    #[cfg(feature = "probe")]
+    #[allow(
+        dead_code,
+        reason = "Only the NuttX sensor-reference probe uses this option."
+    )]
+    pub(super) fn with_sensor_reference(mut self, enabled: bool) -> Self {
+        self.sensor_reference = enabled;
+        self
+    }
+
+    pub(super) fn sensor_reference(&self) -> bool {
+        #[cfg(feature = "probe")]
+        {
+            self.sensor_reference
+        }
+        #[cfg(not(feature = "probe"))]
+        {
+            false
         }
     }
 

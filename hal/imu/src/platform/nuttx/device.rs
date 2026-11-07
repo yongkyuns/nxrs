@@ -72,13 +72,19 @@ impl<S: Sensor<Bus, Delay>> Device<S> {
         })?;
         let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
         let signal = Signal::new(irq, period);
-        Ok(Self {
+        let mut device = Self {
             sensor,
             signal,
             trace,
             cleaned: false,
             _lease: lease,
-        })
+        };
+        if device.trace.sensor_reference() {
+            if let Err(error) = device.sensor.enable_sensor_reference() {
+                return Err(device.cleanup().err().unwrap_or(error));
+            }
+        }
+        Ok(device)
     }
 
     pub(super) fn applied_config(&self) -> AppliedConfig {
