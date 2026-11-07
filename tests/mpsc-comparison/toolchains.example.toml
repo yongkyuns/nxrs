@@ -1,0 +1,22 @@
+# Copy outside the checkout and replace these paths. Nothing is downloaded by
+# bench.py. Put the Python environment's cmake/ninja on PATH via its bin directory.
+[pico2w]
+python = "/opt/mpsc/venv/bin/python"
+rustc = "/opt/mpsc/nightly-2025-09-15/bin/rustc"
+cross-prefix = "/opt/mpsc/arm-gnu-13.3/bin/arm-none-eabi-"
+zephyr = "/opt/mpsc/sources/zephyr"
+path = []
+[pico2w.modules]
+hal_rpi_pico = "/opt/mpsc/sources/hal_rpi_pico"
+cmsis_6 = "/opt/mpsc/sources/cmsis_6"
+
+[esp32s3]
+nuttx-tools = "/opt/mpsc/nuttx-tools" # Normal frontend bundle with downloads.sha256.
+python = "/opt/mpsc/venv/bin/python"
+rustc = "/opt/mpsc/esp-1.90.0.0/bin/rustc"
+cross-prefix = "/opt/mpsc/xtensa-esp-elf/bin/xtensa-esp32s3-elf-"
+zephyr = "/opt/mpsc/sources/zephyr"
+path = []
+[esp32s3.modules]
+hal_espressif = "/opt/mpsc/sources/hal_espressif"
+hal_xtensa = "/opt/mpsc/sources/hal_xtensa"

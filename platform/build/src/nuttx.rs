@@ -124,7 +124,7 @@ pub fn required(config: &str, requirements: &[String], forbid: &str) -> Result<(
     }
     Ok(())
 }
-fn standard() -> BTreeMap<String, String> {
+fn standard(profile: &Profile) -> BTreeMap<String, String> {
     let mut v = BTreeMap::new();
     for key in [
         "EXAMPLES_NXRS_STD_APP",
@@ -133,11 +133,14 @@ fn standard() -> BTreeMap<String, String> {
         "SCHED_WAITPID",
         "SCHED_HAVE_PARENT",
         "SCHED_CHILD_STATUS",
-        "NSH_DISABLEBG",
-        "NSH_ARGCAT",
         "TLS_GLOBAL_KEYS",
     ] {
         v.insert(key.into(), "y".into());
+    }
+    if profile.data.get("init").is_none() {
+        for key in ["NSH_DISABLEBG", "NSH_ARGCAT"] {
+            v.insert(key.into(), "y".into());
+        }
     }
     for (key, value) in [
         ("TLS_NELEM", "16"),
@@ -484,7 +487,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         values.insert(key.into(), "n".into());
         requirements.push(line(key, "n"));
     }
-    let standard = standard();
+    let standard = standard(p);
     requirements.extend(standard.iter().map(|(k, v)| line(k, v)));
     requirements.push("CONFIG_BUILD_FLAT=y".into());
     values.extend(standard);
@@ -1389,6 +1392,19 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn direct_application_init_does_not_require_a_shell() {
+        let mut profile = Profile {
+            data: json!({}),
+            sources: vec![],
+        };
+        assert_eq!(standard(&profile)["NSH_ARGCAT"], "y");
+        profile.data["init"] = json!({});
+        let settings = standard(&profile);
+        assert!(!settings.contains_key("NSH_ARGCAT"));
+        assert!(!settings.contains_key("NSH_DISABLEBG"));
+        assert_eq!(settings["TLS_GLOBAL_KEYS"], "y");
+    }
     #[test]
     fn product_iram_layout_is_staged_and_recorded_without_app_wiring() {
         let temp = crate::TempDir::new(&env::temp_dir()).unwrap();

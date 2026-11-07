@@ -1,5 +1,10 @@
 # Measuring Rust std in nxrs's event-driven core
 
+For future runs, use the maintained
+[`tests/mpsc-comparison`](../tests/mpsc-comparison/README.md) fixture and its
+`bench.py` build/run/replay entry point for ESP32-S3 and Pico 2 W. Keep each new
+cohort separate from the historical measurements below.
+
 nxrs is meant to let us write firmware with ordinary Rust: owned state, small
 typed messages, threads when work needs independent execution, and a blocking
 wait when there is nothing useful to do. The question behind this work was
@@ -415,14 +420,10 @@ residual flash-resident helpers; earlier placements remain separate controls.
 Equivalent executed operations, rather than equal compiled byte counts, defined
 the placement condition.
 
-`tests/mpsc-comparison/`, the base to which the retained fixture patches apply,
-is not included at this revision. Its recorded commit is not available from
-the public repository. A sanitized fixture and aggregate result bundle with
-per-case configuration, sample counts, distributions/counters, reporting scripts
-and image/source identities would make the physical tables independently
-reproducible without publishing device identifiers or flash backups. The host
-controls above do not fill that gap. The pinned campaign record retains the
-device restoration and test-image provenance details.
+The maintained fixture supports new comparisons using the same workload.
+The original frozen source, observer overlays, receipts and raw captures remain
+private. The pinned campaign record retains the original device restoration
+and test-image provenance details.
 
 [pr]: https://github.com/yongkyuns/nxrs/pull/272
 [campaign]: https://github.com/yongkyuns/nxrs/blob/3410313500a29d31c5c45d2183cd3bc599969ae7/docs/std-channel-performance.md

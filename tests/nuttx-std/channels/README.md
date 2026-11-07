@@ -16,6 +16,11 @@ device qualification. No installed SDK is changed.
 
 ## Physical measurement fixture
 
+New builds use the canonical
+[`tests/mpsc-comparison`](../../mpsc-comparison/README.md) fixture. The patches
+below document reproduction of the older frozen cohort; they are already
+incorporated in the maintained Rust workload.
+
 The [entry-selection patch](mpsc-fixture-entry.patch) applies to the frozen MPSC
 fixture at `a8a1b1baa05aeca76264e882ed31c3b2baa9973d`. Its executable entry selects
 std on NuttX and the native queue on Zephyr. The timed engine, arrival schedules,

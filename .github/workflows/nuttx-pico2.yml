@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/nuttx-std/**'
+      - 'tests/mpsc-comparison/**'
       - 'tests/tls/endpoint.rs'
       - 'tests/browser-threads/src/main.rs'
       - 'tests/browser-threads/Cargo.toml'
@@ -55,6 +56,7 @@ jobs:
           bash -n tests/nuttx-std/build.sh
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
+          RUSTUP_TOOLCHAIN=nightly-2025-09-15 python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py'
       - name: Build ordinary-main TLS endpoint image and compare target ABI
         shell: bash
         run: |

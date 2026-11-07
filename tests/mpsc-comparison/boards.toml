@@ -1,0 +1,22 @@
+# Matched within each board; cross-board optimization policies are different.
+[esp32s3]
+nuttx-platform = "wroom"
+cpu-hz = 240000000
+clock-hz = 240000000
+nuttx-target = "xtensa-esp32s3-nuttx"
+zephyr-target = "xtensa-esp32s3-none-elf"
+zephyr-board = "esp32s3_devkitm/esp32s3/procpu"
+opt-level = "2"
+lto = "false"
+modules = { hal_espressif = "cc81db00233af6020f2fea9fbb0d0098fb3d0d86", hal_xtensa = "60224c27bed1466287f0246ac04c902b92331c29" }
+
+[pico2w]
+nuttx-platform = "pico2w"
+cpu-hz = 150000000
+clock-hz = 1000000
+nuttx-target = "thumbv8m.main-nuttx-eabi"
+zephyr-target = "thumbv8m.main-none-eabi"
+zephyr-board = "rpi_pico2/rp2350a/m33_0/w"
+opt-level = "z"
+lto = "fat"
+modules = { hal_rpi_pico = "2e9dbf14fa56e5907aefb07e8e75010ec5210946", cmsis_6 = "1c1840af7a7e757d6e2fec3ddb0e5ce0dfcc93c8" }

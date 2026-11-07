@@ -1,0 +1,26 @@
+[workspace]
+[package]
+name = "nxrs-mpsc-comparison"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+[lib]
+name = "mpsc_comparison"
+crate-type = ["rlib", "staticlib"]
+[[bin]]
+name = "mpsc-comparison"
+path = "src/main.rs"
+[package.metadata.nxrs.firmware]
+bin = "mpsc-comparison"
+command = "mpsc_perf"
+priority = 100
+stack-size = 8192
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+debug = false
+strip = "none"

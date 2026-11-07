@@ -36,6 +36,7 @@ and retired investigation tools are not silently renumbered.
 | ESP32-S3 performance accounting | 0076 | Initialize hardware-counter conversion with the actual configured CPU frequency before scheduler accounting |
 | ESP32-S3 voluntary switching | 0106 | Build the full native context directly in flat single-core windowed-ABI builds; retain syscall switching for other targets and modes |
 | ESP32-S3 IRAM product layout | 0107 | Include an empty-by-default product linker fragment; the build frontend stages and hashes a profile-selected synchronization layout |
+| ESP32-S3 SIMPLE_BOOT image parsing | 0108 | Skip a declared ROM prefix digest before parsing flash-mapped segments |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps
