@@ -4,10 +4,10 @@ kind = "i2c"
 device = "/dev/i2c1"
 frequency = 100000
 
-[devices.imu]
+[devices.motion]
 compatible = "st,lsm6dso"
 bus = "alternate_i2c"
 address = 0x6a
 
-[devices.imu.wake]
+[devices.motion.wake]
 kind = "periodic"

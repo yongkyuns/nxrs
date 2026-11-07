@@ -238,6 +238,24 @@ This example becomes buildable only after LSM6DSO has its driver, IMU
 implementation, binding and tests. Overlays describe the attached hardware.
 They do not add support for an unimplemented device.
 
+A GNSS role references a receiver on a UART resource. The UART supplies its
+NuttX device path and baud rate. The receiver compatible selects the reusable
+UBX driver. The HAL owns event delivery and configuration rollback.
+
+~~~toml
+[resources.receiver_uart]
+kind = "uart"
+device = "/dev/ttyS1"
+baud = 38400
+
+[devices.navigation]
+compatible = "u-blox,neo-m9n"
+bus = "receiver_uart"
+
+[roles]
+gnss = "navigation"
+~~~
+
 Validate missing references, disabled/removed required devices, incompatible
 role assignments, duplicate physical endpoint/address claims, exclusive IRQ/CS
 claims and invalid resource requirements. Shared I2C buses are valid. Conflicting

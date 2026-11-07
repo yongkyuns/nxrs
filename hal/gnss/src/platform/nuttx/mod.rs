@@ -10,6 +10,8 @@ use std::{
 #[allow(unsafe_code)]
 mod ffi;
 
+include!(concat!(env!("OUT_DIR"), "/gnss_config.rs"));
+
 static OWNED: AtomicU8 = AtomicU8::new(0);
 struct Lease;
 impl Drop for Lease {
@@ -67,7 +69,7 @@ impl Device {
         }
         self.cleaned = true;
         let receiver = self.receiver.restore();
-        let port = self.receiver.io.port.restore();
+        let port = self.receiver.io_mut().port.restore();
         if receiver.is_err() || port.is_err() {
             OWNED.store(2, Ordering::Release);
         }
@@ -90,15 +92,11 @@ fn acquire() -> Result<Device, DeviceError> {
             }
         })?;
     let lease = Lease;
-    let path = option_env!("GNSS_DEVICE").ok_or(DeviceError::Unsupported)?;
-    let baud = option_env!("GNSS_BAUD")
-        .and_then(|b| b.parse::<u32>().ok())
-        .ok_or(DeviceError::Unsupported)?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .custom_flags(ffi::nonblocking_flag())
-        .open(path)
+        .open(DEVICE_PATH)
         .map_err(|_| DeviceError::Io)?;
     let mut saved = [0; 64];
     ffi::capture(file.as_raw_fd(), &mut saved).map_err(|_| DeviceError::Io)?;
@@ -107,7 +105,7 @@ fn acquire() -> Result<Device, DeviceError> {
         saved,
         restored: false,
     };
-    ffi::configure(port.file.as_raw_fd(), &port.saved, baud).map_err(|_| DeviceError::Io)?;
+    ffi::configure(port.file.as_raw_fd(), &port.saved, BAUD).map_err(|_| DeviceError::Io)?;
     // Port restores/closes before the lease can admit another receiver.
     let mut receiver = crate::receiver::Receiver::new(Serial {
         port,
@@ -131,14 +129,11 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     let mut device = acquire()?;
     let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();
-    let stack = option_env!("GNSS_STACK_BYTES")
-        .and_then(|v| v.parse().ok())
-        .ok_or(DeviceError::Unsupported)?;
-    Session::start(stack, cancel, sink, move |stop, emit| {
+    Session::start(STACK_BYTES, cancel, sink, move |stop, emit| {
         let origin = std::time::Instant::now();
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
-                if !readiness::wait(&device.receiver.io.port.file, &wake, ffi::wait)
+                if !readiness::wait(&device.receiver.io().port.file, &wake, ffi::wait)
                     .map_err(|_| DeviceError::Io)?
                 {
                     break;

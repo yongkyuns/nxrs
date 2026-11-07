@@ -8,6 +8,8 @@ use std::path::PathBuf;
 /// Checked-in capability-owned binding catalog embedded in the resolver.
 pub const BINDING_SCHEMA_PATH: &str = "hal/imu/bindings/i2c.toml";
 const CATALOG_SOURCE: &str = include_str!("../../../hal/imu/bindings/i2c.toml");
+pub const GNSS_BINDING_SCHEMA_PATH: &str = "hal/gnss/bindings/uart.toml";
+const GNSS_CATALOG_SOURCE: &str = include_str!("../../../hal/gnss/bindings/uart.toml");
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -24,6 +26,12 @@ pub enum ImuModel {
     Lsm6dso,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum GnssModel {
+    NeoM9n,
+}
+
 /// Normalized graph. Maps serialize in key order and endpoint paths are normalized.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Composition {
@@ -35,6 +43,9 @@ pub struct Composition {
     #[serde(skip_serializing_if = "Option::is_none")]
     imu_model: Option<ImuModel>,
     stack_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gnss_model: Option<GnssModel>,
+    gnss_stack_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     simulation: Option<SimulationSpec>,
 }
@@ -66,6 +77,14 @@ pub struct ImuBinding<'a> {
     pub stack_bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GnssBinding<'a> {
+    pub model: GnssModel,
+    pub path: &'a str,
+    pub baud: u32,
+    pub stack_bytes: u64,
+}
+
 impl Composition {
     pub fn imu(&self) -> Option<ImuBinding<'_>> {
         let device_id = self.roles.get("imu")?;
@@ -77,20 +96,34 @@ impl Composition {
         else {
             return None;
         };
-        let irq_path = match &device.wake {
+        let irq_path = match device.wake.as_ref()? {
             Wake::Periodic {} => None,
             Wake::Interrupt { resource } => match self.resources.get(resource)? {
                 Resource::GpioInterrupt { device, .. } => Some(device.as_str()),
-                Resource::I2c { .. } => return None,
+                Resource::I2c { .. } | Resource::Uart { .. } => return None,
             },
         };
         Some(ImuBinding {
             model: self.imu_model?,
             path,
-            address: device.address,
+            address: device.address?,
             frequency: *frequency,
             irq_path,
             stack_bytes: self.stack_bytes,
+        })
+    }
+
+    pub fn gnss(&self) -> Option<GnssBinding<'_>> {
+        let device_id = self.roles.get("gnss")?;
+        let device = self.devices.get(device_id)?;
+        let Resource::Uart { device: path, baud } = self.resources.get(&device.bus)? else {
+            return None;
+        };
+        Some(GnssBinding {
+            model: self.gnss_model?,
+            path,
+            baud: *baud,
+            stack_bytes: self.gnss_stack_bytes,
         })
     }
 
@@ -108,6 +141,7 @@ impl Composition {
 enum Resource {
     I2c { device: String, frequency: u32 },
     GpioInterrupt { device: String, trigger: Trigger },
+    Uart { device: String, baud: u32 },
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -121,8 +155,12 @@ enum Trigger {
 struct Device {
     compatible: String,
     bus: String,
-    address: u8,
-    wake: Wake,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<u8>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wake: Option<Wake>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -164,18 +202,43 @@ struct CatalogBinding {
     interrupt: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GnssCatalog {
+    version: u32,
+    binding: Vec<GnssCatalogBinding>,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GnssCatalogBinding {
+    compatible: String,
+    bus: String,
+    model: GnssModel,
+    bauds: Vec<u32>,
+}
+
 /// Resolve the IMU part of a profile. `imu_provider` is its selected HAL
 /// implementation (`nuttx`, `mock`, or `none`).
 pub fn resolve(data: &Value, imu_provider: &str) -> Result<Option<Composition>> {
-    resolve_with_origins(data, imu_provider, &BTreeMap::new())
+    resolve_with_providers_and_origins(data, imu_provider, "none", &BTreeMap::new())
 }
 
 /// Resolve with source locations for profile fields. Keys use dotted paths and
 /// may include tombstones for removed records, allowing dangling references to
 /// point back to the overlay that removed their target.
+#[cfg(test)]
 pub(crate) fn resolve_with_origins(
     data: &Value,
     imu_provider: &str,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<Option<Composition>> {
+    resolve_with_providers_and_origins(data, imu_provider, "none", origins)
+}
+
+pub(crate) fn resolve_with_providers_and_origins(
+    data: &Value,
+    imu_provider: &str,
+    gnss_provider: &str,
     origins: &BTreeMap<String, PathBuf>,
 ) -> Result<Option<Composition>> {
     let has_graph_fields = ["resources", "devices", "roles"]
@@ -209,10 +272,17 @@ pub(crate) fn resolve_with_origins(
                     "nuttx IMU requires device configuration",
                 ));
             }
+            if let Some(gnss) = data.get("gnss") {
+                return resolve_legacy_gnss(gnss, gnss_provider, origins).map(Some);
+            }
             return Ok(None);
         };
         let catalog = catalog()?;
-        return resolve_legacy(legacy, imu_provider, &catalog, origins).map(Some);
+        let mut graph = resolve_legacy(legacy, imu_provider, &catalog, origins)?;
+        if let Some(gnss) = data.get("gnss") {
+            append_legacy_gnss(&mut graph, gnss, gnss_provider, origins)?;
+        }
+        return Ok(Some(graph));
     };
 
     let catalog = catalog()?;
@@ -378,6 +448,7 @@ pub(crate) fn resolve_with_origins(
     }
     let stack_bytes = crate::profile::sensor_stack(legacy.unwrap_or(&Value::Null))
         .map_err(|error| diagnostic(origins, "imu.stack-bytes", &error))?;
+    let legacy_gnss = data.get("gnss");
     if header.mode == Mode::Simulation {
         return Ok(Some(Composition {
             version: header.version,
@@ -387,6 +458,8 @@ pub(crate) fn resolve_with_origins(
             roles: BTreeMap::new(),
             imu_model: None,
             stack_bytes,
+            gnss_model: None,
+            gnss_stack_bytes: 16384,
             simulation,
         }));
     }
@@ -410,20 +483,81 @@ pub(crate) fn resolve_with_origins(
     )?;
     validate_map_sizes(&resources, &devices, &roles)
         .map_err(|e| diagnostic(origins, "resources", &e))?;
-    let resources = normalize_resources(resources, origins)?;
+    let mut resources = normalize_resources(resources, origins)?;
+    let mut devices = devices;
+    let mut roles = roles;
+    let legacy_gnss_physical =
+        legacy_gnss.filter(|gnss| gnss.get("device").is_some() || gnss.get("baud").is_some());
+    if let Some(gnss) = legacy_gnss_physical {
+        if roles.contains_key("gnss") {
+            return Err(diagnostic(
+                origins,
+                "gnss",
+                "legacy GNSS physical fields cannot be combined with roles.gnss",
+            ));
+        }
+        let legacy_binding = parse_legacy_gnss(gnss, gnss_provider, origins)?;
+        if resources.contains_key("legacy_uart") || devices.contains_key("legacy_gnss") {
+            return Err(diagnostic(
+                origins,
+                "gnss",
+                "legacy GNSS identifiers conflict with declared graph IDs",
+            ));
+        }
+        resources.insert(
+            "legacy_uart".into(),
+            Resource::Uart {
+                device: legacy_binding.path,
+                baud: legacy_binding.baud,
+            },
+        );
+        devices.insert(
+            "legacy_gnss".into(),
+            Device {
+                compatible: "u-blox,neo-m9n".into(),
+                bus: "legacy_uart".into(),
+                address: None,
+                wake: None,
+            },
+        );
+        roles.insert("gnss".into(), "legacy_gnss".into());
+    }
+    validate_map_sizes(&resources, &devices, &roles)
+        .map_err(|e| diagnostic(origins, "resources", &e))?;
     validate_ids(&resources, &devices, &roles, origins)?;
     validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
-    validate_provider_mode(imu_provider, header.mode, &devices, &roles)
-        .map_err(|e| diagnostic(origins, "composition.mode", &e))?;
-    let imu_model = validate_graph(&catalog, &resources, &devices, &roles, origins)?;
+    validate_imu_role(imu_provider, &roles, origins)?;
+    if gnss_provider == "nuttx" && !roles.contains_key("gnss") {
+        return Err(diagnostic(
+            origins,
+            "roles.gnss",
+            "nuttx GNSS requires a default GNSS device",
+        ));
+    }
+    if roles.contains_key("gnss") && gnss_provider != "nuttx" {
+        return Err(diagnostic(
+            origins,
+            "roles.gnss",
+            "hardware GNSS composition requires the nuttx provider",
+        ));
+    }
+    let (imu_model, gnss_model) = validate_graph(&catalog, &resources, &devices, &roles, origins)?;
+    let gnss_stack_bytes = if let Some(config) = legacy_gnss {
+        crate::profile::sensor_stack(config)
+            .map_err(|e| diagnostic(origins, "gnss.stack-bytes", &e))?
+    } else {
+        16384
+    };
     let graph = Composition {
         version: header.version,
         mode: header.mode,
         resources,
         devices,
         roles,
-        imu_model: Some(imu_model),
+        imu_model,
         stack_bytes,
+        gnss_model,
+        gnss_stack_bytes,
         simulation,
     };
     Ok(Some(graph))
@@ -491,24 +625,142 @@ fn resolve_legacy(
         Device {
             compatible: "bosch,bmi270".into(),
             bus: "legacy_i2c".into(),
-            address,
-            wake,
+            address: Some(address),
+            wake: Some(wake),
         },
     );
     let roles = BTreeMap::from([("imu".into(), "imu".into())]);
-    validate_provider_mode(provider, Mode::Hardware, &devices, &roles)?;
-    let imu_model = validate_graph(catalog, &resources, &devices, &roles, origins)?;
+    validate_imu_role(provider, &roles, origins)?;
+    let (imu_model, _) = validate_graph(catalog, &resources, &devices, &roles, origins)?;
     let graph = Composition {
         version: 1,
         mode: Mode::Hardware,
         resources,
         devices,
         roles,
-        imu_model: Some(imu_model),
+        imu_model,
         stack_bytes: crate::profile::sensor_stack(value)?,
+        gnss_model: None,
+        gnss_stack_bytes: 16384,
         simulation: None,
     };
     Ok(graph)
+}
+
+struct LegacyGnss {
+    path: String,
+    baud: u32,
+    stack_bytes: u64,
+}
+fn parse_legacy_gnss(
+    value: &Value,
+    provider: &str,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<LegacyGnss> {
+    if provider != "nuttx" {
+        return Err(diagnostic(
+            origins,
+            "gnss",
+            "GNSS device configuration requires its NuttX binding",
+        ));
+    }
+    if !keys(value, &["device", "baud"], &["stack-bytes"]) {
+        return Err(diagnostic(origins, "gnss", "invalid legacy GNSS binding"));
+    }
+    let path = path(&value["device"]).map_err(|e| diagnostic(origins, "gnss.device", &e))?;
+    let baud = number(&value["baud"], "GNSS baud")
+        .map_err(|e| diagnostic(origins, "gnss.baud", &e))?
+        .try_into()
+        .map_err(|_| diagnostic(origins, "gnss.baud", "GNSS baud is out of range"))?;
+    let catalog: GnssCatalog = toml::from_str(GNSS_CATALOG_SOURCE)
+        .map_err(|e| format!("invalid GNSS binding catalog: {e}"))?;
+    if catalog.version != 1
+        || !catalog
+            .binding
+            .iter()
+            .any(|b| b.compatible == "u-blox,neo-m9n" && b.bus == "uart" && b.bauds.contains(&baud))
+    {
+        return Err(diagnostic(
+            origins,
+            "gnss.baud",
+            &format!("unsupported GNSS UART baud {baud}"),
+        ));
+    }
+    let stack_bytes = crate::profile::sensor_stack(value)
+        .map_err(|e| diagnostic(origins, "gnss.stack-bytes", &e))?;
+    Ok(LegacyGnss {
+        path,
+        baud,
+        stack_bytes,
+    })
+}
+fn append_legacy_gnss(
+    graph: &mut Composition,
+    value: &Value,
+    provider: &str,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<()> {
+    if graph.roles.contains_key("gnss") {
+        return Err(diagnostic(
+            origins,
+            "gnss",
+            "legacy GNSS physical fields cannot be combined with roles.gnss",
+        ));
+    }
+    let binding = parse_legacy_gnss(value, provider, origins)?;
+    graph.resources.insert(
+        "legacy_uart".into(),
+        Resource::Uart {
+            device: binding.path,
+            baud: binding.baud,
+        },
+    );
+    graph.devices.insert(
+        "legacy_gnss".into(),
+        Device {
+            compatible: "u-blox,neo-m9n".into(),
+            bus: "legacy_uart".into(),
+            address: None,
+            wake: None,
+        },
+    );
+    graph.roles.insert("gnss".into(), "legacy_gnss".into());
+    graph.gnss_model = Some(GnssModel::NeoM9n);
+    graph.gnss_stack_bytes = binding.stack_bytes;
+    Ok(())
+}
+fn resolve_legacy_gnss(
+    value: &Value,
+    provider: &str,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<Composition> {
+    let binding = parse_legacy_gnss(value, provider, origins)?;
+    Ok(Composition {
+        version: 1,
+        mode: Mode::Hardware,
+        resources: BTreeMap::from([(
+            "legacy_uart".into(),
+            Resource::Uart {
+                device: binding.path,
+                baud: binding.baud,
+            },
+        )]),
+        devices: BTreeMap::from([(
+            "legacy_gnss".into(),
+            Device {
+                compatible: "u-blox,neo-m9n".into(),
+                bus: "legacy_uart".into(),
+                address: None,
+                wake: None,
+            },
+        )]),
+        roles: BTreeMap::from([("gnss".into(), "legacy_gnss".into())]),
+        imu_model: None,
+        stack_bytes: 16384,
+        gnss_model: Some(GnssModel::NeoM9n),
+        gnss_stack_bytes: binding.stack_bytes,
+        simulation: None,
+    })
 }
 
 fn validate_graph(
@@ -517,7 +769,7 @@ fn validate_graph(
     devices: &BTreeMap<String, Device>,
     roles: &BTreeMap<String, String>,
     origins: &BTreeMap<String, PathBuf>,
-) -> Result<ImuModel> {
+) -> Result<(Option<ImuModel>, Option<GnssModel>)> {
     if catalog.version != 1 {
         return Err(diagnostic(
             origins,
@@ -541,14 +793,21 @@ fn validate_graph(
                     }
                     device
                 }
-                Resource::GpioInterrupt { device, .. } => device,
+                Resource::GpioInterrupt { device, .. } | Resource::Uart { device, .. } => device,
             };
         if let Some((previous_id, previous)) = endpoints.insert(path, (id, resource)) {
-            if previous != resource {
+            if previous != resource
+                || matches!(previous, Resource::Uart { .. })
+                || matches!(resource, Resource::Uart { .. })
+            {
                 let (related, message) = match (previous, resource) {
                     (Resource::I2c { .. }, Resource::I2c { .. }) => (
                         format!("resources.{previous_id}.frequency"),
                         format!("conflicting I2C frequencies for endpoint {path}"),
+                    ),
+                    (Resource::Uart { .. }, _) | (_, Resource::Uart { .. }) => (
+                        format!("resources.{previous_id}.kind"),
+                        format!("exclusive UART endpoint {path} is claimed more than once"),
                     ),
                     _ => (
                         format!("resources.{previous_id}.kind"),
@@ -565,19 +824,96 @@ fn validate_graph(
         }
     }
 
+    let gnss_catalog: GnssCatalog = toml::from_str(GNSS_CATALOG_SOURCE)
+        .map_err(|e| format!("invalid GNSS binding catalog: {e}"))?;
+    if gnss_catalog.version != 1 {
+        return Err("unsupported GNSS binding catalog version".into());
+    }
     let mut physical_claims = BTreeMap::new();
     let mut irq_claims = BTreeMap::new();
+    let mut imu_model = None;
+    let mut gnss_model = None;
     for (id, device) in devices {
+        let is_gnss = gnss_catalog
+            .binding
+            .iter()
+            .any(|b| b.compatible == device.compatible);
+        if is_gnss {
+            let binding = gnss_catalog
+                .binding
+                .iter()
+                .find(|b| b.compatible == device.compatible && b.bus == "uart")
+                .ok_or_else(|| {
+                    diagnostic(
+                        origins,
+                        &format!("devices.{id}.compatible"),
+                        "unsupported GNSS compatible/bus binding",
+                    )
+                })?;
+            if device.address.is_some() || device.wake.is_some() {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}"),
+                    "GNSS device does not accept address or wake",
+                ));
+            }
+            let bus = resources.get(&device.bus).ok_or_else(|| {
+                diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.bus"),
+                    &[&format!("resources.{}", device.bus)],
+                    &format!("references unknown bus {}", device.bus),
+                )
+            })?;
+            let Resource::Uart { device: path, baud } = bus else {
+                return Err(diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.bus"),
+                    &[&format!("resources.{}.kind", device.bus)],
+                    "requires a UART bus",
+                ));
+            };
+            if !binding.bauds.contains(baud) {
+                return Err(diagnostic(
+                    origins,
+                    &format!("resources.{}.baud", device.bus),
+                    &format!("unsupported GNSS UART baud {baud}"),
+                ));
+            }
+            if let Some(previous) =
+                physical_claims.insert((path.as_str(), *baud), (id.as_str(), device.bus.as_str()))
+            {
+                return Err(diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.bus"),
+                    &[&format!("devices.{}.bus", previous.0)],
+                    "conflicting exclusive UART device claim",
+                ));
+            }
+            gnss_model = Some(binding.model);
+            continue;
+        }
         let binding = binding_for(catalog, &device.compatible, "i2c")
             .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
-        if !binding.addresses.contains(&device.address) {
+        let address = device.address.ok_or_else(|| {
+            diagnostic(
+                origins,
+                &format!("devices.{id}.address"),
+                "IMU device requires address",
+            )
+        })?;
+        if !binding.addresses.contains(&address) {
             return Err(diagnostic(
                 origins,
                 &format!("devices.{id}.address"),
-                &format!(
-                    "unsupported {} address {:#04x}",
-                    device.compatible, device.address
-                ),
+                &format!("unsupported {} address {:#04x}", device.compatible, address),
+            ));
+        }
+        if device.wake.is_none() {
+            return Err(diagnostic(
+                origins,
+                &format!("devices.{id}.wake"),
+                "IMU device requires wake configuration",
             ));
         }
         let bus = resources.get(&device.bus).ok_or_else(|| {
@@ -611,7 +947,7 @@ fn validate_graph(
             ));
         }
         if let Some((previous_id, previous_bus)) =
-            physical_claims.insert((path.as_str(), device.address), (id, &device.bus))
+            physical_claims.insert((path.as_str(), address as u32), (id, &device.bus))
         {
             return Err(diagnostic_related(
                 origins,
@@ -626,7 +962,7 @@ fn validate_graph(
                 "conflicting physical device address claim",
             ));
         }
-        if let Wake::Interrupt { resource } = &device.wake {
+        if let Some(Wake::Interrupt { resource }) = &device.wake {
             if !binding.interrupt {
                 return Err(diagnostic(
                     origins,
@@ -655,7 +991,7 @@ fn validate_graph(
                         ));
                     }
                 }
-                Resource::I2c { .. } => {
+                Resource::I2c { .. } | Resource::Uart { .. } => {
                     return Err(diagnostic_related(
                         origins,
                         &format!("devices.{id}.wake.resource"),
@@ -666,42 +1002,66 @@ fn validate_graph(
             }
         }
     }
-    let role_device = roles.get("imu").ok_or_else(|| {
-        diagnostic(
+    if let Some(role_device) = roles.get("imu") {
+        let device = devices.get(role_device).ok_or_else(|| {
+            diagnostic_related(
+                origins,
+                "roles.imu",
+                &[&format!("devices.{role_device}")],
+                &format!("references unknown device {role_device}"),
+            )
+        })?;
+        imu_model = Some(binding_for(catalog, &device.compatible, "i2c")?.model);
+    }
+    if let Some(role_device) = roles.get("gnss") {
+        let device = devices.get(role_device).ok_or_else(|| {
+            diagnostic_related(
+                origins,
+                "roles.gnss",
+                &[&format!("devices.{role_device}")],
+                &format!("references unknown device {role_device}"),
+            )
+        })?;
+        let binding = gnss_catalog
+            .binding
+            .iter()
+            .find(|binding| binding.compatible == device.compatible && binding.bus == "uart")
+            .ok_or_else(|| {
+                diagnostic(
+                    origins,
+                    "roles.gnss",
+                    "role must select a supported GNSS device",
+                )
+            })?;
+        gnss_model = Some(binding.model);
+    }
+    if roles.is_empty() {
+        return Err(diagnostic(
             origins,
-            "roles.imu",
-            "composition must assign the default IMU device",
-        )
-    })?;
-    let device = devices.get(role_device).ok_or_else(|| {
-        diagnostic_related(
-            origins,
-            "roles.imu",
-            &[&format!("devices.{role_device}")],
-            &format!("references unknown device {role_device}"),
-        )
-    })?;
-    Ok(binding_for(catalog, &device.compatible, "i2c")?.model)
+            "roles",
+            "composition requires at least one supported role",
+        ));
+    }
+    Ok((imu_model, gnss_model))
 }
 
-fn validate_provider_mode(
+fn validate_imu_role(
     provider: &str,
-    mode: Mode,
-    devices: &BTreeMap<String, Device>,
     roles: &BTreeMap<String, String>,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<()> {
-    if mode == Mode::Simulation {
-        if provider == "nuttx" || !devices.is_empty() || !roles.is_empty() {
-            return Err("simulation composition cannot select a physical IMU provider or claim physical devices".into());
-        }
-        if provider == "mock" {
-            return Err("simulation composition has no implemented mock IMU source".into());
-        }
-        return Err("simulation composition has no implemented IMU source".into());
+    if provider == "nuttx" && !roles.contains_key("imu") {
+        return Err(diagnostic(
+            origins,
+            "roles.imu",
+            "nuttx IMU requires the default IMU device",
+        ));
     }
-    if provider != "nuttx" {
-        return Err(format!(
-            "{mode:?} IMU composition requires the nuttx provider"
+    if roles.contains_key("imu") && provider != "nuttx" {
+        return Err(diagnostic(
+            origins,
+            "roles.imu",
+            "physical IMU composition requires the nuttx provider",
         ));
     }
     Ok(())
@@ -734,6 +1094,9 @@ fn catalog() -> Result<Catalog> {
 /// Digest of the exact checked-in schema embedded into this build-support crate.
 pub(crate) fn binding_schema_digest() -> String {
     crate::hash_bytes(CATALOG_SOURCE.as_bytes())
+}
+pub(crate) fn gnss_binding_schema_digest() -> String {
+    crate::hash_bytes(GNSS_CATALOG_SOURCE.as_bytes())
 }
 
 fn diagnostic(origins: &BTreeMap<String, PathBuf>, field: &str, message: &str) -> String {
@@ -780,7 +1143,9 @@ fn normalize_resources(
 ) -> Result<BTreeMap<String, Resource>> {
     for (id, resource) in &mut resources {
         match resource {
-            Resource::I2c { device, .. } | Resource::GpioInterrupt { device, .. } => {
+            Resource::I2c { device, .. }
+            | Resource::GpioInterrupt { device, .. }
+            | Resource::Uart { device, .. } => {
                 *device = normalized_path(device).map_err(|error| {
                     diagnostic(origins, &format!("resources.{id}.device"), &error)
                 })?
@@ -818,7 +1183,7 @@ fn validate_ids(
 }
 fn validate_roles(roles: &BTreeMap<String, String>) -> Result<()> {
     for role in roles.keys() {
-        if role != "imu" {
+        if role != "imu" && role != "gnss" {
             return Err(format!("unsupported capability role: {role}"));
         }
     }
@@ -908,6 +1273,143 @@ mod tests {
             "roles": {"imu":"motion"},
             "imu": {"stack-bytes":16384}
         })
+    }
+
+    fn gnss_profile() -> Value {
+        json!({
+            "composition":{"version":1,"mode":"hardware"},
+            "resources":{"uart1":{"kind":"uart","device":"/dev//ttyS1","baud":38400}},
+            "devices":{"navigation":{"compatible":"u-blox,neo-m9n","bus":"uart1"}},
+            "roles":{"gnss":"navigation"}
+        })
+    }
+
+    #[test]
+    fn legacy_and_v1_resolve_to_the_same_gnss_binding() {
+        let legacy = json!({"gnss":{"device":"/dev//ttyS1","baud":38400,"stack-bytes":16384}});
+        let old = resolve_with_providers_and_origins(&legacy, "none", "nuttx", &BTreeMap::new())
+            .unwrap()
+            .unwrap();
+        let versioned =
+            resolve_with_providers_and_origins(&gnss_profile(), "none", "nuttx", &BTreeMap::new())
+                .unwrap()
+                .unwrap();
+        assert_eq!(old.gnss(), versioned.gnss());
+        assert_eq!(
+            versioned.gnss().unwrap(),
+            GnssBinding {
+                model: GnssModel::NeoM9n,
+                path: "/dev/ttyS1",
+                baud: 38400,
+                stack_bytes: 16384
+            }
+        );
+        assert_eq!(old.imu(), None);
+    }
+
+    #[test]
+    fn composes_imu_and_gnss_roles_and_translates_legacy_gnss_overlay() {
+        let mut joint = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        joint["resources"]["uart1"] = json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
+        joint["devices"]["navigation"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart1"});
+        joint["roles"]["gnss"] = json!("navigation");
+        let binding =
+            resolve_with_providers_and_origins(&joint, "nuttx", "nuttx", &BTreeMap::new())
+                .unwrap()
+                .unwrap();
+        assert!(binding.imu().is_some());
+        assert_eq!(binding.gnss().unwrap().path, "/dev/ttyS1");
+
+        let legacy = json!({"composition":{"version":1,"mode":"hardware"},"resources":{"i2c":{"kind":"i2c","device":"/dev/i2c0","frequency":400000}},"devices":{"motion":{"compatible":"bosch,bmi270","bus":"i2c","address":104,"wake":{"kind":"periodic"}}},"roles":{"imu":"motion"},"imu":{"stack-bytes":16384},"gnss":{"device":"/dev/ttyS1","baud":38400}});
+        let binding =
+            resolve_with_providers_and_origins(&legacy, "nuttx", "nuttx", &BTreeMap::new())
+                .unwrap()
+                .unwrap();
+        assert_eq!(binding.gnss().unwrap().baud, 38400);
+    }
+
+    #[test]
+    fn rejects_invalid_gnss_graphs_and_double_uart_claims() {
+        let mut wrong_device = gnss_profile();
+        wrong_device["devices"]["navigation"]["compatible"] = json!("unknown,receiver");
+        assert!(resolve_with_providers_and_origins(
+            &wrong_device,
+            "none",
+            "nuttx",
+            &BTreeMap::new()
+        )
+        .unwrap_err()
+        .contains("unsupported"));
+        let mut wrong_bus = gnss_profile();
+        wrong_bus["resources"]["uart1"]["kind"] = json!("i2c");
+        wrong_bus["resources"]["uart1"]["frequency"] = json!(400000);
+        wrong_bus["resources"]["uart1"]
+            .as_object_mut()
+            .unwrap()
+            .remove("baud");
+        assert!(
+            resolve_with_providers_and_origins(&wrong_bus, "none", "nuttx", &BTreeMap::new())
+                .unwrap_err()
+                .contains("requires a UART")
+        );
+        let mut missing_bus = gnss_profile();
+        missing_bus["devices"]["navigation"]["bus"] = json!("absent");
+        assert!(resolve_with_providers_and_origins(
+            &missing_bus,
+            "none",
+            "nuttx",
+            &BTreeMap::new()
+        )
+        .unwrap_err()
+        .contains("unknown bus"));
+        let mut baud = gnss_profile();
+        baud["resources"]["uart1"]["baud"] = json!(12345);
+        assert!(
+            resolve_with_providers_and_origins(&baud, "none", "nuttx", &BTreeMap::new())
+                .unwrap_err()
+                .contains("baud")
+        );
+        let mut alias = gnss_profile();
+        alias["resources"]["uart_alias"] =
+            json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
+        alias["devices"]["another"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart_alias"});
+        assert!(
+            resolve_with_providers_and_origins(&alias, "none", "nuttx", &BTreeMap::new())
+                .unwrap_err()
+                .contains("exclusive UART")
+        );
+        let mut unsupported_role = gnss_profile();
+        unsupported_role["roles"]["radio"] = json!("navigation");
+        assert!(resolve_with_providers_and_origins(
+            &unsupported_role,
+            "none",
+            "nuttx",
+            &BTreeMap::new()
+        )
+        .unwrap_err()
+        .contains("unsupported capability role"));
+        assert!(resolve_with_providers_and_origins(
+            &gnss_profile(),
+            "none",
+            "none",
+            &BTreeMap::new()
+        )
+        .unwrap_err()
+        .contains("nuttx provider"));
+        let mut legacy_mix = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        legacy_mix["resources"]["uart1"] =
+            json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
+        legacy_mix["devices"]["navigation"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart1"});
+        legacy_mix["roles"]["gnss"] = json!("navigation");
+        legacy_mix["gnss"] = json!({"device":"/dev/ttyS1","baud":38400});
+        assert!(resolve_with_providers_and_origins(
+            &legacy_mix,
+            "nuttx",
+            "nuttx",
+            &BTreeMap::new()
+        )
+        .unwrap_err()
+        .contains("cannot be combined"));
     }
 
     #[test]
@@ -1101,6 +1603,10 @@ mod tests {
         assert_eq!(
             binding_schema_digest(),
             crate::hash_bytes(CATALOG_SOURCE.as_bytes())
+        );
+        assert_eq!(
+            gnss_binding_schema_digest(),
+            crate::hash_bytes(GNSS_CATALOG_SOURCE.as_bytes())
         );
     }
 

@@ -71,8 +71,8 @@ fn main() {
     let patch = root.join("alternate.toml");
     fs::write(
         &patch,
-        "[resources.legacy_i2c]\ndevice = \"/dev/i2c1\"\nfrequency = 100000\n\
-         [devices.imu]\naddress = 105\n",
+        "[resources.sensor_bus]\ndevice = \"/dev/i2c1\"\nfrequency = 100000\n\
+         [devices.motion]\naddress = 105\n",
     )
     .unwrap();
     let replacement = sdk.join("tests/host/fixtures/lsm6dso-overlay.toml");
