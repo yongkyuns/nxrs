@@ -1,9 +1,10 @@
 //! One resolver for CLI builds and HAL build scripts.
 use crate::{
     composition::{self, Composition, ImuModel},
-    read, Result,
+    hash_bytes, overlay, read, Result,
 };
 use regex::Regex;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -31,6 +32,23 @@ pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
 pub struct Profile {
     pub data: Value,
     pub sources: Vec<PathBuf>,
+    inputs: Vec<Input>,
+    origins: overlay::Origins,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Input {
+    path: PathBuf,
+    kind: InputKind,
+    sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum InputKind {
+    Profile,
+    DeclaredOverlay,
+    CommandLineOverlay,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detector {
@@ -41,9 +59,21 @@ pub struct Detector {
 }
 
 pub fn manifest(path: &Path) -> Result<Value> {
+    parse_manifest(path, &read(path)?)
+}
+fn parse_manifest(path: &Path, input: &str) -> Result<Value> {
     let value: toml::Value =
-        toml::from_str(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))?;
+        toml::from_str(input).map_err(|e| format!("{}: {e}", path.display()))?;
     serde_json::to_value(value).map_err(|e| e.to_string())
+}
+fn read_input(path: PathBuf, kind: InputKind) -> Result<(Value, Input)> {
+    if path.to_str().is_none_or(|s| s.contains(['\r', '\n'])) {
+        return Err(format!("invalid profile input path {}", path.display()));
+    }
+    let contents = read(&path)?;
+    let data = parse_manifest(&path, &contents)?;
+    let sha256 = hash_bytes(contents.as_bytes());
+    Ok((data, Input { path, kind, sha256 }))
 }
 fn matches(value: &str, pattern: &str) -> bool {
     Regex::new(pattern).expect("static pattern").is_match(value)
@@ -91,15 +121,70 @@ pub fn profile_path(root: &Path, name: &str) -> Result<PathBuf> {
     paths[0].canonicalize().map_err(|e| e.to_string())
 }
 impl Profile {
-    pub fn resolve(root: &Path, name: &str) -> Result<Self> {
-        Self::inherit(root, name, &[])
+    /// Construct a profile from existing data for inspection and host fixtures.
+    pub fn from_data(data: Value, sources: Vec<PathBuf>) -> Self {
+        let origins = sources
+            .last()
+            .map(|path| (String::new(), path.clone()))
+            .into_iter()
+            .collect();
+        Self {
+            data,
+            sources,
+            inputs: Vec::new(),
+            origins,
+        }
     }
-    fn inherit(root: &Path, name: &str, chain: &[String]) -> Result<Self> {
+
+    pub fn resolve(root: &Path, name: &str) -> Result<Self> {
+        Self::resolve_with_overlays(root, name, &[])
+    }
+
+    pub fn resolve_with_overlays(root: &Path, name: &str, cli: &[PathBuf]) -> Result<Self> {
+        let mut declared = Vec::new();
+        let mut profile = Self::inherit(root, name, &[], &mut declared)?;
+        if declared.len() + cli.len() > 64 {
+            return Err("at most 64 overlays can be selected for a profile".into());
+        }
+        if (!declared.is_empty() || !cli.is_empty()) && profile.data.get("composition").is_none() {
+            profile.translate_legacy_overlay_base()?;
+        }
+        for (path, kind) in declared
+            .into_iter()
+            .map(|path| (path, InputKind::DeclaredOverlay))
+            .chain(
+                cli.iter()
+                    .map(|path| (root.join(path), InputKind::CommandLineOverlay)),
+            )
+        {
+            let canonical = path
+                .canonicalize()
+                .map_err(|error| format!("overlay {}: {error}", path.display()))?;
+            let (patch, input) = read_input(canonical, kind)?;
+            overlay::merge(
+                &mut profile.data,
+                &patch,
+                &input.path,
+                &mut profile.origins,
+                true,
+            )?;
+            profile.inputs.push(input);
+        }
+        profile.validate_resources()?;
+        Ok(profile)
+    }
+
+    fn inherit(
+        root: &Path,
+        name: &str,
+        chain: &[String],
+        declared: &mut Vec<PathBuf>,
+    ) -> Result<Self> {
         if chain.len() >= 16 || chain.iter().any(|s| s == name) {
             return Err(format!("platform inheritance cycle/depth: {name}"));
         }
         let path = profile_path(root, name)?;
-        let mut child = manifest(&path)?;
+        let (mut child, input) = read_input(path.clone(), InputKind::Profile)?;
         if child.get("hal-features").is_some() {
             return Err("retired hal-features; platform must own [hal] bindings".into());
         }
@@ -108,13 +193,24 @@ impl Profile {
             let parent = parent.as_str().ok_or("extends must name one platform")?;
             let mut chain = chain.to_vec();
             chain.push(name.into());
-            Self::inherit(root, parent, &chain)?
+            Self::inherit(root, parent, &chain, declared)?
         } else {
-            Self {
-                data: json!({"hal":{}}),
-                sources: vec![],
-            }
+            Self::from_data(json!({"hal":{}}), Vec::new())
         };
+        if let Some(overlays) = child.as_object_mut().unwrap().remove("overlays") {
+            let names = overlays
+                .as_array()
+                .ok_or_else(|| format!("{}: overlays must be a list of paths", path.display()))?;
+            for entry in names {
+                let name = entry
+                    .as_str()
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| {
+                        format!("{}: overlay path must be a nonempty string", path.display())
+                    })?;
+                declared.push(path.parent().unwrap().join(name));
+            }
+        }
         let bindings = child
             .as_object_mut()
             .unwrap()
@@ -124,11 +220,31 @@ impl Profile {
         for (k, v) in bindings {
             resolved.data["hal"][k] = v.clone();
         }
+        overlay::merge(
+            &mut resolved.data,
+            &child,
+            &path,
+            &mut resolved.origins,
+            false,
+        )?;
         for (k, v) in child.as_object().unwrap() {
-            resolved.data[k] = v.clone();
+            match k.as_str() {
+                "resources" | "devices" | "roles" => {}
+                "remove-resources" | "remove-devices" | "remove-roles" => {
+                    return Err(format!("{}: {k} belongs in an overlay", path.display()));
+                }
+                _ => {
+                    resolved.data[k] = v.clone();
+                    if matches!(k.as_str(), "composition" | "imu") {
+                        resolved.origins.insert(k.clone(), path.clone());
+                    }
+                }
+            }
         }
         resolved.data["name"] = json!(name);
+        resolved.origins.insert(String::new(), path.clone());
         resolved.sources.push(path);
+        resolved.inputs.push(input);
         for (capability, provider) in resolved.data["hal"].as_object().unwrap() {
             if !CAPABILITIES.contains(&capability.as_str()) {
                 return Err(format!("unknown capability: {capability}"));
@@ -147,10 +263,67 @@ impl Profile {
                 ));
             }
         }
-        resolved.validate_resources()?;
         resolved.configure_cpus()?;
         Ok(resolved)
     }
+
+    fn translate_legacy_overlay_base(&mut self) -> Result<()> {
+        let graph = self
+            .composition()?
+            .ok_or("overlays require a peripheral composition")?;
+        let graph = json!(graph);
+        let source = self
+            .origins
+            .get("imu")
+            .cloned()
+            .ok_or("legacy IMU source missing")?;
+        overlay::merge(&mut self.data, &graph, &source, &mut self.origins, false)?;
+        self.data["composition"] = json!({"version": graph["version"], "mode": graph["mode"]});
+        self.data["imu"] = json!({"stack-bytes": graph["stack_bytes"]});
+        self.origins.insert("composition".into(), source);
+        Ok(())
+    }
+
+    pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.sources.iter().chain(
+            self.inputs
+                .iter()
+                .filter(|input| input.kind != InputKind::Profile)
+                .map(|input| &input.path),
+        )
+    }
+
+    pub fn source_hashes(&self) -> Result<Vec<Value>> {
+        if self.inputs.is_empty() {
+            return self
+                .sources
+                .iter()
+                .map(|path| Ok(json!({"path": path, "sha256": crate::hash(path)?})))
+                .collect();
+        }
+        Ok(self
+            .inputs
+            .iter()
+            .map(|input| json!({"path": input.path, "sha256": input.sha256}))
+            .collect())
+    }
+
+    pub fn input_fingerprint(&self) -> Option<String> {
+        if self.inputs.is_empty() {
+            return None;
+        }
+        let binding = (self.binding("imu") == "nuttx").then(composition::binding_schema_digest);
+        Some(hash_bytes(
+            json!({
+                "resolver": "peripheral-profile-v1",
+                "inputs": self.inputs,
+                "binding": binding,
+            })
+            .to_string()
+            .as_bytes(),
+        ))
+    }
+
     pub fn name(&self) -> &str {
         self.data["name"].as_str().unwrap()
     }
@@ -158,17 +331,15 @@ impl Profile {
         self.data["hal"][capability].as_str().unwrap_or("none")
     }
     pub fn composition(&self) -> Result<Option<Composition>> {
-        composition::resolve(&self.data, self.binding("imu")).map_err(|error| {
-            match self.sources.last() {
-                Some(path) => format!("{}: {error}", path.display()),
-                None => error,
-            }
-        })
+        composition::resolve_with_origins(&self.data, self.binding("imu"), &self.origins)
     }
     pub fn json(&self) -> Result<Value> {
         let mut value = self.data.clone();
         let fields = value.as_object_mut().ok_or("profile must be a table")?;
-        fields.insert("sources".into(), json!(self.sources));
+        fields.insert(
+            "sources".into(),
+            json!(self.source_paths().collect::<Vec<_>>()),
+        );
         fields.remove("resolved-composition");
         if let Some(graph) = self.composition()? {
             fields.insert(
@@ -184,7 +355,21 @@ impl Profile {
             .map(|_| composition::BINDING_SCHEMA_PATH)
             .into_iter()
             .collect::<Vec<_>>();
-        json!({"graph": graph, "sources": self.sources, "binding-sources": binding_sources})
+        let semantic = json!({"graph": graph, "target": self.data["target"]});
+        let provenance = self
+            .origins
+            .iter()
+            .filter(|(field, _)| !field.is_empty())
+            .collect::<std::collections::BTreeMap<_, _>>();
+        json!({
+            "graph": graph,
+            "sources": self.source_paths().collect::<Vec<_>>(),
+            "binding-sources": binding_sources,
+            "source-hashes": self.inputs,
+            "provenance": provenance,
+            "semantic-digest": hash_bytes(semantic.to_string().as_bytes()),
+            "input-fingerprint": self.input_fingerprint(),
+        })
     }
     /// Preserve the legacy inspection and Cargo environment shape at one boundary.
     pub fn imu_config(&self) -> Result<Option<Value>> {
@@ -501,8 +686,7 @@ impl Profile {
             _ => {}
         }
         output.extend(
-            self.sources
-                .iter()
+            self.source_paths()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
         if self.binding("imu") == "nuttx" {

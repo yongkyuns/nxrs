@@ -238,6 +238,319 @@ fn profile_cli_unifies_legacy_and_v1_imu_and_reports_composition_provenance() {
 }
 
 #[test]
+fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_identity() {
+    let root = fixture();
+    write_imu_fixture(&root.0);
+    fs::create_dir_all(root.0.join("platform/profiles/patches")).unwrap();
+    fs::create_dir_all(root.0.join("overlays")).unwrap();
+
+    // Named overlay paths are relative to the profile that declares them.
+    fs::write(
+        root.0.join("platform/profiles/base.toml"),
+        format!(
+            "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\n\
+             target = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n\
+             overlays = [\"patches/ancestor.toml\"]\n[hal]\nimu = \"nuttx\"\n{}",
+            typed_imu_profile("hardware")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.0.join("platform/profiles/derived.toml"),
+        "extends = \"base\"\noverlays = [\"patches/child.toml\"]\n",
+    )
+    .unwrap();
+
+    let address_overlay = |address| format!("[devices.motion]\naddress = {address}\n");
+    fs::write(
+        root.0.join("platform/profiles/patches/ancestor.toml"),
+        address_overlay(105),
+    )
+    .unwrap();
+    fs::write(
+        root.0.join("platform/profiles/patches/child.toml"),
+        address_overlay(104),
+    )
+    .unwrap();
+    fs::write(root.0.join("overlays/first.toml"), address_overlay(104)).unwrap();
+    fs::write(root.0.join("overlays/last.toml"), address_overlay(105)).unwrap();
+
+    let outside = TempDir::new(&env::temp_dir()).unwrap();
+    let inspect = || {
+        let output = success(frontend(
+            &root.0,
+            &outside.0,
+            &[
+                "profile",
+                "--platform",
+                "derived",
+                "--overlay",
+                "overlays/first.toml",
+                "--overlay",
+                "overlays/last.toml",
+            ],
+        ));
+        serde_json::from_str::<Value>(&output).unwrap()
+    };
+    let profile = inspect();
+    let composition = &profile["resolved-composition"];
+    assert_eq!(composition["graph"]["devices"]["motion"]["address"], 105);
+    assert_eq!(
+        composition["provenance"]["devices.motion.address"],
+        root.0
+            .join("overlays/last.toml")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    let hashes = composition["source-hashes"].as_array().unwrap();
+    let expected = [
+        ("platform/profiles/base.toml", "profile"),
+        ("platform/profiles/derived.toml", "profile"),
+        ("patches/ancestor.toml", "declared-overlay"),
+        ("patches/child.toml", "declared-overlay"),
+        ("overlays/first.toml", "command-line-overlay"),
+        ("overlays/last.toml", "command-line-overlay"),
+    ];
+    assert_eq!(hashes.len(), expected.len());
+    for (source, (suffix, kind)) in hashes.iter().zip(expected) {
+        assert!(Path::new(source["path"].as_str().unwrap()).ends_with(suffix));
+        assert_eq!(source["kind"], kind);
+        assert!(source["sha256"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64));
+    }
+
+    let semantic = composition["semantic-digest"].as_str().unwrap().to_owned();
+    let fingerprint = composition["input-fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fs::write(
+        root.0.join("overlays/last.toml"),
+        format!(
+            "# formatting and comments do not change the graph\n{}\n",
+            address_overlay(105)
+        ),
+    )
+    .unwrap();
+    let edited = inspect();
+    assert_eq!(edited["resolved-composition"]["semantic-digest"], semantic);
+    assert_ne!(
+        edited["resolved-composition"]["input-fingerprint"],
+        fingerprint
+    );
+
+    let reversed = success(frontend(
+        &root.0,
+        &outside.0,
+        &[
+            "profile",
+            "--platform",
+            "derived",
+            "--overlay",
+            "overlays/last.toml",
+            "--overlay",
+            "overlays/first.toml",
+        ],
+    ));
+    let reversed: Value = serde_json::from_str(&reversed).unwrap();
+    assert_eq!(
+        reversed["resolved-composition"]["graph"]["devices"]["motion"]["address"],
+        104
+    );
+    assert_ne!(
+        reversed["resolved-composition"]["semantic-digest"],
+        semantic
+    );
+}
+
+#[test]
+fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
+    let root = fixture();
+    write_imu_fixture(&root.0);
+    fs::create_dir_all(root.0.join("overlays")).unwrap();
+    write_imu_profile(&root.0, "typed-imu", &typed_imu_profile("hardware"));
+    fs::write(
+        root.0.join("overlays/remove-motion.toml"),
+        "remove-devices = [\"motion\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.0.join("overlays/add-replacement.toml"),
+        "[devices.replacement]\ncompatible = \"bosch,bmi270\"\nbus = \"sensor_bus\"\naddress = 105\n\
+         [devices.replacement.wake]\nkind = \"periodic\"\n\
+         [roles]\nimu = \"replacement\"\n",
+    )
+    .unwrap();
+
+    let outside = TempDir::new(&env::temp_dir()).unwrap();
+    let dangling = failure(frontend(
+        &root.0,
+        &outside.0,
+        &[
+            "profile",
+            "--platform",
+            "typed-imu",
+            "--overlay",
+            "overlays/remove-motion.toml",
+        ],
+    ));
+    assert!(
+        dangling.contains("roles.imu") && dangling.contains("remove-motion.toml"),
+        "{dangling}"
+    );
+    let profile_output = success(frontend(
+        &root.0,
+        &outside.0,
+        &[
+            "profile",
+            "--platform",
+            "typed-imu",
+            "--overlay",
+            "overlays/remove-motion.toml",
+            "--overlay",
+            "overlays/add-replacement.toml",
+        ],
+    ));
+    let inspected: Value = serde_json::from_str(&profile_output).unwrap();
+    assert_eq!(
+        inspected["resolved-composition"]["graph"]["roles"]["imu"],
+        "replacement"
+    );
+    assert!(inspected["resolved-composition"]["graph"]["devices"]["motion"].is_null());
+    let plan_output = success(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "build",
+            "--manifest-path",
+            "app/probe/Cargo.toml",
+            "--profile",
+            "typed-imu",
+            "--overlay",
+            "overlays/remove-motion.toml",
+            "--overlay",
+            "overlays/add-replacement.toml",
+            "--dry-run",
+        ],
+    ));
+    let plan: Value = serde_json::from_str(&plan_output).unwrap();
+    assert_eq!(
+        plan["deployment"]["resolved-composition"]["semantic-digest"],
+        inspected["resolved-composition"]["semantic-digest"]
+    );
+
+    let error = failure(frontend(
+        &root.0,
+        &outside.0,
+        &[
+            "build",
+            "--manifest-path",
+            "app/probe/Cargo.toml",
+            "--profile",
+            "typed-imu",
+            "--overlay",
+            "overlays/remove-motion.toml",
+            "--overlay",
+            "overlays/add-replacement.toml",
+        ],
+    ));
+    assert!(
+        error.contains("command-line overlays") && error.contains("--dry-run"),
+        "{error}"
+    );
+
+    // A named overlay is resolved before a normal build reaches Cargo too.
+    fs::create_dir_all(root.0.join("platform/profiles/overlays")).unwrap();
+    fs::write(
+        root.0.join("platform/profiles/overlays/invalid.toml"),
+        "remove-devices = [\"missing\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.0.join("platform/profiles/typed-imu.toml"),
+        format!(
+            "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\n\
+             target = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n\
+             overlays = [\"overlays/invalid.toml\"]\n[hal]\nimu = \"nuttx\"\n{}",
+            typed_imu_profile("hardware")
+        ),
+    )
+    .unwrap();
+    let output = frontend(
+        &root.0,
+        &outside.0,
+        &[
+            "build",
+            "--manifest-path",
+            "app/probe/Cargo.toml",
+            "--profile",
+            "typed-imu",
+        ],
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "do not plan an invalid named overlay"
+    );
+    let error = failure(output);
+    assert!(error.contains("unknown devices ID 'missing'"), "{error}");
+
+    fs::remove_file(root.0.join("platform/profiles/overlays/invalid.toml")).unwrap();
+    let error = failure(frontend(
+        &root.0,
+        &outside.0,
+        &["profile", "--platform", "typed-imu"],
+    ));
+    assert!(error.contains("invalid.toml"), "{error}");
+
+    for (name, parent) in [("cycle-a", "cycle-b"), ("cycle-b", "cycle-a")] {
+        fs::write(
+            root.0.join(format!("platform/profiles/{name}.toml")),
+            format!("extends = \"{parent}\"\n"),
+        )
+        .unwrap();
+    }
+    let error = failure(frontend(
+        &root.0,
+        &outside.0,
+        &["profile", "--platform", "cycle-a"],
+    ));
+    assert!(error.contains("inheritance cycle"), "{error}");
+}
+
+#[test]
+fn overlays_apply_to_the_legacy_imu_graph() {
+    let root = fixture();
+    write_imu_fixture(&root.0);
+    write_imu_profile(&root.0, "legacy-imu", legacy_imu_profile());
+    fs::write(
+        root.0.join("alternate.toml"),
+        "[devices.imu]\naddress = 105\n",
+    )
+    .unwrap();
+    let output = success(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "profile",
+            "--platform",
+            "legacy-imu",
+            "--overlay",
+            "alternate.toml",
+            "--target-os",
+            "nuttx",
+            "--capability",
+            "imu",
+        ],
+    ));
+    assert!(output
+        .lines()
+        .any(|line| line == "cargo:rustc-env=IMU_ADDRESS=105"));
+}
+
+#[test]
 fn build_dry_run_admits_v1_required_imu_without_sdk_and_rejects_bad_default_roles() {
     let root = fixture();
     write_imu_fixture(&root.0);

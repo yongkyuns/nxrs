@@ -6,6 +6,7 @@ pub mod archive;
 pub mod composition;
 pub mod native;
 mod native_nuttx;
+mod overlay;
 pub mod profile;
 pub mod source;
 
@@ -95,7 +96,7 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     let name = name.to_str().ok_or("platform name must be UTF-8")?;
     let root = sdk_root(manifest)?;
     let profile = profile::Profile::resolve(&root, name)?;
-    for path in &profile.sources {
+    for path in profile.source_paths() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     profile.detector()

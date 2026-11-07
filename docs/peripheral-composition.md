@@ -2,8 +2,9 @@
 
 The profile resolver accepts the v1 hardware IMU graph and translates legacy
 IMU profiles into that graph. The existing factory consumes the resolved binding
-through its Cargo environment fields. Overlay composition and generated factory
-selection follow in the [implementation plan](peripheral-composition-plan.md).
+through its Cargo environment fields. The resolver applies ordered overlays and
+reports graph and input fingerprints. The generated factory and resolved-profile
+handoff follow in the [implementation plan](peripheral-composition-plan.md).
 
 ## Ownership
 
@@ -180,15 +181,23 @@ code. Unknown models, duplicate binding matches and unsupported buses fail.
 Profile inspection and build dry runs report the normalized graph, profile
 sources and binding catalog path under `resolved-composition`.
 
-Use explicit ordered overlays. The proposed CLI adds repeatable `--overlay`
-arguments to build and profile inspection. A named profile may also declare an
-ordered `overlays` list. Resolution order is ancestor profiles, child profile,
-declared overlays from ancestor to child, then command-line overlays in order.
+Use repeatable `--overlay` arguments with `cargo nxrs profile` and
+`cargo nxrs build --dry-run`. Declare an ordered `overlays` list in a named
+profile for compilation. Command-line overlays gain a compilation path in S6.
+Resolution merges ancestor profiles, the child profile, the declared overlays
+from ancestor to child, and then command-line overlays in argument order.
 Overlay files contain changes only and cannot recursively include overlays or
 change the target, BSP, execution OS or composition mode. Those changes require
-a named profile. File-relative paths resolve against their declaring file.
+a named profile. Declared paths resolve against the profile file. Command-line
+paths resolve against the selected workspace root.
 
-Define merging before implementing the CLI.
+Legacy IMU profiles expose the same graph for overlays, with device `imu`, bus
+`legacy_i2c` and optional interrupt resource `legacy_irq`. The
+`resolved-composition` report includes ordered source hashes, field provenance,
+a semantic digest of the normalized graph and target, and a separate input
+fingerprint for the exact source bytes, catalog and resolver revision.
+
+Apply the following merge rules in order.
 
 1. Merge named resource/device maps by ID and property. Scalars and arrays replace
    the preceding value. Explicit `remove-devices` and `remove-resources` lists

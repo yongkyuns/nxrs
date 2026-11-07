@@ -564,7 +564,8 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .map(|path| helper_identity(path))
         .collect::<Result<Vec<_>>>()?;
     let cache_inputs = json!({
-        "profile":p.data,"configuration":values,"application":app.manifest,
+        "profile":p.data,"profile_input_fingerprint":p.input_fingerprint(),
+        "configuration":values,"application":app.manifest,
         "iram_layout":iram_layout.as_ref().map(|source| hash(source)).transpose()?,
         "entry":[app.command.clone(),app.priority.to_string(),app.stack.to_string()],
         "features":options.features,"no_default_features":options.no_default_features,
@@ -1096,7 +1097,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         out.join("resolved.config"),
         out.join("provider-selection.json"),
     ];
-    inputs.extend(p.sources.clone());
+    inputs.extend(p.source_paths().cloned());
     inputs.extend(iram_inputs);
     inputs.extend(radio_inputs);
     inputs.extend(sources);
@@ -1394,10 +1395,7 @@ mod tests {
     use super::*;
     #[test]
     fn direct_application_init_does_not_require_a_shell() {
-        let mut profile = Profile {
-            data: json!({}),
-            sources: vec![],
-        };
+        let mut profile = Profile::from_data(json!({}), vec![]);
         assert_eq!(standard(&profile)["NSH_ARGCAT"], "y");
         profile.data["init"] = json!({});
         let settings = standard(&profile);
@@ -1416,10 +1414,7 @@ mod tests {
         fs::write(&staged, "/* default */").unwrap();
         let source = layouts.join("sync.ld");
         fs::write(&source, "*(.text.sync .literal.sync)\n").unwrap();
-        let mut profile = Profile {
-            data: json!({"target":"xtensa-esp32s3-nuttx"}),
-            sources: vec![],
-        };
+        let mut profile = Profile::from_data(json!({"target":"xtensa-esp32s3-nuttx"}), vec![]);
         assert!(iram_layout_source(&temp.0, &profile).unwrap().is_none());
         profile.data["iram-layout"] = json!("platform/nuttx/linker/sync.ld");
         let selected = iram_layout_source(&temp.0, &profile).unwrap().unwrap();

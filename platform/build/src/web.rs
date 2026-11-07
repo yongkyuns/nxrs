@@ -256,7 +256,7 @@ pub fn build(
     options.validate_for_backend("emscripten")?;
     let out = build::prepare_output(root, out)?;
     for input in std::iter::once(&app.manifest)
-        .chain(p.sources.iter())
+        .chain(p.source_paths())
         .map(PathBuf::as_path)
         .chain(html)
     {

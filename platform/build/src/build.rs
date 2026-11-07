@@ -224,8 +224,14 @@ impl Options {
         }
     }
 }
-pub fn selection(root: &Path, platform: Target, name: Option<&str>) -> Result<Profile> {
-    let p = Profile::resolve(root, name.unwrap_or(platform.default_profile()))?;
+pub fn selection(
+    root: &Path,
+    platform: Target,
+    name: Option<&str>,
+    overlays: &[PathBuf],
+) -> Result<Profile> {
+    let p =
+        Profile::resolve_with_overlays(root, name.unwrap_or(platform.default_profile()), overlays)?;
     let board = p.data["board"].as_str().unwrap_or("");
     let matches = match platform {
         Target::Wroom => {
