@@ -110,7 +110,7 @@ jobs:
             --target thumbv6m-none-eabi
 
       - name: Qualify the standalone peripheral drivers
-        run: cargo +1.90.0 test --locked -p nxrs-lsm6dso -p nxrs-ubx-driver
+        run: cargo +1.90.0 test --locked -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-imu-qualification
 
       - name: Check the Rust runtime witness on the host
         run: |
@@ -272,6 +272,13 @@ jobs:
           --profile cores3-protected-qualification
           --out target/firmware/event-demo/rust-protected
 
+      - name: Cross-link the protected wired IMU acquisition fixture
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml
+          --profile esp32s3-devkit-imu-protected-qualification
+          --out target/firmware/event-demo/imu-wired-protected
+
       - name: Retain deployment evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -300,6 +307,11 @@ jobs:
             target/firmware/event-demo/rust-protected/*.json
             target/firmware/event-demo/rust-protected/*.sha256
             target/firmware/event-demo/rust-protected/*.txt
+            target/firmware/event-demo/imu-wired-protected/nuttx/nuttx.bin
+            target/firmware/event-demo/imu-wired-protected/nuttx/nuttx_user.bin
+            target/firmware/event-demo/imu-wired-protected/*.config
+            target/firmware/event-demo/imu-wired-protected/*.json
+            target/firmware/event-demo/imu-wired-protected/*.sha256
           if-no-files-found: warn
 
 

@@ -250,6 +250,8 @@ periodic/FIFO path. Select an IRQ-wired fixture for interrupt evidence.
    toolchain, NuttX revision, build mode, wiring and sanitized result artifacts.
 
 Run the hardware matrix on the same declared wiring in both NuttX build modes.
+Use the [physical acquisition fixture](../tests/nuttx-std/imu-qualification/README.md)
+to prove sample flow and joined shutdown before collecting timing measurements.
 
 | Sensor and wake | Physical setup | Required builds |
 | --- | --- | --- |

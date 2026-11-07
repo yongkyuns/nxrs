@@ -97,3 +97,33 @@ fn protected_runtime_requires_unsigned_direct_init_qualification() {
         "{error}"
     );
 }
+
+#[test]
+fn devkit_uses_the_same_bus_and_irq_in_both_modes_and_can_select_periodic_lsm6dso() {
+    let repo = Repo::new();
+    let flat = repo.profile("esp32s3-devkit-imu-qualification");
+    let protected = repo.profile("esp32s3-devkit-imu-protected-qualification");
+    assert_eq!(flat.data["kconfig"], protected.data["kconfig"]);
+    assert_eq!(flat.data["build"]["size-optimized"], true);
+    assert_eq!(protected.data["build"]["size-optimized"], true);
+    let flat_graph = flat.composition().unwrap().unwrap();
+    let protected_graph = protected.composition().unwrap().unwrap();
+    let binding = flat_graph.imu().unwrap();
+    assert_eq!(Some(binding), protected_graph.imu());
+    assert_eq!(binding.path, "/dev/i2c0");
+    assert_eq!(binding.irq_path, Some("/dev/gpio2"));
+
+    let lsm = Profile::resolve_with_overlays(
+        &repo.root,
+        "esp32s3-devkit-imu-protected-qualification",
+        &[PathBuf::from(
+            "tests/nuttx-std/imu-qualification/overlays/lsm6dso.toml",
+        )],
+    )
+    .unwrap();
+    let graph = lsm.composition().unwrap().unwrap();
+    let binding = graph.imu().unwrap();
+    assert_eq!(binding.path, "/dev/i2c0");
+    assert_eq!(binding.address, 0x6a);
+    assert_eq!(binding.irq_path, None);
+}

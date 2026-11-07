@@ -1,0 +1,8 @@
+# LSM6DSO strapped to address 0x6a on the fixture's registered sensor bus.
+[devices.motion]
+compatible = "st,lsm6dso"
+bus = "sensor_bus"
+address = 0x6a
+
+[devices.motion.wake]
+kind = "periodic"

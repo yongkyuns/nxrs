@@ -1,0 +1,80 @@
+# Direct-init physical BMI270 qualification on the stock ESP32-S3-DevKitC-1 N4.
+# Wire BMI270 VDD to 3V3, GND to GND, SDA to GPIO8, SCL to GPIO9, and INT1
+# to GPIO16. Use SDO low for address 0x68. GPIO16 is exposed and non-strap;
+# the qualification profile maps only the board's IRQ endpoint to it. Other
+# board GPIO endpoints keep their stock GPIO15/GPIO18 mappings. The default
+# BOOT-button mapping (GPIO0, falling edge) remains unchanged outside this
+# profile. The stock NuttX board registration makes these /dev/i2c0 and
+# /dev/gpio2; see the pinned DevKit board_i2c_init() and esp32s3_gpio_init().
+board = "esp32s3-devkit:nsh"
+target = "xtensa-esp32s3-nuttx"
+crossdev = "xtensa-esp32s3-elf-"
+machine = "Tensilica Xtensa Processor"
+image = "nuttx.bin"
+requires-qemu = false
+hal = { imu = "nuttx" }
+
+[build]
+size-optimized = true
+
+[composition]
+version = 1
+mode = "qualification"
+
+[resources.sensor_bus]
+kind = "i2c"
+device = "/dev/i2c0"
+frequency = 400000
+
+[resources.imu_irq]
+kind = "gpio-interrupt"
+device = "/dev/gpio2"
+trigger = "rising"
+
+[devices.motion]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x68
+
+[devices.motion.wake]
+kind = "interrupt"
+resource = "imu_irq"
+
+[roles]
+imu = "motion"
+
+[imu]
+stack-bytes = 16384
+
+[init]
+stack-bytes = 16384
+
+[kconfig]
+enable = [
+  "ARCH_CHIP_ESP32S3WROOM1N4", "RAW_BINARY", "DEV_GPIO", "ESPRESSIF_GPIO_IRQ",
+  "ESP32S3_I2C0", "I2C_DRIVER", "BOARD_LATE_INITIALIZE", "PTHREAD_MUTEX_TYPES",
+  "ESP32S3_DEVKIT_GPIO_IRQ_RISING", "STACK_COLORATION", "PIPES",
+]
+disable = [
+  "SMP", "DISABLE_PTHREAD", "ESP32S3_QEMU_IMAGE", "ESPRESSIF_WIFI", "ESPRESSIF_BLE", "I2C_POLLED",
+]
+set = [
+  "USEC_PER_TICK=1000",
+  "ESP32S3_I2C0_SDAPIN=8", "ESP32S3_I2C0_SCLPIN=9",
+  "ESP32S3_I2CTIMEOSEC=0", "ESP32S3_I2CTIMEOMS=50",
+  "ESP32S3_DEVKIT_GPIO_IRQ_PIN=16",
+  "DEV_GPIO_NPOLLWAITERS=1", "DEV_GPIO_NSIGNALS=0",
+  "PTHREAD_STACK_DEFAULT=16384", "ARCH_INTERRUPTSTACK=4096", "TLS_TASK_NELEM=1",
+]
+require = [
+  "CONFIG_ARCH_BOARD_ESP32S3_DEVKIT=y", "CONFIG_ARCH_CHIP_ESP32S3WROOM1N4=y",
+  "CONFIG_ESP32S3_FLASH_4M=y", "CONFIG_RAW_BINARY=y",
+  "CONFIG_DEV_GPIO=y", "CONFIG_ESPRESSIF_GPIO_IRQ=y",
+  "CONFIG_ESP32S3_DEVKIT_GPIO_IRQ_PIN=16", "CONFIG_ESP32S3_DEVKIT_GPIO_IRQ_RISING=y",
+  "CONFIG_ESP32S3_I2C0=y", "CONFIG_ESP32S3_I2C0_MASTER_MODE=y", "CONFIG_I2C_DRIVER=y",
+  "CONFIG_ESP32S3_I2C0_SDAPIN=8", "CONFIG_ESP32S3_I2C0_SCLPIN=9",
+  "CONFIG_BOARD_LATE_INITIALIZE=y", "CONFIG_DEV_GPIO_NPOLLWAITERS=1",
+  "CONFIG_DEV_GPIO_NSIGNALS=0", "CONFIG_STACK_COLORATION=y", "CONFIG_PIPES=y",
+  "CONFIG_ESP32S3_I2CTIMEOMS=50",
+]
+forbid-regex = "^CONFIG_(SMP|ESPRESSIF_WIFI|ESPRESSIF_BLE|I2C_POLLED)=y$"

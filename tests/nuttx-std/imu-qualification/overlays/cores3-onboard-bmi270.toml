@@ -1,0 +1,3 @@
+# Optional periodic control using the CoreS3 K128's onboard BMI270.
+[devices.motion]
+address = 0x69

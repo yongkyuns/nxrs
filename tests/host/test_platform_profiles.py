@@ -154,6 +154,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
+                            "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
+                            "esp32s3-devkit-imu-protected-qualification": {"imu": "nuttx"},
                             "esp32s3-service-footprint": {},
                             "esp32s3-sync-iram": {},
                             "esp32s3-mpsc": {},
