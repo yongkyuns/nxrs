@@ -19,8 +19,8 @@ or NuttX-specific error values.
 
 The [peripheral composition design](peripheral-composition.md) and its
 [migration steps](peripheral-composition-plan.md) extend this boundary to
-Nxrs-owned Rust peripheral drivers over NuttX bus resources. Their profile and
-overlay interfaces are staged targets.
+Nxrs-owned Rust peripheral drivers over NuttX bus resources. The product profile
+and explicit overlays resolve the resource bindings before compilation.
 
 ## 1. Architecture
 
@@ -354,6 +354,13 @@ and clearing a sensor's FIFO/status interrupt are distinct operations. Qualify
 their ordering, rearming, cancellation and shutdown for the actual target.
 Host tests and QEMU do not establish physical interrupt latency. The stock
 CoreS3 M135 module has unwired IMU interrupts and exercises periodic FIFO wakes.
+
+The [protected IMU ABI witness](../tests/nuttx-std/imu-protected/README.md)
+cross-links the production I²C and GPIO ABI bridges in ESP32-S3 userspace and
+checks their syscall entry points. Nxrs's product builder still requires
+`CONFIG_BUILD_FLAT=y`. The witness uses a separate target build for protected
+qualification. Its target execution and the physical timing matrix are separate
+gates in [S8](peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines).
 
 ## 10. ABI qualification
 
