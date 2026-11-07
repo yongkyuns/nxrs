@@ -1,3 +1,8 @@
+Subject: [PATCH] i2c: add opt-in scheduler-note timing scopes
+
+Record character-device and controller lock waits separately from controller
+service. Size the note ring for a bounded I2C trace when this option is active.
+
 diff --git a/arch/xtensa/src/esp32s3/esp32s3_i2c.c b/arch/xtensa/src/esp32s3/esp32s3_i2c.c
 index 7963d73..abdb54e 100644
 --- a/arch/xtensa/src/esp32s3/esp32s3_i2c.c
@@ -99,3 +104,14 @@ index a9f3bb2..fc05840 100644
    if (ret < 0)
      {
        return ret;
+diff --git a/drivers/note/Kconfig b/drivers/note/Kconfig
+--- a/drivers/note/Kconfig
++++ b/drivers/note/Kconfig
+@@ -67,6 +67,7 @@ if DRIVERS_NOTERAM
+ 
+ config DRIVERS_NOTERAM_BUFSIZE
+ 	int "Note RAM buffer size"
++	default 32768 if I2C_SCHED_NOTES
+ 	default 2048
+ 	---help---
+ 		The size of the in-memory, circular instrumentation buffer (in bytes).

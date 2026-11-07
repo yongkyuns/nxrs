@@ -17,6 +17,10 @@ BEGIN = (
     "mode=0 notes_lost=0 window_ms=200"
 )
 END = "NXRS_NOTE_END schema=1 mode=0 notes_lost=0 complete=1"
+BEGIN_V2 = BEGIN.replace("schema=1", "schema=2").replace(
+    "irq=17 worker=imu-acquire", "irq=17 worker=imu-acquire i2c=1"
+)
+END_V2 = END.replace("schema=1", "schema=2")
 SWITCH = (
     "sched_switch: prev_comm=nsh prev_pid=1 prev_prio=100 prev_state=S "
     "==> next_comm=imu-acquire next_pid=5 next_prio=100"
@@ -46,6 +50,22 @@ def sample(start: str = "12.000000000", *, pid: int = 5) -> tuple[str, ...]:
 
 def capture(*rows: str, begin: str = BEGIN, end: str = END) -> str:
     return "\n".join((begin, *rows, end))
+
+
+def scope_rows(start: str = "12.000060000", *, pid: int = 5) -> tuple[str, ...]:
+    start_ns = int(start.split(".")[0]) * 1_000_000_000 + int(start.split(".")[1])
+
+    def mark(offset: int, edge: str, label: str) -> str:
+        ns = start_ns + offset
+        when = f"{ns // 1_000_000_000}.{ns % 1_000_000_000:09}"
+        return row("imu-acquire", pid, when,
+                   f"tracing_mark_write: {edge}|{pid}|nxrs.i2c.{label}")
+
+    return (
+        mark(0, "B", "char_lock_wait"), mark(10_000, "E", "char_lock_wait"),
+        mark(20_000, "B", "esp32s3_lock_wait"), mark(30_000, "E", "esp32s3_lock_wait"),
+        mark(40_000, "B", "esp32s3_service"), mark(70_000, "E", "esp32s3_service"),
+    )
 
 
 class SchedulerTraceTests(unittest.TestCase):
@@ -109,6 +129,84 @@ class SchedulerTraceTests(unittest.TestCase):
                                      capture_output=True, text=True, check=False)
             self.assertNotEqual(invalid.returncode, 0)
             self.assertEqual(json.loads(invalid.stdout)["status"], "invalid")
+
+    def test_v2_wired_reports_i2c_scopes_and_irq_entry_coverage(self):
+        rows = (*sample(), *scope_rows(),
+                row("nsh", 1, "12.100000000", "irq_handler_entry: irq=17 name=gpio_handler"))
+        result = analyze(capture(*rows, begin=BEGIN_V2, end=END_V2))
+        self.assertEqual(result["status"], "valid", result["invalid_reasons"])
+        self.assertEqual(result["i2c"]["scopes"]["nxrs.i2c.esp32s3_service"]["duration_ns"]["max"], 30_000)
+        coverage = result["i2c"]["irq_to_entry"]
+        char = coverage["irq_to_char_driver_entry"]
+        service = coverage["irq_to_controller_service_entry"]
+        self.assertEqual(char["covered_entries"], 1)
+        self.assertEqual(char["coverage_percent"], 100)
+        self.assertEqual(char["latency_ns"]["max"], 60_000)
+        self.assertEqual(service["covered_entries"], 1)
+        self.assertEqual(service["coverage_percent"], 100)
+        self.assertEqual(service["latency_ns"]["max"], 100_000)
+        self.assertEqual(char["metric"], "gpio_irq_dispatch_entry_to_char_driver_lock_wait_entry")
+        self.assertEqual(service["metric"], "gpio_irq_dispatch_entry_to_controller_service_entry")
+        self.assertFalse(char["physical_sensor_edge_included"])
+        self.assertFalse(char["i2c_wire_time_included"])
+        self.assertFalse(service["i2c_wire_time_included"])
+
+        # A service interval from before this IRQ cannot supply its missing coverage.
+        earlier = (*scope_rows("11.999900000"), *sample(), *scope_rows()[:2])
+        result = analyze(capture(*earlier, begin=BEGIN_V2, end=END_V2))
+        self.assertEqual(result["status"], "invalid")
+        self.assertIn("missing_entry_coverage:irq_to_controller_service_entry",
+                      result["invalid_reasons"])
+
+    def test_v2_periodic_i2c_works_without_irq_and_counts_capture_edges(self):
+        begin = BEGIN_V2.replace("irq=17", "irq=none")
+        rows = (
+            row("imu-acquire", 5, "12.000050000",
+                "tracing_mark_write: E|5|nxrs.i2c.char_lock_wait"),
+            *scope_rows("12.000060000"),
+            row("imu-acquire", 5, "12.000140000",
+                "tracing_mark_write: B|5|nxrs.i2c.esp32s3_service"),
+        )
+        result = analyze(capture(*rows, begin=begin, end=END_V2))
+        self.assertEqual(result["status"], "valid", result["invalid_reasons"])
+        char = result["i2c"]["scopes"]["nxrs.i2c.char_lock_wait"]["counts"]
+        self.assertEqual(char["leading_censored_ends"], 1)
+        service = result["i2c"]["scopes"]["nxrs.i2c.esp32s3_service"]["counts"]
+        self.assertEqual(service["trailing_censored_begins"], 1)
+        self.assertIsNone(result["i2c"]["irq_to_entry"])
+
+    def test_v2_ambiguous_malformed_and_missing_i2c_evidence_fail(self):
+        with self.assertRaises(ValueError):
+            analyze(capture(begin=BEGIN_V2.replace("irq=17", "irq=none").replace(
+                "i2c=1", "i2c=0"), end=END_V2))
+
+        marks = list(scope_rows())
+        marks.insert(1, marks[0])
+        result = analyze(capture(*marks, begin=BEGIN_V2.replace("irq=17", "irq=none"),
+                                 end=END_V2))
+        self.assertIn("ambiguous_i2c_scope", result["invalid_reasons"])
+
+        with self.assertRaises(ValueError):
+            analyze(capture(
+                row("imu-acquire", 5, "12.000000000",
+                    "tracing_mark_write: B|bad|nxrs.i2c.char_lock_wait"),
+                begin=BEGIN_V2.replace("irq=17", "irq=none"), end=END_V2,
+            ))
+        result = analyze(capture(begin=BEGIN_V2.replace("irq=17", "irq=none"), end=END_V2))
+        self.assertTrue(any(reason.startswith("missing_i2c_evidence:")
+                            for reason in result["invalid_reasons"]))
+
+        wrong_pid = list(scope_rows())
+        wrong_pid[0] = wrong_pid[0].replace("B|5|", "B|6|")
+        result = analyze(capture(*wrong_pid, begin=BEGIN_V2.replace("irq=17", "irq=none"),
+                                 end=END_V2))
+        self.assertIn("i2c_note_worker_pid_mismatch", result["invalid_reasons"])
+
+        unexpected_irq = analyze(capture(
+            row("nsh", 1, "12.000000000", "irq_handler_entry: irq=17 name=gpio_handler"),
+            *scope_rows(), begin=BEGIN_V2.replace("irq=17", "irq=none"), end=END_V2,
+        ))
+        self.assertIn("unexpected_irq_records", unexpected_irq["invalid_reasons"])
 
 
 if __name__ == "__main__":
