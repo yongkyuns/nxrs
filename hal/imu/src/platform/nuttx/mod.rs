@@ -16,19 +16,7 @@ mod irq;
 mod signal;
 
 static OWNED: AtomicU8 = AtomicU8::new(0);
-
-fn binding() -> Result<Binding<'static>, DeviceError> {
-    Ok(Binding {
-        path: option_env!("IMU_DEVICE").ok_or(DeviceError::Unsupported)?,
-        address: option_env!("IMU_ADDRESS")
-            .and_then(|v| v.parse().ok())
-            .ok_or(DeviceError::Unsupported)?,
-        frequency: option_env!("IMU_FREQUENCY")
-            .and_then(|v| v.parse().ok())
-            .ok_or(DeviceError::Unsupported)?,
-        irq_path: option_env!("IMU_IRQ_DEVICE").filter(|v| !v.is_empty()),
-    })
-}
+include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
@@ -44,14 +32,13 @@ pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Sen
     config: Config,
     sink: S,
 ) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
-    let device = Device::acquire(binding()?, config)?;
+    let device = match MODEL {
+        SensorModel::Bmi270 => Device::acquire(BINDING, config)?,
+    };
     let applied = device.applied_config();
     let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();
-    let stack = option_env!("IMU_STACK_BYTES")
-        .and_then(|v| v.parse().ok())
-        .ok_or(DeviceError::Unsupported)?;
-    Session::start(stack, cancel, sink, move |stop, emit| {
+    Session::start(STACK_BYTES, cancel, sink, move |stop, emit| {
         device.run(stop, &wake, emit)
     })
     .map(|session| (session, applied))

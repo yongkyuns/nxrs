@@ -34,6 +34,7 @@ pub struct Profile {
     pub sources: Vec<PathBuf>,
     inputs: Vec<Input>,
     origins: overlay::Origins,
+    pub(crate) cli_overlays: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -133,6 +134,7 @@ impl Profile {
             sources,
             inputs: Vec::new(),
             origins,
+            cli_overlays: Vec::new(),
         }
     }
 
@@ -143,6 +145,7 @@ impl Profile {
     pub fn resolve_with_overlays(root: &Path, name: &str, cli: &[PathBuf]) -> Result<Self> {
         let mut declared = Vec::new();
         let mut profile = Self::inherit(root, name, &[], &mut declared)?;
+        profile.cli_overlays = cli.to_vec();
         if declared.len() + cli.len() > 64 {
             return Err("at most 64 overlays can be selected for a profile".into());
         }
@@ -433,6 +436,18 @@ impl Profile {
         }
         Ok(())
     }
+    pub(crate) fn validate_cargo_target(&self, target: &str, os: &str) -> Result<()> {
+        self.validate_target(os)?;
+        if let Some(configured) = self.data.get("target") {
+            if configured.as_str() != Some(target) {
+                return Err(format!(
+                    "profile {} declares target {configured}, but Cargo selected {target}",
+                    self.name()
+                ));
+            }
+        }
+        Ok(())
+    }
     pub fn detector(&self) -> Result<Option<Detector>> {
         let Some(v) = self.data.get("detector") else {
             return Ok(None);
@@ -517,7 +532,7 @@ impl Profile {
             }
             ("nuttx", None) => return Err("gnss requires device configuration".into()),
             (_, Some(_)) => {
-                return Err("gnss device configuration requires its NuttX binding".into())
+                return Err("gnss device configuration requires its NuttX binding".into());
             }
             _ => {}
         }

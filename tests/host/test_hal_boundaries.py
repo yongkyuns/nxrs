@@ -42,6 +42,45 @@ class HalBoundariesTests(unittest.TestCase):
                     self.assertTrue(self.errors())
                     path.unlink()
 
+    def test_generated_imu_factory_is_fixed_and_maps_only_to_checked_in_constructors(self):
+        self.write('hal/imu/src/platform/nuttx/mod.rs', '''
+            include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
+            let device = match MODEL {
+                SensorModel::Bmi270 => Device::acquire(BINDING, config)?,
+            };
+            Session::start(STACK_BYTES, cancel, sink, run)
+        ''')
+        self.write('hal/imu/build.rs', '''
+            mod emit;
+            if profile.binding("imu") == "nuttx" && os == "nuttx" {
+                emit::write(&out.join("imu_config.rs"), binding)?;
+            }
+        ''')
+        self.write('hal/imu/build/emit.rs', '''
+            let model = match binding.model {
+                nxrs_build_support::composition::ImuModel::Bmi270 => "SensorModel::Bmi270",
+            };
+            let source = format!(
+                "enum SensorModel {{ Bmi270 }}\\n\\
+                 const MODEL: SensorModel = {model};\\n\\
+                 const BINDING: Binding<'static> = Binding {{ path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path} }};\\n\\
+                 const STACK_BYTES: usize = {stack_bytes};\\n",
+                path = binding.path,
+            );
+        ''')
+        self.write('hal/imu/src/sensors/bmi270.rs', 'pub struct Sensor;')
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+
+        build = self.root / 'hal/imu/build.rs'
+        build.write_text(build.read_text().replace('"imu_config.rs"', 'profile_text'))
+        self.assertTrue(any('fixed generated factory' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        build.write_text(build.read_text().replace('profile_text', '"imu_config.rs"'))
+        nuttx = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
+        nuttx.write_text(nuttx.read_text().replace('SensorModel::Bmi270 =>', 'SensorModel::Unknown =>'))
+        self.assertTrue(any('checked-in typed constructor' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
     def test_platform_wiring_and_ordinary_test_selection_are_allowed(self):
         self.write('hal/demo/src/lib.rs', '#[cfg(target_os = "linux")] mod selected;')
         self.write('hal/demo/src/worker.rs', '#[cfg(test)] mod tests; // no target_os selection\n')

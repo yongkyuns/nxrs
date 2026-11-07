@@ -7,10 +7,12 @@ cancellation without a hidden join; the worker retains resources through cleanup
 
 The [composition design](../../docs/peripheral-composition.md) places reusable
 BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
-acquisition lifecycle in this crate. The NuttX factory assembles its separate
-I2C and wake resources into one acquisition session. Profile composition,
-overlays and coordinated simulation remain
-pending in the [migration plan](../../docs/peripheral-composition-plan.md).
+acquisition lifecycle in this crate. The resolved product composition selects
+the NuttX model, I2C binding, optional wake resource and worker stack at build
+time. The build script emits those values as typed Rust constants; the provider
+does not parse device configuration from environment variables at runtime.
+Composition overlays and coordinated simulation are tracked in the
+[migration plan](../../docs/peripheral-composition-plan.md).
 
 `capabilities()` reports the modes of the selected provider. Use
 `open_configured(config, sink)` to request exact full scales, inclusive rate

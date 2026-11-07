@@ -851,8 +851,6 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             "-Zbuild-std=std,panic_abort",
             "--message-format=json-render-diagnostics",
         ])
-        .env("NXRS_PLATFORM", p.name())
-        .env("NXRS_SDK_ROOT", root)
         .env("NUTTX_STD_SYSROOT", &sysroot)
         .env("RUSTC", &rustc)
         .env("CARGO_BUILD_RUSTC", &rustc)
@@ -871,6 +869,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
+    build::configure_profile(&mut cargo, &out, root, p, target, "nuttx")?;
     options.configure_cargo(&mut cargo, &[]);
     if tools.esp {
         cargo.env(
@@ -1261,6 +1260,7 @@ fn clear_success_evidence(out: &Path) -> Result<()> {
             "mcuboot-patches.json",
             "esp-hal-patches.json",
             "native-context.json",
+            "resolved-profile.json",
             "xtensa-bare-target.json",
             "xtensa-esp32s3-nuttx.json",
         ]
