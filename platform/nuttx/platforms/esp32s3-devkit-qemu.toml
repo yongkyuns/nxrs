@@ -1,5 +1,6 @@
-# Exercise the NuttX provider against test-owned I2C and GPIO lower halves.
+# ESP32-S3 DevKit BSP with emulated NuttX device endpoints.
 extends = "esp32s3-qemu-mock"
+overlays = ["overlays/esp32s3-devkit-bmi270.toml"]
 hal = { imu = "nuttx", gnss = "none" }
 
 [composition]
@@ -13,17 +14,8 @@ frequency = 400000
 
 [resources.imu_irq]
 kind = "gpio-interrupt"
-device = "/dev/gpio-bmi270-fixture"
+device = "/dev/gpio-sim-imu"
 trigger = "rising"
-
-[devices.motion]
-compatible = "bosch,bmi270"
-bus = "sensor_bus"
-address = 0x68
-wake = { kind = "interrupt", resource = "imu_irq" }
-
-[roles]
-imu = "motion"
 
 [imu]
 stack-bytes = 16384

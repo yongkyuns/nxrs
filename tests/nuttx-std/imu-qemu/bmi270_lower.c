@@ -271,7 +271,7 @@ int bmi270_fixture_install(void)
 {
   reset_sensor();
   int ret = i2c_register(&bus, 9);
-  return ret < 0 ? ret : gpio_pin_register_byname(&int1, "gpio-bmi270-fixture");
+  return ret < 0 ? ret : gpio_pin_register_byname(&int1, "gpio-sim-imu");
 }
 
 bool bmi270_fixture_irq_waiting(void)

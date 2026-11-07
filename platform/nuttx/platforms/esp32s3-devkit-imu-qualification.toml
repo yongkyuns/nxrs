@@ -12,6 +12,7 @@ crossdev = "xtensa-esp32s3-elf-"
 machine = "Tensilica Xtensa Processor"
 image = "nuttx.bin"
 requires-qemu = false
+overlays = ["overlays/esp32s3-devkit-bmi270.toml"]
 hal = { imu = "nuttx" }
 
 [build]
@@ -30,18 +31,6 @@ frequency = 400000
 kind = "gpio-interrupt"
 device = "/dev/gpio2"
 trigger = "rising"
-
-[devices.motion]
-compatible = "bosch,bmi270"
-bus = "sensor_bus"
-address = 0x68
-
-[devices.motion.wake]
-kind = "interrupt"
-resource = "imu_irq"
-
-[roles]
-imu = "motion"
 
 [imu]
 stack-bytes = 16384

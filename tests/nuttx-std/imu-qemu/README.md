@@ -1,10 +1,16 @@
 # ESP32-S3 QEMU BMI270 qualification
 
-This fixture runs the production NuttX IMU provider and Rust BMI270 driver.
-The qualification profile binds the driver to a test I²C bus and GPIO pin
-registered through the NuttX upper halves. The model accepts the initialization
-upload, stores configuration registers, supplies a headerless FIFO, and raises
-a synthetic INT1 notification after the worker registers a GPIO poll waiter.
+The `esp32s3-devkit-qemu` profile runs the ESP32-S3 DevKit NuttX BSP. The
+physical and QEMU DevKit qualification profiles share the default BMI270
+device overlay and supply their own bus and IRQ endpoints. A command-line
+composition overlay can select a replacement sensor on the same platform.
+Each runnable fixture supplies the lower-half model for its selected device.
+
+This fixture runs the production NuttX IMU provider and Rust BMI270 driver
+against a test I²C bus and GPIO pin registered through the NuttX upper halves.
+The model accepts the initialization upload, stores configuration registers,
+supplies a headerless FIFO, and raises a synthetic INT1 notification after
+the worker registers a GPIO poll waiter.
 
 On Linux x86-64 with the [Nxrs QEMU build dependencies](../../../docs/nuttx-qemu.md):
 
@@ -13,7 +19,7 @@ git submodule update --init
 bash tools/install-qemu-tools.sh
 cargo +1.90.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-qemu/Cargo.toml \
-  --profile esp32s3-qemu-bmi270 \
+  --profile esp32s3-devkit-qemu \
   --target-c-source tests/nuttx-std/imu-qemu/bmi270_lower.c \
   --out target/imu-qemu
 source target/qemu-tools/environment.sh

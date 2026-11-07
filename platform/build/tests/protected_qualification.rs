@@ -150,6 +150,37 @@ fn devkit_uses_the_same_bus_in_both_modes_and_supports_periodic_controls() {
 }
 
 #[test]
+fn devkit_qemu_shares_the_default_device_and_accepts_a_replacement_overlay() {
+    let repo = Repo::new();
+    let physical = repo.profile("esp32s3-devkit-imu-qualification");
+    let emulated = repo.profile("esp32s3-devkit-qemu");
+    assert_eq!(emulated.data["board"], physical.data["board"]);
+    assert_eq!(emulated.data["devices"], physical.data["devices"]);
+    assert_eq!(emulated.data["roles"], physical.data["roles"]);
+    let emulated_graph = emulated.composition().unwrap().unwrap();
+    let bmi = emulated_graph.imu().unwrap();
+    assert_eq!(bmi.path, "/dev/i2c9");
+    assert_eq!(bmi.irq_path, Some("/dev/gpio-sim-imu"));
+
+    let replacement = Profile::resolve_with_overlays(
+        &repo.root,
+        "esp32s3-devkit-qemu",
+        &[PathBuf::from(
+            "tests/nuttx-std/imu-qualification/overlays/lsm6dso.toml",
+        )],
+    )
+    .unwrap();
+    assert_eq!(replacement.data["board"], emulated.data["board"]);
+    assert_eq!(replacement.data["kconfig"], emulated.data["kconfig"]);
+    let replacement_graph = replacement.composition().unwrap().unwrap();
+    let lsm = replacement_graph.imu().unwrap();
+    assert_eq!(lsm.path, bmi.path);
+    assert_eq!(lsm.address, 0x6a);
+    assert_ne!(lsm.model, bmi.model);
+    assert_eq!(lsm.irq_path, None);
+}
+
+#[test]
 fn sensor_reference_and_delivery_marker_are_explicit_in_both_modes() {
     let repo = Repo::new();
     let app = repo.app("tests/nuttx-std/imu-qualification/Cargo.toml");
