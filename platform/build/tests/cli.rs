@@ -172,44 +172,30 @@ fn profile_honors_the_explicit_root_from_another_directory() {
 }
 
 #[test]
-fn profile_cli_unifies_legacy_and_v1_imu_and_reports_composition_provenance() {
+fn profile_cli_reports_the_resolved_imu_and_its_provenance() {
     let root = fixture();
     write_imu_fixture(&root.0);
-    write_imu_profile(&root.0, "legacy-imu", legacy_imu_profile());
     write_imu_profile(&root.0, "typed-imu", &typed_imu_profile("hardware"));
 
-    let cargo_lines = |profile: &str| {
-        success(frontend(
-            &root.0,
-            &root.0,
-            &[
-                "profile",
-                "--platform",
-                profile,
-                "--target-os",
-                "nuttx",
-                "--capability",
-                "imu",
-            ],
-        ))
+    let cargo_output = success(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "profile",
+            "--platform",
+            "typed-imu",
+            "--target-os",
+            "nuttx",
+            "--capability",
+            "imu",
+        ],
+    ));
+    assert!(cargo_output
         .lines()
-        .filter(|line| line.starts_with("cargo:rustc-env=IMU_"))
-        .map(str::to_owned)
-        .collect::<Vec<_>>()
-    };
-    let legacy = cargo_lines("legacy-imu");
-    let typed = cargo_lines("typed-imu");
-    assert_eq!(legacy, typed);
-    assert_eq!(
-        legacy,
-        [
-            "cargo:rustc-env=IMU_DEVICE=/dev/i2c0",
-            "cargo:rustc-env=IMU_ADDRESS=104",
-            "cargo:rustc-env=IMU_FREQUENCY=400000",
-            "cargo:rustc-env=IMU_STACK_BYTES=16384",
-            "cargo:rustc-env=IMU_IRQ_DEVICE=",
-        ]
-    );
+        .any(|line| line == "cargo:rustc-cfg=hal_provider=\"hardware\""));
+    assert!(!cargo_output
+        .lines()
+        .any(|line| line.starts_with("cargo:rustc-env=IMU_")));
 
     let profile: Value = serde_json::from_str(&success(frontend(
         &root.0,
@@ -501,33 +487,23 @@ fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
 }
 
 #[test]
-fn overlays_apply_to_the_legacy_imu_graph() {
+fn legacy_sensor_profile_fails_before_build_or_overlay() {
     let root = fixture();
     write_imu_fixture(&root.0);
     write_imu_profile(&root.0, "legacy-imu", legacy_imu_profile());
-    fs::write(
-        root.0.join("alternate.toml"),
-        "[devices.imu]\naddress = 105\n",
-    )
-    .unwrap();
-    let output = success(frontend(
-        &root.0,
-        &root.0,
-        &[
-            "profile",
-            "--platform",
-            "legacy-imu",
-            "--overlay",
-            "alternate.toml",
-            "--target-os",
-            "nuttx",
-            "--capability",
-            "imu",
-        ],
-    ));
-    assert!(output
-        .lines()
-        .any(|line| line == "cargo:rustc-env=IMU_ADDRESS=105"));
+    let base = [
+        "build",
+        "--manifest-path",
+        "app/probe/Cargo.toml",
+        "--profile",
+        "legacy-imu",
+        "--dry-run",
+    ];
+    for extra in [&[][..], &["--overlay", "unused.toml"][..]] {
+        let args: Vec<_> = base.into_iter().chain(extra.iter().copied()).collect();
+        let error = failure(frontend(&root.0, &root.0, &args));
+        assert!(error.contains("composition"), "{error}");
+    }
 }
 
 #[test]

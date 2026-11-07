@@ -1,10 +1,8 @@
 # Peripheral composition implementation plan
 
-Status — executable work breakdown for the
-[target architecture](peripheral-composition.md). S0–S5 cover the behavior
-baseline, reusable BMI270 driver, NuttX resource split, common IMU
-configuration, typed profile resolution and ordered overlays. Physical qualification remains
-gated by S8.
+This is the executable work breakdown for the
+[target architecture](peripheral-composition.md). The software steps produce
+separate PR evidence. Protected-mode and physical timing claims require S8.
 Baseline inspected at `3961a15d` on November 7, 2026. Recheck paths and APIs on the
 branch used for each step. The architecture document defines the target contract.
 This plan defines migration order and acceptance evidence.
@@ -243,6 +241,25 @@ periodic/FIFO path. Select an IRQ-wired fixture for interrupt evidence.
    reception timestamps must remain distinct.
 5. Restore the original firmware/session and verify recovery. Record exact heads,
    toolchain, NuttX revision, build mode, wiring and sanitized result artifacts.
+
+Run the hardware matrix on the same declared wiring in both NuttX build modes.
+
+| Sensor and wake | Physical setup | Required builds |
+| --- | --- | --- |
+| BMI270 periodic | CoreS3 and stock M135, or equivalent declared raw I²C bus | Flat and protected |
+| BMI270 interrupt | BMI270 with INT1 connected to a registered rising-edge GPIO | Flat and protected |
+| LSM6DSO periodic | LSM6DSO at the address declared in the replacement profile | Flat and protected |
+
+For the protected witness, verify `CONFIG_BUILD_PROTECTED=y` in the effective
+configuration and record where the app runs. The pinned NuttX tree provides an
+ESP32-S3 DevKit protected NSH configuration as a starting reference. Prepare
+the equivalent raw resources for the selected fixture and prove the I²C/GPIO
+path from the userspace app. [Pinned DevKit protected configuration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/configs/knsh/defconfig)
+
+Before each run, declare the exact bus speed, ODR, FIFO headroom, test duration,
+load, and pass/fail bounds. Run at idle first, then apply the declared load.
+Keep target cross-builds, QEMU mock execution and physical results separate.
+A result counts toward this matrix only after the post-restore baseline passes.
 
 Exit only for the combinations actually measured. If deadlines fail, locate the
 delay before changing acquisition placement. A required kernel-side operation

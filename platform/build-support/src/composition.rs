@@ -244,7 +244,6 @@ pub(crate) fn resolve_with_providers_and_origins(
     let has_graph_fields = ["resources", "devices", "roles"]
         .iter()
         .any(|key| data.get(*key).is_some());
-    let legacy = data.get("imu");
     let Some(header_value) = data.get("composition") else {
         if data
             .pointer("/hal")
@@ -264,25 +263,19 @@ pub(crate) fn resolve_with_providers_and_origins(
                 "resources/devices/roles require a composition version header",
             ));
         }
-        let Some(legacy) = legacy else {
-            if imu_provider == "nuttx" {
-                return Err(diagnostic(
-                    origins,
-                    "imu",
-                    "nuttx IMU requires device configuration",
-                ));
-            }
-            if let Some(gnss) = data.get("gnss") {
-                return resolve_legacy_gnss(gnss, gnss_provider, origins).map(Some);
-            }
-            return Ok(None);
-        };
-        let catalog = catalog()?;
-        let mut graph = resolve_legacy(legacy, imu_provider, &catalog, origins)?;
-        if let Some(gnss) = data.get("gnss") {
-            append_legacy_gnss(&mut graph, gnss, gnss_provider, origins)?;
+        if imu_provider == "nuttx"
+            || gnss_provider == "nuttx"
+            || ["imu", "gnss", "simulation"]
+                .iter()
+                .any(|field| data.get(*field).is_some())
+        {
+            return Err(diagnostic(
+                origins,
+                "composition",
+                "sensor and simulation profiles require composition version 1 with explicit bindings",
+            ));
         }
-        return Ok(Some(graph));
+        return Ok(None);
     };
 
     let catalog = catalog()?;
@@ -414,12 +407,18 @@ pub(crate) fn resolve_with_providers_and_origins(
             ));
         }
     }
-    if legacy.is_some_and(|imu| !keys(imu, &[], &["stack-bytes"])) {
-        return Err(diagnostic(
-            origins,
-            "imu",
-            "v1 composition permits only imu.stack-bytes; legacy IMU fields cannot be mixed",
-        ));
+    for sensor in ["imu", "gnss"] {
+        if data.get(sensor).is_some_and(|settings| {
+            !settings
+                .as_object()
+                .is_some_and(|fields| fields.keys().all(|key| key == "stack-bytes"))
+        }) {
+            return Err(diagnostic(
+                origins,
+                sensor,
+                "composition version 1 uses resources, devices and roles for physical bindings. Only stack-bytes belongs here",
+            ));
+        }
     }
     if let Some(bindings) = data["hal"].as_object() {
         match header.mode {
@@ -446,9 +445,10 @@ pub(crate) fn resolve_with_providers_and_origins(
             _ => {}
         }
     }
-    let stack_bytes = crate::profile::sensor_stack(legacy.unwrap_or(&Value::Null))
+    let stack_bytes = crate::profile::sensor_stack(&data["imu"])
         .map_err(|error| diagnostic(origins, "imu.stack-bytes", &error))?;
-    let legacy_gnss = data.get("gnss");
+    let gnss_stack_bytes = crate::profile::sensor_stack(&data["gnss"])
+        .map_err(|error| diagnostic(origins, "gnss.stack-bytes", &error))?;
     if header.mode == Mode::Simulation {
         return Ok(Some(Composition {
             version: header.version,
@@ -459,7 +459,7 @@ pub(crate) fn resolve_with_providers_and_origins(
             imu_model: None,
             stack_bytes,
             gnss_model: None,
-            gnss_stack_bytes: 16384,
+            gnss_stack_bytes,
             simulation,
         }));
     }
@@ -483,71 +483,27 @@ pub(crate) fn resolve_with_providers_and_origins(
     )?;
     validate_map_sizes(&resources, &devices, &roles)
         .map_err(|e| diagnostic(origins, "resources", &e))?;
-    let mut resources = normalize_resources(resources, origins)?;
-    let mut devices = devices;
-    let mut roles = roles;
-    let legacy_gnss_physical =
-        legacy_gnss.filter(|gnss| gnss.get("device").is_some() || gnss.get("baud").is_some());
-    if let Some(gnss) = legacy_gnss_physical {
-        if roles.contains_key("gnss") {
-            return Err(diagnostic(
-                origins,
-                "gnss",
-                "legacy GNSS physical fields cannot be combined with roles.gnss",
-            ));
-        }
-        let legacy_binding = parse_legacy_gnss(gnss, gnss_provider, origins)?;
-        if resources.contains_key("legacy_uart") || devices.contains_key("legacy_gnss") {
-            return Err(diagnostic(
-                origins,
-                "gnss",
-                "legacy GNSS identifiers conflict with declared graph IDs",
-            ));
-        }
-        resources.insert(
-            "legacy_uart".into(),
-            Resource::Uart {
-                device: legacy_binding.path,
-                baud: legacy_binding.baud,
-            },
-        );
-        devices.insert(
-            "legacy_gnss".into(),
-            Device {
-                compatible: "u-blox,neo-m9n".into(),
-                bus: "legacy_uart".into(),
-                address: None,
-                wake: None,
-            },
-        );
-        roles.insert("gnss".into(), "legacy_gnss".into());
-    }
-    validate_map_sizes(&resources, &devices, &roles)
-        .map_err(|e| diagnostic(origins, "resources", &e))?;
+    let resources = normalize_resources(resources, origins)?;
     validate_ids(&resources, &devices, &roles, origins)?;
     validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
-    validate_imu_role(imu_provider, &roles, origins)?;
-    if gnss_provider == "nuttx" && !roles.contains_key("gnss") {
-        return Err(diagnostic(
-            origins,
-            "roles.gnss",
-            "nuttx GNSS requires a default GNSS device",
-        ));
-    }
-    if roles.contains_key("gnss") && gnss_provider != "nuttx" {
-        return Err(diagnostic(
-            origins,
-            "roles.gnss",
-            "hardware GNSS composition requires the nuttx provider",
-        ));
+    for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
+        let role = roles.contains_key(capability);
+        if provider == "nuttx" && !role {
+            return Err(diagnostic(
+                origins,
+                &format!("roles.{capability}"),
+                &format!("nuttx {capability} requires a default device"),
+            ));
+        }
+        if role && provider != "nuttx" {
+            return Err(diagnostic(
+                origins,
+                &format!("roles.{capability}"),
+                &format!("physical {capability} composition requires the nuttx provider"),
+            ));
+        }
     }
     let (imu_model, gnss_model) = validate_graph(&catalog, &resources, &devices, &roles, origins)?;
-    let gnss_stack_bytes = if let Some(config) = legacy_gnss {
-        crate::profile::sensor_stack(config)
-            .map_err(|e| diagnostic(origins, "gnss.stack-bytes", &e))?
-    } else {
-        16384
-    };
     let graph = Composition {
         version: header.version,
         mode: header.mode,
@@ -561,206 +517,6 @@ pub(crate) fn resolve_with_providers_and_origins(
         simulation,
     };
     Ok(Some(graph))
-}
-
-fn resolve_legacy(
-    value: &Value,
-    provider: &str,
-    catalog: &Catalog,
-    origins: &BTreeMap<String, PathBuf>,
-) -> Result<Composition> {
-    if !keys(
-        value,
-        &["driver", "device", "address", "frequency"],
-        &["stack-bytes", "irq-device"],
-    ) {
-        return Err(diagnostic(origins, "imu", "invalid legacy IMU binding"));
-    }
-    if value["driver"] != "bmi270" {
-        return Err(diagnostic(
-            origins,
-            "imu.driver",
-            "unsupported legacy IMU model",
-        ));
-    }
-    let address: u8 = number(&value["address"], "IMU address")
-        .map_err(|e| diagnostic(origins, "imu.address", &e))?
-        .try_into()
-        .map_err(|_| diagnostic(origins, "imu.address", "IMU address is out of range"))?;
-    let frequency = number(&value["frequency"], "IMU frequency")
-        .map_err(|e| diagnostic(origins, "imu.frequency", &e))?
-        .try_into()
-        .map_err(|_| diagnostic(origins, "imu.frequency", "IMU frequency is out of range"))?;
-    let bus_path = path(&value["device"]).map_err(|e| diagnostic(origins, "imu.device", &e))?;
-    let irq = match value.get("irq-device") {
-        None => None,
-        Some(Value::String(s)) if s.is_empty() => None,
-        Some(v) => Some(path(v).map_err(|e| diagnostic(origins, "imu.irq-device", &e))?),
-    };
-    let mut resources = BTreeMap::new();
-    resources.insert(
-        "legacy_i2c".into(),
-        Resource::I2c {
-            device: bus_path,
-            frequency,
-        },
-    );
-    let wake = if let Some(irq_path) = irq {
-        resources.insert(
-            "legacy_irq".into(),
-            Resource::GpioInterrupt {
-                device: irq_path,
-                trigger: Trigger::Rising,
-            },
-        );
-        Wake::Interrupt {
-            resource: "legacy_irq".into(),
-        }
-    } else {
-        Wake::Periodic {}
-    };
-    let mut devices = BTreeMap::new();
-    devices.insert(
-        "imu".into(),
-        Device {
-            compatible: "bosch,bmi270".into(),
-            bus: "legacy_i2c".into(),
-            address: Some(address),
-            wake: Some(wake),
-        },
-    );
-    let roles = BTreeMap::from([("imu".into(), "imu".into())]);
-    validate_imu_role(provider, &roles, origins)?;
-    let (imu_model, _) = validate_graph(catalog, &resources, &devices, &roles, origins)?;
-    let graph = Composition {
-        version: 1,
-        mode: Mode::Hardware,
-        resources,
-        devices,
-        roles,
-        imu_model,
-        stack_bytes: crate::profile::sensor_stack(value)?,
-        gnss_model: None,
-        gnss_stack_bytes: 16384,
-        simulation: None,
-    };
-    Ok(graph)
-}
-
-struct LegacyGnss {
-    path: String,
-    baud: u32,
-    stack_bytes: u64,
-}
-fn parse_legacy_gnss(
-    value: &Value,
-    provider: &str,
-    origins: &BTreeMap<String, PathBuf>,
-) -> Result<LegacyGnss> {
-    if provider != "nuttx" {
-        return Err(diagnostic(
-            origins,
-            "gnss",
-            "GNSS device configuration requires its NuttX binding",
-        ));
-    }
-    if !keys(value, &["device", "baud"], &["stack-bytes"]) {
-        return Err(diagnostic(origins, "gnss", "invalid legacy GNSS binding"));
-    }
-    let path = path(&value["device"]).map_err(|e| diagnostic(origins, "gnss.device", &e))?;
-    let baud = number(&value["baud"], "GNSS baud")
-        .map_err(|e| diagnostic(origins, "gnss.baud", &e))?
-        .try_into()
-        .map_err(|_| diagnostic(origins, "gnss.baud", "GNSS baud is out of range"))?;
-    let catalog: GnssCatalog = toml::from_str(GNSS_CATALOG_SOURCE)
-        .map_err(|e| format!("invalid GNSS binding catalog: {e}"))?;
-    if catalog.version != 1
-        || !catalog
-            .binding
-            .iter()
-            .any(|b| b.compatible == "u-blox,neo-m9n" && b.bus == "uart" && b.bauds.contains(&baud))
-    {
-        return Err(diagnostic(
-            origins,
-            "gnss.baud",
-            &format!("unsupported GNSS UART baud {baud}"),
-        ));
-    }
-    let stack_bytes = crate::profile::sensor_stack(value)
-        .map_err(|e| diagnostic(origins, "gnss.stack-bytes", &e))?;
-    Ok(LegacyGnss {
-        path,
-        baud,
-        stack_bytes,
-    })
-}
-fn append_legacy_gnss(
-    graph: &mut Composition,
-    value: &Value,
-    provider: &str,
-    origins: &BTreeMap<String, PathBuf>,
-) -> Result<()> {
-    if graph.roles.contains_key("gnss") {
-        return Err(diagnostic(
-            origins,
-            "gnss",
-            "legacy GNSS physical fields cannot be combined with roles.gnss",
-        ));
-    }
-    let binding = parse_legacy_gnss(value, provider, origins)?;
-    graph.resources.insert(
-        "legacy_uart".into(),
-        Resource::Uart {
-            device: binding.path,
-            baud: binding.baud,
-        },
-    );
-    graph.devices.insert(
-        "legacy_gnss".into(),
-        Device {
-            compatible: "u-blox,neo-m9n".into(),
-            bus: "legacy_uart".into(),
-            address: None,
-            wake: None,
-        },
-    );
-    graph.roles.insert("gnss".into(), "legacy_gnss".into());
-    graph.gnss_model = Some(GnssModel::NeoM9n);
-    graph.gnss_stack_bytes = binding.stack_bytes;
-    Ok(())
-}
-fn resolve_legacy_gnss(
-    value: &Value,
-    provider: &str,
-    origins: &BTreeMap<String, PathBuf>,
-) -> Result<Composition> {
-    let binding = parse_legacy_gnss(value, provider, origins)?;
-    Ok(Composition {
-        version: 1,
-        mode: Mode::Hardware,
-        resources: BTreeMap::from([(
-            "legacy_uart".into(),
-            Resource::Uart {
-                device: binding.path,
-                baud: binding.baud,
-            },
-        )]),
-        devices: BTreeMap::from([(
-            "legacy_gnss".into(),
-            Device {
-                compatible: "u-blox,neo-m9n".into(),
-                bus: "legacy_uart".into(),
-                address: None,
-                wake: None,
-            },
-        )]),
-        roles: BTreeMap::from([("gnss".into(), "legacy_gnss".into())]),
-        imu_model: None,
-        stack_bytes: 16384,
-        gnss_model: Some(GnssModel::NeoM9n),
-        gnss_stack_bytes: binding.stack_bytes,
-        simulation: None,
-    })
 }
 
 fn validate_graph(
@@ -1045,28 +801,6 @@ fn validate_graph(
     Ok((imu_model, gnss_model))
 }
 
-fn validate_imu_role(
-    provider: &str,
-    roles: &BTreeMap<String, String>,
-    origins: &BTreeMap<String, PathBuf>,
-) -> Result<()> {
-    if provider == "nuttx" && !roles.contains_key("imu") {
-        return Err(diagnostic(
-            origins,
-            "roles.imu",
-            "nuttx IMU requires the default IMU device",
-        ));
-    }
-    if roles.contains_key("imu") && provider != "nuttx" {
-        return Err(diagnostic(
-            origins,
-            "roles.imu",
-            "physical IMU composition requires the nuttx provider",
-        ));
-    }
-    Ok(())
-}
-
 fn binding_for<'a>(
     catalog: &'a Catalog,
     compatible: &str,
@@ -1210,22 +944,6 @@ fn decode_map<T: DeserializeOwned>(
     }
     Ok(decoded)
 }
-fn keys(v: &Value, required: &[&str], optional: &[&str]) -> bool {
-    v.as_object().is_some_and(|map| {
-        required.iter().all(|key| map.contains_key(*key))
-            && map
-                .keys()
-                .all(|key| required.contains(&key.as_str()) || optional.contains(&key.as_str()))
-    })
-}
-fn number(v: &Value, what: &str) -> Result<u64> {
-    v.as_u64()
-        .ok_or_else(|| format!("{what} must be a nonnegative integer"))
-}
-fn path(v: &Value) -> Result<String> {
-    let value = v.as_str().ok_or("device endpoint must be a string")?;
-    normalized_path(value)
-}
 fn normalized_path(value: &str) -> Result<String> {
     let tail = value
         .strip_prefix("/dev/")
@@ -1285,16 +1003,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_and_v1_resolve_to_the_same_gnss_binding() {
-        let legacy = json!({"gnss":{"device":"/dev//ttyS1","baud":38400,"stack-bytes":16384}});
-        let old = resolve_with_providers_and_origins(&legacy, "none", "nuttx", &BTreeMap::new())
-            .unwrap()
-            .unwrap();
+    fn resolves_a_gnss_only_composition() {
         let versioned =
             resolve_with_providers_and_origins(&gnss_profile(), "none", "nuttx", &BTreeMap::new())
                 .unwrap()
                 .unwrap();
-        assert_eq!(old.gnss(), versioned.gnss());
         assert_eq!(
             versioned.gnss().unwrap(),
             GnssBinding {
@@ -1304,11 +1017,11 @@ mod tests {
                 stack_bytes: 16384
             }
         );
-        assert_eq!(old.imu(), None);
+        assert_eq!(versioned.imu(), None);
     }
 
     #[test]
-    fn composes_imu_and_gnss_roles_and_translates_legacy_gnss_overlay() {
+    fn composes_imu_and_gnss_roles() {
         let mut joint = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         joint["resources"]["uart1"] = json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
         joint["devices"]["navigation"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart1"});
@@ -1319,13 +1032,6 @@ mod tests {
                 .unwrap();
         assert!(binding.imu().is_some());
         assert_eq!(binding.gnss().unwrap().path, "/dev/ttyS1");
-
-        let legacy = json!({"composition":{"version":1,"mode":"hardware"},"resources":{"i2c":{"kind":"i2c","device":"/dev/i2c0","frequency":400000}},"devices":{"motion":{"compatible":"bosch,bmi270","bus":"i2c","address":104,"wake":{"kind":"periodic"}}},"roles":{"imu":"motion"},"imu":{"stack-bytes":16384},"gnss":{"device":"/dev/ttyS1","baud":38400}});
-        let binding =
-            resolve_with_providers_and_origins(&legacy, "nuttx", "nuttx", &BTreeMap::new())
-                .unwrap()
-                .unwrap();
-        assert_eq!(binding.gnss().unwrap().baud, 38400);
     }
 
     #[test]
@@ -1409,17 +1115,27 @@ mod tests {
             &BTreeMap::new()
         )
         .unwrap_err()
-        .contains("cannot be combined"));
+        .contains("Only stack-bytes"));
     }
 
     #[test]
-    fn legacy_and_v1_resolve_to_the_same_imu_binding() {
-        let legacy = json!({"imu":{"driver":"bmi270", "device":"/dev/i2c0", "address":104, "frequency":400000}});
-        let versioned = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
-        let left = resolve(&legacy, "nuttx").unwrap().unwrap();
-        let right = resolve(&versioned, "nuttx").unwrap().unwrap();
-        assert_eq!(left.imu(), right.imu());
-        assert_eq!(right.imu().unwrap().irq_path, None);
+    fn rejects_unversioned_sensor_configuration_with_migration_guidance() {
+        for (value, imu, gnss) in [
+            (
+                json!({"imu":{"driver":"bmi270", "device":"/dev/i2c0", "address":104, "frequency":400000}}),
+                "nuttx",
+                "none",
+            ),
+            (
+                json!({"gnss":{"device":"/dev/ttyS1","baud":38400}}),
+                "none",
+                "nuttx",
+            ),
+        ] {
+            let error = resolve_with_providers_and_origins(&value, imu, gnss, &BTreeMap::new())
+                .unwrap_err();
+            assert!(error.contains("composition version 1"), "{error}");
+        }
     }
 
     #[test]
