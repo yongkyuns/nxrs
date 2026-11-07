@@ -1,4 +1,7 @@
+#[cfg(all(feature = "probe", not(target_os = "none")))]
+pub(crate) use crate::probe::unsupported as open_probed;
 use crate::{AppliedConfig, Capabilities, Config, DeviceError, Event, Imu};
+
 struct Unconfigured;
 impl Imu for Unconfigured {
     fn request_stop(&mut self) -> Result<(), DeviceError> {

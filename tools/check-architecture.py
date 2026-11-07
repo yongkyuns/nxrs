@@ -383,7 +383,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
         errors.append(f'{relative(nuttx)}: include only the fixed imu_config.rs file from this HAL OUT_DIR')
     models = {'Bmi270': 'bmi270', 'Lsm6dso': 'lsm6dso'}
-    branches = re.findall(r'SensorModel::(\w+)\s*=>\s*acquire::<(\w+)>\(BINDING,\s*config,\s*sink\)', source)
+    branches = re.findall(r'SensorModel::(\w+)\s*=>\s*acquire::<(\w+)>\(BINDING,\s*config,\s*sink,\s*trace\)', source)
     if sorted(branches) != sorted((model, model) for model in models):
         errors.append(f'{relative(nuttx)}: generated model selection must map to its checked-in typed constructor')
     if not re.search(r'Session::start\(STACK_BYTES\s*,', source):

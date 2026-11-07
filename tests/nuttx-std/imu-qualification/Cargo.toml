@@ -7,6 +7,9 @@ edition.workspace = true
 nxrs-imu = { path = "../../../hal/imu" }
 nxrs-messaging = { path = "../../../shared/messaging" }
 
+[features]
+probe = ["nxrs-imu/probe"]
+
 [package.metadata.nxrs]
 qualification-only = true
 required-capabilities = ["imu"]

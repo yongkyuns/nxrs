@@ -243,6 +243,10 @@ periodic/FIFO path. Select an IRQ-wired fixture for interrupt evidence.
 3. Define workload, ODR, watermark, FIFO headroom and latency/loss budgets before
    measurement. Measure IRQ-to-worker and IRQ-to-transfer, bus wait, drain time,
    sample age, loss, CPU and memory in equivalent flat and protected images.
+   Start with the [physical acquisition witness](../tests/nuttx-std/imu-qualification/README.md)
+   and enable its timing probe for the userspace stages. Keep the same firmware
+   configuration across each flat/protected pair and retain a baseline without
+   instrumentation to quantify the probe's overhead.
 4. Repeat under declared camera/network load where authorized. Separate measured
    distributions/maxima from a proven worst-case bound. Sensor timestamps and
    reception timestamps must remain distinct.

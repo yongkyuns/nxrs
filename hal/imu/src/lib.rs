@@ -3,12 +3,15 @@
 #![deny(unsafe_code)]
 #[cfg(any(
     test,
+    all(feature = "probe", not(target_os = "none")),
     hal_provider = "hardware",
     hal_provider = "mock",
     hal_provider = "simulation"
 ))]
 extern crate std;
 mod api;
+#[cfg(all(feature = "probe", not(target_os = "none")))]
+pub mod probe;
 pub use api::{
     AccelRange, AppliedConfig, Capabilities, Config, DeviceError, Event, GyroRange, Imu, ImuSample,
 };

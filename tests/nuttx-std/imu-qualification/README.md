@@ -50,6 +50,22 @@ JSON summary and check the applied sampling rate. The witness observes a
 gap or a queue drop. Set an outer console deadline to detect a stalled boot
 or shutdown. Restore and verify the baseline after each authorized firmware trial.
 
+Add `--features probe` to both builds for the task-context timing summary.
+The probe records periodic deadline lateness, time from acknowledged wake to
+the first I²C call, each synchronous I²C call, and time from wake to the end of
+FIFO drain and sample delivery. The supplied ESP32-S3 qualification builds
+use a 1 ms monotonic clock. Record the effective resolution alongside the
+results. GPIO acknowledgement precedes the wake
+timestamp, so the probe needs a separate IRQ trace or external measurement to
+cover the earlier portion. The I²C interval includes kernel wait and service.
+
+The probe prints one `timing_schema: 1` JSON object after the worker joins.
+`bounds_us` contains inclusive upper bounds for each histogram. The final
+bucket counts observations above the last bound. Each histogram includes
+`max_us`. An empty periodic histogram is expected for an interrupt profile.
+An incomplete drain, missing I²C observation or dropped probe event invalidates
+the timing run. Keep a matched baseline without the probe to assess overhead.
+
 ## Evidence to collect for S8
 
 - The HAL sequence and queue-drop counter identify delivery gaps after samples

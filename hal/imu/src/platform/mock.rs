@@ -1,6 +1,9 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
 
+#[cfg(all(feature = "probe", not(target_os = "none")))]
+pub(crate) use crate::probe::unsupported as open_probed;
+
 type Session = acquisition::mock::Session<DeviceError>;
 use crate::{
     AccelRange, AppliedConfig, Capabilities, Config, DeviceError, Event, GyroRange, Imu, ImuSample,

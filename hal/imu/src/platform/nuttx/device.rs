@@ -1,5 +1,5 @@
 //! Physical device ownership. Construction and cleanup stay in task context.
-use super::{i2c::Bus, irq::Irq, signal::Signal, OWNED};
+use super::{i2c::Bus, irq::Irq, signal::Signal, trace::Trace, OWNED};
 use crate::{sensors::Sensor, AppliedConfig, Config, DeviceError, Event};
 use core::sync::atomic::{AtomicBool, Ordering};
 use embedded_hal::delay::DelayNs;
@@ -49,18 +49,23 @@ impl DelayNs for Delay {
 pub(super) struct Device<S: Sensor<Bus, Delay>> {
     sensor: S,
     signal: Signal,
+    trace: Trace,
     cleaned: bool,
     _lease: Lease,
 }
 
 impl<S: Sensor<Bus, Delay>> Device<S> {
-    pub(super) fn acquire(binding: Binding<'_>, config: Config) -> Result<Self, DeviceError> {
+    pub(super) fn acquire(
+        binding: Binding<'_>,
+        config: Config,
+        trace: Trace,
+    ) -> Result<Self, DeviceError> {
         let applied = S::CAPABILITIES.select(config)?;
         let lease = Lease::take()?;
         // An absent GPIO uses an ODR-derived wake. Failure of a configured IRQ
         // never changes acquisition mode.
         let irq = binding.irq_path.map(Irq::open).transpose()?;
-        let bus = Bus::open(binding.path, binding.frequency)?;
+        let bus = Bus::open(binding.path, binding.frequency, trace.clone())?;
         let sensor = S::open(bus, binding.address, Delay, applied).inspect_err(|_| {
             // An interrupted configuration may have left the sensor active.
             OWNED.store(2, Ordering::Release);
@@ -70,6 +75,7 @@ impl<S: Sensor<Bus, Delay>> Device<S> {
         Ok(Self {
             sensor,
             signal,
+            trace,
             cleaned: false,
             _lease: lease,
         })
@@ -88,14 +94,14 @@ impl<S: Sensor<Bus, Delay>> Device<S> {
         let origin = Instant::now();
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
-                if !self.signal.wait(wake)? {
+                let Some(ready) = self.signal.wait(wake)? else {
                     break;
-                }
+                };
+                self.trace.wake(ready.periodic_deadline);
                 let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
-                let Some(count) = self
-                    .sensor
-                    .drain(now, |sample| emit(Event::Sample(sample)))?
-                else {
+                let drained = self.sensor.drain(now, |sample| emit(Event::Sample(sample)));
+                self.trace.drain(matches!(&drained, Ok(Some(_))));
+                let Some(count) = drained? else {
                     break;
                 };
                 self.signal.drained(count)?;
