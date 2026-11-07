@@ -301,6 +301,18 @@ pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Ve
     Ok(directives)
 }
 
+/// Compile explicitly listed sources for a NuttX qualification fixture using
+/// the build frontend's pinned target headers and compiler context.
+pub fn build_nuttx_sources(
+    source_directory: &Path,
+    suffix: &str,
+    target: &str,
+    out: &Path,
+    sources: &[&PathBuf],
+) -> Result<Vec<String>> {
+    crate::native_nuttx::build_sources(source_directory, suffix, target, out, sources)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

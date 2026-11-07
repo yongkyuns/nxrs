@@ -66,6 +66,59 @@ bucket counts observations above the last bound. Each histogram includes
 An incomplete drain, missing I²C observation or dropped probe event invalidates
 the timing run. Keep a matched baseline without the probe to assess overhead.
 
+## Capture scheduler notes on the wired DevKit
+
+Use the two DevKit profiles above, `--features probe`, and these additional
+build flags in both modes.
+
+```sh
+--kconfig-enable ARCH_PERF_EVENTS \
+--kconfig-enable PERF_OVERFLOW_CORRECTION \
+--kconfig-enable SCHED_INSTRUMENTATION \
+--kconfig-enable SCHED_INSTRUMENTATION_FILTER \
+--kconfig-enable SCHED_INSTRUMENTATION_SWITCH \
+--kconfig-enable SCHED_INSTRUMENTATION_IRQHANDLER \
+--kconfig-enable DRIVERS_NOTE \
+--kconfig-enable DRIVERS_NOTECTL \
+--kconfig-enable DRIVERS_NOTERAM \
+--kconfig-enable DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE
+```
+
+Check the effective config for a single core, an 8 KiB note ring, and initial
+filter mode zero. The fixture clears the ring and records a 200 ms window
+starting at the first accepted sample. It filters IRQ notes to the GPIO
+controller vector. GPIO16 must be the only active GPIO interrupt on the board.
+The fixture disables capture at the deadline and prints the trace after join.
+
+Validate the serial capture with
+`python3 tests/host/imu_scheduler_trace.py console.log`. Retain the raw
+transcript and parsed result together. The result measures GPIO dispatch entry
+to the NuttX post-IRQ worker switch timestamp for attributable wakes. Use an
+external capture to measure electrical edge and wire time. Keep a build without
+the note Kconfig flags for an overhead comparison.
+
+## Capture worker and allocator usage
+
+Use `--features probe` with the following flags for both modes. Add
+`--kconfig-enable STACK_COLORATION` on profiles that do not already select it.
+
+```sh
+--kconfig-enable ARCH_PERF_EVENTS \
+--kconfig-enable PERF_OVERFLOW_CORRECTION \
+--kconfig-enable SCHED_CRITMONITOR \
+--kconfig-enable FS_PROCFS \
+--kconfig-disable FS_PROCFS_EXCLUDE_PROCESS
+```
+
+Verify a single core and `CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD=0` in the
+resolved config. The fixture mounts procfs and captures the IMU worker's
+thread CPU clock and stack high-water from the first observation to the final
+snapshot before stop. The CPU clock is time charged to that thread by NuttX.
+It can include task-context kernel work and interrupts charged during a
+scheduled interval. The heap values cover the allocator arena visible through
+`mallinfo`, including kernel allocations if it is shared. Retain the
+`resource_schema: 1` summary along with the effective config and binary hash.
+
 ## Evidence to collect for S8
 
 - The HAL sequence and queue-drop counter identify delivery gaps after samples

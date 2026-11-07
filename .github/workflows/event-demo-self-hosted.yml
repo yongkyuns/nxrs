@@ -110,10 +110,11 @@ jobs:
             --target thumbv6m-none-eabi
 
       - name: Qualify the standalone peripheral drivers and IMU timing probe
-        run: >-
-          cargo +1.90.0 test --locked
-          -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-imu -p nxrs-imu-qualification
-          --features nxrs-imu-qualification/probe
+        run: |
+          cargo +1.90.0 test --locked \
+            -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-imu -p nxrs-imu-qualification \
+            --features nxrs-imu-qualification/probe
+          python3 -m unittest discover -s tests/host -p test_imu_scheduler_trace.py
 
       - name: Check the Rust runtime witness on the host
         run: |
@@ -281,6 +282,19 @@ jobs:
           --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml
           --profile esp32s3-devkit-imu-protected-qualification
           --features probe
+          --kconfig-enable ARCH_PERF_EVENTS
+          --kconfig-enable PERF_OVERFLOW_CORRECTION
+          --kconfig-enable SCHED_CRITMONITOR
+          --kconfig-enable FS_PROCFS
+          --kconfig-disable FS_PROCFS_EXCLUDE_PROCESS
+          --kconfig-enable SCHED_INSTRUMENTATION
+          --kconfig-enable SCHED_INSTRUMENTATION_FILTER
+          --kconfig-enable SCHED_INSTRUMENTATION_SWITCH
+          --kconfig-enable SCHED_INSTRUMENTATION_IRQHANDLER
+          --kconfig-enable DRIVERS_NOTE
+          --kconfig-enable DRIVERS_NOTECTL
+          --kconfig-enable DRIVERS_NOTERAM
+          --kconfig-enable DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE
           --out target/firmware/event-demo/imu-wired-protected
 
       - name: Retain deployment evidence

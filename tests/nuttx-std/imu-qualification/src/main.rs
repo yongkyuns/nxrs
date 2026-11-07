@@ -1,5 +1,5 @@
 //! Observe one bounded acquisition window through the public IMU HAL.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 #[cfg(not(feature = "probe"))]
 use imu::Imu;
@@ -11,8 +11,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(all(feature = "probe", target_os = "nuttx"))]
+mod notes;
+#[cfg(any(
+    all(feature = "probe", target_os = "nuttx"),
+    all(test, feature = "probe")
+))]
+mod resources;
 #[cfg(feature = "probe")]
 mod timing;
+#[cfg(all(feature = "probe", target_os = "nuttx"))]
+mod worker;
 
 const WINDOW: Duration = Duration::from_secs(60);
 const NO_STREAM: Duration = Duration::from_secs(3);
@@ -79,8 +88,46 @@ fn report(
 }
 
 fn main() -> ExitCode {
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let mut notes = match notes::Notes::open() {
+        Ok(notes) => notes,
+        Err(error) => {
+            eprintln!("scheduler trace setup failed ({error})");
+            return report(
+                "scheduler_trace_setup_failed",
+                0,
+                Duration::ZERO,
+                Observations::default(),
+                0,
+                None,
+            );
+        }
+    };
     let (sender, inbox) = bounded(64);
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let resources = match resources::Resources::open(worker::current_tid()) {
+        Ok(resources) => resources.map(std::sync::Arc::new),
+        Err(error) => {
+            eprintln!("resource capture setup failed: {error}");
+            return report(
+                "resource_setup_failed",
+                0,
+                Duration::ZERO,
+                Observations::default(),
+                0,
+                None,
+            );
+        }
+    };
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let sink_resources = resources.clone();
     let sink = move |event| {
+        #[cfg(all(feature = "probe", target_os = "nuttx"))]
+        if matches!(&event, Event::Sample(_)) {
+            if let Some(resources) = &sink_resources {
+                resources.observe_worker(worker::current_tid);
+            }
+        }
         sender.try_send(event).map_err(|error| match error {
             TrySendError::Full(value) => Rejected {
                 value,
@@ -118,12 +165,37 @@ fn main() -> ExitCode {
         if now >= stream_deadline {
             break ("no_stream", None);
         }
-        let timeout = end.min(stream_deadline) - now;
+        let wait_until = end.min(stream_deadline);
+        #[cfg(all(feature = "probe", target_os = "nuttx"))]
+        let wait_until = if let Some(notes) = notes.as_mut() {
+            if let Err(error) = notes.stop_if_due(now) {
+                eprintln!("scheduler trace stop failed ({error})");
+                break ("scheduler_trace_failed", None);
+            }
+            notes
+                .deadline()
+                .map_or(wait_until, |deadline| wait_until.min(deadline))
+        } else {
+            wait_until
+        };
+        let timeout = wait_until - now;
         match inbox.wait(Some(timeout)) {
             Ok(Event::Sample(sample)) => {
                 let received = Instant::now();
                 if received >= end {
                     break ("duration_complete", None);
+                }
+                #[cfg(all(feature = "probe", target_os = "nuttx"))]
+                if seen.samples == 0 {
+                    if let Some(resources) = &resources {
+                        resources.capture_first();
+                    }
+                    if let Some(notes) = notes.as_mut() {
+                        if let Err(error) = notes.start() {
+                            eprintln!("scheduler trace start failed ({error})");
+                            break ("scheduler_trace_failed", None);
+                        }
+                    }
                 }
                 seen.record(sample.sequence);
                 stream_deadline = received + NO_STREAM;
@@ -134,12 +206,35 @@ fn main() -> ExitCode {
         }
     };
     let elapsed = start.elapsed();
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    if let Some(resources) = &resources {
+        resources.capture_last(!device.is_finished());
+    }
     let stopped = device.request_stop();
     let joined = device.join();
     let fault = joined.err().or(stopped.err()).or(fault);
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let reason = match notes.map(notes::Notes::finish).transpose() {
+        Ok(Some(false)) if reason == "duration_complete" => "invalid_scheduler_trace",
+        Err(error) => {
+            eprintln!("scheduler trace read failed ({error})");
+            "scheduler_trace_failed"
+        }
+        _ => reason,
+    };
     #[cfg(feature = "probe")]
     let reason = if !timing.report() && reason == "duration_complete" {
         "invalid_timing"
+    } else {
+        reason
+    };
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let reason = if resources
+        .as_ref()
+        .is_some_and(|resources| !resources.report())
+        && reason == "duration_complete"
+    {
+        "invalid_resources"
     } else {
         reason
     };

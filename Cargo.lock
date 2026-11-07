@@ -565,6 +565,7 @@ dependencies = [
 name = "nxrs-imu-qualification"
 version = "0.1.0"
 dependencies = [
+ "nxrs-build-support",
  "nxrs-imu",
  "nxrs-messaging",
 ]
