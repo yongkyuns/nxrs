@@ -1,9 +1,9 @@
 # Peripheral composition implementation plan
 
 Status — executable work breakdown for the
-[target architecture](peripheral-composition.md). S0–S4 cover the behavior
+[target architecture](peripheral-composition.md). S0–S5 cover the behavior
 baseline, reusable BMI270 driver, NuttX resource split, common IMU
-configuration and typed profile resolution. Physical qualification remains
+configuration, typed profile resolution and ordered overlays. Physical qualification remains
 gated by S8.
 Baseline inspected at `3961a15d` on November 7, 2026. Recheck paths and APIs on the
 branch used for each step. The architecture document defines the target contract.

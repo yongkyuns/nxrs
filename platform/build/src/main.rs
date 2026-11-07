@@ -51,6 +51,7 @@ Selection:
   --bin <bin>                 Select a binary target
   --platform <platform>       Select a platform family and its default profile
   --profile <profile>         Select a product or qualification profile
+  --overlay <path>            Apply an ordered overlay in --dry-run; repeat as needed
   --features <features>       Enable Cargo features, separated by commas or spaces;
                               repeat as needed; --feature is an alias
   --no-default-features       Disable the application's default Cargo features
@@ -80,7 +81,7 @@ Paths are relative to the selected Nxrs workspace unless absolute.
 }
 fn profile_usage() -> &'static str {
     "usage:
-  cargo nxrs profile --platform <profile> [--target-os <os>]
+  cargo nxrs profile --platform <profile> [--overlay <path>] [--target-os <os>]
   cargo nxrs profile --platform <profile> --capability <capability> --target-os <os>
 
 Manifest paths are relative to the selected Nxrs workspace unless absolute."
@@ -116,6 +117,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let (mut app, mut manifest, mut platform, mut profile, mut out, mut bin) =
         (None, None, None, None, None, None);
     let mut options = Options::default();
+    let mut overlays = Vec::new();
     let mut html = None;
     let mut web_fix = true;
     let mut dry = false;
@@ -138,6 +140,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             }
             "--platform" => platform = Some(args.next().ok_or("missing --platform")?.clone()),
             "--profile" => profile = Some(args.next().ok_or("missing --profile")?.clone()),
+            "--overlay" => overlays.push(PathBuf::from(args.next().ok_or("missing overlay path")?)),
             "--out" => out = Some(root.join(args.next().ok_or("missing output path")?)),
             "--bin" => bin = Some(args.next().ok_or("missing binary")?.clone()),
             "--feature" | "--features" => {
@@ -225,13 +228,14 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     }
     let profile = if let Some(platform) = platform {
         let target = Target::parse(&platform)?;
-        build::selection(root, target, profile.as_deref())?
+        build::selection(root, target, profile.as_deref(), &overlays)?
     } else {
-        Profile::resolve(
+        Profile::resolve_with_overlays(
             root,
             profile
                 .as_deref()
                 .ok_or("choose a --platform or explicit qualification --profile")?,
+            &overlays,
         )?
     };
     let os = if profile.data.get("board").is_some() {
@@ -255,6 +259,9 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command})).unwrap());
         return Ok(ExitCode::SUCCESS);
     }
+    if !overlays.is_empty() {
+        return Err("command-line overlays require --dry-run until the resolved-profile Cargo handoff is available; declare overlays in the named profile to build".into());
+    }
     match os {
         "nuttx" => nxrs_build::nuttx::build(root, &app, &profile, &out, &options)?,
         "emscripten" => nxrs_build::web::build(
@@ -274,17 +281,22 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let mut name = None;
     let mut os = None;
     let mut capability = None;
+    let mut overlays = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--platform" => name = Some(args.next().ok_or("missing --platform value")?),
             "--target-os" => os = Some(args.next().ok_or("missing --target-os value")?),
             "--capability" => capability = Some(args.next().ok_or("missing --capability value")?),
+            "--overlay" => overlays.push(PathBuf::from(args.next().ok_or("missing overlay path")?)),
             _ => return Err(format!("unknown profile argument {arg}")),
         }
     }
-    let profile =
-        nxrs_build::profile::Profile::resolve(root, name.ok_or("profile requires --platform")?)?;
+    let profile = Profile::resolve_with_overlays(
+        root,
+        name.ok_or("profile requires --platform")?,
+        &overlays,
+    )?;
     if let Some(os) = os {
         profile.validate_target(os)?;
     }

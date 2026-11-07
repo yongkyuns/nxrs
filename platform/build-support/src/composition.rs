@@ -2,7 +2,8 @@
 use crate::Result;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 /// Checked-in capability-owned binding catalog embedded in the resolver.
 pub const BINDING_SCHEMA_PATH: &str = "hal/imu/bindings/bmi270-i2c.toml";
@@ -133,69 +134,111 @@ struct CatalogBinding {
 /// Resolve the IMU part of a profile. `imu_provider` is its selected HAL
 /// implementation (`nuttx`, `mock`, or `none`).
 pub fn resolve(data: &Value, imu_provider: &str) -> Result<Option<Composition>> {
+    resolve_with_origins(data, imu_provider, &BTreeMap::new())
+}
+
+/// Resolve with source locations for profile fields. Keys use dotted paths and
+/// may include tombstones for removed records, allowing dangling references to
+/// point back to the overlay that removed their target.
+pub(crate) fn resolve_with_origins(
+    data: &Value,
+    imu_provider: &str,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<Option<Composition>> {
     let has_graph_fields = ["resources", "devices", "roles"]
         .iter()
         .any(|key| data.get(*key).is_some());
     let legacy = data.get("imu");
     let Some(header_value) = data.get("composition") else {
         if has_graph_fields {
-            return Err("resources/devices/roles require a composition version header".into());
+            return Err(diagnostic(
+                origins,
+                "resources",
+                "resources/devices/roles require a composition version header",
+            ));
         }
         let Some(legacy) = legacy else {
             if imu_provider == "nuttx" {
-                return Err("nuttx IMU requires device configuration".into());
+                return Err(diagnostic(
+                    origins,
+                    "imu",
+                    "nuttx IMU requires device configuration",
+                ));
             }
             return Ok(None);
         };
         let catalog = catalog()?;
-        return resolve_legacy(legacy, imu_provider, &catalog).map(Some);
+        return resolve_legacy(legacy, imu_provider, &catalog, origins).map(Some);
     };
 
     let catalog = catalog()?;
-    let header: Header = decode(header_value, "invalid composition header")?;
+    let header: Header = decode(header_value, "invalid composition header")
+        .map_err(|error| diagnostic(origins, "composition", &error))?;
     if header.version != 1 {
-        return Err(format!(
-            "unsupported composition version: {}",
-            header.version
+        return Err(diagnostic(
+            origins,
+            "composition.version",
+            &format!("unsupported composition version: {}", header.version),
         ));
     }
     if legacy.is_some_and(|imu| !keys(imu, &[], &["stack-bytes"])) {
-        return Err(
-            "v1 composition permits only imu.stack-bytes; legacy IMU fields cannot be mixed".into(),
-        );
+        return Err(diagnostic(
+            origins,
+            "imu",
+            "v1 composition permits only imu.stack-bytes; legacy IMU fields cannot be mixed",
+        ));
     }
     if let Some(bindings) = data["hal"].as_object() {
         match header.mode {
             Mode::Hardware if bindings.values().any(|provider| provider == "mock") => {
-                return Err("hardware composition cannot select mock HAL bindings".into());
+                return Err(diagnostic(
+                    origins,
+                    "hal",
+                    "hardware composition cannot select mock HAL bindings",
+                ));
             }
             Mode::Simulation
                 if bindings
                     .values()
                     .any(|provider| provider != "mock" && provider != "none") =>
             {
-                return Err("simulation composition cannot select physical HAL bindings".into());
+                return Err(diagnostic(
+                    origins,
+                    "hal",
+                    "simulation composition cannot select physical HAL bindings",
+                ));
             }
             _ => {}
         }
     }
-    let stack_bytes = crate::profile::sensor_stack(legacy.unwrap_or(&Value::Null))?;
+    let stack_bytes = crate::profile::sensor_stack(legacy.unwrap_or(&Value::Null))
+        .map_err(|error| diagnostic(origins, "imu.stack-bytes", &error))?;
     let resources = decode_map(
         data.get("resources"),
+        "resources",
         "composition requires top-level [resources]",
+        origins,
     )?;
     let devices: BTreeMap<String, Device> = decode_map(
         data.get("devices"),
+        "devices",
         "composition requires top-level [devices]",
+        origins,
     )?;
-    let roles: BTreeMap<String, String> =
-        decode_map(data.get("roles"), "composition requires top-level [roles]")?;
-    validate_map_sizes(&resources, &devices, &roles)?;
-    let resources = normalize_resources(resources)?;
-    validate_ids(&resources, &devices, &roles)?;
-    validate_roles(&roles)?;
-    validate_provider_mode(imu_provider, header.mode, &devices, &roles)?;
-    validate_graph(&catalog, &resources, &devices, &roles)?;
+    let roles: BTreeMap<String, String> = decode_map(
+        data.get("roles"),
+        "roles",
+        "composition requires top-level [roles]",
+        origins,
+    )?;
+    validate_map_sizes(&resources, &devices, &roles)
+        .map_err(|e| diagnostic(origins, "resources", &e))?;
+    let resources = normalize_resources(resources, origins)?;
+    validate_ids(&resources, &devices, &roles, origins)?;
+    validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
+    validate_provider_mode(imu_provider, header.mode, &devices, &roles)
+        .map_err(|e| diagnostic(origins, "composition.mode", &e))?;
+    validate_graph(&catalog, &resources, &devices, &roles, origins)?;
     let graph = Composition {
         version: header.version,
         mode: header.mode,
@@ -207,28 +250,39 @@ pub fn resolve(data: &Value, imu_provider: &str) -> Result<Option<Composition>> 
     Ok(Some(graph))
 }
 
-fn resolve_legacy(value: &Value, provider: &str, catalog: &Catalog) -> Result<Composition> {
+fn resolve_legacy(
+    value: &Value,
+    provider: &str,
+    catalog: &Catalog,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<Composition> {
     if !keys(
         value,
         &["driver", "device", "address", "frequency"],
         &["stack-bytes", "irq-device"],
     ) {
-        return Err("invalid legacy IMU binding".into());
+        return Err(diagnostic(origins, "imu", "invalid legacy IMU binding"));
     }
     if value["driver"] != "bmi270" {
-        return Err("unsupported legacy IMU model".into());
+        return Err(diagnostic(
+            origins,
+            "imu.driver",
+            "unsupported legacy IMU model",
+        ));
     }
-    let address: u8 = number(&value["address"], "IMU address")?
+    let address: u8 = number(&value["address"], "IMU address")
+        .map_err(|e| diagnostic(origins, "imu.address", &e))?
         .try_into()
-        .map_err(|_| "IMU address is out of range")?;
-    let frequency = number(&value["frequency"], "IMU frequency")?
+        .map_err(|_| diagnostic(origins, "imu.address", "IMU address is out of range"))?;
+    let frequency = number(&value["frequency"], "IMU frequency")
+        .map_err(|e| diagnostic(origins, "imu.frequency", &e))?
         .try_into()
-        .map_err(|_| "IMU frequency is out of range")?;
-    let bus_path = path(&value["device"])?;
+        .map_err(|_| diagnostic(origins, "imu.frequency", "IMU frequency is out of range"))?;
+    let bus_path = path(&value["device"]).map_err(|e| diagnostic(origins, "imu.device", &e))?;
     let irq = match value.get("irq-device") {
         None => None,
         Some(Value::String(s)) if s.is_empty() => None,
-        Some(v) => Some(path(v)?),
+        Some(v) => Some(path(v).map_err(|e| diagnostic(origins, "imu.irq-device", &e))?),
     };
     let mut resources = BTreeMap::new();
     resources.insert(
@@ -272,7 +326,13 @@ fn resolve_legacy(value: &Value, provider: &str, catalog: &Catalog) -> Result<Co
         stack_bytes: crate::profile::sensor_stack(value)?,
     };
     validate_provider_mode(provider, graph.mode, &graph.devices, &graph.roles)?;
-    validate_graph(catalog, &graph.resources, &graph.devices, &graph.roles)?;
+    validate_graph(
+        catalog,
+        &graph.resources,
+        &graph.devices,
+        &graph.roles,
+        origins,
+    )?;
     Ok(graph)
 }
 
@@ -281,14 +341,16 @@ fn validate_graph(
     resources: &BTreeMap<String, Resource>,
     devices: &BTreeMap<String, Device>,
     roles: &BTreeMap<String, String>,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<()> {
     if catalog.version != 1 {
-        return Err("unsupported IMU binding catalog version".into());
+        return Err(diagnostic(
+            origins,
+            "binding.catalog.version",
+            "unsupported IMU binding catalog version",
+        ));
     }
-    if devices.is_empty() {
-        return Err("composition must define an IMU device".into());
-    }
-    let mut endpoints = BTreeMap::new();
+    let mut endpoints: BTreeMap<&str, (&str, &Resource)> = BTreeMap::new();
     for (id, resource) in resources {
         let path =
             match resource {
@@ -296,82 +358,153 @@ fn validate_graph(
                     if !catalog.binding.iter().any(|binding| {
                         binding.bus == "i2c" && binding.frequencies.contains(frequency)
                     }) {
-                        return Err(format!(
-                            "unsupported I2C frequency {frequency} in resource {id}"
+                        return Err(diagnostic(
+                            origins,
+                            &format!("resources.{id}.frequency"),
+                            &format!("unsupported I2C frequency {frequency}"),
                         ));
                     }
                     device
                 }
                 Resource::GpioInterrupt { device, .. } => device,
             };
-        if let Some(previous) = endpoints.insert(path, resource) {
+        if let Some((previous_id, previous)) = endpoints.insert(path, (id, resource)) {
             if previous != resource {
-                return Err(match (previous, resource) {
-                    (Resource::I2c { .. }, Resource::I2c { .. }) => {
-                        format!("conflicting I2C frequencies for {path}")
-                    }
-                    _ => format!("conflicting resource kinds for {path}"),
-                });
+                let (related, message) = match (previous, resource) {
+                    (Resource::I2c { .. }, Resource::I2c { .. }) => (
+                        format!("resources.{previous_id}.frequency"),
+                        format!("conflicting I2C frequencies for endpoint {path}"),
+                    ),
+                    _ => (
+                        format!("resources.{previous_id}.kind"),
+                        format!("conflicting resource kinds for endpoint {path}"),
+                    ),
+                };
+                let current = if matches!(resource, Resource::I2c { .. }) {
+                    format!("resources.{id}.frequency")
+                } else {
+                    format!("resources.{id}.kind")
+                };
+                return Err(diagnostic_related(origins, &current, &[&related], &message));
             }
         }
     }
 
-    let mut physical_claims = BTreeSet::new();
-    let mut irq_claims = BTreeSet::new();
+    let mut physical_claims = BTreeMap::new();
+    let mut irq_claims = BTreeMap::new();
     for (id, device) in devices {
-        let binding = binding_for(catalog, &device.compatible, "i2c")?;
+        let binding = binding_for(catalog, &device.compatible, "i2c")
+            .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
         if binding.model != "bmi270" {
-            return Err("binding catalog selects an unsupported IMU model".into());
-        }
-        if !binding.addresses.contains(&device.address) {
-            return Err(format!(
-                "unsupported {} address {:#04x}",
-                device.compatible, device.address
+            return Err(diagnostic(
+                origins,
+                &format!("devices.{id}.compatible"),
+                "binding catalog selects an unsupported IMU model",
             ));
         }
-        let bus = resources
-            .get(&device.bus)
-            .ok_or_else(|| format!("device {id} references unknown bus {}", device.bus))?;
+        if !binding.addresses.contains(&device.address) {
+            return Err(diagnostic(
+                origins,
+                &format!("devices.{id}.address"),
+                &format!(
+                    "unsupported {} address {:#04x}",
+                    device.compatible, device.address
+                ),
+            ));
+        }
+        let bus = resources.get(&device.bus).ok_or_else(|| {
+            diagnostic_related(
+                origins,
+                &format!("devices.{id}.bus"),
+                &[&format!("resources.{}", device.bus)],
+                &format!("references unknown bus {}", device.bus),
+            )
+        })?;
         let Resource::I2c {
             device: path,
             frequency,
         } = bus
         else {
-            return Err(format!("device {id} requires an I2C bus"));
+            return Err(diagnostic_related(
+                origins,
+                &format!("devices.{id}.bus"),
+                &[&format!("resources.{}.kind", device.bus)],
+                "requires an I2C bus",
+            ));
         };
         if !binding.frequencies.contains(frequency) {
-            return Err(format!(
-                "unsupported {} I2C frequency {frequency}",
-                device.compatible
+            return Err(diagnostic(
+                origins,
+                &format!("resources.{}.frequency", device.bus),
+                &format!(
+                    "unsupported {} I2C frequency {frequency}",
+                    device.compatible
+                ),
             ));
         }
-        if !physical_claims.insert((path.as_str(), device.address)) {
-            return Err("conflicting physical device address claim".into());
+        if let Some((previous_id, previous_bus)) =
+            physical_claims.insert((path.as_str(), device.address), (id, &device.bus))
+        {
+            return Err(diagnostic_related(
+                origins,
+                &format!("devices.{id}.address"),
+                &[
+                    &format!("devices.{previous_id}.address"),
+                    &format!("devices.{id}.bus"),
+                    &format!("devices.{previous_id}.bus"),
+                    &format!("resources.{}.device", device.bus),
+                    &format!("resources.{previous_bus}.device"),
+                ],
+                "conflicting physical device address claim",
+            ));
         }
         if let Wake::Interrupt { resource } = &device.wake {
-            match resources
-                .get(resource)
-                .ok_or_else(|| format!("device {id} references unknown IRQ resource {resource}"))?
-            {
+            match resources.get(resource).ok_or_else(|| {
+                diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.wake.resource"),
+                    &[&format!("resources.{resource}")],
+                    &format!("references unknown IRQ resource {resource}"),
+                )
+            })? {
                 Resource::GpioInterrupt {
                     device: irq,
                     trigger: Trigger::Rising,
                 } => {
-                    if !irq_claims.insert(irq.as_str()) {
-                        return Err("conflicting exclusive IRQ resource claim".into());
+                    if let Some(previous_id) = irq_claims.insert(irq.as_str(), id) {
+                        return Err(diagnostic_related(
+                            origins,
+                            &format!("devices.{id}.wake.resource"),
+                            &[&format!("devices.{previous_id}.wake.resource")],
+                            "conflicting exclusive IRQ resource claim",
+                        ));
                     }
                 }
                 Resource::I2c { .. } => {
-                    return Err(format!("device {id} IRQ reference is not a GPIO interrupt"))
+                    return Err(diagnostic_related(
+                        origins,
+                        &format!("devices.{id}.wake.resource"),
+                        &[&format!("resources.{resource}.kind")],
+                        "IRQ reference is not a GPIO interrupt",
+                    ))
                 }
             }
         }
     }
-    let role_device = roles
-        .get("imu")
-        .ok_or("composition must assign the default roles.imu device")?;
+    let role_device = roles.get("imu").ok_or_else(|| {
+        diagnostic(
+            origins,
+            "roles.imu",
+            "composition must assign the default IMU device",
+        )
+    })?;
     if !devices.contains_key(role_device) {
-        return Err("roles.imu references an unknown device".into());
+        return Err(diagnostic_related(
+            origins,
+            "roles.imu",
+            &[&format!("devices.{role_device}")],
+            &format!("references unknown device {role_device}"),
+        ));
     }
     Ok(())
 }
@@ -422,13 +555,60 @@ fn catalog() -> Result<Catalog> {
     toml::from_str(CATALOG_SOURCE)
         .map_err(|e| format!("invalid checked-in IMU binding catalog: {e}"))
 }
+
+/// Digest of the exact checked-in schema embedded into this build-support crate.
+pub(crate) fn binding_schema_digest() -> String {
+    crate::hash_bytes(CATALOG_SOURCE.as_bytes())
+}
+
+fn diagnostic(origins: &BTreeMap<String, PathBuf>, field: &str, message: &str) -> String {
+    let source = origin_for(origins, field);
+    match source {
+        Some(path) => format!("{field} (from {}): {message}", path.display()),
+        None => format!("{field}: {message}"),
+    }
+}
+
+fn diagnostic_related(
+    origins: &BTreeMap<String, PathBuf>,
+    field: &str,
+    related: &[&str],
+    message: &str,
+) -> String {
+    let mut result = diagnostic(origins, field, message);
+    let primary_source = origin_for(origins, field);
+    for related_field in related {
+        if let Some(path) = origins.get(*related_field) {
+            if primary_source != Some(path) {
+                result.push_str(&format!("; {related_field} changed by {}", path.display()));
+            }
+        }
+    }
+    result
+}
+
+fn origin_for<'a>(origins: &'a BTreeMap<String, PathBuf>, field: &str) -> Option<&'a PathBuf> {
+    let mut current = field;
+    loop {
+        if let Some(path) = origins.get(current) {
+            return Some(path);
+        }
+        let Some((parent, _)) = current.rsplit_once('.') else {
+            return origins.get("");
+        };
+        current = parent;
+    }
+}
 fn normalize_resources(
     mut resources: BTreeMap<String, Resource>,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<BTreeMap<String, Resource>> {
-    for resource in resources.values_mut() {
+    for (id, resource) in &mut resources {
         match resource {
             Resource::I2c { device, .. } | Resource::GpioInterrupt { device, .. } => {
-                *device = normalized_path(device)?
+                *device = normalized_path(device).map_err(|error| {
+                    diagnostic(origins, &format!("resources.{id}.device"), &error)
+                })?
             }
         }
     }
@@ -448,9 +628,16 @@ fn validate_ids(
     resources: &BTreeMap<String, Resource>,
     devices: &BTreeMap<String, Device>,
     roles: &BTreeMap<String, String>,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<()> {
-    for id in resources.keys().chain(devices.keys()).chain(roles.values()) {
-        valid_id(id)?;
+    for id in resources.keys() {
+        valid_id(id).map_err(|error| diagnostic(origins, &format!("resources.{id}"), &error))?;
+    }
+    for id in devices.keys() {
+        valid_id(id).map_err(|error| diagnostic(origins, &format!("devices.{id}"), &error))?;
+    }
+    for (role, id) in roles {
+        valid_id(id).map_err(|error| diagnostic(origins, &format!("roles.{role}"), &error))?;
     }
     Ok(())
 }
@@ -467,10 +654,21 @@ fn decode<T: DeserializeOwned>(value: &Value, message: &str) -> Result<T> {
 }
 fn decode_map<T: DeserializeOwned>(
     value: Option<&Value>,
+    field: &str,
     message: &str,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<BTreeMap<String, T>> {
-    let value = value.ok_or(message)?;
-    decode(value, message)
+    let value = value.ok_or_else(|| diagnostic(origins, field, message))?;
+    let Some(values) = value.as_object() else {
+        return decode(value, message).map_err(|error| diagnostic(origins, field, &error));
+    };
+    let mut decoded = BTreeMap::new();
+    for (id, value) in values {
+        let item = T::deserialize(value)
+            .map_err(|error| diagnostic(origins, &format!("{field}.{id}"), &error.to_string()))?;
+        decoded.insert(id.clone(), item);
+    }
+    Ok(decoded)
 }
 fn keys(v: &Value, required: &[&str], optional: &[&str]) -> bool {
     v.as_object().is_some_and(|map| {
@@ -678,5 +876,36 @@ mod tests {
         let a = serde_json::to_vec(&resolve(&a, "nuttx").unwrap().unwrap()).unwrap();
         let b = serde_json::to_vec(&resolve(&b, "nuttx").unwrap().unwrap()).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn diagnostics_follow_field_origins_and_removed_reference_targets() {
+        let value = profile(
+            "hardware",
+            "/dev/i2c0",
+            104,
+            json!({"kind":"interrupt", "resource":"ready"}),
+        );
+        let origins = BTreeMap::from([
+            (
+                "devices.motion.wake.resource".into(),
+                PathBuf::from("base.toml"),
+            ),
+            (
+                "resources.ready".into(),
+                PathBuf::from("overlays/remove-ready.toml"),
+            ),
+        ]);
+        let error = resolve_with_origins(&value, "nuttx", &origins).unwrap_err();
+        assert!(error.contains("devices.motion.wake.resource"));
+        assert!(error.contains("resources.ready changed by overlays/remove-ready.toml"));
+    }
+
+    #[test]
+    fn binding_schema_digest_matches_embedded_catalog_bytes() {
+        assert_eq!(
+            binding_schema_digest(),
+            crate::hash_bytes(CATALOG_SOURCE.as_bytes())
+        );
     }
 }

@@ -1,6 +1,5 @@
 //! Build admission and evidence for an application descriptor and resolved profile.
 use crate::{
-    hash,
     profile::{manifest, Profile, CAPABILITIES},
     Result,
 };
@@ -108,11 +107,7 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         .filter(|(_, v)| v.as_str() != Some("none"))
         .map(|(c, p)| json!({"capability":c,"implementation":p,"package":format!("nxrs-{c}")}))
         .collect();
-    let sources = profile
-        .sources
-        .iter()
-        .map(|p| Ok(json!({"path":p,"sha256":hash(p)?})))
-        .collect::<Result<Vec<_>>>()?;
+    let sources = profile.source_hashes()?;
     let detector = profile.detector()?.map(|v| {
         let mut d = json!({"model":v.model,"stack-bytes":v.stack_bytes,"sample-ms":v.sample_ms});
         if let Some(c) = v.compute_core {

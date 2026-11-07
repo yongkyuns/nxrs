@@ -80,10 +80,10 @@ fn succeeded(command: &mut Command) {
     );
 }
 fn profile() -> Profile {
-    Profile {
-        data: json!({"name":"fixture","hal":{"detector":"mock"},"detector":{"model":"pico","stack-bytes":16384,"sample-ms":100}}),
-        sources: vec![],
-    }
+    Profile::from_data(
+        json!({"name":"fixture","hal":{"detector":"mock"},"detector":{"model":"pico","stack-bytes":16384,"sample-ms":100}}),
+        vec![],
+    )
 }
 fn contains(selection: &cargo_graph::Selection, name: &str) -> bool {
     selection

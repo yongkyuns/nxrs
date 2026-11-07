@@ -40,7 +40,7 @@ pub fn query(request: Value) -> Result<Value> {
                 .ok_or("invalid profile source".into())
         })
         .collect::<Result<Vec<_>>>()?;
-    let p = Profile { data, sources };
+    let p = Profile::from_data(data, sources);
     match action {
         "validate-target" => {
             p.validate_target(request["os"].as_str().ok_or("missing target OS")?)?;
