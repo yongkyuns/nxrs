@@ -2,7 +2,7 @@
 #![no_std]
 #![deny(unsafe_code)]
 extern crate std;
-#[cfg(any(hal_enabled, test))]
+#[cfg(any(hal_provider = "hardware", test))]
 mod ownership;
 mod platform;
 pub use platform::open;

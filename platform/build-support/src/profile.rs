@@ -1,11 +1,12 @@
 //! One resolver for CLI builds and HAL build scripts.
 use crate::{
+    Result,
     composition::{self, Composition, ImuModel},
-    hash_bytes, overlay, read, Result,
+    hash_bytes, overlay, read,
 };
 use regex::Regex;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -738,20 +739,13 @@ impl Profile {
                 .iter()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
-        match (capability, self.binding(capability)) {
-            ("imu" | "gnss", "none") => {}
-            ("imu" | "gnss", "nuttx") => {
-                output.push("cargo:rustc-cfg=hal_provider=\"hardware\"".into())
-            }
-            ("imu" | "gnss", provider @ ("mock" | "simulation")) => {
-                output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
-            }
-            ("imu" | "gnss", provider) => {
-                return Err(format!("unsupported {capability} provider {provider}"));
-            }
-            (_, "none") => {}
-            (_, "mock") => output.push("cargo:rustc-cfg=hal_mock".into()),
-            _ => output.push("cargo:rustc-cfg=hal_enabled".into()),
+        let provider = match self.binding(capability) {
+            "none" => None,
+            mode @ ("mock" | "simulation") => Some(mode),
+            _ => Some("hardware"),
+        };
+        if let Some(provider) = provider {
+            output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
         }
         Ok(output)
     }

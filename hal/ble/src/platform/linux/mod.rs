@@ -15,7 +15,7 @@ where
     crate::shared::open::<State, S>(sink)
 }
 
-#[cfg(hal_enabled)]
+#[cfg(hal_provider = "hardware")]
 pub(crate) fn gatt_driver<const N: usize>(
     wake: impl Fn() + Send + Sync + 'static,
 ) -> Result<impl crate::gatt::Driver<N>, crate::Error> {

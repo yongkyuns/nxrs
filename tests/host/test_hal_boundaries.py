@@ -230,7 +230,7 @@ class WiringNegativeControls(unittest.TestCase):
 
     def test_explicit_api_and_named_selected_exports_are_allowed(self):
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR), [])
-        self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(hal_mock)] pub use selected::{Mock, FORMAT};'), [])
+        self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(hal_provider = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):
         for export in ('pub use platform::*;', 'pub use self::platform::{open, *};'):

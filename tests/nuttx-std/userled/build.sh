@@ -50,7 +50,7 @@ selection = [m for m in messages if m.get('reason') == 'build-script-executed'
              and m['package_id'] == led_id]
 assert len(selection) == 1, 'missing/duplicate LED platform cfg evidence'
 cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith('hal_')]
-assert cfgs == ['hal_enabled'], f'wrong LED platform selection: {cfgs}'
+assert cfgs == ['hal_provider="hardware"'], f'wrong LED platform selection: {cfgs}'
 assert dict(selection[0]['env'])['NXRS_USERLED_PATH'] == '/dev/nxrs-userled'
 assert 'static=led_native' in selection[0]['linked_libs'], 'LED package did not own its native archive'
 (out / 'userled-hal-selection.json').write_text(json.dumps({

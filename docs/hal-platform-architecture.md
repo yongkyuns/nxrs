@@ -52,7 +52,7 @@ capability-owned Rust API and shared behavior
 
 Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
-not branch on `target_os`, `hal_enabled`, `hal_mock`, or platform environment
+not branch on `target_os`, `hal_provider`, or platform environment
 variables. Rust model features select model code, never an OS.
 Each HAL's `src/platform/mod.rs` selects source modules as `selected` and
 re-exports only selected items. Prefer fixed named factory exports; do not
@@ -258,13 +258,12 @@ on the CLI. Only build-dependency edges may enter these host support packages;
 runtime HAL edges and all app/service edges to platform code remain forbidden.
 External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
 workspace. In-checkout builds can discover the SDK root.
-The resolver emits one `hal_provider` value for IMU and GNSS. Their profile
-selects a NuttX provider, a coordinated host simulation source or an explicit
-mock fixture. The module boundary uses `target_os` for the actual NuttX target.
-Other HALs retain `hal_enabled` and `hal_mock` as admission gates during
-migration. Unbound capabilities compile their contract and unavailable factory.
-Keep provider selection in HAL wiring and keep shared algorithms independent
-of it. Product builds and detached Cargo consumers use the same resolver.
+The resolver emits a single `hal_provider` value for each bound capability.
+Hardware uses `target_os` at the OS module boundary. Named simulation and mock
+profiles select their corresponding factories. Unbound capabilities compile
+their contract and unavailable factory. Keep this selection in HAL wiring so
+shared algorithms can use explicit resources and capability information.
+Product builds and detached Cargo consumers use the same resolver.
 
 Ordinary driver dependencies remain Cargo declarations; a HAL build script
 cannot enable an optional dependency after Cargo has resolved the graph.
@@ -273,8 +272,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 
 | Control | Owner | Purpose |
 | --- | --- | --- |
-| `hal_provider` | IMU and GNSS module/acquisition wiring | Select the resolved provider or compile the unavailable factory |
-| `hal_enabled`, `hal_mock` | Remaining HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
+| `hal_provider` | HAL module/acquisition wiring | Select the resolved provider or compile the unavailable factory |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
 | `replay`, `recording`, `udp` | Owning HAL and its consumers' Cargo manifests | Include explicit std software operations; do not select or require a hardware backend |
 | `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |

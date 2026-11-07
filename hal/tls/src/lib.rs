@@ -17,11 +17,11 @@ pub enum Error {
     Io,
 }
 
-#[cfg_attr(not(hal_enabled), allow(dead_code))]
+#[cfg_attr(not(hal_provider = "hardware"), allow(dead_code))]
 mod api;
 pub use api::{CertificatePolicy, Certificates, TimeLease};
 mod platform;
-#[cfg(hal_enabled)]
+#[cfg(hal_provider = "hardware")]
 #[allow(unsafe_code)]
 mod sdk;
 pub use platform::{open, Connection, Identity};

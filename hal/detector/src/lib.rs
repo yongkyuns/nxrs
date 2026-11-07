@@ -11,7 +11,7 @@ pub use api::{
 };
 // Model compilation does not require a bound acquisition factory.
 #[cfg(any(feature = "person-model", feature = "pico-model"))]
-#[cfg_attr(not(hal_enabled), allow(dead_code, unused_imports))]
+#[cfg_attr(not(hal_provider = "hardware"), allow(dead_code, unused_imports))]
 mod model;
 mod platform;
 #[cfg(feature = "person-model")]

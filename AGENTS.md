@@ -68,8 +68,8 @@ requirements, not aspirational guidance.
   platform/provider flags or inspect platform identity. Supply explicit resource
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
-  and select explicit simulation or qualification fixtures. The migrated IMU
-  and GNSS HALs use one internal `hal_provider` value at their module boundary.
+  and select explicit simulation or qualification fixtures. HALs use one
+  internal `hal_provider` value at their module boundary.
 - Cargo manifests own component dependencies. Ordinary additive features may
   select optional functionality, formats, algorithms and driver code at their
   owning module boundary. Do not maintain a global feature-name allowlist.

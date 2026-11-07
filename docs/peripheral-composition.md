@@ -278,10 +278,9 @@ atomically and never rewrite source profiles.
 Equivalent input selections through either entry point must produce the same
 typed graph and digest. Invalid/stale selections fail before native compilation.
 
-For migrated capabilities, the selected physical, simulation or unavailable
-factory replaces independent `hal_mock`/`hal_enabled` admission. Existing cfgs
-remain in unmigrated capabilities until their normal entry points and fixtures
-are migrated. Contract-only builds retain explicit unavailable factories.
+Each HAL selects one factory through the resolved provider. Contract-only
+builds retain explicit unavailable factories. Test fixtures require an explicit
+profile or test injection.
 Selected exports remain named and factory-local. Generated wiring needs audit
 coverage and cannot introduce OS branches into shared algorithms.
 

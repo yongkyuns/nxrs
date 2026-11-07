@@ -5,9 +5,9 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_mock, test))]
+#[cfg(any(hal_provider = "mock", test))]
 extern crate alloc;
-#[cfg(any(hal_enabled, feature = "replay", test))]
+#[cfg(any(hal_provider = "hardware", feature = "replay", test))]
 extern crate std;
 
 mod api;
@@ -28,7 +28,7 @@ pub mod replay;
 pub use replay::{open as camera, open as replay, ReplayCamera};
 
 // Scripted fixtures are explicitly selected, never an implicit live fallback.
-#[cfg(hal_mock)]
+#[cfg(hal_provider = "mock")]
 pub use platform::{CameraAction, MockCamera, FORMAT};
 
 #[cfg(test)]

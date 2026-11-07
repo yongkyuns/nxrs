@@ -1,4 +1,4 @@
-#![cfg(hal_mock)]
+#![cfg(hal_provider = "mock")]
 
 use camera::{Camera, DeviceError};
 use camera::{CameraAction, MockCamera};

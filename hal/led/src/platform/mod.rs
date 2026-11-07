@@ -1,11 +1,20 @@
 //! Select one implementation from profile admission and Rust target_os.
-#[cfg_attr(all(hal_enabled, target_os = "nuttx"), path = "nuttx/mod.rs")]
-#[cfg_attr(hal_mock, path = "mock.rs")]
-#[cfg_attr(not(any(hal_enabled, hal_mock)), path = "unbound.rs")]
-#[cfg_attr(all(hal_enabled, target_os = "nuttx"), allow(unsafe_code))]
+#[cfg_attr(
+    all(hal_provider = "hardware", target_os = "nuttx"),
+    path = "nuttx/mod.rs"
+)]
+#[cfg_attr(hal_provider = "mock", path = "mock.rs")]
+#[cfg_attr(
+    not(any(hal_provider = "hardware", hal_provider = "mock")),
+    path = "unbound.rs"
+)]
+#[cfg_attr(
+    all(hal_provider = "hardware", target_os = "nuttx"),
+    allow(unsafe_code)
+)]
 mod selected;
 pub use selected::open;
-#[cfg(hal_mock)]
+#[cfg(hal_provider = "mock")]
 pub use selected::MockLeds;
-#[cfg(all(hal_enabled, target_os = "nuttx"))]
+#[cfg(all(hal_provider = "hardware", target_os = "nuttx"))]
 pub use selected::UserLeds;
