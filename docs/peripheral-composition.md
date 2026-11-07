@@ -265,9 +265,13 @@ gnss = "navigation"
 Camera and BLE bind the native subsystem interfaces they use. On NuttX,
 `[camera].device` names the video node and `[ble].scan-interface` names the
 interface used by scan ioctls. The firmware profiles declare these resources.
-For older profiles the defaults are `/dev/video0` and `bnep0`. NuttX owns
-camera capture and Bluetooth controller registration. The Rust providers own
-capture and scan lifecycle. GATT uses the NuttX host's connection APIs.
+The resolver fills omitted bindings with `/dev/video0` and `bnep0` for older
+profiles. Profile inspection and build receipts show the same effective values
+the HAL build scripts consume. An overlay can replace either endpoint table on
+a profile with the matching NuttX provider. An endpoint-only overlay also
+works without a composition graph. NuttX owns camera capture and Bluetooth
+controller registration. The Rust providers own capture and scan lifecycle.
+GATT uses the NuttX host's connection APIs.
 
 Validate missing references, disabled/removed required devices, incompatible
 role assignments, duplicate physical endpoint/address claims, exclusive IRQ/CS

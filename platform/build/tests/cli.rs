@@ -353,6 +353,61 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
 }
 
 #[test]
+fn native_endpoint_overlays_agree_in_profile_and_cargo_output() {
+    let root = fixture();
+    for capability in ["camera", "ble"] {
+        let hal = root.0.join("hal").join(capability);
+        fs::create_dir_all(&hal).unwrap();
+        fs::write(
+            hal.join("Cargo.toml"),
+            "[package.metadata.nxrs]\nplatforms = [\"nuttx\"]\n",
+        )
+        .unwrap();
+    }
+    fs::write(
+        root.0.join("platform/profiles/native-endpoints.toml"),
+        "target-os = [\"nuttx\"]\n[hal]\ncamera = \"nuttx\"\nble = \"nuttx\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.0.join("endpoints.toml"),
+        "[camera]\ndevice = \"/dev/video2\"\n[ble]\nscan-interface = \"bnep7\"\n",
+    )
+    .unwrap();
+    let args = ["profile", "--platform", "native-endpoints"];
+    let inspect = |extra: &[&str]| -> Value {
+        let all = [&args[..], extra].concat();
+        serde_json::from_str(&success(frontend(&root.0, &root.0, &all))).unwrap()
+    };
+    let defaults = inspect(&[]);
+    assert_eq!(defaults["camera"]["device"], "/dev/video0");
+    assert_eq!(defaults["ble"]["scan-interface"], "bnep0");
+
+    let overlay = ["--overlay", "endpoints.toml"];
+    let effective = inspect(&overlay);
+    for (capability, key, value, variable) in [
+        ("camera", "device", "/dev/video2", "CAMERA_DEVICE"),
+        ("ble", "scan-interface", "bnep7", "BLE_SCAN_INTERFACE"),
+    ] {
+        assert_eq!(effective[capability][key], value);
+        let all = [
+            &args[..],
+            &overlay,
+            &["--capability", capability, "--target-os", "nuttx"],
+        ]
+        .concat();
+        let output = success(frontend(&root.0, &root.0, &all));
+        assert!(output
+            .lines()
+            .any(|line| line == format!("cargo:rustc-env={variable}={value}")));
+    }
+
+    fs::write(root.0.join("endpoints.toml"), "[hal]\ncamera = \"mock\"\n").unwrap();
+    let error = failure(frontend(&root.0, &root.0, &[&args[..], &overlay].concat()));
+    assert!(error.contains("overlays may only set camera or BLE endpoints"));
+}
+
+#[test]
 fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
     let root = fixture();
     write_imu_fixture(&root.0);

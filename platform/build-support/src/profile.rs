@@ -129,13 +129,15 @@ impl Profile {
             .map(|path| (String::new(), path.clone()))
             .into_iter()
             .collect();
-        Self {
+        let mut profile = Self {
             data,
             sources,
             inputs: Vec::new(),
             origins,
             cli_overlays: Vec::new(),
-        }
+        };
+        profile.resolve_native_endpoints();
+        profile
     }
 
     pub fn resolve(root: &Path, name: &str) -> Result<Self> {
@@ -149,8 +151,10 @@ impl Profile {
         if declared.len() + cli.len() > 64 {
             return Err("at most 64 overlays can be selected for a profile".into());
         }
-        if (!declared.is_empty() || !cli.is_empty()) && profile.data.get("composition").is_none() {
-            return Err("overlays require a v1 peripheral composition".into());
+        let has_composition = profile.data.get("composition").is_some();
+        if !has_composition && (!declared.is_empty() || !cli.is_empty()) {
+            // An endpoint overlay cannot migrate legacy sensor bindings.
+            profile.composition()?;
         }
         for (path, kind) in declared
             .into_iter()
@@ -164,6 +168,19 @@ impl Profile {
                 .canonicalize()
                 .map_err(|error| format!("overlay {}: {error}", path.display()))?;
             let (patch, input) = read_input(canonical, kind)?;
+            if !has_composition
+                && !patch.as_object().is_some_and(|fields| {
+                    !fields.is_empty()
+                        && fields
+                            .keys()
+                            .all(|key| overlay::NATIVE_ENDPOINT_TABLES.contains(&key.as_str()))
+                })
+            {
+                return Err(
+                    "without a v1 peripheral composition, overlays may only set camera or BLE endpoints"
+                        .into(),
+                );
+            }
             overlay::merge(
                 &mut profile.data,
                 &patch,
@@ -173,8 +190,20 @@ impl Profile {
             )?;
             profile.inputs.push(input);
         }
+        profile.resolve_native_endpoints();
         profile.validate_resources()?;
         Ok(profile)
+    }
+
+    fn resolve_native_endpoints(&mut self) {
+        for (capability, key, value) in [
+            ("camera", "device", "/dev/video0"),
+            ("ble", "scan-interface", "bnep0"),
+        ] {
+            if self.binding(capability) == "nuttx" && self.data.get(capability).is_none() {
+                self.data[capability][key] = json!(value);
+            }
+        }
     }
 
     fn inherit(
@@ -233,6 +262,7 @@ impl Profile {
         for (k, v) in child.as_object().unwrap() {
             match k.as_str() {
                 "resources" | "devices" | "roles" => {}
+                key if overlay::NATIVE_ENDPOINT_TABLES.contains(&key) => {}
                 "remove-resources" | "remove-devices" | "remove-roles" => {
                     return Err(format!("{}: {k} belongs in an overlay", path.display()));
                 }
@@ -305,7 +335,7 @@ impl Profile {
             (self.binding("gnss") == "nuttx").then(composition::gnss_binding_schema_digest);
         Some(hash_bytes(
             json!({
-                "resolver": "peripheral-profile-v1",
+                "resolver": "peripheral-profile-v2",
                 "inputs": self.inputs,
                 "binding": binding,
                 "gnss-binding": gnss_binding,
@@ -656,14 +686,14 @@ impl Profile {
                 "CAMERA_DEVICE",
                 self.data["camera"]["device"]
                     .as_str()
-                    .unwrap_or("/dev/video0")
+                    .ok_or("camera.device is missing from the resolved NuttX profile")?
                     .into(),
             ),
             "ble" if self.binding(capability) == "nuttx" => env(
                 "BLE_SCAN_INTERFACE",
                 self.data["ble"]["scan-interface"]
                     .as_str()
-                    .unwrap_or("bnep0")
+                    .ok_or("ble.scan-interface is missing from the resolved NuttX profile")?
                     .into(),
             ),
             "execution" if self.binding(capability) != "none" => {
@@ -837,7 +867,9 @@ mod tests {
 
             profile.data["hal"][capability] = json!("nuttx");
             profile.data.as_object_mut().unwrap().remove(capability);
+            let profile = Profile::from_data(profile.data, profile.sources);
             profile.validate_resources().unwrap();
+            assert_eq!(profile.json().unwrap()[capability][key], default);
             assert!(profile
                 .cargo_output(&root(), capability, "nuttx")
                 .unwrap()
