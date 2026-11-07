@@ -130,8 +130,7 @@ mod device;
 mod i2c;
 #[path = "irq.rs"]
 mod irq;
-#[path = "../../session.rs"]
-mod session;
+use crate::session;
 #[path = "signal.rs"]
 mod signal;
 

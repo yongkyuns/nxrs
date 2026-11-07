@@ -1,0 +1,14 @@
+execution = "std"
+target-os = ["linux", "macos", "windows"]
+
+[composition]
+version = 1
+mode = "simulation"
+
+[simulation]
+seed = 274
+endpoints = ["imu", "gnss"]
+
+[hal]
+imu = "simulation"
+gnss = "simulation"

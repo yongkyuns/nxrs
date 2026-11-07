@@ -274,7 +274,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 if not path.is_file() or 'target' in path.relative_to(directory).parts:
                     continue
                 text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
-                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|hal_enabled|hal_mock|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM)\b'
+                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b'
                             r'|(?:std|core)::(?:os|arch)::|std::env::consts::(?:OS|ARCH|FAMILY)|\blibc::'
                             r'|(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b'
                             r'|["\']/(?:dev|proc)/|["\'](?:nuttx|linux|macos|windows)["\']')
@@ -470,7 +470,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
                 and not relative.endswith('platform/gatt.rs')):
             continue
         # Comments may describe the rule without becoming platform selection.
-        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|hal_enabled|hal_mock|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM)\b', text)
+        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b', text)
                 or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b', text)):
             errors.append(f'{relative}: shared Rust behavior must not select a platform/provider')
     inventory = root / 'hal/ffi-boundaries.toml'

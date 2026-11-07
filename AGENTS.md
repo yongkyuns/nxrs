@@ -16,7 +16,9 @@ requirements, not aspirational guidance.
   implementations; the root
   `platform/` tree owns product profiles and build wiring, not HAL code.
   Profile bindings name actual operating systems: `linux`, `macos`, `windows`,
-  or `nuttx`; `mock` is an explicit test fixture. Rust `std` is an available
+  or `nuttx`. The coordinated host `simulation` binding is available to IMU
+  and GNSS only through a distinct simulation profile. `mock` is an explicit
+  test fixture. Rust `std` is an available
   environment, never a platform, provider choice, profile, or Cargo feature.
   Shared Rust behavior belongs in ordinary modules outside `src/platform/`;
   OS-specific code stays under its actual OS directory. Do not copy std code
@@ -66,7 +68,8 @@ requirements, not aspirational guidance.
   platform/provider flags or inspect platform identity. Supply explicit resource
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
-  and select explicit mocks, not a second OS identity via feature/cfg values.
+  and select explicit simulation or qualification fixtures. The migrated IMU
+  and GNSS HALs use one internal `hal_provider` value at their module boundary.
 - Cargo manifests own component dependencies. Ordinary additive features may
   select optional functionality, formats, algorithms and driver code at their
   owning module boundary. Do not maintain a global feature-name allowlist.

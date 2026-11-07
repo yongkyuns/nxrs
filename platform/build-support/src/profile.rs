@@ -256,7 +256,9 @@ impl Profile {
             let m = manifest(&root.join("hal").join(capability).join("Cargo.toml"))?;
             let declared = m.pointer("/package/metadata/nxrs/platforms");
             if matches!(provider, "std" | "native")
+                || (provider == "simulation" && !["imu", "gnss"].contains(&capability.as_str()))
                 || (provider != "none"
+                    && provider != "simulation"
                     && !declared
                         .and_then(Value::as_array)
                         .is_some_and(|p| p.iter().any(|x| x == provider)))
@@ -426,11 +428,25 @@ impl Profile {
                 "execution {execution} does not support target OS {os}"
             ));
         }
+        if self
+            .data
+            .pointer("/composition/mode")
+            .and_then(Value::as_str)
+            == Some("simulation")
+            && (execution != "std" || !HOST_OS.contains(&os))
+        {
+            return Err(
+                "simulation profiles require std execution on Linux, macOS, or Windows".into(),
+            );
+        }
         for (name, provider) in self.data["hal"].as_object().unwrap() {
             let p = provider.as_str().unwrap();
-            if !["none", "mock"].contains(&p)
-                && !(p == os && (HOST_OS.contains(&p) || p == "nuttx"))
-            {
+            let supported = match p {
+                "none" | "mock" => true,
+                "simulation" => ["imu", "gnss"].contains(&name.as_str()) && HOST_OS.contains(&os),
+                _ => p == os && (HOST_OS.contains(&p) || p == "nuttx"),
+            };
+            if !supported {
                 return Err(format!("{name}/{p} does not support target OS {os}"));
             }
         }
@@ -722,9 +738,19 @@ impl Profile {
                 .iter()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
-        match self.binding(capability) {
-            "none" => {}
-            "mock" => output.push("cargo:rustc-cfg=hal_mock".into()),
+        match (capability, self.binding(capability)) {
+            ("imu" | "gnss", "none") => {}
+            ("imu" | "gnss", "nuttx") => {
+                output.push("cargo:rustc-cfg=hal_provider=\"hardware\"".into())
+            }
+            ("imu" | "gnss", provider @ ("mock" | "simulation")) => {
+                output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
+            }
+            ("imu" | "gnss", provider) => {
+                return Err(format!("unsupported {capability} provider {provider}"));
+            }
+            (_, "none") => {}
+            (_, "mock") => output.push("cargo:rustc-cfg=hal_mock".into()),
             _ => output.push("cargo:rustc-cfg=hal_enabled".into()),
         }
         Ok(output)
@@ -812,5 +838,38 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn simulation_profile_is_host_only_and_emits_only_provider_cfgs() {
+        let root = root();
+        let profile = Profile::resolve(&root, "simulation").unwrap();
+        profile.validate_target("linux").unwrap();
+        for os in ["nuttx", "none", "emscripten"] {
+            assert!(profile.validate_target(os).is_err(), "{os}");
+        }
+        let imu = profile.cargo_output(&root, "imu", "linux").unwrap();
+        assert!(imu.contains(&"cargo:rustc-cfg=hal_provider=\"simulation\"".into()));
+        assert!(!imu.contains(&"cargo:rustc-cfg=hal_enabled".into()));
+        assert!(!imu.contains(&"cargo:rustc-cfg=hal_mock".into()));
+        let gnss = profile.cargo_output(&root, "gnss", "linux").unwrap();
+        assert!(gnss.contains(&"cargo:rustc-cfg=hal_provider=\"simulation\"".into()));
+        let absent = profile.cargo_output(&root, "camera", "linux").unwrap();
+        assert!(!absent.iter().any(|line| line.contains("rustc-cfg=hal_")));
+    }
+
+    #[test]
+    fn simulation_config_is_fixed_and_uses_typed_sources() {
+        let root = root();
+        let profile = Profile::resolve(&root, "simulation").unwrap();
+        let temp =
+            std::env::temp_dir().join(format!("nxrs-simulation-config-{}", std::process::id()));
+        fs::create_dir_all(&temp).unwrap();
+        crate::write_simulation_config(&profile, &temp).unwrap();
+        assert_eq!(
+            fs::read_to_string(temp.join("simulation_config.rs")).unwrap(),
+            "const SIM_SEED: u64 = 274;\nconst SIM_SOURCES: &[simulation::Source] = &[simulation::Source::Imu, simulation::Source::Gnss];\n"
+        );
+        fs::remove_dir_all(temp).unwrap();
     }
 }

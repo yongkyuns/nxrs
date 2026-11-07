@@ -32,6 +32,24 @@ pub struct Composition {
     devices: BTreeMap<String, Device>,
     roles: BTreeMap<String, String>,
     stack_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    simulation: Option<SimulationSpec>,
+}
+
+/// Seed and enabled endpoint identities for one coordinated simulation run.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SimulationSpec {
+    pub seed: u64,
+    pub endpoints: std::collections::BTreeSet<SimulationEndpoint>,
+}
+
+/// Stable identity of a supported simulated capability endpoint.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum SimulationEndpoint {
+    Imu,
+    Gnss,
 }
 
 /// Borrowed view of the resolved default IMU device.
@@ -76,6 +94,10 @@ impl Composition {
     pub fn mode(&self) -> Mode {
         self.mode
     }
+
+    pub fn simulation(&self) -> Option<&SimulationSpec> {
+        self.simulation.as_ref()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -116,6 +138,13 @@ struct Header {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SimulationInput {
+    seed: u64,
+    endpoints: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Catalog {
     version: u32,
     binding: Vec<CatalogBinding>,
@@ -150,6 +179,17 @@ pub(crate) fn resolve_with_origins(
         .any(|key| data.get(*key).is_some());
     let legacy = data.get("imu");
     let Some(header_value) = data.get("composition") else {
+        if data
+            .pointer("/hal")
+            .and_then(Value::as_object)
+            .is_some_and(|bindings| bindings.values().any(|provider| provider == "simulation"))
+        {
+            return Err(diagnostic(
+                origins,
+                "composition",
+                "simulation HAL bindings require composition.mode = simulation",
+            ));
+        }
         if has_graph_fields {
             return Err(diagnostic(
                 origins,
@@ -181,6 +221,125 @@ pub(crate) fn resolve_with_origins(
             &format!("unsupported composition version: {}", header.version),
         ));
     }
+    if header.mode != Mode::Simulation
+        && data
+            .pointer("/hal")
+            .and_then(Value::as_object)
+            .is_some_and(|bindings| bindings.values().any(|provider| provider == "simulation"))
+    {
+        return Err(diagnostic(
+            origins,
+            "hal",
+            "simulation HAL bindings require composition.mode = simulation",
+        ));
+    }
+    let simulation = match (header.mode, data.get("simulation")) {
+        (Mode::Simulation, Some(value)) => {
+            let raw: SimulationInput = decode(value, "invalid simulation configuration")
+                .map_err(|error| diagnostic(origins, "simulation", &error))?;
+            let endpoint_count = raw.endpoints.len();
+            let endpoints: std::collections::BTreeSet<_> = raw
+                .endpoints
+                .into_iter()
+                .map(|endpoint| match endpoint.as_str() {
+                    "imu" => Ok(SimulationEndpoint::Imu),
+                    "gnss" => Ok(SimulationEndpoint::Gnss),
+                    _ => Err(endpoint),
+                })
+                .collect::<std::result::Result<_, _>>()
+                .map_err(|endpoint| {
+                    diagnostic(
+                        origins,
+                        "simulation.endpoints",
+                        &format!("unsupported simulation endpoint: {endpoint}"),
+                    )
+                })?;
+            if endpoints.is_empty() {
+                return Err(diagnostic(
+                    origins,
+                    "simulation.endpoints",
+                    "simulation requires at least one endpoint",
+                ));
+            }
+            if endpoint_count != endpoints.len() {
+                return Err(diagnostic(
+                    origins,
+                    "simulation.endpoints",
+                    "simulation endpoint identities must be unique",
+                ));
+            }
+            Some(SimulationSpec {
+                seed: raw.seed,
+                endpoints,
+            })
+        }
+        (Mode::Simulation, None) => {
+            if ["resources", "devices", "roles", "imu", "gnss"]
+                .iter()
+                .any(|key| data.get(*key).is_some())
+            {
+                return Err(diagnostic(
+                    origins,
+                    "composition.mode",
+                    "simulation composition cannot select a physical IMU provider or claim physical devices",
+                ));
+            }
+            return Err(diagnostic(
+                origins,
+                "simulation",
+                "simulation mode requires [simulation]",
+            ));
+        }
+        (_, Some(_)) => {
+            return Err(diagnostic(
+                origins,
+                "simulation",
+                "[simulation] is valid only in simulation mode",
+            ));
+        }
+        (_, None) => None,
+    };
+    if let Some(spec) = &simulation {
+        if ["resources", "devices", "roles", "imu", "gnss"]
+            .iter()
+            .any(|key| data.get(*key).is_some())
+        {
+            return Err(diagnostic(
+                origins,
+                "composition.mode",
+                "simulation profiles cannot declare physical resources, devices, or roles",
+            ));
+        }
+        let bindings = data["hal"].as_object().ok_or("[hal] must be a table")?;
+        let expected: std::collections::BTreeSet<&str> = spec
+            .endpoints
+            .iter()
+            .map(|endpoint| match endpoint {
+                SimulationEndpoint::Imu => "imu",
+                SimulationEndpoint::Gnss => "gnss",
+            })
+            .collect();
+        let actual: std::collections::BTreeSet<&str> = bindings
+            .iter()
+            .filter_map(|(capability, provider)| {
+                (provider == "simulation").then_some(capability.as_str())
+            })
+            .collect();
+        if actual != expected
+            || expected.iter().any(|capability| {
+                bindings.get(*capability).and_then(Value::as_str) != Some("simulation")
+            })
+            || bindings.iter().any(|(capability, provider)| {
+                provider.as_str() != Some("none") && !expected.contains(capability.as_str())
+            })
+        {
+            return Err(diagnostic(
+                origins,
+                "hal",
+                "simulation endpoint set must exactly match simulation HAL bindings; other active HALs are unsupported",
+            ));
+        }
+    }
     if legacy.is_some_and(|imu| !keys(imu, &[], &["stack-bytes"])) {
         return Err(diagnostic(
             origins,
@@ -198,14 +357,16 @@ pub(crate) fn resolve_with_origins(
                 ));
             }
             Mode::Simulation
-                if bindings
-                    .values()
-                    .any(|provider| provider != "mock" && provider != "none") =>
+                if bindings.iter().any(|(capability, provider)| {
+                    provider != "none"
+                        && !(provider == "simulation"
+                            && ["imu", "gnss"].contains(&capability.as_str()))
+                }) =>
             {
                 return Err(diagnostic(
                     origins,
                     "hal",
-                    "simulation composition cannot select physical HAL bindings",
+                    "simulation composition supports only simulation IMU/GNSS bindings",
                 ));
             }
             _ => {}
@@ -213,6 +374,17 @@ pub(crate) fn resolve_with_origins(
     }
     let stack_bytes = crate::profile::sensor_stack(legacy.unwrap_or(&Value::Null))
         .map_err(|error| diagnostic(origins, "imu.stack-bytes", &error))?;
+    if header.mode == Mode::Simulation {
+        return Ok(Some(Composition {
+            version: header.version,
+            mode: header.mode,
+            resources: BTreeMap::new(),
+            devices: BTreeMap::new(),
+            roles: BTreeMap::new(),
+            stack_bytes: 16384,
+            simulation,
+        }));
+    }
     let resources = decode_map(
         data.get("resources"),
         "resources",
@@ -246,6 +418,7 @@ pub(crate) fn resolve_with_origins(
         devices,
         roles,
         stack_bytes,
+        simulation,
     };
     Ok(Some(graph))
 }
@@ -324,6 +497,7 @@ fn resolve_legacy(
         devices,
         roles,
         stack_bytes: crate::profile::sensor_stack(value)?,
+        simulation: None,
     };
     validate_provider_mode(provider, graph.mode, &graph.devices, &graph.roles)?;
     validate_graph(
@@ -907,5 +1081,95 @@ mod tests {
             binding_schema_digest(),
             crate::hash_bytes(CATALOG_SOURCE.as_bytes())
         );
+    }
+
+    fn simulation_profile() -> Value {
+        json!({
+            "composition":{"version":1,"mode":"simulation"},
+            "simulation":{"seed":274,"endpoints":["imu","gnss"]},
+            "hal":{"imu":"simulation","gnss":"simulation"}
+        })
+    }
+
+    #[test]
+    fn resolves_coordinated_simulation_endpoints_and_seed() {
+        let composition = resolve(&simulation_profile(), "simulation")
+            .unwrap()
+            .unwrap();
+        assert_eq!(composition.mode(), Mode::Simulation);
+        let spec = composition.simulation().unwrap();
+        assert_eq!(spec.seed, 274);
+        assert_eq!(
+            spec.endpoints,
+            std::collections::BTreeSet::from([SimulationEndpoint::Imu, SimulationEndpoint::Gnss])
+        );
+        assert_eq!(composition.imu(), None);
+        let encoded = serde_json::to_value(&composition).unwrap();
+        assert_eq!(encoded["simulation"]["seed"], 274);
+        assert_eq!(encoded["simulation"]["endpoints"], json!(["imu", "gnss"]));
+    }
+
+    #[test]
+    fn simulation_rejects_ambiguous_or_physical_composition() {
+        let mut value = simulation_profile();
+        value["simulation"]["endpoints"] = json!([]);
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("at least one"));
+
+        let mut value = simulation_profile();
+        value["simulation"]["endpoints"] = json!(["imu", "imu"]);
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("unique"));
+
+        let mut value = simulation_profile();
+        value["simulation"]["endpoints"] = json!(["camera"]);
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("unsupported simulation endpoint"));
+
+        for key in ["resources", "devices", "roles", "imu", "gnss"] {
+            let mut value = simulation_profile();
+            value[key] = json!({});
+            assert!(
+                resolve(&value, "simulation")
+                    .unwrap_err()
+                    .contains("cannot declare physical"),
+                "{key}"
+            );
+        }
+
+        let mut value = simulation_profile();
+        value["hal"]["imu"] = json!("nuttx");
+        let error = resolve(&value, "simulation").unwrap_err();
+        assert!(error.contains("simulation"), "{error}");
+
+        let mut value = simulation_profile();
+        value["hal"]["camera"] = json!("mock");
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("exactly match"));
+    }
+
+    #[test]
+    fn simulation_table_is_exclusive_to_simulation_mode() {
+        let mut value = simulation_profile();
+        value["composition"]["mode"] = json!("hardware");
+        value["hal"] = json!({"imu":"none", "gnss":"none"});
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("valid only in simulation mode"));
+
+        let mut value = simulation_profile();
+        value.as_object_mut().unwrap().remove("simulation");
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("requires [simulation]"));
+
+        let value = json!({"hal":{"imu":"simulation"}});
+        assert!(resolve(&value, "simulation")
+            .unwrap_err()
+            .contains("require composition.mode = simulation"));
     }
 }
