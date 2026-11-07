@@ -1,139 +1,107 @@
-//! Bounded receiver ownership/configuration. UBX wire codecs live in `kinavis-ubx`.
+//! GNSS capability policy around the receiver-specific UBX driver.
 use crate::{DeviceError, GnssFix};
+use nxrs_ubx_driver::{Driver, DriverError};
 use std::{
-    io::{ErrorKind, Read, Write},
+    io::{Read, Write},
     time::{Duration, Instant},
 };
-#[path = "ubx.rs"]
-mod ubx;
-use ubx::Event;
+
+const TRANSACTION_BUDGET: Duration = Duration::from_secs(1);
 
 pub(crate) struct Receiver<R> {
-    pub(crate) io: R,
-    decoder: ubx::Decoder,
+    driver: Driver<R>,
     saved_rate: Option<u8>,
+    last_epoch: Option<u32>,
+    sequence: u64,
 }
+
 impl<R: Read + Write> Receiver<R> {
     pub(crate) fn new(io: R) -> Self {
         Self {
-            io,
-            decoder: ubx::Decoder::default(),
+            driver: Driver::new(io),
             saved_rate: None,
+            last_epoch: None,
+            sequence: 0,
         }
     }
-    pub(crate) fn configure(&mut self) -> Result<(), DeviceError> {
-        self.configure_until(Instant::now() + Duration::from_secs(1))
+
+    pub(crate) fn io(&self) -> &R {
+        self.driver.io()
     }
+
+    pub(crate) fn io_mut(&mut self) -> &mut R {
+        self.driver.io_mut()
+    }
+
+    pub(crate) fn configure(&mut self) -> Result<(), DeviceError> {
+        self.configure_until(Instant::now() + TRANSACTION_BUDGET)
+    }
+
     fn configure_until(&mut self, deadline: Instant) -> Result<(), DeviceError> {
-        self.saved_rate = Some(self.query_rate(deadline)?);
-        self.change_rate(1, deadline)?;
+        self.saved_rate = Some(
+            self.driver
+                .query_nav_pvt_uart1_rate(deadline)
+                .map_err(map_error)?,
+        );
+        self.driver
+            .set_and_verify_nav_pvt_uart1_rate(1, deadline)
+            .map_err(map_error)?;
         // Do not publish navigation received during acquisition/configuration.
-        self.decoder = ubx::Decoder::default();
+        self.driver.reset_decoder();
+        self.sequence = 0;
+        self.last_epoch = None;
         Ok(())
     }
+
     pub(crate) fn restore(&mut self) -> Result<(), DeviceError> {
-        self.restore_until(Instant::now() + Duration::from_secs(1))
+        self.restore_until(Instant::now() + TRANSACTION_BUDGET)
     }
+
     fn restore_until(&mut self, deadline: Instant) -> Result<(), DeviceError> {
         if let Some(rate) = self.saved_rate {
-            self.change_rate(rate, deadline)?;
+            self.driver
+                .set_and_verify_nav_pvt_uart1_rate(rate, deadline)
+                .map_err(map_error)?;
             self.saved_rate = None;
         }
         Ok(())
     }
-    fn change_rate(&mut self, rate: u8, deadline: Instant) -> Result<(), DeviceError> {
-        self.send(&ubx::set_rate(rate), deadline)?;
-        self.wait(deadline, |event| match event {
-            Event::Ack(true) => Some(Ok(())),
-            _ => None,
-        })?;
-        if self.query_rate(deadline)? != rate {
-            return Err(DeviceError::InvalidData);
-        }
-        Ok(())
-    }
-    fn query_rate(&mut self, deadline: Instant) -> Result<u8, DeviceError> {
-        self.send(&ubx::get_rate(), deadline)?;
-        self.wait(deadline, |event| match event {
-            Event::Rate(rate) => Some(Ok(rate)),
-            _ => None,
-        })
-    }
-    fn send(&mut self, mut bytes: &[u8], deadline: Instant) -> Result<(), DeviceError> {
-        while !bytes.is_empty() {
-            check_deadline(deadline)?;
-            match self.io.write(bytes) {
-                Ok(0) => return Err(DeviceError::Io),
-                Ok(n) => bytes = &bytes[n..],
-                Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == ErrorKind::WouldBlock => pause(),
-                Err(_) => return Err(DeviceError::Io),
-            }
-        }
-        Ok(())
-    }
-    fn wait<T>(
-        &mut self,
-        deadline: Instant,
-        select: impl Fn(Event) -> Option<Result<T, DeviceError>>,
-    ) -> Result<T, DeviceError> {
-        let mut bytes = [0; 128];
-        loop {
-            check_deadline(deadline)?;
-            match self.io.read(&mut bytes) {
-                Ok(0) => return Err(DeviceError::Io),
-                Ok(n) => {
-                    let mut reply = None;
-                    self.decoder.consume(&bytes[..n], 0, |event| {
-                        if reply.is_none() {
-                            reply = match event {
-                                Event::Ack(false) => Some(Err(DeviceError::InvalidData)),
-                                _ => select(event),
-                            };
-                        }
-                    });
-                    if let Some(reply) = reply {
-                        return reply;
-                    }
-                }
-                Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == ErrorKind::WouldBlock => pause(),
-                Err(_) => return Err(DeviceError::Io),
-            }
-        }
-    }
-}
-fn check_deadline(deadline: Instant) -> Result<(), DeviceError> {
-    if Instant::now() >= deadline {
-        Err(DeviceError::Timeout)
-    } else {
-        Ok(())
-    }
-}
-fn pause() {
-    std::thread::sleep(Duration::from_millis(1));
-}
-impl<R: Read + Write> Receiver<R> {
+
     pub(crate) fn read_events(
         &mut self,
         now_ms: u64,
         mut emit: impl FnMut(Result<GnssFix, DeviceError>),
     ) -> Result<(), DeviceError> {
-        let mut bytes = [0; 128];
-        match self.io.read(&mut bytes) {
-            Ok(0) => Err(DeviceError::Io),
-            Ok(n) => {
-                self.decoder
-                    .consume(&bytes[..n], now_ms, |event| match event {
-                        Event::Fix(fix) => emit(fix),
-                        Event::Invalid => emit(Err(DeviceError::InvalidData)),
-                        _ => {}
-                    });
-                Ok(())
-            }
-            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => Ok(()),
-            Err(_) => Err(DeviceError::Io),
-        }
+        self.driver
+            .poll(|event| {
+                let report = match event {
+                    Ok(report) => report,
+                    Err(error) => return emit(Err(map_error(error))),
+                };
+                if self.last_epoch == Some(report.itow_ms) {
+                    return;
+                }
+                self.last_epoch = Some(report.itow_ms);
+                self.sequence = self.sequence.saturating_add(1);
+                emit(Ok(GnssFix {
+                    sequence: self.sequence,
+                    timestamp_ms: now_ms,
+                    latitude_deg: report.latitude_deg,
+                    longitude_deg: report.longitude_deg,
+                    speed_mps: report.speed_mps,
+                    course_rad: report.heading_rad,
+                }));
+            })
+            .map_err(map_error)
+    }
+}
+
+fn map_error(error: DriverError) -> DeviceError {
+    match error {
+        DriverError::Io => DeviceError::Io,
+        DriverError::Timeout => DeviceError::Timeout,
+        DriverError::InvalidData => DeviceError::InvalidData,
+        DriverError::NoFix => DeviceError::Busy,
     }
 }
 

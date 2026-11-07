@@ -10,19 +10,42 @@ hal = { gnss = "nuttx", imu = "nuttx" }
 [build]
 size-optimized = true
 
-[gnss]
+[composition]
+version = 1
+mode = "hardware"
+
+[resources.receiver_uart]
+kind = "uart"
 device = "/dev/ttyS1"
 baud = 38400
+
+[resources.sensor_bus]
+kind = "i2c"
+device = "/dev/i2c0"
+frequency = 400000
+
+[devices.navigation]
+compatible = "u-blox,neo-m9n"
+bus = "receiver_uart"
+
+[devices.motion]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x68
+
+[devices.motion.wake]
+# M135 v1.0 leaves INT1/INT2 unwired. A HAL-owned timer wakes FIFO drains.
+kind = "periodic"
+
+[roles]
+gnss = "navigation"
+imu = "motion"
+
+[gnss]
 stack-bytes = 16384
 
 [imu]
-driver = "bmi270"
-device = "/dev/i2c0"
-address = 0x68
-frequency = 400000
 stack-bytes = 16384
-# M135 v1.0 leaves INT1/INT2 unwired. Omit irq-device to select HAL-owned
-# ODR-derived FIFO wakes. Wired boards supply an actual rising-edge GPIO node.
 
 [kconfig]
 enable = [

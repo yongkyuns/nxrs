@@ -18,6 +18,7 @@ on:
       - 'hal/common/**'
       - 'driver/acquisition/**'
       - 'driver/lsm6dso/**'
+      - 'driver/ubx/**'
       - 'tests/host/fixtures/lsm6dso-overlay.toml'
       - 'platform/nuttx/std-app/**'
       - 'platform/build/**'
@@ -108,8 +109,8 @@ jobs:
             -p nxrs-imu -p nxrs-gnss \
             --target thumbv6m-none-eabi
 
-      - name: Qualify the standalone LSM6DSO driver
-        run: cargo +1.90.0 test --locked -p nxrs-lsm6dso
+      - name: Qualify the standalone peripheral drivers
+        run: cargo +1.90.0 test --locked -p nxrs-lsm6dso -p nxrs-ubx-driver
 
       - name: Run service-owned std demo
         shell: bash

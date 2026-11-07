@@ -318,11 +318,14 @@ impl Profile {
             return None;
         }
         let binding = (self.binding("imu") == "nuttx").then(composition::binding_schema_digest);
+        let gnss_binding =
+            (self.binding("gnss") == "nuttx").then(composition::gnss_binding_schema_digest);
         Some(hash_bytes(
             json!({
                 "resolver": "peripheral-profile-v1",
                 "inputs": self.inputs,
                 "binding": binding,
+                "gnss-binding": gnss_binding,
             })
             .to_string()
             .as_bytes(),
@@ -336,7 +339,12 @@ impl Profile {
         self.data["hal"][capability].as_str().unwrap_or("none")
     }
     pub fn composition(&self) -> Result<Option<Composition>> {
-        composition::resolve_with_origins(&self.data, self.binding("imu"), &self.origins)
+        composition::resolve_with_providers_and_origins(
+            &self.data,
+            self.binding("imu"),
+            self.binding("gnss"),
+            &self.origins,
+        )
     }
     pub fn json(&self) -> Result<Value> {
         let mut value = self.data.clone();
@@ -359,6 +367,7 @@ impl Profile {
             .imu()
             .map(|_| composition::BINDING_SCHEMA_PATH)
             .into_iter()
+            .chain(graph.gnss().map(|_| composition::GNSS_BINDING_SCHEMA_PATH))
             .collect::<Vec<_>>();
         let semantic = json!({"graph": graph, "target": self.data["target"]});
         let provenance = self
@@ -386,6 +395,16 @@ impl Profile {
                 "address": binding.address,
                 "frequency": binding.frequency,
                 "irq-device": binding.irq_path.unwrap_or(""),
+                "stack-bytes": binding.stack_bytes,
+            })
+        }))
+    }
+    pub fn gnss_config(&self) -> Result<Option<Value>> {
+        let graph = self.composition()?;
+        Ok(graph.as_ref().and_then(Composition::gnss).map(|binding| {
+            json!({
+                "device": binding.path,
+                "baud": binding.baud,
                 "stack-bytes": binding.stack_bytes,
             })
         }))
@@ -534,25 +553,29 @@ impl Profile {
             }
         }
         self.network_initialization()?;
-        match (self.binding("gnss"), self.data.get("gnss")) {
-            ("nuttx", Some(v)) => {
+        let graph = self.composition()?;
+        match (
+            self.binding("gnss"),
+            self.data.get("gnss"),
+            graph.as_ref().and_then(Composition::gnss),
+        ) {
+            ("nuttx", None, None) => return Err("gnss requires device configuration".into()),
+            (provider, Some(_), _) if provider != "nuttx" => {
+                return Err("gnss device configuration requires its NuttX binding".into())
+            }
+            ("nuttx", Some(v), Some(_)) => {
                 sensor_stack(v)?;
-                if !keys(v, &["device", "baud"], &["stack-bytes"])
-                    || !device(&v["device"])
-                    || !v["baud"].as_u64().is_some_and(|n| {
-                        [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].contains(&n)
-                    })
+                if !keys(v, &[], &["stack-bytes"])
+                    && !keys(v, &["device", "baud"], &["stack-bytes"])
                 {
                     return Err("invalid GNSS UART binding".into());
                 }
             }
-            ("nuttx", None) => return Err("gnss requires device configuration".into()),
-            (_, Some(_)) => {
-                return Err("gnss device configuration requires its NuttX binding".into());
+            ("nuttx", Some(_), None) => {
+                return Err("gnss requires a resolved device binding".into())
             }
             _ => {}
         }
-        self.composition()?;
         Ok(())
     }
     pub fn network_initialization(&self) -> Result<&str> {
@@ -662,9 +685,8 @@ impl Profile {
                     self.imu_config()?
                         .ok_or("imu requires device configuration")?
                 } else {
-                    let mut c = self.data["gnss"].clone();
-                    c["stack-bytes"] = json!(sensor_stack(&c)?);
-                    c
+                    self.gnss_config()?
+                        .ok_or("gnss requires device configuration")?
                 };
                 let keys = if capability == "gnss" {
                     vec!["device", "baud", "stack-bytes"]
@@ -724,6 +746,12 @@ impl Profile {
             output.push(format!(
                 "cargo:rerun-if-changed={}",
                 root.join(composition::BINDING_SCHEMA_PATH).display()
+            ));
+        }
+        if self.binding("gnss") == "nuttx" {
+            output.push(format!(
+                "cargo:rerun-if-changed={}",
+                root.join(composition::GNSS_BINDING_SCHEMA_PATH).display()
             ));
         }
         let mut manifests: BTreeSet<PathBuf> = self.data["hal"]
@@ -807,6 +835,24 @@ mod tests {
             let mut p = base.clone();
             p.data["detector"]["compute-core"] = bad;
             assert!(p.detector().is_err());
+        }
+    }
+    #[test]
+    fn gnss_cli_values_come_from_the_resolved_uart_binding() {
+        let profile = Profile::resolve(&root(), "m5stack-cores3-gnss").unwrap();
+        assert_eq!(
+            profile.gnss_config().unwrap(),
+            Some(json!({
+                "device":"/dev/ttyS1", "baud":38400, "stack-bytes":16384
+            }))
+        );
+        let output = profile.cargo_output(&root(), "gnss", "nuttx").unwrap();
+        for expected in [
+            "cargo:rustc-env=GNSS_DEVICE=/dev/ttyS1",
+            "cargo:rustc-env=GNSS_BAUD=38400",
+            "cargo:rustc-env=GNSS_STACK_BYTES=16384",
+        ] {
+            assert!(output.contains(&expected.to_string()), "missing {expected}");
         }
     }
     #[test]

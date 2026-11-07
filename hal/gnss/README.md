@@ -6,19 +6,16 @@ movement course in radians. `timestamp_ms` is the owner’s monotonic reception
 time, not UTC or measured satellite-to-host latency. Navigation owns projection
 into local north/east coordinates.
 
-The NuttX provider owns a nonblocking UART. The independent
-[`kinavis-ubx` crate](https://github.com/KINAVIS/kinavis) supplies UBX framing,
-checksums, typed messages and modern CFG-VALGET/VALSET encoding into caller-owned
-buffers. We pin 0.1.1 with default features disabled and `libm` enabled; its
-kernel types stay private. Neither dependency uses allocation, an OS or a runtime
-in this configuration. No Nxrs protocol wrapper crate is needed. The CoreS3 profile uses the existing
-size-optimized build mode to discard unused codec code.
+The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
+resource and an M9 receiver. The build generates the factory's typed device
+path, baud rate and stack budget.
 
-The adapter admits only M9’s 92-byte NAV-PVT, configuration acknowledgements and
-the requested CFG-VALGET response. It validates wire domains before the codec
-wraps longitude/course, rejects unusable fixes and suppresses repeated epochs.
-A 92-byte fixed payload buffer and 24-byte command buffer are sufficient; the
-HAL omits unreliable course and never infers UTC validity from fix validity.
+The reusable `driver/ubx` crate runs M9 protocol transactions over an injected
+byte stream. It uses [`kinavis-ubx`](https://github.com/KINAVIS/kinavis) 0.1.1
+for framing, checksums and CFG-VALGET/VALSET. The driver validates wire domains
+before the codec wraps longitude and course. It admits 92-byte NAV-PVT reports,
+configuration acknowledgements and the requested configuration response.
+The HAL suppresses repeated epochs and timestamps accepted fixes at reception.
 
 Acquisition reads the existing UART1 NAV-PVT output rate, sets it to one message
 per navigation epoch **in RAM only**, waits for ACK and verifies by readback.

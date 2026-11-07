@@ -1,6 +1,8 @@
 """Cargo firmware frontend and NuttX platform-profile checks."""
 from __future__ import annotations
 
+import copy
+
 from pathlib import Path
 import importlib.util
 import json
@@ -199,17 +201,22 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertEqual(PLATFORM_CONFIG.imu_config(data),
                          {"driver": "bmi270", "device": "/dev/i2c0",
                           "address": 0x68, "frequency": 400000, "stack-bytes": 16384, "irq-device": ""})
-        for function, key, invalid in (
-                (PLATFORM_CONFIG.gnss_config, "gnss", {"baud": True}),
-                (PLATFORM_CONFIG.gnss_config, "gnss", {"device": "/dev/../ttyS1"}),
-                (PLATFORM_CONFIG.imu_config, "imu", {"address": 0x70}),
-                (PLATFORM_CONFIG.imu_config, "imu", {"frequency": 0}),
-                (PLATFORM_CONFIG.imu_config, "imu", {"irq-device": "/dev/../gpio0"}),
-                (PLATFORM_CONFIG.imu_config, "imu", {"irq-device": False}),
-                (PLATFORM_CONFIG.gnss_config, "gnss", {"stack-bytes": 1})):
-            with self.subTest(key=key, invalid=invalid):
+        for function, path, value in (
+                (PLATFORM_CONFIG.gnss_config, ("resources", "receiver_uart", "baud"), True),
+                (PLATFORM_CONFIG.gnss_config, ("resources", "receiver_uart", "device"), "/dev/../ttyS1"),
+                (PLATFORM_CONFIG.imu_config, ("devices", "motion", "address"), 0x70),
+                (PLATFORM_CONFIG.imu_config, ("resources", "sensor_bus", "frequency"), 0),
+                (PLATFORM_CONFIG.imu_config, ("devices", "motion", "wake"),
+                 {"kind": "interrupt", "resource": "missing"}),
+                (PLATFORM_CONFIG.gnss_config, ("gnss", "stack-bytes"), 1)):
+            with self.subTest(path=path, value=value):
+                invalid = copy.deepcopy(data)
+                record = invalid
+                for key in path[:-1]:
+                    record = record[key]
+                record[path[-1]] = value
                 with self.assertRaises(ValueError):
-                    function({**data, key: {**data[key], **invalid}})
+                    function(invalid)
         for function, key in ((PLATFORM_CONFIG.gnss_config, "gnss"),
                               (PLATFORM_CONFIG.imu_config, "imu")):
             with self.assertRaises(ValueError):

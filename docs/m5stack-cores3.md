@@ -9,7 +9,8 @@ It does not inherit the camera board’s flash layout or security deployment.
 cargo nxrs build --app event-demo --platform cores3
 ```
 
-The board registers raw buses. GNSS owns UART/UBX configuration and decoding; IMU owns I²C,
+The board registers raw buses. The profile binds the GNSS and IMU roles to their
+UART and I²C resources. The GNSS HAL owns the UART and calls the UBX driver. The IMU HAL owns I²C,
 BMI270 initialization and SI conversion. Navigation projects WGS84 fixes into
 local coordinates. Services and apps contain no board or OS selection.
 HAL-owned workers acquire data and publish bounded typed events to services.
