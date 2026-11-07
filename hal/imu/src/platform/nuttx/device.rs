@@ -1,6 +1,9 @@
 //! Physical device ownership. Construction and cleanup stay in task context.
 use super::{i2c::Bus, irq::Irq, signal::Signal, OWNED};
-use crate::{sensors::bmi270::Sensor, DeviceError, Event};
+use crate::{
+    sensors::bmi270::{Sensor, CAPABILITIES},
+    AppliedConfig, Config, DeviceError, Event,
+};
 use core::sync::atomic::{AtomicBool, Ordering};
 use embedded_hal::delay::DelayNs;
 use std::{
@@ -54,23 +57,29 @@ pub(super) struct Device {
 }
 
 impl Device {
-    pub(super) fn acquire(binding: Binding<'_>) -> Result<Self, DeviceError> {
+    pub(super) fn acquire(binding: Binding<'_>, config: Config) -> Result<Self, DeviceError> {
+        let applied = CAPABILITIES.select(config)?;
         let lease = Lease::take()?;
         // An absent GPIO uses an ODR-derived wake. Failure of a configured IRQ
         // never changes acquisition mode.
         let irq = binding.irq_path.map(Irq::open).transpose()?;
         let bus = Bus::open(binding.path, binding.frequency)?;
-        let sensor = Sensor::open(bus, binding.address, Delay).inspect_err(|_| {
+        let sensor = Sensor::open(bus, binding.address, Delay, applied).inspect_err(|_| {
             // An interrupted configuration may have left the sensor active.
             OWNED.store(2, Ordering::Release);
         })?;
-        let signal = Signal::new(irq, sensor.sample_period());
+        let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
+        let signal = Signal::new(irq, period);
         Ok(Self {
             sensor,
             signal,
             cleaned: false,
             _lease: lease,
         })
+    }
+
+    pub(super) fn applied_config(&self) -> AppliedConfig {
+        self.sensor.applied_config()
     }
 
     pub(super) fn run(

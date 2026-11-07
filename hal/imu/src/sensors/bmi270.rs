@@ -1,12 +1,38 @@
 //! Translate the reusable BMI270 protocol into the IMU capability contract.
-use crate::{DeviceError, ImuSample};
+use crate::{AccelRange, AppliedConfig, Capabilities, Config, DeviceError, GyroRange, ImuSample};
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 use nxrs_bmi270::{Bmi270, Sample};
 
-const SAMPLE_INTERVAL_US: u32 = nxrs_bmi270::SAMPLE_INTERVAL_US;
+const DEFAULT_RATE_MILLIHZ: u32 = 1_000_000_000 / nxrs_bmi270::SAMPLE_INTERVAL_US;
+
+pub(crate) const DEFAULT_CONFIG: Config = Config {
+    min_rate_millihz: DEFAULT_RATE_MILLIHZ,
+    max_rate_millihz: DEFAULT_RATE_MILLIHZ,
+    accel_range: AccelRange::G4,
+    gyro_range: GyroRange::Dps2000,
+    max_delivery_interval_us: nxrs_bmi270::SAMPLE_INTERVAL_US,
+};
+
+pub(crate) const CAPABILITIES: Capabilities = Capabilities {
+    rates_millihz: &[25_000, 50_000, DEFAULT_RATE_MILLIHZ, 200_000],
+    accel_ranges: &[
+        AccelRange::G2,
+        AccelRange::G4,
+        AccelRange::G8,
+        AccelRange::G16,
+    ],
+    gyro_ranges: &[
+        GyroRange::Dps125,
+        GyroRange::Dps250,
+        GyroRange::Dps500,
+        GyroRange::Dps1000,
+        GyroRange::Dps2000,
+    ],
+};
 
 pub(crate) struct Sensor<B: I2c, D: DelayNs> {
     driver: Bmi270<B, D>,
+    config: AppliedConfig,
     sequence: u64,
 }
 
@@ -19,20 +45,49 @@ fn map_error(error: nxrs_bmi270::Error) -> DeviceError {
     }
 }
 
-fn map_sample(sequence: u64, now_ms: u64, sample: Sample) -> ImuSample {
+fn map_sample(sequence: u64, now_ms: u64, sample_interval_us: u32, sample: Sample) -> ImuSample {
     ImuSample {
         sequence,
         timestamp_ms: now_ms,
-        sample_interval_us: SAMPLE_INTERVAL_US,
+        sample_interval_us,
         accel_mps2: sample.accel_mps2,
         gyro_rps: sample.gyro_rps,
     }
 }
 
 impl<B: I2c, D: DelayNs> Sensor<B, D> {
-    pub(crate) fn open(bus: B, address: u8, delay: D) -> Result<Self, DeviceError> {
+    pub(crate) fn open(
+        bus: B,
+        address: u8,
+        delay: D,
+        config: AppliedConfig,
+    ) -> Result<Self, DeviceError> {
+        use nxrs_bmi270::{AccelRange as Acc, GyroRange as Gyro, Rate};
+        let settings = nxrs_bmi270::Config {
+            rate: match config.rate_millihz {
+                25_000 => Rate::Hz25,
+                50_000 => Rate::Hz50,
+                DEFAULT_RATE_MILLIHZ => Rate::Hz100,
+                200_000 => Rate::Hz200,
+                _ => return Err(DeviceError::Unsupported),
+            },
+            accel_range: match config.accel_range {
+                AccelRange::G2 => Acc::G2,
+                AccelRange::G4 => Acc::G4,
+                AccelRange::G8 => Acc::G8,
+                AccelRange::G16 => Acc::G16,
+            },
+            gyro_range: match config.gyro_range {
+                GyroRange::Dps125 => Gyro::Dps125,
+                GyroRange::Dps250 => Gyro::Dps250,
+                GyroRange::Dps500 => Gyro::Dps500,
+                GyroRange::Dps1000 => Gyro::Dps1000,
+                GyroRange::Dps2000 => Gyro::Dps2000,
+            },
+        };
         Ok(Self {
-            driver: Bmi270::open(bus, address, delay).map_err(map_error)?,
+            driver: Bmi270::open_configured(bus, address, delay, settings).map_err(map_error)?,
+            config,
             sequence: 0,
         })
     }
@@ -40,8 +95,8 @@ impl<B: I2c, D: DelayNs> Sensor<B, D> {
     pub(crate) fn stop(&mut self) -> Result<(), DeviceError> {
         self.driver.stop().map_err(map_error)
     }
-    pub(crate) fn sample_period(&self) -> core::time::Duration {
-        core::time::Duration::from_micros(u64::from(SAMPLE_INTERVAL_US))
+    pub(crate) fn applied_config(&self) -> AppliedConfig {
+        self.config
     }
 
     /// `now_ms` is the host reception time shared by the samples in this drain.
@@ -50,10 +105,11 @@ impl<B: I2c, D: DelayNs> Sensor<B, D> {
         now_ms: u64,
         mut emit: impl FnMut(ImuSample) -> bool,
     ) -> Result<Option<usize>, DeviceError> {
+        let interval_us = 1_000_000_000u32.div_ceil(self.config.rate_millihz);
         self.driver
             .drain(|sample: Sample| {
                 self.sequence = self.sequence.saturating_add(1);
-                emit(map_sample(self.sequence, now_ms, sample))
+                emit(map_sample(self.sequence, now_ms, interval_us, sample))
             })
             .map_err(map_error)
     }
@@ -79,6 +135,7 @@ mod tests {
         let mapped = map_sample(
             7,
             123,
+            nxrs_bmi270::SAMPLE_INTERVAL_US,
             Sample {
                 accel_mps2: [1.0, -2.0, 3.0],
                 gyro_rps: [0.25, -0.5, 0.75],

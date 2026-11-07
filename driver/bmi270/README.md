@@ -11,6 +11,14 @@ the driver requires no `Default` delay constructor.
 The driver retains `bmi2` 0.1.2 and `embedded-hal` 1.0.0. Initialization loads
 `bmi2::config::BMI270_CONFIG_FILE`, the Bosch BMI270 configuration blob bundled
 with the pinned `bmi2` release. `Cargo.lock` retains the registry checksum for
-that release. The driver retains the 100 Hz ODR, ±4 g acceleration and
-±2000°/s gyro defaults; the HAL maps driver errors/samples to the public IMU
-contract.
+that release. `Bmi270::open` retains the 100 Hz ODR, ±4 g acceleration and
+±2000°/s gyro defaults. `open_configured` accepts the chip-specific `Config`
+with rates of 25, 50, 100 or 200 Hz, accelerometer ranges of ±2/4/8/16 g, and
+gyroscope ranges of ±125/250/500/1000/2000°/s. Initialization verifies the
+accepted accelerometer and gyroscope ODR and range fields by reading their
+registers back. All supported gyro ODRs are at least 25 Hz. FIFO conversion
+scales each raw axis using the chosen physical range. FIFO layout, watermark,
+interrupt mapping and bounded sensor startup behavior are unchanged.
+`SAMPLE_INTERVAL_US` remains the public 100 Hz default interval for existing
+consumers; configured consumers can derive their interval from
+`Config::rate`. The HAL maps driver errors/samples to the public IMU contract.

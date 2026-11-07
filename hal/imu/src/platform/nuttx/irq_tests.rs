@@ -22,6 +22,7 @@ enum Op {
 struct Fake {
     regs: [u8; 128],
     bad_init: bool,
+    bad_config_readback: bool,
     fail_register: bool,
     fail_unregister: bool,
     fail_stop: bool,
@@ -41,6 +42,7 @@ impl Fake {
         Self {
             regs,
             bad_init: false,
+            bad_config_readback: false,
             fail_register: false,
             fail_unregister: false,
             fail_stop: false,
@@ -80,6 +82,7 @@ mod ffi {
                 0x03 => r.fill(0xc0),
                 0x21 => r.fill(if f.bad_init { 2 } else { 1 }),
                 0x1d | 0x24 | 0x25 | 0x26 => r.fill(0),
+                0x41 if f.bad_config_readback => r.fill(f.regs[reg] ^ 1),
                 _ => r.copy_from_slice(&f.regs[reg..reg + r.len()]),
             }
         }
@@ -170,6 +173,10 @@ fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> device::Binding<'a> 
     }
 }
 
+fn default_config() -> crate::Config {
+    crate::sensors::bmi270::DEFAULT_CONFIG
+}
+
 #[test]
 fn irq_registration_rollback_and_quarantine_are_not_repeated() {
     let _serial = SERIAL.lock().unwrap();
@@ -209,7 +216,7 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
 
     reset();
     assert_eq!(
-        device::Device::acquire(binding(file.path(), Some(missing))).err(),
+        device::Device::acquire(binding(file.path(), Some(missing)), default_config()).err(),
         Some(crate::DeviceError::Unsupported)
     );
     assert_eq!(FAKE.lock().unwrap().transfers, 0);
@@ -217,12 +224,69 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
 
     reset();
     assert_eq!(
-        device::Device::acquire(binding(missing, Some(file.path()))).err(),
+        device::Device::acquire(binding(missing, Some(file.path())), default_config()).err(),
         Some(crate::DeviceError::Io)
     );
     let f = FAKE.lock().unwrap();
     assert_eq!((f.registrations, f.unregisters), (0, 1));
     assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn unsupported_joint_rate_and_timing_request_does_not_acquire_resources() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    reset();
+    let config = crate::Config {
+        min_rate_millihz: 100_000,
+        max_rate_millihz: 100_000,
+        accel_range: crate::AccelRange::G2,
+        gyro_range: crate::GyroRange::Dps250,
+        max_delivery_interval_us: 5_000,
+    };
+
+    assert_eq!(
+        device::Device::acquire(binding(file.path(), Some(file.path())), config).err(),
+        Some(crate::DeviceError::Unsupported)
+    );
+    let f = FAKE.lock().unwrap();
+    assert_eq!(f.transfers, 0);
+    assert_eq!((f.registrations, f.unregisters), (0, 0));
+    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    reset();
+    let defaults = default_config();
+    let expected_defaults = crate::AppliedConfig {
+        rate_millihz: 100_000,
+        accel_range: crate::AccelRange::G4,
+        gyro_range: crate::GyroRange::Dps2000,
+        delivery_interval_us: 10_000,
+    };
+    let device = device::Device::acquire(binding(file.path(), None), defaults).unwrap();
+    assert_eq!(device.applied_config(), expected_defaults);
+    drop(device);
+
+    reset();
+    let requested = crate::Config {
+        min_rate_millihz: 25_000,
+        max_rate_millihz: 100_000,
+        accel_range: crate::AccelRange::G4,
+        gyro_range: crate::GyroRange::Dps500,
+        max_delivery_interval_us: 20_000,
+    };
+    let device = device::Device::acquire(binding(file.path(), None), requested).unwrap();
+    let applied = device.applied_config();
+    assert_eq!(applied.rate_millihz, 50_000);
+    assert_eq!(applied.accel_range, crate::AccelRange::G4);
+    assert_eq!(applied.gyro_range, crate::GyroRange::Dps500);
+    assert_eq!(applied.delivery_interval_us, 20_000);
+    assert_ne!(applied, expected_defaults);
+    drop(device);
 }
 
 #[test]
@@ -232,13 +296,36 @@ fn partial_sensor_setup_quarantines() {
     reset();
     FAKE.lock().unwrap().bad_init = true;
     assert_eq!(
-        device::Device::acquire(binding(file.path(), None)).err(),
+        device::Device::acquire(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::InvalidData)
     );
     assert_eq!(OWNED.load(Ordering::Relaxed), 2);
     let transfers = FAKE.lock().unwrap().transfers;
     assert_eq!(
-        device::Device::acquire(binding(file.path(), None)).err(),
+        device::Device::acquire(binding(file.path(), None), default_config()).err(),
+        Some(crate::DeviceError::Io)
+    );
+    assert_eq!(FAKE.lock().unwrap().transfers, transfers);
+}
+
+#[test]
+fn config_readback_mismatch_quarantines_before_publishing_device() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    reset();
+    FAKE.lock().unwrap().bad_config_readback = true;
+    assert_eq!(
+        device::Device::acquire(binding(file.path(), Some(file.path())), default_config()).err(),
+        Some(crate::DeviceError::InvalidData)
+    );
+    assert_eq!(OWNED.load(Ordering::Relaxed), 2);
+    let transfers = {
+        let fake = FAKE.lock().unwrap();
+        assert_eq!((fake.registrations, fake.unregisters), (0, 1));
+        fake.transfers
+    };
+    assert_eq!(
+        device::Device::acquire(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::Io)
     );
     assert_eq!(FAKE.lock().unwrap().transfers, transfers);
@@ -251,13 +338,16 @@ fn unpublished_device_and_joined_worker_both_stop_before_detach() {
     let file = DeviceFile::new();
     reset();
     // A cancel setup or thread spawn failure drops the unpublished owner.
-    drop(device::Device::acquire(binding(file.path(), Some(file.path()))).unwrap());
+    drop(
+        device::Device::acquire(binding(file.path(), Some(file.path())), default_config()).unwrap(),
+    );
     assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
     assert_eq!(OWNED.load(Ordering::Relaxed), 0);
 
     reset();
     FAKE.lock().unwrap().irq_asserted = false;
-    let device = device::Device::acquire(binding(file.path(), Some(file.path()))).unwrap();
+    let device =
+        device::Device::acquire(binding(file.path(), Some(file.path())), default_config()).unwrap();
     let cancel = readiness::Cancel::new(|| {
         let (reader, writer) = UnixStream::pair()?;
         Ok((OwnedFd::from(reader).into(), OwnedFd::from(writer).into()))
@@ -288,7 +378,9 @@ fn failed_stop_or_detach_quarantines_without_repeating_release() {
             f.fail_stop = fail_stop;
             f.fail_unregister = fail_unregister;
         }
-        let device = device::Device::acquire(binding(file.path(), Some(file.path()))).unwrap();
+        let device =
+            device::Device::acquire(binding(file.path(), Some(file.path())), default_config())
+                .unwrap();
         assert_eq!(
             device.run(
                 &AtomicBool::new(true),

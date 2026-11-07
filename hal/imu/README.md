@@ -8,9 +8,29 @@ cancellation without a hidden join; the worker retains resources through cleanup
 The [composition design](../../docs/peripheral-composition.md) places reusable
 BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
 acquisition lifecycle in this crate. The NuttX factory assembles its separate
-I2C and wake resources into one acquisition session. Configured capability
-requests, profile composition, overlays and coordinated simulation remain
+I2C and wake resources into one acquisition session. Profile composition,
+overlays and coordinated simulation remain
 pending in the [migration plan](../../docs/peripheral-composition-plan.md).
+
+`capabilities()` reports the modes of the selected provider. Use
+`open_configured(config, sink)` to request exact full scales, inclusive rate
+limits in millihertz and a maximum nominal interval between delivery
+opportunities. The HAL selects the slowest supported rate that satisfies both
+timing requirements and returns the session with its applied settings. For
+example, 25–100 Hz with a 20 ms delivery interval limit selects 50 Hz on BMI270.
+The delivery interval is the sample period rounded up to a microsecond for
+the one-sample FIFO watermark or periodic wake. Bus wait, scheduling and sink
+backpressure affect measured latency separately.
+
+The BMI270 provider accepts 25, 50, 100 or 200 Hz at any combination of
+accelerometer ±2, ±4, ±8 or ±16 g and gyroscope ±125, ±250, ±500, ±1000 or
+±2000 degrees/s. `open(sink)` uses 100 Hz, ±4 g and ±2000 degrees/s.
+The mock offers that default mode. The unbound build reports no capabilities
+and returns `Unsupported`. A zero rate or delivery interval and inverted
+rate limits return `InvalidData` on configured providers. Well-formed
+requirements without a matching mode return `Unsupported` before resource
+acquisition. A configuration readback mismatch returns `InvalidData` and
+quarantines the physical owner.
 
 The no_std `nxrs-bmi270` package exposes sensor-specific errors and physical
 samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).
@@ -18,7 +38,7 @@ This HAL maps those into `DeviceError` and `ImuSample`, assigning the monotonic
 host reception time, sequence and nominal interval at delivery.
 
 The driver uses the `embedded-hal` I2C and delay traits.
-It waits for both sensors to finish startup, then enables acquisition with equal 100 Hz ODR,
+It waits for both sensors to finish startup, then enables acquisition with equal ODR,
 a one-frame FIFO watermark, headerless combined
 gyro/accel frames and INT1 watermark/full/error notifications. FIFO format is
 verified before admission. The incomplete upstream FIFO reader is not used;
@@ -44,6 +64,6 @@ FIFO drain and event sink. Empty FIFO reads
 emit nothing; missed ticks coalesce. A configured IRQ failure never changes modes.
 The same cancellation pipe wakes either wait without another thread or queue.
 OS scheduling and the unsynchronized sensor clock can delay delivery; late wakes
-drain all available frames without fabricating samples or losing their 10 ms interval.
+drain all available frames and retain the nominal interval of the selected mode.
 M135 v1.0 uses this timer path because its interrupts are unwired; see
 [CoreS3 acquisition](../../docs/m5stack-cores3.md).

@@ -4,7 +4,9 @@
 #[cfg(any(test, hal_enabled, hal_mock))]
 extern crate std;
 mod api;
-pub use api::{DeviceError, Event, Imu, ImuSample};
+pub use api::{
+    AccelRange, AppliedConfig, Capabilities, Config, DeviceError, Event, GyroRange, Imu, ImuSample,
+};
 pub use messaging::{DeliveryError, Rejected};
 #[cfg(any(test, hal_enabled))]
 mod cadence;
@@ -15,7 +17,7 @@ mod platform;
 mod sensors;
 #[cfg(hal_enabled)]
 mod session;
-pub use platform::open;
+pub use platform::{capabilities, open, open_configured};
 
 #[cfg(test)]
 mod test_support;
