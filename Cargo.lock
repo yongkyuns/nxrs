@@ -614,6 +614,7 @@ dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
  "nxrs-messaging",
+ "nxrs-simulation",
 ]
 
 [[package]]

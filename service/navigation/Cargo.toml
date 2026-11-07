@@ -10,3 +10,6 @@ name = "navigation"
 nxrs-messaging = { path = "../../shared/messaging" }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-gnss = { path = "../../hal/gnss" }
+
+[dev-dependencies]
+nxrs-simulation = { path = "../../shared/simulation" }

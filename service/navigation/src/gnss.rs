@@ -54,6 +54,8 @@ pub struct GnssService {
     processor: GnssProcessor,
     output: GnssInput,
 }
+#[cfg(test)]
+pub(super) struct TestInput(Sender<Event>);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GnssStats {
     pub produced: u64,
@@ -105,6 +107,37 @@ impl GnssService {
                 })
         };
         let device = gnss::open(sink).map_err(hal_error)?;
+        Self::start_device(self, device, control, inbox)
+    }
+
+    #[cfg(test)]
+    pub(super) fn start_with_test_device<D: Gnss + Send + 'static>(
+        self,
+        device: D,
+    ) -> io::Result<(GnssHandle, TestInput)> {
+        let (control, inbox) = bounded(INBOX_CAPACITY);
+        let inject = TestInput(control.clone());
+        let handle = Self::start_device(self, device, control, inbox)?;
+        Ok((handle, inject))
+    }
+}
+
+#[cfg(test)]
+impl TestInput {
+    pub(super) fn fix(&self, fix: GnssFix) -> Result<(), ()> {
+        self.0
+            .try_send(Event::Device(gnss::Event::Fix(fix)))
+            .map_err(|_| ())
+    }
+}
+
+impl GnssService {
+    fn start_device<D: Gnss + Send + 'static>(
+        self,
+        device: D,
+        control: Sender<Event>,
+        inbox: Inbox<Event>,
+    ) -> io::Result<GnssHandle> {
         let stopping = Arc::new(AtomicBool::new(false));
         let stop = stopping.clone();
         let join = thread::Builder::new()

@@ -13,6 +13,9 @@ mod gnss;
 mod health;
 mod imu;
 
+#[cfg(test)]
+mod transcript_tests;
+
 pub use fusion::{FusionConfig, FusionHandle, FusionInputs, FusionService, FusionStats, NavState};
 pub use gnss::{GnssHandle, GnssProcessor, GnssService, GnssStats, GnssStatus};
 pub use health::{HealthService, HealthSnapshot};
