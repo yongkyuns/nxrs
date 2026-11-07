@@ -331,9 +331,16 @@ Delivery uses stable event keys and bounded acknowledgement, cancellation and
 loss policies. Seeded samples alone do not make application execution
 deterministic. The event-demo supplies monotonic elapsed time to its pause,
 resume and stop schedule. A focused test supplies logical times and compares
-the ordered control decisions across different wake sequences. The live demo
-still uses host worker scheduling. Qualifying repeatable service transcripts
-requires a harness that coordinates delivery and wakes across those workers.
+the ordered control decisions across different wake sequences. A test-only
+harness also advances the seeded source, injects normalized device messages
+through the IMU/GNSS service handlers, exercises pause/resume, and compares
+FusionService transcripts and loss counters under reversed producer wake
+orders. Its bounded sequencer admits messages in canonical EventKey order and
+acknowledges each service result. Production service inboxes follow arrival
+order, so this evidence covers canonical admission only. The normal simulation
+workers remain wall-paced. Report deterministic source playback separately
+from deterministic application behavior until independent worker scheduling
+and end-to-end deadlines are qualified.
 Existing independent mock-session tests remain explicit fixture tests.
 
 The `simulation` host profile declares a seed and the IMU and GNSS endpoint IDs.
