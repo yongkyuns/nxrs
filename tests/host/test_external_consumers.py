@@ -55,7 +55,8 @@ class ExternalConsumerTests(unittest.TestCase):
             pending.extend(source / dependency["path"] for dependency in dependencies(tomllib.loads(text))
                            if isinstance(dependency, dict) and "path" in dependency)
         cls.environment = os.environ.copy()
-        for name in ("NXRS_PLATFORM", "NXRS_SDK_ROOT", "CARGO_BUILD_TARGET", "RUSTFLAGS",
+        for name in ("NXRS_PLATFORM", "NXRS_SDK_ROOT", "NXRS_RESOLVED_PROFILE",
+                     "CARGO_BUILD_TARGET", "RUSTFLAGS",
                      "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "NXRS_NUTTX_NATIVE_CONFIG"):
             cls.environment.pop(name, None)
         cls.environment.update(CARGO_TARGET_DIR=str(cls.directory / "target"))
@@ -101,6 +102,40 @@ class ExternalConsumerTests(unittest.TestCase):
                                      env=env, capture_output=True, text=True, timeout=15)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
                 self.assertIn("external consumer:", run.stdout)
+        self.assertEqual((self.directory / "Cargo.lock").read_bytes(), self.lock)
+
+    def test_product_frontend_builds_the_detached_mock_consumer(self):
+        compiler_output = self.directory / "frontend"
+        result = subprocess.run(
+            ["cargo", "build", "--offline", "--locked", "-p", "nxrs-build",
+             "--target-dir", str(compiler_output)],
+            cwd=ROOT, env=self.environment, capture_output=True, text=True, timeout=180,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        suffix = ".exe" if sys.platform == "win32" else ""
+        frontend = compiler_output / "debug" / ("nxrs-build" + suffix)
+        output = self.directory / "product"
+        result = subprocess.run(
+            [str(frontend), "--workspace-root", str(ROOT), "build", "--profile", "mock",
+             "--manifest-path", str(self.directory / "Cargo.toml"), "--out", str(output)],
+            cwd=self.directory, env=self.environment, capture_output=True, text=True, timeout=180,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = output / "resolved-profile.json"
+        binary = output / "cargo/release" / ("independent-product" + suffix)
+        run = subprocess.run([str(binary), str(self.directory / "receipt-output"), "--sensors"],
+                             env=self.environment, capture_output=True, text=True, timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+        # Cargo must fail before acquisition if given the right profile for the wrong target.
+        data = json.loads(receipt.read_text())
+        data["target"] = "wrong-target"
+        receipt.write_text(json.dumps(data))
+        env = {**self.environment, "NXRS_SDK_ROOT": str(ROOT), "NXRS_PLATFORM": "mock",
+               "NXRS_RESOLVED_PROFILE": str(receipt)}
+        result = self.command("build", "--offline", "--locked", environment=env, success=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("resolved profile receipt target does not match", result.stderr)
         self.assertEqual((self.directory / "Cargo.lock").read_bytes(), self.lock)
 
     def test_selected_profile_requires_explicit_sdk_root_outside_checkout(self):

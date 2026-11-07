@@ -347,8 +347,6 @@ pub fn build(
             "-Zbuild-std=std,panic_abort",
             "--message-format=json-render-diagnostics",
         ])
-        .env("NXRS_PLATFORM", p.name())
-        .env("NXRS_SDK_ROOT", root)
         .env("RUSTUP_TOOLCHAIN", TOOLCHAIN)
         .env("CARGO_TARGET_DIR", out.join("cargo"))
         .env("EMCC_CFLAGS", EMCC_CFLAGS)
@@ -356,6 +354,7 @@ pub fn build(
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("RUSTC", &rustc)
         .env("CARGO_BUILD_RUSTC", &rustc);
+    build::configure_profile(&mut command, &out, root, p, TARGET, "emscripten")?;
     options.configure_cargo(&mut command, &[]);
     if let Some(config) = cargo_config {
         command.arg("--config").arg(config);

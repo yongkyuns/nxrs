@@ -304,6 +304,49 @@ pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
     write_json(&marker, &json!({"workspace":repo}))?;
     Ok(resolved)
 }
+pub(crate) fn configure_profile(
+    command: &mut Command,
+    out: &Path,
+    root: &Path,
+    profile: &Profile,
+    target: &str,
+    os: &str,
+) -> Result<()> {
+    let receipt = out.join("resolved-profile.json");
+    nxrs_build_support::resolved::write(&receipt, root, profile, target, os)?;
+    command
+        .env("NXRS_RESOLVED_PROFILE", receipt)
+        .env("NXRS_PLATFORM", profile.name())
+        .env("NXRS_SDK_ROOT", root);
+    Ok(())
+}
+
+fn host_target(root: &Path) -> Result<String> {
+    if let Some(target) = std::env::var_os("CARGO_BUILD_TARGET") {
+        let target = target.to_str().ok_or("Cargo target must be UTF-8")?;
+        let path = Path::new(target);
+        return if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_owned)
+                .ok_or_else(|| "custom Cargo target must have a file stem".into())
+        } else {
+            Ok(target.into())
+        };
+    }
+    let compiler = std::env::var_os("RUSTC")
+        .or_else(|| std::env::var_os("CARGO_BUILD_RUSTC"))
+        .unwrap_or_else(|| "rustc".into());
+    crate::output(Command::new(compiler).current_dir(root).arg("-vV"))?
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_owned)
+        .ok_or_else(|| "rustc did not report its host target".into())
+}
+
 pub fn host(
     root: &Path,
     app: &App,
@@ -325,9 +368,8 @@ pub fn host(
         .args(["build", "--locked", "--release", "--manifest-path"])
         .arg(&app.manifest)
         .args(["--bin", &app.bin])
-        .env("NXRS_PLATFORM", profile.name())
-        .env("NXRS_SDK_ROOT", root)
         .env("CARGO_TARGET_DIR", out.join("cargo"));
+    configure_profile(&mut command, &out, root, profile, &host_target(root)?, os)?;
     options.configure_cargo(&mut command, &[]);
     let selection = crate::cargo_graph::resolve(&mut command, profile)?;
     evidence["dependency_resolution"] = selection.json();

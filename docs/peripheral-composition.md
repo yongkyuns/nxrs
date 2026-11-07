@@ -182,14 +182,20 @@ Profile inspection and build dry runs report the normalized graph, profile
 sources and binding catalog path under `resolved-composition`.
 
 Use repeatable `--overlay` arguments with `cargo nxrs profile` and
-`cargo nxrs build --dry-run`. Declare an ordered `overlays` list in a named
-profile for compilation. Command-line overlays gain a compilation path in S6.
+`cargo nxrs build`, or declare an ordered `overlays` list in a named profile.
 Resolution merges ancestor profiles, the child profile, the declared overlays
 from ancestor to child, and then command-line overlays in argument order.
 Overlay files contain changes only and cannot recursively include overlays or
 change the target, BSP, execution OS or composition mode. Those changes require
 a named profile. Declared paths resolve against the profile file. Command-line
 paths resolve against the selected workspace root.
+
+The build frontend writes `resolved-profile.json` into the owned build output
+and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
+verify the workspace, target, profile name and input fingerprints before using
+it. Direct Cargo consumers select a named profile and its declared overlays
+through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. The NuttX IMU build script emits
+typed resources and a model selector for the checked-in Rust factory.
 
 Legacy IMU profiles expose the same graph for overlays, with device `imu`, bus
 `legacy_i2c` and optional interrupt resource `legacy_irq`. The

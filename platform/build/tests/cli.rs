@@ -442,26 +442,6 @@ fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
         inspected["resolved-composition"]["semantic-digest"]
     );
 
-    let error = failure(frontend(
-        &root.0,
-        &outside.0,
-        &[
-            "build",
-            "--manifest-path",
-            "app/probe/Cargo.toml",
-            "--profile",
-            "typed-imu",
-            "--overlay",
-            "overlays/remove-motion.toml",
-            "--overlay",
-            "overlays/add-replacement.toml",
-        ],
-    ));
-    assert!(
-        error.contains("command-line overlays") && error.contains("--dry-run"),
-        "{error}"
-    );
-
     // A named overlay is resolved before a normal build reaches Cargo too.
     fs::create_dir_all(root.0.join("platform/profiles/overlays")).unwrap();
     fs::write(
@@ -942,5 +922,10 @@ fn main() {}
         .join("artifacts/cargo/release")
         .join(format!("cli-probe{}", env::consts::EXE_SUFFIX))
         .is_file());
+    let receipt: Value =
+        serde_json::from_slice(&fs::read(root.0.join("artifacts/resolved-profile.json")).unwrap())
+            .unwrap();
+    assert_eq!(receipt["profile"], "host");
+    assert_eq!(receipt["os"], env::consts::OS);
     assert!(!outside.0.join("artifacts").exists());
 }

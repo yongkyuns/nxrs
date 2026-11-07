@@ -365,13 +365,63 @@ def inspect_dependency_capsule(root: Path) -> list[str]:
         return ['microflow: missing or malformed source provenance ledger']
 
 
+def inspect_generated_imu_factory(root: Path) -> list[str]:
+    """Keep profile-generated IMU data inside a fixed, typed HAL source seam."""
+    hal = root / 'hal/imu'
+    if not (hal / 'src/platform/nuttx').exists():
+        return []
+    errors = []
+    relative = lambda path: path.relative_to(root).as_posix()
+    nuttx = hal / 'src/platform/nuttx/mod.rs'
+    build = hal / 'build.rs'
+    emitter = hal / 'build/emit.rs'
+    if not all(path.is_file() for path in (nuttx, build, emitter)):
+        return ['hal/imu: generated factory must be emitted and included by the owning HAL package']
+
+    source = re.sub(r'//[^\n]*|/\*.*?\*/', '', nuttx.read_text(), flags=re.S)
+    include = 'include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));'
+    if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
+        errors.append(f'{relative(nuttx)}: include only the fixed imu_config.rs file from this HAL OUT_DIR')
+    if not re.search(r'match\s+MODEL\s*\{\s*SensorModel::Bmi270\s*=>\s*Device::acquire\(BINDING,\s*config\)\??\s*,?\s*\}', source):
+        errors.append(f'{relative(nuttx)}: generated model selection must map to its checked-in typed constructor')
+    if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
+        errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
+
+    build_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', build.read_text(), flags=re.S)
+    if (not re.search(r'emit::write\s*\(\s*&out\.join\("imu_config\.rs"\)\s*,\s*binding\s*\)', build_source)
+            or 'mod emit;' not in build_source
+            or not re.search(r'profile\.binding\("imu"\)\s*==\s*"nuttx"\s*&&\s*os\s*==\s*"nuttx"', build_source)):
+        errors.append(f'{relative(build)}: emit the fixed generated factory through the HAL-owned emitter')
+
+    emitter_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', emitter.read_text(), flags=re.S)
+    # The emitter may escape profile strings and place parsed numeric fields, but
+    # generated identifiers and constructor names must remain fixed Rust syntax.
+    required = [
+        r'let\s+model\s*=\s*match\s+binding\.model\s*\{\s*'
+        r'nxrs_build_support::composition::ImuModel::Bmi270\s*=>\s*"SensorModel::Bmi270"\s*,?\s*\}',
+        r'enum SensorModel\s*\{\{\s*Bmi270\s*\}\}',
+        r'const MODEL:\s*SensorModel\s*=\s*\{model\}',
+        r'const BINDING:\s*Binding<\'static>\s*=\s*Binding\s*\{\{',
+        r'const STACK_BYTES:\s*usize\s*=\s*\{stack_bytes\}',
+        r'path:\s*\{path:\?\}',
+        r'address:\s*\{address\}',
+        r'frequency:\s*\{frequency\}',
+        r'irq_path:\s*\{irq_path\}',
+    ]
+    if any(not re.search(pattern, emitter_source) for pattern in required):
+        errors.append(f'{relative(emitter)}: generated Rust must use the allowlisted typed model and escaped binding literals')
+    if not (hal / 'src/sensors/bmi270.rs').is_file():
+        errors.append('hal/imu: generated BMI270 selection has no checked-in sensor implementation')
+    return errors
+
+
 def inspect_hal_boundaries(root: Path) -> list[str]:
     """Reject platform selection in shared Rust and unreviewed native sources.
 
     The inventory permits native ABI glue only. Entries still require semantic
     code review; scalar declarations do not certify a mechanical boundary.
     """
-    errors = []
+    errors = inspect_generated_imu_factory(root)
     for path in (root / 'hal').glob('*/src/platform/mod.rs'):
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)

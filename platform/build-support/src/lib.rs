@@ -8,6 +8,7 @@ pub mod native;
 mod native_nuttx;
 mod overlay;
 pub mod profile;
+pub mod resolved;
 pub mod source;
 
 use sha2::{Digest, Sha256};
@@ -87,15 +88,46 @@ pub fn sdk_root(manifest: &Path) -> Result<std::path::PathBuf> {
         .map_err(|e| e.to_string())
 }
 
+fn selected_profile(manifest: &Path) -> Result<Option<(std::path::PathBuf, profile::Profile)>> {
+    use std::{env, path::PathBuf};
+    println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
+    println!("cargo:rerun-if-env-changed=NXRS_RESOLVED_PROFILE");
+    let name = env::var_os("NXRS_PLATFORM");
+    let receipt = env::var_os("NXRS_RESOLVED_PROFILE");
+    let name = name
+        .as_ref()
+        .map(|name| name.to_str().ok_or("platform name must be UTF-8"))
+        .transpose()?;
+    if name.is_none() && receipt.is_none() {
+        return Ok(None);
+    }
+    let root = sdk_root(manifest)?;
+    let target = env::var("TARGET").map_err(|error| error.to_string())?;
+    let os = env::var("CARGO_CFG_TARGET_OS").map_err(|error| error.to_string())?;
+    let profile = if let Some(path) = receipt {
+        let path = PathBuf::from(path);
+        let label = path
+            .to_str()
+            .filter(|s| !s.contains(['\r', '\n']))
+            .ok_or("NXRS_RESOLVED_PROFILE must be a UTF-8 path without line breaks")?;
+        if !path.is_absolute() {
+            return Err("NXRS_RESOLVED_PROFILE must be an absolute path".into());
+        }
+        println!("cargo:rerun-if-changed={label}");
+        resolved::load(&path, &root, name, &target, &os)?
+    } else {
+        let profile = profile::Profile::resolve(&root, name.ok_or("missing platform name")?)?;
+        profile.validate_cargo_target(&target, &os)?;
+        profile
+    };
+    Ok(Some((root, profile)))
+}
+
 /// Read the optional detector budget from the selected product profile.
 pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
-    println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
-    let Some(name) = std::env::var_os("NXRS_PLATFORM") else {
+    let Some((_, profile)) = selected_profile(manifest)? else {
         return Ok(None);
     };
-    let name = name.to_str().ok_or("platform name must be UTF-8")?;
-    let root = sdk_root(manifest)?;
-    let profile = profile::Profile::resolve(&root, name)?;
     for path in profile.source_paths() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
@@ -103,11 +135,16 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
 }
 
 pub fn configure_hal() -> Result<String> {
-    use std::env;
+    configure_hal_with(|_, _, _| Ok(()))
+}
+
+/// Run capability-owned generation after profile admission and before compiling native helpers.
+pub fn configure_hal_with(
+    prepare: impl FnOnce(&profile::Profile, &str, &Path) -> Result<()>,
+) -> Result<String> {
+    use std::{env, path::PathBuf};
     println!("cargo:rustc-check-cfg=cfg(hal_enabled)");
     println!("cargo:rustc-check-cfg=cfg(hal_mock)");
-    println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
-    println!("cargo:rerun-if-env-changed=NXRS_SDK_ROOT");
     for name in [
         "CARGO_CFG_HAL_ENABLED",
         "CARGO_CFG_HAL_MOCK",
@@ -118,15 +155,11 @@ pub fn configure_hal() -> Result<String> {
             return Err("Select one NXRS_PLATFORM, not hand-written provider cfg flags".into());
         }
     }
-    let Some(name) = env::var_os("NXRS_PLATFORM") else {
+    let directory =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing Cargo manifest directory")?);
+    let Some((root, profile)) = selected_profile(&directory)? else {
         return Ok("none".into());
     };
-    let name = name.to_str().ok_or("platform name must be UTF-8")?;
-    let directory = std::path::PathBuf::from(
-        env::var_os("CARGO_MANIFEST_DIR").ok_or("missing Cargo manifest directory")?,
-    );
-    let root = sdk_root(&directory)?;
-    let profile = profile::Profile::resolve(&root, name)?;
     let package = env::var("CARGO_PKG_NAME").map_err(|e| e.to_string())?;
     let capability = package.strip_prefix("nxrs-").ok_or("HAL package name")?;
     let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
@@ -134,8 +167,9 @@ pub fn configure_hal() -> Result<String> {
         println!("{line}")
     }
     let binding = profile.binding(capability);
+    let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
+    prepare(&profile, &os, &out)?;
     if ["macos", "linux", "nuttx"].contains(&binding) {
-        let out = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
         let target = env::var("TARGET").map_err(|e| e.to_string())?;
         for line in native::build(&directory, &os, &target, &out)? {
             println!("{line}")

@@ -51,7 +51,7 @@ Selection:
   --bin <bin>                 Select a binary target
   --platform <platform>       Select a platform family and its default profile
   --profile <profile>         Select a product or qualification profile
-  --overlay <path>            Apply an ordered overlay in --dry-run; repeat as needed
+  --overlay <path>            Apply an ordered overlay; repeat as needed
   --features <features>       Enable Cargo features, separated by commas or spaces;
                               repeat as needed; --feature is an alias
   --no-default-features       Disable the application's default Cargo features
@@ -258,9 +258,6 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     if dry {
         println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command})).unwrap());
         return Ok(ExitCode::SUCCESS);
-    }
-    if !overlays.is_empty() {
-        return Err("command-line overlays require --dry-run until the resolved-profile Cargo handoff is available; declare overlays in the named profile to build".into());
     }
     match os {
         "nuttx" => nxrs_build::nuttx::build(root, &app, &profile, &out, &options)?,
