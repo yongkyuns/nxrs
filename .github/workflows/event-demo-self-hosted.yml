@@ -17,6 +17,7 @@ on:
       - 'hal/gnss/**'
       - 'hal/common/**'
       - 'driver/acquisition/**'
+      - 'driver/bmi270/**'
       - 'driver/lsm6dso/**'
       - 'driver/ubx/**'
       - 'tests/host/fixtures/lsm6dso-overlay.toml'
@@ -258,6 +259,20 @@ jobs:
       - name: Cross-build the CoreS3 sensor deployment
         run: cargo +1.90.0 nxrs build --app event-demo --platform cores3 --out target/firmware/event-demo/cores3
 
+      - name: Exercise the NuttX IMU provider with a QEMU BMI270
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=target/firmware/event-demo/imu-qemu
+          mkdir -p "$out"
+          cargo +1.90.0 nxrs build \
+            --manifest-path tests/nuttx-std/imu-qemu/Cargo.toml \
+            --profile esp32s3-qemu-bmi270 \
+            --target-c-source tests/nuttx-std/imu-qemu/bmi270_lower.c \
+            --out "$out" 2>&1 | tee "$out/build-wrapper.log"
+          source target/qemu-tools/environment.sh
+          python3 tests/nuttx-std/imu-qemu/run.py "$out"
+
       - name: Cross-build the replacement IMU overlay
         run: >-
           cargo +1.90.0 nxrs build --app event-demo --platform cores3
@@ -316,6 +331,9 @@ jobs:
             target/firmware/event-demo/esp32s3-qemu-mock/*.config
             target/firmware/event-demo/esp32s3-qemu-mock/*.sha256
             target/firmware/event-demo/esp32s3-qemu-mock/abi-*
+            target/firmware/event-demo/imu-qemu/*.log
+            target/firmware/event-demo/imu-qemu/results.json
+            target/firmware/event-demo/imu-qemu/resolved-profile.json
             target/firmware/event-demo/imu-protected/*.txt
             target/firmware/event-demo/imu-protected/*.log
             target/firmware/event-demo/imu-protected/*.config
