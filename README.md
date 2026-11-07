@@ -80,10 +80,13 @@ package, provider registry, giant HAL object, xtask, generated app manifest, or
 general runtime framework.
 
 The [peripheral composition design](docs/peripheral-composition.md) describes
-reusable Rust chip drivers, embedded-hal resource adapters and validated profile
-overlays. Its [implementation plan](docs/peripheral-composition-plan.md) gives
-ordered tasks and acceptance checks. The new configuration syntax and simulator
-are staged work; existing build commands below describe current behavior.
+the implemented reusable Rust chip drivers, embedded-hal resource adapters,
+validated profile composition and ordered overlays. Its
+[implementation plan](docs/peripheral-composition-plan.md) records migration
+steps and acceptance evidence. Profile resolution is used by the build frontend
+and direct Cargo consumers. The `simulation` profile coordinates seeded IMU and
+GNSS sources. It generates deterministic observations and event keys, while
+application scheduling follows the wall clock.
 
 ## Event-driven architecture demo
 

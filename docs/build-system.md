@@ -53,12 +53,14 @@ independent. Declarative profiles under `platform/profiles` and
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 
-The staged [peripheral composition design](peripheral-composition.md) extends
-these profiles with device instances, resource references, roles and ordered
-overlays. Its [implementation plan](peripheral-composition-plan.md) specifies
-resolver/build-script agreement, input fingerprints, Cargo dependency handling
-and detached-consumer checks. The new schema, `--overlay` option and resolved
-profile input are proposed interfaces until those steps are implemented.
+The [peripheral composition design](peripheral-composition.md) defines the
+implemented versioned profile schema for device instances, resource references,
+roles and ordered overlays. Its [implementation plan](peripheral-composition-plan.md)
+records resolver/build-script agreement, input fingerprints, Cargo dependency
+handling and detached-consumer checks. Use `cargo nxrs profile` to inspect a
+resolved graph and repeat `--overlay` on profile inspection or build commands
+to apply command-line overlays. Named profiles may also declare ordered
+overlays. The build frontend and direct Cargo consumers both use the versioned resolver.
 
 Each HAL owns its local `build.rs`; it depends on `platform/build-support`,
 which contains profile validation and native build utilities. The CLI depends on

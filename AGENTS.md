@@ -5,9 +5,10 @@ changing a HAL, its platform wiring, or a native bridge. These are implementatio
 requirements, not aspirational guidance.
 
 - For peripheral composition work, also read `docs/peripheral-composition.md`
-  and follow `docs/peripheral-composition-plan.md` in dependency order. Their
-  schema and overlay interfaces are staged targets. Preserve existing selection
-  entry points until the corresponding migration gates pass.
+  and `docs/peripheral-composition-plan.md`. Composition version 1, ordered
+  overlays, resolved-profile build wiring, and the migrated IMU/GNSS bindings
+  are implemented. Use the profile resolver and normal build/inspection entry
+  points. Keep retired sensor selectors and their translation paths out of new wiring.
 - Keep each capability's API, normalization and acquisition implementations in
   its HAL crate. Reusable chip protocols belong in `driver/<device>` packages
   with sensor-specific APIs and existing Rust bus traits. Drivers must not depend
@@ -27,7 +28,8 @@ requirements, not aspirational guidance.
 - Product profiles own device/resource composition. NuttX BSP/configuration owns
   MCU wiring and registration. A resolved hardware profile must select concrete
   supported devices; simulation uses a separate explicit profile and coordinated
-  session. Legacy mock bindings remain fixture/migration inputs until replaced.
+  session. Use mock bindings in explicit test and qualification profiles.
+  Physical IMU and GNSS roles select supported hardware bindings.
   Generate only validated constants and checked-in factory selections. Cargo
   dependencies must be declared before build scripts run. Keep runtime policy
   out of build support and preserve detached-consumer qualification.
