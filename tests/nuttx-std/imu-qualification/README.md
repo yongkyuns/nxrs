@@ -166,16 +166,17 @@ initialization so the first FIFO state and marker edge are visible.
    software queue drops, and ambiguous analyzer matches invalidate the run.
    Count source edges, complete FIFO samples, and delivered samples separately.
    Keep unresolved boundary samples separate from measured loss.
-4. Measure output-ready edge to GPIO15 edge on the analyzer clock. If that
-   interval is `d`, the age at the fixture's sample observation is bounded by
-   `max(0, d - b - a)` through `d + a`. Here `a` is the analyzer's interval
-   uncertainty, including both edges' quantization, channel skew, and timebase
-   accuracy. Use the sequence's `bracket_ns` plus `clock_resolution_ns` for
-   `b` after qualifying the target clock for elapsed-time bounds. Until then
-   retain the electrical interval as the conservative upper bound and report
-   the software bracket separately. Sensor conversion and filter delay precede
-   the output-ready reference. Keep the raw trace and record the analyzer
-   model and sample rate.
+4. Measure output-ready edge to GPIO15 edge on the analyzer clock. Call that
+   interval `d`. The software endpoint is the monotonic read immediately
+   before the GPIO write inside the HAL sink, before queue admission. The
+   age at that point is bounded by `max(0, d - b - a)` through `d + a`.
+   Here `a` is the analyzer's interval uncertainty, including both edges'
+   quantization, channel skew, and timebase accuracy. Use the sequence's
+   `bracket_ns` plus `clock_resolution_ns` for `b` after qualifying the target
+   clock for elapsed-time bounds. Until then use `d + a` as the upper bound
+   and report the software bracket separately. Sensor conversion and filter
+   delay precede the output-ready reference. Keep the raw trace and record
+   the analyzer model and sample rate.
 
 The marker measures the bounded initial capture only. Report its overhead
 separately from the matched run with the ordinary qualification profiles.

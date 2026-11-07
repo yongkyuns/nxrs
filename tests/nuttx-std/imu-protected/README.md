@@ -50,26 +50,33 @@ the [S8 physical matrix](../../../docs/peripheral-composition-plan.md#s8--qualif
 
 ## Rust runtime witness
 
-Build the same qualification application for flat and protected CoreS3. It
-starts eight acquisition workers in succession, cancels each through a bounded
-notification, joins it, and checks its Rust thread-local destructor ran once.
-Both profiles directly start one application. The protected build uses
-group-local pthread keys. The fixture exercises worker lifecycle without a sensor.
+Use the same 4 MiB ESP32-S3 DevKitC-1 as the physical matrix. The qualification
+application starts eight acquisition workers in succession, cancels each through
+a bounded notification, joins it, and checks its Rust thread-local destructor
+ran once. Both profiles directly start one application. The protected build
+uses group-local pthread keys. The fixture exercises worker lifecycle without a
+sensor.
 
 ```sh
 cargo +1.90.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml \
-  --profile cores3-imu-qualification --out target/s8-runtime-flat
+  --profile esp32s3-devkit-imu-qualification --out target/s8-runtime-flat
 cargo +1.90.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml \
-  --profile cores3-protected-qualification --out target/s8-runtime-protected
+  --profile esp32s3-devkit-imu-protected-qualification --out target/s8-runtime-protected
 ```
 
-The protected output records the kernel and userspace flash offsets, sizes and
-hashes in `protected-images.json`. The pair requires a matching legacy ESP32-S3
-bootloader and partition table. Use the effective configuration to verify that
-layout and both image hashes before loading an authorized board. Use the CoreS3
-console selected by `resolved.config`.
+On the DevKit, the flat simple-boot image starts at `0x0`. The protected C
+and Rust images use the legacy layout with a matching ESP32-S3 bootloader at
+`0x0`, partition table at `0x8000`, kernel at `0x10000`, and userspace at
+`0x90000`. Check the offsets and partition capacity against the effective
+configuration and verify the hashes in `protected-images.json` for Rust or
+`images.sha256` for C before loading. Use the console selected by
+`resolved.config`.
+
+For a CoreS3 runtime comparison, use `cores3-imu-qualification` and
+`cores3-protected-qualification`. Check that board's own flash configuration
+and console settings.
 
 For each mode, require exactly one `S8_PROTECTED_RUST_PASS cycles=8 tls_destructors=8`
 within 60 seconds of boot. A failure marker, panic, reboot before the pass, or
