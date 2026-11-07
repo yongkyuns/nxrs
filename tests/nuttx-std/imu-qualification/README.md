@@ -132,11 +132,13 @@ scheduled interval. The heap values cover the allocator arena visible through
 
 Use `esp32s3-devkit-imu-sensor-reference` or
 `esp32s3-devkit-imu-protected-sensor-reference` with `--features probe`. These
-profiles pass `--sensor-reference` to the fixture. Apply the chosen sensor
-overlay and leave its wake mode fixed across the flat and protected pair.
-Connect INT2, SCL, and SDA to voltage-compatible logic analyzer inputs with
-common ground. Keep INT1 wired to GPIO16 for the wired BMI270 test and include
-it in the capture for the electrical wake measurement.
+profiles enable the sensor's output-ready signal and a delivery marker on the
+DevKit's stock GPIO15 output (`/dev/gpio0`). Apply the chosen sensor overlay and
+leave its wake mode fixed across the flat and protected pair. Connect INT2, SCL,
+SDA, and GPIO15 to voltage-compatible logic analyzer inputs with common ground.
+Keep INT1 wired to GPIO16 for the wired BMI270 test and include it in the
+capture for the electrical wake measurement. Start capture before sensor
+initialization so the first FIFO state and marker edge are visible.
 
 - BMI270 INT2 carries the shared data-ready signal. Establish the relationship
   between pulses and paired FIFO frames on the actual breakout before counting
@@ -147,13 +149,36 @@ it in the capture for the electrical wake measurement.
   their FIFO slot. Verify the relationship between reference edges and the
   resulting pairs before counting complete samples. [ST LSM6DSO datasheet](https://www.st.com/resource/en/datasheet/lsm6dso.pdf)
 
-Record FIFO occupancy at the capture boundaries and the exact target address.
-Pair output-ready edges with acknowledged FIFO reads on the analyzer clock.
-Exclude startup, partial frames, and boundary samples with unresolved backlog.
-An overflow or an ambiguous edge-to-frame mapping leaves sample age
-unqualified. Report observed source edges, complete FIFO frames, and software
-queue losses separately. Joining analyzer and NuttX timestamps requires a
-shared marker or a verified clock mapping.
+1. Record the exact target address and FIFO occupancy from the bus trace. For
+   BMI270, read the observed length from register `0x24`. For LSM6DSO, use the
+   status read at `0x3a`. Pair each source edge or validated group of edges
+   with a completed FIFO sample. Exclude startup, partial frames, and boundary
+   samples with unresolved backlog.
+2. Capture all 32 GPIO15 transitions. The fixture starts low and alternates
+   high and low once per sample at the HAL sink, before queue admission. The
+   first rising edge is sequence 1. A complete capture ends low at sequence 32.
+   Confirm that each transition follows the corresponding completed FIFO read.
+   In a BMI270 burst, map transitions to the 12-byte frames in read order.
+3. Keep the post-join `delivery_marker_schema: 1` JSON object with the normal
+   fixture pass summary. Require `status: pass` and `count: 32` in the marker
+   report. Its `bracket_ns` array is ordered by sample sequence.
+   Incomplete or nonconsecutive marker sequences, GPIO failures, FIFO faults,
+   software queue drops, and ambiguous analyzer matches invalidate the run.
+   Count source edges, complete FIFO samples, and delivered samples separately.
+   Keep unresolved boundary samples separate from measured loss.
+4. Measure output-ready edge to GPIO15 edge on the analyzer clock. If that
+   interval is `d`, the age at the fixture's sample observation is bounded by
+   `max(0, d - b - a)` through `d + a`. Here `a` is the analyzer's interval
+   uncertainty, including both edges' quantization, channel skew, and timebase
+   accuracy. Use the sequence's `bracket_ns` plus `clock_resolution_ns` for
+   `b` after qualifying the target clock for elapsed-time bounds. Until then
+   retain the electrical interval as the conservative upper bound and report
+   the software bracket separately. Sensor conversion and filter delay precede
+   the output-ready reference. Keep the raw trace and record the analyzer
+   model and sample rate.
+
+The marker measures the bounded initial capture only. Report its overhead
+separately from the matched run with the ordinary qualification profiles.
 
 ## Evidence to collect for S8
 

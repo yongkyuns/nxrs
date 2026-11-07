@@ -3,4 +3,4 @@ extends = "esp32s3-devkit-imu-protected-qualification"
 
 [init]
 stack-bytes = 16384
-args = ["--sensor-reference"]
+args = ["--sensor-reference", "--delivery-marker"]

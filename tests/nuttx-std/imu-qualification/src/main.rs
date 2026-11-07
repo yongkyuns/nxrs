@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(all(feature = "probe", any(target_os = "nuttx", test)))]
+mod delivery_marker;
 #[cfg(all(feature = "probe", target_os = "nuttx"))]
 mod notes;
 #[cfg(any(
@@ -89,16 +91,17 @@ fn report(
 
 fn main() -> ExitCode {
     let mut sensor_reference = false;
+    let mut delivery_marker = false;
     let mut invalid_arguments = false;
     for arg in std::env::args().skip(1) {
-        if arg == "--sensor-reference" && !sensor_reference {
-            sensor_reference = true;
-        } else {
-            invalid_arguments = true;
+        match arg.as_str() {
+            "--sensor-reference" if !sensor_reference => sensor_reference = true,
+            "--delivery-marker" if !delivery_marker => delivery_marker = true,
+            _ => invalid_arguments = true,
         }
     }
-    if invalid_arguments {
-        eprintln!("unsupported argument");
+    if invalid_arguments || (delivery_marker && !sensor_reference) {
+        eprintln!("unsupported arguments. --delivery-marker requires --sensor-reference");
         return report(
             "invalid_arguments",
             0,
@@ -120,6 +123,37 @@ fn main() -> ExitCode {
             None,
         );
     }
+    #[cfg(not(all(feature = "probe", target_os = "nuttx")))]
+    if delivery_marker {
+        eprintln!("--delivery-marker requires the NuttX probe");
+        return report(
+            "delivery_marker_unavailable",
+            0,
+            Duration::ZERO,
+            Observations::default(),
+            0,
+            None,
+        );
+    }
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let (mut marker, marker_report) = match delivery_marker
+        .then(delivery_marker::DeliveryMarker::open)
+        .transpose()
+    {
+        Ok(Some((marker, inbox))) => (Some(marker), Some(inbox)),
+        Ok(None) => (None, None),
+        Err(error) => {
+            eprintln!("delivery marker setup failed ({error})");
+            return report(
+                "delivery_marker_setup_failed",
+                0,
+                Duration::ZERO,
+                Observations::default(),
+                0,
+                None,
+            );
+        }
+    };
     #[cfg(all(feature = "probe", target_os = "nuttx"))]
     let mut notes = match notes::Notes::open() {
         Ok(notes) => notes,
@@ -155,7 +189,10 @@ fn main() -> ExitCode {
     let sink_resources = resources.clone();
     let sink = move |event| {
         #[cfg(all(feature = "probe", target_os = "nuttx"))]
-        if matches!(&event, Event::Sample(_)) {
+        if let Event::Sample(sample) = &event {
+            if let Some(marker) = marker.as_mut() {
+                marker.record(sample.sequence);
+            }
             if let Some(resources) = &sink_resources {
                 resources.observe_worker(worker::current_tid);
             }
@@ -250,6 +287,23 @@ fn main() -> ExitCode {
     let stopped = device.request_stop();
     let joined = device.join();
     let fault = joined.err().or(stopped.err()).or(fault);
+    #[cfg(all(feature = "probe", target_os = "nuttx"))]
+    let reason = if let Some(inbox) = marker_report {
+        let valid = match inbox.try_recv() {
+            Ok(capture) => capture.print(),
+            Err(error) => {
+                eprintln!("delivery marker report missing ({error})");
+                false
+            }
+        };
+        if !valid && reason == "duration_complete" {
+            "invalid_delivery_marker"
+        } else {
+            reason
+        }
+    } else {
+        reason
+    };
     #[cfg(all(feature = "probe", target_os = "nuttx"))]
     let reason = match notes.map(notes::Notes::finish).transpose() {
         Ok(Some(false)) if reason == "duration_complete" => "invalid_scheduler_trace",

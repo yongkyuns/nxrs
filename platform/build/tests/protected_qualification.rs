@@ -150,7 +150,7 @@ fn devkit_uses_the_same_bus_in_both_modes_and_supports_periodic_controls() {
 }
 
 #[test]
-fn sensor_reference_is_an_explicit_init_argument_in_both_modes() {
+fn sensor_reference_and_delivery_marker_are_explicit_in_both_modes() {
     let repo = Repo::new();
     let app = repo.app("tests/nuttx-std/imu-qualification/Cargo.toml");
     for (base, reference, mode) in [
@@ -170,7 +170,7 @@ fn sensor_reference_is_an_explicit_init_argument_in_both_modes() {
         assert!(base.data["init"]["args"].is_null());
         assert_eq!(
             reference.data["init"]["args"],
-            json!(["--sensor-reference"])
+            json!(["--sensor-reference", "--delivery-marker"])
         );
         assert_eq!(base.data["kconfig"], reference.data["kconfig"]);
         assert_eq!(
