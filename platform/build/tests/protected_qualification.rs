@@ -72,6 +72,78 @@ fn qualification_profiles_keep_the_same_sensor_bindings_and_select_mode() {
 }
 
 #[test]
+fn shared_runtime_access_requires_qualification_without_exposing_provider_internals() {
+    let repo = Repo::new();
+    let fixture = TempDir::new(&env::temp_dir()).unwrap();
+    let app = fixture.0.join("Cargo.toml");
+    for (qualification_only, profile, dependency, features, expected_error) in [
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/acquisition",
+            "",
+            None,
+        ),
+        (
+            false,
+            "cores3-imu-qualification",
+            "hal/acquisition",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "m5stack-cores3-gnss",
+            "hal/acquisition",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/acquisition/src/platform/nuttx",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/imu/src/platform/nuttx",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/acquisition",
+            "'nuttx'",
+            Some("provider feature"),
+        ),
+    ] {
+        fs::write(
+            &app,
+            format!(
+                "[package]\nname = 'runtime-fixture'\nversion = '0.1.0'\n\
+             [package.metadata.nxrs]\nqualification-only = {qualification_only}\n\
+             [dependencies.renamed]\npath = {:?}\nfeatures = [{features}]\n",
+                repo.root.join(dependency).to_str().unwrap(),
+            ),
+        )
+        .unwrap();
+        let result = repo.validate(&app, &repo.profile(profile));
+        match expected_error {
+            Some(expected) => {
+                let error = result.unwrap_err();
+                assert!(error.contains(expected), "{dependency}: {error}");
+            }
+            None => {
+                result.unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn protected_runtime_requires_unsigned_direct_init_qualification() {
     let repo = Repo::new();
     let app = repo.app("tests/nuttx-std/imu-protected/runtime/Cargo.toml");

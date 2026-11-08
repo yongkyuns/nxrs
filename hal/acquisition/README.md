@@ -5,6 +5,10 @@ a profile-selectable capability. IMU and GNSS reuse its worker, bounded delivery
 cancellation and readiness mechanisms. Sensor protocols, cadence, resource
 budgets, error policy and device cleanup remain in its callers.
 
+Firmware qualification witnesses may depend on this helper directly when both
+the application and profile explicitly select qualification. Ordinary applications
+use the owning HAL APIs; qualification does not expose private provider modules.
+
 Each explicit `Worker::start` creates one thread. This package shares code, not
 an executor; it adds no queue of its own. Drivers do not acquire a worker merely
 by implementing a device contract. A future shared executor must qualify bounded
