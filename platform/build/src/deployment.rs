@@ -133,7 +133,7 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         }
         d
     });
-    let mut evidence = json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":null,"dependency_resolution":{"status":"pending","reason":"requires the build's Cargo features, target and compiler"},"providers":providers,"profiles":sources});
+    let mut evidence = json!({"app_manifest":path,"app_package":app["package"]["name"],"platform":profile.name(),"target_os":os,"detector":detector,"model_features":null,"implementation_features":null,"dependency_resolution":{"status":"pending","reason":"requires the build's Cargo features, target and compiler"},"providers":providers,"profiles":sources});
     if os == "nuttx" {
         evidence["nuttx-build-mode"] = json!(if protected { "protected" } else { "flat" });
     }

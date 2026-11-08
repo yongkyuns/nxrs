@@ -128,6 +128,22 @@ impl Composition {
     pub fn simulation(&self) -> Option<&SimulationSpec> {
         self.simulation.as_ref()
     }
+
+    /// All validated physical instances, independently of their role aliases.
+    pub(crate) fn device_bindings(&self) -> impl Iterator<Item = (&str, &str, &str)> {
+        self.devices.iter().map(|(id, device)| {
+            let bus = self
+                .resources
+                .get(&device.bus)
+                .expect("validated device references a declared resource");
+            let kind = match bus {
+                Resource::I2c { .. } => "i2c",
+                Resource::Uart { .. } => "uart",
+                Resource::GpioInterrupt { .. } => "gpio-interrupt",
+            };
+            (id.as_str(), device.compatible.as_str(), kind)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -195,6 +211,9 @@ struct CatalogBinding {
     addresses: Vec<u8>,
     frequencies: Vec<u32>,
     interrupt: bool,
+    // Shared catalog validation/feature selection owns this declaration.
+    #[serde(default, rename = "cargo_features")]
+    _cargo_features: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,6 +228,8 @@ struct GnssCatalogBinding {
     bus: String,
     model: GnssModel,
     bauds: Vec<u32>,
+    #[serde(default, rename = "cargo_features")]
+    _cargo_features: Vec<String>,
 }
 
 /// Resolve the IMU part of a profile. `imu_provider` is its selected HAL
