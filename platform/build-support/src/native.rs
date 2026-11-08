@@ -895,6 +895,15 @@ mod tests {
         }
         let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
         let cap = temp.0.join("renamed-package-1.2.3");
+        #[cfg(unix)]
+        let cap = {
+            // Exercise differing lexical/canonical paths on Linux too. macOS
+            // temporary directories already commonly traverse /var -> /private/var.
+            fs::create_dir(&cap).unwrap();
+            let alias = temp.0.join("symlinked-package");
+            std::os::unix::fs::symlink(&cap, &alias).unwrap();
+            alias
+        };
         let ffi = cap.join("src/platform").join(env::consts::OS).join("ffi");
         fs::create_dir_all(ffi.join("sub")).unwrap();
         fs::write(cap.join("Cargo.toml"), "[package]\nname=\"nxrs-wifi\"\n").unwrap();
@@ -905,7 +914,11 @@ mod tests {
             )
             .unwrap();
         }
-        fs::write(ffi.join("sub/abi.h"), "/* ABI */\n").unwrap();
+        let header = ffi.join("sub/abi.h");
+        fs::write(&header, "/* ABI */\n").unwrap();
+        let canonical_header = header.canonicalize().unwrap();
+        #[cfg(unix)]
+        assert_ne!(header, canonical_header);
         let out = temp.0.join("out");
         let rustc = crate::output(Command::new("rustc").arg("-vV")).unwrap();
         let target = rustc
@@ -915,7 +928,7 @@ mod tests {
         let directives = build(&cap, env::consts::OS, target, &out).unwrap();
         assert!(directives.contains(&format!(
             "cargo:rerun-if-changed={}",
-            ffi.join("sub/abi.h").display()
+            canonical_header.display()
         )));
         let archive = out.join("libwifi_native.a");
         assert_eq!(
