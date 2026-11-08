@@ -315,44 +315,34 @@ impl Profile {
         Ok(resolved)
     }
 
-    pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
-        self.sources
-            .iter()
-            .chain(
-                self.inputs
-                    .iter()
-                    .filter(|input| input.kind != InputKind::Profile)
-                    .map(|input| &input.path),
-            )
-            .chain(self.catalogs.source_paths())
-    }
-
-    pub fn source_hashes(&self) -> Result<Vec<Value>> {
-        let mut inputs = if self.inputs.is_empty() {
-            self.sources
-                .iter()
-                .map(|path| Ok(json!({"path": path, "sha256": crate::hash(path)?})))
-                .collect::<Result<Vec<_>>>()?
-        } else {
+    fn profile_source_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.sources.iter().chain(
             self.inputs
                 .iter()
-                .map(|input| json!({"path": input.path, "sha256": input.sha256}))
-                .collect()
-        };
-        let mut seen: BTreeSet<PathBuf> = self
-            .sources
-            .iter()
-            .cloned()
-            .chain(self.inputs.iter().map(|input| input.path.clone()))
-            .collect();
-        for (_, package) in self.catalogs.packages() {
-            for input in package.inputs() {
-                if seen.insert(input.path.clone()) {
-                    inputs.push(json!({"path": input.path, "sha256": input.sha256}));
-                }
-            }
+                .filter(|input| input.kind != InputKind::Profile)
+                .map(|input| &input.path),
+        )
+    }
+
+    /// All filesystem inputs for Cargo reruns, receipts, and build identity.
+    pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.profile_source_paths().chain(self.catalogs.source_paths())
+    }
+
+    /// Ordered profile and overlay provenance for deployment reports.
+    pub fn source_hashes(&self) -> Result<Vec<Value>> {
+        if self.inputs.is_empty() {
+            return self
+                .sources
+                .iter()
+                .map(|path| Ok(json!({"path": path, "sha256": crate::hash(path)?})))
+                .collect();
         }
-        Ok(inputs)
+        Ok(self
+            .inputs
+            .iter()
+            .map(|input| json!({"path": input.path, "sha256": input.sha256}))
+            .collect())
     }
 
     pub fn input_fingerprint(&self) -> Option<String> {
@@ -390,7 +380,7 @@ impl Profile {
         let fields = value.as_object_mut().ok_or("profile must be a table")?;
         fields.insert(
             "sources".into(),
-            json!(self.source_paths().collect::<Vec<_>>()),
+            json!(self.profile_source_paths().collect::<Vec<_>>()),
         );
         fields.remove("resolved-composition");
         if let Some(graph) = self.composition()? {
@@ -423,7 +413,7 @@ impl Profile {
             .collect::<std::collections::BTreeMap<_, _>>();
         json!({
             "graph": graph,
-            "sources": self.source_paths().collect::<Vec<_>>(),
+            "sources": self.profile_source_paths().collect::<Vec<_>>(),
             "binding-sources": binding_sources,
             "binding-inputs": self.catalogs.report(),
             "source-hashes": self.inputs,
@@ -901,12 +891,25 @@ mod tests {
         fs::create_dir_all(temp.0.join("hal/gnss")).unwrap();
         fs::write(temp.0.join("hal/gnss/Cargo.toml"), "invalid").unwrap();
 
-        let mut profile = Profile::from_data(json!({"hal":{"imu":"none"}}), Vec::new());
+        let profile_path = temp.0.join("profile.toml");
+        let profile_contents = "[hal]\nimu='none'\n";
+        fs::write(&profile_path, profile_contents).unwrap();
+        let mut profile =
+            Profile::from_data(json!({"hal":{"imu":"none"}}), vec![profile_path.clone()]);
         assert!(profile.catalogs().package("imu").is_none());
         profile.load_catalogs(&temp.0).unwrap();
         assert_eq!(profile.catalogs().source_paths().count(), 3);
         assert!(profile.catalogs().package("gnss").is_none());
+        assert_eq!(profile.source_paths().count(), 4);
         assert!(profile.source_paths().any(|path| path.ends_with("bindings/nuttx.toml")));
+        assert_eq!(profile.json().unwrap()["sources"], json!([profile_path]));
+        assert_eq!(
+            profile.source_hashes().unwrap(),
+            vec![json!({
+                "path": profile_path,
+                "sha256": hash_bytes(profile_contents.as_bytes()),
+            })]
+        );
         let initial = profile.input_fingerprint().unwrap();
 
         fs::write(directory.join("bindings/nuttx.toml"), format!("{schema}# schema edit\n")).unwrap();
@@ -921,10 +924,12 @@ mod tests {
         fs::write(directory.join("bindings/i2c.toml"), format!("{catalog}# catalog edit\n")).unwrap();
         changed.load_catalogs(&temp.0).unwrap();
         assert_ne!(changed.input_fingerprint().unwrap(), schema_fingerprint);
-        let hashes = changed.source_hashes().unwrap();
-        assert!(hashes.iter().any(|input| {
-            input["sha256"] == hash_bytes(format!("{catalog}# catalog edit\n").as_bytes())
-        }));
+        assert_eq!(
+            changed.catalogs().report()["imu"]["bindings"][0]["sha256"],
+            hash_bytes(format!("{catalog}# catalog edit\n").as_bytes())
+        );
+        assert_eq!(changed.source_hashes().unwrap(), profile.source_hashes().unwrap());
+        assert_eq!(changed.json().unwrap()["sources"], json!([profile_path]));
 
         changed.data["hal"]["gnss"] = json!("none");
         assert!(changed.load_catalogs(&temp.0).is_err());
