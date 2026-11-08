@@ -1437,7 +1437,14 @@ fn clear_success_evidence(out: &Path) -> Result<()> {
 }
 
 fn reset_output(out: &Path) -> Result<()> {
-    for name in ["nuttx", "apps", "cargo", "toolchain", ".nxrs-link-cache"] {
+    for name in [
+        "nuttx",
+        "apps",
+        "cargo",
+        "prepared",
+        "toolchain",
+        ".nxrs-link-cache",
+    ] {
         crate::remove_dir(&out.join(name))?;
     }
     for entry in fs::read_dir(out).map_err(|e| e.to_string())? {
@@ -1763,33 +1770,50 @@ mod rebuild_tests {
     }
 
     #[test]
-    fn failed_rebuild_cannot_reuse_success_evidence() {
-        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
-        for name in [
-            ".nxrs-build.json",
-            "binaries.sha256",
-            "provenance.txt",
-            "std-source.json",
-            "provider-selection.json",
-            "resolved.config",
-            "operator-key.pem",
-        ] {
-            fs::write(temp.0.join(name), "old").unwrap();
+    fn clean_or_incompatible_rebuild_discards_compilation_and_success_evidence() {
+        for clean in [false, true] {
+            let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+            for name in [
+                ".nxrs-build.json",
+                "binaries.sha256",
+                "provenance.txt",
+                "std-source.json",
+                "provider-selection.json",
+                "resolved.config",
+                "operator-key.pem",
+            ] {
+                fs::write(temp.0.join(name), "old").unwrap();
+            }
+            fs::create_dir(temp.0.join("nuttx")).unwrap();
+            fs::create_dir_all(temp.0.join("prepared/packages/fixture")).unwrap();
+            fs::write(
+                temp.0.join("prepared/packages/fixture/libhelper_native.a"),
+                "prepared native archive",
+            )
+            .unwrap();
+            let previous = json!({"sdk":"previous"});
+            reuse::complete(&temp.0, &previous, &["nuttx"]).unwrap();
+            let inputs = if clean {
+                previous
+            } else {
+                json!({"sdk":"changed"})
+            };
+            assert!(!reuse::begin(&temp.0, &inputs, &["nuttx"], clean).unwrap());
+            reset_output(&temp.0).unwrap();
+            for name in [
+                "binaries.sha256",
+                "provenance.txt",
+                "std-source.json",
+                "provider-selection.json",
+                "resolved.config",
+                "nuttx",
+                "prepared",
+            ] {
+                assert!(!temp.0.join(name).exists(), "{name}, clean={clean}");
+            }
+            assert!(temp.0.join(".nxrs-build.json").is_file());
+            assert!(temp.0.join("operator-key.pem").is_file());
         }
-        fs::create_dir(temp.0.join("nuttx")).unwrap();
-        reset_output(&temp.0).unwrap();
-        for name in [
-            "binaries.sha256",
-            "provenance.txt",
-            "std-source.json",
-            "provider-selection.json",
-            "resolved.config",
-            "nuttx",
-        ] {
-            assert!(!temp.0.join(name).exists());
-        }
-        assert!(temp.0.join(".nxrs-build.json").is_file());
-        assert!(temp.0.join("operator-key.pem").is_file());
     }
 
     #[test]
@@ -1798,6 +1822,10 @@ mod rebuild_tests {
         let out = &temp.0;
         fs::create_dir(out.join("nuttx")).unwrap();
         fs::write(out.join("nuttx/retained.o"), "native object").unwrap();
+        fs::create_dir_all(out.join("prepared/packages/fixture")).unwrap();
+        let prepared = out.join("prepared/packages/fixture/libhelper_native.a");
+        fs::write(&prepared, "prepared native archive").unwrap();
+        let prepared_time = prepared.metadata().unwrap().modified().unwrap();
         fs::write(out.join("std-patch.json"), "SDK input receipt").unwrap();
         fs::write(out.join("abi-report.json"), "old success").unwrap();
         fs::write(out.join("binaries.sha256"), "old image digest").unwrap();
@@ -1805,8 +1833,16 @@ mod rebuild_tests {
         fs::write(&elf, "same Rust artifact").unwrap();
         fs::write(out.join("rust-link.json"), "link invocation").unwrap();
         save_link_evidence(out, &elf).unwrap();
+        let inputs = json!({"sdk":"same"});
+        reuse::complete(out, &inputs, &["nuttx"]).unwrap();
+        assert!(reuse::begin(out, &inputs, &["nuttx"], false).unwrap());
         clear_success_evidence(out).unwrap();
         assert!(out.join("nuttx/retained.o").is_file());
+        assert_eq!(fs::read(&prepared).unwrap(), b"prepared native archive");
+        assert_eq!(
+            prepared.metadata().unwrap().modified().unwrap(),
+            prepared_time
+        );
         assert!(out.join("std-patch.json").is_file());
         assert!(!out.join("abi-report.json").exists());
         assert!(!out.join("binaries.sha256").exists());

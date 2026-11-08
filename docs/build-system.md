@@ -219,10 +219,21 @@ model is not forwarded through services or selected in an app manifest. An
 external transitive-only detector cannot be given a feature by Cargo and fails
 with a direct-dependency diagnostic.
 
+Package-owned bindings may also request additive implementation features. The
+controller unions those requests for physical devices, then applies them only to
+HAL packages already consumed in the target production graph. A model-free
+direct HAL dependency can provide the composition edge while application source
+uses only a service. Cargo verifies the combined requests and exact package
+identities before target compilation. See the
+[declarative build contract](static-device-composition.md) for aliases, defaults,
+unconsumed devices and the current path-backed package-source boundary.
+
 Dry runs reject backend-incompatible switches before any build starts. Their
-`dependency_resolution` is explicitly `pending` and `model_features` is null;
+`dependency_resolution` is explicitly `pending`; `model_features`,
+`implementation_features` and `preparation` are null;
 resolving a NuttX custom target waits for its actual compiler and target spec.
-Completed builds record the Cargo-selected packages and verified model features.
+Completed builds record the Cargo-selected packages, verified feature additions
+and preparation receipt/hash.
 Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 
 Currently, IMU's BMI270/LSM6DSO dependencies and GNSS's UBX dependencies are normal
@@ -248,7 +259,17 @@ compiler, and the build controller. Cargo and Make still run on every invocation
 they decide which compilation units are fresh. Generated files retain their
 modification time when their content is unchanged.
 
-Use `--clean` to discard owned compilation state and build again. Incompatible
+Generic HAL preparation is also cached outside source under `prepared/`. Its
+immutable package artifacts include generated Rust and required native archives,
+with profile/package/feature/generator and native-input identities. The controller
+validates that identity before reuse. Immutable profile receipts under `profiles/`
+retain each explicit selection; `resolved-profile.json` remains the latest
+inspection copy. Cargo adapters verify artifacts and delivered copies before
+supplying package-scoped configuration and link directives. The prepared input
+timestamps are preserved in `OUT_DIR`, so an immediate repeat is fresh.
+
+Use `--clean` to discard owned compilation state, including prepared native
+archives and generated package artifacts, and build again. Incompatible
 configuration or SDK inputs also invalidate the retained configuration. A build
 removes its completed-cache marker before work starts and writes it only after
 all required checks succeed, so an interrupted build cannot qualify the next
@@ -276,8 +297,10 @@ separate qualification gates.
 The NuttX controller configures Make and generates target headers before invoking
 Cargo. A target in the ordinary application Makefile exports its selected C
 compiler, archiver and flags into `native-context.json`, including the target and
-configured-header digest. Each consumed HAL's local build script then compiles
-only that package's private ABI sources into its own archive. The native build
+configured-header digest. After Cargo resolves the consumed packages and their
+features, the controller compiles each required private ABI helper into its
+package's prepared archive. Generic HAL adapters validate and emit those saved
+link directives. The native build
 continues to own OS drivers, registration and final image startup.
 
 Helpers for optional functionality follow the owning package's Cargo feature
@@ -287,6 +310,18 @@ capability. Header, source and native-context changes are Cargo build inputs.
 Profile-wide helper enumeration has been removed. Explicit `--target-c-source`
 inputs are reserved for qualification/application integration code, not production
 HAL helpers. Link maps and symbol checks still establish what the image retains.
+
+The prepared adapter is selected explicitly by `NXRS_PREPARED_BUILD` together with
+its `NXRS_RESOLVED_PROFILE`; detached consumers also retain their `NXRS_SDK_ROOT`.
+Plain Cargo build/check/test/doc can consume that selection with matching target
+features and inputs. A mismatch fails instead of selecting a previous artifact or
+falling back to compilation in the adapter. Native overrides belong in the
+invoking/controller environment; differing Cargo-only `[env]` values are rejected.
+During D1c, profile-aware plain Cargo without a preparation receipt still uses the
+shared compatibility preparation path. Detector/TLS custom SDK preparation and
+the shared Linux GIO package remain separate existing paths. See the
+[entry-point contract](static-device-composition.md#entry-point-contract-during-d1c)
+before removing any remaining package adapter.
 
 ## External applications and package boundaries
 

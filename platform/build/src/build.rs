@@ -427,6 +427,7 @@ pub fn host(
     let out = prepare_output(root, out)?;
     if options.clean {
         crate::remove_dir(&out.join("cargo"))?;
+        crate::remove_dir(&out.join("prepared"))?;
     }
     crate::remove_file(&out.join("provider-selection.json"))?;
     let mut command = Command::new("cargo");

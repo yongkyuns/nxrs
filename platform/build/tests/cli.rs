@@ -881,26 +881,23 @@ fn main() {}
 "#,
     )
     .unwrap();
-    success(frontend(
-        &root.0,
-        &outside.0,
-        &[
-            "build",
-            "--manifest-path",
-            "app/probe/Cargo.toml",
-            "--profile",
-            "host",
-            "--features",
-            "first, second",
-            "--features",
-            "third",
-            "--feature",
-            "fourth",
-            "--no-default-features",
-            "--out",
-            "artifacts",
-        ],
-    ));
+    let mut arguments = vec![
+        "build",
+        "--manifest-path",
+        "app/probe/Cargo.toml",
+        "--profile",
+        "host",
+        "--features",
+        "first, second",
+        "--features",
+        "third",
+        "--feature",
+        "fourth",
+        "--no-default-features",
+        "--out",
+        "artifacts",
+    ];
+    success(frontend(&root.0, &outside.0, &arguments));
     assert!(root
         .0
         .join("artifacts/cargo/release")
@@ -928,5 +925,32 @@ fn main() {}
         selected_profile,
         root.0.join("artifacts/resolved-profile.json")
     );
+    // Completed native preparation is compilation state too. A normal build
+    // retains it; --clean discards it before preparing and compiling again.
+    let cached_archive = root
+        .0
+        .join("artifacts/prepared/packages/fixture/libhelper_native.a");
+    fs::create_dir_all(cached_archive.parent().unwrap()).unwrap();
+    fs::write(&cached_archive, "prepared native archive").unwrap();
+    let cached_time = cached_archive.metadata().unwrap().modified().unwrap();
+    let cargo_marker = root.0.join("artifacts/cargo/retained-object");
+    fs::write(&cargo_marker, "Cargo compilation state").unwrap();
+    success(frontend(&root.0, &outside.0, &arguments));
+    assert_eq!(
+        fs::read(&cached_archive).unwrap(),
+        b"prepared native archive"
+    );
+    assert_eq!(
+        cached_archive.metadata().unwrap().modified().unwrap(),
+        cached_time
+    );
+    assert!(cargo_marker.is_file());
+
+    arguments.push("--clean");
+    success(frontend(&root.0, &outside.0, &arguments));
+    assert!(!cached_archive.exists());
+    assert!(!cargo_marker.exists());
+    assert!(Path::new(evidence["preparation"]["receipt"].as_str().unwrap()).is_file());
+    assert!(selected_profile.is_file());
     assert!(!outside.0.join("artifacts").exists());
 }
