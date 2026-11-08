@@ -34,11 +34,17 @@ wrapper objects. Drivers own supported rates and exact physical-range conversion
 The HAL asks the selected driver to resolve a request into concrete configuration
 and accepted settings before reserving resources.
 The product profile supplies the device, bus/address, optional IRQ and worker
-budget. [bindings.toml](bindings.toml) declares supported sensor combinations and
-their checked-in Rust implementation IDs. Shared build support generates typed
+budget. [BMI270](../../driver/bmi270/bindings.toml) and
+[LSM6DSO](../../driver/lsm6dso/bindings.toml) declare supported resource combinations
+and checked-in implementation IDs in their driver packages. This HAL's Cargo
+metadata imports those declarations through its existing driver dependencies.
+Shared build support generates typed
 resource values and one implementation import; there is no model enum or Rust
 field-projection schema. The generic build adapter retains provider selection,
-freshness and native linking.
+freshness and native linking. The selected factory constructs the concrete sensor;
+shared acquisition accepts that instance using only `peripheral::imu::Imu`.
+Chip qualification controls run in the factory before publication and retain
+normal joined cleanup on failure.
 
 The shared [NuttX I²C adapter](../../driver/i2c/README.md) owns the controller descriptor
 and implements `embedded_hal::i2c::I2c`. This HAL only wraps transactions for its

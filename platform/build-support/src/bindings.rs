@@ -23,11 +23,16 @@ pub struct Package {
     pub name: String,
     pub manifest: Input,
     pub catalogs: Vec<Input>,
+    pub dependencies: Vec<Input>,
 }
 
 impl Package {
     /// Read only paths declared by this package, relative to its manifest.
     pub fn load(manifest_dir: &Path) -> Result<Self> {
+        Self::load_with_dependencies(manifest_dir, &mut Vec::new())
+    }
+
+    fn load_with_dependencies(manifest_dir: &Path, stack: &mut Vec<PathBuf>) -> Result<Self> {
         let root = manifest_dir
             .canonicalize()
             .map_err(|error| format!("package {}: {error}", manifest_dir.display()))?;
@@ -37,6 +42,13 @@ impl Package {
         {
             return Err(format!("invalid package directory {}", root.display()));
         }
+        if stack.len() >= 64 || stack.contains(&root) {
+            return Err(format!(
+                "binding dependency cycle or depth limit: {}",
+                root.display()
+            ));
+        }
+        stack.push(root.clone());
         let manifest = input(&root, "Cargo.toml")?;
         let data = parse(&manifest)?;
         let name = data
@@ -46,6 +58,7 @@ impl Package {
             .ok_or_else(|| format!("{}: package.name must be a string", manifest.path.display()))?
             .to_owned();
         let mut catalogs = Vec::new();
+        let mut dependencies = Vec::new();
         if let Some(metadata) = data.pointer("/package/metadata/nxrs") {
             let metadata = metadata.as_object().ok_or_else(|| {
                 format!(
@@ -65,30 +78,87 @@ impl Package {
                     })?;
                 let mut seen = BTreeSet::new();
                 for path in paths {
-                    let path = path.as_str().ok_or("nxrs.bindings entries must be paths")?;
-                    let source = input(&root, path)?;
-                    if !seen.insert(source.path.clone()) {
-                        return Err(format!("duplicate binding catalog path: {path}"));
+                    let sources = if let Some(path) = path.as_str() {
+                        let source = input(&root, path)?;
+                        catalog(&source)?;
+                        vec![source]
+                    } else {
+                        let entry = path
+                            .as_object()
+                            .filter(|v| v.len() == 1)
+                            .ok_or("nxrs.bindings entries must be paths or dependency imports")?;
+                        let alias = entry
+                            .get("dependency")
+                            .and_then(Value::as_str)
+                            .ok_or("binding import requires a dependency alias")?;
+                        let (directory, expected_name) = dependency(&root, &data, alias)?;
+                        let imported = Self::load_with_dependencies(&directory, stack)?;
+                        if imported.name != expected_name || imported.catalogs.is_empty() {
+                            return Err(format!("binding dependency {alias} must name {expected_name} with declared catalogs"));
+                        }
+                        dependencies.push(imported.manifest);
+                        dependencies.extend(imported.dependencies);
+                        imported.catalogs
+                    };
+                    for source in sources {
+                        if !seen.insert(source.path.clone()) {
+                            return Err(format!(
+                                "duplicate binding catalog path: {}",
+                                source.path.display()
+                            ));
+                        }
+                        catalogs.push(source);
                     }
-                    catalog(&source)?;
-                    catalogs.push(source);
                 }
             }
             if metadata.contains_key("configuration") {
                 return Err("retired nxrs.configuration schema; declare version 2 bindings with implementation identifiers".into());
             }
         }
+        stack.pop();
         Ok(Self {
             name,
             manifest,
             catalogs,
+            dependencies,
         })
     }
 
     /// All bytes that determine a package's declarations, including its metadata.
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
-        std::iter::once(&self.manifest).chain(self.catalogs.iter())
+        std::iter::once(&self.manifest)
+            .chain(self.dependencies.iter())
+            .chain(self.catalogs.iter())
     }
+}
+
+/// Imports name existing normal Cargo path dependencies, including target tables.
+/// They do not select features or introduce another package-resolution mechanism.
+fn dependency(root: &Path, manifest: &Value, alias: &str) -> Result<(PathBuf, String)> {
+    let tables = std::iter::once(manifest).chain(
+        manifest
+            .get("target")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|v| v.values()),
+    );
+    let mut selected = BTreeSet::new();
+    for table in tables {
+        if let Some(dep) = table.get("dependencies").and_then(|v| v.get(alias)) {
+            let path = dep.get("path").and_then(Value::as_str).ok_or_else(|| {
+                format!("binding dependency {alias} requires an explicit Cargo path")
+            })?;
+            let directory = root.join(path).canonicalize().map_err(|e| e.to_string())?;
+            let name = dep.get("package").and_then(Value::as_str).unwrap_or(alias);
+            selected.insert((directory, name.to_owned()));
+        }
+    }
+    if selected.len() != 1 {
+        return Err(format!(
+            "binding dependency {alias} must identify one declared normal Cargo package"
+        ));
+    }
+    Ok(selected.into_iter().next().unwrap())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -173,6 +243,7 @@ impl Catalogs {
                             "package": package.name,
                             "manifest": package.manifest,
                             "bindings": package.catalogs,
+                            "dependencies": package.dependencies,
                         }),
                     )
                 })
@@ -437,5 +508,86 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("ambiguous compatible/bus"));
         assert!(catalogs.package("sensor").is_none());
+    }
+
+    #[test]
+    fn driver_catalog_imports_follow_cargo_aliases_and_track_driver_inputs() {
+        let temp = fixture(
+            "[package.metadata.nxrs]\nbindings=[{dependency='chip'}]\n\
+            [target.'cfg(target_os = \"nuttx\")'.dependencies]\n\
+            chip={package='nxrs-chip',path='chip'}\n",
+        );
+        let driver = temp.0.join("chip");
+        fs::create_dir(&driver).unwrap();
+        fs::write(
+            driver.join("Cargo.toml"),
+            "[package]\nname='nxrs-chip'\nversion='0.1.0'\n\
+            [package.metadata.nxrs]\nbindings=['bindings.toml']\n",
+        )
+        .unwrap();
+        fs::write(driver.join("bindings.toml"), CATALOG).unwrap();
+        let package = Package::load(&temp.0).unwrap();
+        assert_eq!(package.inputs().count(), 3);
+        assert_eq!(
+            package.catalogs[0].path,
+            driver.join("bindings.toml").canonicalize().unwrap()
+        );
+        assert_eq!(
+            package.dependencies[0].path,
+            driver.join("Cargo.toml").canonicalize().unwrap()
+        );
+        fs::write(
+            driver.join("bindings.toml"),
+            format!("{CATALOG}# driver edit\n"),
+        )
+        .unwrap();
+        assert_ne!(
+            Package::load(&temp.0).unwrap().catalogs[0].sha256,
+            package.catalogs[0].sha256
+        );
+
+        // A driver cannot escape its own package through a catalog path.
+        let manifest = driver.join("Cargo.toml");
+        let original = fs::read_to_string(&manifest).unwrap();
+        fs::write(
+            &manifest,
+            original.replace("bindings.toml", "../bindings/catalog.toml"),
+        )
+        .unwrap();
+        assert!(Package::load(&temp.0)
+            .unwrap_err()
+            .contains("contained relative path"));
+        fs::write(
+            &manifest,
+            original.replace("name='nxrs-chip'", "name='wrong-package'"),
+        )
+        .unwrap();
+        assert!(Package::load(&temp.0)
+            .unwrap_err()
+            .contains("must name nxrs-chip"));
+        fs::write(
+            &manifest,
+            "[package]\nname='nxrs-chip'\nversion='0.1.0'\n\
+            [package.metadata.nxrs]\nbindings=[{dependency='nxrs-sensor'}]\n\
+            [dependencies]\nnxrs-sensor={path='..'}\n",
+        )
+        .unwrap();
+        assert!(Package::load(&temp.0).unwrap_err().contains("cycle"));
+    }
+
+    #[test]
+    fn catalog_imports_cannot_create_undeclared_or_dev_only_dependencies() {
+        for dependencies in [
+            "",
+            "[dev-dependencies]\nchip={path='.'}\n",
+            "[dependencies]\nchip='1.0'\n",
+        ] {
+            let temp = fixture(&format!(
+                "[package.metadata.nxrs]\nbindings=[{{dependency='chip'}}]\n{dependencies}"
+            ));
+            assert!(Package::load(&temp.0)
+                .unwrap_err()
+                .contains("binding dependency chip"));
+        }
     }
 }

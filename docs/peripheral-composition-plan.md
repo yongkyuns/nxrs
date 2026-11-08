@@ -382,9 +382,12 @@ Each agent handoff must answer these questions in its PR description.
 
 BMI270 and LSM6DSO now implement `driver/peripheral::imu::Imu` directly. This
 supersedes S1/S7's private normalization wrappers: device settings, measurements
-and errors are shared below the HAL. HAL IMU keeps profile construction, stream
-metadata, readiness, acquisition and lifecycle policy. No other peripheral is
-migrated by this change; the static-device work below remains separate.
+and errors are shared below the HAL. The selected HAL factory constructs the
+chip; shared acquisition accepts only the normalized device contract. HAL IMU
+keeps stream metadata, readiness, acquisition and lifecycle policy. Drivers own
+their binding metadata; product profiles select actual resource assignments.
+No other peripheral is migrated by this change; the static-device work below
+remains separate.
 
 ## Static-device follow-up
 
@@ -470,8 +473,9 @@ freshness and native-helper tests in this PR.
 Exit with a working handoff; do not delete HAL scripts while any of their
 responsibilities lacks a replacement.
 
-The configuration cleanup now uses one version 2 catalog per sensor HAL, fixed
-I²C/UART resource contracts and direct checked-in implementation selection. It
+The configuration cleanup uses version 2 binding declarations, fixed I²C/UART
+resource contracts and direct checked-in implementation selection. IMU imports
+its driver-owned declarations; GNSS retains its local binding file. This
 removes field-projection schemas and both model-enum tables. The reusable NuttX
 I²C adapter is owned by `driver/i2c`. Profile/overlay semantics and singleton ownership
 are preserved; detached build tests compile the actual IMU factory across both

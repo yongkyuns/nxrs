@@ -52,9 +52,12 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   Sensor HALs supply resolved configuration and own sensor policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile role. Host witnesses inject
-  test-only bus bindings. Sensor catalogs name
-  checked-in implementation types; shared tooling emits fixed typed resource
-  bindings. Do not restore per-field Rust schemas or model-enum mappings.
+  test-only bus bindings. IMU drivers own their `bindings.toml` declarations;
+  the HAL imports them through declared normal Cargo path dependencies. Product
+  profiles select actual endpoints and addresses. Shared tooling emits fixed
+  typed resource bindings and checked-in factory selections. Acquisition consumes
+  constructed devices through the shared contract, without chip constructor traits.
+  Do not restore per-field Rust schemas or model-enum mappings.
 
 - Product profiles own device/resource composition. NuttX BSP/configuration owns
   MCU wiring and registration. A resolved hardware profile must select concrete

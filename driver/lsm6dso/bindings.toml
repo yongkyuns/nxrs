@@ -1,14 +1,6 @@
 version = 2
 
 [[binding]]
-compatible = "bosch,bmi270"
-bus = "i2c"
-implementation = "Bmi270"
-addresses = [0x68, 0x69]
-frequencies = [100_000, 400_000]
-interrupt = true
-
-[[binding]]
 compatible = "st,lsm6dso"
 bus = "i2c"
 implementation = "Lsm6dso"

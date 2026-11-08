@@ -43,7 +43,7 @@ NuttX MCU drivers              controller, DMA, interrupt entry and scheduling
 | --- | --- |
 | NuttX BSP and configuration | MCU pins, controller initialization, kernel drivers and resource registration |
 | Resource adapter | Implement the required Rust resource interface using an owned OS resource |
-| Peripheral driver | Supported chip settings, initialization, register/FIFO protocol and direct implementation of a shared device contract where applicable |
+| Peripheral driver | Supported chip settings and resource bindings, initialization, register/FIFO protocol and direct implementation of a shared device contract where applicable |
 | Shared peripheral contract | Synchronous device configuration, physical measurements, buffering semantics and errors; no runtime or resource construction |
 | Capability HAL | Profile construction, stream metadata, readiness, acquisition, delivery, cancellation and recovery |
 | Profile resolver | Validate device instances, resource references and capability roles, then select concrete construction code |
@@ -59,7 +59,8 @@ unit-based requirements using their supported settings, decode measurements into
 SI units and report device errors. The HAL reexports the configuration types,
 adds reception timestamps and sequence numbers, and maps device failures into its
 own lifecycle error vocabulary. Constructors and optional chip qualification
-controls stay in the NuttX factory; no wrapping sensor object is required.
+controls stay in the selected NuttX factory. Shared acquisition accepts a
+constructed `peripheral::imu::Imu`, without a chip-construction trait or wrapper.
 
 Buffering is explicit: FIFO retains ordered hardware measurements; latest-value
 reads can lose intermediate samples without detection. The current IMU acquisition
@@ -82,15 +83,15 @@ only when multiple implementations actually need the same operations.
 driver/peripheral/src/imu.rs           shared synchronous IMU device contract
 driver/bmi270/                         chip API and direct IMU contract implementation
 driver/lsm6dso/                        reusable tagged-FIFO IMU driver
+driver/{bmi270,lsm6dso}/bindings.toml   supported resource combinations and implementation IDs
 driver/ubx/                            reusable M9 protocol driver
 hal/imu/
-  bindings.toml                      supported devices, resource constraints and implementation IDs
   src/api.rs                          application-facing IMU contract
   src/session.rs                      capability-local shared execution policy
   src/platform/simulation.rs          adapter to a coordinated simulation session
   src/platform/mod.rs                 selected acquisition exports
   src/platform/nuttx/mod.rs            factory using resolved bindings
-  src/platform/nuttx/construction.rs   concrete constructors and qualification controls
+  src/platform/nuttx/factory.rs        resource setup with a supplied chip constructor
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
   src/platform/nuttx/observed_bus.rs   optional timing around driver/i2c
 platform/nuttx/platforms/              existing product and qualification profiles
@@ -212,13 +213,23 @@ for lifecycle, opacity and storage requirements.
 
 ## Bindings and overlays
 
-A capability-owned binding describes one supported compatible/bus combination,
-its allowed properties, ranges, wake modes and required resources. Build-only
-resolution maps the binding to a reviewed HAL constructor and ordinary Cargo
-dependency. Driver crates remain independent of that catalog. Constructors are
-allowlisted implementations. Profiles cannot supply Rust paths or executable
-code. Unknown models, duplicate binding matches and unsupported buses fail.
-Each package lists its version 2 catalogs in `package.metadata.nxrs.bindings`.
+A binding describes a supported compatible/bus combination, allowed addresses,
+bus frequencies and readiness modes. IMU declarations live in each chip driver's
+`bindings.toml`; supported sampling rates and ranges remain in the Rust driver.
+Product profiles choose the actual bus, address and interrupt endpoint. NuttX
+owns physical pin assignment and device registration.
+
+Each package declares version 2 binding files in `package.metadata.nxrs.bindings`.
+The IMU HAL imports its drivers' declarations with `{ dependency = "nxrs-bmi270" }`
+and the corresponding LSM6DSO entry. Imports must name an existing normal Cargo
+dependency with an explicit path; target tables and dependency aliases are
+supported. Registry-only and workspace-inherited imports are not implemented.
+The loader follows declared inputs, records their manifests and binding files,
+and rejects cycles and ambiguous matches. It does not select Cargo dependencies.
+GNSS currently owns its binding file in its HAL package.
+
+Build-only resolution selects a checked-in constructor. Profiles cannot supply
+Rust paths or executable code. Unknown models and unsupported buses fail.
 One implementation ID names a checked-in Rust type; profiles do not name code.
 Resolution loads those declarations for explicit `[hal]` capabilities, including
 `"none"` entries used to validate unselected devices. A physical device whose
@@ -241,7 +252,7 @@ and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
 it. Direct Cargo consumers select a named profile and its declared overlays
 through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
-same shared preparation function. Their package-owned catalogs select
+same shared preparation function. Their explicitly declared binding files select
 checked-in implementations. Shared build support renders fixed typed I²C/UART
 resource contracts, an implementation import and the validated stack budget.
 

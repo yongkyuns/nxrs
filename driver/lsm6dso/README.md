@@ -7,6 +7,11 @@ application note AN5192 Rev 6. ST's documents are copyright STMicroelectronics;
 all rights are reserved. This crate does not copy ST source code. The driver
 source is distributed under the workspace MIT license.
 
+[bindings.toml](bindings.toml) declares supported I²C addresses, bus frequencies
+and readiness modes for profile validation. A product profile chooses the actual
+bus and address; NuttX configures the physical pins. The current Nxrs binding
+admits periodic acquisition only; the chip's interrupt capability is separate.
+
 Supported paired ODRs are the exact silicon rates 12.5, 26, 52, 104, and 208
 Hz. `Rate::SUPPORTED` enumerates the typed rates. `AccelRange::from_g()` and
 `GyroRange::from_dps()` resolve exact physical ranges to chip-specific settings,

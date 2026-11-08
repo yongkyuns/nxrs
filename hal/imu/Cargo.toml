@@ -10,7 +10,7 @@ name = "imu"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
-bindings = ["bindings.toml"]
+bindings = [{ dependency = "nxrs-bmi270" }, { dependency = "nxrs-lsm6dso" }]
 
 [features]
 probe = []

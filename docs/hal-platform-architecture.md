@@ -80,9 +80,10 @@ when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/
 binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
 Chip drivers depend on the bus trait, not this concrete adapter. There are no
 host bus backends, unavailable stubs or additional logical profile roles.
-Version 2 sensor catalogs name checked-in
-Rust implementations; shared tooling emits typed resource bindings rather than
-interpreting per-field Rust schemas.
+IMU drivers own version 2 `bindings.toml` declarations for supported resource
+combinations and checked-in implementation IDs. HAL metadata imports them through
+declared normal Cargo path dependencies. Product profiles select actual wiring;
+shared tooling emits typed resource bindings and a selected factory implementation.
 
 ## Required implementation boundaries
 
@@ -268,7 +269,9 @@ APIs over existing bus traits and own their supported settings. The shared
 physical measurements, buffering semantics and device errors. BMI270 and LSM6DSO
 implement it directly alongside their chip APIs. HAL IMU reuses its configuration
 types and adds sequence/reception metadata, profile construction, readiness,
-acquisition and lifecycle errors. Resolve requests before acquiring resources;
+acquisition and lifecycle errors. Its acquisition loop accepts a constructed
+`peripheral::imu::Imu`; chip constructors and qualification controls stay at the
+selected factory boundary. Resolve requests before acquiring resources;
 do not duplicate supported-mode tables or normalization wrappers in the HAL.
 Drivers have no dependency on the capability HAL. Reusable OS resource adapters
 live in `driver/<bus>`, with native glue beside the actual OS implementation.

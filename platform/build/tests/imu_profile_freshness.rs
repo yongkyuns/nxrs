@@ -15,15 +15,16 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     fs::create_dir_all(sdk.join("platform/profiles")).unwrap();
     fs::create_dir_all(sdk.join("platform/nuttx/platforms")).unwrap();
     fs::write(sdk.join("Cargo.toml"), "[workspace]\n").unwrap();
-    for capability in ["imu", "gnss"] {
-        let package = sdk.join("hal").join(capability);
+    for (relative, files) in [
+        ("hal/imu", &["Cargo.toml"][..]),
+        ("hal/gnss", &["Cargo.toml", "bindings.toml"][..]),
+        ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
+        ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
+    ] {
+        let package = sdk.join(relative);
         fs::create_dir_all(&package).unwrap();
-        for file in ["Cargo.toml", "bindings.toml"] {
-            fs::copy(
-                source.join("hal").join(capability).join(file),
-                package.join(file),
-            )
-            .unwrap();
+        for file in files {
+            fs::copy(source.join(relative).join(file), package.join(file)).unwrap();
         }
     }
     fs::copy(
@@ -215,7 +216,12 @@ fn main() {
 
     // Content changes at the same declared path must invalidate both Cargo and
     // the receipt, even when the resolved values are semantically unchanged.
-    for relative in ["hal/imu/bindings.toml", "hal/gnss/bindings.toml"] {
+    for relative in [
+        "driver/bmi270/bindings.toml",
+        "driver/lsm6dso/bindings.toml",
+        "driver/bmi270/Cargo.toml",
+        "hal/gnss/bindings.toml",
+    ] {
         let path = sdk.join(relative);
         let mut content = fs::read_to_string(&path).unwrap();
         content.push_str("\n# same-path freshness witness\n");

@@ -47,9 +47,10 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU/GNSS output generation lives in shared build support. Each manifest declares
-one version 2 binding catalog with compatible devices, resource constraints and
-checked-in Rust implementation IDs. The shared renderer uses fixed typed resource
+IMU/GNSS output generation lives in shared build support. IMU imports version 2
+binding declarations from its chip driver dependencies; GNSS declares its file
+locally. They describe compatible devices, resource constraints and checked-in
+Rust implementation IDs. The shared renderer uses fixed typed resource
 contracts and selects the implementation directly. Separate field-projection
 schemas, generated model enums and runtime model matches have been removed.
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
@@ -94,8 +95,8 @@ that both drivers remain in the linked firmware.
 
 | Owner | Responsibilities |
 | --- | --- |
-| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy, private runtime implementations, declarative binding/configuration schema and Cargo feature declarations |
-| `driver/<device>` | Reusable chip protocol, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
+| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy, selected factories, capability-specific configuration and Cargo feature declarations |
+| `driver/<device>` | Reusable chip protocol, supported settings/resource bindings, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
 | `driver/peripheral` | Synchronous per-peripheral contracts; no resource construction or acquisition runtime |
 | Provider-local `ffi/` | Mechanical ABI source for the consuming provider |
 | Product profile and overlays | Physical devices, resource assignments, roles, requirements and budgets |
@@ -127,8 +128,10 @@ Do not restore per-field Rust projection schemas, programmable TOML, templates o
 per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
-Discover catalogs through explicit package-relative metadata. The production
-dependency closure must contain its declared inputs. Shared support must not
+Discover bindings through explicit package-relative metadata or imports naming
+declared normal Cargo path dependencies. Chip resource constraints belong with
+the driver; product profiles assign actual endpoints, addresses and roles.
+The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.
 

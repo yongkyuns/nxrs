@@ -1,10 +1,11 @@
 //! Profile-selected NuttX IMU factory.
-use self::{construction::Construct, session::WorkerSession};
+use self::session::WorkerSession;
 use super::{events, gpio_resource, resource};
 use crate::{AppliedConfig, Config, DeviceError, Event, Session};
 use acquisition::readiness;
 use core::sync::atomic::AtomicU8;
-use device::{Binding, Delay, Device};
+use device::Device;
+use factory::{Binding, Delay};
 use observed_bus::Bus;
 use peripheral::imu::Imu as ImuDevice;
 use trace::Trace;
@@ -14,8 +15,8 @@ mod cadence;
 #[path = "../../session.rs"]
 mod session;
 
-mod construction;
 mod device;
+mod factory;
 mod observed_bus;
 mod signal;
 mod trace;
@@ -46,7 +47,7 @@ pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Sen
     config: Config,
     sink: S,
 ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
-    open_with_trace(config, sink, Trace::default())
+    start_device(acquire_device(config, Trace::default())?, sink)
 }
 
 pub(crate) fn open_probed(
@@ -55,26 +56,25 @@ pub(crate) fn open_probed(
     observe: impl Fn(crate::probe::Timing) + Send + Sync + 'static,
     sensor_reference: bool,
 ) -> Result<(std::boxed::Box<dyn Session + Send>, AppliedConfig), DeviceError> {
-    let trace = Trace::new(observe, sensor_reference)?;
-    let (session, applied) = open_with_trace(config, sink, trace)?;
+    let trace = Trace::new(observe)?;
+    let mut device = acquire_device(config, trace)?;
+    if sensor_reference {
+        device = device.prepare(|sensor| sensor.enable_sensor_reference().map_err(Into::into))?;
+    }
+    let (session, applied) = start_device(device, sink)?;
     Ok((std::boxed::Box::new(session), applied))
 }
 
-fn open_with_trace(
-    config: Config,
-    sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
-    trace: Trace,
-) -> Result<(WorkerSession<readiness::Cancel>, AppliedConfig), DeviceError> {
-    acquire::<Implementation>(BINDING, config, sink, trace)
+fn acquire_device(config: Config, trace: Trace) -> Result<Device<Implementation>, DeviceError> {
+    factory::acquire(BINDING, config, trace, |bus, address, settings| {
+        Implementation::open_configured(bus, address, Delay, settings).map_err(Into::into)
+    })
 }
 
-fn acquire<T: Construct + Send + 'static>(
-    binding: Binding<'_>,
-    config: Config,
+fn start_device<T: ImuDevice + Send + 'static>(
+    device: Device<T>,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
-    trace: Trace,
 ) -> Result<(WorkerSession<readiness::Cancel>, AppliedConfig), DeviceError> {
-    let device = Device::<T>::acquire(binding, config, trace)?;
     let applied = device.applied_config();
     let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();

@@ -1,19 +1,13 @@
-//! Physical device ownership. Construction and cleanup stay in task context.
-use super::{
-    construction::Construct, gpio_resource, observed_bus::Bus, signal::Signal, trace::Trace, OWNED,
-};
+//! Acquisition and lifetime of an already-constructed normalized IMU.
+use super::{gpio_resource, signal::Signal, trace::Trace, OWNED};
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
 use core::sync::atomic::{AtomicBool, Ordering};
-use embedded_hal::delay::DelayNs;
 use peripheral::imu::{Buffering, Imu};
-use std::{
-    fs::File,
-    time::{Duration, Instant},
-};
+use std::{fs::File, time::Instant};
 
 pub(super) type Irq = gpio_resource::Interrupt<fn()>;
 
-fn quarantine() {
+pub(super) fn quarantine() {
     OWNED.store(2, Ordering::Release);
 }
 
@@ -28,17 +22,10 @@ pub(super) fn open_irq(path: &str) -> Result<Irq, DeviceError> {
     gpio_resource::Interrupt::open_rising(path, quarantine as fn()).map_err(gpio_error)
 }
 
-pub(super) struct Binding<'a> {
-    pub(super) path: &'a str,
-    pub(super) address: u8,
-    pub(super) frequency: u32,
-    pub(super) irq_path: Option<&'a str>,
-}
-
-struct Lease;
+pub(super) struct Lease;
 
 impl Lease {
-    fn take() -> Result<Self, DeviceError> {
+    pub(super) fn take() -> Result<Self, DeviceError> {
         OWNED
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|state| {
@@ -58,15 +45,7 @@ impl Drop for Lease {
     }
 }
 
-pub(super) struct Delay;
-
-impl DelayNs for Delay {
-    fn delay_ns(&mut self, ns: u32) {
-        std::thread::sleep(Duration::from_nanos(u64::from(ns)));
-    }
-}
-
-pub(super) struct Device<S: Construct> {
+pub(super) struct Device<S: Imu> {
     sensor: S,
     applied: AppliedConfig,
     signal: Signal,
@@ -84,38 +63,33 @@ pub(super) fn resolve<S: Imu>(config: Config) -> Result<(S::Settings, AppliedCon
     S::resolve(config).map_err(Into::into)
 }
 
-impl<S: Construct> Device<S> {
-    pub(super) fn acquire(
-        binding: Binding<'_>,
-        config: Config,
+impl<S: Imu> Device<S> {
+    pub(super) fn new(
+        sensor: S,
+        applied: AppliedConfig,
+        signal: Signal,
         trace: Trace,
-    ) -> Result<Self, DeviceError> {
-        let (settings, applied) = resolve::<S>(config)?;
-        let lease = Lease::take()?;
-        // An absent GPIO uses an ODR-derived wake. Failure of a configured IRQ
-        // never changes acquisition mode.
-        let irq = binding.irq_path.map(open_irq).transpose()?;
-        let bus = Bus::open(binding.path, binding.frequency, trace.clone())?;
-        let sensor = S::open(bus, binding.address, settings).inspect_err(|_| {
-            // An interrupted configuration may have left the sensor active.
-            OWNED.store(2, Ordering::Release);
-        })?;
-        let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
-        let signal = Signal::new(irq, period);
-        let mut device = Self {
+        lease: Lease,
+    ) -> Self {
+        Self {
             sensor,
             applied,
             signal,
             trace,
             cleaned: false,
             _lease: lease,
-        };
-        if device.trace.sensor_reference() {
-            if let Err(error) = device.sensor.enable_sensor_reference() {
-                return Err(device.cleanup().err().unwrap_or(error.into()));
-            }
         }
-        Ok(device)
+    }
+
+    /// Apply factory-owned setup before publication, retaining cleanup on failure.
+    pub(super) fn prepare(
+        mut self,
+        configure: impl FnOnce(&mut S) -> Result<(), peripheral::imu::Error>,
+    ) -> Result<Self, DeviceError> {
+        if let Err(error) = configure(&mut self.sensor) {
+            return Err(self.cleanup().err().unwrap_or(error.into()));
+        }
+        Ok(self)
     }
 
     pub(super) fn applied_config(&self) -> AppliedConfig {
@@ -172,7 +146,7 @@ impl<S: Construct> Device<S> {
     }
 }
 
-impl<S: Construct> Drop for Device<S> {
+impl<S: Imu> Drop for Device<S> {
     fn drop(&mut self) {
         let _ = self.cleanup();
     }
@@ -185,7 +159,13 @@ mod tests {
 
     struct Latest;
     impl Imu for Latest {
-        const DEFAULT: Config = <nxrs_bmi270::Bmi270<Bus, Delay> as Imu>::DEFAULT;
+        const DEFAULT: Config = Config {
+            min_rate_millihz: 100_000,
+            max_rate_millihz: 100_000,
+            accel_range_g: 4,
+            gyro_range_dps: 2000,
+            max_delivery_interval_us: 10_000,
+        };
         const BUFFERING: Buffering = Buffering::Latest;
         type Settings = ();
         fn resolve(_: Config) -> Result<((), AppliedConfig), Error> {

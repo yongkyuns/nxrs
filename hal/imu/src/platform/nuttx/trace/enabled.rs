@@ -5,22 +5,15 @@ use std::{sync::Arc, time::Instant};
 #[derive(Clone, Default)]
 pub(crate) struct Trace {
     observer: Option<Arc<dyn Fn(Timing) + Send + Sync>>,
-    sensor_reference: bool,
 }
 
 impl Trace {
     pub(crate) fn new(
         observe: impl Fn(Timing) + Send + Sync + 'static,
-        sensor_reference: bool,
     ) -> Result<Self, DeviceError> {
         Ok(Self {
             observer: Some(Arc::new(observe)),
-            sensor_reference,
         })
-    }
-
-    pub(crate) fn sensor_reference(&self) -> bool {
-        self.sensor_reference
     }
 
     #[inline]

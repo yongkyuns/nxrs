@@ -35,8 +35,7 @@ pub fn prepare_package(
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
         })
         .ok_or("configuration package must have an nxrs- capability name")?;
-    let mut inputs = vec![package.manifest.path.clone()];
-    inputs.extend(package.catalogs.iter().map(|input| input.path.clone()));
+    let mut inputs: Vec<_> = package.inputs().map(|input| input.path.clone()).collect();
     inputs.extend(profile.source_paths().cloned());
     inputs.extend(profile.catalogs().source_paths().cloned());
     inputs.sort();

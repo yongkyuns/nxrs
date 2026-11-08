@@ -6,16 +6,8 @@ use std::time::Instant;
 pub(crate) struct Trace {}
 
 impl Trace {
-    pub(crate) fn new(
-        _: impl Fn(Timing) + Send + Sync + 'static,
-        _: bool,
-    ) -> Result<Self, DeviceError> {
+    pub(crate) fn new(_: impl Fn(Timing) + Send + Sync + 'static) -> Result<Self, DeviceError> {
         Err(DeviceError::Unsupported)
-    }
-
-    #[inline]
-    pub(crate) fn sensor_reference(&self) -> bool {
-        false
     }
 
     #[inline]
@@ -38,7 +30,6 @@ mod tests {
     fn disabled_tracing_is_zero_sized_and_passes_io_through_once() {
         assert_eq!(std::mem::size_of::<Trace>(), 0);
         let trace = Trace::default();
-        assert!(!trace.sensor_reference());
         trace.wake(None);
         trace.drain(true);
         let mut calls = 0;
@@ -49,7 +40,7 @@ mod tests {
         assert_eq!(result, Err(DeviceError::Io));
         assert_eq!(calls, 1);
         assert_eq!(
-            Trace::new(|_| panic!("disabled observer called"), true).err(),
+            Trace::new(|_| panic!("disabled observer called")).err(),
             Some(DeviceError::Unsupported)
         );
     }

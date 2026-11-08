@@ -8,6 +8,10 @@ SI values; reception time and delivery sequencing belong to the consuming
 capability. Initialization and stop operations reuse the owned delay instance;
 the driver requires no `Default` delay constructor.
 
+[bindings.toml](bindings.toml) declares supported I²C addresses, bus frequencies
+and readiness modes for profile validation. A product profile chooses the actual
+bus, address and interrupt endpoint; NuttX configures the physical pins.
+
 The driver retains `bmi2` 0.1.2 and `embedded-hal` 1.0.0. Initialization loads
 `bmi2::config::BMI270_CONFIG_FILE`, the Bosch BMI270 configuration blob bundled
 with the pinned `bmi2` release. `Cargo.lock` retains the registry checksum for

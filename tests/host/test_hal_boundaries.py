@@ -50,7 +50,9 @@ class HalBoundariesTests(unittest.TestCase):
                 type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
                 type Lsm6dso = nxrs_lsm6dso::Lsm6dso<Bus>;
             }
-            let device = acquire::<Implementation>(BINDING, config, sink, trace);
+            let device = factory::acquire(BINDING, config, trace, |bus, address, settings| {
+                Implementation::open_configured(bus, address, Delay, settings)
+            });
             Session::start(STACK_BYTES, cancel, sink, run)
         ''')
         self.write('hal/imu/build.rs', '''
@@ -104,6 +106,35 @@ class HalBoundariesTests(unittest.TestCase):
         nuttx = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
         nuttx.write_text(nuttx.read_text().replace('type Bmi270 =', 'type Unknown ='))
         self.assertTrue(any('checked-in typed constructor' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_sensor_bindings_can_belong_to_a_declared_driver(self):
+        self.write_declarative_imu()
+        catalog = self.root / 'hal/imu/bindings.toml'
+        self.write('driver/bmi270/bindings.toml', catalog.read_text())
+        catalog.unlink()
+        driver = self.write('driver/bmi270/Cargo.toml', '''
+            [package]
+            name = "nxrs-bmi270"
+            [package.metadata.nxrs]
+            bindings = ["bindings.toml"]
+        ''')
+        manifest = self.write('hal/imu/Cargo.toml', '''
+            [package]
+            name = "nxrs-imu"
+            [package.metadata.nxrs]
+            bindings = [{ dependency = "sensor" }]
+            [target.'cfg(target_os = "nuttx")'.dependencies]
+            sensor = { package = "nxrs-bmi270", path = "../../driver/bmi270" }
+        ''')
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        original = manifest.read_text()
+        manifest.write_text(original.replace('.dependencies]', '.dev-dependencies]'))
+        self.assertTrue(any('normal Cargo path dependency' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        manifest.write_text(original)
+        driver.write_text(driver.read_text().replace('bindings.toml', '../outside.toml'))
+        self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
 
