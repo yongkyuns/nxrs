@@ -3,8 +3,9 @@
 A named profile and its ordered overlays resolve to one validated composition.
 Hardware profiles bind IMU and GNSS roles to concrete sensors and NuttX
 resources. The simulation profile binds those roles to one shared scenario.
-Today, HAL build scripts verify the resolved profile and generate typed values
-for singular default sensor factories. See the
+Shared build preparation verifies package declarations and generates typed values
+for singular default sensor factories. Small HAL Cargo adapters invoke that shared
+path and preserve provider/native build integration. See the
 [implementation and qualification plan](peripheral-composition-plan.md).
 
 The accepted [declarative build and static-device follow-up](static-device-composition.md)
@@ -71,7 +72,7 @@ driver/bmi270/                         reusable sensor-specific Rust crate
 driver/lsm6dso/                        reusable tagged-FIFO IMU driver
 driver/ubx/                            reusable M9 protocol driver
 hal/imu/
-  bindings/                           supported compatible/bus schemas
+  bindings/                           compatible/bus catalogs and typed configuration schemas
   src/api.rs                          application-facing IMU contract
   src/sensors/bmi270.rs                IMU implementation using the chip driver
   src/sensors/lsm6dso.rs               IMU implementation using the chip driver
@@ -86,7 +87,7 @@ platform/nuttx/platforms/              existing product and qualification profil
 hal/gnss/                              UART binding, UBX policy and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
 platform/profiles/                     host, simulation and qualification profiles
-platform/build-support/                shared host-only resolution and emission
+platform/build-support/                shared resolution and generic typed generation
 platform/build/                        build CLI and Cargo orchestration
 ~~~
 
@@ -200,8 +201,14 @@ resolution maps the binding to a reviewed HAL constructor and ordinary Cargo
 dependency. Driver crates remain independent of that catalog. Constructors are
 allowlisted implementations. Profiles cannot supply Rust paths or executable
 code. Unknown models, duplicate binding matches and unsupported buses fail.
+Each package lists its catalogs and provider configuration schemas in
+`package.metadata.nxrs.bindings` and `package.metadata.nxrs.configuration`.
+Resolution loads those declarations for explicit `[hal]` capabilities, including
+`"none"` entries used to validate unselected devices. A physical device whose
+capability is absent from `[hal]` has no admitted catalog and fails validation.
+Build support has no compile-time inclusion of sibling HAL catalogs.
 Profile inspection and build dry runs report the normalized graph, profile
-sources and binding catalog path under `resolved-composition`.
+sources, catalog paths and exact package input hashes under `resolved-composition`.
 
 Use repeatable `--overlay` arguments with `cargo nxrs profile` and
 `cargo nxrs build`, or declare an ordered `overlays` list in a named profile.
@@ -216,12 +223,16 @@ In the current v1 path, the build frontend writes `resolved-profile.json` into t
 and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
 it. Direct Cargo consumers select a named profile and its declared overlays
-through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. The IMU and GNSS build scripts emit typed
-resources for their checked-in NuttX factories.
+through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
+same shared preparation function. Their package-owned declarative schemas supply
+typed values for the checked-in NuttX factories. The schemas contain data, enum
+mappings and resource projections; executable emission lives in build support.
 
 The `resolved-composition` report includes ordered source hashes, field
 provenance, a semantic digest of the normalized graph and target, and a separate
-input fingerprint for the exact source bytes, catalog and resolver revision.
+input fingerprint for the exact profile, overlay, manifest, catalog and schema
+bytes plus the resolver revision. `binding-inputs` preserves each declared
+package's input paths and hashes, including both IMU and GNSS inputs.
 Use this report to inspect the device and resource binding before a build.
 
 Apply the following merge rules in order.
@@ -294,14 +305,16 @@ target for new work. Keep the v1 compatibility and qualification evidence until
 its replacements are proven.
 
 Resolve once to a typed device/resource graph in `nxrs-build-support`. Both the
-CLI and HAL build scripts use that resolver. Emit inspectable resolved JSON and
+CLI and shared Cargo adapter use that resolver. Emit inspectable resolved JSON and
 a semantic configuration digest over the normalized graph, mode and target.
 Keep an additional input fingerprint covering ordered source content hashes,
 binding schemas and resolver/emitter revision in the build/cache identity.
 Equivalent graphs share a semantic digest even if input spelling differs.
 Input/order changes still invalidate source-derived outputs through the input
-fingerprint. Generate only typed constants and selections of checked-in
-factories in the HAL's OUT_DIR.
+fingerprint. A common finite-schema renderer generates only typed constants and
+records in the HAL's OUT_DIR. It validates names, values, references and literal
+escaping without HAL-specific generation callbacks. Current model enum values
+still feed the checked-in factory match until per-instance construction lands.
 
 Cargo still resolves dependencies before running HAL build scripts. V1 keeps
 portable driver crates as ordinary declared dependencies in the applicable HAL

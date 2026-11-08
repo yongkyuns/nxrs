@@ -420,6 +420,20 @@ Exit with the reviewed contract and a bounded baseline of relevant tests.
 
 ### D1 — Prove shared preparation and Cargo integration
 
+The first slice, D1a, implements package-relative catalog/schema discovery and
+shared typed rendering for the actual IMU/GNSS outputs. Both local build scripts
+become generic adapters, with their custom callbacks and the IMU emitter removed.
+The production shared preparation API is exercised by a detached Cargo witness;
+catalog/schema changes invalidate receipts and generated outputs. Isolated
+IMU-only, GNSS-only and camera-only consumers check package closure.
+
+D1a preserves provider flags, OUT_DIR handoff, simulation preparation and native
+compilation in the existing generic adapter. It does not complete D1's pre-Cargo
+compiler/link integration or D2/D3's optional implementations and static objects.
+Keep those gates open and preserve the current runtime until their replacement
+is independently qualified.
+
+
 Start in `platform/build-support/src/{composition,profile,resolved,lib}.rs`,
 `platform/build/src/{build,cargo_graph}.rs` and existing native build support.
 Extend the controller's pre-Cargo `configure_profile` path. Discover schema

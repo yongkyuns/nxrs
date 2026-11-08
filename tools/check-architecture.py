@@ -366,53 +366,72 @@ def inspect_dependency_capsule(root: Path) -> list[str]:
 
 
 def inspect_generated_imu_factory(root: Path) -> list[str]:
-    """Keep profile-generated IMU data inside a fixed, typed HAL source seam."""
-    hal = root / 'hal/imu'
-    if not (hal / 'src/platform/nuttx').exists():
-        return []
+    """Check declarative sensor generation and the current typed runtime seam."""
     errors = []
     relative = lambda path: path.relative_to(root).as_posix()
-    nuttx = hal / 'src/platform/nuttx/mod.rs'
-    build = hal / 'build.rs'
-    emitter = hal / 'build/emit.rs'
-    if not all(path.is_file() for path in (nuttx, build, emitter)):
-        return ['hal/imu: generated factory must be emitted and included by the owning HAL package']
+    for capability in ('imu', 'gnss'):
+        hal = root / 'hal' / capability
+        nuttx = hal / 'src/platform/nuttx/mod.rs'
+        if not nuttx.is_file():
+            continue
+        build = hal / 'build.rs'
+        manifest = hal / 'Cargo.toml'
+        if not build.is_file() or not manifest.is_file():
+            errors.append(f'hal/{capability}: declare configuration in the owning package and use shared preparation')
+            continue
+        build_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', build.read_text(), flags=re.S)
+        calls = re.findall(r'\b([A-Za-z_]\w*(?:::\w+)*)\s*\(', build_source)
+        macros = re.findall(r'\b(\w+)!\s*[\(\{\[]', build_source)
+        if ('nxrs_build_support::configure_hal' not in calls
+                or any(call not in {'main', 'nxrs_build_support::configure_hal',
+                                    'unwrap', 'unwrap_or_else', 'expect'} for call in calls)
+                or any(macro != 'panic' for macro in macros)
+                or re.search(r'\b(?:mod|include|format|configure_hal_with)\b', build_source)):
+            errors.append(f'{relative(build)}: sensor build scripts must be generic shared-preparation adapters')
+        if any((hal / 'build').rglob('*.rs')):
+            errors.append(f'hal/{capability}/build: host generation belongs in shared build support')
 
+        try:
+            metadata = tomllib.loads(manifest.read_text())['package']['metadata']['nxrs']
+            declared = metadata['configuration']['nuttx']
+            if (not isinstance(declared, str) or not declared
+                    or '\\' in declared or ':' in declared
+                    or Path(declared).is_absolute()
+                    or any(part in {'', '.', '..'} for part in declared.split('/'))):
+                raise ValueError('configuration schema must be package-relative')
+            schema_path = hal / declared
+            schema_path.resolve().relative_to(hal.resolve())
+            schema = tomllib.loads(schema_path.read_text())
+            output = f'{capability}_config.rs'
+            if (schema.get('version') != 1 or schema.get('output') != output
+                    or schema.get('role') != capability):
+                raise ValueError('declare the fixed output and capability role')
+            catalogs = metadata['bindings']
+            if (not isinstance(catalogs, list) or not catalogs
+                    or any(not isinstance(path, str) for path in catalogs)):
+                raise ValueError('declare the package binding catalog inputs')
+        except (KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as error:
+            errors.append(f'{relative(manifest)}: invalid declarative sensor configuration: {error}')
+            continue
+
+        source = re.sub(r'//[^\n]*|/\*.*?\*/', '', nuttx.read_text(), flags=re.S)
+        include = f'include!(concat!(env!("OUT_DIR"), "/{output}"));'
+        if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
+            errors.append(f'{relative(nuttx)}: include only the declared generated output from this HAL OUT_DIR')
+
+    # D1a moves generation only. Preserve this runtime-construction protection
+    # until additive, per-instance wiring replaces the model match in D2/D3.
+    hal = root / 'hal/imu'
+    nuttx = hal / 'src/platform/nuttx/mod.rs'
+    if not nuttx.is_file():
+        return errors
     source = re.sub(r'//[^\n]*|/\*.*?\*/', '', nuttx.read_text(), flags=re.S)
-    include = 'include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));'
-    if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
-        errors.append(f'{relative(nuttx)}: include only the fixed imu_config.rs file from this HAL OUT_DIR')
     models = {'Bmi270': 'bmi270', 'Lsm6dso': 'lsm6dso'}
     branches = re.findall(r'SensorModel::(\w+)\s*=>\s*acquire::<(\w+)>\(BINDING,\s*config,\s*sink,\s*trace\)', source)
     if sorted(branches) != sorted((model, model) for model in models):
         errors.append(f'{relative(nuttx)}: generated model selection must map to its checked-in typed constructor')
     if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
         errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
-
-    build_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', build.read_text(), flags=re.S)
-    if (not re.search(r'emit::write\s*\(\s*&out\.join\("imu_config\.rs"\)\s*,\s*binding\s*\)', build_source)
-            or 'mod emit;' not in build_source
-            or not re.search(r'profile\.binding\("imu"\)\s*==\s*"nuttx"\s*&&\s*os\s*==\s*"nuttx"', build_source)):
-        errors.append(f'{relative(build)}: emit the fixed generated factory through the HAL-owned emitter')
-
-    emitter_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', emitter.read_text(), flags=re.S)
-    # The emitter may escape profile strings and place parsed numeric fields, but
-    # generated identifiers and constructor names must remain fixed Rust syntax.
-    model_map = re.findall(r'ImuModel::(\w+)\s*=>\s*"SensorModel::(\w+)"', emitter_source)
-    if sorted(model_map) != sorted((model, model) for model in models):
-        errors.append(f'{relative(emitter)}: generated model enum must use the checked-in allowlist')
-    required = [
-        r'enum SensorModel\s*\{\{\s*Bmi270,\s*Lsm6dso\s*\}\}',
-        r'const MODEL:\s*SensorModel\s*=\s*\{model\}',
-        r'const BINDING:\s*Binding<\'static>\s*=\s*Binding\s*\{\{',
-        r'const STACK_BYTES:\s*usize\s*=\s*\{stack_bytes\}',
-        r'path:\s*\{path:\?\}',
-        r'address:\s*\{address\}',
-        r'frequency:\s*\{frequency\}',
-        r'irq_path:\s*\{irq_path\}',
-    ]
-    if any(not re.search(pattern, emitter_source) for pattern in required):
-        errors.append(f'{relative(emitter)}: generated Rust must use the allowlisted typed model and escaped binding literals')
     for model, file in models.items():
         if not (hal / f'src/sensors/{file}.rs').is_file():
             errors.append(f'hal/imu: generated {model} selection has no checked-in sensor implementation')

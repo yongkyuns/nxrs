@@ -10,6 +10,10 @@ name = "imu"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
+bindings = ["bindings/i2c.toml"]
+
+[package.metadata.nxrs.configuration]
+nuttx = "bindings/nuttx.toml"
 
 [features]
 probe = []
