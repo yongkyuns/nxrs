@@ -4,8 +4,11 @@ A named profile and its ordered overlays resolve to one validated composition.
 Hardware profiles bind IMU and GNSS roles to concrete sensors and NuttX
 resources. The simulation profile binds those roles to one shared scenario.
 Shared build preparation verifies package declarations and generates typed values
-for singular default sensor factories. Small HAL Cargo adapters invoke that shared
-path and preserve provider/native build integration. See the
+for singular default sensor factories. Build controllers prepare the consumed
+HALs before Cargo; small generic adapters validate their explicit preparation,
+deliver the generated values and emit package-scoped provider/native directives.
+Plain Cargo without a prepared receipt retains the shared adapter preparation
+path during migration. See the
 [implementation and qualification plan](peripheral-composition-plan.md).
 
 The accepted [declarative build and static-device follow-up](static-device-composition.md)

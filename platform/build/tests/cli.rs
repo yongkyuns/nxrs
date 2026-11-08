@@ -911,5 +911,22 @@ fn main() {}
             .unwrap();
     assert_eq!(receipt["profile"], "host");
     assert_eq!(receipt["os"], env::consts::OS);
+    let evidence: Value = serde_json::from_slice(
+        &fs::read(root.0.join("artifacts/provider-selection.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(evidence["preparation"]["status"], "prepared");
+    let prepared = Path::new(evidence["preparation"]["receipt"].as_str().unwrap());
+    assert_eq!(
+        evidence["preparation"]["sha256"],
+        nxrs_build::hash(prepared).unwrap()
+    );
+    let prepared: Value = serde_json::from_slice(&fs::read(prepared).unwrap()).unwrap();
+    let selected_profile = Path::new(prepared["profile"]["path"].as_str().unwrap());
+    assert!(selected_profile.is_file());
+    assert_ne!(
+        selected_profile,
+        root.0.join("artifacts/resolved-profile.json")
+    );
     assert!(!outside.0.join("artifacts").exists());
 }

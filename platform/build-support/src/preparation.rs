@@ -37,7 +37,12 @@ pub fn prepare_package(
         .ok_or("configuration package must have an nxrs- capability name")?;
     let mut inputs = vec![package.manifest.path.clone()];
     inputs.extend(package.catalogs.iter().map(|input| input.path.clone()));
-    inputs.extend(package.configuration.values().map(|input| input.path.clone()));
+    inputs.extend(
+        package
+            .configuration
+            .values()
+            .map(|input| input.path.clone()),
+    );
     inputs.extend(profile.source_paths().cloned());
     inputs.extend(profile.catalogs().source_paths().cloned());
     inputs.sort();
@@ -162,7 +167,12 @@ fn publish(out: &Path, package: &str, generated: Option<(&str, &str)>) -> Result
     Ok(())
 }
 
-fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
+/// Remove the renderer's one owned output without touching other build products.
+pub(crate) fn clear(out: &Path, package: &str) -> Result<()> {
+    publish(out, package, None)
+}
+
+pub(crate) fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
     if fs::read(path).ok().as_deref() == Some(contents.as_bytes()) {
         return Ok(());
     }

@@ -312,13 +312,80 @@ pub(crate) fn configure_profile(
     target: &str,
     os: &str,
 ) -> Result<()> {
-    let receipt = out.join("resolved-profile.json");
+    fs::create_dir_all(out).map_err(|error| error.to_string())?;
+    let temporary = crate::TempDir::new(out)?;
+    let candidate = temporary.0.join("resolved-profile.json");
+    nxrs_build_support::resolved::write(&candidate, root, profile, target, os)?;
+    let directory = out.join("profiles").join(crate::hash(&candidate)?);
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let receipt = directory.join("resolved-profile.json");
     nxrs_build_support::resolved::write(&receipt, root, profile, target, os)?;
+    // Keep the familiar inspection record. Cargo uses the immutable copy so
+    // another profile prepared into this output directory cannot replace it.
+    nxrs_build_support::resolved::write(
+        &out.join("resolved-profile.json"),
+        root,
+        profile,
+        target,
+        os,
+    )?;
     command
         .env("NXRS_RESOLVED_PROFILE", receipt)
         .env("NXRS_PLATFORM", profile.name())
         .env("NXRS_SDK_ROOT", root);
     Ok(())
+}
+
+/// Resolve Cargo features and prepare the consumed HAL packages before target
+/// compilation. Call after configuring the real compiler, target and user flags.
+pub fn prepare_cargo(
+    command: &mut Command,
+    out: &Path,
+    root: &Path,
+    profile: &Profile,
+    target: &str,
+    os: &str,
+) -> Result<crate::cargo_graph::Selection> {
+    configure_profile(command, out, root, profile, target, os)?;
+    let selection = crate::cargo_graph::resolve(command, profile)?;
+    let packages = crate::cargo_graph::consumed_hal_packages(command, profile)?
+        .into_iter()
+        .map(|package| nxrs_build_support::handoff::Package {
+            identity: package.identity,
+            directory: package.directory,
+            features: package.features,
+        })
+        .collect::<Vec<_>>();
+    let receipt = command
+        .get_envs()
+        .find_map(|(name, value)| (name == "NXRS_RESOLVED_PROFILE").then_some(value).flatten())
+        .map(PathBuf::from)
+        .ok_or("missing resolved profile receipt")?;
+    let prepared = nxrs_build_support::handoff::prepare(
+        root,
+        profile,
+        target,
+        os,
+        &receipt,
+        &packages,
+        command,
+        &out.join("prepared"),
+    )?;
+    command.env(nxrs_build_support::handoff::ENVIRONMENT, prepared);
+    Ok(selection)
+}
+
+pub(crate) fn preparation_evidence(command: &Command) -> Result<Value> {
+    let path = command
+        .get_envs()
+        .find_map(|(name, value)| {
+            (name == nxrs_build_support::handoff::ENVIRONMENT)
+                .then_some(value)
+                .flatten()
+        })
+        .map(PathBuf::from)
+        .ok_or("missing prepared build receipt")?;
+    Ok(json!({"status": "prepared", "receipt": path, "sha256": crate::hash(&path)?}))
 }
 
 fn host_target(root: &Path) -> Result<String> {
@@ -369,9 +436,9 @@ pub fn host(
         .arg(&app.manifest)
         .args(["--bin", &app.bin])
         .env("CARGO_TARGET_DIR", out.join("cargo"));
-    configure_profile(&mut command, &out, root, profile, &host_target(root)?, os)?;
     options.configure_cargo(&mut command, &[]);
-    let selection = crate::cargo_graph::resolve(&mut command, profile)?;
+    let selection = prepare_cargo(&mut command, &out, root, profile, &host_target(root)?, os)?;
+    evidence["preparation"] = preparation_evidence(&command)?;
     evidence["dependency_resolution"] = selection.json();
     evidence["model_features"] = json!(selection.model_features);
     evidence["implementation_features"] = json!(selection.implementation_features);

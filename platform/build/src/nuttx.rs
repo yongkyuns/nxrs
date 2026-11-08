@@ -960,7 +960,6 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
-    build::configure_profile(&mut cargo, &out, root, p, target, "nuttx")?;
     options.configure_cargo(&mut cargo, &[]);
     if tools.esp {
         cargo.env(
@@ -983,7 +982,8 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     if let Some(config) = env::var_os("NXRS_CARGO_CONFIG") {
         cargo.arg("--config").arg(config);
     }
-    let selection = crate::cargo_graph::resolve(&mut cargo, p)?;
+    let selection = build::prepare_cargo(&mut cargo, &out, root, p, target, "nuttx")?;
+    deployment["preparation"] = build::preparation_evidence(&cargo)?;
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["implementation_features"] = json!(selection.implementation_features);

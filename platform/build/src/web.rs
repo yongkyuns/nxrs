@@ -354,12 +354,12 @@ pub fn build(
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("RUSTC", &rustc)
         .env("CARGO_BUILD_RUSTC", &rustc);
-    build::configure_profile(&mut command, &out, root, p, TARGET, "emscripten")?;
     options.configure_cargo(&mut command, &[]);
     if let Some(config) = cargo_config {
         command.arg("--config").arg(config);
     }
-    let selection = crate::cargo_graph::resolve(&mut command, p)?;
+    let selection = build::prepare_cargo(&mut command, &out, root, p, TARGET, "emscripten")?;
+    deployment["preparation"] = build::preparation_evidence(&command)?;
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["implementation_features"] = json!(selection.implementation_features);

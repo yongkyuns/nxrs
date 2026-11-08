@@ -446,11 +446,30 @@ The existing detector model policy remains separate. This satisfies the first
 feature-selection proof below; it does not make the production IMU drivers
 optional or complete D1's compiler/native handoff.
 
-The next D1 slice must move actual generation/native preparation into the
-controller and qualify its consumed-package handoff. Keep the generic adapters
-until generated values, provider flags, native links and freshness all have
-working replacements, including plain Cargo documentation and no-op builds.
-Do not equate a successful first compiler invocation with correct caching.
+The third slice, D1c, moves generic generation/native preparation into the
+existing host, NuttX and browser controllers after their real Cargo selection.
+The shared handoff verifies consumed package declarations even without a feature
+request, creates immutable profile/package artifacts, and supplies an explicit
+preparation receipt to the generic Cargo adapters. Those adapters validate and
+deliver generated Rust and saved link directives without generating or compiling
+native code on the prepared path. Native preparation receives explicit selected
+features and environment; compiler dependency files retain external-header
+freshness. Build evidence records the preparation receipt and hash.
+
+Detached compiler witnesses cover plain Cargo build/check/test/doc, warm no-op
+builds, retained A-to-B-to-A preparations, no-profile transitions, changed inputs,
+delivered-file repair and real native linking without adapter compilation.
+Unconsumed and feature-disabled helpers remain excluded. Actual IMU/GNSS schema
+values are rendered before compilation in a separate host witness. See the
+[D1c entry-point contract](static-device-composition.md#entry-point-contract-during-d1c)
+for compatibility and native-environment limits.
+
+D1 is still open for a complete replacement of package-level Cargo transport,
+custom detector/TLS/shared-GIO preparation and broader source discovery. Keep the
+generic adapters until generated values, provider flags, native links and
+freshness all have working replacements. Plain Cargo without an explicit
+preparation retains the shared legacy path during this stage. Do not equate a
+successful first compiler invocation with correct caching.
 
 
 Start in `platform/build-support/src/{composition,profile,resolved,lib}.rs`,
