@@ -245,9 +245,10 @@ is active or retiring. A different device can be acquired independently.
 Fault/poison state belongs to the affected device, including partial startup,
 IRQ registration rollback and IRQ unregister failures.
 
-Keep the existing `Imu` session contract: cancellation, observable terminal
-failure, dropped-event accounting, completion and explicit join. A permanent
-device is a separate concept. Session Drop requests cancellation without
+Keep the existing `imu::Session` contract (`imu::Imu` is its compatibility alias):
+cancellation, observable terminal failure, dropped-event accounting, completion
+and explicit join. A permanent device is a separate concept. Session Drop
+requests cancellation without
 blocking; it must not free the lease while a worker or callback can still touch
 hardware or instance state.
 

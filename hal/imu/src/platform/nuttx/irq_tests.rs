@@ -472,14 +472,14 @@ fn config_readback_mismatch_quarantines_before_publishing_device() {
 }
 
 fn join_device(device: device::Device<Bmi270Sensor>) {
-    use crate::Imu;
+    use crate::Session;
     let cancel = readiness::Cancel::new(|| {
         let (reader, writer) = UnixStream::pair()?;
         Ok((OwnedFd::from(reader).into(), OwnedFd::from(writer).into()))
     })
     .unwrap();
     let wake = cancel.reader.clone();
-    let mut worker = session::Session::start(
+    let mut worker = session::WorkerSession::start(
         16384,
         cancel,
         |_| Ok(()),

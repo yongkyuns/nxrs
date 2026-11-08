@@ -1,5 +1,10 @@
 # IMU
 
+`open` and `open_configured` return an `imu::Session`: stop, join, completion and
+drop accounting for active acquisition. The synchronous device operations belong
+to `peripheral::imu::Imu`, implemented by the chip drivers. `imu::Imu` remains
+an alias of `Session` so existing consumers require no changes.
+
 This HAL and its BMI270/LSM6DSO drivers use Rust `std`, as do their NuttX and
 host consumers. There is no bare-metal `no_std` variant. The optional `probe`
 feature selects instrumentation at one tracing-module boundary.

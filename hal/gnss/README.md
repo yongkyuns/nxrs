@@ -1,5 +1,9 @@
 # GNSS capability
 
+`open` returns a `gnss::Session`: stop, join, completion and drop accounting for
+active acquisition. Receiver protocol operations remain in the UBX driver.
+`gnss::Gnss` remains an alias of `Session` for existing consumers.
+
 `nxrs-gnss` owns receiver communication, configuration and the hardware-independent
 fix API. Services receive WGS84 latitude/longitude, speed in m/s and optional
 movement course in radians. `timestamp_ms` is the owner’s monotonic reception

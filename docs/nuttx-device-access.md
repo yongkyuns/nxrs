@@ -11,11 +11,16 @@ The governing rule is:
 > A hardware capability is implemented in its single Rust HAL crate. Use
 > qualified Rust `std` APIs directly for ordinary file/socket operations. Keep
 > the small amount of NuttX-specific ABI glue required for device controls
-> private to that crate's selected provider module.
+> private to the owning provider or reused resource package.
 
 Portable applications and services see only typed capability APIs. They never
 see device paths, file descriptors, `ioctl` request numbers, NuttX C structs,
 or NuttX-specific error values.
+
+This is a capability boundary, not a rule that all native code must move into
+drivers. Wi-Fi/BLE adapters remain with their owning HALs. Ordinary networking
+uses `std::net` without a second socket driver. Shared acquisition mechanics
+live in `hal/acquisition`; reusable I²C/GPIO resource access lives in `driver/`.
 
 The [peripheral composition design](peripheral-composition.md) and its
 [migration steps](peripheral-composition-plan.md) extend this boundary to
@@ -421,7 +426,8 @@ silently weaken an already tested failure contract.
 The following are architectural invariants:
 
 - Applications and services consume typed Rust capability APIs.
-- A concrete hardware resource is implemented in its dedicated Rust HAL provider.
+- Hardware access belongs to the owning Rust HAL provider or a reusable driver
+  resource adapter; consumers see the capability contract.
 - NuttX device paths, descriptors and request numbers stay below that boundary.
 - Qualified `std` APIs are used directly instead of being rewrapped.
 - Device-specific native ABI glue is private and minimal.

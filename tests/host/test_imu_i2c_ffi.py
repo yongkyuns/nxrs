@@ -182,7 +182,7 @@ int main(void) {
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
                             "-D_GNU_SOURCE", "-Dpipe2=sensor_test_pipe2", "-include", str(work / "compat.h"),
                             "-I", str(work), str(harness),
-                            str(ROOT / "driver/acquisition/src/platform/nuttx/ffi/events.c"),
+                            str(ROOT / "hal/acquisition/src/platform/nuttx/ffi/events.c"),
                             str(ROOT / "driver/gpio/src/platform/nuttx/ffi/gpio.c"),
                             "-o", str(executable)], check=True, timeout=30)
             subprocess.run([str(executable)], check=True, timeout=5)

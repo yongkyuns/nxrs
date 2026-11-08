@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-nxrs-acquisition = { path = "../../../../driver/acquisition" }
+nxrs-acquisition = { path = "../../../../hal/acquisition" }
 
 [package.metadata.nxrs]
 qualification-only = true

@@ -1,7 +1,7 @@
 //! Timing diagnostics, compiled with `probe` and activated by an observer.
 //! Without the feature, opens return `Unsupported` before resource acquisition.
 //! Observer callbacks run in task context and must not block.
-use crate::{platform, AppliedConfig, Config, DeviceError, Event, Imu};
+use crate::{platform, AppliedConfig, Config, DeviceError, Event, Session};
 use std::{boxed::Box, time::Instant};
 
 #[derive(Clone, Copy, Debug)]
@@ -24,7 +24,7 @@ pub fn open_configured(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     observe: impl Fn(Timing) + Send + Sync + 'static,
-) -> Result<(Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
+) -> Result<(Box<dyn Session + Send>, AppliedConfig), DeviceError> {
     platform::open_probed(config, sink, observe, false)
 }
 
@@ -35,7 +35,7 @@ pub fn open_sensor_reference_configured(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     observe: impl Fn(Timing) + Send + Sync + 'static,
-) -> Result<(Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
+) -> Result<(Box<dyn Session + Send>, AppliedConfig), DeviceError> {
     platform::open_probed(config, sink, observe, true)
 }
 
@@ -45,6 +45,6 @@ pub(crate) fn unsupported(
     _: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     _: impl Fn(Timing) + Send + Sync + 'static,
     _: bool,
-) -> Result<(Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
+) -> Result<(Box<dyn Session + Send>, AppliedConfig), DeviceError> {
     Err(DeviceError::Unsupported)
 }

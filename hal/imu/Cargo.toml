@@ -18,7 +18,7 @@ probe = []
 [dependencies]
 nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
-nxrs-acquisition = { path = "../../driver/acquisition" }
+nxrs-acquisition = { path = "../acquisition" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 nxrs-simulation = { path = "../../shared/simulation" }

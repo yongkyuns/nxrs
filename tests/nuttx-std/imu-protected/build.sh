@@ -27,7 +27,7 @@ mkdir -- "$app"
 cp "$HERE/i2c_probe.c" "$HERE/probe_main.c" "$app/"
 cp "$ROOT/driver/i2c/src/platform/nuttx/ffi/i2c.c" \
    "$ROOT/driver/gpio/src/platform/nuttx/ffi/gpio.c" \
-   "$ROOT/driver/acquisition/src/platform/nuttx/ffi/events.c" "$app/"
+   "$ROOT/hal/acquisition/src/platform/nuttx/ffi/events.c" "$app/"
 cat > "$app/Kconfig" <<'KCONFIG'
 config EXAMPLES_NXRS_IMU_WITNESS
 	bool "Nxrs protected IMU witness"

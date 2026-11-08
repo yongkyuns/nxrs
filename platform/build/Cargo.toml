@@ -18,7 +18,7 @@ regex = "1"
 # The detached factory witness runs offline; declare its source dependencies so
 # Cargo fetches their registry dependencies before starting the test on a clean host.
 nxrs-messaging = { path = "../../shared/messaging" }
-nxrs-acquisition = { path = "../../driver/acquisition" }
+nxrs-acquisition = { path = "../../hal/acquisition" }
 nxrs-i2c = { path = "../../driver/i2c" }
 nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }

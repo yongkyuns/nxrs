@@ -67,9 +67,13 @@ path admits FIFO implementations only. Neither mode promises lossless delivery
 under overload. Wake signals are hints, and the driver must inspect actual data.
 Chip filters, FIFO tags and other specialized controls remain chip-specific.
 
-The HAL supplies acquisition execution and lifetime policy. Drivers perform
-synchronous bounded operations when called. Reuse `nxrs-acquisition` and typed
-Rust functions or closures for execution. Introduce a private shared protocol
+The HAL supplies acquisition execution and lifetime policy. Its `imu::Session`
+and `gnss::Session` contracts describe active use, distinct from the synchronous
+device operations in the chip drivers. The old `imu::Imu` and `gnss::Gnss` names
+remain aliases for existing consumers. Reuse `nxrs-acquisition` and typed Rust
+functions or closures for execution. That helper shares worker code, not a
+scheduler. Execution resources are an explicit implementation choice; other
+driver protocols may need their own runtime. Introduce a private shared protocol
 only when multiple implementations actually need the same operations.
 
 ## Source organization
@@ -92,7 +96,7 @@ hal/imu/
 platform/nuttx/platforms/              existing product and qualification profiles
 driver/i2c/                            NuttX-only bus adapter implementing embedded-hal
 driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
-driver/acquisition/                    shared workers, cancellation and native readiness
+hal/acquisition/                       shared workers, cancellation and native readiness
 hal/gnss/                              UART binding, UBX policy and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
 platform/profiles/                     host, simulation and qualification profiles

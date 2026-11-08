@@ -9,7 +9,9 @@
 ))]
 extern crate std;
 mod api;
-pub use api::{DeviceError, Event, Gnss, GnssFix};
+/// Compatibility name for the acquisition session; use `Session` in new code.
+pub use api::Session as Gnss;
+pub use api::{DeviceError, Event, GnssFix, Session};
 pub use messaging::{DeliveryError, Rejected};
 mod platform;
 #[cfg(any(test, hal_provider = "hardware"))]

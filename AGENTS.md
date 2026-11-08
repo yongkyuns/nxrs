@@ -20,6 +20,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   are implemented. Use the profile resolver and normal build/inspection entry
   points. Keep retired sensor selectors and their translation paths out of new wiring.
 - Keep managed capability APIs and acquisition implementations in their HALs.
+  HALs are capability/subsystem boundaries, not vendor register HALs. Reuse Rust
+  `std` directly; do not add a mandatory driver layer for ordinary OS operations.
+  Capability-specific native adapters stay with their owning HAL. Threads,
+  queues and executors require an execution need, not merely another component.
   Reusable chip protocols belong in `driver/<device>` with sensor-specific APIs
   over existing Rust bus traits. Shared synchronous device contracts belong in
   `driver/peripheral`; chip drivers implement them directly. The IMU contract
@@ -41,10 +45,12 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   and `driver/gpio` support NuttX only and own their descriptors and embedded-hal
   implementations. GPIO owns registration/rollback and reports teardown failures
   through a task-context hook; the consuming HAL retains quarantine policy.
-  `nxrs-acquisition` is shared worker/readiness support, with one NuttX poll/pipe
-  binding used by IMU and GNSS. Sensor HALs
-  supply resolved configuration and own sensor policy; chip drivers consume bus
-  traits without depending on the concrete adapter. Do not add speculative OS
+  `hal/acquisition` is shared worker/readiness implementation support, with one
+  NuttX poll/pipe binding used by IMU and GNSS. It has no profile binding and
+  shares worker code, not an executor. `imu::Session` and `gnss::Session` describe
+  acquisition lifetimes; synchronous chip operations remain driver contracts.
+  Sensor HALs supply resolved configuration and own sensor policy; chip drivers
+  consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile role. Host witnesses inject
   test-only bus bindings. Sensor catalogs name
   checked-in implementation types; shared tooling emits fixed typed resource

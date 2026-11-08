@@ -4,6 +4,34 @@ Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
 `imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
+## Capability boundaries and execution
+
+`hal/` owns capability/subsystem APIs and their implementations, rather than
+vendor register HALs. Consumers use portable contracts; private implementations
+may use their native OS or SDK. Native code does not all belong in `driver/`.
+
+| Responsibility | Owner |
+| --- | --- |
+| Ordinary files, sockets, threads, synchronization and time | Rust `std`, used directly |
+| Reusable chip protocols and hardware-resource adapters | `driver/<device-or-resource>` |
+| Managed capability behavior and private OS/SDK adapters | Owning `hal/<capability>` |
+| Shared acquisition worker, cancellation and readiness mechanisms | `hal/acquisition`, an implementation helper with no profile binding |
+| Device selection, resource bindings and execution budgets | Product profiles and build wiring |
+
+Use a capability-specific contract with explicit supported configuration,
+buffer ownership, completion, cancellation and failure semantics. Normalization
+does not imply equal hardware capabilities or a universal device API.
+`peripheral::imu::Imu` supplies synchronous device operations; `imu::Session`
+and `gnss::Session` describe active acquisition lifetimes. The old `imu::Imu`
+and `gnss::Gnss` names are aliases for existing consumers.
+
+A component does not automatically require a thread or queue. A driver may own
+execution when hardware or blocking operations require it; current IMU chip
+contracts create none. `nxrs-acquisition` shares implementation code and starts
+one worker per explicit call, not a shared executor. Shared scheduling requires
+bounded device work, fairness and cancellation/deadline qualification. Application
+and service execution are unchanged by this foundation cleanup.
+
 The implemented [peripheral composition design](peripheral-composition.md)
 defines reusable sensor-specific drivers, embedded-hal resource adapters and
 validated device/role bindings in profiles. The

@@ -150,7 +150,7 @@ kind = "abi"
 reason = "Synchronous netinit SDK operation; Rust serializes once-only acquisition and retains partial failures."
 
 [[bridge]]
-path = "driver/acquisition/src/platform/nuttx/ffi/events.c"
+path = "hal/acquisition/src/platform/nuttx/ffi/events.c"
 kind = "abi"
 reason = "Target pollfd layout and pipe2 flags only. Shared Rust readiness owns descriptor lifetime and cancellation; HALs own reads, deadlines and event admission."
 

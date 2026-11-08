@@ -33,9 +33,11 @@ pub enum Event {
     Failed(DeviceError),
 }
 
-/// Owns acquisition execution. Request cancellation, then explicitly join.
+/// An active fix-stream lifetime, not the receiver's wire protocol. The provider
+/// owns execution; this trait does not prescribe a thread or executor.
+/// Request cancellation, then explicitly join.
 /// Drop requests cancellation without blocking; the worker retains resources.
-pub trait Gnss {
+pub trait Session {
     fn request_stop(&mut self) -> Result<(), DeviceError>;
     fn join(&mut self) -> Result<(), DeviceError>;
     fn is_finished(&self) -> bool;

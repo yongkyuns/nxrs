@@ -1,9 +1,14 @@
 # Shared acquisition support
 
-`nxrs-acquisition` provides worker, bounded delivery, cancellation and readiness
-mechanisms shared by IMU and GNSS. Despite its historical directory under
-`driver/`, it is runtime support: sensor protocols, cadence, resource budgets,
-error policy and device cleanup remain in its callers.
+`nxrs-acquisition` is shared HAL implementation support, not a device driver or
+a profile-selectable capability. IMU and GNSS reuse its worker, bounded delivery,
+cancellation and readiness mechanisms. Sensor protocols, cadence, resource
+budgets, error policy and device cleanup remain in its callers.
+
+Each explicit `Worker::start` creates one thread. This package shares code, not
+an executor; it adds no queue of its own. Drivers do not acquire a worker merely
+by implementing a device contract. A future shared executor must qualify bounded
+device work, fairness, cancellation and deadlines before replacing these workers.
 
 On NuttX, `acquisition::nuttx` provides one private target-header poll/pipe binding
 for both HALs. Rust owns the resulting descriptors. `wait` reports device

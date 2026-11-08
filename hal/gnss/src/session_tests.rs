@@ -83,7 +83,7 @@ fn fault_survives_full_sink_and_repeated_join_even_when_stop_cancels_notificatio
 }
 #[test]
 fn mock_stop_wakes_its_wait_and_no_delivery_outlives_join() {
-    use crate::Gnss;
+    use crate::Session;
     let (sender, receiver) = sync_channel(1);
     let mut session = crate::mock_tests::open(move |event| {
         sender.try_send(event).map_err(|error| Rejected {

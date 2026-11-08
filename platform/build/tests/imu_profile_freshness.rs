@@ -41,7 +41,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
              nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
-            source.join("shared/messaging"), source.join("driver/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"),
+            source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"),
             source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("platform/build-support")
         ),
     )
@@ -75,7 +75,7 @@ fn main() {
         r#"
 #![allow(dead_code, unused_imports)]
 #[path = @API@] mod api;
-pub use api::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 // Every host checks generated bindings below. Unix hosts additionally compile
 // the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
 #[cfg(unix)]

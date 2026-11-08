@@ -1,7 +1,7 @@
 //! Host-injected witnesses are separate from production module selection.
 #![deny(unsafe_code)]
 pub use imu::probe;
-pub use imu::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+pub use imu::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 #[path = "../src/cadence.rs"]
 mod cadence;
 

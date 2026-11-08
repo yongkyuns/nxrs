@@ -5,9 +5,9 @@ pub(crate) use crate::probe::unsupported as open_probed;
 
 #[path = "../session.rs"]
 mod session;
-use crate::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 use nxrs_simulation::{self as simulation, runtime, CancelHandle, Error, Observation, Source};
-use session::Session;
+use session::WorkerSession;
 use std::io;
 
 include!(concat!(env!("OUT_DIR"), "/simulation_config.rs"));
@@ -25,7 +25,7 @@ impl acquisition::Wake for Cancel {
 
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
-) -> Result<impl Imu + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     let endpoint =
         runtime::acquire(SIM_SEED, SIM_SOURCES, Source::Imu).map_err(|error| match error {
             runtime::AcquireError::Engine(Error::Busy) | runtime::AcquireError::ConflictingSpec => {
@@ -35,7 +35,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
             _ => DeviceError::Io,
         })?;
     let cancel = Cancel(endpoint.cancel_handle());
-    Session::start(65_536, cancel, sink, move |stop, emit| {
+    WorkerSession::start(65_536, cancel, sink, move |stop, emit| {
         while !stop.load(core::sync::atomic::Ordering::Acquire) {
             let event = match endpoint.recv() {
                 Ok(event) => event,
@@ -79,7 +79,7 @@ pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     config: Config,
     sink: S,
-) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
+) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
     let applied = resolve(config)?;
     open(sink).map(|session| (session, applied))
 }

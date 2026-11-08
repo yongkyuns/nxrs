@@ -51,7 +51,7 @@ datagrams. Sharing implementation does not erase those differences.
 | Owner | Responsibility |
 | --- | --- |
 | `hal/<capability>` | Public contract, errors, resource acquisition and device policy. |
-| `driver/acquisition` | Shared sensor worker, cancellation and scripted-session mechanics. |
+| `hal/acquisition` | Shared sensor worker, cancellation and scripted-session mechanics. |
 | `driver/linux/gio` | Shared GLib/GIO Rust bindings and one native ABI archive for Wi-Fi and BLE. |
 | `platform/build-support` | Generic host build, profile, native-tool and source helpers. |
 | `hal/detector/build-support` | Detector-owned numerical SDK build code and its compatibility header. |

@@ -1,8 +1,8 @@
 pub(crate) use crate::probe::unsupported as open_probed;
-use crate::{AppliedConfig, Config, DeviceError, Event, Imu};
+use crate::{AppliedConfig, Config, DeviceError, Event, Session};
 
 struct Unconfigured;
-impl Imu for Unconfigured {
+impl Session for Unconfigured {
     fn request_stop(&mut self) -> Result<(), DeviceError> {
         Ok(())
     }
@@ -18,7 +18,7 @@ impl Imu for Unconfigured {
 }
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     _: S,
-) -> Result<impl Imu + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     Err::<Unconfigured, _>(DeviceError::Unsupported)
 }
 
@@ -30,6 +30,6 @@ pub fn resolve(_: Config) -> Result<AppliedConfig, DeviceError> {
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     _: Config,
     _: S,
-) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
+) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
     Err::<(Unconfigured, AppliedConfig), _>(DeviceError::Unsupported)
 }

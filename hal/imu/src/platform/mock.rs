@@ -5,8 +5,8 @@ use peripheral::imu::select_rate;
 
 pub(crate) use crate::probe::unsupported as open_probed;
 
-type Session = acquisition::mock::Session<DeviceError>;
-use crate::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+type MockSession = acquisition::mock::Session<DeviceError>;
+use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 
 const INTERVAL_US: u32 = 10_000;
 
@@ -29,25 +29,25 @@ impl SyntheticImu {
     }
 }
 
-impl Imu for Session {
+impl Session for MockSession {
     fn request_stop(&mut self) -> Result<(), DeviceError> {
-        Session::request_stop(self)
+        MockSession::request_stop(self)
     }
     fn join(&mut self) -> Result<(), DeviceError> {
-        Session::join(self)
+        MockSession::join(self)
     }
     fn is_finished(&self) -> bool {
-        Session::is_finished(self)
+        MockSession::is_finished(self)
     }
     fn dropped(&self) -> u32 {
-        Session::dropped(self)
+        MockSession::dropped(self)
     }
 }
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
-) -> Result<impl Imu + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     let mut model = SyntheticImu::default();
-    Session::start(
+    MockSession::start(
         sink,
         std::time::Duration::from_micros(u64::from(INTERVAL_US)),
         DeviceError::Io,
@@ -72,7 +72,7 @@ pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     config: Config,
     sink: S,
-) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
+) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
     let applied = resolve(config)?;
     open(sink).map(|session| (session, applied))
 }
