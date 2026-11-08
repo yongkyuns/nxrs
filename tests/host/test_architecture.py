@@ -350,6 +350,14 @@ class ArchitectureTests(unittest.TestCase):
         (self.root / 'service/demo/src/lib.rs').write_text('#![forbid(unsafe_code)]\nuse std::thread;\n')
         self.assertEqual(self.violations(), [])
 
+    def test_hal_can_use_std_while_retaining_its_unsafe_boundary(self):
+        path = self.root / 'hal/imu/src/lib.rs'
+        path.write_text('#![deny(unsafe_code)]\nuse std::thread;\n')
+        self.assertEqual(self.violations(), [])
+        path.write_text('use std::thread;\n')
+        self.assertTrue(any('must retain #![deny(unsafe_code)]' in error
+                            for error in self.violations()))
+
     def test_diagnostic_switches_are_consolidated_under_probe(self):
         path = self.root / 'app/demo/Cargo.toml'
         original = path.read_text()

@@ -1,7 +1,7 @@
 //! Package-owned declarative configuration, independent of Cargo's environment.
 use crate::{
     bindings::{Catalogs, Package},
-    configuration::{self, Context, Schema},
+    configuration,
     profile::Profile,
     Result, TempDir,
 };
@@ -37,68 +37,59 @@ pub fn prepare_package(
         .ok_or("configuration package must have an nxrs- capability name")?;
     let mut inputs = vec![package.manifest.path.clone()];
     inputs.extend(package.catalogs.iter().map(|input| input.path.clone()));
-    inputs.extend(package.configuration.values().map(|input| input.path.clone()));
     inputs.extend(profile.source_paths().cloned());
     inputs.extend(profile.catalogs().source_paths().cloned());
     inputs.sort();
     inputs.dedup();
 
     let provider = profile.binding(capability);
-    let Some(input) = package.configuration.get(provider) else {
+    if provider != os || package.catalogs.is_empty() {
         publish(out, &name, None)?;
         return Ok(inputs);
-    };
-    let schema_path = input.path.clone();
-    let schema = Schema::parse(&input.contents)
-        .map_err(|error| format!("{}: {error}", schema_path.display()))?;
+    }
     let expected = profile
         .catalogs()
         .package(capability)
         .ok_or_else(|| format!("profile has no declared package bindings for {capability}"))?;
     if !same_declarations(&package, expected) {
         return Err(format!(
-            "configuration inputs for {name} differ from the resolved profile; use matching package catalogs and schemas"
+            "configuration inputs for {name} differ from the resolved profile; use matching package binding catalogs"
         ));
     }
 
     let composition = profile
         .composition()?
         .ok_or_else(|| format!("{name}/{provider} configuration requires a composition"))?;
-    let graph = serde_json::to_value(composition).map_err(|error| error.to_string())?;
-    let role = schema.role();
-    let device_id = graph["roles"]
-        .get(role)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("{}: missing device role {role}", schema_path.display()))?;
-    let device = graph["devices"]
+    let device_id = composition
+        .roles
+        .get(capability)
+        .ok_or_else(|| format!("{name}: missing device role {capability}"))?;
+    let device = composition
+        .devices
         .get(device_id)
-        .ok_or_else(|| format!("{}: missing device {device_id}", schema_path.display()))?;
-    let compatible = device["compatible"]
-        .as_str()
-        .ok_or("resolved device has no compatible identity")?;
-    let bus = device["bus"]
-        .as_str()
-        .ok_or("resolved device has no bus reference")?;
-    let resources = &graph["resources"];
-    let bus_kind = resources
-        .get(bus)
-        .and_then(|resource| resource.get("kind"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("resolved device {device_id} has no bus resource {bus}"))?;
+        .ok_or_else(|| format!("{name}: missing device {device_id}"))?;
+    let resource = composition
+        .resources
+        .get(&device.bus)
+        .ok_or_else(|| format!("{name}: missing bus {}", device.bus))?;
+    let bus = match resource {
+        crate::composition::Resource::I2c { .. } => "i2c",
+        crate::composition::Resource::Uart { .. } => "uart",
+        _ => return Err("device bus must be I2C or UART".into()),
+    };
     let mut catalogs = Catalogs::default();
     catalogs.insert(capability, package)?;
-    let binding = catalogs.binding(capability, compatible, bus_kind)?;
-    let source = configuration::render(
-        &schema,
-        &Context {
-            profile: &profile.data,
-            device,
-            resources,
-            binding,
-        },
-    )
-    .map_err(|error| format!("{}: {error}", schema_path.display()))?;
-    publish(out, &name, Some((schema.output(), &source)))?;
+    let binding = catalogs.binding(capability, &device.compatible, bus)?;
+    let implementation = binding["implementation"]
+        .as_str()
+        .ok_or("missing implementation")?;
+    let stack = crate::profile::sensor_stack(&profile.data[capability])?;
+    let source = configuration::render(&composition, capability, implementation, stack)?;
+    publish(
+        out,
+        &name,
+        Some((&format!("{capability}_config.rs"), &source)),
+    )?;
     Ok(inputs)
 }
 
@@ -111,16 +102,6 @@ fn same_declarations(actual: &Package, expected: &Package) -> bool {
             .iter()
             .map(|input| &input.sha256)
             .eq(expected.catalogs.iter().map(|input| &input.sha256))
-        && actual
-            .configuration
-            .iter()
-            .map(|(provider, input)| (provider, &input.sha256))
-            .eq(
-                expected
-                    .configuration
-                    .iter()
-                    .map(|(provider, input)| (provider, &input.sha256)),
-            )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -140,7 +121,7 @@ fn output_name(name: &str) -> bool {
 }
 
 /// Keep cleanup limited to the one Rust file recorded for this package. Cargo's
-/// OUT_DIR persists, so removing/renaming a schema must not leave an old include
+/// OUT_DIR persists, so removing a binding must not leave an old include
 /// available to an unchanged runtime source file.
 fn publish(out: &Path, package: &str, generated: Option<(&str, &str)>) -> Result<()> {
     let receipt = out.join(format!("{package}.configuration.json"));

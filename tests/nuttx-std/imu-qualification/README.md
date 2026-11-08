@@ -6,6 +6,10 @@ joins acquisition. Its serial summary reports software observations and faults.
 Use [the S8 plan](../../../docs/peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines)
 for the full timing matrix.
 
+This fixture's `probe` feature enables HAL tracing together with its timing
+recorder and target-only scheduler, GPIO and resource collectors. Without it,
+ordinary acquisition uses zero-sized tracing and diagnostic opens are unsupported.
+
 ## Prepare the board
 
 1. Identify the exact board, flash capacity, sensor, I²C address and wiring.

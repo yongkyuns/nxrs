@@ -13,6 +13,7 @@ members = [
     "hal/detector/build-support",
     "driver/acquisition",
     "driver/bmi270",
+    "driver/i2c",
     "driver/lsm6dso",
     "driver/ubx",
     "driver/linux/gio",

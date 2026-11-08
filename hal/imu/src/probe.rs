@@ -1,4 +1,6 @@
-//! Optional timing observations from physical acquisition task context.
+//! Timing diagnostics, compiled with `probe` and activated by an observer.
+//! Without the feature, opens return `Unsupported` before resource acquisition.
+//! Observer callbacks run in task context and must not block.
 use crate::{platform, AppliedConfig, Config, DeviceError, Event, Imu};
 use std::{boxed::Box, time::Instant};
 
@@ -9,7 +11,7 @@ pub enum Timing {
         at: Instant,
         periodic_deadline: Option<Instant>,
     },
-    /// Synchronous I²C ioctl interval, including any kernel wait.
+    /// Synchronous I²C transaction interval, including adapter checks and kernel wait.
     Ioctl { start: Instant, end: Instant },
     /// FIFO drain returned, including decoding and sample delivery. A failure
     /// or early termination sets `complete` to false.
@@ -27,8 +29,8 @@ pub fn open_configured(
 }
 
 /// Open a physical probe with the sensor-specific external data-ready reference
-/// enabled. This is an explicit qualification path and is unavailable without
-/// the `probe` feature or on platforms without a physical provider.
+/// enabled. This explicit qualification operation changes sensor interrupt
+/// routing. Providers without physical timing support return `Unsupported`.
 pub fn open_sensor_reference_configured(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,

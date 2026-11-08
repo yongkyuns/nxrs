@@ -3,7 +3,7 @@
 
 #[cfg(not(feature = "probe"))]
 use imu::Imu;
-use imu::{AccelRange, Config, DeviceError, Event, GyroRange};
+use imu::{Config, DeviceError, Event};
 use messaging::{bounded, DeliveryError, Rejected};
 use std::{
     process::ExitCode,
@@ -30,8 +30,8 @@ const NO_STREAM: Duration = Duration::from_secs(3);
 const CONFIG: Config = Config {
     min_rate_millihz: 100_000,
     max_rate_millihz: 104_000,
-    accel_range: AccelRange::G4,
-    gyro_range: GyroRange::Dps2000,
+    accel_range_g: 4,
+    gyro_range_dps: 2000,
     max_delivery_interval_us: 10_000,
 };
 

@@ -1,8 +1,5 @@
 //! LSM6DSO register and tagged FIFO driver. OS and HAL policy live elsewhere.
-#![no_std]
 #![forbid(unsafe_code)]
-#[cfg(test)]
-extern crate std;
 
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 
@@ -42,6 +39,15 @@ pub enum Rate {
 }
 
 impl Rate {
+    /// Paired accelerometer/gyroscope rates supported by this driver's FIFO setup.
+    pub const SUPPORTED: [Self; 5] = [
+        Self::Hz12_5,
+        Self::Hz26,
+        Self::Hz52,
+        Self::Hz104,
+        Self::Hz208,
+    ];
+
     pub const fn milli_hz(self) -> u32 {
         match self {
             Self::Hz12_5 => 12_500,
@@ -83,6 +89,17 @@ pub enum AccelRange {
 }
 
 impl AccelRange {
+    /// Resolve an exact full scale in multiples of standard gravity.
+    pub const fn from_g(value: u16) -> Option<Self> {
+        match value {
+            2 => Some(Self::G2),
+            4 => Some(Self::G4),
+            8 => Some(Self::G8),
+            16 => Some(Self::G16),
+            _ => None,
+        }
+    }
+
     const fn bits(self) -> u8 {
         match self {
             Self::G2 => 0x00,
@@ -113,6 +130,18 @@ pub enum GyroRange {
 }
 
 impl GyroRange {
+    /// Resolve an exact full scale in degrees per second.
+    pub const fn from_dps(value: u16) -> Option<Self> {
+        match value {
+            125 => Some(Self::Dps125),
+            250 => Some(Self::Dps250),
+            500 => Some(Self::Dps500),
+            1000 => Some(Self::Dps1000),
+            2000 => Some(Self::Dps2000),
+            _ => None,
+        }
+    }
+
     const fn bits(self) -> u8 {
         match self {
             Self::Dps125 => 0x02,

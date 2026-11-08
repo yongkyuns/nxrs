@@ -1,6 +1,6 @@
 //! Physical device ownership. Construction and cleanup stay in task context.
-use super::{i2c::Bus, irq::Irq, signal::Signal, trace::Trace, OWNED};
-use crate::{sensors::Sensor, AppliedConfig, Config, DeviceError, Event};
+use super::{adapters::Sensor, irq::Irq, observed_bus::Bus, signal::Signal, trace::Trace, OWNED};
+use crate::{AppliedConfig, Config, DeviceError, Event};
 use core::sync::atomic::{AtomicBool, Ordering};
 use embedded_hal::delay::DelayNs;
 use std::{
@@ -60,13 +60,13 @@ impl<S: Sensor<Bus, Delay>> Device<S> {
         config: Config,
         trace: Trace,
     ) -> Result<Self, DeviceError> {
-        let applied = S::CAPABILITIES.select(config)?;
+        let (settings, applied) = S::resolve(config)?;
         let lease = Lease::take()?;
         // An absent GPIO uses an ODR-derived wake. Failure of a configured IRQ
         // never changes acquisition mode.
         let irq = binding.irq_path.map(Irq::open).transpose()?;
         let bus = Bus::open(binding.path, binding.frequency, trace.clone())?;
-        let sensor = S::open(bus, binding.address, Delay, applied).inspect_err(|_| {
+        let sensor = S::open(bus, binding.address, Delay, settings, applied).inspect_err(|_| {
             // An interrupted configuration may have left the sensor active.
             OWNED.store(2, Ordering::Release);
         })?;

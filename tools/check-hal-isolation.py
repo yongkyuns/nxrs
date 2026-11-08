@@ -172,7 +172,10 @@ def run(out, capabilities=CAPABILITIES):
         if capability == "storage":
             expected.add("nxrs-camera")
         base_expected = expected
-        cases = [("contract-core", None, "none", "thumbv6m-none-eabi", None),
+        # IMU and its drivers require std; preserve unbound isolation on the host.
+        contract = (("contract-host", None, "none", None, None) if capability == "imu"
+                    else ("contract-core", None, "none", "thumbv6m-none-eabi", None))
+        cases = [contract,
                  ("contract-wasm", None, "none", "wasm32-unknown-unknown", None)]
         if capability not in {"wifi", "ble"}:
             cases.append(("mock-wasm", "mock", "mock", "wasm32-unknown-unknown", None))
@@ -183,11 +186,10 @@ def run(out, capabilities=CAPABILITIES):
             cases.append((HOST_PLATFORM, HOST_PLATFORM, HOST_PLATFORM, None, example))
         for label, profile, provider, target, example in cases:
             expected = set(base_expected)
-            # The sensor manifests declare their shared task owner on targets
-            # with std. The Cortex-M0 contract case must keep that crate out.
+            # GNSS retains a core-only contract; IMU's contract also uses std.
             if capability in {"imu", "gnss"} and target != "thumbv6m-none-eabi":
                 expected.add("nxrs-acquisition")
-            if label == "simulation-host":
+            if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
             host = host_dependencies(metadata, expected)

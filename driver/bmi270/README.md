@@ -1,7 +1,7 @@
 # BMI270 driver
 
 `nxrs-bmi270` contains the synchronous BMI270 protocol over `embedded-hal`
-`I2c` and a caller-supplied `DelayNs` instance. It is `no_std` and owns chip
+`I2c` and a caller-supplied `DelayNs` instance. It uses Rust `std` and owns chip
 initialization, the exact configuration readback, bounded headerless FIFO
 decode, sensor-specific errors and stop operations. `Sample` contains physical
 SI values; reception time and delivery sequencing belong to the consuming
@@ -14,7 +14,11 @@ with the pinned `bmi2` release. `Cargo.lock` retains the registry checksum for
 that release. `Bmi270::open` retains the 100 Hz ODR, ±4 g acceleration and
 ±2000°/s gyro defaults. `open_configured` accepts the chip-specific `Config`
 with rates of 25, 50, 100 or 200 Hz, accelerometer ranges of ±2/4/8/16 g, and
-gyroscope ranges of ±125/250/500/1000/2000°/s. Initialization verifies the
+gyroscope ranges of ±125/250/500/1000/2000°/s. `Rate::SUPPORTED` enumerates the
+typed rates and `Rate::milli_hz()` reports their exact values.
+`AccelRange::from_g()` and `GyroRange::from_dps()` resolve exact physical ranges
+to chip-specific settings, returning `None` for unsupported values.
+Initialization verifies the
 accepted accelerometer and gyroscope ODR and range fields by reading their
 registers back. All supported gyro ODRs are at least 25 Hz. FIFO conversion
 scales each raw axis using the chosen physical range. FIFO layout, watermark,

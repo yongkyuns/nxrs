@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <unistd.h>
 
-int imu_i2c_transfer(int fd, uint8_t address, uint32_t frequency,
+int i2c_resource_transfer(int fd, uint8_t address, uint32_t frequency,
                      const uint8_t *write, size_t write_len,
                      uint8_t *read, size_t read_len);
 
@@ -15,7 +15,7 @@ int imu_i2c_transfer(int fd, uint8_t address, uint32_t frequency,
 
 static int transfer(int fd, const uint8_t *reg, uint8_t *data)
 {
-  return imu_i2c_transfer(fd, 0x68, WITNESS_FREQUENCY, reg, 1, data, 2);
+  return i2c_resource_transfer(fd, 0x68, WITNESS_FREQUENCY, reg, 1, data, 2);
 }
 
 int imu_witness_i2c(void)
@@ -53,7 +53,7 @@ int imu_witness_i2c(void)
 
   /* The bridge must reject oversize buffers before issuing an ioctl. */
   errno = 0;
-  if (imu_i2c_transfer(fd, 0x68, WITNESS_FREQUENCY,
+  if (i2c_resource_transfer(fd, 0x68, WITNESS_FREQUENCY,
                        oversized, sizeof(oversized), reply.bytes, 2) != -1 ||
       errno != EINVAL || reply.before != 0x17 || reply.after != 0xe2)
     {

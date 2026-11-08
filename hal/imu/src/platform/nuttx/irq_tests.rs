@@ -62,10 +62,10 @@ impl Fake {
 
 static FAKE: Mutex<Fake> = Mutex::new(Fake::new());
 
-mod ffi {
+pub(super) mod ffi {
     use super::*;
 
-    pub(super) fn transfer(
+    pub(crate) fn transfer(
         _: i32,
         address: u8,
         frequency: u32,
@@ -144,20 +144,23 @@ mod ffi {
 use acquisition::readiness;
 #[path = "device.rs"]
 mod device;
-#[path = "i2c.rs"]
-mod i2c;
+#[path = "observed_bus.rs"]
+mod observed_bus;
+use super::resource;
 #[path = "irq.rs"]
 mod irq;
-use crate::session;
+#[path = "../../session.rs"]
+mod session;
+use super::{adapters, cadence};
 #[path = "signal.rs"]
 mod signal;
 #[path = "trace.rs"]
 mod trace;
 
-type Bmi270Sensor = crate::sensors::bmi270::Sensor<i2c::Bus, device::Delay>;
-type Lsm6dsoSensor = crate::sensors::lsm6dso::Sensor<i2c::Bus>;
+type Bmi270Sensor = adapters::bmi270::Sensor<observed_bus::Bus, device::Delay>;
+type Lsm6dsoSensor = adapters::lsm6dso::Sensor<observed_bus::Bus>;
 
-fn acquire<S: crate::sensors::Sensor<i2c::Bus, device::Delay>>(
+fn acquire<S: adapters::Sensor<observed_bus::Bus, device::Delay>>(
     binding: device::Binding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<S>, crate::DeviceError> {
@@ -203,7 +206,7 @@ fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> device::Binding<'a> 
 }
 
 fn default_config() -> crate::Config {
-    crate::sensors::bmi270::DEFAULT_CONFIG
+    adapters::bmi270::DEFAULT_CONFIG
 }
 
 #[test]
@@ -262,22 +265,37 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
 }
 
 #[test]
-fn unsupported_joint_rate_and_timing_request_does_not_acquire_resources() {
+fn rejected_requests_do_not_acquire_resources() {
+    use crate::DeviceError::{InvalidData, Unsupported};
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    let config = crate::Config {
-        min_rate_millihz: 100_000,
-        max_rate_millihz: 100_000,
-        accel_range: crate::AccelRange::G2,
-        gyro_range: crate::GyroRange::Dps250,
-        max_delivery_interval_us: 5_000,
-    };
-
-    assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), config).err(),
-        Some(crate::DeviceError::Unsupported)
-    );
+    for (min, max, accel, gyro, interval, error) in [
+        (25_000, 104_000, 4, 2000, 5_000, Unsupported),
+        (25_000, 104_000, 3, 2000, 40_000, Unsupported),
+        (25_000, 104_000, 4, 333, 40_000, Unsupported),
+        (0, 104_000, 4, 2000, 40_000, InvalidData),
+        (104_000, 25_000, 4, 2000, 40_000, InvalidData),
+        (25_000, 104_000, 0, 2000, 40_000, InvalidData),
+        (25_000, 104_000, 4, 0, 40_000, InvalidData),
+        (25_000, 104_000, 4, 2000, 0, InvalidData),
+    ] {
+        let config = crate::Config {
+            min_rate_millihz: min,
+            max_rate_millihz: max,
+            accel_range_g: accel,
+            gyro_range_dps: gyro,
+            max_delivery_interval_us: interval,
+        };
+        assert_eq!(
+            acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), config).err(),
+            Some(error)
+        );
+        assert_eq!(
+            acquire::<Lsm6dsoSensor>(binding(file.path(), Some(file.path())), config).err(),
+            Some(error)
+        );
+    }
     let f = FAKE.lock().unwrap();
     assert_eq!(f.transfers, 0);
     assert_eq!((f.registrations, f.unregisters), (0, 0));
@@ -318,7 +336,7 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
 
 #[test]
 fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
-    use crate::sensors::Sensor;
+    use adapters::Sensor;
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
@@ -328,7 +346,7 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
         frequency: 100_000,
         irq_path: None,
     };
-    let default = <Lsm6dsoSensor as Sensor<i2c::Bus, device::Delay>>::DEFAULT;
+    let default = <Lsm6dsoSensor as Sensor<observed_bus::Bus, device::Delay>>::DEFAULT;
     assert_eq!(
         acquire::<Lsm6dsoSensor>(replacement, default_config()).err(),
         Some(crate::DeviceError::Unsupported)
@@ -346,6 +364,8 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
     assert_eq!(device.applied_config().rate_millihz, 104_000);
     assert_eq!(device.applied_config().delivery_interval_us, 9_616);
     assert_eq!(FAKE.lock().unwrap().last_endpoint, Some((0x6a, 100_000)));
+    // The accepted 104 Hz / 4 g / 2000 dps reaches the sensor's control registers.
+    assert_eq!(&FAKE.lock().unwrap().regs[0x10..=0x11], &[0x48, 0x4c]);
     assert_eq!(
         acquire::<Bmi270Sensor>(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::Busy)
@@ -362,8 +382,8 @@ fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
     let defaults = default_config();
     let expected_defaults = crate::AppliedConfig {
         rate_millihz: 100_000,
-        accel_range: crate::AccelRange::G4,
-        gyro_range: crate::GyroRange::Dps2000,
+        accel_range_g: 4,
+        gyro_range_dps: 2000,
         delivery_interval_us: 10_000,
     };
     let device = acquire::<Bmi270Sensor>(binding(file.path(), None), defaults).unwrap();
@@ -374,17 +394,22 @@ fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
     let requested = crate::Config {
         min_rate_millihz: 25_000,
         max_rate_millihz: 100_000,
-        accel_range: crate::AccelRange::G4,
-        gyro_range: crate::GyroRange::Dps500,
+        accel_range_g: 8,
+        gyro_range_dps: 125,
         max_delivery_interval_us: 20_000,
     };
     let device = acquire::<Bmi270Sensor>(binding(file.path(), None), requested).unwrap();
     let applied = device.applied_config();
     assert_eq!(applied.rate_millihz, 50_000);
-    assert_eq!(applied.accel_range, crate::AccelRange::G4);
-    assert_eq!(applied.gyro_range, crate::GyroRange::Dps500);
+    assert_eq!(applied.accel_range_g, 8);
+    assert_eq!(applied.gyro_range_dps, 125);
     assert_eq!(applied.delivery_interval_us, 20_000);
     assert_ne!(applied, expected_defaults);
+    // Both ODR codes are 50 Hz, acceleration is 8 g, and gyro is 125 dps
+    // with the driver's existing 2000 dps OIS setting in bit 3.
+    let regs = FAKE.lock().unwrap().regs;
+    assert_eq!((regs[0x40] & 0x0f, regs[0x42] & 0x0f), (7, 7));
+    assert_eq!((regs[0x41] & 0x03, regs[0x43] & 0x0f), (2, 0x0c));
     drop(device);
 }
 
@@ -430,23 +455,8 @@ fn config_readback_mismatch_quarantines_before_publishing_device() {
     assert_eq!(FAKE.lock().unwrap().transfers, transfers);
 }
 
-#[test]
-fn unpublished_device_and_joined_worker_both_stop_before_detach() {
+fn join_device(device: device::Device<Bmi270Sensor>) {
     use crate::Imu;
-    let _serial = SERIAL.lock().unwrap();
-    let file = DeviceFile::new();
-    reset();
-    // A cancel setup or thread spawn failure drops the unpublished owner.
-    drop(
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap(),
-    );
-    assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
-
-    reset();
-    FAKE.lock().unwrap().irq_asserted = false;
-    let device =
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap();
     let cancel = readiness::Cancel::new(|| {
         let (reader, writer) = UnixStream::pair()?;
         Ok((OwnedFd::from(reader).into(), OwnedFd::from(writer).into()))
@@ -464,6 +474,25 @@ fn unpublished_device_and_joined_worker_both_stop_before_detach() {
     assert!(worker.is_finished());
     assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
     assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn unpublished_device_and_joined_worker_both_stop_before_detach() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    reset();
+    // A cancel setup or thread spawn failure drops the unpublished owner.
+    drop(
+        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap(),
+    );
+    assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
+    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+
+    reset();
+    FAKE.lock().unwrap().irq_asserted = false;
+    let device =
+        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap();
+    join_device(device);
 }
 
 #[test]
@@ -496,84 +525,124 @@ fn failed_stop_or_detach_quarantines_without_repeating_release() {
 }
 
 #[cfg(feature = "probe")]
-#[test]
-fn partial_reference_setup_releases_the_sensor_and_checks_irq_detach() {
-    let _serial = SERIAL.lock().unwrap();
-    let file = DeviceFile::new();
-    for fail_unregister in [false, true] {
-        reset();
-        {
-            let mut fake = FAKE.lock().unwrap();
-            fake.fail_reference = true;
-            fake.fail_unregister = fail_unregister;
+mod diagnostics {
+    use super::*;
+
+    #[test]
+    fn partial_reference_setup_releases_the_sensor_and_checks_irq_detach() {
+        let _serial = SERIAL.lock().unwrap();
+        let file = DeviceFile::new();
+        for fail_unregister in [false, true] {
+            reset();
+            {
+                let mut fake = FAKE.lock().unwrap();
+                fake.fail_reference = true;
+                fake.fail_unregister = fail_unregister;
+            }
+            let trace = trace::Trace::new(|_| {}, true).unwrap();
+            assert_eq!(
+                device::Device::<Bmi270Sensor>::acquire(
+                    binding(file.path(), Some(file.path())),
+                    default_config(),
+                    trace,
+                )
+                .err(),
+                Some(crate::DeviceError::Io)
+            );
+            let fake = FAKE.lock().unwrap();
+            assert_eq!(fake.ops, [Op::Stop, Op::Detach]);
+            assert_eq!(fake.regs[0x54] & 0x08, 0);
+            assert_eq!(fake.regs[0x58], 0);
+            assert_eq!(
+                OWNED.load(Ordering::Relaxed),
+                if fail_unregister { 2 } else { 0 }
+            );
         }
-        let trace = trace::Trace::new(|_| {}).with_sensor_reference(true);
+    }
+
+    #[test]
+    fn timing_marks_worker_io_between_setup_and_cleanup() {
+        use crate::probe::Timing;
+        use std::sync::Arc;
+
+        let _serial = SERIAL.lock().unwrap();
+        let file = DeviceFile::new();
+        reset();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let trace =
+            trace::Trace::new(move |event| captured.lock().unwrap().push(event), false).unwrap();
+        let device = device::Device::<Bmi270Sensor>::acquire(
+            binding(file.path(), Some(file.path())),
+            default_config(),
+            trace,
+        )
+        .unwrap();
         assert_eq!(
-            device::Device::<Bmi270Sensor>::acquire(
-                binding(file.path(), Some(file.path())),
-                default_config(),
-                trace,
-            )
-            .err(),
-            Some(crate::DeviceError::Io)
+            device.run(
+                &AtomicBool::new(false),
+                &File::open(file.path()).unwrap(),
+                &mut |_| true
+            ),
+            Err(crate::DeviceError::Io), // The fake IRQ stays asserted after an empty drain.
         );
-        let fake = FAKE.lock().unwrap();
-        assert_eq!(fake.ops, [Op::Stop, Op::Detach]);
-        assert_eq!(fake.regs[0x54] & 0x08, 0);
-        assert_eq!(fake.regs[0x58], 0);
         assert_eq!(
-            OWNED.load(Ordering::Relaxed),
-            if fail_unregister { 2 } else { 0 }
+            Arc::strong_count(&events),
+            1,
+            "observer released after cleanup"
+        );
+        let events = events.lock().unwrap();
+        let wake = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    Timing::Wake {
+                        periodic_deadline: None,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let drain = events
+            .iter()
+            .position(|event| matches!(event, Timing::Drain { complete: true, .. }))
+            .unwrap();
+        assert!(wake > 0 && drain > wake + 1 && drain + 1 < events.len());
+        assert!(events
+            .iter()
+            .enumerate()
+            .all(|(i, event)| i == wake || i == drain || matches!(event, Timing::Ioctl { .. })));
+    }
+
+    #[test]
+    fn joined_worker_releases_its_observer_after_cleanup() {
+        use std::sync::Arc;
+        let _serial = SERIAL.lock().unwrap();
+        let file = DeviceFile::new();
+        reset();
+        FAKE.lock().unwrap().irq_asserted = false;
+        let retained = Arc::new(());
+        let observer = retained.clone();
+        let trace = trace::Trace::new(
+            move |_| {
+                let _ = &observer;
+            },
+            false,
+        )
+        .unwrap();
+        let device = device::Device::<Bmi270Sensor>::acquire(
+            binding(file.path(), Some(file.path())),
+            default_config(),
+            trace,
+        )
+        .unwrap();
+        assert_eq!(Arc::strong_count(&retained), 2);
+        join_device(device);
+        assert_eq!(
+            Arc::strong_count(&retained),
+            1,
+            "join released the observer"
         );
     }
-}
-
-#[cfg(feature = "probe")]
-#[test]
-fn timing_marks_worker_io_between_setup_and_cleanup() {
-    use crate::probe::Timing;
-    use std::sync::Arc;
-
-    let _serial = SERIAL.lock().unwrap();
-    let file = DeviceFile::new();
-    reset();
-    let events = Arc::new(Mutex::new(Vec::new()));
-    let captured = events.clone();
-    let trace = trace::Trace::new(move |event| captured.lock().unwrap().push(event));
-    let device = device::Device::<Bmi270Sensor>::acquire(
-        binding(file.path(), Some(file.path())),
-        default_config(),
-        trace,
-    )
-    .unwrap();
-    assert_eq!(
-        device.run(
-            &AtomicBool::new(false),
-            &File::open(file.path()).unwrap(),
-            &mut |_| true
-        ),
-        Err(crate::DeviceError::Io), // The fake IRQ stays asserted after an empty drain.
-    );
-    let events = events.lock().unwrap();
-    let wake = events
-        .iter()
-        .position(|event| {
-            matches!(
-                event,
-                Timing::Wake {
-                    periodic_deadline: None,
-                    ..
-                }
-            )
-        })
-        .unwrap();
-    let drain = events
-        .iter()
-        .position(|event| matches!(event, Timing::Drain { complete: true, .. }))
-        .unwrap();
-    assert!(wake > 0 && drain > wake + 1 && drain + 1 < events.len());
-    assert!(events
-        .iter()
-        .enumerate()
-        .all(|(i, event)| i == wake || i == drain || matches!(event, Timing::Ioctl { .. })));
 }

@@ -1,6 +1,6 @@
 # LSM6DSO driver
 
-`nxrs-lsm6dso` is an original, synchronous, `no_std` register/FIFO driver over
+`nxrs-lsm6dso` is an original, synchronous Rust `std` register/FIFO driver over
 `embedded-hal` 1.0 `I2c` and caller-supplied `DelayNs`. The protocol choices are
 based on ST datasheet DS12140 Rev 3 (2024), and FIFO behavior also on ST
 application note AN5192 Rev 6. ST's documents are copyright STMicroelectronics;
@@ -8,7 +8,10 @@ all rights are reserved. This crate does not copy ST source code. The driver
 source is distributed under the workspace MIT license.
 
 Supported paired ODRs are the exact silicon rates 12.5, 26, 52, 104, and 208
-Hz. Defaults are 104 Hz, ±4 g, and ±2000 dps. FIFO watermark is four tagged
+Hz. `Rate::SUPPORTED` enumerates the typed rates. `AccelRange::from_g()` and
+`GyroRange::from_dps()` resolve exact physical ranges to chip-specific settings,
+returning `None` for unsupported values. Defaults are
+104 Hz, ±4 g, and ±2000 dps. FIFO watermark is four tagged
 words (two accel/gyro pairs) in continuous mode; INT1 reports watermark, full,
 and overrun. Compression, timestamps, temperature, sensor hub, and downsampling
 are disabled. Samples use the nominal sensitivities from DS12140 Rev 3 and are

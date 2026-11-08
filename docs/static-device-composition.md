@@ -47,12 +47,14 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-D1a moves IMU/GNSS output generation into shared build support. Their manifests
-declare package-relative binding catalogs and configuration schemas; the common
-renderer consumes typed data projections. The custom IMU emitter and both HAL
-generation callbacks are removed. Catalogs are loaded from explicit profile/SDK
-package metadata rather than compiled into build support through sibling paths.
-Receipts and Cargo rebuild tracking include catalog and schema content.
+IMU/GNSS output generation lives in shared build support. Each manifest declares
+one version 2 binding catalog with compatible devices, resource constraints and
+checked-in Rust implementation IDs. The shared renderer uses fixed typed resource
+contracts and selects the implementation directly. Separate field-projection
+schemas, generated model enums and runtime model matches have been removed.
+Package discovery, receipts and Cargo rebuild tracking include the exact catalog
+bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
+sensor translation, acquisition and optional transaction timing.
 
 The two HAL build scripts remain generic adapters for this slice. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
@@ -111,24 +113,18 @@ arbitrary build plugin system or service/capability solver.
 
 ### Declarative configuration contract
 
-The current binding catalogs describe supported models and resource constraints;
-they are not yet a complete schema for generated Rust values and instance wiring.
-Define a finite, versioned vocabulary for typed scalars, records, optional fields,
-enums, defaults, constraints and resource references. Specify each output field's
-type and source. Validate identifiers and escape values as Rust literals.
+Binding catalogs describe supported device/resource combinations and one reviewed
+implementation ID. The implemented resource vocabulary covers I²C endpoints with
+optional GPIO readiness and UART endpoints. Rust defines the configuration and
+constructor types. Shared generation produces literal resource values and
+`use implementations::<ID> as Implementation`; IDs are validated single type names,
+not arbitrary Rust paths. Extending resource kinds belongs in shared tooling;
+adding a sensor using an existing kind needs no generator model table.
 
-Use an explicit, reviewed implementation identifier/construction convention.
-A Cargo feature enables code; it does not intrinsically name a Rust type or an
-arbitrary constructor signature. The schema/convention must connect validated
-configuration to a standardized, typed runtime construction interface. Its exact
-spelling is an implementation decision. Do not infer arbitrary Rust paths from
-the first entry in `cargo_features`.
-
-The renderer must handle supported capabilities through that vocabulary. Adding
-an ordinary implementation or a second capability must not require
-`emit_imu`, a build-support `ImuModel` enum, or a new chip/capability branch.
-Do not replace those branches with arbitrary Rust fragments, programmable TOML,
-per-HAL host callbacks or an unrestricted template language.
+Keep this finite construction convention as static instance generation is added.
+Do not restore per-field Rust projection schemas, programmable TOML, templates or
+per-HAL host callbacks. Cargo features enable implementations through declared
+edges; they do not themselves name arbitrary Rust constructor paths.
 
 Discover catalogs through explicit package-relative metadata. The production
 dependency closure must contain its declared inputs. Shared support must not
@@ -336,7 +332,7 @@ comparative context; it does not establish NuttX ownership, ABI or timing.
 
 ## Remaining design choices and completion
 
-Before implementation, settle the finite schema and typed constructor convention,
+Extend the typed resource convention to permanent device instances and settle
 generated-input delivery, package-specific compiler/link integration, public
 device/session API, static storage inventory, initialization/recovery policy and
 reacquisition/terminal-event ordering. These choices must satisfy the invariants

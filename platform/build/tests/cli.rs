@@ -59,19 +59,11 @@ path = "src/main.rs"
 }
 
 fn write_imu_fixture(root: &Path) {
-    let bindings = root.join("hal/imu/bindings");
-    fs::create_dir_all(&bindings).unwrap();
-    fs::write(
-        root.join("hal/imu/Cargo.toml"),
-        "[package]\nname = \"nxrs-imu\"\nversion = \"0.1.0\"\n\
-         [package.metadata.nxrs]\nkind = \"hal-capability\"\nplatforms = [\"nuttx\"]\n\
-         bindings = [\"bindings/i2c.toml\"]\n\
-         [package.metadata.nxrs.configuration]\nnuttx = \"bindings/nuttx.toml\"\n",
-    )
-    .unwrap();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../hal/imu/bindings");
-    for file in ["i2c.toml", "nuttx.toml"] {
-        fs::copy(source.join(file), bindings.join(file)).unwrap();
+    let directory = root.join("hal/imu");
+    fs::create_dir_all(&directory).unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../hal/imu");
+    for file in ["Cargo.toml", "bindings.toml"] {
+        fs::copy(source.join(file), directory.join(file)).unwrap();
     }
 }
 
@@ -225,10 +217,7 @@ fn profile_cli_reports_the_resolved_imu_and_its_provenance() {
             .to_str()
             .unwrap()
     );
-    assert_eq!(
-        composition["binding-sources"][0],
-        "hal/imu/bindings/i2c.toml"
-    );
+    assert_eq!(composition["binding-sources"][0], "hal/imu/bindings.toml");
 }
 
 #[test]

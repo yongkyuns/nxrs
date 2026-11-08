@@ -1,6 +1,6 @@
 //! Platform-local wake sources; both feed the same FIFO acquisition loop.
-use super::{ffi, irq::Irq, readiness};
-use crate::{cadence::Cadence, DeviceError};
+use super::{cadence::Cadence, ffi, irq::Irq, readiness};
+use crate::DeviceError;
 use std::{
     fs::File,
     io::ErrorKind,

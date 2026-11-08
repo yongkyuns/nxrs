@@ -1,20 +1,15 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
 
-#[cfg(all(feature = "probe", not(target_os = "none")))]
+#[path = "../configuration.rs"]
+mod configuration;
+
 pub(crate) use crate::probe::unsupported as open_probed;
 
 type Session = acquisition::mock::Session<DeviceError>;
-use crate::{
-    AccelRange, AppliedConfig, Capabilities, Config, DeviceError, Event, GyroRange, Imu, ImuSample,
-};
+use crate::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
 
 const INTERVAL_US: u32 = 10_000;
-const CAPABILITIES: Capabilities = Capabilities {
-    rates_millihz: &[1_000_000_000 / INTERVAL_US],
-    accel_ranges: &[AccelRange::G4],
-    gyro_ranges: &[GyroRange::Dps2000],
-};
 
 #[derive(Default)]
 struct SyntheticImu {
@@ -62,14 +57,23 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     )
 }
 
-pub fn capabilities() -> Option<Capabilities> {
-    Some(CAPABILITIES)
+/// Preview the fixed source mode without starting acquisition.
+pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
+    let (_, applied) = configuration::select_rate(
+        config,
+        [1_000_000_000 / INTERVAL_US],
+        core::convert::identity,
+    )?;
+    if config.accel_range_g != 4 || config.gyro_range_dps != 2000 {
+        return Err(DeviceError::Unsupported);
+    }
+    Ok(applied)
 }
 
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     config: Config,
     sink: S,
 ) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
-    let applied = CAPABILITIES.select(config)?;
+    let applied = resolve(config)?;
     open(sink).map(|session| (session, applied))
 }

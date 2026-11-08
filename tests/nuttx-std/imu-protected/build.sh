@@ -25,7 +25,7 @@ done
 app="$APPS/examples/nxrs_imu_witness"
 mkdir -- "$app"
 cp "$HERE/i2c_probe.c" "$HERE/probe_main.c" "$app/"
-cp "$ROOT/hal/imu/src/platform/nuttx/ffi/i2c.c" \
+cp "$ROOT/driver/i2c/src/platform/nuttx/ffi/i2c.c" \
    "$ROOT/hal/imu/src/platform/nuttx/ffi/events.c" "$app/"
 cat > "$app/Kconfig" <<'KCONFIG'
 config EXAMPLES_NXRS_IMU_WITNESS
@@ -143,7 +143,7 @@ check_symbol_placement() {
     return 1
   fi
 }
-for symbol in imu_witness_main imu_witness_i2c imu_i2c_transfer imu_irq_check \
+for symbol in imu_witness_main imu_witness_i2c i2c_resource_transfer imu_irq_check \
   imu_irq_register imu_irq_read imu_irq_unregister imu_event_pipe imu_event_wait imu_event_tick; do
   check_symbol_placement "$symbol" user kernel
 done

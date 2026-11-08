@@ -35,6 +35,15 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   OS-specific code stays under its actual OS directory. Do not copy std code
   into OS folders or reintroduce `std`/`native` pseudo-platforms.
 
+- Reusable controller access belongs in `driver/<bus>`. `driver/i2c` supports
+  NuttX only, owning the descriptor and embedded-hal implementation. Sensor HALs
+  supply resolved configuration and own sensor policy; chip drivers consume bus
+  traits without depending on the concrete adapter. Do not add speculative OS
+  backends, host stubs or another logical profile role. Host witnesses inject
+  test-only bus bindings. Sensor catalogs name
+  checked-in implementation types; shared tooling emits fixed typed resource
+  bindings. Do not restore per-field Rust schemas or model-enum mappings.
+
 - Product profiles own device/resource composition. NuttX BSP/configuration owns
   MCU wiring and registration. A resolved hardware profile must select concrete
   supported devices; simulation uses a separate explicit profile and coordinated
@@ -86,8 +95,8 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   select optional functionality, formats, algorithms and driver code at their
   owning module boundary. Do not maintain a global feature-name allowlist.
   Keep OS selection in target configuration and physical resource instances in
-  explicit configuration/ownership. Diagnostics still use the explicit `probe`
-  feature, and the detector product/model rules below still apply.
+  explicit configuration/ownership. Optional diagnostic instrumentation uses
+  the explicit `probe` feature. The detector product/model rules below still apply.
 - Group capability admission and acquisition selection in each HAL's
   `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
   and unavailable stubs in those implementations, and host source-injection
@@ -114,7 +123,9 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   directly, without model feature forwarding or compatibility facades.
   Qualification controls belong in fixtures and named experiment cases, not
   production platform APIs. Use one `probe` feature for optional diagnostics
-  and test witnesses. Ordinary tests and executables need no diagnostic feature.
+  and test witnesses. Select coherent tracing implementations at a module boundary;
+  keep cfg conditions out of acquisition logic and individual tracing fields/methods.
+  Ordinary tests and executables need no diagnostic feature.
   Product profiles select a detector model and execution budget; build frontends
   derive its internal dependency features automatically when the product consumes
   detection. Do not add manual model switches, a second model-selection

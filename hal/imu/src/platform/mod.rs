@@ -1,4 +1,7 @@
 //! Select one checked-in implementation from the resolved profile.
+#[cfg(all(hal_provider = "hardware", target_os = "nuttx"))]
+use ::i2c as resource;
+
 #[cfg_attr(
     all(hal_provider = "hardware", target_os = "nuttx"),
     path = "nuttx/mod.rs"
@@ -14,7 +17,6 @@
     path = "unbound.rs"
 )]
 mod selected;
-pub use selected::{capabilities, open, open_configured};
+pub use selected::{open, open_configured, resolve};
 
-#[cfg(all(feature = "probe", not(target_os = "none")))]
 pub(crate) use selected::open_probed;

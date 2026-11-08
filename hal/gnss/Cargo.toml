@@ -10,10 +10,7 @@ name = "gnss"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
-bindings = ["bindings/uart.toml"]
-
-[package.metadata.nxrs.configuration]
-nuttx = "bindings/nuttx.toml"
+bindings = ["bindings.toml"]
 
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }

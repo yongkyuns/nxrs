@@ -2,9 +2,9 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
-path = "hal/imu/src/platform/nuttx/ffi/i2c.c"
+path = "driver/i2c/src/platform/nuttx/ffi/i2c.c"
 kind = "abi"
-reason = "Constructs target I2C transfer ioctl/messages for borrowed Rust buffers. Rust and the private portable BMI270 driver own sensor protocol, initialization admission, conversion, freshness and descriptor lifecycle."
+reason = "Constructs target I2C transfer ioctl/messages for borrowed Rust buffers. The Rust bus adapter owns the descriptor and transaction validation; chip drivers own sensor protocol."
 
 [[bridge]]
 path = "hal/gnss/src/platform/nuttx/ffi/serial.c"

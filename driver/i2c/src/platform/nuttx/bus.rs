@@ -1,35 +1,35 @@
-//! Owned NuttX I2C descriptor for the IMU's bounded register transactions.
-use super::{ffi, trace::Trace};
-use crate::DeviceError;
-use embedded_hal::i2c::{ErrorKind, ErrorType, I2c, Operation};
+//! Owned NuttX controller descriptor; no sensor protocol or acquisition policy.
+use super::{ffi, Config, Error};
+use embedded_hal::i2c::{ErrorType, I2c, Operation};
 use std::{
     fs::{File, OpenOptions},
     os::fd::AsRawFd,
 };
 
-pub(super) struct Bus {
+pub struct Bus {
     file: File,
     frequency: u32,
-    trace: Trace,
 }
 
 impl Bus {
-    pub(super) fn open(path: &str, frequency: u32, trace: Trace) -> Result<Self, DeviceError> {
+    pub fn open(config: Config<'_>) -> Result<Self, Error> {
+        if config.frequency == 0 || config.path.is_empty() {
+            return Err(Error::InvalidConfig);
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(path)
-            .map_err(|_| DeviceError::Io)?;
+            .open(config.path)
+            .map_err(|_| Error::Io)?;
         Ok(Self {
             file,
-            frequency,
-            trace,
+            frequency: config.frequency,
         })
     }
 }
 
 impl ErrorType for Bus {
-    type Error = ErrorKind;
+    type Error = Error;
 }
 
 impl I2c for Bus {
@@ -38,6 +38,9 @@ impl I2c for Bus {
         address: u8,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Self::Error> {
+        if address > 0x7f {
+            return Err(Error::InvalidConfig);
+        }
         // The target bridge supports one write, one read, or an atomic
         // write/read pair. Reject other sequences before issuing any I/O.
         let mut no_read = [];
@@ -46,13 +49,12 @@ impl I2c for Bus {
             [Operation::Read(bytes)] => (&[], bytes),
             [Operation::Write(write), Operation::Read(read)] => (write, read),
             [] => return Ok(()),
-            _ => return Err(ErrorKind::Other),
+            _ => return Err(Error::Unsupported),
         };
         if write.len() > 64 || read.len() > 64 {
-            return Err(ErrorKind::Other);
+            return Err(Error::Unsupported);
         }
-        self.trace
-            .ioctl(|| ffi::transfer(self.file.as_raw_fd(), address, self.frequency, write, read))
-            .map_err(|_| ErrorKind::Other)
+        ffi::transfer(self.file.as_raw_fd(), address, self.frequency, write, read)
+            .map_err(|_| Error::Io)
     }
 }

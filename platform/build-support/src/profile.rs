@@ -144,11 +144,7 @@ impl Profile {
     }
 
     /// Construct a fixture with explicitly supplied package declarations.
-    pub fn from_data_with_catalogs(
-        data: Value,
-        sources: Vec<PathBuf>,
-        catalogs: Catalogs,
-    ) -> Self {
+    pub fn from_data_with_catalogs(data: Value, sources: Vec<PathBuf>, catalogs: Catalogs) -> Self {
         let mut profile = Self::from_data(data, sources);
         profile.catalogs = catalogs;
         profile
@@ -162,7 +158,9 @@ impl Profile {
         let root = sdk_root
             .canonicalize()
             .map_err(|error| format!("SDK {}: {error}", sdk_root.display()))?;
-        let capabilities = self.data["hal"].as_object().ok_or("[hal] must be a table")?;
+        let capabilities = self.data["hal"]
+            .as_object()
+            .ok_or("[hal] must be a table")?;
         let mut catalogs = Catalogs::default();
         for capability in capabilities.keys() {
             if !CAPABILITIES.contains(&capability.as_str()) {
@@ -326,7 +324,8 @@ impl Profile {
 
     /// All filesystem inputs for Cargo reruns, receipts, and build identity.
     pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
-        self.profile_source_paths().chain(self.catalogs.source_paths())
+        self.profile_source_paths()
+            .chain(self.catalogs.source_paths())
     }
 
     /// Ordered profile and overlay provenance for deployment reports.
@@ -872,21 +871,18 @@ mod tests {
         fs::remove_dir_all(temp).unwrap();
     }
     #[test]
-    fn explicit_sdk_catalogs_track_configuration_bytes_without_scanning_other_hals() {
+    fn explicit_sdk_catalogs_track_catalog_bytes_without_scanning_other_hals() {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
         let directory = temp.0.join("hal/imu");
-        fs::create_dir_all(directory.join("bindings")).unwrap();
+        fs::create_dir_all(&directory).unwrap();
         fs::write(
             directory.join("Cargo.toml"),
             "[package]\nname='nxrs-imu'\nversion='0.1.0'\n\
-             [package.metadata.nxrs]\nbindings=['bindings/i2c.toml']\n\
-             [package.metadata.nxrs.configuration]\nnuttx='bindings/nuttx.toml'\n",
+             [package.metadata.nxrs]\nbindings=['bindings.toml']\n",
         )
         .unwrap();
-        let catalog = "version=1\n[[binding]]\ncompatible='vendor,sensor'\nbus='i2c'\n";
-        let schema = "version=1\noutput='config.rs'\nrole='imu'\n";
-        fs::write(directory.join("bindings/i2c.toml"), catalog).unwrap();
-        fs::write(directory.join("bindings/nuttx.toml"), schema).unwrap();
+        let catalog = "version=2\n[[binding]]\ncompatible='vendor,sensor'\nbus='i2c'\nimplementation='Sensor'\n";
+        fs::write(directory.join("bindings.toml"), catalog).unwrap();
         // An unrelated package is deliberately incomplete.
         fs::create_dir_all(temp.0.join("hal/gnss")).unwrap();
         fs::write(temp.0.join("hal/gnss/Cargo.toml"), "invalid").unwrap();
@@ -898,10 +894,12 @@ mod tests {
             Profile::from_data(json!({"hal":{"imu":"none"}}), vec![profile_path.clone()]);
         assert!(profile.catalogs().package("imu").is_none());
         profile.load_catalogs(&temp.0).unwrap();
-        assert_eq!(profile.catalogs().source_paths().count(), 3);
+        assert_eq!(profile.catalogs().source_paths().count(), 2);
         assert!(profile.catalogs().package("gnss").is_none());
-        assert_eq!(profile.source_paths().count(), 4);
-        assert!(profile.source_paths().any(|path| path.ends_with("bindings/nuttx.toml")));
+        assert_eq!(profile.source_paths().count(), 3);
+        assert!(profile
+            .source_paths()
+            .any(|path| path.ends_with("bindings.toml")));
         assert_eq!(profile.json().unwrap()["sources"], json!([profile_path]));
         assert_eq!(
             profile.source_hashes().unwrap(),
@@ -912,27 +910,37 @@ mod tests {
         );
         let initial = profile.input_fingerprint().unwrap();
 
-        fs::write(directory.join("bindings/nuttx.toml"), format!("{schema}# schema edit\n")).unwrap();
+        fs::write(
+            directory.join("bindings.toml"),
+            format!("{catalog}# first edit\n"),
+        )
+        .unwrap();
         let mut changed = profile.clone();
         changed.load_catalogs(&temp.0).unwrap();
         assert_ne!(changed.input_fingerprint().unwrap(), initial);
         assert_eq!(
-            profile.catalogs().package("imu").unwrap().configuration["nuttx"].contents,
-            schema
+            profile.catalogs().package("imu").unwrap().catalogs[0].contents,
+            catalog
         );
-        let schema_fingerprint = changed.input_fingerprint().unwrap();
-        fs::write(directory.join("bindings/i2c.toml"), format!("{catalog}# catalog edit\n")).unwrap();
+        let first_fingerprint = changed.input_fingerprint().unwrap();
+        fs::write(
+            directory.join("bindings.toml"),
+            format!("{catalog}# catalog edit\n"),
+        )
+        .unwrap();
         changed.load_catalogs(&temp.0).unwrap();
-        assert_ne!(changed.input_fingerprint().unwrap(), schema_fingerprint);
+        assert_ne!(changed.input_fingerprint().unwrap(), first_fingerprint);
         assert_eq!(
             changed.catalogs().report()["imu"]["bindings"][0]["sha256"],
             hash_bytes(format!("{catalog}# catalog edit\n").as_bytes())
         );
-        assert_eq!(changed.source_hashes().unwrap(), profile.source_hashes().unwrap());
+        assert_eq!(
+            changed.source_hashes().unwrap(),
+            profile.source_hashes().unwrap()
+        );
         assert_eq!(changed.json().unwrap()["sources"], json!([profile_path]));
 
         changed.data["hal"]["gnss"] = json!("none");
         assert!(changed.load_catalogs(&temp.0).is_err());
     }
-
 }

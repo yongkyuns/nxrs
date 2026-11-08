@@ -1,26 +1,50 @@
 # IMU
 
+This HAL and its BMI270/LSM6DSO drivers use Rust `std`, as do their NuttX and
+host consumers. There is no bare-metal `no_std` variant. The optional `probe`
+feature selects instrumentation at one tracing-module boundary.
+`lib.rs` exposes the API; each selected provider includes the shared helpers it
+uses. Shared implementations stay in ordinary modules outside `platform/`.
+
 `open(sink)` creates an owned acquisition session; services receive typed
 `Event::Sample` messages and never read the bus. Call `request_stop()` and `join()`
 to wake acquisition, disable the sensor/IRQ and reclaim its worker. Drop requests
 cancellation without a hidden join; the worker retains resources through cleanup.
 
+Without `probe`, tracing is zero-sized and its hooks perform no timing reads,
+observer checks or callbacks. The diagnostic API remains callable, but returns
+`Unsupported` before resource acquisition. Build with `--features probe` and call
+`probe::open_configured(config, sink, observe)` to receive task-context wake,
+I²C and FIFO-drain events. The observer must not block; ownership lasts through
+cleanup. Mock, simulation and unbound providers return `Unsupported` for this
+physical timing API. Sensor-reference output also requires the explicit
+`probe::open_sensor_reference_configured` call. Enabling the feature alone does
+not start recording; ordinary acquisition in that build uses an empty observer.
+
 The [composition design](../../docs/peripheral-composition.md) places reusable
 BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
-acquisition lifecycle in this crate. The resolved product composition selects
-the NuttX model, I2C binding, optional wake resource and worker stack at build
-time. Package metadata declares the supported catalog in
-[bindings/i2c.toml](bindings/i2c.toml) and the typed output schema in
-[bindings/nuttx.toml](bindings/nuttx.toml). Shared build support validates and
-renders the constants; this HAL has no custom host emitter. The current
-build script is a generic adapter for preparation, provider flags and native
-linking until the shared pre-Cargo handoff replaces it. The provider does not
-parse device configuration from environment variables at runtime.
+acquisition lifecycle in this crate. Private `src/adapters/` modules translate
+driver settings, samples and errors into the IMU contract. Drivers own supported
+rates and exact physical-range conversions. The HAL resolves a request directly
+into a concrete driver configuration and accepted settings before reserving any
+resources, then passes that configuration to acquisition.
+The product profile supplies the device, bus/address, optional IRQ and worker
+budget. [bindings.toml](bindings.toml) declares supported sensor combinations and
+their checked-in Rust implementation IDs. Shared build support generates typed
+resource values and one implementation import; there is no model enum or Rust
+field-projection schema. The generic build adapter retains provider selection,
+freshness and native linking.
+
+The shared [NuttX I²C adapter](../../driver/i2c/README.md) owns the controller descriptor
+and implements `embedded_hal::i2c::I2c`. This HAL only wraps transactions for its
+optional timing observer, then supplies that bus to the sensor driver. GPIO
+readiness, sensor normalization and acquisition lifecycle remain here.
 Composition overlays and coordinated simulation are tracked in the
 [migration plan](../../docs/peripheral-composition-plan.md).
 
-`capabilities()` reports the modes of the selected provider. Use
-`open_configured(config, sink)` to request exact full scales, inclusive rate
+`resolve(config)` previews the selected provider's accepted settings without
+I/O or resource acquisition. It does not verify hardware availability or reserve
+the device. Use `open_configured(config, sink)` to request exact full scales, inclusive rate
 limits in millihertz and a maximum nominal interval between delivery
 opportunities. The HAL selects the slowest supported rate that satisfies both
 timing requirements and returns the session with its applied settings. For
@@ -29,17 +53,23 @@ The delivery interval is the sample period rounded up to a microsecond for
 the one-sample FIFO watermark or periodic wake. Bus wait, scheduling and sink
 backpressure affect measured latency separately.
 
+API migration: `Config` and `AppliedConfig` use `accel_range_g: u16` and
+`gyro_range_dps: u16` instead of HAL range enums. `resolve(config)` replaces
+`capabilities()` and `Capabilities::select`; `Capabilities`, `AccelRange`
+and `GyroRange` are removed from the HAL. The drivers retain their
+chip-specific enums. Supported-mode enumeration is not part of this API.
+
 The BMI270 provider accepts 25, 50, 100 or 200 Hz at any combination of
 accelerometer ±2, ±4, ±8 or ±16 g and gyroscope ±125, ±250, ±500, ±1000 or
 ±2000 degrees/s. `open(sink)` uses 100 Hz, ±4 g and ±2000 degrees/s.
-The mock offers that default mode. The unbound build reports no capabilities
-and returns `Unsupported`. A zero rate or delivery interval and inverted
+The mock offers that default mode. The unbound build returns `Unsupported`.
+A zero rate, full scale or delivery interval and inverted
 rate limits return `InvalidData` on configured providers. Well-formed
 requirements without a matching mode return `Unsupported` before resource
 acquisition. A configuration readback mismatch returns `InvalidData` and
 quarantines the physical owner.
 
-The no_std `nxrs-bmi270` package exposes sensor-specific errors and physical
+The `nxrs-bmi270` package exposes sensor-specific errors and physical
 samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).
 This HAL maps those into `DeviceError` and `ImuSample`, assigning the monotonic
 host reception time, sequence and nominal interval at delivery.

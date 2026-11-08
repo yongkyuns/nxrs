@@ -130,7 +130,7 @@ fn devkit_uses_the_same_bus_in_both_modes_and_supports_periodic_controls() {
         assert_eq!(periodic.path, binding.path);
         assert_eq!(periodic.address, binding.address);
         assert_eq!(periodic.frequency, binding.frequency);
-        assert_eq!(periodic.model, binding.model);
+        assert_eq!(periodic.implementation, binding.implementation);
         assert_eq!(periodic.irq_path, None);
     }
 
