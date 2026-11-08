@@ -37,11 +37,11 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
              [features]\nprobe = []\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
-             nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\n\
+             nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
-            source.join("shared/messaging"), source.join("driver/acquisition"), source.join("driver/i2c"),
+            source.join("shared/messaging"), source.join("driver/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"),
             source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("platform/build-support")
         ),
     )
@@ -85,7 +85,18 @@ mod ffi {
     pub fn transfer(_: i32, _: u8, _: u32, _: &[u8], _: &mut [u8]) -> std::io::Result<()> {
         panic!("resolving sensor settings must not access the bus")
     }
+    pub fn pipe() -> std::io::Result<(std::fs::File, std::fs::File)> { panic!("unexpected I/O") }
+    pub fn wait(_: i32, _: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
+    pub fn tick(_: i32, _: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
+    pub fn irq_check(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
+    pub fn irq_register(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
+    pub fn irq_unregister(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
+    pub fn irq_read(_: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
 }
+#[cfg(unix)]
+use ffi as events;
+#[cfg(unix)]
+#[path = @GPIO@] mod gpio_resource;
 #[cfg(unix)]
 #[path = @RESOURCE@] mod resource;
 #[cfg(unix)]
@@ -132,6 +143,10 @@ fn main() {
     println!("{} | {}", motion::describe(), position::describe());
 }
 "#
+        .replace(
+            "@GPIO@",
+            &format!("{:?}", source.join("driver/gpio/tests/support/mod.rs")),
+        )
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
         .replace(
             "@PROBE@",

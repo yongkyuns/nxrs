@@ -37,8 +37,11 @@ freshness and native linking.
 
 The shared [NuttX I²C adapter](../../driver/i2c/README.md) owns the controller descriptor
 and implements `embedded_hal::i2c::I2c`. This HAL only wraps transactions for its
-optional timing observer, then supplies that bus to the sensor driver. GPIO
-readiness, stream metadata and acquisition lifecycle remain here. Buffering is
+optional timing observer, then supplies that bus to the sensor driver.
+`driver/gpio` owns the GPIO interrupt descriptor and registration/rollback, and
+`nxrs-acquisition` supplies the shared NuttX poll/pipe binding. This HAL keeps
+interrupt/timer selection, cadence, stream metadata and acquisition lifetime.
+GPIO cleanup failures notify its quarantine policy even during setup or Drop. Buffering is
 explicit in the shared device contract; this acquisition path requires a FIFO
 and rejects latest-value devices before acquiring resources.
 Composition overlays and coordinated simulation are tracked in the
@@ -89,7 +92,9 @@ Batch delivery time is not a measured hardware sample timestamp. Queue-full
 rejections are counted by `dropped()`; terminal errors remain observable through
 `join()` and are retried as a bounded single pending fault event.
 
-The NuttX provider owns the I2C File and an optional platform-registered GPIO descriptor.
+The NuttX provider owns the I²C and optional GPIO resource adapters through its
+acquisition session. Their native glue lives in the resource packages; IMU has
+no private C/FFI code.
 Its I2C adapter admits one read, one write or a repeated-start write/read pair,
 with at most 64 bytes in each direction. Other operation sequences fail without
 bus I/O. The host bridge witness checks message layout and cancellation using

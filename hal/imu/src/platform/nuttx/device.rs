@@ -1,6 +1,6 @@
 //! Physical device ownership. Construction and cleanup stay in task context.
 use super::{
-    construction::Construct, irq::Irq, observed_bus::Bus, signal::Signal, trace::Trace, OWNED,
+    construction::Construct, gpio_resource, observed_bus::Bus, signal::Signal, trace::Trace, OWNED,
 };
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +10,23 @@ use std::{
     fs::File,
     time::{Duration, Instant},
 };
+
+pub(super) type Irq = gpio_resource::Interrupt<fn()>;
+
+fn quarantine() {
+    OWNED.store(2, Ordering::Release);
+}
+
+pub(super) fn gpio_error(error: gpio_resource::Error) -> DeviceError {
+    match error {
+        gpio_resource::Error::Unsupported => DeviceError::Unsupported,
+        gpio_resource::Error::Io => DeviceError::Io,
+    }
+}
+
+pub(super) fn open_irq(path: &str) -> Result<Irq, DeviceError> {
+    gpio_resource::Interrupt::open_rising(path, quarantine as fn()).map_err(gpio_error)
+}
 
 pub(super) struct Binding<'a> {
     pub(super) path: &'a str,
@@ -77,7 +94,7 @@ impl<S: Construct> Device<S> {
         let lease = Lease::take()?;
         // An absent GPIO uses an ODR-derived wake. Failure of a configured IRQ
         // never changes acquisition mode.
-        let irq = binding.irq_path.map(Irq::open).transpose()?;
+        let irq = binding.irq_path.map(open_irq).transpose()?;
         let bus = Bus::open(binding.path, binding.frequency, trace.clone())?;
         let sensor = S::open(bus, binding.address, settings).inspect_err(|_| {
             // An interrupted configuration may have left the sensor active.

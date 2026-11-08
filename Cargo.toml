@@ -14,6 +14,7 @@ members = [
     "driver/acquisition",
     "driver/bmi270",
     "driver/i2c",
+    "driver/gpio",
     "driver/lsm6dso",
     "driver/peripheral",
     "driver/ubx",

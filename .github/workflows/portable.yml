@@ -46,7 +46,7 @@ jobs:
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
       - name: Qualify reusable IMU drivers and device contract
-        run: cargo test --locked -p nxrs-peripheral -p nxrs-bmi270 -p nxrs-lsm6dso
+        run: cargo test --locked -p nxrs-peripheral -p nxrs-bmi270 -p nxrs-lsm6dso -p nxrs-gpio
       - name: Consolidated probes and typed experiment cases
         run: |
           cargo test --locked -p nxrs-boot --lib

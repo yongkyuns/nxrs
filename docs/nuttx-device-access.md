@@ -310,6 +310,10 @@ bus adapter, descriptor and bounded transfers; NuttX still owns the controller
 driver and bus serialization. The IMU's `observed_bus.rs` only adds optional
 transaction timing through the embedded-hal interface. Its device owner holds
 the sensor and wake resources through acquisition and joined cleanup.
+`driver/gpio` owns the GPIO descriptor, registration/rollback and target ioctls;
+its task-context cleanup-failure hook lets IMU retain quarantine on all failure
+paths. Shared `nxrs-acquisition` owns the NuttX poll/pipe ABI used by both IMU and
+GNSS. IMU retains readiness mode, cadence, sample admission and teardown ordering.
 
 For a complete NuttX device driver, the capability can consume that registered
 interface directly. A resource must have one active driver owner. The CoreS3
@@ -343,9 +347,9 @@ This device-access design does not prescribe a second execution framework.
 
 A HAL/provider may need blocking I/O, descriptor readiness, an IRQ-originated
 notification, or a dedicated acquisition loop. Whatever mechanism is chosen,
-the NuttX-specific wait/readiness details remain inside the capability/provider
-boundary and integrate with the service communication model documented
-elsewhere.
+the NuttX-specific wait/readiness details remain below the public capability
+boundary, in its provider or the shared resource/acquisition support. They
+integrate with the service communication model documented elsewhere.
 
 Do not expose raw descriptor readiness as application policy solely because the
 underlying NuttX device uses a file descriptor.

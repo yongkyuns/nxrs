@@ -26,7 +26,8 @@ app="$APPS/examples/nxrs_imu_witness"
 mkdir -- "$app"
 cp "$HERE/i2c_probe.c" "$HERE/probe_main.c" "$app/"
 cp "$ROOT/driver/i2c/src/platform/nuttx/ffi/i2c.c" \
-   "$ROOT/hal/imu/src/platform/nuttx/ffi/events.c" "$app/"
+   "$ROOT/driver/gpio/src/platform/nuttx/ffi/gpio.c" \
+   "$ROOT/driver/acquisition/src/platform/nuttx/ffi/events.c" "$app/"
 cat > "$app/Kconfig" <<'KCONFIG'
 config EXAMPLES_NXRS_IMU_WITNESS
 	bool "Nxrs protected IMU witness"
@@ -45,7 +46,7 @@ PRIORITY = 100
 STACKSIZE = 4096
 MODULE = $(CONFIG_EXAMPLES_NXRS_IMU_WITNESS)
 MAINSRC = probe_main.c
-CSRCS = i2c_probe.c i2c.c events.c
+CSRCS = i2c_probe.c i2c.c gpio.c events.c
 include $(APPDIR)/Application.mk
 MAKEFILE
 board="$NUTTX/boards/xtensa/esp32s3/esp32s3-devkit/src"
@@ -143,8 +144,8 @@ check_symbol_placement() {
     return 1
   fi
 }
-for symbol in imu_witness_main imu_witness_i2c i2c_resource_transfer imu_irq_check \
-  imu_irq_register imu_irq_read imu_irq_unregister imu_event_pipe imu_event_wait imu_event_tick; do
+for symbol in imu_witness_main imu_witness_i2c i2c_resource_transfer gpio_resource_irq_check \
+  gpio_resource_irq_register gpio_resource_irq_read gpio_resource_irq_unregister acquisition_event_pipe acquisition_event_wait acquisition_event_tick; do
   check_symbol_placement "$symbol" user kernel
 done
 check_symbol_placement ioctl user ''

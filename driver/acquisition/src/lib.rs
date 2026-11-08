@@ -1,6 +1,10 @@
 //! Shared task-context execution for bounded sensor event producers.
-//! Device waits, cancellation mechanisms, errors and cleanup belong to the HAL.
-#![forbid(unsafe_code)]
+//! Shared cancellation/readiness mechanisms; device and deadline policy stays in HALs.
+#![deny(unsafe_code)]
+
+#[cfg(target_os = "nuttx")]
+#[path = "platform/nuttx/mod.rs"]
+pub mod nuttx;
 
 pub mod mock;
 #[cfg(unix)]

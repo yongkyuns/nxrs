@@ -1,7 +1,8 @@
 # ESP32-S3 protected IMU ABI witness
 
-The witness links the production IMU I²C and GPIO C bridges into a protected
-NuttX userspace executable. The pinned ESP32-S3 DevKit `knsh` configuration
+The witness links the production I²C, GPIO and readiness C bridges from
+`driver/i2c`, `driver/gpio` and `driver/acquisition` into a protected NuttX
+userspace executable. The pinned ESP32-S3 DevKit `knsh` configuration
 supplies the kernel and userspace split. Test-only lower halves register
 deterministic I²C and GPIO devices with the actual NuttX VFS upper halves.
 

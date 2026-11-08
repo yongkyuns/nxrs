@@ -122,13 +122,13 @@ pub(super) mod ffi {
     pub(super) fn tick(_: i32, _: i32) -> io::Result<bool> {
         Ok(false)
     }
-    pub(super) fn irq_check(_: i32) -> io::Result<()> {
+    pub(crate) fn irq_check(_: i32) -> io::Result<()> {
         Ok(())
     }
-    pub(super) fn irq_read(_: i32) -> io::Result<bool> {
+    pub(crate) fn irq_read(_: i32) -> io::Result<bool> {
         Ok(FAKE.lock().unwrap().irq_asserted)
     }
-    pub(super) fn irq_register(_: i32) -> io::Result<()> {
+    pub(crate) fn irq_register(_: i32) -> io::Result<()> {
         let mut f = FAKE.lock().unwrap();
         f.registrations += 1;
         if f.fail_register {
@@ -137,7 +137,7 @@ pub(super) mod ffi {
             Ok(())
         }
     }
-    pub(super) fn irq_unregister(_: i32) -> io::Result<()> {
+    pub(crate) fn irq_unregister(_: i32) -> io::Result<()> {
         let mut f = FAKE.lock().unwrap();
         f.registrations -= 1;
         f.unregisters += 1;
@@ -155,9 +155,8 @@ use acquisition::readiness;
 mod device;
 #[path = "observed_bus.rs"]
 mod observed_bus;
-use super::resource;
-#[path = "irq.rs"]
-mod irq;
+use self::ffi as events;
+use super::{gpio_resource, resource};
 #[path = "../../session.rs"]
 mod session;
 use super::cadence;
@@ -231,7 +230,7 @@ fn irq_registration_rollback_and_quarantine_are_not_repeated() {
         let file = DeviceFile::new();
         FAKE.lock().unwrap().fail_register = fail_register;
         FAKE.lock().unwrap().fail_unregister = fail_unregister;
-        match irq::Irq::open(file.path()) {
+        match device::open_irq(file.path()) {
             Err(crate::DeviceError::Io) => assert!(fail_register),
             Ok(mut irq) => {
                 assert!(!fail_register);
@@ -266,14 +265,20 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
     assert_eq!(FAKE.lock().unwrap().transfers, 0);
     assert_eq!(OWNED.load(Ordering::Relaxed), 0);
 
-    reset();
-    assert_eq!(
-        acquire::<Bmi270Sensor>(binding(missing, Some(file.path())), default_config()).err(),
-        Some(crate::DeviceError::Io)
-    );
-    let f = FAKE.lock().unwrap();
-    assert_eq!((f.registrations, f.unregisters), (0, 1));
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    for fail_unregister in [false, true] {
+        reset();
+        FAKE.lock().unwrap().fail_unregister = fail_unregister;
+        assert_eq!(
+            acquire::<Bmi270Sensor>(binding(missing, Some(file.path())), default_config()).err(),
+            Some(crate::DeviceError::Io)
+        );
+        let f = FAKE.lock().unwrap();
+        assert_eq!((f.registrations, f.unregisters), (0, 1));
+        assert_eq!(
+            OWNED.load(Ordering::Relaxed),
+            if fail_unregister { 2 } else { 0 }
+        );
+    }
 }
 
 #[test]

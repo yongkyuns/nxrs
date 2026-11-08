@@ -37,8 +37,12 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   OS-specific code stays under its actual OS directory. Do not copy std code
   into OS folders or reintroduce `std`/`native` pseudo-platforms.
 
-- Reusable controller access belongs in `driver/<bus>`. `driver/i2c` supports
-  NuttX only, owning the descriptor and embedded-hal implementation. Sensor HALs
+- Reusable hardware resource access belongs in `driver/<resource>`. `driver/i2c`
+  and `driver/gpio` support NuttX only and own their descriptors and embedded-hal
+  implementations. GPIO owns registration/rollback and reports teardown failures
+  through a task-context hook; the consuming HAL retains quarantine policy.
+  `nxrs-acquisition` is shared worker/readiness support, with one NuttX poll/pipe
+  binding used by IMU and GNSS. Sensor HALs
   supply resolved configuration and own sensor policy; chip drivers consume bus
   traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile role. Host witnesses inject

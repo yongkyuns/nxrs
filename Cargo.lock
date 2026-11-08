@@ -327,6 +327,7 @@ dependencies = [
 name = "nxrs-acquisition"
 version = "0.1.0"
 dependencies = [
+ "nxrs-build-support",
  "nxrs-messaging",
 ]
 
@@ -393,6 +394,7 @@ dependencies = [
  "nxrs-bmi270",
  "nxrs-build-support",
  "nxrs-detector-build-support",
+ "nxrs-gpio",
  "nxrs-i2c",
  "nxrs-lsm6dso",
  "nxrs-messaging",
@@ -530,6 +532,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-gpio"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-build-support",
+]
+
+[[package]]
 name = "nxrs-hal-common"
 version = "0.1.0"
 
@@ -571,6 +581,7 @@ dependencies = [
  "nxrs-acquisition",
  "nxrs-bmi270",
  "nxrs-build-support",
+ "nxrs-gpio",
  "nxrs-i2c",
  "nxrs-lsm6dso",
  "nxrs-messaging",

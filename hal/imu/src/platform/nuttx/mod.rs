@@ -1,6 +1,6 @@
 //! Profile-selected NuttX IMU factory.
 use self::{construction::Construct, session::Session};
-use super::resource;
+use super::{events, gpio_resource, resource};
 use crate::{AppliedConfig, Config, DeviceError, Event, Imu};
 use acquisition::readiness;
 use core::sync::atomic::AtomicU8;
@@ -16,9 +16,6 @@ mod session;
 
 mod construction;
 mod device;
-#[allow(unsafe_code)]
-mod ffi;
-mod irq;
 mod observed_bus;
 mod signal;
 mod trace;
@@ -79,7 +76,7 @@ fn acquire<T: Construct + Send + 'static>(
 ) -> Result<(Session<readiness::Cancel>, AppliedConfig), DeviceError> {
     let device = Device::<T>::acquire(binding, config, trace)?;
     let applied = device.applied_config();
-    let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
+    let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();
     Session::start(STACK_BYTES, cancel, sink, move |stop, emit| {
         device.run(stop, &wake, emit)

@@ -46,6 +46,10 @@ requirements continue to apply throughout migration.
 Resource adapters belong in `driver/<bus>`. `driver/i2c` implements
 `embedded_hal::i2c::I2c` for NuttX only and owns its native glue; IMU supplies
 resolved configuration and keeps acquisition and stream metadata policy.
+`driver/gpio` similarly owns NuttX interrupt registration and embedded-hal pin
+reads. Its task-context cleanup-failure hook lets the HAL retain quarantine even
+when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/pipe
+binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
 Chip drivers depend on the bus trait, not this concrete adapter. There are no
 host bus backends, unavailable stubs or additional logical profile roles.
 Version 2 sensor catalogs name checked-in

@@ -20,6 +20,7 @@ regex = "1"
 nxrs-messaging = { path = "../../shared/messaging" }
 nxrs-acquisition = { path = "../../driver/acquisition" }
 nxrs-i2c = { path = "../../driver/i2c" }
+nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 embedded-hal = "=1.0.0"

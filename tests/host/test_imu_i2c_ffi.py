@@ -108,15 +108,13 @@ int main(void) {
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <nuttx/ioexpander/gpio.h>
-int gnss_event_pipe(int[2]);
-int imu_event_pipe(int[2]);
-int gnss_event_wait(int, int);
-int imu_event_wait(int, int);
-int imu_event_tick(int, int);
-int imu_irq_check(int);
-int imu_irq_register(int);
-int imu_irq_unregister(int);
-int imu_irq_read(int);
+int acquisition_event_pipe(int[2]);
+int acquisition_event_wait(int, int);
+int acquisition_event_tick(int, int);
+int gpio_resource_irq_check(int);
+int gpio_resource_irq_register(int);
+int gpio_resource_irq_unregister(int);
+int gpio_resource_irq_read(int);
 static int type = GPIO_INTERRUPT_RISING_PIN, registered;
 int sensor_test_pipe2(int fds[2], int flags) {
   assert((flags & O_NONBLOCK) && (flags & O_CLOEXEC));
@@ -160,32 +158,31 @@ static void check(int (*create)(int[2]), int (*wait)(int,int)) {
 }
 static int tick_wait(int unused, int cancel) {
   (void)unused;
-  return imu_event_tick(cancel, 5000);
+  return acquisition_event_tick(cancel, 5000);
 }
 int main(void) {
-  check(gnss_event_pipe, gnss_event_wait);
-  check(imu_event_pipe, imu_event_wait);
-  int timer[2]; assert(imu_event_pipe(timer) == 0);
-  assert(imu_event_tick(timer[0], 0) == 1); /* expiry is just a wake hint */
+  check(acquisition_event_pipe, acquisition_event_wait);
+  int timer[2]; assert(acquisition_event_pipe(timer) == 0);
+  assert(acquisition_event_tick(timer[0], 0) == 1); /* expiry is just a wake hint */
   pthread_t thread; struct waiting w = {-1, timer[0], tick_wait};
   assert(pthread_create(&thread, NULL, waiter, &w) == 0);
   assert(write(timer[1], "s", 1) == 1);
   assert(pthread_join(thread, NULL) == 0); /* cancels the five-second wait */
-  assert(imu_event_tick(timer[0], 0) == 0); /* cancellation wins expiry */
+  assert(acquisition_event_tick(timer[0], 0) == 0); /* cancellation wins expiry */
   close(timer[0]); close(timer[1]);
-  assert(imu_irq_check(42) == 0);
+  assert(gpio_resource_irq_check(42) == 0);
   type = GPIO_OUTPUT_PIN;
-  assert(imu_irq_check(42) == -1 && errno == EINVAL);
-  assert(imu_irq_register(42) == 0 && registered == 1);
-  assert(imu_irq_read(42) == 1);
-  assert(imu_irq_unregister(42) == 0 && registered == 0);
+  assert(gpio_resource_irq_check(42) == -1 && errno == EINVAL);
+  assert(gpio_resource_irq_register(42) == 0 && registered == 1);
+  assert(gpio_resource_irq_read(42) == 1);
+  assert(gpio_resource_irq_unregister(42) == 0 && registered == 0);
 }
 """)
             executable = work / "events"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
                             "-D_GNU_SOURCE", "-Dpipe2=sensor_test_pipe2", "-include", str(work / "compat.h"),
                             "-I", str(work), str(harness),
-                            str(ROOT / "hal/gnss/src/platform/nuttx/ffi/events.c"),
-                            str(ROOT / "hal/imu/src/platform/nuttx/ffi/events.c"),
+                            str(ROOT / "driver/acquisition/src/platform/nuttx/ffi/events.c"),
+                            str(ROOT / "driver/gpio/src/platform/nuttx/ffi/gpio.c"),
                             "-o", str(executable)], check=True, timeout=30)
             subprocess.run([str(executable)], check=True, timeout=5)

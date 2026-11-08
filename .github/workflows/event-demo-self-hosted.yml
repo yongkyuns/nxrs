@@ -15,6 +15,7 @@ on:
       - 'shared/simulation/**'
       - 'hal/imu/**'
       - 'driver/i2c/**'
+      - 'driver/gpio/**'
       - 'driver/peripheral/**'
       - 'driver/bmi270/**'
       - 'hal/gnss/**'
@@ -115,7 +116,7 @@ jobs:
       - name: Qualify the standalone peripheral drivers and IMU timing probe
         run: |
           cargo +1.90.0 test --locked \
-            -p nxrs-bmi270 -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-i2c -p nxrs-imu -p nxrs-imu-qualification \
+            -p nxrs-bmi270 -p nxrs-lsm6dso -p nxrs-ubx-driver -p nxrs-i2c -p nxrs-gpio -p nxrs-imu -p nxrs-imu-qualification \
             --features nxrs-imu-qualification/probe
           python3 -m unittest discover -s tests/host -p test_imu_scheduler_trace.py
 

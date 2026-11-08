@@ -14,3 +14,7 @@ use irq_tests::ffi;
 #[cfg(unix)]
 #[path = "../../../driver/i2c/tests/support/mod.rs"]
 mod resource;
+
+#[cfg(unix)]
+#[path = "../../../driver/gpio/tests/support/mod.rs"]
+mod gpio_resource;

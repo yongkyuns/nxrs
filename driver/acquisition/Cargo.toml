@@ -9,3 +9,6 @@ name = "acquisition"
 
 [dependencies]
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
+
+[build-dependencies]
+nxrs-build-support = { path = "../../platform/build-support" }

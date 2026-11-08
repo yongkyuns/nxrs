@@ -1,6 +1,6 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
 use crate::{session::Session, DeviceError, Event, Gnss};
-use acquisition::readiness;
+use acquisition::{nuttx as events, readiness};
 use core::sync::atomic::{AtomicU8, Ordering};
 use std::{
     fs::{File, OpenOptions},
@@ -136,13 +136,13 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     sink: S,
 ) -> Result<impl Gnss + Send + 'static, DeviceError> {
     let mut device = acquire()?;
-    let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
+    let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
     let wake = cancel.reader.clone();
     Session::start(STACK_BYTES, cancel, sink, move |stop, emit| {
         let origin = std::time::Instant::now();
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
-                if !readiness::wait(&device.receiver.io().port.file, &wake, ffi::wait)
+                if !readiness::wait(&device.receiver.io().port.file, &wake, events::wait)
                     .map_err(|_| DeviceError::Io)?
                 {
                     break;

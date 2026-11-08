@@ -89,10 +89,10 @@ hal/imu/
   src/platform/nuttx/construction.rs   concrete constructors and qualification controls
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
   src/platform/nuttx/observed_bus.rs   optional timing around driver/i2c
-  src/platform/nuttx/irq.rs            cancellable notification ownership
-  src/platform/nuttx/ffi/              mechanical native ABI translation
 platform/nuttx/platforms/              existing product and qualification profiles
 driver/i2c/                            NuttX-only bus adapter implementing embedded-hal
+driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
+driver/acquisition/                    shared workers, cancellation and native readiness
 hal/gnss/                              UART binding, UBX policy and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
 platform/profiles/                     host, simulation and qualification profiles
@@ -107,8 +107,12 @@ capability directly through a native API or a supported external transport.
 Targeting macOS alone does not establish that an IMU source exists.
 
 `driver/i2c` owns reusable NuttX bus access, its ABI glue and qualification.
-Sensor HALs supply resolved resources and sensor policy; chip drivers consume
-embedded-hal traits without depending on the concrete bus adapter. No macOS or
+`driver/gpio` owns rising-edge GPIO registration, rollback and descriptor access.
+A task-context cleanup-failure hook retains the owner's quarantine policy, including
+on failed setup and Drop. `nxrs-acquisition` owns shared worker/cancellation helpers
+and one NuttX poll/pipe binding for IMU and GNSS. Sensor HALs supply resolved
+resources and sensor policy; chip drivers consume embedded-hal traits without
+depending on the concrete bus adapter. No macOS or
 Linux I²C backend is required. Host witnesses inject test-only bus operations.
 The root `platform/` directory remains build/configuration code.
 
