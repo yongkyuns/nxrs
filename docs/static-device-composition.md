@@ -27,7 +27,7 @@ multiple devices using the same implementation, are supported by construction.
 | Term | Meaning | Example |
 | --- | --- | --- |
 | Capability | A portable API with observations, requirements, errors and lifecycle semantics | IMU measurements and acquisition |
-| Implementation | Runtime code that implements the capability using a chip driver or OS facility | BMI270 adapter using the reusable BMI270 driver |
+| Implementation | Runtime code that implements the capability using a chip driver or OS facility | IMU acquisition using the BMI270 driver’s shared device contract |
 | Resource | An OS/controller facility needed by an implementation | I2C controller, UART, GPIO interrupt or SPI chip select |
 | Device instance | One configured physical endpoint with canonical identity and state | BMI270 at address 0x68 on the sensor bus |
 | Role | A logical name that refers to a device for a product purpose | Default IMU, front IMU or backup IMU |
@@ -54,7 +54,7 @@ contracts and selects the implementation directly. Separate field-projection
 schemas, generated model enums and runtime model matches have been removed.
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
-sensor translation, acquisition and optional transaction timing.
+stream metadata, acquisition and optional transaction timing.
 
 The two HAL build scripts remain generic adapters for this slice. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
@@ -94,8 +94,9 @@ that both drivers remain in the linked firmware.
 
 | Owner | Responsibilities |
 | --- | --- |
-| `hal/<capability>` | Public contract, normalization, acquisition/lifecycle policy, private runtime implementations, declarative binding/configuration schema and Cargo feature declarations |
-| `driver/<device>` | Reusable chip protocol and chip-specific API over existing Rust I/O traits; no dependency on HALs, services or profile resolution |
+| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy, private runtime implementations, declarative binding/configuration schema and Cargo feature declarations |
+| `driver/<device>` | Reusable chip protocol, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
+| `driver/peripheral` | Synchronous per-peripheral contracts; no resource construction or acquisition runtime |
 | Provider-local `ffi/` | Mechanical ABI source for the consuming provider |
 | Product profile and overlays | Physical devices, resource assignments, roles, requirements and budgets |
 | Shared build support/controller | Schema discovery, resolution, validation, generic Rust generation, feature requests, target/native compilation orchestration and provenance |

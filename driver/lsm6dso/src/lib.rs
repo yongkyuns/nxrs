@@ -1,6 +1,8 @@
 //! LSM6DSO register and tagged FIFO driver. OS and HAL policy live elsewhere.
 #![forbid(unsafe_code)]
 
+mod imu;
+
 use embedded_hal::{delay::DelayNs, i2c::I2c};
 
 const WHO_AM_I: u8 = 0x0f;
@@ -498,6 +500,7 @@ impl<B: I2c> Lsm6dso<B> {
 mod tests {
     use super::*;
     use embedded_hal::i2c::{ErrorKind, ErrorType, Operation};
+    use peripheral::imu::Imu as _;
     use std::vec::Vec;
 
     struct Delay;
@@ -722,6 +725,22 @@ mod tests {
         assert_eq!(sample.unwrap().slot, 2);
         assert_eq!(sensor.pending_gyro, None);
         assert_eq!(sensor.pending_accel, None);
+        sensor.bus.push(1, 3, [0; 3]);
+        sensor.bus.push(2, 3, [0; 3]);
+        let mut calls = 0;
+        assert_eq!(
+            sensor.read_available(|_| {
+                calls += 1;
+                false
+            }),
+            Ok(None)
+        );
+        assert_eq!(calls, 1);
+        sensor.bus.status_flags = 0x40;
+        assert_eq!(
+            sensor.read_available(|_| panic!("overflow sample")),
+            Err(peripheral::imu::Error::Overflow)
+        );
     }
 
     #[test]
@@ -752,7 +771,7 @@ mod tests {
                 let mut sensor = Lsm6dso::open_configured(bus, 0x6a, Delay, config).unwrap();
                 let mut sample = None;
                 assert_eq!(
-                    sensor.drain(|value| {
+                    sensor.read_available(|value| {
                         sample = Some(value);
                         true
                     }),
@@ -797,7 +816,7 @@ mod tests {
     #[test]
     fn stop_disables_fifo_and_both_sensor_odrs() {
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-        sensor.stop().unwrap();
+        peripheral::imu::Imu::stop(&mut sensor).unwrap();
         assert_eq!(sensor.bus.regs[FIFO_CTRL4 as usize] & 7, 0);
         assert_eq!(sensor.bus.regs[INT1_CTRL as usize] & 0x38, 0);
         assert_eq!(sensor.bus.regs[CTRL1_XL as usize] & 0xf0, 0);

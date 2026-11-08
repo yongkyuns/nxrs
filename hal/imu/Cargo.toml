@@ -16,6 +16,7 @@ bindings = ["bindings.toml"]
 probe = []
 
 [dependencies]
+nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 nxrs-acquisition = { path = "../../driver/acquisition" }
 

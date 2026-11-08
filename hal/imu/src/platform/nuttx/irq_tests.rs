@@ -21,6 +21,7 @@ enum Op {
 
 struct Fake {
     regs: [u8; 128],
+    fifo: Vec<u8>,
     bad_init: bool,
     bad_config_readback: bool,
     fail_register: bool,
@@ -44,6 +45,7 @@ impl Fake {
         regs[0x0f] = 0x6c;
         Self {
             regs,
+            fifo: Vec::new(),
             bad_init: false,
             bad_config_readback: false,
             fail_register: false,
@@ -99,7 +101,14 @@ pub(super) mod ffi {
             match reg {
                 0x03 => r.fill(0xc0),
                 0x21 => r.fill(if f.bad_init { 2 } else { 1 }),
-                0x1d | 0x24 | 0x25 | 0x26 => r.fill(0),
+                0x1d => r.fill(f.regs[0x1d]),
+                0x24 => r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes()),
+                0x25 => r.fill(0),
+                0x26 => {
+                    for byte in r {
+                        *byte = f.fifo.remove(0);
+                    }
+                }
                 0x41 if f.bad_config_readback => r.fill(f.regs[reg] ^ 1),
                 _ => r.copy_from_slice(&f.regs[reg..reg + r.len()]),
             }
@@ -151,16 +160,19 @@ use super::resource;
 mod irq;
 #[path = "../../session.rs"]
 mod session;
-use super::{adapters, cadence};
+use super::cadence;
+#[path = "construction.rs"]
+mod construction;
+use peripheral::imu::Imu as ImuDevice;
 #[path = "signal.rs"]
 mod signal;
 #[path = "trace.rs"]
 mod trace;
 
-type Bmi270Sensor = adapters::bmi270::Sensor<observed_bus::Bus, device::Delay>;
-type Lsm6dsoSensor = adapters::lsm6dso::Sensor<observed_bus::Bus>;
+type Bmi270Sensor = nxrs_bmi270::Bmi270<observed_bus::Bus, device::Delay>;
+type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<observed_bus::Bus>;
 
-fn acquire<S: adapters::Sensor<observed_bus::Bus, device::Delay>>(
+fn acquire<S: construction::Construct>(
     binding: device::Binding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<S>, crate::DeviceError> {
@@ -206,7 +218,7 @@ fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> device::Binding<'a> 
 }
 
 fn default_config() -> crate::Config {
-    adapters::bmi270::DEFAULT_CONFIG
+    Bmi270Sensor::DEFAULT
 }
 
 #[test]
@@ -336,7 +348,6 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
 
 #[test]
 fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
-    use adapters::Sensor;
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
@@ -346,7 +357,7 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
         frequency: 100_000,
         irq_path: None,
     };
-    let default = <Lsm6dsoSensor as Sensor<observed_bus::Bus, device::Delay>>::DEFAULT;
+    let default = Lsm6dsoSensor::DEFAULT;
     assert_eq!(
         acquire::<Lsm6dsoSensor>(replacement, default_config()).err(),
         Some(crate::DeviceError::Unsupported)
@@ -493,6 +504,55 @@ fn unpublished_device_and_joined_worker_both_stop_before_detach() {
     let device =
         acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap();
     join_device(device);
+}
+
+#[test]
+fn hal_adds_stream_metadata_and_preserves_device_overflow() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for overflow in [false, true] {
+        reset();
+        let device =
+            acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config())
+                .unwrap();
+        {
+            let mut fake = FAKE.lock().unwrap();
+            fake.regs[0x1d] = u8::from(overflow);
+            for _ in 0..3 {
+                for axis in [0_i16, 0, 16384, 8192, -8192, 0] {
+                    fake.fifo.extend_from_slice(&axis.to_le_bytes());
+                }
+            }
+        }
+        let mut samples = Vec::new();
+        let result = device.run(
+            &AtomicBool::new(false),
+            &File::open(file.path()).unwrap(),
+            &mut |event| {
+                let crate::Event::Sample(sample) = event else {
+                    panic!("unexpected event")
+                };
+                samples.push(sample);
+                samples.len() < 3
+            },
+        );
+        if overflow {
+            assert_eq!(result, Err(crate::DeviceError::Full));
+            assert!(samples.is_empty());
+        } else {
+            result.unwrap();
+            assert_eq!(samples.len(), 3);
+            for (i, sample) in samples.iter().enumerate() {
+                assert_eq!(sample.sequence, i as u64 + 1);
+                assert_eq!(sample.timestamp_ms, samples[0].timestamp_ms);
+                assert_eq!(sample.sample_interval_us, 10_000);
+                assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
+                assert!((sample.gyro_rps[2] - 17.453293).abs() < 1e-5);
+            }
+        }
+        assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
+        assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    }
 }
 
 #[test]

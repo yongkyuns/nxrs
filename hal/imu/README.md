@@ -22,12 +22,12 @@ physical timing API. Sensor-reference output also requires the explicit
 not start recording; ordinary acquisition in that build uses an empty observer.
 
 The [composition design](../../docs/peripheral-composition.md) places reusable
-BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
-acquisition lifecycle in this crate. Private `src/adapters/` modules translate
-driver settings, samples and errors into the IMU contract. Drivers own supported
-rates and exact physical-range conversions. The HAL resolves a request directly
-into a concrete driver configuration and accepted settings before reserving any
-resources, then passes that configuration to acquisition.
+BMI270 protocol behavior in `driver/bmi270`. BMI270 and LSM6DSO directly implement
+`peripheral::imu::Imu` from `driver/peripheral`, retaining their chip APIs. This HAL
+adds stream metadata and owns acquisition lifetime; it has no normalization
+wrapper objects. Drivers own supported rates and exact physical-range conversions.
+The HAL asks the selected driver to resolve a request into concrete configuration
+and accepted settings before reserving resources.
 The product profile supplies the device, bus/address, optional IRQ and worker
 budget. [bindings.toml](bindings.toml) declares supported sensor combinations and
 their checked-in Rust implementation IDs. Shared build support generates typed
@@ -38,7 +38,9 @@ freshness and native linking.
 The shared [NuttX I²C adapter](../../driver/i2c/README.md) owns the controller descriptor
 and implements `embedded_hal::i2c::I2c`. This HAL only wraps transactions for its
 optional timing observer, then supplies that bus to the sensor driver. GPIO
-readiness, sensor normalization and acquisition lifecycle remain here.
+readiness, stream metadata and acquisition lifecycle remain here. Buffering is
+explicit in the shared device contract; this acquisition path requires a FIFO
+and rejects latest-value devices before acquiring resources.
 Composition overlays and coordinated simulation are tracked in the
 [migration plan](../../docs/peripheral-composition-plan.md).
 
@@ -71,8 +73,8 @@ quarantines the physical owner.
 
 The `nxrs-bmi270` package exposes sensor-specific errors and physical
 samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).
-This HAL maps those into `DeviceError` and `ImuSample`, assigning the monotonic
-host reception time, sequence and nominal interval at delivery.
+This HAL consumes the driver's shared device contract and produces `DeviceError`
+and `ImuSample`, assigning host reception time, sequence and nominal interval.
 
 The driver uses the `embedded-hal` I2C and delay traits.
 It waits for both sensors to finish startup, then enables acquisition with equal ODR,

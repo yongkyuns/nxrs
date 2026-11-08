@@ -23,3 +23,8 @@ sensors.
 Sources: [DS12140 Rev 3](https://www.st.com/resource/en/datasheet/lsm6dso.pdf),
 [AN5192 Rev 6](https://www.st.com/resource/en/application_note/an5192-lsm6dso-alwayson-3d-accelerometer-and-3d-gyroscope-stmicroelectronics.pdf).
 Host bus-fake tests do not qualify a physical device or bus timing.
+
+The driver directly implements `peripheral::imu::Imu` alongside its chip API.
+The shared contract returns SI measurements and explicit FIFO/overflow semantics;
+chip-specific samples retain their slot metadata. HAL IMU owns stream timing,
+readiness, acquisition and resource lifetime.

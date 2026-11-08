@@ -1,23 +1,20 @@
 //! Profile-selected NuttX IMU factory.
-use self::{
-    adapters::{bmi270, lsm6dso, Sensor},
-    session::Session,
-};
+use self::{construction::Construct, session::Session};
 use super::resource;
 use crate::{AppliedConfig, Config, DeviceError, Event, Imu};
 use acquisition::readiness;
 use core::sync::atomic::AtomicU8;
 use device::{Binding, Delay, Device};
 use observed_bus::Bus;
+use peripheral::imu::Imu as ImuDevice;
 use trace::Trace;
 
-#[path = "../../adapters/mod.rs"]
-mod adapters;
 #[path = "../../cadence.rs"]
 mod cadence;
 #[path = "../../session.rs"]
 mod session;
 
+mod construction;
 mod device;
 #[allow(unsafe_code)]
 mod ffi;
@@ -32,20 +29,20 @@ include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 // Catalog implementation IDs name these checked-in concrete types.
 #[allow(dead_code, reason = "The catalog selects one concrete implementation.")]
 mod implementations {
-    pub(super) type Bmi270 = super::bmi270::Sensor<super::Bus, super::Delay>;
-    pub(super) type Lsm6dso = super::lsm6dso::Sensor<super::Bus>;
+    pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
+    pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
 }
 
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Imu + Send + 'static, DeviceError> {
-    let config = <Implementation as Sensor<Bus, Delay>>::DEFAULT;
+    let config = Implementation::DEFAULT;
     open_configured(config, sink).map(|(session, _)| session)
 }
 
 /// Preview accepted settings without opening hardware or reserving the device.
 pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
-    <Implementation as Sensor<Bus, Delay>>::resolve(config).map(|(_, applied)| applied)
+    device::resolve::<Implementation>(config).map(|(_, applied)| applied)
 }
 
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
@@ -74,7 +71,7 @@ fn open_with_trace(
     acquire::<Implementation>(BINDING, config, sink, trace)
 }
 
-fn acquire<T: Sensor<Bus, Delay> + Send + 'static>(
+fn acquire<T: Construct + Send + 'static>(
     binding: Binding<'_>,
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,

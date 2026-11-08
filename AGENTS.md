@@ -19,11 +19,13 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   overlays, resolved-profile build wiring, and the migrated IMU/GNSS bindings
   are implemented. Use the profile resolver and normal build/inspection entry
   points. Keep retired sensor selectors and their translation paths out of new wiring.
-- Keep each capability's API, normalization and acquisition implementations in
-  its HAL crate. Reusable chip protocols belong in `driver/<device>` packages
-  with sensor-specific APIs and existing Rust bus traits. Drivers must not depend
-  on capability HALs, applications or services. HALs translate driver types and
-  errors into their own contract. Use `hal/<capability>/src/platform/` for OS
+- Keep managed capability APIs and acquisition implementations in their HALs.
+  Reusable chip protocols belong in `driver/<device>` with sensor-specific APIs
+  over existing Rust bus traits. Shared synchronous device contracts belong in
+  `driver/peripheral`; chip drivers implement them directly. The IMU contract
+  owns device configuration, physical measurements and device errors; its HAL
+  adds stream metadata, resource ownership and delivery/lifecycle policy.
+  Drivers must not depend on capability HALs, applications or services. Use `hal/<capability>/src/platform/` for OS
   implementations; the root
   `platform/` tree owns product profiles and build wiring, not HAL code.
   Profile bindings name actual operating systems: `linux`, `macos`, `windows`,

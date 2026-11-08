@@ -1,8 +1,7 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
 
-#[path = "../configuration.rs"]
-mod configuration;
+use peripheral::imu::select_rate;
 
 pub(crate) use crate::probe::unsupported as open_probed;
 
@@ -59,7 +58,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
 
 /// Preview the fixed source mode without starting acquisition.
 pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
-    let (_, applied) = configuration::select_rate(
+    let (_, applied) = select_rate(
         config,
         [1_000_000_000 / INTERVAL_US],
         core::convert::identity,

@@ -47,8 +47,8 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/imu/src/platform/nuttx/mod.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
             mod implementations {
-                type Bmi270 = bmi270::Sensor<Bus, Delay>;
-                type Lsm6dso = lsm6dso::Sensor<Bus>;
+                type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
+                type Lsm6dso = nxrs_lsm6dso::Lsm6dso<Bus>;
             }
             let device = acquire::<Implementation>(BINDING, config, sink, trace);
             Session::start(STACK_BYTES, cancel, sink, run)
@@ -71,8 +71,6 @@ class HalBoundariesTests(unittest.TestCase):
             bus = "i2c"
             implementation = "Bmi270"
         ''')
-        self.write('hal/imu/src/adapters/bmi270.rs', 'pub struct Sensor;')
-        self.write('hal/imu/src/adapters/lsm6dso.rs', 'pub struct Sensor;')
 
     def test_sensor_generation_uses_declarative_package_inputs(self):
         self.write_declarative_imu()

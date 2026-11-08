@@ -1,6 +1,8 @@
 //! Reusable BMI270 protocol driver. No OS, device paths or service scheduling.
 #![forbid(unsafe_code)]
 
+mod imu;
+
 use bmi2::{types::*, Bmi2, I2cAddr};
 
 use embedded_hal::{delay::DelayNs, i2c::I2c};
@@ -483,6 +485,7 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
 mod tests {
     use super::*;
     use embedded_hal::i2c::{ErrorKind, ErrorType, Operation};
+    use peripheral::imu::Imu as _;
     use std::vec::Vec;
     struct Delay {
         startup_waits: u8,
@@ -631,11 +634,19 @@ mod tests {
 
     #[test]
     fn configured_rate_and_ranges_are_read_back_and_used_for_conversion() {
-        let config = Config {
-            rate: Rate::Hz50,
-            accel_range: AccelRange::G8,
-            gyro_range: GyroRange::Dps125,
-        };
+        let (config, applied) = Bmi270::<Bus, Delay>::resolve(peripheral::imu::Config {
+            min_rate_millihz: 30_000,
+            max_rate_millihz: 60_000,
+            accel_range_g: 8,
+            gyro_range_dps: 125,
+            max_delivery_interval_us: 20_000,
+        })
+        .unwrap();
+        assert_eq!(applied.rate_millihz, 50_000);
+        assert_eq!(
+            Bmi270::<Bus, Delay>::BUFFERING,
+            peripheral::imu::Buffering::Fifo
+        );
         let mut sensor =
             Bmi270::<_, Delay>::open_configured(Bus::new(), 0x68, Delay::new(), config).unwrap();
         assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr50 as u8);
@@ -647,7 +658,7 @@ mod tests {
         }
         let mut sample = None;
         assert_eq!(
-            sensor.drain(|value| {
+            sensor.read_available(|value| {
                 sample = Some(value);
                 true
             }),
@@ -727,14 +738,23 @@ mod tests {
     fn overflow_partial_frames_io_and_closed_consumers_are_explicit() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         sensor.bus.registers[0x1d] = 1;
-        assert_eq!(sensor.drain(|_| true), Err(Error::Overflow));
+        assert_eq!(
+            sensor.read_available(|_| true),
+            Err(peripheral::imu::Error::Overflow)
+        );
         sensor.bus.registers[0x1d] = 0;
         sensor.bus.fifo.push(0);
-        assert_eq!(sensor.drain(|_| true), Err(Error::InvalidData));
+        assert_eq!(
+            sensor.read_available(|_| true),
+            Err(peripheral::imu::Error::InvalidData)
+        );
         sensor.bus.fifo.resize(24, 0);
         sensor.bus.fail_data = true;
-        assert_eq!(sensor.drain(|_| true), Err(Error::Bus));
+        assert_eq!(
+            sensor.read_available(|_| true),
+            Err(peripheral::imu::Error::Io)
+        );
         sensor.bus.fail_data = false;
-        assert_eq!(sensor.drain(|_| false), Ok(None));
+        assert_eq!(sensor.read_available(|_| false), Ok(None));
     }
 }
