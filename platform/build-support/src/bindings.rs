@@ -23,7 +23,6 @@ pub struct Package {
     pub name: String,
     pub manifest: Input,
     pub catalogs: Vec<Input>,
-    pub configuration: BTreeMap<String, Input>,
 }
 
 impl Package {
@@ -32,7 +31,10 @@ impl Package {
         let root = manifest_dir
             .canonicalize()
             .map_err(|error| format!("package {}: {error}", manifest_dir.display()))?;
-        if root.to_str().is_none_or(|value| value.contains(['\r', '\n'])) {
+        if root
+            .to_str()
+            .is_none_or(|value| value.contains(['\r', '\n']))
+        {
             return Err(format!("invalid package directory {}", root.display()));
         }
         let manifest = input(&root, "Cargo.toml")?;
@@ -44,15 +46,23 @@ impl Package {
             .ok_or_else(|| format!("{}: package.name must be a string", manifest.path.display()))?
             .to_owned();
         let mut catalogs = Vec::new();
-        let mut configuration = BTreeMap::new();
         if let Some(metadata) = data.pointer("/package/metadata/nxrs") {
             let metadata = metadata.as_object().ok_or_else(|| {
-                format!("{}: package.metadata.nxrs must be a table", manifest.path.display())
+                format!(
+                    "{}: package.metadata.nxrs must be a table",
+                    manifest.path.display()
+                )
             })?;
             if let Some(paths) = metadata.get("bindings") {
-                let paths = paths.as_array().filter(|paths| paths.len() <= 64).ok_or_else(|| {
-                    format!("{}: nxrs.bindings must be a list of at most 64 paths", manifest.path.display())
-                })?;
+                let paths = paths
+                    .as_array()
+                    .filter(|paths| paths.len() <= 64)
+                    .ok_or_else(|| {
+                        format!(
+                            "{}: nxrs.bindings must be a list of at most 64 paths",
+                            manifest.path.display()
+                        )
+                    })?;
                 let mut seen = BTreeSet::new();
                 for path in paths {
                     let path = path.as_str().ok_or("nxrs.bindings entries must be paths")?;
@@ -64,36 +74,20 @@ impl Package {
                     catalogs.push(source);
                 }
             }
-            if let Some(schemas) = metadata.get("configuration") {
-                let schemas = schemas.as_object().filter(|schemas| schemas.len() <= 64).ok_or(
-                    "nxrs.configuration must be a table of at most 64 provider paths",
-                )?;
-                for (provider, path) in schemas {
-                    if !identifier(provider) {
-                        return Err(format!("invalid configuration provider: {provider}"));
-                    }
-                    let path = path
-                        .as_str()
-                        .ok_or("nxrs.configuration entries must be paths")?;
-                    let source = input(&root, path)?;
-                    version(&source, &parse(&source)?)?;
-                    configuration.insert(provider.clone(), source);
-                }
+            if metadata.contains_key("configuration") {
+                return Err("retired nxrs.configuration schema; declare version 2 bindings with implementation identifiers".into());
             }
         }
         Ok(Self {
             name,
             manifest,
             catalogs,
-            configuration,
         })
     }
 
     /// All bytes that determine a package's declarations, including its metadata.
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
-        std::iter::once(&self.manifest)
-            .chain(self.catalogs.iter())
-            .chain(self.configuration.values())
+        std::iter::once(&self.manifest).chain(self.catalogs.iter())
     }
 }
 
@@ -109,7 +103,9 @@ impl Catalogs {
             return Err(format!("invalid binding capability: {capability}"));
         }
         if self.packages.contains_key(capability) {
-            return Err(format!("duplicate binding package for capability: {capability}"));
+            return Err(format!(
+                "duplicate binding package for capability: {capability}"
+            ));
         }
         let mut entries = BTreeMap::new();
         for source in &package.catalogs {
@@ -146,7 +142,9 @@ impl Catalogs {
     }
 
     pub fn packages(&self) -> impl Iterator<Item = (&str, &Package)> {
-        self.packages.iter().map(|(capability, package)| (capability.as_str(), package))
+        self.packages
+            .iter()
+            .map(|(capability, package)| (capability.as_str(), package))
     }
 
     pub fn values<'a>(&'a self, capability: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
@@ -157,7 +155,10 @@ impl Catalogs {
     }
 
     pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
-        self.packages.values().flat_map(Package::inputs).map(|input| &input.path)
+        self.packages
+            .values()
+            .flat_map(Package::inputs)
+            .map(|input| &input.path)
     }
 
     /// Deterministic provenance, intentionally excluding duplicate source bytes.
@@ -172,7 +173,6 @@ impl Catalogs {
                             "package": package.name,
                             "manifest": package.manifest,
                             "bindings": package.catalogs,
-                            "configuration": package.configuration,
                         }),
                     )
                 })
@@ -191,16 +191,38 @@ struct Catalog {
 fn catalog(source: &Input) -> Result<Catalog> {
     let data = parse(source)?;
     version(source, &data)?;
-    let catalog: Catalog = serde_json::from_value(data)
-        .map_err(|error| format!("{}: invalid binding catalog: {error}", source.path.display()))?;
-    if catalog.version != 1 || catalog.binding.len() > 1024 {
-        return Err(format!("{}: invalid binding catalog size or version", source.path.display()));
+    let catalog: Catalog = serde_json::from_value(data).map_err(|error| {
+        format!(
+            "{}: invalid binding catalog: {error}",
+            source.path.display()
+        )
+    })?;
+    if catalog.version != 2 || catalog.binding.len() > 1024 {
+        return Err(format!(
+            "{}: invalid binding catalog size or version",
+            source.path.display()
+        ));
     }
     for binding in &catalog.binding {
         selector(binding, "compatible", source)?;
         selector(binding, "bus", source)?;
+        let implementation = selector(binding, "implementation", source)?;
+        validate_implementation(implementation)?;
     }
     Ok(catalog)
+}
+
+/// One checked-in type name, never a Rust path or executable expression.
+pub(crate) fn validate_implementation(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || value == "Self"
+        || !value.as_bytes()[0].is_ascii_uppercase()
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return Err(format!("invalid implementation identifier: {value:?}"));
+    }
+    Ok(())
 }
 
 fn selector<'a>(binding: &'a Value, key: &str, source: &Input) -> Result<&'a str> {
@@ -212,20 +234,28 @@ fn selector<'a>(binding: &'a Value, key: &str, source: &Input) -> Result<&'a str
                 && value.len() <= 128
                 && value.bytes().all(|byte| byte.is_ascii_graphic())
         })
-        .ok_or_else(|| format!("{}: binding.{key} must be a nonempty identifier", source.path.display()))
+        .ok_or_else(|| {
+            format!(
+                "{}: binding.{key} must be a nonempty identifier",
+                source.path.display()
+            )
+        })
 }
 
 fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_'))
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
 }
 
 fn version(source: &Input, data: &Value) -> Result<()> {
-    if data.get("version").and_then(Value::as_u64) != Some(1) {
-        return Err(format!("{}: unsupported declaration version (expected 1)", source.path.display()));
+    if data.get("version").and_then(Value::as_u64) != Some(2) {
+        return Err(format!(
+            "{}: unsupported declaration version (expected 2; migrate model to implementation)",
+            source.path.display()
+        ));
     }
     Ok(())
 }
@@ -241,16 +271,23 @@ fn input(root: &Path, relative: &str) -> Result<Input> {
     if relative.is_empty()
         || relative.contains(['\\', ':', '\0', '\r', '\n'])
         || path.is_absolute()
-        || path.components().any(|part| !matches!(part, Component::Normal(_)))
+        || path
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
     {
-        return Err(format!("package declaration must use a contained relative path: {relative:?}"));
+        return Err(format!(
+            "package declaration must use a contained relative path: {relative:?}"
+        ));
     }
     let path = root.join(path);
     let canonical = path
         .canonicalize()
         .map_err(|error| format!("{}: {error}", path.display()))?;
     if !canonical.starts_with(root) || !canonical.is_file() {
-        return Err(format!("package declaration escapes its package or is not a file: {}", path.display()));
+        return Err(format!(
+            "package declaration escapes its package or is not a file: {}",
+            path.display()
+        ));
     }
     // Preserve the declared path for Cargo reruns while checking its resolved
     // target above. Moving an internal symlink still invalidates the input.
@@ -267,8 +304,7 @@ mod tests {
     use super::*;
     use std::fs;
 
-    const CATALOG: &str = "version = 1\n[[binding]]\ncompatible = 'vendor,sensor'\nbus = 'i2c'\nmodel = 'sensor'\n";
-    const SCHEMA: &str = "version = 1\noutput = 'config.rs'\nrole = 'sensor'\n";
+    const CATALOG: &str = "version = 2\n[[binding]]\ncompatible = 'vendor,sensor'\nbus = 'i2c'\nimplementation = 'Sensor'\n";
 
     fn fixture(metadata: &str) -> crate::TempDir {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
@@ -279,14 +315,12 @@ mod tests {
         )
         .unwrap();
         fs::write(temp.0.join("bindings/catalog.toml"), CATALOG).unwrap();
-        fs::write(temp.0.join("bindings/config.toml"), SCHEMA).unwrap();
         temp
     }
 
     fn metadata(path: &str) -> String {
         format!(
-            "[package.metadata.nxrs]\nbindings = [{}]\n\
-             [package.metadata.nxrs.configuration]\nnuttx = 'bindings/config.toml'\n",
+            "[package.metadata.nxrs]\nbindings = [{}]\n",
             serde_json::to_string(path).unwrap()
         )
     }
@@ -297,20 +331,29 @@ mod tests {
         fs::write(temp.0.join("bindings/ignored.toml"), "invalid declaration").unwrap();
         let package = Package::load(&temp.0).unwrap();
         assert_eq!(package.name, "nxrs-sensor");
-        assert_eq!(package.inputs().count(), 3);
+        assert_eq!(package.inputs().count(), 2);
         assert_eq!(package.catalogs[0].sha256, hash_bytes(CATALOG.as_bytes()));
         let mut catalogs = Catalogs::default();
         catalogs.insert("sensor", package).unwrap();
-        assert_eq!(catalogs.binding("sensor", "vendor,sensor", "i2c").unwrap()["model"], "sensor");
+        assert_eq!(
+            catalogs.binding("sensor", "vendor,sensor", "i2c").unwrap()["implementation"],
+            "Sensor"
+        );
         assert!(catalogs.binding("other", "vendor,sensor", "i2c").is_err());
         let before = catalogs.report();
-        fs::write(temp.0.join("bindings/config.toml"), format!("{SCHEMA}# changed\n")).unwrap();
+        fs::write(
+            temp.0.join("bindings/catalog.toml"),
+            format!("{CATALOG}# changed\n"),
+        )
+        .unwrap();
         let mut changed = Catalogs::default();
-        changed.insert("sensor", Package::load(&temp.0).unwrap()).unwrap();
+        changed
+            .insert("sensor", Package::load(&temp.0).unwrap())
+            .unwrap();
         assert_ne!(before, changed.report());
         assert_eq!(
-            catalogs.package("sensor").unwrap().configuration["nuttx"].contents,
-            SCHEMA
+            catalogs.package("sensor").unwrap().catalogs[0].contents,
+            CATALOG
         );
     }
 
@@ -321,15 +364,25 @@ mod tests {
         let package = Package::load(&temp.0).unwrap();
         assert_eq!(package.inputs().count(), 1);
         assert!(package.catalogs.is_empty());
-        assert!(package.configuration.is_empty());
     }
 
     #[test]
     fn rejects_nonportable_and_escaping_paths() {
-        for path in ["../outside.toml", "/outside.toml", "C:/outside.toml", "bindings\\catalog.toml", "./bindings/catalog.toml", "bindings/\nfile.toml", ""] {
+        for path in [
+            "../outside.toml",
+            "/outside.toml",
+            "C:/outside.toml",
+            "bindings\\catalog.toml",
+            "./bindings/catalog.toml",
+            "bindings/\nfile.toml",
+            "",
+        ] {
             let temp = fixture(&metadata(path));
             let error = Package::load(&temp.0).unwrap_err();
-            assert!(error.contains("contained relative path"), "{path:?}: {error}");
+            assert!(
+                error.contains("contained relative path"),
+                "{path:?}: {error}"
+            );
         }
     }
 
@@ -350,10 +403,16 @@ mod tests {
 
     #[test]
     fn rejects_unknown_versions_and_invalid_metadata() {
-        for file in ["catalog.toml", "config.toml"] {
+        for version in [1, 3] {
             let temp = fixture(&metadata("bindings/catalog.toml"));
-            fs::write(temp.0.join("bindings").join(file), "version = 2\n").unwrap();
-            assert!(Package::load(&temp.0).unwrap_err().contains("unsupported declaration version"));
+            fs::write(
+                temp.0.join("bindings/catalog.toml"),
+                format!("version = {version}\n"),
+            )
+            .unwrap();
+            assert!(Package::load(&temp.0)
+                .unwrap_err()
+                .contains("unsupported declaration version"));
         }
         for metadata in [
             "[package.metadata.nxrs]\nbindings = 'bindings/catalog.toml'\n",
@@ -373,7 +432,9 @@ mod tests {
         );
         fs::write(temp.0.join("bindings/second.toml"), CATALOG).unwrap();
         let mut catalogs = Catalogs::default();
-        let error = catalogs.insert("sensor", Package::load(&temp.0).unwrap()).unwrap_err();
+        let error = catalogs
+            .insert("sensor", Package::load(&temp.0).unwrap())
+            .unwrap_err();
         assert!(error.contains("ambiguous compatible/bus"));
         assert!(catalogs.package("sensor").is_none());
     }

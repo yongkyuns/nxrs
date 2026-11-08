@@ -49,9 +49,9 @@ small Cargo adapters remain in those HALs while the full pre-Cargo handoff is
 qualified. Sensor dependencies and runtime factories still follow the current v1
 selection described below.
 
-Extend the existing pre-Cargo preparation path. Package-owned schemas describe
-typed fields, defaults, constraints, resource references and supported
-implementations. A finite generic renderer supplies validated configuration and
+Extend the existing pre-Cargo preparation path. Package-owned catalogs declare supported implementations and resource
+constraints. Rust defines the configuration and constructor types. Shared resource
+rendering supplies validated configuration and
 concrete per-device declarations. There must be no chip-specific emitter,
 hardcoded sibling catalog inclusion, profile-provided Rust source or redundant
 `source` selector alongside ordinary feature-gated modules.
@@ -77,24 +77,22 @@ existing native-header, helper-exclusion and incremental-evidence gates remain.
 
 ## Shared declarative sensor preparation
 
-The IMU and GNSS packages declare their inputs in `Cargo.toml`. For example,
-the IMU package supplies a compatible/bus catalog and a NuttX configuration schema:
+IMU and GNSS each declare one package-relative catalog:
 
 ```toml
 [package.metadata.nxrs]
-bindings = ["bindings/i2c.toml"]
-
-[package.metadata.nxrs.configuration]
-nuttx = "bindings/nuttx.toml"
+bindings = ["bindings.toml"]
 ```
 
-These are package-relative data files. The catalog declares supported hardware
-and its constraints. The configuration schema names the capability role, fixed
-generated output, typed constants or records, and their values in the resolved
-profile, device, binding or resource. It supports explicit defaults, optional
-values, enum mappings and integer bounds. Rust identifiers and literals are
-validated by the finite shared renderer; schemas cannot contain Rust templates,
-callbacks or source selectors.
+Catalog version 2 declares compatible devices, bus constraints and a single
+`implementation` identifier naming a checked-in type in the provider's
+`implementations` module. Composition profiles/overlays remain version 1.
+The renderer uses fixed I²C/UART resource contracts and imports the selected
+type as `Implementation`; Rust checks the configuration and constructor types.
+The default role and output filename follow the capability name. Stack defaults
+and limits have one shared validator. There are no per-field Rust type, lifetime,
+source-path or enum mappings in TOML. Retired `nxrs.configuration` metadata fails
+with migration guidance.
 
 `nxrs-build-support::preparation::prepare_package` accepts the consuming package
 directory, resolved profile, target OS and owned output directory. It uses the
@@ -110,17 +108,16 @@ a selected profile can compile its contract without an SDK or sibling HAL
 directories. A selected complete profile may read its declared SDK metadata;
 that does not add packages to the consumer's Cargo graph.
 
-Manifest, catalog and configuration bytes participate in receipt dependencies,
+Manifest and catalog bytes participate in receipt dependencies,
 the input fingerprint and Cargo rebuild tracking. The report's
 `resolved-composition.binding-inputs` records their paths and hashes.
 `binding-sources` retains the catalog paths relative to the SDK.
-A copied consumer package must declare matching catalog/schema contents; its
+A copied consumer package must declare matching catalog contents; its
 packaging-only manifest differences are permitted and its actual manifest is
 also tracked. Generated files retain their timestamps when content is unchanged.
-An output ownership record removes an obsolete generated Rust file when a schema
-is renamed or removed, while preserving unrelated outputs and native archives.
+An output ownership record removes an obsolete generated Rust file when configuration is removed, while preserving unrelated outputs and native archives.
 
-This is the D1a migration step. Per-instance construction, additive driver feature
+This extends the D1a migration step. Per-instance construction, additive driver feature
 activation and removal of the generic HAL Cargo adapters remain follow-up work.
 The existing singular runtime factories and lifecycle behavior are unchanged.
 

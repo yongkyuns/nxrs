@@ -1,44 +1,51 @@
 //! Profile-selected NuttX IMU factory.
-use crate::{
-    sensors::{bmi270, lsm6dso, Sensor},
+use self::{
+    adapters::{bmi270, lsm6dso, Sensor},
     session::Session,
-    AppliedConfig, Capabilities, Config, DeviceError, Event, Imu,
 };
+use super::resource;
+use crate::{AppliedConfig, Config, DeviceError, Event, Imu};
 use acquisition::readiness;
 use core::sync::atomic::AtomicU8;
 use device::{Binding, Delay, Device};
-use i2c::Bus;
+use observed_bus::Bus;
 use trace::Trace;
+
+#[path = "../../adapters/mod.rs"]
+mod adapters;
+#[path = "../../cadence.rs"]
+mod cadence;
+#[path = "../../session.rs"]
+mod session;
 
 mod device;
 #[allow(unsafe_code)]
 mod ffi;
-mod i2c;
 mod irq;
+mod observed_bus;
 mod signal;
 mod trace;
 
 static OWNED: AtomicU8 = AtomicU8::new(0);
 include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 
-type Bmi270 = bmi270::Sensor<Bus, Delay>;
-type Lsm6dso = lsm6dso::Sensor<Bus>;
+// Catalog implementation IDs name these checked-in concrete types.
+#[allow(dead_code, reason = "The catalog selects one concrete implementation.")]
+mod implementations {
+    pub(super) type Bmi270 = super::bmi270::Sensor<super::Bus, super::Delay>;
+    pub(super) type Lsm6dso = super::lsm6dso::Sensor<super::Bus>;
+}
 
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Imu + Send + 'static, DeviceError> {
-    let config = match MODEL {
-        SensorModel::Bmi270 => Bmi270::DEFAULT,
-        SensorModel::Lsm6dso => <Lsm6dso as Sensor<Bus, Delay>>::DEFAULT,
-    };
+    let config = <Implementation as Sensor<Bus, Delay>>::DEFAULT;
     open_configured(config, sink).map(|(session, _)| session)
 }
 
-pub fn capabilities() -> Option<Capabilities> {
-    Some(match MODEL {
-        SensorModel::Bmi270 => Bmi270::CAPABILITIES,
-        SensorModel::Lsm6dso => <Lsm6dso as Sensor<Bus, Delay>>::CAPABILITIES,
-    })
+/// Preview accepted settings without opening hardware or reserving the device.
+pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
+    <Implementation as Sensor<Bus, Delay>>::resolve(config).map(|(_, applied)| applied)
 }
 
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
@@ -48,14 +55,13 @@ pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Sen
     open_with_trace(config, sink, Trace::default())
 }
 
-#[cfg(feature = "probe")]
 pub(crate) fn open_probed(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     observe: impl Fn(crate::probe::Timing) + Send + Sync + 'static,
     sensor_reference: bool,
 ) -> Result<(std::boxed::Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
-    let trace = Trace::new(observe).with_sensor_reference(sensor_reference);
+    let trace = Trace::new(observe, sensor_reference)?;
     let (session, applied) = open_with_trace(config, sink, trace)?;
     Ok((std::boxed::Box::new(session), applied))
 }
@@ -65,10 +71,7 @@ fn open_with_trace(
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     trace: Trace,
 ) -> Result<(Session<readiness::Cancel>, AppliedConfig), DeviceError> {
-    match MODEL {
-        SensorModel::Bmi270 => acquire::<Bmi270>(BINDING, config, sink, trace),
-        SensorModel::Lsm6dso => acquire::<Lsm6dso>(BINDING, config, sink, trace),
-    }
+    acquire::<Implementation>(BINDING, config, sink, trace)
 }
 
 fn acquire<T: Sensor<Bus, Delay> + Send + 'static>(

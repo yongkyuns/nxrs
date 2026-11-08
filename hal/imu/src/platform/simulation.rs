@@ -1,23 +1,19 @@
 //! Normalize observations from the profile's shared simulation session.
-#[cfg(all(feature = "probe", not(target_os = "none")))]
+#[path = "../configuration.rs"]
+mod configuration;
+
 pub(crate) use crate::probe::unsupported as open_probed;
 
-use crate::{
-    session::Session, AccelRange, AppliedConfig, Capabilities, Config, DeviceError, Event,
-    GyroRange, Imu, ImuSample,
-};
+#[path = "../session.rs"]
+mod session;
+use crate::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
 use nxrs_simulation::{self as simulation, runtime, CancelHandle, Error, Observation, Source};
+use session::Session;
 use std::io;
 
 include!(concat!(env!("OUT_DIR"), "/simulation_config.rs"));
 
 const INTERVAL_US: u32 = simulation::DEFAULT_IMU_PERIOD_US as u32;
-const RATE: u32 = 1_000_000_000 / INTERVAL_US;
-const CAPABILITIES: Capabilities = Capabilities {
-    rates_millihz: &[RATE],
-    accel_ranges: &[AccelRange::G4],
-    gyro_ranges: &[GyroRange::Dps2000],
-};
 
 struct Cancel(CancelHandle);
 
@@ -68,14 +64,23 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
     })
 }
 
-pub fn capabilities() -> Option<Capabilities> {
-    Some(CAPABILITIES)
+/// Preview the fixed source mode without starting acquisition.
+pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
+    let (_, applied) = configuration::select_rate(
+        config,
+        [1_000_000_000 / INTERVAL_US],
+        core::convert::identity,
+    )?;
+    if config.accel_range_g != 4 || config.gyro_range_dps != 2000 {
+        return Err(DeviceError::Unsupported);
+    }
+    Ok(applied)
 }
 
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     config: Config,
     sink: S,
 ) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
-    let applied = CAPABILITIES.select(config)?;
+    let applied = resolve(config)?;
     open(sink).map(|session| (session, applied))
 }

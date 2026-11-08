@@ -42,6 +42,15 @@ Static instance storage and remaining thread/queue/backend allocation costs must
 be reported separately. Existing lifecycle, native-boundary and portability
 requirements continue to apply throughout migration.
 
+Resource adapters belong in `driver/<bus>`. `driver/i2c` implements
+`embedded_hal::i2c::I2c` for NuttX only and owns its native glue; IMU supplies
+resolved configuration and keeps sensor translation and acquisition policy.
+Chip drivers depend on the bus trait, not this concrete adapter. There are no
+host bus backends, unavailable stubs or additional logical profile roles.
+Version 2 sensor catalogs name checked-in
+Rust implementations; shared tooling emits typed resource bindings rather than
+interpreting per-field Rust schemas.
+
 ## Required implementation boundaries
 
 The capability API and implementation are Rust. Rust owns validation, resource
@@ -215,13 +224,20 @@ hal/wifi/
         ffi/               minimal Objective-C SDK binding
 ~~~
 
-HALs retain both the hardware-resource abstraction and its implementations.
+HALs own capability contracts, normalization and acquisition implementations.
+HALs and peripheral drivers may use Rust `std`; portability requires clean OS
+boundaries, not a `no_std` crate marker. The IMU HAL and BMI270/LSM6DSO drivers
+target the same std environment as their NuttX and host consumers. Core-only
+checks remain only for packages that intentionally support that environment.
 Reusable chip protocols belong in `driver/<device>` and expose sensor-specific
-APIs over existing bus traits. A capability's private sensor implementation
-translates those APIs into its own observations, configuration and errors.
-Drivers have no dependency on the capability HAL. OS resource adapters remain
-with their consuming provider, or move to a dedicated resource HAL when shared
-by real consumers. Product profiles supply concrete resource bindings.
+APIs over existing bus traits and own their supported settings. A capability's
+private driver adapters translate those APIs into its own observations,
+configuration and errors. Resolve common requests into concrete driver settings
+before acquiring resources; do not duplicate supported-mode tables in the HAL.
+Drivers have no dependency on the capability HAL. Reusable OS resource adapters
+live in `driver/<bus>`, with native glue beside the actual OS implementation.
+The I²C adapter supports NuttX; host tests inject fake bus operations rather than
+selecting another production backend. Product profiles supply concrete resource bindings.
 The root `platform/` tree supplies product profiles and build wiring; HAL code
 does not move there. A profile's `[hal]` values name actual OS implementations:
 `linux`, `macos`, `windows`, or `nuttx`. The matching OS must equal Rust's
@@ -342,7 +358,12 @@ desktop OS profiles alone are qualification bindings without a product model.
 Model evaluation examples live beside the HAL's qualification code.
 
 Use `probe` as the single opt-in name for diagnostic instrumentation and SDK
-witnesses. Ordinary tests use `cfg(test)` and named test targets; software-feature
+witnesses. Select coherent tracing implementations at a module boundary instead
+of repeating cfg conditions on their fields and methods. The IMU selects either
+instrumented tracing or a zero-sized no-op implementation; its ordinary
+acquisition code has no diagnostic cfg. Enabled builds still require an explicit
+observer before collecting timings.
+Ordinary tests use `cfg(test)` and named test targets; software-feature
 requirements such as replay belong in Cargo's `required-features`, not in OS
 or hardware-admission guards. Do not add a separate feature for each probe,
 test command, CLI or integration executable.

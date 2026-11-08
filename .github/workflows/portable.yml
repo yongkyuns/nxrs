@@ -216,8 +216,6 @@ jobs:
         run: cargo check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
       - name: Compile allocation-free radio contracts and controllers
         run: cargo check --locked -p nxrs-wifi -p nxrs-ble --no-default-features --lib --target thumbv6m-none-eabi
-      - name: Compile reusable sensor driver for Cortex-M0
-        run: cargo check --locked -p nxrs-bmi270 -p nxrs-lsm6dso --lib --target thumbv6m-none-eabi
       - name: Verify sensor contract and mock dependency isolation
         run: python3 tools/check-hal-isolation.py --capability imu --capability gnss --out target/sensor-isolation
 

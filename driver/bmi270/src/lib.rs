@@ -1,8 +1,5 @@
 //! Reusable BMI270 protocol driver. No OS, device paths or service scheduling.
-#![no_std]
 #![forbid(unsafe_code)]
-#[cfg(test)]
-extern crate std;
 
 use bmi2::{types::*, Bmi2, I2cAddr};
 
@@ -47,6 +44,18 @@ pub enum Rate {
 }
 
 impl Rate {
+    /// Paired accelerometer/gyroscope rates supported by this driver's FIFO setup.
+    pub const SUPPORTED: [Self; 4] = [Self::Hz25, Self::Hz50, Self::Hz100, Self::Hz200];
+
+    pub const fn milli_hz(self) -> u32 {
+        match self {
+            Self::Hz25 => 25_000,
+            Self::Hz50 => 50_000,
+            Self::Hz100 => 100_000,
+            Self::Hz200 => 200_000,
+        }
+    }
+
     const fn odr(self) -> Odr {
         match self {
             Self::Hz25 => Odr::Odr25,
@@ -66,6 +75,17 @@ pub enum AccelRange {
 }
 
 impl AccelRange {
+    /// Resolve an exact full scale in multiples of standard gravity.
+    pub const fn from_g(value: u16) -> Option<Self> {
+        match value {
+            2 => Some(Self::G2),
+            4 => Some(Self::G4),
+            8 => Some(Self::G8),
+            16 => Some(Self::G16),
+            _ => None,
+        }
+    }
+
     const fn register(self) -> AccRange {
         match self {
             Self::G2 => AccRange::Range2g,
@@ -95,6 +115,18 @@ pub enum GyroRange {
 }
 
 impl GyroRange {
+    /// Resolve an exact full scale in degrees per second.
+    pub const fn from_dps(value: u16) -> Option<Self> {
+        match value {
+            125 => Some(Self::Dps125),
+            250 => Some(Self::Dps250),
+            500 => Some(Self::Dps500),
+            1000 => Some(Self::Dps1000),
+            2000 => Some(Self::Dps2000),
+            _ => None,
+        }
+    }
+
     const fn register(self) -> GyrRangeVal {
         match self {
             Self::Dps125 => GyrRangeVal::Range125,

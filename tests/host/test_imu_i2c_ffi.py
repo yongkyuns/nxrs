@@ -40,7 +40,7 @@ class ImuI2cBridgeTests(unittest.TestCase):
 #include <stddef.h>
 #include <stdint.h>
 #include <nuttx/i2c/i2c_master.h>
-int imu_i2c_transfer(int, uint8_t, uint32_t, const uint8_t *, size_t, uint8_t *, size_t);
+int i2c_resource_transfer(int, uint8_t, uint32_t, const uint8_t *, size_t, uint8_t *, size_t);
 static int mode, calls;
 int ioctl(int fd, int request, ...) {
   assert(fd == 42 && request == I2CIOC_TRANSFER); calls++;
@@ -65,19 +65,19 @@ int ioctl(int fd, int request, ...) {
 }
 int main(void) {
   uint8_t reg = 0x21, data = 0;
-  assert(imu_i2c_transfer(42, 0x68, 400000, &reg, 1, &data, 1) == 0 && data == 1);
-  mode = 1; assert(imu_i2c_transfer(42, 0x68, 400000, &reg, 1, 0, 0) == 0);
-  mode = 2; assert(imu_i2c_transfer(42, 0x68, 400000, 0, 0, &data, 1) == 0);
-  mode = 3; assert(imu_i2c_transfer(42, 0x68, 400000, &reg, 1, 0, 0) == -1);
+  assert(i2c_resource_transfer(42, 0x68, 400000, &reg, 1, &data, 1) == 0 && data == 1);
+  mode = 1; assert(i2c_resource_transfer(42, 0x68, 400000, &reg, 1, 0, 0) == 0);
+  mode = 2; assert(i2c_resource_transfer(42, 0x68, 400000, 0, 0, &data, 1) == 0);
+  mode = 3; assert(i2c_resource_transfer(42, 0x68, 400000, &reg, 1, 0, 0) == -1);
   assert(errno == ETIMEDOUT && calls == 4);
-  assert(imu_i2c_transfer(42, 0x68, 400000, &reg, 65, 0, 0) == -1 && errno == EINVAL);
-  assert(imu_i2c_transfer(42, 0x68, 400000, 0, 0, 0, 0) == 0 && calls == 4);
+  assert(i2c_resource_transfer(42, 0x68, 400000, &reg, 65, 0, 0) == -1 && errno == EINVAL);
+  assert(i2c_resource_transfer(42, 0x68, 400000, 0, 0, 0, 0) == 0 && calls == 4);
 }
 """)
             executable = work / "check"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                             "-I", str(work), str(harness),
-                            str(ROOT / "hal/imu/src/platform/nuttx/ffi/i2c.c"),
+                            str(ROOT / "driver/i2c/src/platform/nuttx/ffi/i2c.c"),
                             "-o", str(executable)], check=True, timeout=30)
             subprocess.run([str(executable)], check=True, timeout=5)
 

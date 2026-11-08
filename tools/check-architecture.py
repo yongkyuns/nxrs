@@ -41,8 +41,8 @@ PORTABLE_EXTERNAL: set[str] = set()
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    # Embedded bus traits for the IMU's NuttX I2C resource adapter. Chip protocol
-    # dependencies belong to the independent driver package.
+    # Embedded bus traits for the IMU's driver adaptation and timing observer.
+    # Bus access and chip protocols belong to independent driver packages.
     'nxrs-imu': {'embedded-hal'},
     # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
     'nxrs-gnss': {'kinavis-ubx'},
@@ -294,7 +294,8 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             continue
         text = source.read_text(encoding='utf-8') if source.is_file() else ''
         markers = ['#![deny(unsafe_code)]' if role == 'hal' else '#![forbid(unsafe_code)]']
-        if role in {'api', 'hal', 'shared'}:
+        # HAL portability is an OS-independent API, not a no_std requirement.
+        if role in {'api', 'shared'}:
             markers.insert(0, '#![no_std]')
         for marker in markers:
             if marker not in text:
@@ -393,23 +394,29 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
 
         try:
             metadata = tomllib.loads(manifest.read_text())['package']['metadata']['nxrs']
-            declared = metadata['configuration']['nuttx']
-            if (not isinstance(declared, str) or not declared
-                    or '\\' in declared or ':' in declared
-                    or Path(declared).is_absolute()
-                    or any(part in {'', '.', '..'} for part in declared.split('/'))):
-                raise ValueError('configuration schema must be package-relative')
-            schema_path = hal / declared
-            schema_path.resolve().relative_to(hal.resolve())
-            schema = tomllib.loads(schema_path.read_text())
-            output = f'{capability}_config.rs'
-            if (schema.get('version') != 1 or schema.get('output') != output
-                    or schema.get('role') != capability):
-                raise ValueError('declare the fixed output and capability role')
+            if 'configuration' in metadata:
+                raise ValueError('use resource bindings, not a Rust projection schema')
             catalogs = metadata['bindings']
-            if (not isinstance(catalogs, list) or not catalogs
-                    or any(not isinstance(path, str) for path in catalogs)):
+            if not isinstance(catalogs, list) or not catalogs:
                 raise ValueError('declare the package binding catalog inputs')
+            implementations = set()
+            for declared in catalogs:
+                if (not isinstance(declared, str) or not declared
+                        or '\\' in declared or ':' in declared
+                        or Path(declared).is_absolute()
+                        or any(part in {'', '.', '..'} for part in declared.split('/'))):
+                    raise ValueError('binding catalog must be package-relative')
+                catalog_path = hal / declared
+                catalog_path.resolve().relative_to(hal.resolve())
+                catalog = tomllib.loads(catalog_path.read_text())
+                if catalog.get('version') != 2 or not catalog.get('binding'):
+                    raise ValueError('declare version 2 resource bindings')
+                for entry in catalog['binding']:
+                    identifier = entry['implementation']
+                    if not isinstance(identifier, str) or not re.fullmatch(r'[A-Z][A-Za-z0-9]*', identifier) or identifier == 'Self':
+                        raise ValueError('implementation must name one checked-in Rust type')
+                    implementations.add(identifier)
+            output = f'{capability}_config.rs'
         except (KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as error:
             errors.append(f'{relative(manifest)}: invalid declarative sensor configuration: {error}')
             continue
@@ -419,22 +426,16 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
         if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
             errors.append(f'{relative(nuttx)}: include only the declared generated output from this HAL OUT_DIR')
 
-    # D1a moves generation only. Preserve this runtime-construction protection
-    # until additive, per-instance wiring replaces the model match in D2/D3.
-    hal = root / 'hal/imu'
-    nuttx = hal / 'src/platform/nuttx/mod.rs'
-    if not nuttx.is_file():
-        return errors
-    source = re.sub(r'//[^\n]*|/\*.*?\*/', '', nuttx.read_text(), flags=re.S)
-    models = {'Bmi270': 'bmi270', 'Lsm6dso': 'lsm6dso'}
-    branches = re.findall(r'SensorModel::(\w+)\s*=>\s*acquire::<(\w+)>\(BINDING,\s*config,\s*sink,\s*trace\)', source)
-    if sorted(branches) != sorted((model, model) for model in models):
-        errors.append(f'{relative(nuttx)}: generated model selection must map to its checked-in typed constructor')
-    if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
-        errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
-    for model, file in models.items():
-        if not (hal / f'src/sensors/{file}.rs').is_file():
-            errors.append(f'hal/imu: generated {model} selection has no checked-in sensor implementation')
+        aliases = set(re.findall(r'\btype\s+([A-Z]\w*)\s*(?:<[^;]+?>)?\s*=', source))
+        if not implementations <= aliases or not re.search(r'\bmod\s+implementations\s*\{', source):
+            errors.append(f'{relative(nuttx)}: catalog implementations must name checked-in typed constructors')
+        if re.search(r'\b(?:MODEL|SensorModel)\b', source):
+            errors.append(f'{relative(nuttx)}: select the catalog implementation directly, without a model table')
+        if capability == 'imu' and 'acquire::<Implementation>(BINDING, config, sink, trace)' not in source:
+            errors.append(f'{relative(nuttx)}: use the generated implementation and resource binding')
+        if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
+            errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
+
     return errors
 
 

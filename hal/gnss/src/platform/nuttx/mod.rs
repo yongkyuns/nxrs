@@ -10,6 +10,14 @@ use std::{
 #[allow(unsafe_code)]
 mod ffi;
 
+struct Binding<'a> {
+    path: &'a str,
+    baud: u32,
+}
+mod implementations {
+    pub(super) type NeoM9n<S> = crate::receiver::Receiver<S>;
+}
+
 include!(concat!(env!("OUT_DIR"), "/gnss_config.rs"));
 
 static OWNED: AtomicU8 = AtomicU8::new(0);
@@ -59,7 +67,7 @@ impl Write for Serial {
     }
 }
 struct Device {
-    receiver: crate::receiver::Receiver<Serial>,
+    receiver: Implementation<Serial>,
     cleaned: bool,
 }
 impl Device {
@@ -96,7 +104,7 @@ fn acquire() -> Result<Device, DeviceError> {
         .read(true)
         .write(true)
         .custom_flags(ffi::nonblocking_flag())
-        .open(DEVICE_PATH)
+        .open(BINDING.path)
         .map_err(|_| DeviceError::Io)?;
     let mut saved = [0; 64];
     ffi::capture(file.as_raw_fd(), &mut saved).map_err(|_| DeviceError::Io)?;
@@ -105,9 +113,10 @@ fn acquire() -> Result<Device, DeviceError> {
         saved,
         restored: false,
     };
-    ffi::configure(port.file.as_raw_fd(), &port.saved, BAUD).map_err(|_| DeviceError::Io)?;
+    ffi::configure(port.file.as_raw_fd(), &port.saved, BINDING.baud)
+        .map_err(|_| DeviceError::Io)?;
     // Port restores/closes before the lease can admit another receiver.
-    let mut receiver = crate::receiver::Receiver::new(Serial {
+    let mut receiver = Implementation::new(Serial {
         port,
         _lease: lease,
     });

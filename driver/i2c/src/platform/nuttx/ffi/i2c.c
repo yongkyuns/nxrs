@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <errno.h>
-int imu_i2c_transfer(int fd, uint8_t address, uint32_t frequency,
+int i2c_resource_transfer(int fd, uint8_t address, uint32_t frequency,
                      const uint8_t *write, size_t write_len,
                      uint8_t *read, size_t read_len)
 {

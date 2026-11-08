@@ -58,7 +58,7 @@ Exit when the behavior inventory and actual test outcomes are available to S1.
 ## S1 — Extract the reusable BMI270 driver
 
 Depends on S0. Primary paths are `driver/bmi270/`, `hal/imu/src/bmi270.rs`,
-`hal/imu/src/sensors/`, both Cargo manifests, workspace membership and
+`hal/imu/src/adapters/`, both Cargo manifests, workspace membership and
 `tools/check-architecture.py` with its regression tests.
 
 1. Create the ordinary `nxrs-bmi270` package and move chip initialization,
@@ -67,7 +67,7 @@ Depends on S0. Primary paths are `driver/bmi270/`, `hal/imu/src/bmi270.rs`,
    exact post-init/configuration checks.
 2. Replace driver imports of HAL `DeviceError` and `ImuSample` with driver-owned
    errors and sample types. Keep chip-specific capabilities/configuration in the
-   driver. It must compile without std and without any Nxrs HAL dependency.
+   driver. It may use std and must remain independent of any Nxrs HAL dependency.
 3. Add a private IMU sensor implementation that maps driver results into the
    existing public contract. Retain sequence, units, reception-time meaning,
    nominal interval, 100 Hz defaults and existing loss semantics.
@@ -77,9 +77,9 @@ Depends on S0. Primary paths are `driver/bmi270/`, `hal/imu/src/bmi270.rs`,
    dependencies and app/service access to concrete drivers.
 
 Run baseline checks, `cargo test --locked -p nxrs-bmi270`, and
-`cargo check --locked -p nxrs-bmi270 --lib`. Inspect its Cargo graph for std/OS
-dependencies and use an installed core-only target for an additional compile
-witness where available. Exit when existing IMU callers and observations are
+`cargo check --locked -p nxrs-bmi270 --lib`. Inspect its Cargo graph for HAL/OS
+coupling and retain the host protocol and NuttX build witnesses. Exit when
+existing IMU callers and observations are
 preserved and the reusable driver can be consumed without `nxrs-imu`.
 
 ## S2 — Separate NuttX resources and session execution
@@ -111,9 +111,10 @@ Depends on S2. Change `hal/imu/src/api.rs`, its sensor implementation,
 `driver/bmi270` configuration support and the capability README. Review the pinned BMI270 API and the intended LSM6DSO data
 sheet/driver before choosing shared configuration semantics.
 
-1. Define capability reporting and requested/accepted configuration types for
-   ODR, physical ranges and delivery latency. Validate allowed combinations,
-   including restrictions between independently supported values.
+1. Define unit-based requested/accepted configuration types for ODR, physical
+   ranges and delivery latency. Resolve requests into concrete driver settings
+   before resource acquisition, using the driver's supported settings. Validate
+   combinations without duplicating capability tables in the HAL.
 2. Add a configured acquisition entry point while keeping `open(sink)` with its
    current defaults. Unsupported requirements return a typed error before
    acquisition is published. Accepted configuration reports actual values.
@@ -315,8 +316,8 @@ behavior and the same profile resolver. Preserve receiver configuration rollback
 UART settings and existing event semantics. Use `std::io` or an existing embedded
 stream trait according to the actual driver contract.
 
-Extract a shared resource HAL only when a second consumer needs its exact bus
-protocol. Move its native ABI inventory and tests with it. Keep OS-specific
+Reusable controller access belongs in `driver/<bus>`; the NuttX-only I²C adapter
+now follows this structure with its native ABI inventory and tests. Keep OS-specific
 interfaces local and retain direct std operations for files/sockets.
 Add a macOS/Linux source only when a real supported API or external-device
 transport is identified. A native source can implement the capability directly.
@@ -358,7 +359,7 @@ python3 -m unittest discover -s tests/host -p test_hal_boundaries.py
 python3 -m unittest discover -s tests/host -p test_imu_i2c_ffi.py
 python3 -m unittest discover -s tests/host -p test_deployment.py
 python3 -m unittest discover -s tests/host -p test_platform_profiles.py
-cargo test --locked -p nxrs-imu -p nxrs-gnss -p nxrs-acquisition --lib
+cargo test --locked -p nxrs-imu -p nxrs-gnss -p nxrs-acquisition
 cargo test --locked -p nxrs-build-support -p nxrs-build
 ~~~
 
@@ -397,13 +398,13 @@ physical S8 results and unrelated radio/camera work separately scoped.
 
 ### D0 — Freeze the contract and record the baseline
 
-Record current build duties and lifetime behavior before moving them. The main
-baseline still has HAL-local host generation, hardcoded sibling catalogs,
-unconditional BMI270/LSM6DSO NuttX dependencies, one generated IMU model/binding
-and global IMU ownership. IRQ rollback/unregister and GNSS restoration also
-write global fault state.
+Record current build duties and lifetime behavior before moving them. Shared
+preparation now loads package-owned catalogs and generates direct implementation
+selection with typed resource bindings. Unconditional NuttX sensor dependencies
+and global IMU/GNSS ownership remain. IRQ rollback/unregister and GNSS restoration
+still write global fault state.
 
-Settle the finite schema and standardized typed construction convention; concrete
+Extend the typed resource construction convention to permanent instances. Settle
 generated-input delivery and package-specific compiler/link configuration; the
 public permanent-device versus session API; static state inventory; initialization
 and recovery policy; and reacquisition/terminal-event ordering. Define active
@@ -420,11 +421,11 @@ Exit with the reviewed contract and a bounded baseline of relevant tests.
 
 ### D1 — Prove shared preparation and Cargo integration
 
-The first slice, D1a, implements package-relative catalog/schema discovery and
+The first slice, D1a, implements package-relative catalog discovery and
 shared typed rendering for the actual IMU/GNSS outputs. Both local build scripts
 become generic adapters, with their custom callbacks and the IMU emitter removed.
 The production shared preparation API is exercised by a detached Cargo witness;
-catalog/schema changes invalidate receipts and generated outputs. Isolated
+catalog changes invalidate receipts and generated outputs. Isolated
 IMU-only, GNSS-only and camera-only consumers check package closure.
 
 D1a preserves provider flags, OUT_DIR handoff, simulation preparation and native
@@ -436,9 +437,8 @@ is independently qualified.
 
 Start in `platform/build-support/src/{composition,profile,resolved,lib}.rs`,
 `platform/build/src/{build,cargo_graph}.rs` and existing native build support.
-Extend the controller's pre-Cargo `configure_profile` path. Discover schema
-inputs from package-relative metadata and remove hardcoded sibling catalog
-inclusions and capability/model-specific generation.
+Extend the controller's pre-Cargo `configure_profile` path. Preserve package-relative catalog discovery and typed resource generation while
+moving their outputs into the pre-Cargo handoff.
 
 First demonstrate one profile-selected optional implementation through the real
 Cargo entry point, using a small fixture or a minimal production feature seam
@@ -462,18 +462,27 @@ freshness and native-helper tests in this PR.
 Exit with a working handoff; do not delete HAL scripts while any of their
 responsibilities lacks a replacement.
 
+The configuration cleanup now uses one version 2 catalog per sensor HAL, fixed
+I²C/UART resource contracts and direct checked-in implementation selection. It
+removes field-projection schemas and both model-enum tables. The reusable NuttX
+I²C adapter is owned by `driver/i2c`. Profile/overlay semantics and singleton ownership
+are preserved; detached build tests compile the actual IMU factory across both
+sensor selections. Optional dependency activation and per-device ownership remain
+open below.
+
 ### D2 — Make implementations optional and additive
 
-Change `hal/imu/Cargo.toml`, `src/sensors/mod.rs`, binding metadata and NuttX
+Change `hal/imu/Cargo.toml`, `src/adapters/mod.rs`, binding metadata and NuttX
 construction. Use ordinary optional dependencies and one feature gate per named
-implementation module. Remove the global `MODEL` match for fixed hardware
-when concrete instance wiring replaces it. No redundant `source` metadata,
+implementation module. Keep direct implementation selection when extending generation to multiple
+instances; the global `MODEL` match has already been removed. No redundant `source` metadata,
 generated file selector, feature-per-instance or duplicate `mod selected`.
 
 Compile BMI270-only, LSM6DSO-only and both implementations using normal build
 entry points. Explain Cargo feature unification and distinguish production
-packages from host/dev dependencies. Preserve explicit diagnostic `probe`
-semantics. Runtime detection is opt-in policy, not a prerequisite for this work.
+packages from host/dev dependencies. Preserve explicit `probe` feature and
+observer activation semantics. Runtime detection is opt-in policy, not a
+prerequisite for this work.
 Replace emitter/model-match architecture expectations alongside the new wiring.
 Exit with valid mixed-model compilation and target graph evidence that the
 unselected driver is absent in each single-model production build.

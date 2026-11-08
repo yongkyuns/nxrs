@@ -43,7 +43,7 @@ NuttX MCU drivers              controller, DMA, interrupt entry and scheduling
 | --- | --- |
 | NuttX BSP and configuration | MCU pins, controller initialization, kernel drivers and resource registration |
 | Resource adapter | Implement the required Rust resource interface using an owned OS resource |
-| Peripheral driver | Chip identification, initialization, register configuration, FIFO decoding and chip-specific errors |
+| Peripheral driver | Supported chip settings, identification, initialization, register configuration, FIFO decoding and chip-specific errors |
 | Capability HAL | Translate peripheral behavior into its public API and own acquisition, delivery, cancellation and recovery |
 | Profile resolver | Validate device instances, resource references and capability roles, then select concrete construction code |
 
@@ -53,12 +53,15 @@ the build controller. Retain reviewed upstream libraries and local corrections.
 An extracted BMI270 driver continues to use the pinned `bmi2` implementation.
 
 Each capability retains one public API and error vocabulary. For IMU, translation
-from BMI270 or LSM6DSO belongs in private, reusable modules in `hal/imu`. Register
-settings and FIFO layouts stay in the driver. Physical-unit conversion may be
-implemented by the driver. The HAL defines the units and timing promised to its
-consumers. Common requirements must report the accepted configuration or reject
-unsupported requests. Hardware-specific filters must not acquire misleading
-generic meanings.
+from BMI270 or LSM6DSO belongs in private, reusable `hal/imu/src/adapters/`
+modules. Drivers own supported settings and physical-range conversions. Adapters
+resolve unit-based requirements directly into concrete driver settings before
+resource acquisition, without a second capability catalog or reverse mapping.
+Register settings and FIFO layouts stay in the driver.
+Physical-unit conversion may be implemented by the driver. The HAL defines the
+units and timing promised to its consumers. Common requirements must report the
+accepted configuration or reject unsupported requests. Hardware-specific filters
+must not acquire misleading generic meanings.
 
 The HAL supplies acquisition execution and lifetime policy. Drivers perform
 synchronous bounded operations when called. Reuse `nxrs-acquisition` and typed
@@ -72,18 +75,19 @@ driver/bmi270/                         reusable sensor-specific Rust crate
 driver/lsm6dso/                        reusable tagged-FIFO IMU driver
 driver/ubx/                            reusable M9 protocol driver
 hal/imu/
-  bindings/                           compatible/bus catalogs and typed configuration schemas
+  bindings.toml                      supported devices, resource constraints and implementation IDs
   src/api.rs                          application-facing IMU contract
-  src/sensors/bmi270.rs                IMU implementation using the chip driver
-  src/sensors/lsm6dso.rs               IMU implementation using the chip driver
+  src/adapters/bmi270.rs               translates the BMI270 API into IMU
+  src/adapters/lsm6dso.rs               translates the LSM6DSO API into IMU
   src/session.rs                      capability-local shared execution policy
   src/platform/simulation.rs          adapter to a coordinated simulation session
   src/platform/mod.rs                 selected acquisition exports
   src/platform/nuttx/mod.rs            factory using resolved bindings
-  src/platform/nuttx/i2c.rs            embedded-hal implementation
+  src/platform/nuttx/observed_bus.rs   optional timing around driver/i2c
   src/platform/nuttx/irq.rs            cancellable notification ownership
   src/platform/nuttx/ffi/              mechanical native ABI translation
 platform/nuttx/platforms/              existing product and qualification profiles
+driver/i2c/                            NuttX-only bus adapter implementing embedded-hal
 hal/gnss/                              UART binding, UBX policy and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
 platform/profiles/                     host, simulation and qualification profiles
@@ -97,11 +101,11 @@ additional behavior beyond supplying bindings. A macOS source can implement the
 capability directly through a native API or a supported external transport.
 Targeting macOS alone does not establish that an IMU source exists.
 
-Initially keep the NuttX I2C adapter private to the IMU HAL. When another
-capability needs the same protocol, extract it into an owning resource HAL such
-as `hal/i2c`, including its ABI glue and qualification. This is a reuse decision
-with real consumers. The root `platform/` directory remains build/configuration
-code.
+`driver/i2c` owns reusable NuttX bus access, its ABI glue and qualification.
+Sensor HALs supply resolved resources and sensor policy; chip drivers consume
+embedded-hal traits without depending on the concrete bus adapter. No macOS or
+Linux I²C backend is required. Host witnesses inject test-only bus operations.
+The root `platform/` directory remains build/configuration code.
 
 ## Use existing Rust resource interfaces
 
@@ -109,8 +113,8 @@ Use `embedded-hal` 1.0 blocking traits where they match the operation. SPI devic
 with chip select use `SpiDevice`, whose adapter owns bus exclusion and chip-select
 sequencing. I2C transactions preserve repeated starts, completion and error
 semantics. Reusing a trait requires qualifying its contract, including supported
-operation sequences and transfer sizes. The present IMU adapter's bounded
-transfer subset requires review before becoming a general bus adapter.
+operation sequences and transfer sizes. The NuttX I²C adapter supports a bounded
+transfer subset; wider transfers and additional shapes need separate qualification.
 
 Keep ordinary file, socket, thread and synchronization operations in Rust std.
 GNSS may retain `std::io` when that expresses its stream contract. Use
@@ -201,8 +205,8 @@ resolution maps the binding to a reviewed HAL constructor and ordinary Cargo
 dependency. Driver crates remain independent of that catalog. Constructors are
 allowlisted implementations. Profiles cannot supply Rust paths or executable
 code. Unknown models, duplicate binding matches and unsupported buses fail.
-Each package lists its catalogs and provider configuration schemas in
-`package.metadata.nxrs.bindings` and `package.metadata.nxrs.configuration`.
+Each package lists its version 2 catalogs in `package.metadata.nxrs.bindings`.
+One implementation ID names a checked-in Rust type; profiles do not name code.
 Resolution loads those declarations for explicit `[hal]` capabilities, including
 `"none"` entries used to validate unselected devices. A physical device whose
 capability is absent from `[hal]` has no admitted catalog and fails validation.
@@ -224,13 +228,13 @@ and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
 it. Direct Cargo consumers select a named profile and its declared overlays
 through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
-same shared preparation function. Their package-owned declarative schemas supply
-typed values for the checked-in NuttX factories. The schemas contain data, enum
-mappings and resource projections; executable emission lives in build support.
+same shared preparation function. Their package-owned catalogs select
+checked-in implementations. Shared build support renders fixed typed I²C/UART
+resource contracts, an implementation import and the validated stack budget.
 
 The `resolved-composition` report includes ordered source hashes, field
 provenance, a semantic digest of the normalized graph and target, and a separate
-input fingerprint for the exact profile, overlay, manifest, catalog and schema
+input fingerprint for the exact profile, overlay, manifest and catalog
 bytes plus the resolver revision. `binding-inputs` preserves each declared
 package's input paths and hashes, including both IMU and GNSS inputs.
 Use this report to inspect the device and resource binding before a build.
@@ -311,10 +315,10 @@ Keep an additional input fingerprint covering ordered source content hashes,
 binding schemas and resolver/emitter revision in the build/cache identity.
 Equivalent graphs share a semantic digest even if input spelling differs.
 Input/order changes still invalidate source-derived outputs through the input
-fingerprint. A common finite-schema renderer generates only typed constants and
-records in the HAL's OUT_DIR. It validates names, values, references and literal
-escaping without HAL-specific generation callbacks. Current model enum values
-still feed the checked-in factory match until per-instance construction lands.
+fingerprint. A common resource renderer generates typed bindings and one implementation
+import in the HAL's OUT_DIR. It validates identifiers and escapes literal values.
+There are no per-HAL emitters, Rust projection schemas or model-enum matches.
+Per-instance ownership remains separate follow-up work.
 
 Cargo still resolves dependencies before running HAL build scripts. V1 keeps
 portable driver crates as ordinary declared dependencies in the applicable HAL

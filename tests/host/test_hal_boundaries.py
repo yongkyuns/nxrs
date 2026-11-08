@@ -46,10 +46,11 @@ class HalBoundariesTests(unittest.TestCase):
     def write_declarative_imu(self):
         self.write('hal/imu/src/platform/nuttx/mod.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
-            let device = match MODEL {
-                SensorModel::Bmi270 => acquire::<Bmi270>(BINDING, config, sink, trace),
-                SensorModel::Lsm6dso => acquire::<Lsm6dso>(BINDING, config, sink, trace),
-            };
+            mod implementations {
+                type Bmi270 = bmi270::Sensor<Bus, Delay>;
+                type Lsm6dso = lsm6dso::Sensor<Bus>;
+            }
+            let device = acquire::<Implementation>(BINDING, config, sink, trace);
             Session::start(STACK_BYTES, cancel, sink, run)
         ''')
         self.write('hal/imu/build.rs', '''
@@ -61,15 +62,17 @@ class HalBoundariesTests(unittest.TestCase):
             [package]
             name = "nxrs-imu"
             [package.metadata.nxrs]
-            bindings = ["bindings/i2c.toml"]
-            [package.metadata.nxrs.configuration]
-            nuttx = "bindings/nuttx.toml"
+            bindings = ["bindings.toml"]
         ''')
-        self.write('hal/imu/bindings/nuttx.toml',
-                   'version = 1\noutput = "imu_config.rs"\nrole = "imu"\n')
-        self.write('hal/imu/bindings/i2c.toml', 'version = 1\nbinding = []\n')
-        self.write('hal/imu/src/sensors/bmi270.rs', 'pub struct Sensor;')
-        self.write('hal/imu/src/sensors/lsm6dso.rs', 'pub struct Sensor;')
+        self.write('hal/imu/bindings.toml', '''
+            version = 2
+            [[binding]]
+            compatible = "bosch,bmi270"
+            bus = "i2c"
+            implementation = "Bmi270"
+        ''')
+        self.write('hal/imu/src/adapters/bmi270.rs', 'pub struct Sensor;')
+        self.write('hal/imu/src/adapters/lsm6dso.rs', 'pub struct Sensor;')
 
     def test_sensor_generation_uses_declarative_package_inputs(self):
         self.write_declarative_imu()
@@ -86,22 +89,22 @@ class HalBoundariesTests(unittest.TestCase):
         emitter.unlink()
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
 
-    def test_generated_sensor_include_matches_its_owned_schema(self):
+    def test_generated_sensor_include_matches_its_resource_contract(self):
         self.write_declarative_imu()
-        schema = self.root / 'hal/imu/bindings/nuttx.toml'
-        schema.write_text(schema.read_text().replace('imu_config.rs', 'other.rs'))
-        self.assertTrue(any('invalid declarative sensor configuration' in error
+        provider = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
+        provider.write_text(provider.read_text().replace('imu_config.rs', 'other.rs'))
+        self.assertTrue(any('declared generated output' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
-        schema.write_text(schema.read_text().replace('other.rs', 'imu_config.rs'))
+        provider.write_text(provider.read_text().replace('other.rs', 'imu_config.rs'))
         manifest = self.root / 'hal/imu/Cargo.toml'
-        manifest.write_text(manifest.read_text().replace('bindings/nuttx.toml', '../outside.toml'))
+        manifest.write_text(manifest.read_text().replace('bindings.toml', '../outside.toml'))
         self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_generated_imu_keeps_the_current_checked_in_constructor_boundary(self):
         self.write_declarative_imu()
         nuttx = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
-        nuttx.write_text(nuttx.read_text().replace('SensorModel::Bmi270 =>', 'SensorModel::Unknown =>'))
+        nuttx.write_text(nuttx.read_text().replace('type Bmi270 =', 'type Unknown ='))
         self.assertTrue(any('checked-in typed constructor' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 

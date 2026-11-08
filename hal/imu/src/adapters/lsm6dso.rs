@@ -1,7 +1,8 @@
 //! Translate the reusable LSM6DSO protocol into the IMU capability contract.
-use crate::{AccelRange, AppliedConfig, Capabilities, Config, DeviceError, GyroRange, ImuSample};
+use super::configuration::select_rate;
+use crate::{AppliedConfig, Config, DeviceError, ImuSample};
 use embedded_hal::{delay::DelayNs, i2c::I2c};
-use nxrs_lsm6dso::{Lsm6dso, Rate, Sample};
+use nxrs_lsm6dso::{self as driver, Lsm6dso, Rate, Sample};
 
 const DEFAULT_RATE: u32 = Rate::Hz104.milli_hz();
 
@@ -24,61 +25,31 @@ impl<B: I2c, D: DelayNs> super::Sensor<B, D> for Sensor<B> {
     const DEFAULT: Config = Config {
         min_rate_millihz: DEFAULT_RATE,
         max_rate_millihz: DEFAULT_RATE,
-        accel_range: AccelRange::G4,
-        gyro_range: GyroRange::Dps2000,
+        accel_range_g: 4,
+        gyro_range_dps: 2000,
         max_delivery_interval_us: 1_000_000_000u32.div_ceil(DEFAULT_RATE),
     };
-    const CAPABILITIES: Capabilities = Capabilities {
-        rates_millihz: &[
-            Rate::Hz12_5.milli_hz(),
-            Rate::Hz26.milli_hz(),
-            Rate::Hz52.milli_hz(),
-            DEFAULT_RATE,
-            Rate::Hz208.milli_hz(),
-        ],
-        accel_ranges: &[
-            AccelRange::G2,
-            AccelRange::G4,
-            AccelRange::G8,
-            AccelRange::G16,
-        ],
-        gyro_ranges: &[
-            GyroRange::Dps125,
-            GyroRange::Dps250,
-            GyroRange::Dps500,
-            GyroRange::Dps1000,
-            GyroRange::Dps2000,
-        ],
-    };
+    type Settings = driver::Config;
 
-    fn open(bus: B, address: u8, delay: D, config: AppliedConfig) -> Result<Self, DeviceError> {
-        use nxrs_lsm6dso::{AccelRange as Acc, GyroRange as Gyro};
-        let rate = [
-            Rate::Hz12_5,
-            Rate::Hz26,
-            Rate::Hz52,
-            Rate::Hz104,
-            Rate::Hz208,
-        ]
-        .into_iter()
-        .find(|rate| rate.milli_hz() == config.rate_millihz)
-        .ok_or(DeviceError::Unsupported)?;
-        let settings = nxrs_lsm6dso::Config {
+    fn resolve(config: Config) -> Result<(Self::Settings, AppliedConfig), DeviceError> {
+        let (rate, applied) = select_rate(config, driver::Rate::SUPPORTED, driver::Rate::milli_hz)?;
+        let settings = driver::Config {
             rate,
-            accel_range: match config.accel_range {
-                AccelRange::G2 => Acc::G2,
-                AccelRange::G4 => Acc::G4,
-                AccelRange::G8 => Acc::G8,
-                AccelRange::G16 => Acc::G16,
-            },
-            gyro_range: match config.gyro_range {
-                GyroRange::Dps125 => Gyro::Dps125,
-                GyroRange::Dps250 => Gyro::Dps250,
-                GyroRange::Dps500 => Gyro::Dps500,
-                GyroRange::Dps1000 => Gyro::Dps1000,
-                GyroRange::Dps2000 => Gyro::Dps2000,
-            },
+            accel_range: driver::AccelRange::from_g(config.accel_range_g)
+                .ok_or(DeviceError::Unsupported)?,
+            gyro_range: driver::GyroRange::from_dps(config.gyro_range_dps)
+                .ok_or(DeviceError::Unsupported)?,
         };
+        Ok((settings, applied))
+    }
+
+    fn open(
+        bus: B,
+        address: u8,
+        delay: D,
+        settings: Self::Settings,
+        config: AppliedConfig,
+    ) -> Result<Self, DeviceError> {
         Ok(Self {
             driver: Lsm6dso::open_configured(bus, address, delay, settings).map_err(map_error)?,
             config,

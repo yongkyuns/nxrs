@@ -13,32 +13,19 @@ pub enum Mode {
     Qualification,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ImuModel {
-    Bmi270,
-    Lsm6dso,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum GnssModel {
-    NeoM9n,
-}
-
 /// Normalized graph. Maps serialize in key order and endpoint paths are normalized.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Composition {
     version: u32,
     mode: Mode,
-    resources: BTreeMap<String, Resource>,
-    devices: BTreeMap<String, Device>,
-    roles: BTreeMap<String, String>,
+    pub(crate) resources: BTreeMap<String, Resource>,
+    pub(crate) devices: BTreeMap<String, Device>,
+    pub(crate) roles: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    imu_model: Option<ImuModel>,
+    imu_implementation: Option<String>,
     stack_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    gnss_model: Option<GnssModel>,
+    gnss_implementation: Option<String>,
     gnss_stack_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     simulation: Option<SimulationSpec>,
@@ -63,7 +50,7 @@ pub enum SimulationEndpoint {
 /// Borrowed view of the resolved default IMU device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImuBinding<'a> {
-    pub model: ImuModel,
+    pub implementation: &'a str,
     pub path: &'a str,
     pub address: u8,
     pub frequency: u32,
@@ -73,7 +60,7 @@ pub struct ImuBinding<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GnssBinding<'a> {
-    pub model: GnssModel,
+    pub implementation: &'a str,
     pub path: &'a str,
     pub baud: u32,
     pub stack_bytes: u64,
@@ -98,7 +85,7 @@ impl Composition {
             },
         };
         Some(ImuBinding {
-            model: self.imu_model?,
+            implementation: self.imu_implementation.as_deref()?,
             path,
             address: device.address?,
             frequency: *frequency,
@@ -114,7 +101,7 @@ impl Composition {
             return None;
         };
         Some(GnssBinding {
-            model: self.gnss_model?,
+            implementation: self.gnss_implementation.as_deref()?,
             path,
             baud: *baud,
             stack_bytes: self.gnss_stack_bytes,
@@ -132,7 +119,7 @@ impl Composition {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-enum Resource {
+pub(crate) enum Resource {
     I2c { device: String, frequency: u32 },
     GpioInterrupt { device: String, trigger: Trigger },
     Uart { device: String, baud: u32 },
@@ -140,26 +127,26 @@ enum Resource {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-enum Trigger {
+pub(crate) enum Trigger {
     Rising,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct Device {
-    compatible: String,
-    bus: String,
+pub(crate) struct Device {
+    pub(crate) compatible: String,
+    pub(crate) bus: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    address: Option<u8>,
+    pub(crate) address: Option<u8>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    wake: Option<Wake>,
+    pub(crate) wake: Option<Wake>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
-enum Wake {
+pub(crate) enum Wake {
     Periodic {},
     Interrupt { resource: String },
 }
@@ -191,7 +178,7 @@ struct Catalog {
 struct CatalogBinding {
     compatible: String,
     bus: String,
-    model: ImuModel,
+    implementation: String,
     addresses: Vec<u8>,
     frequencies: Vec<u32>,
     interrupt: bool,
@@ -207,7 +194,7 @@ struct GnssCatalog {
 struct GnssCatalogBinding {
     compatible: String,
     bus: String,
-    model: GnssModel,
+    implementation: String,
     bauds: Vec<u32>,
 }
 
@@ -455,9 +442,9 @@ pub(crate) fn resolve_with_providers_and_origins(
             resources: BTreeMap::new(),
             devices: BTreeMap::new(),
             roles: BTreeMap::new(),
-            imu_model: None,
+            imu_implementation: None,
             stack_bytes,
-            gnss_model: None,
+            gnss_implementation: None,
             gnss_stack_bytes,
             simulation,
         }));
@@ -514,17 +501,23 @@ pub(crate) fn resolve_with_providers_and_origins(
             .map(|value| decode(value, "invalid GNSS binding catalog"))
             .collect::<Result<Vec<_>>>()?,
     };
-    let (imu_model, gnss_model) =
-        validate_graph(&catalog, &gnss_catalog, &resources, &devices, &roles, origins)?;
+    let (imu_implementation, gnss_implementation) = validate_graph(
+        &catalog,
+        &gnss_catalog,
+        &resources,
+        &devices,
+        &roles,
+        origins,
+    )?;
     let graph = Composition {
         version: header.version,
         mode: header.mode,
         resources,
         devices,
         roles,
-        imu_model,
+        imu_implementation,
         stack_bytes,
-        gnss_model,
+        gnss_implementation,
         gnss_stack_bytes,
         simulation,
     };
@@ -538,12 +531,18 @@ fn validate_graph(
     devices: &BTreeMap<String, Device>,
     roles: &BTreeMap<String, String>,
     origins: &BTreeMap<String, PathBuf>,
-) -> Result<(Option<ImuModel>, Option<GnssModel>)> {
+) -> Result<(Option<String>, Option<String>)> {
     // Validate every physical instance, including devices not selected by a role.
     // Discovery is limited to explicit [hal] capability keys, including "none".
     for (id, device) in devices {
-        if !catalog.binding.iter().any(|binding| binding.compatible == device.compatible)
-            && !gnss_catalog.binding.iter().any(|binding| binding.compatible == device.compatible)
+        if !catalog
+            .binding
+            .iter()
+            .any(|binding| binding.compatible == device.compatible)
+            && !gnss_catalog
+                .binding
+                .iter()
+                .any(|binding| binding.compatible == device.compatible)
         {
             return Err(diagnostic(
                 origins,
@@ -557,22 +556,21 @@ fn validate_graph(
     }
     let mut endpoints: BTreeMap<&str, (&str, &Resource)> = BTreeMap::new();
     for (id, resource) in resources {
-        let path =
-            match resource {
-                Resource::I2c { device, frequency } => {
-                    // Resource validity is independent of the declared device
-                    // catalogs. A claiming device checks its own supported rates.
-                    if *frequency == 0 {
-                        return Err(diagnostic(
-                            origins,
-                            &format!("resources.{id}.frequency"),
-                            &format!("unsupported I2C frequency {frequency}"),
-                        ));
-                    }
-                    device
+        let path = match resource {
+            Resource::I2c { device, frequency } => {
+                // Resource validity is independent of the declared device
+                // catalogs. A claiming device checks its own supported rates.
+                if *frequency == 0 {
+                    return Err(diagnostic(
+                        origins,
+                        &format!("resources.{id}.frequency"),
+                        &format!("unsupported I2C frequency {frequency}"),
+                    ));
                 }
-                Resource::GpioInterrupt { device, .. } | Resource::Uart { device, .. } => device,
-            };
+                device
+            }
+            Resource::GpioInterrupt { device, .. } | Resource::Uart { device, .. } => device,
+        };
         if let Some((previous_id, previous)) = endpoints.insert(path, (id, resource)) {
             if previous != resource
                 || matches!(previous, Resource::Uart { .. })
@@ -604,8 +602,8 @@ fn validate_graph(
 
     let mut physical_claims = BTreeMap::new();
     let mut irq_claims = BTreeMap::new();
-    let mut imu_model = None;
-    let mut gnss_model = None;
+    let mut imu_implementation = None;
+    let mut gnss_implementation = None;
     for (id, device) in devices {
         let is_gnss = gnss_catalog
             .binding
@@ -663,7 +661,7 @@ fn validate_graph(
                     "conflicting exclusive UART device claim",
                 ));
             }
-            gnss_model = Some(binding.model);
+            gnss_implementation = Some(binding.implementation.clone());
             continue;
         }
         let binding = binding_for(catalog, &device.compatible, "i2c")
@@ -784,7 +782,11 @@ fn validate_graph(
                 &format!("references unknown device {role_device}"),
             )
         })?;
-        imu_model = Some(binding_for(catalog, &device.compatible, "i2c")?.model);
+        imu_implementation = Some(
+            binding_for(catalog, &device.compatible, "i2c")?
+                .implementation
+                .clone(),
+        );
     }
     if let Some(role_device) = roles.get("gnss") {
         let device = devices.get(role_device).ok_or_else(|| {
@@ -806,7 +808,7 @@ fn validate_graph(
                     "role must select a supported GNSS device",
                 )
             })?;
-        gnss_model = Some(binding.model);
+        gnss_implementation = Some(binding.implementation.clone());
     }
     if roles.is_empty() {
         return Err(diagnostic(
@@ -815,7 +817,7 @@ fn validate_graph(
             "composition requires at least one supported role",
         ));
     }
-    Ok((imu_model, gnss_model))
+    Ok((imu_implementation, gnss_implementation))
 }
 
 fn binding_for<'a>(
@@ -1022,14 +1024,19 @@ mod tests {
 
     #[test]
     fn resolves_a_gnss_only_composition() {
-        let versioned =
-            resolve_with_providers_and_origins(&gnss_profile(), "none", "nuttx", &BTreeMap::new(), &fixture_catalogs())
-                .unwrap()
-                .unwrap();
+        let versioned = resolve_with_providers_and_origins(
+            &gnss_profile(),
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &fixture_catalogs(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(
             versioned.gnss().unwrap(),
             GnssBinding {
-                model: GnssModel::NeoM9n,
+                implementation: "NeoM9n",
                 path: "/dev/ttyS1",
                 baud: 38400,
                 stack_bytes: 16384
@@ -1044,10 +1051,15 @@ mod tests {
         joint["resources"]["uart1"] = json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
         joint["devices"]["navigation"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart1"});
         joint["roles"]["gnss"] = json!("navigation");
-        let binding =
-            resolve_with_providers_and_origins(&joint, "nuttx", "nuttx", &BTreeMap::new(), &fixture_catalogs())
-                .unwrap()
-                .unwrap();
+        let binding = resolve_with_providers_and_origins(
+            &joint,
+            "nuttx",
+            "nuttx",
+            &BTreeMap::new(),
+            &fixture_catalogs(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(binding.imu().is_some());
         assert_eq!(binding.gnss().unwrap().path, "/dev/ttyS1");
     }
@@ -1072,11 +1084,15 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("baud");
-        assert!(
-            resolve_with_providers_and_origins(&wrong_bus, "none", "nuttx", &BTreeMap::new(), &fixture_catalogs())
-                .unwrap_err()
-                .contains("requires a UART")
-        );
+        assert!(resolve_with_providers_and_origins(
+            &wrong_bus,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &fixture_catalogs()
+        )
+        .unwrap_err()
+        .contains("requires a UART"));
         let mut missing_bus = gnss_profile();
         missing_bus["devices"]["navigation"]["bus"] = json!("absent");
         assert!(resolve_with_providers_and_origins(
@@ -1090,20 +1106,28 @@ mod tests {
         .contains("unknown bus"));
         let mut baud = gnss_profile();
         baud["resources"]["uart1"]["baud"] = json!(12345);
-        assert!(
-            resolve_with_providers_and_origins(&baud, "none", "nuttx", &BTreeMap::new(), &fixture_catalogs())
-                .unwrap_err()
-                .contains("baud")
-        );
+        assert!(resolve_with_providers_and_origins(
+            &baud,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &fixture_catalogs()
+        )
+        .unwrap_err()
+        .contains("baud"));
         let mut alias = gnss_profile();
         alias["resources"]["uart_alias"] =
             json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
         alias["devices"]["another"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart_alias"});
-        assert!(
-            resolve_with_providers_and_origins(&alias, "none", "nuttx", &BTreeMap::new(), &fixture_catalogs())
-                .unwrap_err()
-                .contains("exclusive UART")
-        );
+        assert!(resolve_with_providers_and_origins(
+            &alias,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &fixture_catalogs()
+        )
+        .unwrap_err()
+        .contains("exclusive UART"));
         let mut unsupported_role = gnss_profile();
         unsupported_role["roles"]["radio"] = json!("navigation");
         assert!(resolve_with_providers_and_origins(
@@ -1155,8 +1179,14 @@ mod tests {
                 "nuttx",
             ),
         ] {
-            let error = resolve_with_providers_and_origins(&value, imu, gnss, &BTreeMap::new(), &fixture_catalogs())
-                .unwrap_err();
+            let error = resolve_with_providers_and_origins(
+                &value,
+                imu,
+                gnss,
+                &BTreeMap::new(),
+                &fixture_catalogs(),
+            )
+            .unwrap_err();
             assert!(error.contains("composition version 1"), "{error}");
         }
     }
@@ -1171,10 +1201,12 @@ mod tests {
         );
         value["resources"]["ready"] =
             json!({"kind":"gpio-interrupt", "device":"/dev/gpio0", "trigger":"rising"});
-        let composition = resolve(&value, "nuttx", &fixture_catalogs()).unwrap().unwrap();
+        let composition = resolve(&value, "nuttx", &fixture_catalogs())
+            .unwrap()
+            .unwrap();
         assert_eq!(composition.mode(), Mode::Qualification);
         assert_eq!(composition.imu().unwrap().irq_path, Some("/dev/gpio0"));
-        assert_eq!(composition.imu().unwrap().model, ImuModel::Bmi270);
+        assert_eq!(composition.imu().unwrap().implementation, "Bmi270");
     }
 
     #[test]
@@ -1196,9 +1228,11 @@ mod tests {
         assert!(resolve(&stale_wake, "nuttx", &fixture_catalogs())
             .unwrap_err()
             .contains("version"));
-        assert!(resolve(&json!({"resources":{}}), "none", &fixture_catalogs())
-            .unwrap_err()
-            .contains("version header"));
+        assert!(
+            resolve(&json!({"resources":{}}), "none", &fixture_catalogs())
+                .unwrap_err()
+                .contains("version header")
+        );
         let nested_legacy_shape = json!({
             "composition": {
                 "version": 1,
@@ -1279,16 +1313,20 @@ mod tests {
 
         let mut mixed = distinct;
         mixed["hal"] = json!({"imu":"nuttx","gnss":"mock"});
-        assert!(resolve(&mixed, "nuttx", &fixture_catalogs()).unwrap_err().contains("mock HAL"));
+        assert!(resolve(&mixed, "nuttx", &fixture_catalogs())
+            .unwrap_err()
+            .contains("mock HAL"));
     }
 
     #[test]
     fn replacement_lsm6dso_requires_its_own_address_and_periodic_wakes() {
         let mut replacement = profile("hardware", "/dev/i2c1", 106, json!({"kind":"periodic"}));
         replacement["devices"]["motion"]["compatible"] = json!("st,lsm6dso");
-        let resolved = resolve(&replacement, "nuttx", &fixture_catalogs()).unwrap().unwrap();
+        let resolved = resolve(&replacement, "nuttx", &fixture_catalogs())
+            .unwrap()
+            .unwrap();
         let binding = resolved.imu().unwrap();
-        assert_eq!(binding.model, ImuModel::Lsm6dso);
+        assert_eq!(binding.implementation, "Lsm6dso");
         assert_eq!((binding.path, binding.address), ("/dev/i2c1", 106));
 
         replacement["devices"]["motion"]["address"] = json!(104);
@@ -1306,11 +1344,15 @@ mod tests {
     fn validates_unselected_devices_and_stable_serialization() {
         let mut invalid = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         invalid["devices"]["other"] = json!({"compatible":"bosch,bmi270", "bus":"i2c", "address":200, "wake":{"kind":"periodic"}});
-        assert!(resolve(&invalid, "nuttx", &fixture_catalogs()).unwrap_err().contains("address"));
+        assert!(resolve(&invalid, "nuttx", &fixture_catalogs())
+            .unwrap_err()
+            .contains("address"));
         let a = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         let b = json!({"imu":{"stack-bytes":16384},"roles":{"imu":"motion"},"devices":{"motion":{"wake":{"kind":"periodic"},"address":104,"bus":"i2c","compatible":"bosch,bmi270"}},"resources":{"i2c":{"frequency":400000,"device":"/dev/i2c0","kind":"i2c"}},"composition":{"mode":"hardware","version":1}});
-        let a = serde_json::to_vec(&resolve(&a, "nuttx", &fixture_catalogs()).unwrap().unwrap()).unwrap();
-        let b = serde_json::to_vec(&resolve(&b, "nuttx", &fixture_catalogs()).unwrap().unwrap()).unwrap();
+        let a = serde_json::to_vec(&resolve(&a, "nuttx", &fixture_catalogs()).unwrap().unwrap())
+            .unwrap();
+        let b = serde_json::to_vec(&resolve(&b, "nuttx", &fixture_catalogs()).unwrap().unwrap())
+            .unwrap();
         assert_eq!(a, b);
     }
 
@@ -1332,7 +1374,8 @@ mod tests {
                 PathBuf::from("overlays/remove-ready.toml"),
             ),
         ]);
-        let error = resolve_with_origins(&value, "nuttx", &origins, &fixture_catalogs()).unwrap_err();
+        let error =
+            resolve_with_origins(&value, "nuttx", &origins, &fixture_catalogs()).unwrap_err();
         assert!(error.contains("devices.motion.wake.resource"));
         assert!(error.contains("resources.ready changed by overlays/remove-ready.toml"));
     }
@@ -1340,8 +1383,7 @@ mod tests {
     #[test]
     fn gnss_only_catalogs_allow_an_unclaimed_i2c_resource() {
         let mut value = gnss_profile();
-        value["resources"]["spare"] =
-            json!({"kind":"i2c","device":"/dev/i2c0","frequency":400000});
+        value["resources"]["spare"] = json!({"kind":"i2c","device":"/dev/i2c0","frequency":400000});
         let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut catalogs = Catalogs::default();
         catalogs
@@ -1383,8 +1425,7 @@ mod tests {
     #[test]
     fn unselected_devices_require_their_capability_catalog() {
         let mut value = gnss_profile();
-        value["resources"]["i2c"] =
-            json!({"kind":"i2c","device":"/dev/i2c0","frequency":400000});
+        value["resources"]["i2c"] = json!({"kind":"i2c","device":"/dev/i2c0","frequency":400000});
         value["devices"]["motion"] = json!({
             "compatible":"bosch,bmi270","bus":"i2c","address":104,
             "wake":{"kind":"periodic"}
@@ -1398,7 +1439,11 @@ mod tests {
             )
             .unwrap();
         let error = super::resolve_with_providers_and_origins(
-            &value, "none", "nuttx", &BTreeMap::new(), &catalogs,
+            &value,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &catalogs,
         )
         .unwrap_err();
         assert!(error.contains("unsupported compatible/bus"), "{error}");
@@ -1410,12 +1455,20 @@ mod tests {
             )
             .unwrap();
         assert!(super::resolve_with_providers_and_origins(
-            &value, "none", "nuttx", &BTreeMap::new(), &catalogs,
+            &value,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &catalogs,
         )
         .is_ok());
         value["devices"]["motion"]["address"] = json!(0x70);
         assert!(super::resolve_with_providers_and_origins(
-            &value, "none", "nuttx", &BTreeMap::new(), &catalogs,
+            &value,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &catalogs,
         )
         .unwrap_err()
         .contains("unsupported"));
@@ -1444,7 +1497,7 @@ mod tests {
         assert_eq!(composition.imu(), None);
         let encoded = serde_json::to_value(&composition).unwrap();
         assert_eq!(encoded["simulation"]["seed"], 274);
-        assert!(encoded.get("imu_model").is_none());
+        assert!(encoded.get("imu_implementation").is_none());
         assert_eq!(encoded["simulation"]["endpoints"], json!(["imu", "gnss"]));
     }
 

@@ -1,4 +1,4 @@
-//! Compile both production declarative sensor schemas in one detached Cargo output.
+//! Compile both production sensor resource bindings in one detached Cargo output.
 use nxrs_build::{profile::Profile, TempDir};
 use nxrs_build_support::resolved;
 use std::{fs, path::Path, process::Command};
@@ -17,15 +17,13 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     fs::write(sdk.join("Cargo.toml"), "[workspace]\n").unwrap();
     for capability in ["imu", "gnss"] {
         let package = sdk.join("hal").join(capability);
-        fs::create_dir_all(package.join("bindings")).unwrap();
-        fs::copy(
-            source.join("hal").join(capability).join("Cargo.toml"),
-            package.join("Cargo.toml"),
-        )
-        .unwrap();
-        for file in fs::read_dir(source.join("hal").join(capability).join("bindings")).unwrap() {
-            let file = file.unwrap();
-            fs::copy(file.path(), package.join("bindings").join(file.file_name())).unwrap();
+        fs::create_dir_all(&package).unwrap();
+        for file in ["Cargo.toml", "bindings.toml"] {
+            fs::copy(
+                source.join("hal").join(capability).join(file),
+                package.join(file),
+            )
+            .unwrap();
         }
     }
     fs::copy(
@@ -38,8 +36,12 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         root.join("Cargo.toml"),
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+             [features]\nprobe = []\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
+             nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\n\
+             nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
-            source.join("platform/build-support")
+            source.join("shared/messaging"), source.join("driver/acquisition"), source.join("driver/i2c"),
+            source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("platform/build-support")
         ),
     )
     .unwrap();
@@ -52,7 +54,7 @@ fn main() {
     let root = PathBuf::from(env::var_os("NXRS_SDK_ROOT").unwrap());
     let receipt = PathBuf::from(env::var_os("NXRS_RESOLVED_PROFILE").unwrap());
     println!("cargo:rerun-if-changed={}", receipt.display());
-    // Render the actual NuttX schemas on the host without compiling native helpers.
+    // Render the actual NuttX resource bindings on the host without compiling native helpers.
     let profile = resolved::load(&receipt, &root, Some("m5stack-cores3-gnss"), "xtensa-esp32s3-nuttx", "nuttx").unwrap();
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     for capability in ["imu", "gnss"] {
@@ -62,6 +64,7 @@ fn main() {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
+    std::fs::copy(output.join("imu/imu_config.rs"), output.join("imu_config.rs")).unwrap();
 }
 "#,
     )
@@ -69,6 +72,25 @@ fn main() {
     fs::write(
         root.join("src/main.rs"),
         r#"
+#![allow(dead_code, unused_imports)]
+#[path = @API@] mod api;
+pub use api::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+// Every host checks generated bindings below. Unix hosts additionally compile
+// the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
+#[cfg(unix)]
+#[path = @PROBE@] pub mod probe;
+#[cfg(unix)]
+mod ffi {
+    pub fn transfer(_: i32, _: u8, _: u32, _: &[u8], _: &mut [u8]) -> std::io::Result<()> {
+        panic!("resolving sensor settings must not access the bus")
+    }
+}
+#[cfg(unix)]
+#[path = @RESOURCE@] mod resource;
+#[cfg(unix)]
+#[path = @FACTORY@] mod production;
+#[cfg(unix)]
+mod platform { pub(crate) use crate::production::open_probed; }
 mod motion {
     struct Binding<'a> {
         path: &'a str,
@@ -76,23 +98,52 @@ mod motion {
         frequency: u32,
         irq_path: Option<&'a str>,
     }
+    mod implementations {
+        pub struct Bmi270;
+        impl Bmi270 { pub const NAME: &str = "bmi270"; pub const RATE: u32 = 100000; }
+        pub struct Lsm6dso;
+        impl Lsm6dso { pub const NAME: &str = "lsm6dso"; pub const RATE: u32 = 104000; }
+    }
     include!(concat!(env!("OUT_DIR"), "/imu/imu_config.rs"));
+    pub fn expected_rate() -> u32 { Implementation::RATE }
     pub fn describe() -> String {
-        let model = match MODEL { SensorModel::Bmi270 => "bmi270", SensorModel::Lsm6dso => "lsm6dso" };
+        let model = Implementation::NAME;
         format!("{model} {} {} {} {:?} {STACK_BYTES}",
             BINDING.path, BINDING.address, BINDING.frequency, BINDING.irq_path)
     }
 }
 mod position {
+    struct Binding<'a> { path: &'a str, baud: u32 }
+    mod implementations { pub struct NeoM9n; }
     include!(concat!(env!("OUT_DIR"), "/gnss/gnss_config.rs"));
     pub fn describe() -> String {
-        format!("{DEVICE_PATH} {BAUD} {STACK_BYTES}")
+        format!("{} {} {STACK_BYTES}", BINDING.path, BINDING.baud)
     }
 }
 fn main() {
+    #[cfg(unix)] {
+        let applied = production::resolve(Config {
+            min_rate_millihz: 100000, max_rate_millihz: 110000,
+            accel_range_g: 4, gyro_range_dps: 2000, max_delivery_interval_us: 10000,
+        }).unwrap();
+        assert_eq!(applied.rate_millihz, motion::expected_rate());
+    }
     println!("{} | {}", motion::describe(), position::describe());
 }
-"#,
+"#
+        .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
+        .replace(
+            "@PROBE@",
+            &format!("{:?}", source.join("hal/imu/src/probe.rs")),
+        )
+        .replace(
+            "@RESOURCE@",
+            &format!("{:?}", source.join("driver/i2c/tests/support/mod.rs")),
+        )
+        .replace(
+            "@FACTORY@",
+            &format!("{:?}", source.join("hal/imu/src/platform/nuttx/mod.rs")),
+        ),
     )
     .unwrap();
     let cargo = env!("CARGO");
@@ -148,7 +199,7 @@ fn main() {
 
     // Content changes at the same declared path must invalidate both Cargo and
     // the receipt, even when the resolved values are semantically unchanged.
-    for relative in ["hal/imu/bindings/i2c.toml", "hal/gnss/bindings/nuttx.toml"] {
+    for relative in ["hal/imu/bindings.toml", "hal/gnss/bindings.toml"] {
         let path = sdk.join(relative);
         let mut content = fs::read_to_string(&path).unwrap();
         content.push_str("\n# same-path freshness witness\n");

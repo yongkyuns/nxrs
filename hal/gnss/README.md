@@ -7,13 +7,11 @@ time, not UTC or measured satellite-to-host latency. Navigation owns projection
 into local north/east coordinates.
 
 The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
-resource and an M9 receiver. Package metadata declares
-[bindings/uart.toml](bindings/uart.toml) and the typed output schema in
-[bindings/nuttx.toml](bindings/nuttx.toml). The same shared renderer used by IMU
-generates the factory's device path, baud rate and stack budget. Its build script
-is a generic adapter; configuration formatting and model-specific host callbacks
-are absent. Provider flags and native linking retain the current Cargo adapter
-until the remaining pre-Cargo handoff is qualified.
+resource and an M9 receiver. [bindings.toml](bindings.toml) declares supported
+receiver/resource combinations and a checked-in implementation ID. The shared
+resource renderer generates its typed UART binding and stack budget. No separate
+Rust projection schema or model enum is needed. The generic build adapter retains
+provider selection, input freshness and native linking.
 
 The reusable `driver/ubx` crate runs M9 protocol transactions over an injected
 byte stream. It uses [`kinavis-ubx`](https://github.com/KINAVIS/kinavis) 0.1.1
