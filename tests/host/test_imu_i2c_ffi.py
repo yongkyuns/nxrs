@@ -86,7 +86,7 @@ int main(void) {
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             (work / "nuttx/ioexpander").mkdir(parents=True)
-            (work / "nuttx/config.h").write_text("")
+            (work / "nuttx/config.h").write_text("#define CONFIG_DEV_GPIO 1\n")
             (work / "nuttx/ioexpander/gpio.h").write_text("""
  enum gpio_pintype_e { GPIO_OUTPUT_PIN, GPIO_INTERRUPT_RISING_PIN };
  #define GPIOC_READ 1001
@@ -183,6 +183,36 @@ int main(void) {
                             "-D_GNU_SOURCE", "-Dpipe2=sensor_test_pipe2", "-include", str(work / "compat.h"),
                             "-I", str(work), str(harness),
                             str(ROOT / "hal/acquisition/src/platform/nuttx/ffi/events.c"),
+                            str(ROOT / "driver/gpio/src/platform/nuttx/ffi/gpio.c"),
+                            "-o", str(executable)], check=True, timeout=30)
+            subprocess.run([str(executable)], check=True, timeout=5)
+
+    def test_disabled_gpio_rejects_operations_without_target_ioctl_definitions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "nuttx/ioexpander").mkdir(parents=True)
+            (work / "nuttx/config.h").write_text("")
+            (work / "nuttx/ioexpander/gpio.h").write_text("")
+            harness = work / "disabled.c"
+            harness.write_text(r"""
+#include <assert.h>
+#include <errno.h>
+int gpio_resource_irq_check(int);
+int gpio_resource_irq_register(int);
+int gpio_resource_irq_unregister(int);
+int gpio_resource_irq_read(int);
+int main(void) {
+  int (*operations[])(int) = {gpio_resource_irq_check, gpio_resource_irq_register,
+                            gpio_resource_irq_unregister, gpio_resource_irq_read};
+  for (unsigned i = 0; i < sizeof(operations) / sizeof(operations[0]); i++) {
+    errno = 0;
+    assert(operations[i](42) == -1 && errno == ENOTSUP);
+  }
+}
+""")
+            executable = work / "disabled"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            "-Dioctl=forbidden_gpio_ioctl", "-I", str(work), str(harness),
                             str(ROOT / "driver/gpio/src/platform/nuttx/ffi/gpio.c"),
                             "-o", str(executable)], check=True, timeout=30)
             subprocess.run([str(executable)], check=True, timeout=5)

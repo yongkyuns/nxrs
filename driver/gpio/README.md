@@ -5,6 +5,10 @@ registration. It implements `embedded_hal::digital::InputPin` and lends its file
 to task-context readiness waits. Only this interrupt mode is currently supported;
 there are no host backends or additional profile/provider switches.
 
+The package also compiles when NuttX disables `CONFIG_DEV_GPIO`, as in the
+emulator mock profiles. Native operations then report unsupported without issuing
+ioctls; a configured hardware IRQ cannot silently fall back to a timer.
+
 The Rust resource owns registration, rollback and exactly-once unregister.
 NuttX owns ISR notification storage; it never calls Rust. If rollback or teardown
 fails, the supplied hook runs in task context, including during Drop. The caller
