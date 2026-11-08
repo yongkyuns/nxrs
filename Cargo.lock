@@ -387,8 +387,14 @@ version = "0.1.0"
 name = "nxrs-build"
 version = "0.1.0"
 dependencies = [
+ "embedded-hal",
+ "nxrs-acquisition",
+ "nxrs-bmi270",
  "nxrs-build-support",
  "nxrs-detector-build-support",
+ "nxrs-i2c",
+ "nxrs-lsm6dso",
+ "nxrs-messaging",
  "regex",
  "serde_json",
 ]
