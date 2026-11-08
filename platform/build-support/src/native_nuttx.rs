@@ -1,12 +1,13 @@
 //! Compile a consuming HAL's private ABI helpers with the configured NuttX flags.
-use crate::{hash, output, read_json, Result};
-use serde_json::Value;
+use crate::{hash, native::Context, output, read_json, Result};
+use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
-    env, fs,
+    fs,
     path::{Path, PathBuf},
-    process::Command,
 };
+#[cfg(all(test, unix))]
+use std::{env, process::Command};
 
 fn words(value: &Value, key: &str) -> Result<Vec<String>> {
     value[key]
@@ -22,17 +23,7 @@ fn words(value: &Value, key: &str) -> Result<Vec<String>> {
         .collect()
 }
 
-fn command(words: &[String]) -> Result<Command> {
-    let (program, args) = words.split_first().ok_or("empty native command")?;
-    if program.is_empty() {
-        return Err("empty native compiler/archive command".into());
-    }
-    let mut command = Command::new(program);
-    command.args(args);
-    Ok(command)
-}
-
-fn input(path: &Path, directives: &mut Vec<String>) -> Result<()> {
+pub(crate) fn input(path: &Path, directives: &mut Vec<String>) -> Result<()> {
     directives.push(format!("cargo:rerun-if-changed={}", path.display()));
     let resolved = path
         .canonicalize()
@@ -60,7 +51,7 @@ fn headers(path: &Path, seen: &mut BTreeSet<PathBuf>, directives: &mut Vec<Strin
 
 // GCC depfiles use Make escaping, not shell quoting. A fixed -MT target
 // leaves paths (including spaces, '#' and '$') on the dependency side.
-fn dependencies(text: &str) -> Result<Vec<PathBuf>> {
+pub(crate) fn dependencies(text: &str) -> Result<Vec<PathBuf>> {
     let text = text
         .strip_prefix("nxrs_native:")
         .ok_or("invalid native dependency file")?;
@@ -104,20 +95,22 @@ pub fn build(
     out: &Path,
     sources: &[&PathBuf],
     mut directives: Vec<String>,
+    environment: &Context,
 ) -> Result<Vec<String>> {
     directives.push("cargo:rerun-if-env-changed=NXRS_NUTTX_NATIVE_CONFIG".into());
     let context = PathBuf::from(
-        env::var_os("NXRS_NUTTX_NATIVE_CONFIG")
+        environment
+            .value("NXRS_NUTTX_NATIVE_CONFIG")?
             .ok_or("NuttX HAL helpers need the configured native context; use cargo nxrs build")?,
     );
     compile(
         &capability.join("src/platform/nuttx/ffi"),
         suffix,
-        target,
         out,
         sources,
-        &context,
+        configuration(&context, target)?,
         directives,
+        environment,
     )
 }
 
@@ -130,30 +123,33 @@ pub fn build_sources(
     out: &Path,
     sources: &[&PathBuf],
 ) -> Result<Vec<String>> {
-    let context = PathBuf::from(
-        env::var_os("NXRS_NUTTX_NATIVE_CONFIG")
-            .ok_or("NuttX fixture helpers need the configured native context; use cargo nxrs build")?,
-    );
+    let environment = Context::from_build_script()?;
+    let context =
+        PathBuf::from(environment.value("NXRS_NUTTX_NATIVE_CONFIG")?.ok_or(
+            "NuttX fixture helpers need the configured native context; use cargo nxrs build",
+        )?);
     compile(
         source_directory,
         suffix,
-        target,
         out,
         sources,
-        &context,
+        configuration(&context, target)?,
         vec!["cargo:rerun-if-env-changed=NXRS_NUTTX_NATIVE_CONFIG".into()],
+        &environment,
     )
 }
 
-fn compile(
-    source_directory: &Path,
-    suffix: &str,
-    target: &str,
-    out: &Path,
-    sources: &[&PathBuf],
-    context: &Path,
-    mut directives: Vec<String>,
-) -> Result<Vec<String>> {
+struct Configuration {
+    path: PathBuf,
+    data: Value,
+    directory: PathBuf,
+    include: PathBuf,
+    cc: Vec<String>,
+    ar: Vec<String>,
+    flags: Vec<String>,
+}
+
+fn configuration(context: &Path, target: &str) -> Result<Configuration> {
     let data = read_json(context)?;
     if data["schema"] != 1 || data["target"] != target || !target.contains("nuttx") {
         return Err("native context does not match the selected NuttX target".into());
@@ -173,10 +169,103 @@ fn compile(
     {
         return Err("configured NuttX headers changed; rerun the build frontend".into());
     }
-    let cc = words(&data, "cc")?;
-    let ar = words(&data, "ar")?;
-    let flags = words(&data, "cflags")?;
-    directives.push(format!("cargo:rerun-if-changed={}", context.display()));
+    Ok(Configuration {
+        path: context.to_path_buf(),
+        cc: words(&data, "cc")?,
+        ar: words(&data, "ar")?,
+        flags: words(&data, "cflags")?,
+        data,
+        directory,
+        include,
+    })
+}
+
+pub(crate) fn inputs(target: &str, environment: &Context) -> Result<crate::native::Inputs> {
+    let context = PathBuf::from(
+        environment
+            .value("NXRS_NUTTX_NATIVE_CONFIG")?
+            .ok_or("NuttX HAL helpers need the configured native context; use cargo nxrs build")?,
+    );
+    let configured = configuration(&context, target)?;
+    let mut directives = Vec::new();
+    headers(&configured.include, &mut BTreeSet::new(), &mut directives)?;
+    let mut files: Vec<_> = directives
+        .iter()
+        .filter_map(|line| line.strip_prefix("cargo:rerun-if-changed="))
+        .map(PathBuf::from)
+        .collect();
+    let mut include_roots = Vec::new();
+    crate::native::include_paths(&configured.flags, &configured.directory, &mut include_roots);
+    for name in [
+        "CPATH",
+        "C_INCLUDE_PATH",
+        "CPLUS_INCLUDE_PATH",
+        "OBJC_INCLUDE_PATH",
+    ] {
+        if let Some(value) = environment.value(name)? {
+            for path in std::env::split_paths(&value) {
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    configured.directory.join(path)
+                };
+                if path.is_dir() {
+                    include_roots.push(path);
+                }
+            }
+        }
+    }
+    for path in include_roots {
+        // The entire configured tree is already enumerated above without
+        // temporary Make files. Additional private include roots need a full
+        // recursive inventory, including directories for nested shadowing.
+        if !path.starts_with(&configured.include) {
+            crate::native::tree(&path, &mut files)?;
+            files.push(path);
+        }
+    }
+    files.push(context);
+    // Inventory content is independent of generated directory timestamps.
+    // NuttX Make may create/remove config.h.tmp without changing any header.
+    files.sort();
+    files.dedup();
+    let header_inventory = files.clone();
+    let cc = environment.tool_identity(&configured.cc, &configured.directory, &mut files)?;
+    let ar = environment.tool_identity(&configured.ar, &configured.directory, &mut files)?;
+    let mut variables = environment.environment_inputs(crate::native::COMPILER_ENVIRONMENT)?;
+    variables.insert(
+        "NXRS_NUTTX_NATIVE_CONFIG".into(),
+        environment.value("NXRS_NUTTX_NATIVE_CONFIG")?,
+    );
+    files.sort();
+    files.dedup();
+    Ok(crate::native::Inputs {
+        files,
+        environment: variables,
+        identity: json!({"context": configured.data, "headers": header_inventory,
+            "compiler": cc, "archiver": ar}),
+    })
+}
+
+fn compile(
+    source_directory: &Path,
+    suffix: &str,
+    out: &Path,
+    sources: &[&PathBuf],
+    configuration: Configuration,
+    mut directives: Vec<String>,
+    environment: &Context,
+) -> Result<Vec<String>> {
+    let Configuration {
+        path,
+        directory,
+        include,
+        cc,
+        ar,
+        flags,
+        ..
+    } = configuration;
+    directives.push(format!("cargo:rerun-if-changed={}", path.display()));
     // Make creates and removes config.h.tmp even when config.h is unchanged.
     // Watch files, not generated directories. The frontend's context includes
     // the configured header inventory, so additions still invalidate Cargo.
@@ -189,8 +278,8 @@ fn compile(
         let object = fresh.0.join(format!("helper_{index}.o"));
         let dependency_file = fresh.0.join(format!("helper_{index}.d"));
         output(
-            command(&cc)?
-                .current_dir(&directory)
+            environment
+                .command(&cc, &directory)?
                 .args(&flags)
                 .arg("-I")
                 .arg(source_directory)
@@ -215,8 +304,8 @@ fn compile(
     let name = format!("lib{suffix}_native.a");
     let archive = fresh.0.join(&name);
     output(
-        command(&ar)?
-            .current_dir(&directory)
+        environment
+            .command(&ar, &directory)?
             .arg(&archive)
             .args(&objects),
     )?;
@@ -228,6 +317,12 @@ fn compile(
         format!("cargo:rustc-link-search=native={}", out.display()),
         format!("cargo:rustc-link-lib=static={suffix}_native"),
     ]);
+    directives.extend(
+        crate::native::COMPILER_ENVIRONMENT
+            .iter()
+            .map(|name| format!("cargo:rerun-if-env-changed={name}")),
+    );
+    directives.push("cargo:rerun-if-env-changed=PATH".into());
     directives.sort();
     directives.dedup();
     Ok(directives)
@@ -259,14 +354,28 @@ mod tests {
         let data = json!({"schema":1,"target":"fixture-nuttx","directory":temp.0,"include":include,
             "config_sha256":hash(&config).unwrap(),"cc":["cc"],"ar":["ar","rcs"],"cflags":["-I",include.to_str().unwrap()]});
         crate::write_json(&context, &data).unwrap();
-        let directives = compile(
+        let mut cargo = Command::new("cargo");
+        cargo.env("NXRS_NUTTX_NATIVE_CONFIG", &context);
+        let environment = Context::for_command(&cargo, BTreeSet::new()).unwrap();
+        let initial = inputs("fixture-nuttx", &environment).unwrap();
+        assert!(initial.files.contains(&config));
+        assert!(initial.files.contains(&context));
+        let temporary_header = include.join("nuttx/config.h.tmp");
+        fs::write(&temporary_header, "temporary configuration\n").unwrap();
+        assert_eq!(inputs("fixture-nuttx", &environment).unwrap(), initial);
+        fs::remove_file(&temporary_header).unwrap();
+        let added_header = include.join("nuttx/new.h");
+        fs::write(&added_header, "/* newly configured header */\n").unwrap();
+        assert_ne!(inputs("fixture-nuttx", &environment).unwrap(), initial);
+        fs::remove_file(added_header).unwrap();
+        let directives = build(
             &capability,
             "sensor",
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
             vec![],
+            &environment,
         )
         .unwrap();
         assert!(directives.contains(&format!("cargo:rerun-if-changed={}", config.display())));
@@ -293,27 +402,27 @@ mod tests {
         .unwrap();
         assert!(Command::new(&binary).status().unwrap().success());
         fs::write(&config, "#define DEVICE_ABI 18\n").unwrap();
-        assert!(compile(
+        assert!(build(
             &capability,
             "sensor",
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
-            vec![]
+            vec![],
+            &environment,
         )
         .is_err());
         let mut changed = data;
         changed["config_sha256"] = json!(hash(&config).unwrap());
         crate::write_json(&context, &changed).unwrap();
-        compile(
+        build(
             &capability,
             "sensor",
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
             vec![],
+            &environment,
         )
         .unwrap();
         output(

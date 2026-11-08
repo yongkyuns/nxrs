@@ -99,6 +99,80 @@ Production BMI270/LSM6DSO dependencies, fixed-device construction and static
 ownership remain D2/D3 work. The generic HAL build adapters remain until their
 complete generation, compiler/link and freshness handoff is qualified.
 
+## Third implemented slice: controller preparation and Cargo transport
+
+D1c extends the existing host, NuttX and browser controllers with
+`build::prepare_cargo`. After configuring the real compiler, target and user
+options, it resolves implementation features, discovers the actual consumed
+profile-declared HAL packages and prepares their generic configuration/native
+inputs before target compilation. Packages without a feature request still have
+their actual declarations verified. Package discovery retains D1b's path-backed
+source boundary and package-local `cargo metadata --no-deps`; unconsumed board
+capabilities do not acquire generated files or native archives.
+
+`platform/build-support/src/handoff.rs` owns the preparation receipt and package
+artifacts. Their identity includes the resolved profile, package identity and
+declaration bytes, target/OS, Cargo feature set, shared generator sources and
+native compiler/header/environment inputs. Native preparation uses an explicit
+context derived from the controller command, without changing the process
+environment. Native source remains under the provider's private `ffi/`.
+Disabled helpers do not require their compiler or SDK. Compiler dependency files
+also track headers outside the provider directory.
+
+Generated Rust and native archives are published together in an immutable package
+directory. A verified input index permits reuse without compiling a helper again;
+changed source/header inputs produce a new artifact. A separate immutable profile
+receipt prevents preparing profile B from replacing profile A's selected inputs.
+The familiar `resolved-profile.json` remains an inspection copy. Build evidence
+records the preparation receipt and its hash; SDK-free inspection leaves
+preparation pending.
+
+The generic HAL adapter consumes `NXRS_PREPARED_BUILD` together with its explicit
+`NXRS_RESOLVED_PROFILE`. It checks the current package, feature set, provider,
+target and input/output hashes, copies prepared Rust files into that package's
+`OUT_DIR`, and emits its saved native link directives. In this path the adapter
+does not render configuration or compile a native helper. Missing, stale,
+modified or mismatched prepared inputs fail with a preparation diagnostic; they
+do not fall back to the older path. Artifact files, delivered copies, declarations,
+native inputs and relevant environment variables participate in Cargo rerun
+tracking. Writes preserve timestamps when their contents are unchanged.
+
+### Entry-point contract during D1c
+
+| Entry point | Behavior |
+| --- | --- |
+| `cargo nxrs build` and the existing platform frontends | Resolve the actual target graph, prepare consumed HALs, then invoke Cargo with explicit receipts |
+| Plain `cargo build/check/test/doc` with both prepared receipt variables | Consume that preparation only when the HAL unit's inputs and feature set match; changed selections require preparation again |
+| Plain Cargo with `NXRS_PLATFORM` or a resolved profile, without `NXRS_PREPARED_BUILD` | Retain the existing shared adapter preparation path for compatibility and explicit qualification during this migration |
+| Plain Cargo with no profile or preparation selection | Compile unbound contracts/common functionality and remove previously delivered, owned generated files |
+
+An enabled dev/build dependency can have a different feature set from the target
+HAL. An explicit preparation must not be reused for that different unit merely
+because the host and target triples are equal. The current transport rejects such
+a mismatch. Declared feature names whose Cargo environment spellings collide
+cannot be distinguished by a build script, so preparation rejects that namespace.
+This is not a general replacement for Cargo unit selection.
+
+The detached witnesses cover generated simulation values and real native linking,
+all four plain Cargo commands, warm no-op builds, A-to-B-to-A profile switches,
+unbound transitions, stale/corrupt/missing inputs, delivered-file repair, and
+unconsumed/feature-disabled helper exclusion. A separate witness renders the
+actual IMU/GNSS schemas and compiles those values on the host; that is generation
+evidence, not NuttX ABI or device evidence.
+
+D1 remains open. Package-level Cargo scripts still transport provider flags,
+generated values and link inputs. Detector model/SDK preparation, TLS SDK work and
+the shared Linux GIO helper have separate existing paths; this slice does not move
+all custom native work. The native snapshot covers supported compiler arguments,
+resolved tools, declared include trees, discovered headers and known environment
+inputs; it does not infer arbitrary wrapper-specific dependencies. Native tool
+and include overrides must be supplied in the invoking/controller environment.
+Cargo-only `[env]` overrides are applied after preparation and a differing native
+environment is rejected; the controller does not reproduce Cargo's configuration
+resolver. Full compiler/rustdoc transport, additional package sources and removal
+of the compatibility adapter require their own qualification before any HAL
+script is deleted.
+
 ## Current implementation and migration boundary
 
 The baseline inspected for this decision is

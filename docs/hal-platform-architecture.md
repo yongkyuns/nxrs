@@ -28,6 +28,15 @@ optional driver dependencies. Gate uniquely named implementation modules once
 with additive features; the existing OS/provider `selected` boundary does not
 require sensor implementations to be mutually exclusive.
 
+The D1c implementation prepares generic HAL configuration and native helpers in
+the build controller, after Cargo resolves the consumed target packages and
+features. Immutable profile/package receipts feed the remaining generic HAL
+adapters, which validate and deliver generated values and saved native directives.
+The [entry-point contract](static-device-composition.md#entry-point-contract-during-d1c)
+defines prepared plain-Cargo use, no-profile cleanup and the retained compatibility
+path. Package scripts and separate custom SDK preparation remain until their full
+replacement is qualified.
+
 An active physical device has one permanent static allocation with private
 configuration, instance storage and ownership/fault state. Roles refer to that
 object, and acquisition creates a separate exclusive session. Common HAL

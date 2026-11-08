@@ -6,6 +6,7 @@ pub mod archive;
 pub mod bindings;
 pub mod composition;
 pub mod configuration;
+pub mod handoff;
 pub mod native;
 mod native_nuttx;
 mod overlay;
@@ -85,7 +86,7 @@ pub fn write_simulation_config(profile: &profile::Profile, out: &Path) -> Result
         "const SIM_SEED: u64 = {};\nconst SIM_SOURCES: &[simulation::Source] = &[{}];\n",
         spec.seed, sources
     );
-    fs::write(out.join("simulation_config.rs"), generated).map_err(|error| error.to_string())
+    preparation::write_if_changed(&out.join("simulation_config.rs"), &generated)
 }
 
 /// Resolve product profiles and pinned SDK inputs explicitly for external users.
@@ -161,8 +162,8 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     profile.detector()
 }
 
-/// Cargo adapter for shared profile, declarative configuration and native preparation.
-/// Package-local adapters remain until the pre-Cargo compiler handoff is qualified.
+/// Cargo transport for controller-prepared inputs, with the shared legacy path
+/// retained for explicit plain-Cargo qualification until adapter removal is qualified.
 pub fn configure_hal() -> Result<String> {
     use std::{env, path::PathBuf};
     println!(
@@ -181,17 +182,33 @@ pub fn configure_hal() -> Result<String> {
     }
     let directory =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing Cargo manifest directory")?);
+    let package = env::var("CARGO_PKG_NAME").map_err(|e| e.to_string())?;
+    let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
+    println!("cargo:rerun-if-env-changed={}", handoff::ENVIRONMENT);
+    let prepared = env::var_os(handoff::ENVIRONMENT).map(PathBuf::from);
     let Some((root, profile)) = selected_profile(&directory)? else {
+        if prepared.is_some() {
+            return Err("NXRS_PREPARED_BUILD requires its explicit NXRS_RESOLVED_PROFILE".into());
+        }
+        handoff::clear(&out, &package)?;
         return Ok("none".into());
     };
-    let package = env::var("CARGO_PKG_NAME").map_err(|e| e.to_string())?;
     let capability = package.strip_prefix("nxrs-").ok_or("HAL package name")?;
     let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
     for line in profile.cargo_output(&root, capability, &os)? {
         println!("{line}")
     }
     let binding = profile.binding(capability);
-    let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
+    if let Some(path) = prepared {
+        let target = env::var("TARGET").map_err(|e| e.to_string())?;
+        for line in handoff::apply(&path, &directory, &package, &profile, &target, &os, &out)? {
+            println!("{line}");
+        }
+        return Ok(binding.into());
+    }
+    if out.join("nxrs-prepared-files.json").exists() {
+        handoff::clear(&out, &package)?;
+    }
     for path in preparation::prepare_package(&directory, &profile, &os, &out)? {
         println!("cargo:rerun-if-changed={}", path.display());
     }

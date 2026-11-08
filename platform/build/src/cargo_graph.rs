@@ -4,8 +4,8 @@
 //! configuration. Metadata supplies declared dependency aliases and package paths;
 //! it is never the authority for production feature sets. This module does not
 //! traverse dependencies or evaluate Cargo's cfg/feature language.
-use crate::{Result, profile::Profile};
-use serde_json::{Value, json};
+use crate::{profile::Profile, Result};
+use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::{OsStr, OsString},
@@ -30,6 +30,55 @@ impl Selection {
             "implementation_features":self.implementation_features,
         })
     }
+}
+
+/// One profile-declared HAL that Cargo actually consumes for the target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumedPackage {
+    /// Cargo's versioned source identity, verified against package-local metadata.
+    pub identity: String,
+    /// The actual consumed source directory, retaining Cargo's lexical spelling.
+    pub directory: PathBuf,
+    /// Features of this package in the target production graph, not host tools.
+    pub features: BTreeSet<String>,
+}
+
+/// Discover preparation inputs after `resolve` has configured the build's final
+/// features. Profile records do not activate packages; only matching identities
+/// already selected by Cargo are returned. Validate declarations even when a
+/// package needs no implementation-feature request.
+pub fn consumed_hal_packages(build: &Command, profile: &Profile) -> Result<Vec<ConsumedPackage>> {
+    let query = Query::from_build(build)?;
+    let graph = query.graph(build, &[])?;
+    let names: BTreeSet<_> = profile
+        .catalogs()
+        .packages()
+        .map(|(_, package)| package.name.as_str())
+        .collect();
+    let mut consumed = Vec::new();
+    for name in names {
+        let Some(request) = Request::consumed(&graph, name, BTreeSet::new(), None)? else {
+            continue;
+        };
+        let verified = request.validate_declarations(&query, build, profile)?;
+        let mut variables = BTreeMap::new();
+        for feature in &verified.declared_features {
+            let variable = format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
+            if let Some(other) = variables.insert(variable.clone(), feature) {
+                return Err(format!(
+                    "prepared feature transport is ambiguous for {}: Cargo features {other:?} and {feature:?} both map to {variable}; use distinct feature names",
+                    request.identity
+                ));
+            }
+        }
+        let features = graph[&request.identity].features.clone();
+        consumed.push(ConsumedPackage {
+            identity: request.identity,
+            directory: verified.directory,
+            features,
+        });
+    }
+    Ok(consumed)
 }
 
 #[derive(Debug)]
@@ -160,6 +209,11 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
     })
 }
 
+struct VerifiedPackage {
+    directory: PathBuf,
+    declared_features: BTreeSet<String>,
+}
+
 struct Request {
     name: String,
     identity: String,
@@ -226,7 +280,7 @@ impl Request {
         query: &Query,
         build: &Command,
         profile: &Profile,
-    ) -> Result<()> {
+    ) -> Result<VerifiedPackage> {
         // Full metadata fetches unselected dev/workspace/target dependencies,
         // even with --filter-platform. Path-backed SDKs need only package-local
         // --no-deps metadata. Treat the displayed path as a candidate, then ask
@@ -246,6 +300,12 @@ impl Request {
         let manifest = directory.join("Cargo.toml");
         let metadata = query.package_metadata(build, &manifest)?;
         let package = package_at_manifest(&metadata, &manifest)?;
+        let declared_features = package["features"]
+            .as_object()
+            .ok_or("Cargo metadata did not contain package features")?
+            .keys()
+            .cloned()
+            .collect();
         let id = package["id"]
             .as_str()
             .ok_or("Cargo package has no identity")?;
@@ -271,7 +331,10 @@ impl Request {
                 ));
             }
         }
-        Ok(())
+        Ok(VerifiedPackage {
+            directory,
+            declared_features,
+        })
     }
 
     fn validate_conflict(&self, graph: &Graph, profile: &Profile) -> Result<()> {

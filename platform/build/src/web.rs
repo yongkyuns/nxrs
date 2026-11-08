@@ -111,6 +111,7 @@ fn begin_build(out: &Path, inputs: &Value, fix: bool, clean: bool) -> Result<boo
     let reused = reuse::begin(out, inputs, &cache_directories(fix), clean)?;
     if !reused {
         crate::remove_dir(&out.join("cargo"))?;
+        crate::remove_dir(&out.join("prepared"))?;
         // Also remove an unused private SDK when switching to unmodified std.
         crate::remove_dir(&out.join("toolchain"))?;
     }
@@ -354,12 +355,12 @@ pub fn build(
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("RUSTC", &rustc)
         .env("CARGO_BUILD_RUSTC", &rustc);
-    build::configure_profile(&mut command, &out, root, p, TARGET, "emscripten")?;
     options.configure_cargo(&mut command, &[]);
     if let Some(config) = cargo_config {
         command.arg("--config").arg(config);
     }
-    let selection = crate::cargo_graph::resolve(&mut command, p)?;
+    let selection = build::prepare_cargo(&mut command, &out, root, p, TARGET, "emscripten")?;
+    deployment["preparation"] = build::preparation_evidence(&command)?;
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["implementation_features"] = json!(selection.implementation_features);
@@ -604,6 +605,11 @@ mod tests {
 
     fn retained_outputs(out: &Path) {
         fixture_file(out, "cargo/object", "Cargo compilation state");
+        fixture_file(
+            out,
+            "prepared/packages/fixture/libhelper_native.a",
+            "prepared native archive",
+        );
         fixture_file(out, "toolchain/lib/source.rs", "private SDK contents");
         fixture_file(out, "std-inputs/std-patch.json", "{\"mode\":\"fixture\"}");
         fixture_file(out, "std-inputs/std-tls.patch", "fixture patch receipt");
@@ -631,6 +637,8 @@ mod tests {
             .unwrap()
             .modified()
             .unwrap();
+        let prepared = out.join("prepared/packages/fixture/libhelper_native.a");
+        let prepared_time = prepared.metadata().unwrap().modified().unwrap();
         reuse::complete(out, &inputs, &cache_directories(true)).unwrap();
         assert!(begin_build(out, &inputs, true, false).unwrap());
         assert_eq!(
@@ -649,6 +657,11 @@ mod tests {
                 .unwrap(),
             cargo_time
         );
+        assert_eq!(fs::read(&prepared).unwrap(), b"prepared native archive");
+        assert_eq!(
+            prepared.metadata().unwrap().modified().unwrap(),
+            prepared_time
+        );
         assert_eq!(fs::read_dir(out.join("site")).unwrap().count(), 0);
         assert!(!out.join("provider-selection.json").exists());
         assert!(!out.join("cargo-messages.jsonl").exists());
@@ -661,6 +674,7 @@ mod tests {
         // An incomplete attempt cannot authorize the next SDK/Cargo reuse.
         assert!(!begin_build(out, &inputs, true, false).unwrap());
         assert!(!out.join("cargo/object").exists());
+        assert!(!out.join("prepared").exists());
     }
 
     #[test]
@@ -716,6 +730,7 @@ mod tests {
                 "{change}"
             );
             assert!(!out.join("cargo/object").exists(), "{change}");
+            assert!(!out.join("prepared").exists(), "{change}");
             assert!(!out.join("toolchain").exists(), "{change}");
             assert!(!out.join("site/manifest.json").exists(), "{change}");
         }

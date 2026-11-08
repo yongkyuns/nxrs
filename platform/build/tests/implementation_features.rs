@@ -3,13 +3,14 @@
 //! The SDK and consumer are separate workspaces. Application source knows only
 //! the service; an optional direct HAL alias is the declared composition edge.
 use nxrs_build::{
-    TempDir,
     cargo_graph::{self, Selection},
     profile::Profile,
+    TempDir,
 };
 use nxrs_build_support::bindings::{Catalogs, Package};
-use serde_json::{Map, json};
+use serde_json::{json, Map};
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
@@ -119,7 +120,7 @@ internal_motion={package="nxrs-imu",path="../hal/imu",default-features=false}
     }
 
     fn root(&self) -> &Path {
-        &self.0.0
+        &self.0 .0
     }
 
     fn write(&self, relative: &str, contents: &str) {
@@ -386,6 +387,191 @@ fn detached_service_consumer_uses_a_declared_optional_composition_edge() {
 }
 
 #[test]
+fn preparation_discovers_only_consumed_packages_with_the_final_features() {
+    let fixture = Fixture::new(MOTION);
+    fixture.add_gnss(false);
+    fixture.lock();
+    let profile = fixture.profile(&['a', 'b']);
+    let mut build = fixture.build();
+    let selection = cargo_graph::resolve(&mut build, &profile).unwrap();
+    let before = command_state(&build);
+    let lock = fs::read(fixture.root().join("consumer/Cargo.lock")).unwrap();
+    let consumed = cargo_graph::consumed_hal_packages(&build, &profile).unwrap();
+    assert_eq!(consumed.len(), 1);
+    assert!(selection.packages.contains(&consumed[0].identity));
+    assert!(consumed[0].identity.starts_with("nxrs-imu v0.1.0 ("));
+    assert_eq!(
+        consumed[0].directory.canonicalize().unwrap(),
+        fixture.root().join("sdk/hal/imu").canonicalize().unwrap()
+    );
+    assert_eq!(
+        consumed[0].features,
+        BTreeSet::from(["driver-a".to_owned(), "driver-b".to_owned()])
+    );
+    assert_eq!(command_state(&build), before);
+    assert_eq!(
+        fs::read(fixture.root().join("consumer/Cargo.lock")).unwrap(),
+        lock
+    );
+    assert_eq!(fixture.run(&mut build), "3");
+
+    let mut disabled = fixture.build();
+    disabled.arg("--no-default-features");
+    cargo_graph::resolve(&mut disabled, &profile).unwrap();
+    assert!(cargo_graph::consumed_hal_packages(&disabled, &profile)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn preparation_uses_the_detached_package_even_without_feature_requests() {
+    let fixture = Fixture::new(
+        "motion={package=\"nxrs-imu\",path=\"../imu\",optional=true,default-features=false}",
+    );
+    // The SDK's declarations describe the contract. Cargo consumes a separate
+    // package whose manifest has consumer-specific packaging metadata.
+    let catalog = fixture.root().join("sdk/hal/imu/bindings/i2c.toml");
+    let contents = fs::read_to_string(&catalog)
+        .unwrap()
+        .replace("cargo_features=[\"driver-a\"]\n", "")
+        .replace("cargo_features=[\"driver-b\"]\n", "");
+    fs::write(&catalog, &contents).unwrap();
+    let profile = fixture.profile(&['a']);
+    assert!(profile.implementation_features().unwrap().is_empty());
+    fixture.write("consumer/imu/bindings/i2c.toml", &contents);
+    fixture.write(
+        "consumer/imu/src/lib.rs",
+        &fs::read_to_string(fixture.root().join("sdk/hal/imu/src/lib.rs")).unwrap(),
+    );
+    let manifest = fs::read_to_string(fixture.root().join("sdk/hal/imu/Cargo.toml"))
+        .unwrap()
+        .replace("../../driver-", "../../sdk/driver-")
+        + "\n[package.metadata.packaging]\nfixture=true\n";
+    fixture.write("consumer/imu/Cargo.toml", &manifest);
+    fixture.write(
+        "sdk/service/Cargo.toml",
+        &fs::read_to_string(fixture.root().join("sdk/service/Cargo.toml"))
+            .unwrap()
+            .replace("../hal/imu", "../../consumer/imu"),
+    );
+    fixture.lock();
+    let mut build = fixture.build();
+    let selection = cargo_graph::resolve(&mut build, &profile).unwrap();
+    assert!(selection.implementation_features.is_empty());
+    let before = command_state(&build);
+    let consumed = cargo_graph::consumed_hal_packages(&build, &profile).unwrap();
+    assert_eq!(consumed.len(), 1);
+    assert_eq!(
+        consumed[0].directory.canonicalize().unwrap(),
+        fixture.root().join("consumer/imu").canonicalize().unwrap()
+    );
+    assert!(consumed[0].features.is_empty());
+    assert_eq!(command_state(&build), before);
+    assert_eq!(fixture.run(&mut build), "0");
+
+    // No feature request would have validated these declarations. Preparation
+    // must still reject a stale consumed copy instead of using the SDK's bytes.
+    fixture.write(
+        "consumer/imu/bindings/i2c.toml",
+        &(contents + "\n# changed consumer declaration\n"),
+    );
+    let error = cargo_graph::consumed_hal_packages(&build, &profile).unwrap_err();
+    assert!(error.contains("nxrs-imu"), "{error}");
+    assert!(
+        error.contains("differ from the resolved profile"),
+        "{error}"
+    );
+    assert_eq!(command_state(&build), before);
+}
+
+#[test]
+fn preparation_rejects_ambiguous_cargo_feature_environment_names() {
+    for implicit in [false, true] {
+        let fixture = Fixture::new(MOTION);
+        let manifest = fixture.root().join("sdk/hal/imu/Cargo.toml");
+        let contents = fs::read_to_string(&manifest).unwrap();
+        let contents = if implicit {
+            // Cargo creates driver_a's feature implicitly; reading only the
+            // manifest's explicit [features] table would miss this collision.
+            contents + "driver_a={package=\"driver-b\",path=\"../../driver-b\",optional=true}\n"
+        } else {
+            contents.replace("[dependencies]", "driver_a=[]\n[dependencies]")
+        };
+        fs::write(manifest, contents).unwrap();
+        fixture.lock();
+        let profile = fixture.profile(&['a']);
+        let mut build = fixture.build();
+        let selection = cargo_graph::resolve(&mut build, &profile).unwrap();
+        assert_eq!(selection.implementation_features, ["motion/driver-a"]);
+        assert!(!contains(&selection, "driver-b"));
+        let before = command_state(&build);
+        let error = cargo_graph::consumed_hal_packages(&build, &profile).unwrap_err();
+        assert!(
+            error.contains("prepared feature transport is ambiguous"),
+            "{error}"
+        );
+        assert!(error.contains("CARGO_FEATURE_DRIVER_A"), "{error}");
+        assert!(
+            error.contains("driver-a") && error.contains("driver_a"),
+            "{error}"
+        );
+        assert_eq!(command_state(&build), before);
+        assert!(!fixture.executable().exists());
+    }
+}
+
+#[test]
+fn preparation_features_exclude_the_same_packages_host_build_features() {
+    let fixture = Fixture::new(&format!(
+        "{MOTION}\n[build-dependencies]\nhost_tool={{package=\"fixture-host-tool\",path=\"../host-tool\"}}"
+    ));
+    fixture.write(
+        "consumer/host-tool/Cargo.toml",
+        r#"[package]
+name="fixture-host-tool"
+version="0.1.0"
+edition="2021"
+[dependencies]
+motion={package="nxrs-imu",path="../../sdk/hal/imu",default-features=false,features=["driver-b"]}
+"#,
+    );
+    fixture.write(
+        "consumer/host-tool/src/lib.rs",
+        "pub fn mask() -> u8 { motion::mask() }\n",
+    );
+    fixture.write(
+        "consumer/app/build.rs",
+        "fn main() { assert_eq!(host_tool::mask(), 2); }\n",
+    );
+    fixture.lock();
+    let profile = fixture.profile(&['a']);
+    let rustc = succeeded(Command::new("rustc").arg("-vV"));
+    let rustc = String::from_utf8(rustc.stdout).unwrap();
+    let target = rustc
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .unwrap();
+    let mut build = fixture.build();
+    build.args(["--target", target]);
+    cargo_graph::resolve(&mut build, &profile).unwrap();
+    let consumed = cargo_graph::consumed_hal_packages(&build, &profile).unwrap();
+    assert_eq!(consumed.len(), 1);
+    assert_eq!(
+        consumed[0].features,
+        BTreeSet::from(["driver-a".to_owned()])
+    );
+    succeeded(&mut build);
+    let executable = fixture
+        .root()
+        .join("target")
+        .join(target)
+        .join("debug")
+        .join(format!("consumer{}", std::env::consts::EXE_SUFFIX));
+    let output = succeeded(&mut Command::new(executable));
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "1");
+}
+
+#[test]
 fn same_model_requests_deduplicate_and_mixed_models_are_additive() {
     let fixture = Fixture::new(MOTION);
     fixture.lock();
@@ -610,6 +796,9 @@ fn multiple_consumed_hal_identities_cannot_share_one_profile_feature_request() {
     assert!(error.contains("nxrs-imu"), "{error}");
     assert!(error.contains("multiple"), "{error}");
     assert_eq!(command_state(&build), before);
+    let error = cargo_graph::consumed_hal_packages(&build, &fixture.profile(&['a'])).unwrap_err();
+    assert!(error.contains("multiple nxrs-imu packages"), "{error}");
+    assert_eq!(command_state(&build), before);
 }
 
 #[test]
@@ -788,6 +977,11 @@ host_motion={package="nxrs-imu",path="../../sdk/hal/imu",default-features=false}
     for name in ["nxrs-imu", "driver-a", "driver-b", "driver-default"] {
         assert!(!contains(&selection, name), "{name}");
     }
+    assert!(
+        cargo_graph::consumed_hal_packages(&build, &fixture.profile(&['a']))
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(fixture.run(&mut build), "off");
 }
 
@@ -858,6 +1052,13 @@ fn declaration_lookup_does_not_fetch_unselected_registry_packages() {
             .unwrap_or_else(|error| panic!("{unselected}: {error}"));
         assert_eq!(selection.implementation_features, ["motion/driver-a"]);
         assert!(!contains(&selection, "unselected-dependency"));
+        let consumed = cargo_graph::consumed_hal_packages(&build, &fixture.profile(&['a']))
+            .unwrap_or_else(|error| panic!("{unselected}: {error}"));
+        assert_eq!(consumed.len(), 1);
+        assert_eq!(
+            consumed[0].features,
+            BTreeSet::from(["driver-a".to_owned()])
+        );
         assert_eq!(fixture.run(&mut build), "1", "{unselected}");
     }
 }
@@ -870,15 +1071,20 @@ fn cargo_verifies_declarations_when_the_package_path_contains_spaces_and_parenth
         fixture.root().file_name().unwrap().to_string_lossy()
     ));
     fs::rename(fixture.root(), &directory).unwrap();
-    fixture.0.0 = directory;
+    fixture.0 .0 = directory;
     fixture.lock();
     let mut build = fixture.build();
     let selection = cargo_graph::resolve(&mut build, &fixture.profile(&['a'])).unwrap();
     assert_eq!(selection.implementation_features, ["motion/driver-a"]);
-    assert!(
-        selection.packages.iter().any(|package| {
-            package.starts_with("nxrs-imu v") && package.contains(" (local SDK)")
-        })
+    assert!(selection
+        .packages
+        .iter()
+        .any(|package| { package.starts_with("nxrs-imu v") && package.contains(" (local SDK)") }));
+    let consumed = cargo_graph::consumed_hal_packages(&build, &fixture.profile(&['a'])).unwrap();
+    assert_eq!(consumed.len(), 1);
+    assert_eq!(
+        consumed[0].directory.canonicalize().unwrap(),
+        fixture.root().join("sdk/hal/imu").canonicalize().unwrap()
     );
     assert_eq!(fixture.run(&mut build), "1");
 }
@@ -909,5 +1115,8 @@ fn declaration_lookup_preserves_cargos_symlinked_source_identity() {
     let mut build = fixture.build();
     let selection = cargo_graph::resolve(&mut build, &fixture.profile(&['a'])).unwrap();
     assert_eq!(selection.implementation_features, ["motion/driver-a"]);
+    let consumed = cargo_graph::consumed_hal_packages(&build, &fixture.profile(&['a'])).unwrap();
+    assert_eq!(consumed.len(), 1);
+    assert_eq!(consumed[0].directory, alias.join("sdk/hal/imu"));
     assert_eq!(fixture.run(&mut build), "1");
 }
