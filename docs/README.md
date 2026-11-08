@@ -12,6 +12,13 @@ dependencies, compatibility gates, and verification commands. See its
 [physical qualification step](peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines)
 for the remaining on-board validation and measurements.
 
+The accepted [declarative build and static-device decision](static-device-composition.md)
+records the next architecture: shared generic preparation, additive driver
+features, canonical static physical devices and role-based acquisition.
+[Issue #246](https://github.com/yongkyuns/nxrs/issues/246) and the
+[follow-up implementation sequence](peripheral-composition-plan.md#static-device-follow-up)
+track work still required; this is not a claim of current multi-device support.
+
 Each `hal/<capability>` is one crate. Its contract is in `src/api.rs`, selected
 Rust implementations stay private under `src/platform/`, and target-specific
 NuttX C helpers live beside their Rust provider in its `ffi/` directory. A single `NXRS_PLATFORM` value selects

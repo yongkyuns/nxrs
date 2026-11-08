@@ -3,8 +3,16 @@
 A named profile and its ordered overlays resolve to one validated composition.
 Hardware profiles bind IMU and GNSS roles to concrete sensors and NuttX
 resources. The simulation profile binds those roles to one shared scenario.
-Build scripts verify the resolved profile and generate typed values for the
-HAL factories. See the [implementation and qualification plan](peripheral-composition-plan.md).
+Today, HAL build scripts verify the resolved profile and generate typed values
+for singular default sensor factories. See the
+[implementation and qualification plan](peripheral-composition-plan.md).
+
+The accepted [declarative build and static-device follow-up](static-device-composition.md)
+replaces local host emission with shared generic preparation, makes driver
+features additive, and gives each active physical device one canonical static
+opaque object. That work is tracked in [issue #246](https://github.com/yongkyuns/nxrs/issues/246).
+Sections below distinguish current v1 mechanics from that target; multiple device
+records in the profile do not yet imply simultaneous runtime acquisition.
 
 ## Ownership
 
@@ -170,12 +178,19 @@ require provider support. A periodic wake derives its interval from the accepted
 sensor ODR. An interrupt acquisition failure remains an error. The M135 stock
 module uses periodic wakes because its interrupts are unwired.
 
-Device IDs identify instances. `roles.imu` names the default instance used by the
-existing `imu::open(sink)` API. Two physical nodes may share a bus at distinct
-addresses. The factory leases each physical instance and serializes transactions
-through the OS bus implementation. Reopening the same exclusive instance returns
-Busy. Multiple named application-facing acquisitions require a separate typed
-capability API step. The resolved role determines device selection.
+Device IDs identify configured instances. `roles.imu` names the default instance
+used by the existing `imu::open(sink)` API. The graph can describe two physical
+nodes sharing a bus at distinct addresses, but the current IMU projection emits
+only the default role and the NuttX factory uses one global acquisition guard.
+A second acquisition returns Busy even for an otherwise independent device;
+simultaneous named-device acquisition is not implemented.
+
+The accepted target is one canonical static object and ownership record per
+physical device. Roles alias those objects. Different devices may acquire
+independently; aliases of one device share its Busy/fault state. The OS/resource
+adapter retains transaction serialization for a shared bus. See the
+[static-device contract](static-device-composition.md#permanent-device-objects-and-temporary-sessions)
+for lifecycle, opacity and storage requirements.
 
 ## Bindings and overlays
 
@@ -197,7 +212,7 @@ change the target, BSP, execution OS or composition mode. Those changes require
 a named profile. Declared paths resolve against the profile file. Command-line
 paths resolve against the selected workspace root.
 
-The build frontend writes `resolved-profile.json` into the owned build output
+In the current v1 path, the build frontend writes `resolved-profile.json` into the owned build output
 and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
 it. Direct Cargo consumers select a named profile and its declared overlays
@@ -272,6 +287,12 @@ alone cannot establish electrical correctness.
 
 ## Construction and Cargo
 
+The following describes the implemented v1 handoff. The accepted
+[shared preparation and additive driver design](static-device-composition.md#preparation-and-generated-input-handoff)
+supersedes local OUT_DIR emission and unconditional driver dependencies as the
+target for new work. Keep the v1 compatibility and qualification evidence until
+its replacements are proven.
+
 Resolve once to a typed device/resource graph in `nxrs-build-support`. Both the
 CLI and HAL build scripts use that resolver. Emit inspectable resolved JSON and
 a semantic configuration digest over the normalized graph, mode and target.
@@ -302,7 +323,7 @@ atomically and never rewrite source profiles.
 Equivalent input selections through either entry point must produce the same
 typed graph and digest. Invalid/stale selections fail before native compilation.
 
-Each HAL selects one factory through the resolved provider. Contract-only
+Each HAL currently selects one default factory through the resolved provider. Contract-only
 builds retain explicit unavailable factories. Test fixtures require an explicit
 profile or test injection.
 Selected exports remain named and factory-local. Generated wiring needs audit

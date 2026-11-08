@@ -4,6 +4,16 @@ Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` befor
 changing a HAL, its platform wiring, or a native bridge. These are implementation
 requirements, not aspirational guidance.
 
+For the accepted declarative-build/static-device follow-up, also read
+`docs/static-device-composition.md` and the follow-up section of
+`docs/peripheral-composition-plan.md`. They define the target for issue #246:
+shared host preparation, additive driver features and canonical static physical
+instances. Existing local emitters, global sensor guards and audit expectations
+are migration baselines, not requirements to reproduce them. Replace affected
+checks with the new invariants in the implementation PR while preserving
+portability, dependency, native-boundary and lifecycle coverage. The OS/provider
+`selected` module convention below is separate from additive chip modules.
+
 - For peripheral composition work, also read `docs/peripheral-composition.md`
   and `docs/peripheral-composition-plan.md`. Composition version 1, ordered
   overlays, resolved-profile build wiring, and the migrated IMU/GNSS bindings

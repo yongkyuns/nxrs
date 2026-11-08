@@ -1,11 +1,16 @@
 # Peripheral composition implementation plan
 
-This is the executable work breakdown for the
-[target architecture](peripheral-composition.md). The software steps produce
-separate PR evidence. Protected-mode and physical timing claims require S8.
-Baseline inspected at `3961a15d` on November 7, 2026. Recheck paths and APIs on the
-branch used for each step. The architecture document defines the target contract.
-This plan defines migration order and acceptance evidence.
+This plan records the original composition-v1 migration and its qualification
+sequence, followed by the accepted [static-device follow-up](#static-device-follow-up).
+The [v1 architecture](peripheral-composition.md) describes current mechanics;
+the [declarative build/static-device decision](static-device-composition.md)
+defines the new target. Do not repeat completed v1 work or treat an old stage's
+source paths as the current implementation. Physical claims still require S8.
+
+The original S0–S11 baseline was inspected at `3961a15d` on November 7, 2026.
+The follow-up was inspected at `15f547594512528db7cae43a7bd1293ee54668e3` on
+November 8, 2026. Recheck paths, tests and overlapping PRs at each implementation
+head. Stages record required evidence, not an assertion that every gate passed.
 
 ## Working protocol
 
@@ -370,3 +375,172 @@ Each agent handoff must answer these questions in its PR description.
 3. Which exact commands passed, failed or could not run, and why?
 4. What evidence is host, emulator, target ABI or physical evidence?
 5. Which acceptance criteria remain open, and which step can start next?
+
+
+## Static-device follow-up
+
+**Accepted direction; implementation pending in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246).** D0–D5 implement the
+[declarative build and static-device contract](static-device-composition.md).
+They supersede S4/S6's local emitter, unconditional-driver and singleton
+construction mechanisms. Preserve the earlier steps' behavior and qualification
+evidence; do not restart the sensor extraction or simulation work.
+
+Use focused implementation PRs, each referencing #246 and its predecessor SHA.
+Update affected architecture and regression checks in the same PR that replaces
+the mechanism they enforce. Every intermediate PR must retain passing relevant
+gates; D5 audits the integrated result, not deferred repair of earlier tests.
+Recheck [PR #299](https://github.com/yongkyuns/nxrs/pull/299) before editing
+composition documentation or NuttX GNSS/resource ownership. Integrate its final
+changes without restoring the old descriptor/lease release ordering. Keep
+physical S8 results and unrelated radio/camera work separately scoped.
+
+### D0 — Freeze the contract and record the baseline
+
+Record current build duties and lifetime behavior before moving them. The main
+baseline still has HAL-local host generation, hardcoded sibling catalogs,
+unconditional BMI270/LSM6DSO NuttX dependencies, one generated IMU model/binding
+and global IMU ownership. IRQ rollback/unregister and GNSS restoration also
+write global fault state.
+
+Settle the finite schema and standardized typed construction convention; concrete
+generated-input delivery and package-specific compiler/link configuration; the
+public permanent-device versus session API; static state inventory; initialization
+and recovery policy; and reacquisition/terminal-event ordering. Define active
+instances from consumed, admitted capabilities and how unconsumed board-profile
+records are validated without pulling in their HAL packages or catalogs.
+Exact API names remain open. No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
+a global provider flag or Cargo features reaching undeclared dependency edges.
+
+Preserve current public defaults and configured sampling semantics. Specify
+compatibility for existing `open` callers and no-profile/fixture builds.
+Document that current resource cleanup can precede final worker event delivery;
+holding the lease through full worker exit would be a deliberate strengthening.
+Exit with the reviewed contract and a bounded baseline of relevant tests.
+
+### D1 — Prove shared preparation and Cargo integration
+
+Start in `platform/build-support/src/{composition,profile,resolved,lib}.rs`,
+`platform/build/src/{build,cargo_graph}.rs` and existing native build support.
+Extend the controller's pre-Cargo `configure_profile` path. Discover schema
+inputs from package-relative metadata and remove hardcoded sibling catalog
+inclusions and capability/model-specific generation.
+
+First demonstrate one profile-selected optional implementation through the real
+Cargo entry point, using a small fixture or a minimal production feature seam
+before D2 migrates all IMU implementations. Include app-to-service-to-HAL and a
+detached consumer. Feature
+activation must precede target compilation and preserve aliases, inheritance,
+defaults and Cargo's additive feature semantics. Do not copy the detector's
+mutually exclusive model policy into sensor selection.
+
+For each migrated package, replace all local build-script duties: typed
+generation, per-package provider selection, simulation configuration, native source compilation/linking and
+profile/source/header/environment freshness. Keep native sources beside the
+runtime owner and compile only consumed, feature-enabled helpers. Generated
+files stay outside source and have target/configuration/schema/generator identity,
+atomic writes and concurrent-build isolation.
+
+Define and exercise normal frontend builds, plain Cargo build/check/test/doc,
+explicitly prepared profile inputs, no-profile contracts and explicit fixtures.
+Unprepared or stale profile inputs fail clearly. Update affected generation,
+freshness and native-helper tests in this PR.
+Exit with a working handoff; do not delete HAL scripts while any of their
+responsibilities lacks a replacement.
+
+### D2 — Make implementations optional and additive
+
+Change `hal/imu/Cargo.toml`, `src/sensors/mod.rs`, binding metadata and NuttX
+construction. Use ordinary optional dependencies and one feature gate per named
+implementation module. Remove the global `MODEL` match for fixed hardware
+when concrete instance wiring replaces it. No redundant `source` metadata,
+generated file selector, feature-per-instance or duplicate `mod selected`.
+
+Compile BMI270-only, LSM6DSO-only and both implementations using normal build
+entry points. Explain Cargo feature unification and distinguish production
+packages from host/dev dependencies. Preserve explicit diagnostic `probe`
+semantics. Runtime detection is opt-in policy, not a prerequisite for this work.
+Replace emitter/model-match architecture expectations alongside the new wiring.
+Exit with valid mixed-model compilation and target graph evidence that the
+unselected driver is absent in each single-model production build.
+
+### D3 — Enforce canonical static objects and per-device ownership
+
+Generate one actual static object for each active physical device with private
+configuration, persistent instance storage and ownership/fault state. Common HAL
+machinery controls construction; role aliases return the same object. Keep the
+session's stop/join and typed callback contract independent from permanent identity.
+
+Migrate `hal/imu/src/platform/nuttx/{mod,device,irq}.rs`, session integration and
+every global poison path. Define private runtime access and prove that Drop cannot
+allow reacquisition while old workers/callbacks can still use the instance.
+Preserve rollback, IRQ detach, sensor stop, worker-start failure and quarantine.
+Report static bytes separately from stack, queue, transient and backend allocation.
+
+Exercise two same-model devices and a mixed pair concurrently with independent
+configuration/events/state. Verify same-object Busy through two role aliases,
+other-device availability after a fault, normal cleanup/reopen and the chosen
+terminal-event ordering. Normalize physical endpoint identities and reject
+duplicate owners and conflicting IRQ/CS claims. Sharing an I2C controller must
+retain qualified transaction serialization without claiming the whole bus for
+one sensor. Exit with deterministic lifecycle/resource witnesses; hardware
+behavior remains a separate gate.
+
+### D4 — Prove reuse and detached package closure
+
+Migrate GNSS through the same declarative renderer and preparation path. Preserve
+UART configuration/restore ordering, receiver initialization rollback, terminal
+faults and joined cleanup. Use it to demonstrate that the schema and instance
+machinery do not encode IMU knowledge; do not expand into an unrelated HAL rewrite.
+
+Use a small declarative fixture to show that a supported binding can be added
+without central chip enums or emitter branches. A board profile's unconsumed
+devices must not add packages, helpers or linked instance storage. Exercise isolated IMU-only and
+GNSS-only detached dependency closures; retain camera-only and other existing
+external-consumer witnesses. Do not let a fixture that includes both sensor HALs
+hide undeclared sibling catalog access. Preserve explicit simulation/qualification
+profiles and portable service logic.
+
+Exit with common preparation for both capabilities, no migrated HAL-local
+`build.rs`/host emitter, complete package-owned inputs and correct native-helper
+selection/linking. Record any separately scoped HALs that still await migration.
+
+### D5 — Audit integration and publish implementation evidence
+
+Confirm that D1–D4 updated `tools/check-architecture.py::inspect_generated_imu_factory`
+and `tests/host/test_hal_boundaries.py` alongside their corresponding changes.
+They must enforce the new ownership/generation boundary rather than the old
+emitter and model match. Retain checks for trusted
+construction, escaped data, dependency direction, private ABI glue, named exports
+and platform-free app/service code.
+
+Verify the adapted `platform/build/tests/imu_profile_freshness.rs` exercises the
+real common preparation path. Confirm `nuttx_helper_ownership.rs` and
+`native_header_freshness.rs` retained their behavior as compilation moved. Exercise one output
+directory through endpoint/model/instance-count/catalog changes and back to the
+original profile, plus stale-target and concurrent-profile negative cases.
+
+The implementation acceptance matrix is:
+
+| Area | Required evidence |
+| --- | --- |
+| Generic build ownership | IMU and GNSS plus a declarative fixture use common generation; no chip-specific central branch or hidden sibling file |
+| Implementation selection | One implementation for two same-model instances; both for a mixed pair; unused target driver absent in single-model builds |
+| Identity and ownership | Actual static identity, shared role aliases, duplicate-acquire Busy and independent device availability |
+| Lifecycle and faults | Cancel/drop/cleanup barriers, successful reopen, partial-start and IRQ failures, per-device quarantine |
+| Resource sharing | Duplicate endpoint/IRQ/CS rejection and correct shared-controller transactions with documented enforcement limits |
+| Freshness and package use | A→B→A, changed catalog/instance count, stale/mismatched inputs, concurrent profiles and isolated detached consumers |
+| Native and memory evidence | Selected helper/ABI checks, final map/code/data inspection, static state versus remaining allocation inventory |
+| Portability | The same application/service policy and normal entry points work across selected sensor implementations |
+
+Run the relevant existing commands above, build-support/build tests, boundary
+regressions and external-consumer suites. Inspect actual target Cargo artifacts
+and the final linked image; Cargo.lock presence or total binary size alone is
+not proof of driver inclusion/exclusion. Cross-link the affected NuttX paths
+with their pinned ABI witnesses. Run physical S8 checks only when the required
+hardware is available and authorized, and label pending cases.
+
+Update architecture docs, HAL READMEs and AGENTS rules to the implemented state,
+remove superseded migration guidance and retain source/qualification provenance.
+A documentation-only PR references #246; it does not close this implementation
+issue or count as runtime acceptance.

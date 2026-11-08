@@ -14,6 +14,28 @@ transport and target-specific performance retain explicit qualification
 boundaries. The [std channel performance analysis](std-channel-performance.md)
 explains the current evidence for the bounded single-inbox path.
 
+## Accepted device and build direction
+
+The [declarative build and static device decision](static-device-composition.md)
+records the accepted follow-up to composition v1. It is tracked in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246); the current runtime
+still uses singular default sensor factories and global acquisition guards.
+
+HAL crates retain runtime contracts/implementations, native ABI source and
+declarative support metadata. Shared build tooling will own configuration
+generation and native compilation orchestration. Ordinary additive Cargo
+features enable implementations; profiles define physical devices and roles.
+Each active physical device will have one canonical static opaque object,
+with private instance state and an exclusive acquisition lease. Multiple roles
+can refer to that same object; multiple devices can use the same implementation.
+
+Applications and services continue to consume portable capability contracts.
+Static dispatch remains possible, and runtime hardware detection is explicit
+opt-in. The decision defines the source/build boundary, multiple-device
+semantics, lifecycle guarantees and unresolved API/integration details. Its
+[implementation sequence](peripheral-composition-plan.md#static-device-follow-up)
+preserves existing qualification gates while replacing obsolete emitter checks.
+
 ## Applications
 
 Each production firmware image selects exactly one app. An app owns an ordinary

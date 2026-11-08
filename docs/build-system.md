@@ -38,6 +38,40 @@ file-camera, storage, IP transport and detector bindings. Web currently builds
 the Emscripten thread qualification; hardware HALs are unbound. Stock
 `wasm32-unknown-unknown` does not provide these std threads.
 
+## Accepted follow-up and current behavior
+
+The [declarative build/static-device decision](static-device-composition.md)
+moves HAL-local host work into shared build preparation. It is accepted design,
+with implementation tracked in [issue #246](https://github.com/yongkyuns/nxrs/issues/246).
+This guide's local build-script and unconditional sensor-dependency descriptions
+remain the current behavior until that migration lands.
+
+Extend the existing pre-Cargo preparation path. Package-owned schemas describe
+typed fields, defaults, constraints, resource references and supported
+implementations. A finite generic renderer supplies validated configuration and
+concrete per-device declarations. There must be no chip-specific emitter,
+hardcoded sibling catalog inclusion, profile-provided Rust source or redundant
+`source` selector alongside ordinary feature-gated modules.
+
+Driver availability uses optional dependencies and additive Cargo features.
+Profiles choose physical instances; several instances may share one driver.
+Feature activation must use valid Cargo edges before target compilation and work
+for transitive/detached consumers without hardware choices in application or
+service source/manifests. Cargo remains the dependency resolver.
+
+Deleting HAL build scripts also requires replacing their `OUT_DIR` handoff,
+per-package provider flags, native compilation/link outputs and freshness
+tracking. Keep ABI source with its runtime owner and compile only consumed,
+feature-enabled helpers with the selected target context. One global provider
+flag cannot replace per-HAL selection.
+
+The [follow-up plan](peripheral-composition-plan.md#static-device-follow-up)
+requires a concrete generated-input contract for normal builds, plain Cargo
+build/check/test/doc, no-profile contracts and detached packages. Generated
+outputs stay outside source, carry target/configuration/schema/generator
+identity, and reject stale inputs and concurrent-build contamination. The
+existing native-header, helper-exclusion and incremental-evidence gates remain.
+
 ## Configuration and ownership
 
 The application's firmware metadata table owns entry facts: binary, command,
@@ -62,7 +96,7 @@ resolved graph and repeat `--overlay` on profile inspection or build commands
 to apply command-line overlays. Named profiles may also declare ordered
 overlays. The build frontend and direct Cargo consumers both use the versioned resolver.
 
-Each HAL owns its local `build.rs`; it depends on `platform/build-support`,
+Currently, each HAL owns its local `build.rs`; it depends on `platform/build-support`,
 which contains profile validation and native build utilities. The CLI depends on
 the same support package. A HAL never builds or depends on the deployment CLI.
 The detector's shared host SDK adapter is an ordinary detector-owned build-support
@@ -139,8 +173,8 @@ resolving a NuttX custom target waits for its actual compiler and target spec.
 Completed builds record the Cargo-selected packages and verified model features.
 Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 
-IMU's BMI270 dependencies and GNSS's UBX dependencies are normal target
-dependencies only on NuttX. Host driver unit tests use dev-dependencies. Thus
+Currently, IMU's BMI270/LSM6DSO dependencies and GNSS's UBX dependencies are normal
+target dependencies only on NuttX. Host driver unit tests use dev-dependencies. Thus
 portable contract and host/WASM mock **library** builds omit those driver graphs;
 unit tests intentionally compile them. NuttX consumers include those ordinary
 NuttX driver dependencies even when a profile selects a mock. Profile admission
@@ -223,8 +257,8 @@ rejects profile use without an explicit SDK root in that detached location.
 This establishes external application/package composition, not a crates.io
 publication contract or new device qualification.
 
-Physical multi-device ownership is a separate HAL task. The current IMU lease
-is global; two physical devices require explicit provider resources and
-per-device ownership while preserving cleanup/quarantine. They do not require
-a generalized build-time resource graph. This work does not change the parallel
-channel/progress qualification in #252.
+The current IMU lease is global. The accepted [static-device follow-up](static-device-composition.md)
+adds canonical per-device objects and ownership while preserving cleanup and
+quarantine. It uses the existing composition model and shared build preparation;
+it does not introduce a general resource manager. This work does not change the
+parallel channel/progress qualification in #252.

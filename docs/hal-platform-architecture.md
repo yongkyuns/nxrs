@@ -12,6 +12,36 @@ and its qualification evidence. Composition version 1 and ordered overlays
 resolve the supported hardware bindings for physical IMU and GNSS roles. Named
 test and qualification profiles can select explicit mock bindings.
 
+## Accepted follow-up: declarative builds and static devices
+
+The [static-device decision](static-device-composition.md) is the accepted target
+for new peripheral composition work. Its implementation remains open in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246). The descriptions below
+of HAL-local build scripts and default sensor factories document the current
+baseline; they are not requirements to preserve those mechanisms.
+
+The target keeps runtime capability APIs, normalization, acquisition and native
+ABI source in their owning HALs. HAL build requirements become declarative.
+Shared tooling owns generic generation, package-specific provider selection,
+native compilation/link integration and input freshness. Cargo owns ordinary
+optional driver dependencies. Gate uniquely named implementation modules once
+with additive features; the existing OS/provider `selected` boundary does not
+require sensor implementations to be mutually exclusive.
+
+An active physical device has one permanent static allocation with private
+configuration, instance storage and ownership/fault state. Roles refer to that
+object, and acquisition creates a separate exclusive session. Common HAL
+machinery must enforce uniqueness and quiescent release. Different devices can
+run independently, including two of the same model; aliases cannot create new
+ownership guards. The current global IMU guard does not yet provide this behavior.
+
+Opaque access does not require dynamic dispatch or heap boxing. Public API
+spelling, generated-input transport and the exact release/terminal-event ordering
+must be settled in the [follow-up contract step](peripheral-composition-plan.md#d0--freeze-the-contract-and-record-the-baseline).
+Static instance storage and remaining thread/queue/backend allocation costs must
+be reported separately. Existing lifecycle, native-boundary and portability
+requirements continue to apply throughout migration.
+
 ## Required implementation boundaries
 
 The capability API and implementation are Rust. Rust owns validation, resource
@@ -255,8 +285,8 @@ code; only reviewed native adapter modules permit it. Unselected provider
 modules are excluded by conditional compilation. Host-injected unit tests
 may compile native source against fakes; that is not hardware qualification.
 
-Each HAL owns its local `build.rs` and uses the host-only `nxrs-build-support`
-package to validate the selected profile against Rust's target. The detector
+At the current baseline, each HAL owns its local `build.rs` and uses the host-only
+`nxrs-build-support` package to validate the selected profile against Rust's target. The detector
 also uses its own `nxrs-detector-build-support` package for the shared SDK adapter.
 The deployment CLI reuses these packages, while HAL build scripts never depend
 on the CLI. Only build-dependency edges may enter these host support packages;
@@ -360,8 +390,8 @@ as build inputs. Switching platform in an existing target directory therefore
 reruns selection. Normal third-party dependencies still use Cargo manifests;
 conditional Rust modules do not replace Cargo dependency management.
 
-Each consumed HAL owns its native C helper compilation through its package-local
-build script. A profile binding alone cannot cause an unconsumed HAL's sources
+At the current baseline, each consumed HAL owns its native C helper compilation
+through its package-local build script. A profile binding alone cannot cause an unconsumed HAL's sources
 to compile. For NuttX, the controller prepares the headers and captures Make's
 actual compiler/ABI flags before Cargo runs; the owning HAL builds a private
 archive with that context. Additive functionality features can gate their own
