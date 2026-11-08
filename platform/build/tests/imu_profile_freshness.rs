@@ -75,25 +75,21 @@ fn main() {
 #![allow(dead_code, unused_imports)]
 #[path = @API@] mod api;
 pub use api::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+// Every host checks generated bindings below. Unix hosts additionally compile
+// the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
+#[cfg(unix)]
 #[path = @PROBE@] pub mod probe;
-// Exercise the actual NuttX factory on every host, including Windows. This
-// witness resolves settings only; native bus I/O has separate qualification.
-mod resource {
-    pub use i2c::{Config, Error};
-    pub struct Bus;
-    impl Bus {
-        pub fn open(_: Config<'_>) -> Result<Self, Error> {
-            panic!("resolving sensor settings must not open the bus")
-        }
-    }
-    impl embedded_hal::i2c::ErrorType for Bus { type Error = Error; }
-    impl embedded_hal::i2c::I2c for Bus {
-        fn transaction(&mut self, _: u8, _: &mut [embedded_hal::i2c::Operation<'_>]) -> Result<(), Error> {
-            panic!("resolving sensor settings must not access the bus")
-        }
+#[cfg(unix)]
+mod ffi {
+    pub fn transfer(_: i32, _: u8, _: u32, _: &[u8], _: &mut [u8]) -> std::io::Result<()> {
+        panic!("resolving sensor settings must not access the bus")
     }
 }
+#[cfg(unix)]
+#[path = @RESOURCE@] mod resource;
+#[cfg(unix)]
 #[path = @FACTORY@] mod production;
+#[cfg(unix)]
 mod platform { pub(crate) use crate::production::open_probed; }
 mod motion {
     struct Binding<'a> {
@@ -125,11 +121,13 @@ mod position {
     }
 }
 fn main() {
-    let applied = production::resolve(Config {
-        min_rate_millihz: 100000, max_rate_millihz: 110000,
-        accel_range_g: 4, gyro_range_dps: 2000, max_delivery_interval_us: 10000,
-    }).unwrap();
-    assert_eq!(applied.rate_millihz, motion::expected_rate());
+    #[cfg(unix)] {
+        let applied = production::resolve(Config {
+            min_rate_millihz: 100000, max_rate_millihz: 110000,
+            accel_range_g: 4, gyro_range_dps: 2000, max_delivery_interval_us: 10000,
+        }).unwrap();
+        assert_eq!(applied.rate_millihz, motion::expected_rate());
+    }
     println!("{} | {}", motion::describe(), position::describe());
 }
 "#
@@ -137,6 +135,10 @@ fn main() {
         .replace(
             "@PROBE@",
             &format!("{:?}", source.join("hal/imu/src/probe.rs")),
+        )
+        .replace(
+            "@RESOURCE@",
+            &format!("{:?}", source.join("driver/i2c/tests/support/mod.rs")),
         )
         .replace(
             "@FACTORY@",
