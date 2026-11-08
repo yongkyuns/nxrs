@@ -106,10 +106,9 @@ pub fn build(
     compile(
         &capability.join("src/platform/nuttx/ffi"),
         suffix,
-        target,
         out,
         sources,
-        &context,
+        configuration(&context, target)?,
         directives,
         environment,
     )
@@ -132,16 +131,16 @@ pub fn build_sources(
     compile(
         source_directory,
         suffix,
-        target,
         out,
         sources,
-        &context,
+        configuration(&context, target)?,
         vec!["cargo:rerun-if-env-changed=NXRS_NUTTX_NATIVE_CONFIG".into()],
         &environment,
     )
 }
 
 struct Configuration {
+    path: PathBuf,
     data: Value,
     directory: PathBuf,
     include: PathBuf,
@@ -171,6 +170,7 @@ fn configuration(context: &Path, target: &str) -> Result<Configuration> {
         return Err("configured NuttX headers changed; rerun the build frontend".into());
     }
     Ok(Configuration {
+        path: context.to_path_buf(),
         cc: words(&data, "cc")?,
         ar: words(&data, "ar")?,
         flags: words(&data, "cflags")?,
@@ -250,22 +250,22 @@ pub(crate) fn inputs(target: &str, environment: &Context) -> Result<crate::nativ
 fn compile(
     source_directory: &Path,
     suffix: &str,
-    target: &str,
     out: &Path,
     sources: &[&PathBuf],
-    context: &Path,
+    configuration: Configuration,
     mut directives: Vec<String>,
     environment: &Context,
 ) -> Result<Vec<String>> {
     let Configuration {
+        path,
         directory,
         include,
         cc,
         ar,
         flags,
         ..
-    } = configuration(context, target)?;
-    directives.push(format!("cargo:rerun-if-changed={}", context.display()));
+    } = configuration;
+    directives.push(format!("cargo:rerun-if-changed={}", path.display()));
     // Make creates and removes config.h.tmp even when config.h is unchanged.
     // Watch files, not generated directories. The frontend's context includes
     // the configured header inventory, so additions still invalidate Cargo.
@@ -368,13 +368,12 @@ mod tests {
         fs::write(&added_header, "/* newly configured header */\n").unwrap();
         assert_ne!(inputs("fixture-nuttx", &environment).unwrap(), initial);
         fs::remove_file(added_header).unwrap();
-        let directives = compile(
+        let directives = build(
             &capability,
             "sensor",
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
             vec![],
             &environment,
         )
@@ -403,13 +402,12 @@ mod tests {
         .unwrap();
         assert!(Command::new(&binary).status().unwrap().success());
         fs::write(&config, "#define DEVICE_ABI 18\n").unwrap();
-        assert!(compile(
+        assert!(build(
             &capability,
             "sensor",
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
             vec![],
             &environment,
         )
@@ -417,13 +415,12 @@ mod tests {
         let mut changed = data;
         changed["config_sha256"] = json!(hash(&config).unwrap());
         crate::write_json(&context, &changed).unwrap();
-        compile(
+        build(
             &capability,
             "sensor",
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
             vec![],
             &environment,
         )
