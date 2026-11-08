@@ -89,7 +89,7 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
     }
     pub fn request_stop(&self) -> io::Result<()> {
         self.stopping.store(true, Ordering::Release);
-        self.cancel.wake()
+        wake(&self.cancel)
     }
     pub fn is_finished(&self) -> bool {
         self.join.as_ref().is_none_or(JoinHandle::is_finished)
@@ -103,11 +103,31 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
         }
         self.result.unwrap_or(Ok(()))
     }
+
+    /// Join completed work even if its cancellation source has failed. If a
+    /// running worker cannot be woken, retain its handle/resources for retry;
+    /// returning that error does not claim quiescence.
+    pub fn stop_and_join(&mut self, io_error: E) -> Result<(), E> {
+        if !self.is_finished() && self.request_stop().is_err() && !self.is_finished() {
+            return Err(io_error);
+        }
+        self.join(io_error)
+    }
+}
+fn wake(cancel: &impl Wake) -> io::Result<()> {
+    loop {
+        match cancel.wake() {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
 }
 impl<C: Wake, E: Copy> Drop for Worker<C, E> {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
-        let _ = self.cancel.wake();
+        if self.join.as_ref().is_some_and(|join| !join.is_finished()) {
+            let _ = wake(&self.cancel);
+        }
         // No hidden join. The worker owns device resources until cleanup completes.
     }
 }

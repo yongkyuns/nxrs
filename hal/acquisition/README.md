@@ -24,3 +24,8 @@ remaining deadline after interruption. A timeout never proves sensor data exists
 The native ABI source lives under `src/platform/nuttx/ffi/`. Host tests inject
 wait operations or compile the C bridge against host headers; they do not select
 a second production backend. This extraction adds no worker or queue.
+
+`stop_and_join` joins completed work even if its wake endpoint has failed, so a
+terminal device failure remains observable. Interrupted wake writes retry. If a
+still-running worker cannot be woken, joining returns an error and retains the
+handle for retry; that error does not establish quiescence or release resources.

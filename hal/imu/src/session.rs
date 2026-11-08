@@ -26,8 +26,7 @@ impl<C: Wake> Session for WorkerSession<C> {
     }
 
     fn join(&mut self) -> Result<(), DeviceError> {
-        self.request_stop()?;
-        self.0.join(DeviceError::Io)
+        self.0.stop_and_join(DeviceError::Io)
     }
 
     fn is_finished(&self) -> bool {
