@@ -387,6 +387,9 @@ construction mechanisms. Preserve the earlier steps' behavior and qualification
 evidence; do not restart the sensor extraction or simulation work.
 
 Use focused implementation PRs, each referencing #246 and its predecessor SHA.
+Update affected architecture and regression checks in the same PR that replaces
+the mechanism they enforce. Every intermediate PR must retain passing relevant
+gates; D5 audits the integrated result, not deferred repair of earlier tests.
 Recheck [PR #299](https://github.com/yongkyuns/nxrs/pull/299) before editing
 composition documentation or NuttX GNSS/resource ownership. Integrate its final
 changes without restoring the old descriptor/lease release ordering. Keep
@@ -403,8 +406,10 @@ write global fault state.
 Settle the finite schema and standardized typed construction convention; concrete
 generated-input delivery and package-specific compiler/link configuration; the
 public permanent-device versus session API; static state inventory; initialization
-and recovery policy; and reacquisition/terminal-event ordering. Exact API names
-remain open. No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
+and recovery policy; and reacquisition/terminal-event ordering. Define active
+instances from consumed, admitted capabilities and how unconsumed board-profile
+records are validated without pulling in their HAL packages or catalogs.
+Exact API names remain open. No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
 a global provider flag or Cargo features reaching undeclared dependency edges.
 
 Preserve current public defaults and configured sampling semantics. Specify
@@ -421,14 +426,16 @@ Extend the controller's pre-Cargo `configure_profile` path. Discover schema
 inputs from package-relative metadata and remove hardcoded sibling catalog
 inclusions and capability/model-specific generation.
 
-First demonstrate one profile-selected implementation through the real Cargo
-entry point, including app-to-service-to-HAL and a detached consumer. Feature
+First demonstrate one profile-selected optional implementation through the real
+Cargo entry point, using a small fixture or a minimal production feature seam
+before D2 migrates all IMU implementations. Include app-to-service-to-HAL and a
+detached consumer. Feature
 activation must precede target compilation and preserve aliases, inheritance,
 defaults and Cargo's additive feature semantics. Do not copy the detector's
 mutually exclusive model policy into sensor selection.
 
-Replace all local build-script duties: typed generation, per-package provider
-selection, simulation configuration, native source compilation/linking and
+For each migrated package, replace all local build-script duties: typed
+generation, per-package provider selection, simulation configuration, native source compilation/linking and
 profile/source/header/environment freshness. Keep native sources beside the
 runtime owner and compile only consumed, feature-enabled helpers. Generated
 files stay outside source and have target/configuration/schema/generator identity,
@@ -436,8 +443,10 @@ atomic writes and concurrent-build isolation.
 
 Define and exercise normal frontend builds, plain Cargo build/check/test/doc,
 explicitly prepared profile inputs, no-profile contracts and explicit fixtures.
-Unprepared or stale profile inputs fail clearly. Exit with a working handoff;
-do not delete HAL scripts while any of their responsibilities lacks a replacement.
+Unprepared or stale profile inputs fail clearly. Update affected generation,
+freshness and native-helper tests in this PR.
+Exit with a working handoff; do not delete HAL scripts while any of their
+responsibilities lacks a replacement.
 
 ### D2 — Make implementations optional and additive
 
@@ -451,12 +460,13 @@ Compile BMI270-only, LSM6DSO-only and both implementations using normal build
 entry points. Explain Cargo feature unification and distinguish production
 packages from host/dev dependencies. Preserve explicit diagnostic `probe`
 semantics. Runtime detection is opt-in policy, not a prerequisite for this work.
+Replace emitter/model-match architecture expectations alongside the new wiring.
 Exit with valid mixed-model compilation and target graph evidence that the
 unselected driver is absent in each single-model production build.
 
 ### D3 — Enforce canonical static objects and per-device ownership
 
-Generate one actual static object for each configured physical device with private
+Generate one actual static object for each active physical device with private
 configuration, persistent instance storage and ownership/fault state. Common HAL
 machinery controls construction; role aliases return the same object. Keep the
 session's stop/join and typed callback contract independent from permanent identity.
@@ -484,7 +494,8 @@ faults and joined cleanup. Use it to demonstrate that the schema and instance
 machinery do not encode IMU knowledge; do not expand into an unrelated HAL rewrite.
 
 Use a small declarative fixture to show that a supported binding can be added
-without central chip enums or emitter branches. Exercise isolated IMU-only and
+without central chip enums or emitter branches. A board profile's unconsumed
+devices must not add packages, helpers or linked instance storage. Exercise isolated IMU-only and
 GNSS-only detached dependency closures; retain camera-only and other existing
 external-consumer witnesses. Do not let a fixture that includes both sensor HALs
 hide undeclared sibling catalog access. Preserve explicit simulation/qualification
@@ -494,17 +505,18 @@ Exit with common preparation for both capabilities, no migrated HAL-local
 `build.rs`/host emitter, complete package-owned inputs and correct native-helper
 selection/linking. Record any separately scoped HALs that still await migration.
 
-### D5 — Replace obsolete gates and publish implementation evidence
+### D5 — Audit integration and publish implementation evidence
 
-Update `tools/check-architecture.py::inspect_generated_imu_factory` and
-`tests/host/test_hal_boundaries.py` to enforce the new ownership/generation
-boundary rather than the old emitter and model match. Retain checks for trusted
+Confirm that D1–D4 updated `tools/check-architecture.py::inspect_generated_imu_factory`
+and `tests/host/test_hal_boundaries.py` alongside their corresponding changes.
+They must enforce the new ownership/generation boundary rather than the old
+emitter and model match. Retain checks for trusted
 construction, escaped data, dependency direction, private ABI glue, named exports
 and platform-free app/service code.
 
-Adapt `platform/build/tests/imu_profile_freshness.rs` to the real common
-preparation path. Preserve `nuttx_helper_ownership.rs` and
-`native_header_freshness.rs` behavior as compilation moves. Exercise one output
+Verify the adapted `platform/build/tests/imu_profile_freshness.rs` exercises the
+real common preparation path. Confirm `nuttx_helper_ownership.rs` and
+`native_header_freshness.rs` retained their behavior as compilation moved. Exercise one output
 directory through endpoint/model/instance-count/catalog changes and back to the
 original profile, plus stale-target and concurrent-profile negative cases.
 

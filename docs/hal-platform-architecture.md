@@ -28,7 +28,7 @@ optional driver dependencies. Gate uniquely named implementation modules once
 with additive features; the existing OS/provider `selected` boundary does not
 require sensor implementations to be mutually exclusive.
 
-A configured physical device has one permanent static allocation with private
+An active physical device has one permanent static allocation with private
 configuration, instance storage and ownership/fault state. Roles refer to that
 object, and acquisition creates a separate exclusive session. Common HAL
 machinery must enforce uniqueness and quiescent release. Different devices can

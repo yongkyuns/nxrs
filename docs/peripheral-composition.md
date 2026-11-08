@@ -9,7 +9,7 @@ for singular default sensor factories. See the
 
 The accepted [declarative build and static-device follow-up](static-device-composition.md)
 replaces local host emission with shared generic preparation, makes driver
-features additive, and gives each configured physical device one canonical static
+features additive, and gives each active physical device one canonical static
 opaque object. That work is tracked in [issue #246](https://github.com/yongkyuns/nxrs/issues/246).
 Sections below distinguish current v1 mechanics from that target; multiple device
 records in the profile do not yet imply simultaneous runtime acquisition.

@@ -25,7 +25,7 @@ HAL crates retain runtime contracts/implementations, native ABI source and
 declarative support metadata. Shared build tooling will own configuration
 generation and native compilation orchestration. Ordinary additive Cargo
 features enable implementations; profiles define physical devices and roles.
-Each configured physical device will have one canonical static opaque object,
+Each active physical device will have one canonical static opaque object,
 with private instance state and an exclusive acquisition lease. Multiple roles
 can refer to that same object; multiple devices can use the same implementation.
 

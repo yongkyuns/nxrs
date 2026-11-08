@@ -13,8 +13,9 @@ to apply only to the revisions and configurations they measured.
 HAL packages own runtime contracts, implementations and declarative descriptions
 of supported bindings. The shared build system resolves profiles and generates
 validated configuration and instance declarations. Cargo features enable the
-required implementations. Every configured physical device has one canonical,
-statically allocated, opaque object with its own configuration, persistent
+required implementations. Every configured physical device in the firmware's
+active instance set has one canonical, statically allocated, opaque object with
+its own configuration, persistent
 instance storage and ownership/fault state. Roles refer to those objects.
 
 Applications keep using capability contracts and logical roles. Fixed hardware
@@ -35,6 +36,14 @@ multiple devices using the same implementation, are supported by construction.
 A role is an alias, not an allocation. Two roles can refer to one device, but
 cannot use aliases to bypass that device's ownership policy. Two identical chips
 at different endpoints are two devices using one implementation.
+
+The firmware's active instance set consists of configured physical devices for
+capabilities both admitted by the profile and consumed in the target production
+Cargo graph. Available devices in a full board profile must not add an unconsumed
+HAL, driver, helper or static allocation to an application. Validate required
+roles against the active set. D0 must specify treatment and validation of
+unconsumed profile records without undeclared catalog dependencies. This rule
+does not introduce a new profile field or a runtime device registry.
 
 ## Current implementation and migration boundary
 
@@ -120,7 +129,7 @@ Before compiling target crates, the common build path must:
 2. Derive the union of required implementation features for consumed components
    and request them through valid declared Cargo edges. Ask Cargo for the actual
    production graph using the real compiler, target and feature settings.
-3. Generate typed configuration and one declaration per configured device,
+3. Generate typed configuration and one declaration per active device,
    with package-specific provider selection and explicit role aliases.
 4. Compile the consumed packages' required native helpers against the configured
    target headers/SDK and supply the correct link inputs.
@@ -205,7 +214,7 @@ part of the evidence.
 
 ## Permanent device objects and temporary sessions
 
-Generate one actual `static` object for every configured physical device. Its
+Generate one actual `static` object for every device in the active instance set. Its
 private storage contains immutable identity/configuration, persistent instance
 state and an ownership/fault record. Initialize hardware at boot or first
 acquisition according to the documented policy; compile-time allocation does
