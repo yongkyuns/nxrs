@@ -7,3 +7,11 @@ implementation = "Bmi270"
 addresses = [0x68, 0x69]
 frequencies = [100_000, 400_000]
 interrupt = true
+
+[[binding]]
+compatible = "bosch,bmi270"
+bus = "spi"
+implementation = "Bmi270Spi"
+frequencies = [1_000_000, 4_000_000, 8_000_000]
+modes = [0, 3]
+interrupt = true

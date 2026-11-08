@@ -25,6 +25,7 @@ nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
 nxrs-i2c = { path = "../../driver/i2c" }
+nxrs-spi = { path = "../../driver/spi" }
 nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
@@ -32,6 +33,7 @@ embedded-hal = "=1.0.0"
 
 [dev-dependencies]
 nxrs-i2c = { path = "../../driver/i2c" }
+nxrs-spi = { path = "../../driver/spi" }
 nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }

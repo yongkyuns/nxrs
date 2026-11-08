@@ -73,8 +73,9 @@ pub fn prepare_package(
         .ok_or_else(|| format!("{name}: missing bus {}", device.bus))?;
     let bus = match resource {
         crate::composition::Resource::I2c { .. } => "i2c",
+        crate::composition::Resource::Spi { .. } => "spi",
         crate::composition::Resource::Uart { .. } => "uart",
-        _ => return Err("device bus must be I2C or UART".into()),
+        _ => return Err("device bus must be I2C, SPI or UART".into()),
     };
     let mut catalogs = Catalogs::default();
     catalogs.insert(capability, package)?;

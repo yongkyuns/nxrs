@@ -39,6 +39,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
           python -m unittest discover -s tests/host -p test_hal_isolation.py -v
           python -m unittest discover -s tests/host -p test_imu_i2c_ffi.py -v
+          python -m unittest discover -s tests/host -p test_spi_ffi.py -v
       - name: Editor configuration regressions
         run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
       - name: Ubuntu package setup failure controls
@@ -46,7 +47,7 @@ jobs:
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
       - name: Qualify reusable IMU drivers and device contract
-        run: cargo test --locked -p nxrs-peripheral -p nxrs-bmi270 -p nxrs-lsm6dso -p nxrs-gpio
+        run: cargo test --locked -p nxrs-peripheral -p nxrs-bmi270 -p nxrs-lsm6dso -p nxrs-gpio -p nxrs-spi -p nxrs-acquisition
       - name: Consolidated probes and typed experiment cases
         run: |
           cargo test --locked -p nxrs-boot --lib

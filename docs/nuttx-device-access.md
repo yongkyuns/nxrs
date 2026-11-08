@@ -311,7 +311,8 @@ implement the shared synchronous IMU contract in `driver/peripheral`, retaining
 chip-specific APIs. The HAL owns concrete construction, reception timestamps,
 stream sequencing, readiness, acquisition and joined cleanup. It maps device
 failures into its lifecycle error vocabulary. `driver/i2c` owns the NuttX-only
-bus adapter, descriptor and bounded transfers; NuttX still owns the controller
+bus adapter, descriptor and bounded transfers; `driver/spi` similarly implements
+bounded `SpiDevice` transactions with one native sequence per transaction; NuttX still owns the controller
 driver and bus serialization. The IMU's `observed_bus.rs` only adds optional
 transaction timing through the embedded-hal interface. Its device owner holds
 the sensor and wake resources through acquisition and joined cleanup.

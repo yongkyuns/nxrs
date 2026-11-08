@@ -463,8 +463,10 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             errors.append(f'{relative(nuttx)}: catalog implementations must name checked-in typed constructors')
         if re.search(r'\b(?:MODEL|SensorModel)\b', source):
             errors.append(f'{relative(nuttx)}: select the catalog implementation directly, without a model table')
-        if capability == 'imu' and ('factory::acquire(BINDING, config, trace,' not in source
-                                    or 'Implementation::open_configured(' not in source):
+        if capability == 'imu' and (not re.search(
+                r'factory::acquire\(\s*config,\s*BINDING\.irq_path,\s*trace,', source)
+                or 'BINDING.open(observed)' not in source
+                or 'Implementation::from_interface(' not in source):
             errors.append(f'{relative(nuttx)}: use the generated implementation and resource binding')
         if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
             errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')

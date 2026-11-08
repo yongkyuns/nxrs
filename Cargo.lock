@@ -587,6 +587,7 @@ dependencies = [
  "nxrs-messaging",
  "nxrs-peripheral",
  "nxrs-simulation",
+ "nxrs-spi",
 ]
 
 [[package]]
@@ -707,6 +708,14 @@ dependencies = [
  "nxrs-storage",
  "nxrs-telemetry-service",
  "nxrs-transport",
+]
+
+[[package]]
+name = "nxrs-spi"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-build-support",
 ]
 
 [[package]]

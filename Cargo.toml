@@ -13,6 +13,7 @@ members = [
     "hal/detector/build-support",
     "driver/bmi270",
     "driver/i2c",
+    "driver/spi",
     "driver/gpio",
     "driver/lsm6dso",
     "driver/peripheral",

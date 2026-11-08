@@ -50,8 +50,9 @@ class HalBoundariesTests(unittest.TestCase):
                 type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
                 type Lsm6dso = nxrs_lsm6dso::Lsm6dso<Bus>;
             }
-            let device = factory::acquire(BINDING, config, trace, |bus, address, settings| {
-                Implementation::open_configured(bus, address, Delay, settings)
+            let device = factory::acquire(config, BINDING.irq_path, trace,
+                || BINDING.open(observed), |bus, settings| {
+                Implementation::from_interface(bus.try_into()?, Delay, settings)
             });
             Session::start(STACK_BYTES, cancel, sink, run)
         ''')

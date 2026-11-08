@@ -38,11 +38,11 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
              [features]\nprobe = []\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
-             nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\n\
+             nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
-            source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"),
+            source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
             source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("platform/build-support")
         ),
     )
@@ -101,19 +101,25 @@ use ffi as events;
 #[cfg(unix)]
 #[path = @RESOURCE@] mod resource;
 #[cfg(unix)]
+#[path = @SPI@] mod spi_resource;
+#[cfg(unix)]
+mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [u8]) -> std::io::Result<()> { panic!("unexpected I/O") } }
+#[cfg(unix)]
 #[path = @FACTORY@] mod production;
 #[cfg(unix)]
 mod platform { pub(crate) use crate::production::open_probed; }
 mod motion {
-    struct Binding<'a> {
-        path: &'a str,
-        address: u8,
-        frequency: u32,
-        irq_path: Option<&'a str>,
+    mod factory {
+        pub struct I2cBinding<'a> { pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
+        pub struct SpiBinding<'a> { pub path: &'a str, pub chip_select: u16, pub mode: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
+        impl I2cBinding<'_> { pub fn describe(&self) -> String { format!("{} {} {} {:?}", self.path, self.address, self.frequency, self.irq_path) } }
+        impl SpiBinding<'_> { pub fn describe(&self) -> String { format!("{} cs={} mode={} {} {:?}", self.path, self.chip_select, self.mode, self.frequency, self.irq_path) } }
     }
     mod implementations {
         pub struct Bmi270;
         impl Bmi270 { pub const NAME: &str = "bmi270"; pub const RATE: u32 = 100000; }
+        pub type Bmi270Spi = Bmi270;
+        pub type Lsm6dsoSpi = Lsm6dso;
         pub struct Lsm6dso;
         impl Lsm6dso { pub const NAME: &str = "lsm6dso"; pub const RATE: u32 = 104000; }
     }
@@ -121,8 +127,7 @@ mod motion {
     pub fn expected_rate() -> u32 { Implementation::RATE }
     pub fn describe() -> String {
         let model = Implementation::NAME;
-        format!("{model} {} {} {} {:?} {STACK_BYTES}",
-            BINDING.path, BINDING.address, BINDING.frequency, BINDING.irq_path)
+        format!("{model} {} {STACK_BYTES}", BINDING.describe())
     }
 }
 mod position {
@@ -148,6 +153,7 @@ fn main() {
             "@GPIO@",
             &format!("{:?}", source.join("driver/gpio/tests/support/mod.rs")),
         )
+        .replace("@SPI@", &format!("{:?}", source.join("driver/spi/tests/support/mod.rs")))
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
         .replace(
             "@PROBE@",
@@ -178,6 +184,8 @@ fn main() {
     )
     .unwrap();
     let replacement = source.join("tests/host/fixtures/lsm6dso-overlay.toml");
+    let bmi_spi = source.join("tests/nuttx-std/imu-qualification/overlays/bmi270-spi.toml");
+    let lsm_spi = source.join("tests/nuttx-std/imu-qualification/overlays/lsm6dso-spi.toml");
     let receipt = root.join("resolved-profile.json");
     let run = || {
         Command::new(cargo)
@@ -199,6 +207,14 @@ fn main() {
         (
             &[replacement][..],
             "lsm6dso /dev/i2c1 106 100000 None 16384 | /dev/ttyS1 38400 16384",
+        ),
+        (
+            &[bmi_spi][..],
+            "bmi270 /dev/spi2 cs=0 mode=3 4000000 None 16384 | /dev/ttyS1 38400 16384",
+        ),
+        (
+            &[lsm_spi][..],
+            "lsm6dso /dev/spi2 cs=0 mode=3 4000000 None 16384 | /dev/ttyS1 38400 16384",
         ),
         (&[][..], original),
     ] {

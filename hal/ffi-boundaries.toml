@@ -2,6 +2,11 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "driver/spi/src/platform/nuttx/ffi/spi.c"
+kind = "abi"
+reason = "NuttX synchronous SPI sequence layout and ioctl; Rust owns configuration and transaction buffers."
+
+[[bridge]]
 path = "driver/i2c/src/platform/nuttx/ffi/i2c.c"
 kind = "abi"
 reason = "Constructs target I2C transfer ioctl/messages for borrowed Rust buffers. The Rust bus adapter owns the descriptor and transaction validation; chip drivers own sensor protocol."

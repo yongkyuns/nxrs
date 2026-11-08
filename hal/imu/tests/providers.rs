@@ -10,7 +10,7 @@ mod cadence;
 mod irq_tests;
 
 #[cfg(unix)]
-use irq_tests::ffi;
+use irq_tests::{ffi, spi_ffi};
 #[cfg(unix)]
 #[path = "../../../driver/i2c/tests/support/mod.rs"]
 mod resource;
@@ -18,3 +18,7 @@ mod resource;
 #[cfg(unix)]
 #[path = "../../../driver/gpio/tests/support/mod.rs"]
 mod gpio_resource;
+
+#[cfg(unix)]
+#[path = "../../../driver/spi/tests/support/mod.rs"]
+mod spi_resource;

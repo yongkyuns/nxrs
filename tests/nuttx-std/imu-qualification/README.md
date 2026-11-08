@@ -203,3 +203,16 @@ separately from the matched run with the ordinary qualification profiles.
 - Repeat at idle and under the declared workload. Keep the raw logs, firmware
   hashes and restoration result with each run. Define the required latency and
   loss bounds before examining the results.
+
+## SPI composition witnesses
+
+`overlays/bmi270-spi.toml` and `overlays/lsm6dso-spi.toml` select SPI resource
+bindings using the same qualification application. They use periodic FIFO wakes
+and `/dev/spi2`, mode 3, 4 MHz, `SPIDEV_USER(0)`. They do not configure physical
+pins or enable the controller. A board build must register that resource and
+provide the CS mapping described in [driver/spi](../../../driver/spi/README.md).
+The existing host freshness test compiles all four sensor/transport selections
+in one Cargo output directory. Local flat/protected checks compile production
+Rust and the enabled native SPI header layout and relocatably link the selected
+path; they do not boot the firmware or exercise an electrical bus. GPIO and
+I²C physical qualification requirements remain unchanged.

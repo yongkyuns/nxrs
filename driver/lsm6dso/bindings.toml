@@ -7,3 +7,11 @@ implementation = "Lsm6dso"
 addresses = [0x6a, 0x6b]
 frequencies = [100_000, 400_000]
 interrupt = false
+
+[[binding]]
+compatible = "st,lsm6dso"
+bus = "spi"
+implementation = "Lsm6dsoSpi"
+frequencies = [1_000_000, 4_000_000, 8_000_000]
+modes = [0, 3]
+interrupt = false

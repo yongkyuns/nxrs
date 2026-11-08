@@ -1,12 +1,12 @@
 //! Profile-selected NuttX IMU factory.
 use self::session::WorkerSession;
-use super::{events, gpio_resource, resource};
+use super::{events, gpio_resource, resource, spi_resource};
 use crate::{AppliedConfig, Config, DeviceError, Event, Session};
 use acquisition::readiness;
 use core::sync::atomic::AtomicU8;
 use device::Device;
-use factory::{Binding, Delay};
-use observed_bus::Bus;
+use factory::Delay;
+use observed_bus::{Bus, Spi};
 use peripheral::imu::Imu as ImuDevice;
 use trace::Trace;
 
@@ -16,6 +16,7 @@ mod cadence;
 mod session;
 
 mod device;
+#[allow(dead_code, reason = "The profile selects one resource constructor.")]
 mod factory;
 mod observed_bus;
 mod signal;
@@ -29,6 +30,8 @@ include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 mod implementations {
     pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
     pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
+    pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::Spi, super::Delay>;
+    pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::Spi>;
 }
 
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
@@ -66,9 +69,19 @@ pub(crate) fn open_probed(
 }
 
 fn acquire_device(config: Config, trace: Trace) -> Result<Device<Implementation>, DeviceError> {
-    factory::acquire(BINDING, config, trace, |bus, address, settings| {
-        Implementation::open_configured(bus, address, Delay, settings).map_err(Into::into)
-    })
+    let observed = trace.clone();
+    factory::acquire(
+        config,
+        BINDING.irq_path,
+        trace,
+        || BINDING.open(observed),
+        |bus, settings| {
+            let interface = bus
+                .try_into()
+                .map_err(|_| peripheral::imu::Error::InvalidData)?;
+            Implementation::from_interface(interface, Delay, settings).map_err(Into::into)
+        },
+    )
 }
 
 fn start_device<T: ImuDevice + Send + 'static>(

@@ -18,29 +18,45 @@ pub fn render(
         .resources
         .get(&device.bus)
         .ok_or("missing device bus")?;
-    let fields = match bus {
+    let irq_path = || -> Result<Option<&str>> {
+        match device.wake.as_ref().ok_or("missing wake configuration")? {
+            Wake::Periodic {} => Ok(None),
+            Wake::Interrupt { resource } => match graph.resources.get(resource) {
+                Some(Resource::GpioInterrupt { device, .. }) => Ok(Some(device.as_str())),
+                _ => Err("wake requires an interrupt resource".into()),
+            },
+        }
+    };
+    let (binding_type, fields) = match bus {
         Resource::I2c {
             device: path,
             frequency,
         } => {
             let address = device.address.ok_or("I2C device requires an address")?;
-            let irq_path = match device.wake.as_ref().ok_or("missing wake configuration")? {
-                Wake::Periodic {} => None,
-                Wake::Interrupt { resource } => match graph.resources.get(resource) {
-                    Some(Resource::GpioInterrupt { device, .. }) => Some(device.as_str()),
-                    _ => return Err("wake requires an interrupt resource".into()),
-                },
-            };
-            format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}")
+            let irq_path = irq_path()?;
+            ("factory::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
         }
-        Resource::Uart { device: path, baud } => format!("path: {path:?}, baud: {baud}"),
+        Resource::Spi {
+            device: path,
+            frequency,
+        } => {
+            let chip_select = device
+                .chip_select
+                .ok_or("SPI device requires chip-select")?;
+            let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
+            let irq_path = irq_path()?;
+            ("factory::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
+        }
+        Resource::Uart { device: path, baud } => {
+            ("Binding", format!("path: {path:?}, baud: {baud}"))
+        }
         Resource::GpioInterrupt { .. } => return Err("interrupt resource is not a bus".into()),
     };
     Ok(format!(
         "// Generated from validated device/resource bindings.\n\
          use implementations::{implementation} as Implementation;\n\
          const STACK_BYTES: usize = {stack_bytes};\n\
-         const BINDING: Binding<'static> = Binding {{ {fields} }};\n"
+         const BINDING: {binding_type}<'static> = {binding_type} {{ {fields} }};\n"
     ))
 }
 
@@ -79,7 +95,7 @@ mod tests {
             #![allow(dead_code, unused_imports)]
             mod imu {{
                 mod implementations {{ pub struct AnotherSensor; }}
-                struct Binding<'a> {{ path: &'a str, address: u8, frequency: u32, irq_path: Option<&'a str> }}
+                mod factory {{ pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
                 {imu}
             }}
             mod gnss {{

@@ -78,7 +78,8 @@ resolved configuration and keeps acquisition and stream metadata policy.
 reads. Its task-context cleanup-failure hook lets the HAL retain quarantine even
 when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/pipe
 binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
-Chip drivers depend on the bus trait, not this concrete adapter. There are no
+`driver/spi` provides bounded, single-CS `SpiDevice` transactions through the
+NuttX SPI character ABI. Chip drivers depend on bus traits, not these concrete adapters. There are no
 host bus backends, unavailable stubs or additional logical profile roles.
 IMU drivers own version 2 `bindings.toml` declarations for supported resource
 combinations and checked-in implementation IDs. HAL metadata imports them through

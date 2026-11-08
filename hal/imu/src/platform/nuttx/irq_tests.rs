@@ -29,6 +29,7 @@ struct Fake {
     fail_stop: bool,
     fail_reference: bool,
     irq_asserted: bool,
+    periodic_wake: bool,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -53,6 +54,7 @@ impl Fake {
             fail_stop: false,
             fail_reference: false,
             irq_asserted: true,
+            periodic_wake: false,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -104,7 +106,10 @@ pub(super) mod ffi {
                 0x1d => r.fill(f.regs[0x1d]),
                 0x24 => r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes()),
                 0x25 => r.fill(0),
-                0x26 => {
+                0x3a if address == 0x6a => {
+                    r.copy_from_slice(&((f.fifo.len() / 7) as u16).to_le_bytes())
+                }
+                0x26 | 0x78 => {
                     for byte in r {
                         *byte = f.fifo.remove(0);
                     }
@@ -119,8 +124,12 @@ pub(super) mod ffi {
     pub(super) fn wait(_: i32, _: i32) -> io::Result<bool> {
         Ok(false)
     }
-    pub(super) fn tick(_: i32, _: i32) -> io::Result<bool> {
-        Ok(false)
+    pub(super) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
+        let wake = std::mem::take(&mut FAKE.lock().unwrap().periodic_wake);
+        if wake {
+            std::thread::sleep(std::time::Duration::from_millis(timeout as u64));
+        }
+        Ok(wake)
     }
     pub(crate) fn irq_check(_: i32) -> io::Result<()> {
         Ok(())
@@ -150,16 +159,43 @@ pub(super) mod ffi {
     }
 }
 
+// Decode chip-specific SPI wire bytes independently before reusing the register model.
+// This exercises the real SPI resource and observed-bus wrappers, not a host provider.
+pub(super) mod spi_ffi {
+    use super::*;
+    pub(crate) fn transfer(
+        fd: i32,
+        select: u16,
+        frequency: u32,
+        mode: u8,
+        tx: &[u8],
+        rx: &mut [u8],
+    ) -> io::Result<()> {
+        assert!(select <= 1);
+        assert_eq!((frequency, mode), (4_000_000, 3));
+        let address = if select == 0 { 0x68 } else { 0x6a };
+        let register = tx[0] & 0x7f;
+        if tx[0] & 0x80 != 0 {
+            let prefix = if select == 0 { 2 } else { 1 };
+            assert!(tx[1..].iter().all(|byte| *byte == 0));
+            ffi::transfer(fd, address, frequency, &[register], &mut rx[prefix..])
+        } else {
+            ffi::transfer(fd, address, frequency, tx, &mut [])
+        }
+    }
+}
+
 use acquisition::readiness;
 #[path = "device.rs"]
 mod device;
 #[path = "observed_bus.rs"]
 mod observed_bus;
 use self::ffi as events;
-use super::{gpio_resource, resource};
+use super::{gpio_resource, resource, spi_resource};
 #[path = "../../session.rs"]
 mod session;
 use super::cadence;
+#[allow(dead_code)]
 #[path = "factory.rs"]
 mod factory;
 use peripheral::imu::Imu as ImuDevice;
@@ -172,31 +208,40 @@ type Bmi270Sensor = nxrs_bmi270::Bmi270<observed_bus::Bus, factory::Delay>;
 type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<observed_bus::Bus>;
 
 fn acquire_bmi270(
-    binding: factory::Binding<'_>,
+    binding: factory::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     acquire_bmi270_traced(binding, config, trace::Trace::default())
 }
 
 fn acquire_bmi270_traced(
-    binding: factory::Binding<'_>,
+    binding: factory::I2cBinding<'_>,
     config: crate::Config,
     trace: trace::Trace,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
-    factory::acquire(binding, config, trace, |bus, address, settings| {
-        Bmi270Sensor::open_configured(bus, address, factory::Delay, settings).map_err(Into::into)
-    })
+    let observed = trace.clone();
+    factory::acquire(
+        config,
+        binding.irq_path,
+        trace,
+        || binding.open(observed),
+        |(bus, address), settings| {
+            Bmi270Sensor::open_configured(bus, address, factory::Delay, settings)
+                .map_err(Into::into)
+        },
+    )
 }
 
 fn acquire_lsm6dso(
-    binding: factory::Binding<'_>,
+    binding: factory::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
     factory::acquire(
-        binding,
         config,
+        binding.irq_path,
         trace::Trace::default(),
-        |bus, address, settings| {
+        || binding.open(trace::Trace::default()),
+        |(bus, address), settings| {
             Lsm6dsoSensor::open_configured(bus, address, factory::Delay, settings)
                 .map_err(Into::into)
         },
@@ -232,8 +277,8 @@ fn reset() {
     OWNED.store(0, Ordering::Relaxed);
     *FAKE.lock().unwrap() = Fake::new();
 }
-fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> factory::Binding<'a> {
-    factory::Binding {
+fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> factory::I2cBinding<'a> {
+    factory::I2cBinding {
         path,
         address: 0x68,
         frequency: 400_000,
@@ -360,7 +405,7 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
         (alternate.path(), 0x69, 100_000),
     ] {
         reset();
-        let binding = factory::Binding {
+        let binding = factory::I2cBinding {
             path,
             address,
             frequency,
@@ -381,7 +426,7 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    let replacement = factory::Binding {
+    let replacement = factory::I2cBinding {
         path: file.path(),
         address: 0x6a,
         frequency: 100_000,
@@ -393,7 +438,7 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
         Some(crate::DeviceError::Unsupported)
     );
     let device = acquire_lsm6dso(
-        factory::Binding {
+        factory::I2cBinding {
             path: file.path(),
             address: 0x6a,
             frequency: 100_000,
@@ -723,4 +768,104 @@ mod diagnostics {
             "join released the observer"
         );
     }
+}
+
+#[test]
+fn spi_factories_share_acquisition_ownership_and_cleanup() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    fn verify<S: ImuDevice>(device: device::Device<S>) {
+        assert_eq!(OWNED.load(Ordering::Relaxed), 1);
+        FAKE.lock().unwrap().periodic_wake = true;
+        let mut samples = Vec::new();
+        let expected_interval = 1_000_000_000u32.div_ceil(device.applied_config().rate_millihz);
+        device
+            .run(
+                &AtomicBool::new(false),
+                &File::open("/dev/null").unwrap(),
+                &mut |event| {
+                    if let crate::Event::Sample(sample) = event {
+                        samples.push(sample);
+                    }
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].sequence, 1);
+        assert_eq!(samples[0].sample_interval_us, expected_interval);
+        assert!((samples[0].accel_mps2[0] - 9.80665).abs() < 0.01);
+        assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    }
+    for select in [0, 1] {
+        reset();
+        let binding = factory::SpiBinding {
+            path: file.path(),
+            chip_select: select,
+            frequency: 4_000_000,
+            mode: 3,
+            irq_path: None,
+        };
+        {
+            let mut fake = FAKE.lock().unwrap();
+            for (sensor, xyz) in [(1u8, [0i16, 0, 16384]), (2, [8192, 0, 0])] {
+                if select == 1 {
+                    fake.fifo.push((sensor << 3) | 1);
+                } // Even-parity LSM tags.
+                for axis in xyz {
+                    fake.fifo.extend_from_slice(&axis.to_le_bytes());
+                }
+            }
+        }
+        if select == 0 {
+            type Sensor = nxrs_bmi270::Bmi270Spi<observed_bus::Spi, factory::Delay>;
+            verify(
+                factory::acquire(
+                    Sensor::DEFAULT,
+                    None,
+                    trace::Trace::default(),
+                    || binding.open(trace::Trace::default()),
+                    |bus, settings| {
+                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                    },
+                )
+                .unwrap(),
+            );
+            assert_eq!(FAKE.lock().unwrap().regs[0x7d], 0);
+        } else {
+            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<observed_bus::Spi>;
+            verify(
+                factory::acquire(
+                    Sensor::DEFAULT,
+                    None,
+                    trace::Trace::default(),
+                    || binding.open(trace::Trace::default()),
+                    |bus, settings| {
+                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                    },
+                )
+                .unwrap(),
+            );
+            assert_eq!(&FAKE.lock().unwrap().regs[0x10..=0x11], &[0, 0]);
+        }
+    }
+    reset();
+    FAKE.lock().unwrap().bad_init = true;
+    type Sensor = nxrs_bmi270::Bmi270Spi<observed_bus::Spi, factory::Delay>;
+    let binding = factory::SpiBinding {
+        path: file.path(),
+        chip_select: 0,
+        frequency: 4_000_000,
+        mode: 3,
+        irq_path: None,
+    };
+    let result = factory::acquire(
+        Sensor::DEFAULT,
+        None,
+        trace::Trace::default(),
+        || binding.open(trace::Trace::default()),
+        |bus, settings| Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into),
+    );
+    assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));
+    assert_eq!(OWNED.load(Ordering::Relaxed), 2);
 }

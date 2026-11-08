@@ -93,9 +93,9 @@ hal/imu/
   src/platform/nuttx/mod.rs            factory using resolved bindings
   src/platform/nuttx/factory.rs        resource setup with a supplied chip constructor
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
-  src/platform/nuttx/observed_bus.rs   optional timing around driver/i2c
+  src/platform/nuttx/observed_bus.rs   optional timing around I²C/SPI resources
 platform/nuttx/platforms/              existing product and qualification profiles
-driver/i2c/                            NuttX-only bus adapter implementing embedded-hal
+driver/i2c/, driver/spi/               NuttX-only embedded-hal resource adapters
 driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
 hal/acquisition/                       shared workers, cancellation and native readiness
 hal/gnss/                              UART binding, UBX policy and simulation adapter
@@ -253,7 +253,7 @@ verify the workspace, target, profile name and input fingerprints before using
 it. Direct Cargo consumers select a named profile and its declared overlays
 through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
 same shared preparation function. Their explicitly declared binding files select
-checked-in implementations. Shared build support renders fixed typed I²C/UART
+checked-in implementations. Shared build support renders fixed typed I²C/SPI/UART
 resource contracts, an implementation import and the validated stack budget.
 
 The `resolved-composition` report includes ordered source hashes, field
@@ -323,6 +323,23 @@ speed declarations for the same physical endpoint fail in v1. Any provider
 dependencies used for initialization must be acyclic. Physical pin conflict
 proof depends on the NuttX BSP's available metadata and target checks. A pathname
 alone cannot establish electrical correctness.
+
+Both IMU drivers also accept SPI through the same normalized device contract.
+An SPI resource declares `kind = "spi"`, `device` and `frequency`; its device
+binding declares `chip-select` and `spi-mode`, with no I²C `address`. Driver
+bindings admit modes 0/3 and 1/4/8 MHz. Duplicate path/chip-select claims fail,
+including aliases of the same path. A selection index means NuttX
+`SPIDEV_USER(index)`, whose physical mapping belongs to the BSP.
+
+For a same-chip transport change, remove the old device, introduce the SPI
+binding under a new ID and point `roles.imu` at it. This uses the existing
+overlay rules without implicitly discarding stale address fields. See the
+[BMI270](../tests/nuttx-std/imu-qualification/overlays/bmi270-spi.toml) and
+[LSM6DSO](../tests/nuttx-std/imu-qualification/overlays/lsm6dso-spi.toml) examples.
+Once NuttX exposes the declared bus/CS, either change requires only profile
+wiring; the acquisition loop and its consumer API are unchanged. These overlays
+are compile fixtures, not stock-board wiring or physical qualification.
+The [SPI resource limitations](../driver/spi/README.md) still apply.
 
 ## Construction and Cargo
 
