@@ -1,0 +1,25 @@
+[package]
+name = "nxrs-imu-qemu"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-imu = { path = "../../../hal/imu" }
+nxrs-messaging = { path = "../../../shared/messaging" }
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["imu"]
+
+[package.metadata.nxrs.firmware]
+bin = "imu-qemu"
+command = "imu_qemu"
+priority = 100
+stack-size = 16384
+
+[[bin]]
+name = "imu-qemu"
+path = "src/main.rs"
+test = false
+bench = false

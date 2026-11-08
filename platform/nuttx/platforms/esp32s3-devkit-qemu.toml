@@ -1,0 +1,45 @@
+# ESP32-S3 DevKit BSP with emulated NuttX device endpoints.
+extends = "esp32s3-qemu-mock"
+overlays = ["overlays/esp32s3-devkit-bmi270.toml"]
+hal = { imu = "nuttx", gnss = "none" }
+
+[composition]
+version = 1
+mode = "qualification"
+
+[resources.sensor_bus]
+kind = "i2c"
+device = "/dev/i2c9"
+frequency = 400000
+
+[resources.imu_irq]
+kind = "gpio-interrupt"
+device = "/dev/gpio-sim-imu"
+trigger = "rising"
+
+[imu]
+stack-bytes = 16384
+
+[kconfig]
+enable = [
+  "ESP32S3_QEMU_IMAGE", "DEBUG_FEATURES", "DEBUG_ASSERTIONS",
+  "DEBUG_SYMBOLS", "DEBUG_LINK_MAP", "STACK_COLORATION",
+  "I2C", "I2C_DRIVER", "DEV_GPIO", "ESPRESSIF_GPIO_IRQ", "PIPES",
+]
+disable = [
+  "NET", "SMP", "DISABLE_PTHREAD", "NSH_NETINIT", "NETUTILS_NETINIT",
+  "NET_USRSOCK", "NET_ETHERNET", "ESPRESSIF_WIFI", "ESPRESSIF_BLE",
+  "ESP32S3_SPIRAM", "ESP32S3_I2C0", "ESP32S3_I2C1", "NSH_PIPELINE",
+]
+set = [
+  "PTHREAD_STACK_DEFAULT=16384", "ARCH_INTERRUPTSTACK=4096",
+  "DEV_GPIO_NPOLLWAITERS=1", "DEV_GPIO_NSIGNALS=0",
+]
+require = [
+  "CONFIG_ESP32S3_QEMU_IMAGE=y", "CONFIG_ESPRESSIF_SIMPLE_BOOT=y",
+  "CONFIG_I2C_DRIVER=y", "CONFIG_DEV_GPIO=y", "CONFIG_PIPES=y",
+  "# CONFIG_NSH_PIPELINE is not set",
+  "CONFIG_DEV_GPIO_NPOLLWAITERS=1", "CONFIG_DEV_GPIO_NSIGNALS=0",
+  "CONFIG_PTHREAD_STACK_DEFAULT=16384", "CONFIG_ARCH_INTERRUPTSTACK=4096",
+]
+forbid-regex = "^CONFIG_(NET|SMP|DISABLE_PTHREAD|ESPRESSIF_WIFI|ESPRESSIF_BLE|ESP32S3_SPIRAM|ESP32S3_I2C[01]|NSH_PIPELINE)=y$"
