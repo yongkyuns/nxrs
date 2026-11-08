@@ -8,7 +8,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 pub const CAPABILITIES: &[&str] = &[
@@ -375,6 +375,34 @@ impl Profile {
             &self.catalogs,
         )
     }
+
+    /// Union implementation requirements for every admitted physical device,
+    /// keyed by its declaring Cargo package. The build controller must restrict
+    /// these requests to packages already consumed by the production Cargo graph
+    /// and ask Cargo to enable them through declared dependency edges.
+    pub fn implementation_features(&self) -> Result<BTreeMap<String, BTreeSet<String>>> {
+        let mut requests: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let Some(graph) = self.composition()? else {
+            return Ok(requests);
+        };
+        for (device, compatible, bus) in graph.device_bindings() {
+            let (capability, package, features) = self
+                .catalogs
+                .implementation_features(compatible, bus)
+                .map_err(|error| format!("devices.{device}: {error}"))?;
+            if matches!(self.binding(capability), "none" | "mock" | "simulation")
+                || features.is_empty()
+            {
+                continue;
+            }
+            requests
+                .entry(package.to_owned())
+                .or_default()
+                .extend(features);
+        }
+        Ok(requests)
+    }
+
     pub fn json(&self) -> Result<Value> {
         let mut value = self.data.clone();
         let fields = value.as_object_mut().ok_or("profile must be a table")?;
@@ -935,4 +963,132 @@ mod tests {
         assert!(changed.load_catalogs(&temp.0).is_err());
     }
 
+    fn feature_profile() -> (crate::TempDir, Profile) {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let imu = "version = 1\n\
+            [[binding]]\ncompatible = 'bosch,bmi270'\nbus = 'i2c'\nmodel = 'bmi270'\n\
+            addresses = [104, 105]\nfrequencies = [400000]\ninterrupt = true\n\
+            cargo_features = ['driver-a', 'shared', 'driver-a']\n\
+            [[binding]]\ncompatible = 'st,lsm6dso'\nbus = 'i2c'\nmodel = 'lsm6dso'\n\
+            addresses = [106, 107]\nfrequencies = [400000]\ninterrupt = false\n\
+            cargo_features = ['driver-b', 'shared']\n\
+            [[binding]]\ncompatible = 'vendor,unused'\nbus = 'i2c'\nmodel = 'bmi270'\n\
+            addresses = [104, 105]\nfrequencies = [400000]\ninterrupt = false\n\
+            cargo_features = ['unused']\n";
+        let gnss = "version = 1\n\
+            [[binding]]\ncompatible = 'u-blox,neo-m9n'\nbus = 'uart'\nmodel = 'neo-m9n'\n\
+            bauds = [38400]\ncargo_features = ['receiver']\n";
+        let mut catalogs = Catalogs::default();
+        for (capability, catalog) in [("imu", imu), ("gnss", gnss)] {
+            let directory = temp.0.join(capability);
+            fs::create_dir_all(directory.join("bindings")).unwrap();
+            fs::write(
+                directory.join("Cargo.toml"),
+                format!(
+                    "[package]\nname = 'nxrs-{capability}'\nversion = '0.1.0'\n\
+                     [package.metadata.nxrs]\nbindings = ['bindings/catalog.toml']\n"
+                ),
+            )
+            .unwrap();
+            fs::write(directory.join("bindings/catalog.toml"), catalog).unwrap();
+            catalogs
+                .insert(capability, Package::load(&directory).unwrap())
+                .unwrap();
+        }
+        let profile = Profile::from_data_with_catalogs(
+            json!({
+                "name":"feature-fixture",
+                "composition":{"version":1,"mode":"hardware"},
+                "hal":{"imu":"nuttx","gnss":"nuttx"},
+                "resources":{
+                    "sensor_bus":{"kind":"i2c","device":"/dev/i2c0","frequency":400000},
+                    "receiver_port":{"kind":"uart","device":"/dev/ttyS1","baud":38400}
+                },
+                "devices":{
+                    "primary":{"compatible":"bosch,bmi270","bus":"sensor_bus","address":104,"wake":{"kind":"periodic"}},
+                    "navigation":{"compatible":"u-blox,neo-m9n","bus":"receiver_port"}
+                },
+                "roles":{"imu":"primary","gnss":"navigation"}
+            }),
+            vec![],
+            catalogs,
+        );
+        (temp, profile)
+    }
+
+    #[test]
+    fn required_features_union_all_devices_without_selecting_unused_bindings() {
+        let (_temp, mut profile) = feature_profile();
+        profile.data["devices"]["second"] = profile.data["devices"]["primary"].clone();
+        profile.data["devices"]["second"]["address"] = json!(105);
+        let expected = BTreeMap::from([
+            (
+                "nxrs-imu".to_owned(),
+                BTreeSet::from(["driver-a".to_owned(), "shared".to_owned()]),
+            ),
+            (
+                "nxrs-gnss".to_owned(),
+                BTreeSet::from(["receiver".to_owned()]),
+            ),
+        ]);
+        assert_eq!(profile.implementation_features().unwrap(), expected);
+
+        // An instance without a default role still needs its implementation.
+        profile.data["devices"]["second"]["compatible"] = json!("st,lsm6dso");
+        profile.data["devices"]["second"]["address"] = json!(106);
+        let mut expected = expected;
+        expected
+            .get_mut("nxrs-imu")
+            .unwrap()
+            .insert("driver-b".to_owned());
+        assert_eq!(profile.implementation_features().unwrap(), expected);
+        profile.data["roles"]["imu"] = json!("second");
+        assert_eq!(profile.implementation_features().unwrap(), expected);
+    }
+
+    #[test]
+    fn required_features_skip_unbound_mock_and_simulated_hardware() {
+        let (_temp, base) = feature_profile();
+        for provider in ["none", "mock"] {
+            let mut profile = base.clone();
+            profile.data["composition"]["mode"] = json!("qualification");
+            profile.data["hal"]["imu"] = json!(provider);
+            profile.data["roles"].as_object_mut().unwrap().remove("imu");
+            assert_eq!(
+                profile.implementation_features().unwrap(),
+                BTreeMap::from([(
+                    "nxrs-gnss".to_owned(),
+                    BTreeSet::from(["receiver".to_owned()])
+                )])
+            );
+        }
+        let mut simulation = base;
+        simulation.data = json!({
+            "name":"simulation-fixture",
+            "composition":{"version":1,"mode":"simulation"},
+            "hal":{"imu":"simulation","gnss":"simulation"},
+            "simulation":{"seed":1,"endpoints":["imu","gnss"]}
+        });
+        assert!(simulation.implementation_features().unwrap().is_empty());
+        assert!(
+            Profile::from_data(json!({"hal":{}}), vec![])
+                .implementation_features()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn required_features_preserve_physical_validation_for_unselected_devices() {
+        let (_temp, mut profile) = feature_profile();
+        profile.data["hal"]["imu"] = json!("none");
+        profile.data["roles"].as_object_mut().unwrap().remove("imu");
+        profile.data["devices"]["primary"]["compatible"] = json!("unknown,sensor");
+        let error = profile.implementation_features().unwrap_err();
+        assert!(error.contains("unsupported compatible/bus"), "{error}");
+        profile.data["devices"]["primary"]["compatible"] = json!("bosch,bmi270");
+        profile.data["devices"]["primary"]["bus"] = json!("absent");
+        let error = profile.implementation_features().unwrap_err();
+        assert!(error.contains("unknown bus"), "{error}");
+    }
 }

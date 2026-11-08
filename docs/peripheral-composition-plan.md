@@ -420,7 +420,8 @@ Exit with the reviewed contract and a bounded baseline of relevant tests.
 
 ### D1 — Prove shared preparation and Cargo integration
 
-The first slice, D1a, implements package-relative catalog/schema discovery and
+The first slice, D1a, merged in [PR #301](https://github.com/yongkyuns/nxrs/pull/301)
+at `39a72b2b975e8fce3c824cd9c8d47e79a02e88dc`, implements package-relative catalog/schema discovery and
 shared typed rendering for the actual IMU/GNSS outputs. Both local build scripts
 become generic adapters, with their custom callbacks and the IMU emitter removed.
 The production shared preparation API is exercised by a detached Cargo witness;
@@ -432,6 +433,24 @@ compilation in the existing generic adapter. It does not complete D1's pre-Cargo
 compiler/link integration or D2/D3's optional implementations and static objects.
 Keep those gates open and preserve the current runtime until their replacement
 is independently qualified.
+
+The second slice, D1b, extends the production Cargo resolver with declarative,
+additive implementation-feature requests. It unions binding requirements for
+all admitted physical devices, filters by the baseline production dependency
+graph, verifies the combined request against the exact consumed package identity,
+and updates the build command only after every request succeeds. A detached
+app-to-service-to-HAL compiler fixture proves optional driver selection through a
+model-free direct HAL composition edge, including aliases, workspace inheritance,
+defaults, same/mixed implementations, unused capabilities and atomic failures.
+The existing detector model policy remains separate. This satisfies the first
+feature-selection proof below; it does not make the production IMU drivers
+optional or complete D1's compiler/native handoff.
+
+The next D1 slice must move actual generation/native preparation into the
+controller and qualify its consumed-package handoff. Keep the generic adapters
+until generated values, provider flags, native links and freshness all have
+working replacements, including plain Cargo documentation and no-op builds.
+Do not equate a successful first compiler invocation with correct caching.
 
 
 Start in `platform/build-support/src/{composition,profile,resolved,lib}.rs`,

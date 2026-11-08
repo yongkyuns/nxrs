@@ -55,7 +55,7 @@ pub fn prepare_package(
         .catalogs()
         .package(capability)
         .ok_or_else(|| format!("profile has no declared package bindings for {capability}"))?;
-    if !same_declarations(&package, expected) {
+    if !package.same_declarations(expected) {
         return Err(format!(
             "configuration inputs for {name} differ from the resolved profile; use matching package catalogs and schemas"
         ));
@@ -100,27 +100,6 @@ pub fn prepare_package(
     .map_err(|error| format!("{}: {error}", schema_path.display()))?;
     publish(out, &name, Some((schema.output(), &source)))?;
     Ok(inputs)
-}
-
-/// Detached packages may adjust packaging/dependency metadata. Their declared
-/// build data must still match the inputs against which the profile was resolved.
-fn same_declarations(actual: &Package, expected: &Package) -> bool {
-    actual.name == expected.name
-        && actual
-            .catalogs
-            .iter()
-            .map(|input| &input.sha256)
-            .eq(expected.catalogs.iter().map(|input| &input.sha256))
-        && actual
-            .configuration
-            .iter()
-            .map(|(provider, input)| (provider, &input.sha256))
-            .eq(
-                expected
-                    .configuration
-                    .iter()
-                    .map(|(provider, input)| (provider, &input.sha256)),
-            )
 }
 
 #[derive(Serialize, Deserialize)]

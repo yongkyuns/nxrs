@@ -47,7 +47,8 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-D1a moves IMU/GNSS output generation into shared build support. Their manifests
+D1a, merged in [PR #301](https://github.com/yongkyuns/nxrs/pull/301) at
+`39a72b2b975e8fce3c824cd9c8d47e79a02e88dc`, moves IMU/GNSS output generation into shared build support. Their manifests
 declare package-relative binding catalogs and configuration schemas; the common
 renderer consumes typed data projections. The custom IMU emitter and both HAL
 generation callbacks are removed. Catalogs are loaded from explicit profile/SDK
@@ -56,9 +57,47 @@ Receipts and Cargo rebuild tracking include catalog and schema content.
 
 The two HAL build scripts remain generic adapters for this slice. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
-native compilation/linking. Full pre-Cargo handoff, optional driver selection and
+native compilation/linking. Full pre-Cargo handoff, production optional drivers and
 canonical static runtime instances remain later work. This stage changes host
 preparation while preserving current single-device runtime behavior.
+
+## Second implemented slice: Cargo implementation features
+
+D1b adds generic `cargo_features` requirements to package-owned bindings. Shared
+build support unions those local feature names across all configured physical
+devices whose capability has a hardware provider, including devices without the
+default role. Repeated instances do not create repeated feature requests. The
+controller restricts the requests to packages already present in Cargo's target
+production graph; board records cannot activate an unused capability.
+
+`platform/build/src/cargo_graph.rs` verifies requests through Cargo with the actual
+target, compiler, configuration, user features and defaults. It checks the exact
+original package identity, resolves additions together, and appends arguments to
+the real build command only after all requests succeed. Metadata locates the
+actual consumed package; its catalogs and schemas must match the resolved
+profile's declarations even when the features are already enabled. Packaging-only
+manifest differences remain supported. Detector model conflict
+policy remains separate from additive device implementation requirements. Build
+evidence records `implementation_features` alongside the existing detector
+`model_features`; these lists contain verified arguments added by the controller.
+SDK-free inspection leaves both pending until the actual graph can be queried.
+
+This slice supports path-backed capability packages in SDK checkouts and detached
+consumers. Package-local `cargo metadata --no-deps` supplies the structured package
+identity, which is checked against the original production tree before reading
+declarations. Full dependency metadata is deliberately avoided: it can fetch
+unselected dev, target and workspace sources even when the product builds offline.
+Git/registry capability sources fail with an explicit path-dependency diagnostic;
+their source discovery remains part of the later package handoff. No Cargo cache
+layout or replacement SDK copy is assumed.
+
+The detached compiler witnesses in
+`platform/build/tests/implementation_features.rs` exercise optional drivers,
+service consumption, aliases, workspace inheritance, defaults, combined requests
+and failure before compilation. This completes D1's first Cargo feature proof.
+Production BMI270/LSM6DSO dependencies, fixed-device construction and static
+ownership remain D2/D3 work. The generic HAL build adapters remain until their
+complete generation, compiler/link and freshness handoff is qualified.
 
 ## Current implementation and migration boundary
 
@@ -158,6 +197,36 @@ toggle an unreachable transitive dependency feature. Use legitimate dependency
 edges or forwarding owned below the portable application/service policy boundary;
 reject unsupported compositions with actionable diagnostics. Do not silently
 rewrite application manifests or recreate Cargo's resolver.
+
+The implemented feature route is an ordinary direct HAL dependency, which may
+be renamed, optional or workspace-inherited. Application source can consume only
+a service while its manifest declares a model-free composition edge:
+
+~~~toml
+[dependencies]
+navigation = { package = "nxrs-navigation-services", path = "../sdk/service/navigation" }
+motion = { package = "nxrs-imu", path = "../sdk/hal/imu", optional = true, default-features = false }
+~~~
+
+When the baseline production graph already consumes that HAL through the service,
+the controller can request `motion/<required-feature>`. The strong request also
+activates the declared optional edge. A weak `motion?/<required-feature>` cannot
+enable a dormant edge merely because another dependency consumes the same HAL.
+If the service and HAL are absent from the baseline graph, the controller makes
+no request. A service-only external dependency graph without a valid direct
+composition edge is rejected when a required feature still needs activation,
+with guidance to declare that edge. Features already enabled by Cargo need no
+additional route. No hardware model is
+added to application or service feature declarations.
+
+Cargo retains the edge's ordinary default and additive feature semantics. For
+minimal driver selection, composition edges should use `default-features = false`;
+an explicitly enabled default or user feature is preserved and may add code.
+Two same-named packages with different identities are rejected for a requested
+capability, including ambiguity introduced by the combined feature request.
+Binding `cargo_features` contains local feature names only. It does not accept
+dependency forwarding, source paths, Cargo options or Rust expressions; Cargo
+checks whether each requested local feature actually exists.
 
 Removing HAL build scripts also removes their package-local `OUT_DIR`,
 `rustc-cfg`, `rustc-env` and native link emission. The implementation must

@@ -3,11 +3,13 @@
 //! Build support has no compile-time dependency on a sibling HAL checkout. A
 //! caller chooses package directories; each package names its own data inputs.
 use crate::{hash_bytes, read, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Component, Path, PathBuf},
+    sync::LazyLock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -89,6 +91,28 @@ impl Package {
         })
     }
 
+    /// Compare the package name and exact declared catalog/schema content with
+    /// a resolved SDK package. Detached consumers may relocate the package and
+    /// adjust manifest packaging/dependencies without changing these inputs.
+    pub fn same_declarations(&self, expected: &Self) -> bool {
+        self.name == expected.name
+            && self
+                .catalogs
+                .iter()
+                .map(|input| &input.sha256)
+                .eq(expected.catalogs.iter().map(|input| &input.sha256))
+            && self
+                .configuration
+                .iter()
+                .map(|(provider, input)| (provider, &input.sha256))
+                .eq(
+                    expected
+                        .configuration
+                        .iter()
+                        .map(|(provider, input)| (provider, &input.sha256)),
+                )
+    }
+
     /// All bytes that determine a package's declarations, including its metadata.
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
         std::iter::once(&self.manifest)
@@ -139,6 +163,31 @@ impl Catalogs {
                      declare {capability} in [hal] and its package bindings in Cargo metadata"
                 )
             })
+    }
+
+    /// Resolve the unique declaring capability/package and its local feature
+    /// requirements. Physical instances do not introduce Cargo feature names.
+    pub(crate) fn implementation_features(
+        &self,
+        compatible: &str,
+        bus: &str,
+    ) -> Result<(&str, &str, BTreeSet<String>)> {
+        let mut matches = self
+            .bindings
+            .iter()
+            .filter(|((_, declared, kind), _)| declared == compatible && kind == bus);
+        let Some(((capability, _, _), binding)) = matches.next() else {
+            return Err(format!(
+                "unsupported compatible/bus binding: {compatible}/{bus}"
+            ));
+        };
+        if let Some(((other, _, _), _)) = matches.next() {
+            return Err(format!(
+                "ambiguous compatible/bus binding: {compatible}/{bus} is declared by both {capability} and {other}"
+            ));
+        }
+        let package = &self.packages[capability];
+        Ok((capability, &package.name, cargo_features(binding)?))
     }
 
     pub fn package(&self, capability: &str) -> Option<&Package> {
@@ -199,8 +248,39 @@ fn catalog(source: &Input) -> Result<Catalog> {
     for binding in &catalog.binding {
         selector(binding, "compatible", source)?;
         selector(binding, "bus", source)?;
+        cargo_features(binding).map_err(|error| format!("{}: {error}", source.path.display()))?;
     }
     Ok(catalog)
+}
+
+fn cargo_features(binding: &Value) -> Result<BTreeSet<String>> {
+    let Some(features) = binding.get("cargo_features") else {
+        return Ok(BTreeSet::new());
+    };
+    let features = features
+        .as_array()
+        .filter(|features| features.len() <= 64)
+        .ok_or("binding.cargo_features must be a list of at most 64 local Cargo feature names")?;
+    // Cargo owns feature existence and resolution. The declaration only admits
+    // local names, never dependency forwarding or command-line separators.
+    static NAME: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^[\p{XID_Start}_0-9][\p{XID_Continue}+.-]*$")
+            .expect("Cargo feature name pattern")
+    });
+    features
+        .iter()
+        .map(|feature| {
+            feature
+                .as_str()
+                .filter(|feature| feature.len() <= 128 && NAME.is_match(feature))
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    format!(
+                        "binding.cargo_features entry must be a local Cargo feature name: {feature}"
+                    )
+                })
+        })
+        .collect()
 }
 
 fn selector<'a>(binding: &'a Value, key: &str, source: &Input) -> Result<&'a str> {
@@ -325,6 +405,41 @@ mod tests {
     }
 
     #[test]
+    fn declaration_equality_allows_packaging_changes_but_preserves_build_inputs() {
+        let sdk = fixture(&metadata("bindings/catalog.toml"));
+        let expected = Package::load(&sdk.0).unwrap();
+        let detached = fixture(&metadata("bindings/catalog.toml"));
+        let manifest_path = detached.0.join("Cargo.toml");
+        let manifest = fs::read_to_string(&manifest_path).unwrap();
+        fs::write(
+            &manifest_path,
+            format!("{manifest}\n[dev-dependencies]\nqualification = '1.0'\n"),
+        )
+        .unwrap();
+        let actual = Package::load(&detached.0).unwrap();
+        assert_ne!(actual.manifest.path, expected.manifest.path);
+        assert_ne!(actual.manifest.sha256, expected.manifest.sha256);
+        assert!(actual.same_declarations(&expected));
+
+        for (file, contents) in [("catalog.toml", CATALOG), ("config.toml", SCHEMA)] {
+            let path = detached.0.join("bindings").join(file);
+            fs::write(&path, format!("{contents}# declaration revision\n")).unwrap();
+            assert!(!Package::load(&detached.0)
+                .unwrap()
+                .same_declarations(&expected));
+            fs::write(path, contents).unwrap();
+        }
+        fs::write(&manifest_path, manifest.replace("nuttx =", "linux =")).unwrap();
+        assert!(!Package::load(&detached.0)
+            .unwrap()
+            .same_declarations(&expected));
+        fs::write(&manifest_path, manifest.replace("nxrs-sensor", "nxrs-other")).unwrap();
+        assert!(!Package::load(&detached.0)
+            .unwrap()
+            .same_declarations(&expected));
+    }
+
+    #[test]
     fn rejects_nonportable_and_escaping_paths() {
         for path in ["../outside.toml", "/outside.toml", "C:/outside.toml", "bindings\\catalog.toml", "./bindings/catalog.toml", "bindings/\nfile.toml", ""] {
             let temp = fixture(&metadata(path));
@@ -376,5 +491,106 @@ mod tests {
         let error = catalogs.insert("sensor", Package::load(&temp.0).unwrap()).unwrap_err();
         assert!(error.contains("ambiguous compatible/bus"));
         assert!(catalogs.package("sensor").is_none());
+    }
+
+    #[test]
+    fn implementation_features_are_local_names_and_form_a_set() {
+        let temp = fixture(&metadata("bindings/catalog.toml"));
+        fs::write(
+            temp.0.join("bindings/catalog.toml"),
+            format!(
+                "{CATALOG}cargo_features = ['driver-a', 'driver-a', 'driver+b', 'driver.c', '_internal', '2d', '測定']\n"
+            ),
+        )
+        .unwrap();
+        let mut catalogs = Catalogs::default();
+        catalogs
+            .insert("sensor", Package::load(&temp.0).unwrap())
+            .unwrap();
+        let (capability, package, features) = catalogs
+            .implementation_features("vendor,sensor", "i2c")
+            .unwrap();
+        assert_eq!((capability, package), ("sensor", "nxrs-sensor"));
+        assert_eq!(
+            features,
+            [
+                "driver-a",
+                "driver+b",
+                "driver.c",
+                "_internal",
+                "2d",
+                "測定"
+            ]
+            .map(str::to_owned)
+            .into_iter()
+            .collect()
+        );
+        assert!(
+            catalogs
+                .implementation_features("vendor,sensor", "spi")
+                .unwrap_err()
+                .contains("unsupported compatible/bus")
+        );
+    }
+
+    #[test]
+    fn rejects_feature_forwarding_and_malformed_requirements_when_loading_catalogs() {
+        for declaration in [
+            "'driver'",
+            "[42]",
+            "['']",
+            "['dep:driver']",
+            "['alias/driver']",
+            "['alias?/driver']",
+            "['driver?']",
+            "['one,two']",
+            "['one two']",
+            "['-leading']",
+            "['contains!']",
+        ] {
+            let temp = fixture(&metadata("bindings/catalog.toml"));
+            fs::write(
+                temp.0.join("bindings/catalog.toml"),
+                format!("{CATALOG}cargo_features = {declaration}\n"),
+            )
+            .unwrap();
+            let error = Package::load(&temp.0).unwrap_err();
+            assert!(error.contains("cargo_features"), "{declaration}: {error}");
+            assert!(error.contains("catalog.toml"), "{error}");
+        }
+        let oversized = serde_json::json!({"cargo_features": vec!["driver"; 65]});
+        assert!(
+            cargo_features(&oversized)
+                .unwrap_err()
+                .contains("at most 64")
+        );
+        let oversized = serde_json::json!({"cargo_features": ["x".repeat(129)]});
+        assert!(cargo_features(&oversized).is_err());
+        assert!(cargo_features(&serde_json::json!({})).unwrap().is_empty());
+        assert!(
+            cargo_features(&serde_json::json!({"cargo_features": []}))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn implementation_features_require_one_capability_owner() {
+        let temp = fixture(&metadata("bindings/catalog.toml"));
+        let mut catalogs = Catalogs::default();
+        catalogs
+            .insert("sensor", Package::load(&temp.0).unwrap())
+            .unwrap();
+        catalogs
+            .insert("other", Package::load(&temp.0).unwrap())
+            .unwrap();
+        let error = catalogs
+            .implementation_features("vendor,sensor", "i2c")
+            .unwrap_err();
+        assert!(error.contains("ambiguous compatible/bus"), "{error}");
+        assert!(
+            error.contains("sensor") && error.contains("other"),
+            "{error}"
+        );
     }
 }
