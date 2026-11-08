@@ -882,3 +882,32 @@ fn cargo_verifies_declarations_when_the_package_path_contains_spaces_and_parenth
     );
     assert_eq!(fixture.run(&mut build), "1");
 }
+
+#[cfg(unix)]
+#[test]
+fn declaration_lookup_preserves_cargos_symlinked_source_identity() {
+    let mut fixture = Fixture::new(MOTION);
+    let aliases = TempDir::new(&std::env::temp_dir()).unwrap();
+    let alias = aliases.0.join("linked SDK workspace");
+    std::os::unix::fs::symlink(fixture.root(), &alias).unwrap();
+    // Keep ownership of the real tree as well as the temporary alias directory.
+    // The query must use the lexical path Cargo saw, even when canonicalizing
+    // that path reaches another spelling of the same files (macOS /var does).
+    let _real_directory = std::mem::replace(&mut fixture.0, TempDir(alias.clone()));
+    fixture.lock();
+    let tree = succeeded(fixture.command("tree").args([
+        "--edges",
+        "normal,no-proc-macro",
+        "--format",
+        "{p}",
+    ]));
+    let tree = String::from_utf8(tree.stdout).unwrap();
+    assert!(
+        tree.contains(alias.join("sdk/hal/imu").to_str().unwrap()),
+        "{tree}"
+    );
+    let mut build = fixture.build();
+    let selection = cargo_graph::resolve(&mut build, &fixture.profile(&['a'])).unwrap();
+    assert_eq!(selection.implementation_features, ["motion/driver-a"]);
+    assert_eq!(fixture.run(&mut build), "1");
+}

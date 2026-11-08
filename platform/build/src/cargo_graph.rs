@@ -240,10 +240,10 @@ impl Request {
                 "declarative implementation features currently require a path-backed capability package; Cargo selected {}; use an SDK checkout as a path dependency",
                 self.identity
             ))?;
-        let manifest = directory
-            .join("Cargo.toml")
-            .canonicalize()
-            .map_err(|error| format!("{}: {error}", directory.display()))?;
+        // Cargo's path PackageId preserves the spelling used to reach a source
+        // (for example macOS /var versus /private/var). Keep that spelling for
+        // the query; canonical paths are only for matching manifest files.
+        let manifest = directory.join("Cargo.toml");
         let metadata = query.package_metadata(build, &manifest)?;
         let package = package_at_manifest(&metadata, &manifest)?;
         let id = package["id"]
@@ -340,6 +340,9 @@ impl Request {
 }
 
 fn package_at_manifest<'a>(metadata: &'a Value, manifest: &PathBuf) -> Result<&'a Value> {
+    let manifest = manifest
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", manifest.display()))?;
     metadata["packages"]
         .as_array()
         .ok_or("Cargo metadata did not return packages")?
@@ -348,7 +351,7 @@ fn package_at_manifest<'a>(metadata: &'a Value, manifest: &PathBuf) -> Result<&'
             package["manifest_path"]
                 .as_str()
                 .and_then(|path| PathBuf::from(path).canonicalize().ok())
-                .is_some_and(|path| path == *manifest)
+                .is_some_and(|path| path == manifest)
         })
         .ok_or_else(|| format!("Cargo metadata did not contain {}", manifest.display()))
 }
@@ -444,10 +447,7 @@ impl Query {
             prefix,
             tree,
             metadata,
-            manifest: manifest
-                .ok_or("Cargo dependency resolution requires --manifest-path")?
-                .canonicalize()
-                .map_err(|error| error.to_string())?,
+            manifest: manifest.ok_or("Cargo dependency resolution requires --manifest-path")?,
         })
     }
 
