@@ -3,10 +3,13 @@
 pub use regex;
 pub use serde_json as json;
 pub mod archive;
+pub mod bindings;
 pub mod composition;
+pub mod configuration;
 pub mod native;
 mod native_nuttx;
 mod overlay;
+pub mod preparation;
 pub mod profile;
 pub mod resolved;
 pub mod source;
@@ -158,14 +161,9 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     profile.detector()
 }
 
+/// Cargo adapter for shared profile, declarative configuration and native preparation.
+/// Package-local adapters remain until the pre-Cargo compiler handoff is qualified.
 pub fn configure_hal() -> Result<String> {
-    configure_hal_with(|_, _, _| Ok(()))
-}
-
-/// Run capability-owned generation after profile admission and before compiling native helpers.
-pub fn configure_hal_with(
-    prepare: impl FnOnce(&profile::Profile, &str, &Path) -> Result<()>,
-) -> Result<String> {
     use std::{env, path::PathBuf};
     println!(
         "cargo:rustc-check-cfg=cfg(hal_provider, values(\"hardware\", \"mock\", \"simulation\"))"
@@ -194,7 +192,12 @@ pub fn configure_hal_with(
     }
     let binding = profile.binding(capability);
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
-    prepare(&profile, &os, &out)?;
+    for path in preparation::prepare_package(&directory, &profile, &os, &out)? {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    if binding == "simulation" {
+        write_simulation_config(&profile, &out)?;
+    }
     if ["macos", "linux", "nuttx"].contains(&binding) {
         let target = env::var("TARGET").map_err(|e| e.to_string())?;
         for line in native::build(&directory, &os, &target, &out)? {

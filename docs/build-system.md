@@ -43,8 +43,11 @@ the Emscripten thread qualification; hardware HALs are unbound. Stock
 The [declarative build/static-device decision](static-device-composition.md)
 moves HAL-local host work into shared build preparation. It is accepted design,
 with implementation tracked in [issue #246](https://github.com/yongkyuns/nxrs/issues/246).
-This guide's local build-script and unconditional sensor-dependency descriptions
-remain the current behavior until that migration lands.
+The first implementation slice moves IMU/GNSS configuration generation into
+shared preparation and discovers its inputs through package metadata. Identical
+small Cargo adapters remain in those HALs while the full pre-Cargo handoff is
+qualified. Sensor dependencies and runtime factories still follow the current v1
+selection described below.
 
 Extend the existing pre-Cargo preparation path. Package-owned schemas describe
 typed fields, defaults, constraints, resource references and supported
@@ -71,6 +74,55 @@ build/check/test/doc, no-profile contracts and detached packages. Generated
 outputs stay outside source, carry target/configuration/schema/generator
 identity, and reject stale inputs and concurrent-build contamination. The
 existing native-header, helper-exclusion and incremental-evidence gates remain.
+
+## Shared declarative sensor preparation
+
+The IMU and GNSS packages declare their inputs in `Cargo.toml`. For example,
+the IMU package supplies a compatible/bus catalog and a NuttX configuration schema:
+
+```toml
+[package.metadata.nxrs]
+bindings = ["bindings/i2c.toml"]
+
+[package.metadata.nxrs.configuration]
+nuttx = "bindings/nuttx.toml"
+```
+
+These are package-relative data files. The catalog declares supported hardware
+and its constraints. The configuration schema names the capability role, fixed
+generated output, typed constants or records, and their values in the resolved
+profile, device, binding or resource. It supports explicit defaults, optional
+values, enum mappings and integer bounds. Rust identifiers and literals are
+validated by the finite shared renderer; schemas cannot contain Rust templates,
+callbacks or source selectors.
+
+`nxrs-build-support::preparation::prepare_package` accepts the consuming package
+directory, resolved profile, target OS and owned output directory. It uses the
+same renderer for both sensors. The remaining `build.rs` files only call the
+common `configure_hal()` adapter, which preserves per-package provider flags,
+simulation configuration and native compilation/linking. The custom IMU emitter
+and the generation callback API have been removed.
+
+Profile resolution loads package declarations for explicit `[hal]` keys,
+including a provider of `"none"` when its unselected physical devices must be
+validated. It does not scan unrelated HAL catalogs. An isolated package without
+a selected profile can compile its contract without an SDK or sibling HAL
+directories. A selected complete profile may read its declared SDK metadata;
+that does not add packages to the consumer's Cargo graph.
+
+Manifest, catalog and configuration bytes participate in receipt dependencies,
+the input fingerprint and Cargo rebuild tracking. The report's
+`resolved-composition.binding-inputs` records their paths and hashes.
+`binding-sources` retains the catalog paths relative to the SDK.
+A copied consumer package must declare matching catalog/schema contents; its
+packaging-only manifest differences are permitted and its actual manifest is
+also tracked. Generated files retain their timestamps when content is unchanged.
+An output ownership record removes an obsolete generated Rust file when a schema
+is renamed or removed, while preserving unrelated outputs and native archives.
+
+This is the D1a migration step. Per-instance construction, additive driver feature
+activation and removal of the generic HAL Cargo adapters remain follow-up work.
+The existing singular runtime factories and lifecycle behavior are unchanged.
 
 ## Configuration and ownership
 

@@ -1,5 +1,5 @@
 //! Versioned, verified profile receipts for one concrete Cargo build.
-use crate::{composition, hash, hash_bytes, profile::Profile, read, Result};
+use crate::{hash, hash_bytes, profile::Profile, read, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -55,18 +55,8 @@ fn semantic_digest(profile: &Profile, graph: &Value) -> String {
     )
 }
 
-fn dependencies(root: &Path, profile: &Profile) -> Result<Vec<Dependency>> {
+fn dependencies(profile: &Profile) -> Result<Vec<Dependency>> {
     let mut paths: Vec<PathBuf> = profile.source_paths().cloned().collect();
-    if profile.binding("imu") == "nuttx" {
-        paths.push(root.join(composition::BINDING_SCHEMA_PATH));
-    }
-    for capability in profile.data["hal"]
-        .as_object()
-        .ok_or("profile HAL table missing")?
-        .keys()
-    {
-        paths.push(root.join("hal").join(capability).join("Cargo.toml"));
-    }
     paths.sort();
     paths.dedup();
     paths
@@ -96,7 +86,7 @@ fn receipt(root: &Path, profile: &Profile, target: &str, os: &str) -> Result<Rec
         data: profile.data.clone(),
         semantic_digest: semantic_digest(profile, &graph),
         raw_fingerprint: profile.input_fingerprint(),
-        dependencies: dependencies(root, profile)?,
+        dependencies: dependencies(profile)?,
         graph,
     })
 }

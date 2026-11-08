@@ -1,6 +1,6 @@
 # Declarative builds and static device instances
 
-**Status: accepted direction, November 8, 2026; implementation pending.**
+**Status: accepted direction, November 8, 2026; migration in progress.**
 [Issue #246](https://github.com/yongkyuns/nxrs/issues/246) tracks implementation.
 This decision extends the [peripheral composition architecture](peripheral-composition.md)
 and supersedes its HAL-local emission and singleton IMU construction approach.
@@ -44,6 +44,21 @@ HAL, driver, helper or static allocation to an application. Validate required
 roles against the active set. D0 must specify treatment and validation of
 unconsumed profile records without undeclared catalog dependencies. This rule
 does not introduce a new profile field or a runtime device registry.
+
+## First implemented slice: shared sensor preparation
+
+D1a moves IMU/GNSS output generation into shared build support. Their manifests
+declare package-relative binding catalogs and configuration schemas; the common
+renderer consumes typed data projections. The custom IMU emitter and both HAL
+generation callbacks are removed. Catalogs are loaded from explicit profile/SDK
+package metadata rather than compiled into build support through sibling paths.
+Receipts and Cargo rebuild tracking include catalog and schema content.
+
+The two HAL build scripts remain generic adapters for this slice. They preserve
+package-specific provider flags, OUT_DIR delivery, simulation preparation and
+native compilation/linking. Full pre-Cargo handoff, optional driver selection and
+canonical static runtime instances remain later work. This stage changes host
+preparation while preserving current single-device runtime behavior.
 
 ## Current implementation and migration boundary
 

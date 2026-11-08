@@ -9,8 +9,13 @@ The [composition design](../../docs/peripheral-composition.md) places reusable
 BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
 acquisition lifecycle in this crate. The resolved product composition selects
 the NuttX model, I2C binding, optional wake resource and worker stack at build
-time. The build script emits those values as typed Rust constants; the provider
-does not parse device configuration from environment variables at runtime.
+time. Package metadata declares the supported catalog in
+[bindings/i2c.toml](bindings/i2c.toml) and the typed output schema in
+[bindings/nuttx.toml](bindings/nuttx.toml). Shared build support validates and
+renders the constants; this HAL has no custom host emitter. The current
+build script is a generic adapter for preparation, provider flags and native
+linking until the shared pre-Cargo handoff replaces it. The provider does not
+parse device configuration from environment variables at runtime.
 Composition overlays and coordinated simulation are tracked in the
 [migration plan](../../docs/peripheral-composition-plan.md).
 

@@ -1,5 +1,6 @@
 //! One resolver for CLI builds and HAL build scripts.
 use crate::{
+    bindings::{Catalogs, Package},
     composition::{self, Composition},
     hash_bytes, overlay, read, Result,
 };
@@ -33,6 +34,8 @@ pub struct Profile {
     pub data: Value,
     pub sources: Vec<PathBuf>,
     inputs: Vec<Input>,
+    catalogs: Catalogs,
+    sdk_root: Option<PathBuf>,
     origins: overlay::Origins,
     pub(crate) cli_overlays: Vec<PathBuf>,
 }
@@ -133,9 +136,48 @@ impl Profile {
             data,
             sources,
             inputs: Vec::new(),
+            catalogs: Catalogs::default(),
+            sdk_root: None,
             origins,
             cli_overlays: Vec::new(),
         }
+    }
+
+    /// Construct a fixture with explicitly supplied package declarations.
+    pub fn from_data_with_catalogs(
+        data: Value,
+        sources: Vec<PathBuf>,
+        catalogs: Catalogs,
+    ) -> Self {
+        let mut profile = Self::from_data(data, sources);
+        profile.catalogs = catalogs;
+        profile
+    }
+
+    /// Load the declarations of explicitly listed HAL capabilities from an SDK.
+    ///
+    /// A capability with provider "none" still declares the package whose
+    /// unselected physical devices must be validated. No sibling HAL is scanned.
+    pub fn load_catalogs(&mut self, sdk_root: &Path) -> Result<()> {
+        let root = sdk_root
+            .canonicalize()
+            .map_err(|error| format!("SDK {}: {error}", sdk_root.display()))?;
+        let capabilities = self.data["hal"].as_object().ok_or("[hal] must be a table")?;
+        let mut catalogs = Catalogs::default();
+        for capability in capabilities.keys() {
+            if !CAPABILITIES.contains(&capability.as_str()) {
+                return Err(format!("unknown capability: {capability}"));
+            }
+            let package = Package::load(&root.join("hal").join(capability))?;
+            catalogs.insert(capability, package)?;
+        }
+        self.catalogs = catalogs;
+        self.sdk_root = Some(root);
+        Ok(())
+    }
+
+    pub fn catalogs(&self) -> &Catalogs {
+        &self.catalogs
     }
 
     pub fn resolve(root: &Path, name: &str) -> Result<Self> {
@@ -173,6 +215,7 @@ impl Profile {
             )?;
             profile.inputs.push(input);
         }
+        profile.load_catalogs(root)?;
         profile.validate_resources()?;
         Ok(profile)
     }
@@ -272,7 +315,7 @@ impl Profile {
         Ok(resolved)
     }
 
-    pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
+    fn profile_source_paths(&self) -> impl Iterator<Item = &PathBuf> {
         self.sources.iter().chain(
             self.inputs
                 .iter()
@@ -281,6 +324,12 @@ impl Profile {
         )
     }
 
+    /// All filesystem inputs for Cargo reruns, receipts, and build identity.
+    pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.profile_source_paths().chain(self.catalogs.source_paths())
+    }
+
+    /// Ordered profile and overlay provenance for deployment reports.
     pub fn source_hashes(&self) -> Result<Vec<Value>> {
         if self.inputs.is_empty() {
             return self
@@ -297,18 +346,14 @@ impl Profile {
     }
 
     pub fn input_fingerprint(&self) -> Option<String> {
-        if self.inputs.is_empty() {
+        if self.inputs.is_empty() && self.catalogs.source_paths().next().is_none() {
             return None;
         }
-        let binding = (self.binding("imu") == "nuttx").then(composition::binding_schema_digest);
-        let gnss_binding =
-            (self.binding("gnss") == "nuttx").then(composition::gnss_binding_schema_digest);
         Some(hash_bytes(
             json!({
-                "resolver": "peripheral-profile-v1",
+                "resolver": "peripheral-profile-v1-declarative-inputs",
                 "inputs": self.inputs,
-                "binding": binding,
-                "gnss-binding": gnss_binding,
+                "binding-inputs": self.catalogs.report(),
             })
             .to_string()
             .as_bytes(),
@@ -327,6 +372,7 @@ impl Profile {
             self.binding("imu"),
             self.binding("gnss"),
             &self.origins,
+            &self.catalogs,
         )
     }
     pub fn json(&self) -> Result<Value> {
@@ -334,7 +380,7 @@ impl Profile {
         let fields = value.as_object_mut().ok_or("profile must be a table")?;
         fields.insert(
             "sources".into(),
-            json!(self.source_paths().collect::<Vec<_>>()),
+            json!(self.profile_source_paths().collect::<Vec<_>>()),
         );
         fields.remove("resolved-composition");
         if let Some(graph) = self.composition()? {
@@ -346,11 +392,18 @@ impl Profile {
         Ok(value)
     }
     pub fn composition_report(&self, graph: &Composition) -> Value {
-        let binding_sources = graph
-            .imu()
-            .map(|_| composition::BINDING_SCHEMA_PATH)
-            .into_iter()
-            .chain(graph.gnss().map(|_| composition::GNSS_BINDING_SCHEMA_PATH))
+        let binding_sources = self
+            .catalogs
+            .packages()
+            .flat_map(|(_, package)| &package.catalogs)
+            .map(|input| {
+                self.sdk_root
+                    .as_ref()
+                    .and_then(|root| input.path.strip_prefix(root).ok())
+                    .unwrap_or(&input.path)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
             .collect::<Vec<_>>();
         let semantic = json!({"graph": graph, "target": self.data["target"]});
         let provenance = self
@@ -360,8 +413,9 @@ impl Profile {
             .collect::<std::collections::BTreeMap<_, _>>();
         json!({
             "graph": graph,
-            "sources": self.source_paths().collect::<Vec<_>>(),
+            "sources": self.profile_source_paths().collect::<Vec<_>>(),
             "binding-sources": binding_sources,
+            "binding-inputs": self.catalogs.report(),
             "source-hashes": self.inputs,
             "provenance": provenance,
             "semantic-digest": hash_bytes(semantic.to_string().as_bytes()),
@@ -667,18 +721,6 @@ impl Profile {
             self.source_paths()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
-        if self.binding("imu") == "nuttx" {
-            output.push(format!(
-                "cargo:rerun-if-changed={}",
-                root.join(composition::BINDING_SCHEMA_PATH).display()
-            ));
-        }
-        if self.binding("gnss") == "nuttx" {
-            output.push(format!(
-                "cargo:rerun-if-changed={}",
-                root.join(composition::GNSS_BINDING_SCHEMA_PATH).display()
-            ));
-        }
         let mut manifests: BTreeSet<PathBuf> = self.data["hal"]
             .as_object()
             .unwrap()
@@ -829,4 +871,68 @@ mod tests {
         );
         fs::remove_dir_all(temp).unwrap();
     }
+    #[test]
+    fn explicit_sdk_catalogs_track_configuration_bytes_without_scanning_other_hals() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let directory = temp.0.join("hal/imu");
+        fs::create_dir_all(directory.join("bindings")).unwrap();
+        fs::write(
+            directory.join("Cargo.toml"),
+            "[package]\nname='nxrs-imu'\nversion='0.1.0'\n\
+             [package.metadata.nxrs]\nbindings=['bindings/i2c.toml']\n\
+             [package.metadata.nxrs.configuration]\nnuttx='bindings/nuttx.toml'\n",
+        )
+        .unwrap();
+        let catalog = "version=1\n[[binding]]\ncompatible='vendor,sensor'\nbus='i2c'\n";
+        let schema = "version=1\noutput='config.rs'\nrole='imu'\n";
+        fs::write(directory.join("bindings/i2c.toml"), catalog).unwrap();
+        fs::write(directory.join("bindings/nuttx.toml"), schema).unwrap();
+        // An unrelated package is deliberately incomplete.
+        fs::create_dir_all(temp.0.join("hal/gnss")).unwrap();
+        fs::write(temp.0.join("hal/gnss/Cargo.toml"), "invalid").unwrap();
+
+        let profile_path = temp.0.join("profile.toml");
+        let profile_contents = "[hal]\nimu='none'\n";
+        fs::write(&profile_path, profile_contents).unwrap();
+        let mut profile =
+            Profile::from_data(json!({"hal":{"imu":"none"}}), vec![profile_path.clone()]);
+        assert!(profile.catalogs().package("imu").is_none());
+        profile.load_catalogs(&temp.0).unwrap();
+        assert_eq!(profile.catalogs().source_paths().count(), 3);
+        assert!(profile.catalogs().package("gnss").is_none());
+        assert_eq!(profile.source_paths().count(), 4);
+        assert!(profile.source_paths().any(|path| path.ends_with("bindings/nuttx.toml")));
+        assert_eq!(profile.json().unwrap()["sources"], json!([profile_path]));
+        assert_eq!(
+            profile.source_hashes().unwrap(),
+            vec![json!({
+                "path": profile_path,
+                "sha256": hash_bytes(profile_contents.as_bytes()),
+            })]
+        );
+        let initial = profile.input_fingerprint().unwrap();
+
+        fs::write(directory.join("bindings/nuttx.toml"), format!("{schema}# schema edit\n")).unwrap();
+        let mut changed = profile.clone();
+        changed.load_catalogs(&temp.0).unwrap();
+        assert_ne!(changed.input_fingerprint().unwrap(), initial);
+        assert_eq!(
+            profile.catalogs().package("imu").unwrap().configuration["nuttx"].contents,
+            schema
+        );
+        let schema_fingerprint = changed.input_fingerprint().unwrap();
+        fs::write(directory.join("bindings/i2c.toml"), format!("{catalog}# catalog edit\n")).unwrap();
+        changed.load_catalogs(&temp.0).unwrap();
+        assert_ne!(changed.input_fingerprint().unwrap(), schema_fingerprint);
+        assert_eq!(
+            changed.catalogs().report()["imu"]["bindings"][0]["sha256"],
+            hash_bytes(format!("{catalog}# catalog edit\n").as_bytes())
+        );
+        assert_eq!(changed.source_hashes().unwrap(), profile.source_hashes().unwrap());
+        assert_eq!(changed.json().unwrap()["sources"], json!([profile_path]));
+
+        changed.data["hal"]["gnss"] = json!("none");
+        assert!(changed.load_catalogs(&temp.0).is_err());
+    }
+
 }

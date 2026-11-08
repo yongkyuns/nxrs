@@ -59,12 +59,20 @@ path = "src/main.rs"
 }
 
 fn write_imu_fixture(root: &Path) {
-    fs::create_dir_all(root.join("hal/imu")).unwrap();
+    let bindings = root.join("hal/imu/bindings");
+    fs::create_dir_all(&bindings).unwrap();
     fs::write(
         root.join("hal/imu/Cargo.toml"),
-        "[package]\nname = \"nxrs-imu\"\nversion = \"0.1.0\"\n[package.metadata.nxrs]\nplatforms = [\"nuttx\"]\n",
+        "[package]\nname = \"nxrs-imu\"\nversion = \"0.1.0\"\n\
+         [package.metadata.nxrs]\nkind = \"hal-capability\"\nplatforms = [\"nuttx\"]\n\
+         bindings = [\"bindings/i2c.toml\"]\n\
+         [package.metadata.nxrs.configuration]\nnuttx = \"bindings/nuttx.toml\"\n",
     )
     .unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../hal/imu/bindings");
+    for file in ["i2c.toml", "nuttx.toml"] {
+        fs::copy(source.join(file), bindings.join(file)).unwrap();
+    }
 }
 
 fn write_imu_profile(root: &Path, name: &str, body: &str) {

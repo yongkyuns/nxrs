@@ -1,0 +1,39 @@
+version = 1
+output = "imu_config.rs"
+role = "imu"
+
+[enums.SensorModel]
+bmi270 = "Bmi270"
+lsm6dso = "Lsm6dso"
+
+[constants.MODEL]
+type = "SensorModel"
+source = { root = "binding", path = ["model"] }
+
+[constants.STACK_BYTES]
+type = "usize"
+source = { root = "profile", path = ["imu", "stack-bytes"] }
+default = 16384
+min = 8192
+max = 262144
+
+[records.BINDING]
+type = "Binding"
+static-lifetime = true
+
+[records.BINDING.fields.path]
+type = "str"
+source = { root = "resource", reference = ["bus"], path = ["device"] }
+
+[records.BINDING.fields.address]
+type = "u8"
+source = { root = "device", path = ["address"] }
+
+[records.BINDING.fields.frequency]
+type = "u32"
+source = { root = "resource", reference = ["bus"], path = ["frequency"] }
+
+[records.BINDING.fields.irq_path]
+type = "str"
+optional = true
+source = { root = "resource", reference = ["wake", "resource"], path = ["device"] }
