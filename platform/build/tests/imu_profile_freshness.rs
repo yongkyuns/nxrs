@@ -106,8 +106,7 @@ fn main() {
         &patch,
         "[resources.sensor_bus]\ndevice = \"/dev/i2c1\"\nfrequency = 100000\n\
          [devices.motion]\naddress = 105\n\
-         [resources.receiver_uart]\ndevice = \"/dev/ttyS2\"\nbaud = 115200\n\
-         [gnss]\nstack-bytes = 32768\n",
+         [resources.receiver_uart]\ndevice = \"/dev/ttyS2\"\nbaud = 115200\n",
     )
     .unwrap();
     let replacement = source.join("tests/host/fixtures/lsm6dso-overlay.toml");
@@ -127,7 +126,7 @@ fn main() {
         (&[][..], original),
         (
             &[patch][..],
-            "bmi270 /dev/i2c1 105 100000 None 16384 | /dev/ttyS2 115200 32768",
+            "bmi270 /dev/i2c1 105 100000 None 16384 | /dev/ttyS2 115200 16384",
         ),
         (
             &[replacement][..],

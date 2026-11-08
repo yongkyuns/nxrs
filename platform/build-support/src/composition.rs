@@ -560,9 +560,9 @@ fn validate_graph(
         let path =
             match resource {
                 Resource::I2c { device, frequency } => {
-                    if !catalog.binding.iter().any(|binding| {
-                        binding.bus == "i2c" && binding.frequencies.contains(frequency)
-                    }) {
+                    // Resource validity is independent of the declared device
+                    // catalogs. A claiming device checks its own supported rates.
+                    if *frequency == 0 {
                         return Err(diagnostic(
                             origins,
                             &format!("resources.{id}.frequency"),
@@ -1335,6 +1335,49 @@ mod tests {
         let error = resolve_with_origins(&value, "nuttx", &origins, &fixture_catalogs()).unwrap_err();
         assert!(error.contains("devices.motion.wake.resource"));
         assert!(error.contains("resources.ready changed by overlays/remove-ready.toml"));
+    }
+
+    #[test]
+    fn gnss_only_catalogs_allow_an_unclaimed_i2c_resource() {
+        let mut value = gnss_profile();
+        value["resources"]["spare"] =
+            json!({"kind":"i2c","device":"/dev/i2c0","frequency":400000});
+        let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut catalogs = Catalogs::default();
+        catalogs
+            .insert(
+                "gnss",
+                crate::bindings::Package::load(&sdk.join("hal/gnss")).unwrap(),
+            )
+            .unwrap();
+        assert!(catalogs.package("imu").is_none());
+        let graph = super::resolve_with_providers_and_origins(
+            &value,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &catalogs,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(graph.gnss().unwrap().path, "/dev/ttyS1");
+
+        value["resources"]["spare"]["frequency"] = json!(0);
+        let error = super::resolve_with_providers_and_origins(
+            &value,
+            "none",
+            "nuttx",
+            &BTreeMap::new(),
+            &catalogs,
+        )
+        .unwrap_err();
+        assert!(error.contains("unsupported I2C frequency 0"), "{error}");
+
+        let mut claimed = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        claimed["resources"]["i2c"]["frequency"] = json!(12345);
+        assert!(resolve(&claimed, "nuttx", &fixture_catalogs())
+            .unwrap_err()
+            .contains("unsupported bosch,bmi270 I2C frequency 12345"));
     }
 
     #[test]
