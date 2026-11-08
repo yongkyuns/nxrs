@@ -15,6 +15,7 @@ members = [
     "driver/bmi270",
     "driver/i2c",
     "driver/lsm6dso",
+    "driver/peripheral",
     "driver/ubx",
     "driver/linux/gio",
     "hal/detector",

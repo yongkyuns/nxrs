@@ -370,6 +370,7 @@ version = "0.1.0"
 dependencies = [
  "bmi2",
  "embedded-hal",
+ "nxrs-peripheral",
 ]
 
 [[package]]
@@ -573,6 +574,7 @@ dependencies = [
  "nxrs-i2c",
  "nxrs-lsm6dso",
  "nxrs-messaging",
+ "nxrs-peripheral",
  "nxrs-simulation",
 ]
 
@@ -604,6 +606,7 @@ name = "nxrs-lsm6dso"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
+ "nxrs-peripheral",
 ]
 
 [[package]]
@@ -652,6 +655,10 @@ dependencies = [
  "nxrs-camera",
  "nxrs-storage",
 ]
+
+[[package]]
+name = "nxrs-peripheral"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-protected-runtime-witness"

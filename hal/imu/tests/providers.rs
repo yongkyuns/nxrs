@@ -2,9 +2,6 @@
 #![deny(unsafe_code)]
 pub use imu::probe;
 pub use imu::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
-#[allow(dead_code)] // Injected driver witnesses use a subset of the adapter interface.
-#[path = "../src/adapters/mod.rs"]
-mod adapters;
 #[path = "../src/cadence.rs"]
 mod cadence;
 

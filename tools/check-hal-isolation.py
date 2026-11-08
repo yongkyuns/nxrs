@@ -171,6 +171,8 @@ def run(out, capabilities=CAPABILITIES):
                 expected.add("nxrs-hal-common")
         if capability == "storage":
             expected.add("nxrs-camera")
+        if capability == "imu":
+            expected.add("nxrs-peripheral")
         base_expected = expected
         # IMU and its drivers require std; preserve unbound isolation on the host.
         contract = (("contract-host", None, "none", None, None) if capability == "imu"

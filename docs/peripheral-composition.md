@@ -24,10 +24,10 @@ reusable peripheral drivers and operating-system resources.
 application / service
         |
         v
-capability HAL                 common observations, configuration and lifecycle
+capability HAL                 managed stream, resource ownership and lifecycle
         |
         v
-peripheral driver              sensor-specific protocol and API
+peripheral driver              shared device contract + sensor-specific API
         |
         v
 embedded-hal traits            I2c, SpiDevice, pins, DelayNs
@@ -43,8 +43,9 @@ NuttX MCU drivers              controller, DMA, interrupt entry and scheduling
 | --- | --- |
 | NuttX BSP and configuration | MCU pins, controller initialization, kernel drivers and resource registration |
 | Resource adapter | Implement the required Rust resource interface using an owned OS resource |
-| Peripheral driver | Supported chip settings, identification, initialization, register configuration, FIFO decoding and chip-specific errors |
-| Capability HAL | Translate peripheral behavior into its public API and own acquisition, delivery, cancellation and recovery |
+| Peripheral driver | Supported chip settings, initialization, register/FIFO protocol and direct implementation of a shared device contract where applicable |
+| Shared peripheral contract | Synchronous device configuration, physical measurements, buffering semantics and errors; no runtime or resource construction |
+| Capability HAL | Profile construction, stream metadata, readiness, acquisition, delivery, cancellation and recovery |
 | Profile resolver | Validate device instances, resource references and capability roles, then select concrete construction code |
 
 Reusable chip drivers belong in ordinary Cargo packages under `driver/`. They
@@ -52,16 +53,19 @@ expose sensor-specific APIs and have no dependency on HALs, services, profiles o
 the build controller. Retain reviewed upstream libraries and local corrections.
 An extracted BMI270 driver continues to use the pinned `bmi2` implementation.
 
-Each capability retains one public API and error vocabulary. For IMU, translation
-from BMI270 or LSM6DSO belongs in private, reusable `hal/imu/src/adapters/`
-modules. Drivers own supported settings and physical-range conversions. Adapters
-resolve unit-based requirements directly into concrete driver settings before
-resource acquisition, without a second capability catalog or reverse mapping.
-Register settings and FIFO layouts stay in the driver.
-Physical-unit conversion may be implemented by the driver. The HAL defines the
-units and timing promised to its consumers. Common requirements must report the
-accepted configuration or reject unsupported requests. Hardware-specific filters
-must not acquire misleading generic meanings.
+`driver/peripheral::imu` defines a small shared device contract. BMI270 and
+LSM6DSO implement it directly, alongside their chip-specific APIs. Drivers resolve
+unit-based requirements using their supported settings, decode measurements into
+SI units and report device errors. The HAL reexports the configuration types,
+adds reception timestamps and sequence numbers, and maps device failures into its
+own lifecycle error vocabulary. Constructors and optional chip qualification
+controls stay in the NuttX factory; no wrapping sensor object is required.
+
+Buffering is explicit: FIFO retains ordered hardware measurements; latest-value
+reads can lose intermediate samples without detection. The current IMU acquisition
+path admits FIFO implementations only. Neither mode promises lossless delivery
+under overload. Wake signals are hints, and the driver must inspect actual data.
+Chip filters, FIFO tags and other specialized controls remain chip-specific.
 
 The HAL supplies acquisition execution and lifetime policy. Drivers perform
 synchronous bounded operations when called. Reuse `nxrs-acquisition` and typed
@@ -71,18 +75,19 @@ only when multiple implementations actually need the same operations.
 ## Source organization
 
 ~~~text
-driver/bmi270/                         reusable sensor-specific Rust crate
+driver/peripheral/src/imu.rs           shared synchronous IMU device contract
+driver/bmi270/                         chip API and direct IMU contract implementation
 driver/lsm6dso/                        reusable tagged-FIFO IMU driver
 driver/ubx/                            reusable M9 protocol driver
 hal/imu/
   bindings.toml                      supported devices, resource constraints and implementation IDs
   src/api.rs                          application-facing IMU contract
-  src/adapters/bmi270.rs               translates the BMI270 API into IMU
-  src/adapters/lsm6dso.rs               translates the LSM6DSO API into IMU
   src/session.rs                      capability-local shared execution policy
   src/platform/simulation.rs          adapter to a coordinated simulation session
   src/platform/mod.rs                 selected acquisition exports
   src/platform/nuttx/mod.rs            factory using resolved bindings
+  src/platform/nuttx/construction.rs   concrete constructors and qualification controls
+  src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
   src/platform/nuttx/observed_bus.rs   optional timing around driver/i2c
   src/platform/nuttx/irq.rs            cancellable notification ownership
   src/platform/nuttx/ffi/              mechanical native ABI translation
@@ -423,8 +428,9 @@ bus timing, physical IRQ wiring or worst-case device latency.
 ## Sources and compatibility boundaries
 
 Zephyr supplies the device-description, binding and overlay concepts. Its sensor
-drivers implement a common API. Nxrs keeps sensor-specific driver APIs and owns
-their capability translation in HALs. These are deliberate implementation
+drivers implement a common API. Nxrs IMU drivers similarly implement a shared
+synchronous device contract while retaining chip-specific APIs. HALs own managed
+acquisition and resource lifetime. These are deliberate implementation
 choices. [Zephyr bindings](https://docs.zephyrproject.org/latest/build/dts/bindings.html),
 [overlays](https://docs.zephyrproject.org/latest/build/dts/intro-input-output.html),
 [Kconfig relationship](https://docs.zephyrproject.org/latest/build/dts/dt-vs-kconfig.html),

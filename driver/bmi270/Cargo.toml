@@ -4,5 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nxrs-peripheral = { path = "../peripheral" }
 bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"

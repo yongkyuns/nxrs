@@ -25,4 +25,7 @@ scales each raw axis using the chosen physical range. FIFO layout, watermark,
 interrupt mapping and bounded sensor startup behavior are unchanged.
 `SAMPLE_INTERVAL_US` remains the public 100 Hz default interval for existing
 consumers; configured consumers can derive their interval from
-`Config::rate`. The HAL maps driver errors/samples to the public IMU contract.
+`Config::rate`. The driver directly implements `peripheral::imu::Imu` alongside
+its chip API. That contract resolves supported settings and returns synchronous
+SI measurements with explicit FIFO buffering and overflow errors. HAL IMU adds
+stream metadata and manages acquisition and resource lifetime.

@@ -38,10 +38,11 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
              [features]\nprobe = []\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
              nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\n\
+             nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
             source.join("shared/messaging"), source.join("driver/acquisition"), source.join("driver/i2c"),
-            source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("platform/build-support")
+            source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("platform/build-support")
         ),
     )
     .unwrap();

@@ -301,10 +301,11 @@ The Nxrs Rust HAL begins at the user-facing driver contract exposed by NuttX.
 
 For a raw bus, a Rust resource adapter implements an existing interface such as
 `embedded_hal::i2c::I2c` through the NuttX descriptor. A reusable package under
-`driver/<device>` owns the peripheral protocol. The capability HAL owns the
-translation into common observations and the acquisition lifecycle. The BMI270
-protocol now lives in the `nxrs-bmi270` package; `hal/imu/src/adapters/bmi270.rs`
-maps its samples and errors into the IMU contract. `driver/i2c` owns the NuttX-only
+`driver/<device>` owns the peripheral protocol. BMI270 and LSM6DSO directly
+implement the shared synchronous IMU contract in `driver/peripheral`, retaining
+chip-specific APIs. The HAL owns concrete construction, reception timestamps,
+stream sequencing, readiness, acquisition and joined cleanup. It maps device
+failures into its lifecycle error vocabulary. `driver/i2c` owns the NuttX-only
 bus adapter, descriptor and bounded transfers; NuttX still owns the controller
 driver and bus serialization. The IMU's `observed_bus.rs` only adds optional
 transaction timing through the embedded-hal interface. Its device owner holds
@@ -424,9 +425,10 @@ The following are architectural invariants:
 - No generic Nxrs POSIX/device framework is introduced.
 - Unselected capability providers and their exclusive glue are absent from the
   production dependency graph.
-- New Nxrs-owned peripherals place reusable chip behavior in driver packages and
-  capability translation in their HAL. Existing std and embedded-hal interfaces
-  connect these layers, with private native glue only where the OS ABI needs it.
+- New Nxrs-owned peripherals place reusable chip behavior and shared device
+  contract implementations in driver packages. HALs own managed acquisition and
+  resource lifetime. Existing std and embedded-hal interfaces connect resources,
+  with private native glue only where the OS ABI needs it.
 
 See [HAL capability architecture](hal-platform-architecture.md),
 [architecture](architecture.md), [NuttX std qualification](nuttx-std.md), and

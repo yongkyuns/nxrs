@@ -12,32 +12,19 @@ pub enum DeviceError {
     InvalidData,
 }
 
-/// Requirements for one paired accelerometer/gyroscope stream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Config {
-    /// Inclusive nominal rate limits in millihertz.
-    pub min_rate_millihz: u32,
-    pub max_rate_millihz: u32,
-    /// Exact accelerometer full scale in multiples of standard gravity.
-    pub accel_range_g: u16,
-    /// Exact gyroscope full scale in degrees per second.
-    pub gyro_range_dps: u16,
-    /// Maximum nominal time between delivery opportunities. Scheduling,
-    /// bus transfer time and sink backpressure contribute additional latency.
-    pub max_delivery_interval_us: u32,
-}
+pub use peripheral::imu::{AppliedConfig, Config};
 
-/// Accepted settings. `resolve` previews these without I/O; successful
-/// `open_configured` also verifies the hardware configuration before acquisition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AppliedConfig {
-    pub rate_millihz: u32,
-    /// Exact accelerometer full scale in multiples of standard gravity.
-    pub accel_range_g: u16,
-    /// Exact gyroscope full scale in degrees per second.
-    pub gyro_range_dps: u16,
-    /// Nominal interval between delivery opportunities in microseconds.
-    pub delivery_interval_us: u32,
+impl From<peripheral::imu::Error> for DeviceError {
+    fn from(error: peripheral::imu::Error) -> Self {
+        use peripheral::imu::Error;
+        match error {
+            Error::Unsupported => Self::Unsupported,
+            Error::InvalidData => Self::InvalidData,
+            Error::Io => Self::Io,
+            Error::Timeout => Self::Timeout,
+            Error::Overflow => Self::Full,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

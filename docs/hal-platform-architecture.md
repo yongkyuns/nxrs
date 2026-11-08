@@ -20,8 +20,9 @@ for new peripheral composition work. Its implementation remains open in
 of HAL-local build scripts and default sensor factories document the current
 baseline; they are not requirements to preserve those mechanisms.
 
-The target keeps runtime capability APIs, normalization, acquisition and native
-ABI source in their owning HALs. HAL build requirements become declarative.
+The target keeps managed capability APIs, acquisition and native ABI source in
+their owning HALs. Shared synchronous device normalization belongs to driver
+implementations of the contracts in `driver/peripheral`. HAL build requirements become declarative.
 Shared tooling owns generic generation, package-specific provider selection,
 native compilation/link integration and input freshness. Cargo owns ordinary
 optional driver dependencies. Gate uniquely named implementation modules once
@@ -44,7 +45,7 @@ requirements continue to apply throughout migration.
 
 Resource adapters belong in `driver/<bus>`. `driver/i2c` implements
 `embedded_hal::i2c::I2c` for NuttX only and owns its native glue; IMU supplies
-resolved configuration and keeps sensor translation and acquisition policy.
+resolved configuration and keeps acquisition and stream metadata policy.
 Chip drivers depend on the bus trait, not this concrete adapter. There are no
 host bus backends, unavailable stubs or additional logical profile roles.
 Version 2 sensor catalogs name checked-in
@@ -224,16 +225,19 @@ hal/wifi/
         ffi/               minimal Objective-C SDK binding
 ~~~
 
-HALs own capability contracts, normalization and acquisition implementations.
+HALs own managed capability contracts and acquisition implementations.
 HALs and peripheral drivers may use Rust `std`; portability requires clean OS
 boundaries, not a `no_std` crate marker. The IMU HAL and BMI270/LSM6DSO drivers
 target the same std environment as their NuttX and host consumers. Core-only
 checks remain only for packages that intentionally support that environment.
 Reusable chip protocols belong in `driver/<device>` and expose sensor-specific
-APIs over existing bus traits and own their supported settings. A capability's
-private driver adapters translate those APIs into its own observations,
-configuration and errors. Resolve common requests into concrete driver settings
-before acquiring resources; do not duplicate supported-mode tables in the HAL.
+APIs over existing bus traits and own their supported settings. The shared
+`driver/peripheral::imu` contract defines synchronous configuration resolution,
+physical measurements, buffering semantics and device errors. BMI270 and LSM6DSO
+implement it directly alongside their chip APIs. HAL IMU reuses its configuration
+types and adds sequence/reception metadata, profile construction, readiness,
+acquisition and lifecycle errors. Resolve requests before acquiring resources;
+do not duplicate supported-mode tables or normalization wrappers in the HAL.
 Drivers have no dependency on the capability HAL. Reusable OS resource adapters
 live in `driver/<bus>`, with native glue beside the actual OS implementation.
 The I²C adapter supports NuttX; host tests inject fake bus operations rather than

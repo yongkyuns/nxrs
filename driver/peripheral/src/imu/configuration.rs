@@ -1,19 +1,46 @@
 //! Pure request validation and nominal rate selection.
-use crate::{AppliedConfig, Config, DeviceError};
+use super::Error;
+
+/// Requirements for one paired accelerometer/gyroscope stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Config {
+    /// Inclusive nominal rate limits in millihertz.
+    pub min_rate_millihz: u32,
+    pub max_rate_millihz: u32,
+    /// Exact accelerometer full scale in multiples of standard gravity.
+    pub accel_range_g: u16,
+    /// Exact gyroscope full scale in degrees per second.
+    pub gyro_range_dps: u16,
+    /// Maximum nominal time between delivery opportunities. Scheduling,
+    /// bus transfer time and sink backpressure contribute additional latency.
+    pub max_delivery_interval_us: u32,
+}
+
+/// Nominal settings accepted by a driver; hardware construction verifies them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppliedConfig {
+    pub rate_millihz: u32,
+    /// Exact accelerometer full scale in multiples of standard gravity.
+    pub accel_range_g: u16,
+    /// Exact gyroscope full scale in degrees per second.
+    pub gyro_range_dps: u16,
+    /// Nominal interval between delivery opportunities in microseconds.
+    pub delivery_interval_us: u32,
+}
 
 /// Select the slowest driver rate satisfying the requested sampling and delivery bounds.
-pub(super) fn select_rate<R: Copy>(
+pub fn select_rate<R: Copy>(
     config: Config,
     rates: impl IntoIterator<Item = R>,
     milli_hz: impl Fn(R) -> u32,
-) -> Result<(R, AppliedConfig), DeviceError> {
+) -> Result<(R, AppliedConfig), Error> {
     if config.min_rate_millihz == 0
         || config.min_rate_millihz > config.max_rate_millihz
         || config.max_delivery_interval_us == 0
         || config.accel_range_g == 0
         || config.gyro_range_dps == 0
     {
-        return Err(DeviceError::InvalidData);
+        return Err(Error::InvalidData);
     }
     let minimum = config
         .min_rate_millihz
@@ -34,7 +61,7 @@ pub(super) fn select_rate<R: Copy>(
                 },
             )
         })
-        .ok_or(DeviceError::Unsupported)
+        .ok_or(Error::Unsupported)
 }
 
 #[cfg(test)]
@@ -56,7 +83,7 @@ mod tests {
         request.max_delivery_interval_us = 9_615;
         assert_eq!(
             select_rate(request, rates, core::convert::identity),
-            Err(DeviceError::Unsupported)
+            Err(Error::Unsupported)
         );
         request.max_delivery_interval_us = u32::MAX;
         assert_eq!(
@@ -67,7 +94,7 @@ mod tests {
         );
         assert_eq!(
             select_rate(request, [], core::convert::identity),
-            Err(DeviceError::Unsupported)
+            Err(Error::Unsupported)
         );
     }
 }

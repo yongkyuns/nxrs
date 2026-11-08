@@ -378,6 +378,14 @@ Each agent handoff must answer these questions in its PR description.
 5. Which acceptance criteria remain open, and which step can start next?
 
 
+## Shared IMU device contract follow-up
+
+BMI270 and LSM6DSO now implement `driver/peripheral::imu::Imu` directly. This
+supersedes S1/S7's private normalization wrappers: device settings, measurements
+and errors are shared below the HAL. HAL IMU keeps profile construction, stream
+metadata, readiness, acquisition and lifecycle policy. No other peripheral is
+migrated by this change; the static-device work below remains separate.
+
 ## Static-device follow-up
 
 **Accepted direction; implementation pending in
@@ -472,7 +480,7 @@ open below.
 
 ### D2 — Make implementations optional and additive
 
-Change `hal/imu/Cargo.toml`, `src/adapters/mod.rs`, binding metadata and NuttX
+Change `hal/imu/Cargo.toml`, driver module admission, binding metadata and NuttX
 construction. Use ordinary optional dependencies and one feature gate per named
 implementation module. Keep direct implementation selection when extending generation to multiple
 instances; the global `MODEL` match has already been removed. No redundant `source` metadata,
