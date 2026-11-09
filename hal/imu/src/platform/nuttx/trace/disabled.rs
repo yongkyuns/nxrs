@@ -3,15 +3,15 @@ use crate::{probe::Timing, DeviceError};
 use std::time::Instant;
 
 #[derive(Clone, Default)]
-pub(crate) struct Trace {}
+pub struct Trace {}
 
-pub(crate) type Observed<T> = T;
+pub type Observed<T> = T;
 
 impl Trace {
-    pub(crate) fn observe<T>(self, inner: T) -> T {
+    pub fn observe<T>(self, inner: T) -> T {
         inner
     }
-    pub(crate) fn new(_: impl Fn(Timing) + Send + Sync + 'static) -> Result<Self, DeviceError> {
+    pub fn new(_: impl Fn(Timing) + Send + Sync + 'static) -> Result<Self, DeviceError> {
         Err(DeviceError::Unsupported)
     }
 

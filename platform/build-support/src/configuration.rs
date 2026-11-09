@@ -44,7 +44,7 @@ fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, Stri
         } => {
             let address = device.address.ok_or("I2C device requires an address")?;
             let irq_path = irq_path()?;
-            ("factory::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
+            ("resources::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
         }
         Resource::Spi {
             device: path,
@@ -55,7 +55,7 @@ fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, Stri
                 .ok_or("SPI device requires chip-select")?;
             let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
             let irq_path = irq_path()?;
-            ("factory::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
+            ("resources::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
         }
         Resource::Uart { device: path, baud } => {
             ("Binding", format!("path: {path:?}, baud: {baud}"))
@@ -88,14 +88,19 @@ pub fn render_imu_instances(
             Some(Resource::Spi { .. }) => "spi",
             _ => return Err("IMU requires an I2C or SPI bus".into()),
         };
+        let resources = match bus {
+            "i2c" => "resources::I2cResource",
+            "spi" => "resources::SpiResource",
+            _ => unreachable!(),
+        };
         let binding = catalogs.binding("imu", &device.compatible, bus)?;
         let implementation = binding["implementation"]
             .as_str()
             .ok_or("missing implementation")?;
         crate::bindings::validate_implementation(implementation)?;
         let name = format!("DEVICE_{}", instances.len());
-        source.push_str(&format!("declare_device!({name}, {id:?}, implementations::{implementation}, {binding_type}<'static>, {binding_type} {{ {fields} }}, {stack});\n"));
-        instances.insert(id.as_str(), (name, implementation, binding_type));
+        source.push_str(&format!("declare_device!({name}, {id:?}, implementations::{implementation}, {binding_type}<'static>, {resources}, {binding_type} {{ {fields} }}, {stack});\n"));
+        instances.insert(id.as_str(), (name, implementation, resources));
     }
     source.push_str("pub mod devices {\n");
     for (accessor, id) in graph.imu_accessors(catalogs)? {
@@ -103,18 +108,18 @@ pub fn render_imu_instances(
             .get(id)
             .ok_or("IMU accessor references an inactive device")?;
         source.push_str(&format!(
-            "pub fn r#{accessor}() -> &'static impl crate::Device {{ &super::{instance} }}\n"
+            "pub fn r#{accessor}() -> &'static impl imu::Device {{ &super::{instance} }}\n"
         ));
     }
-    source.push_str("}\npub use devices::primary;\n");
+    source.push_str("}\n");
     let id = graph
         .aliases
         .get("imu")
         .ok_or("missing primary IMU alias")?;
-    let (instance, implementation, binding_type) = instances
+    let (instance, implementation, resources) = instances
         .get(id.as_str())
         .ok_or("missing primary IMU instance")?;
-    source.push_str(&format!("fn primary_instance() -> &'static instance::Instance<implementations::{implementation}, {binding_type}<'static>> {{ &{instance} }}\n"));
+    source.push_str(&format!("fn primary_instance() -> &'static Instance<implementations::{implementation}, {resources}> {{ &{instance} }}\n"));
     Ok(source)
 }
 
@@ -129,7 +134,8 @@ mod tests {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let profile = Profile::resolve(&source, "m5stack-cores3-gnss").unwrap();
         let graph = profile.composition().unwrap().unwrap();
-        let mut package = crate::bindings::Package::load(&source.join("hal/imu")).unwrap();
+        let mut package =
+            crate::bindings::Package::load(&source.join("platform/devices/imu")).unwrap();
         for input in &mut package.catalogs {
             input.contents = input.contents.replace("Bmi270", "AnotherSensor");
             input.sha256 = crate::hash_bytes(input.contents.as_bytes());
@@ -158,17 +164,17 @@ mod tests {
         let witness = temp.0.join("witness.rs");
         fs::write(&witness, format!(r#"
             #![allow(dead_code, unused_imports)]
+            extern crate self as imu;
             trait Device {{}}
-            mod imu {{
+            mod imu_wiring {{
                 mod implementations {{ pub struct AnotherSensor; }}
-                mod factory {{ pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
-                mod instance {{
-                    pub struct Instance<S, B>(pub std::marker::PhantomData<S>, pub B);
-                    impl<S, B> crate::Device for Instance<S, B> {{}}
-                }}
+                mod resources {{ pub type I2cResource = (); pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
+                struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
+                impl<S, R> crate::Device for Instance<S, R> {{}}
                 macro_rules! declare_device {{
-                    ($name:ident, $id:literal, $sensor:ty, $binding:ty, $value:expr, $stack:literal) => {{
-                        static $name: instance::Instance<$sensor, $binding> = instance::Instance(std::marker::PhantomData, $value);
+                    ($name:ident, $id:literal, $sensor:ty, $binding:ty, $resources:ty, $value:expr, $stack:literal) => {{
+                        const _: $binding = $value;
+                        static $name: Instance<$sensor, $resources> = Instance(std::marker::PhantomData);
                     }};
                 }}
                 {imu}

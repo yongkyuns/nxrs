@@ -75,8 +75,9 @@ app/nxrs follows the same provider-hiding rule for its native replay
 profile. It acquires camera, storage and transport through `nxrs-camera`,
 `nxrs-storage`, and `nxrs-transport`, then moves those resources into
 CameraService, RecordingService and TelemetryService.
-App and service code has no platform knowledge or dependencies. HAL factories
-own admission and implementation selection, including typed `Unsupported`
+App and service code has no OS or board knowledge. Apps select named IMUs
+through the portable device catalogue; services receive those references.
+HAL factories own admission and acquisition, including typed `Unsupported`
 results when unbound. Platform build/configuration code accepts an entry as
 input without naming a particular application.
 
@@ -101,7 +102,7 @@ application access to portable HAL abstractions.
 The navigation services are the first implementation of this rule:
 
 ~~~text
-ImuService.start()
+ImuService.start_on(devices::primary_imu())
     -> HAL IMU acquisition
     -> owner thread owns IMU for its lifetime
 
@@ -494,7 +495,8 @@ app-to-app production dependencies.
 
 The dual-IMU app proves that a capability may supply more than one resource
 instance when its selected provider supports that operation. The app passes
-`imu::primary()` and `imu::devices::secondary()` to `ImuService::start_on`;
+`devices::primary_imu()` and `devices::secondary()` from `nxrs-imu-devices`
+to `ImuService::start_on`;
 each service owns an exclusive session for its selected device. Starting two
 services on the same device returns Busy. Pausing one does not affect the other.
 

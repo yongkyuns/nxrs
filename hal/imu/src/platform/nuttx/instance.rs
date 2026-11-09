@@ -1,47 +1,59 @@
 //! Canonical storage remains in the device; a worker borrows it until retirement.
 use super::device_state::DeviceState;
-use super::{device, events, trace::Trace};
+use super::{device, events, factory, trace::Trace};
 use crate::{api::Sealed, AppliedConfig, Config, Device, DeviceError, Event, Session};
 use acquisition::{readiness, Worker};
-use peripheral::imu::Imu;
+use peripheral::imu::{Error, Imu};
 use std::sync::Mutex;
 
-type Construct<S, B> =
-    fn(&B, Config, Trace, &'static DeviceState, bool) -> Result<device::Device<S>, DeviceError>;
-
-pub(super) struct Instance<S: Imu + Send + 'static, B: Sync + 'static> {
+/// Canonical storage for platform composition. Declare each physical endpoint
+/// once, after profile validation; aliases must share that same static instance.
+/// Applications acquire devices through their catalogue, never construct them.
+pub struct Instance<S: Imu + Send + 'static, R: 'static> {
     id: &'static str,
-    binding: B,
+    irq_path: Option<&'static str>,
     stack_bytes: usize,
     state: DeviceState,
     storage: Mutex<Option<device::Device<S>>>,
-    construct: Construct<S, B>,
+    open_resources: fn(Trace) -> Result<R, DeviceError>,
+    initialize: fn(R, S::Settings) -> Result<S, Error>,
 }
-impl<S: Imu + Send + 'static, B: Sync + 'static> Instance<S, B> {
-    pub(super) const fn new(
+impl<S: Imu + Send + 'static, R: 'static> Instance<S, R> {
+    pub const fn new(
         id: &'static str,
-        binding: B,
+        irq_path: Option<&'static str>,
         stack_bytes: usize,
-        construct: Construct<S, B>,
+        open_resources: fn(Trace) -> Result<R, DeviceError>,
+        initialize: fn(R, S::Settings) -> Result<S, Error>,
     ) -> Self {
         Self {
             id,
-            binding,
+            irq_path,
             stack_bytes,
             state: DeviceState::new(),
             storage: Mutex::new(None),
-            construct,
+            open_resources,
+            initialize,
         }
     }
 
-    pub(super) fn start(
+    pub fn start(
         &'static self,
         config: Config,
         trace: Trace,
-        sensor_reference: bool,
+        prepare: impl FnOnce(&mut S) -> Result<(), Error>,
         sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
-        let device = (self.construct)(&self.binding, config, trace, &self.state, sensor_reference)?;
+        let observed = trace.clone();
+        let device = factory::acquire(
+            config,
+            self.irq_path,
+            trace,
+            &self.state,
+            || (self.open_resources)(observed),
+            self.initialize,
+        )?;
+        let device = device.prepare(prepare)?;
         let applied = device.applied_config();
         {
             let mut storage = self.storage.lock().map_err(|_| {
@@ -77,8 +89,8 @@ impl<S: Imu + Send + 'static, B: Sync + 'static> Instance<S, B> {
 
 // Dropped after the sink and terminal delivery, including spawn failure/panic.
 // Cleanup and descriptor destruction finish before the device becomes available.
-struct Retained<S: Imu + Send + 'static, B: Sync + 'static>(&'static Instance<S, B>);
-impl<S: Imu + Send + 'static, B: Sync + 'static> Drop for Retained<S, B> {
+struct Retained<S: Imu + Send + 'static, R: 'static>(&'static Instance<S, R>);
+impl<S: Imu + Send + 'static, R: 'static> Drop for Retained<S, R> {
     fn drop(&mut self) {
         let mut storage = self.0.storage.lock().unwrap_or_else(|error| {
             self.0.state.mark_faulted();
@@ -87,8 +99,8 @@ impl<S: Imu + Send + 'static, B: Sync + 'static> Drop for Retained<S, B> {
         drop(storage.take());
     }
 }
-impl<S: Imu + Send + 'static, B: Sync + 'static> Sealed for Instance<S, B> {}
-impl<S: Imu + Send + 'static, B: Sync + 'static> Device for Instance<S, B> {
+impl<S: Imu + Send + 'static, R: 'static> Sealed for Instance<S, R> {}
+impl<S: Imu + Send + 'static, R: 'static> Device for Instance<S, R> {
     fn id(&self) -> &'static str {
         self.id
     }
@@ -103,6 +115,6 @@ impl<S: Imu + Send + 'static, B: Sync + 'static> Device for Instance<S, B> {
         config: Config,
         sink: T,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
-        self.start(config, Trace::default(), false, sink)
+        self.start(config, Trace::default(), |_| Ok(()), sink)
     }
 }

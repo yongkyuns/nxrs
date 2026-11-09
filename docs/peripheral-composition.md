@@ -44,7 +44,8 @@ NuttX BSP and kernel own controller setup, pins, DMA and interrupt entry.
 | Resource adapter | Implement the required Rust resource interface using an owned OS resource |
 | Peripheral driver | Supported chip settings and resource bindings, initialization, register/FIFO protocol and direct implementation of a shared device contract where applicable |
 | Shared peripheral contract | Synchronous device configuration, physical measurements, buffering semantics and errors; no runtime or resource construction |
-| Capability HAL | Profile construction, stream metadata, readiness, acquisition, delivery, cancellation and recovery |
+| Capability HAL | Stream metadata, readiness, acquisition, delivery, cancellation and recovery |
+| Platform device catalogue | Named portable accessors and concrete driver/resource construction; no acquisition policy |
 | Profile resolver | Resolve BSP resources into NuttX configuration and Rust endpoint bindings, validate devices and aliases, then select construction code |
 
 Reusable chip drivers belong in ordinary Cargo packages under `driver/`. They
@@ -58,7 +59,7 @@ unit-based requirements using their supported settings, decode measurements into
 SI units and report device errors. The HAL reexports the configuration types,
 adds reception timestamps and sequence numbers, and maps device failures into its
 own lifecycle error vocabulary. Constructors and optional chip qualification
-controls stay in the selected NuttX factory. Shared acquisition accepts a
+controls stay in the platform catalogue’s NuttX factory. Shared acquisition accepts a
 constructed `peripheral::imu::Imu`, without a chip-construction trait or wrapper.
 
 Buffering is explicit: FIFO retains ordered hardware measurements; latest-value
@@ -88,10 +89,11 @@ hal/imu/
   src/session.rs                      Session contract implemented on the shared worker
   src/platform/simulation.rs          adapter to a coordinated simulation session
   src/platform/mod.rs                 selected acquisition exports
-  src/platform/nuttx/mod.rs            factory using resolved bindings
+  src/platform/nuttx/mod.rs            normalized acquisition and construction API
   src/platform/nuttx/factory.rs        resource setup with a supplied chip constructor
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
   src/platform/nuttx/trace/           optional I²C/SPI timing; ordinary resources stay unwrapped
+platform/devices/imu/                 named IMU accessors and concrete construction
 platform/nuttx/platforms/              existing product and qualification profiles
 driver/i2c/, driver/spi/               NuttX-only embedded-hal resource adapters
 driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
@@ -113,11 +115,12 @@ Targeting macOS alone does not establish that an IMU source exists.
 `driver/gpio` owns rising-edge GPIO registration, rollback and descriptor access.
 A task-context cleanup-failure hook retains the owner's quarantine policy, including
 on failed setup and Drop. `nxrs-acquisition` owns shared worker/cancellation helpers
-and one NuttX poll/pipe binding for IMU and GNSS. Sensor HALs supply resolved
-resources and sensor policy; chip drivers consume embedded-hal traits without
+and one NuttX poll/pipe binding for IMU and GNSS. Catalogues supply resolved resources; HALs own acquisition policy; chip drivers consume embedded-hal traits without
 depending on the concrete bus adapter. No macOS or
 Linux I²C backend is required. Host witnesses inject test-only bus operations.
-The root `platform/` directory remains build/configuration code.
+The root `platform/` directory owns build/configuration and device catalogues;
+acquisition policy stays in the HAL. Apps may use the portable catalogue; services
+receive device references and never depend on it.
 
 ## Use existing Rust resource interfaces
 
@@ -257,8 +260,8 @@ stack-bytes = 16384
 The `[hal] imu = "nuttx"` binding selects NuttX integration for this capability.
 The device's `compatible` selects the sensor. The capability API owns ODR and
 full-scale requests. The device is named `imu`, so firmware can access it through
-`imu::devices::imu()`. This single-IMU profile needs no alias;
-`imu::primary().open_default(sink)` acquires that same device.
+`imu_devices::imu()`. This single-IMU profile needs no alias;
+`imu_devices::primary_imu().open_default(sink)` acquires that same device.
 
 Composition version 1 is the migration boundary for physical sensor profiles.
 Move legacy IMU driver, address and wake settings into the device record,
@@ -287,11 +290,11 @@ sensor ODR. An interrupt acquisition failure remains an error. The M135 stock
 module uses periodic wakes because its interrupts are unwired.
 
 Device names identify configured instances: `[devices.imu]` generates
-`imu::devices::imu()`. Names use lowercase snake case; `self`, `super` and
+`imu_devices::imu()`. Names use lowercase snake case; `self`, `super` and
 `crate` are reserved. Each physical IMU has one canonical static object with its
 own driver storage and ownership/fault record. `aliases.imu` selects
-`imu::primary()` for default acquisition. Additional
-`imu_<name>` aliases generate `imu::devices::<name>()` accessors:
+`imu_devices::primary_imu()` for default acquisition. Additional
+`imu_<name>` aliases generate `imu_devices::<name>()` accessors:
 
 ```toml
 [aliases]
@@ -323,7 +326,7 @@ Product profiles choose the actual bus, address and interrupt endpoint. NuttX
 owns physical pin assignment and device registration.
 
 Each package declares version 2 binding files in `package.metadata.nxrs.bindings`.
-The IMU HAL imports its drivers' declarations with `{ dependency = "nxrs-bmi270" }`
+The IMU platform catalogue imports its drivers' declarations with `{ dependency = "nxrs-bmi270" }`
 and the corresponding LSM6DSO entry. Imports must name an existing normal Cargo
 dependency with an explicit path; target tables and dependency aliases are
 supported. Registry-only and workspace-inherited imports are not implemented.
@@ -460,14 +463,15 @@ Keep an additional input fingerprint covering ordered source content hashes,
 binding schemas and resolver/emitter revision in the build/cache identity.
 Equivalent graphs share a semantic digest even if input spelling differs.
 Input/order changes still invalidate source-derived outputs through the input
-fingerprint. A common resource renderer generates typed bindings in the HAL's
-OUT_DIR: canonical IMU instances and alias accessors, or the default GNSS binding.
+fingerprint. A common resource renderer generates canonical IMU instances and
+accessors in the platform catalogue's OUT_DIR, and the default GNSS binding in
+its HAL OUT_DIR.
 It validates identifiers and escapes literal values.
 There are no per-HAL emitters, Rust projection schemas or model-enum matches.
 
 Cargo still resolves dependencies before running HAL build scripts. V1 keeps
-portable driver crates as ordinary declared dependencies in the applicable HAL
-manifests, following existing target scoping where valid. Select the actual HAL
+portable driver crates as ordinary declared dependencies in their construction
+owner (the platform catalogue for IMU, its HAL for GNSS), following existing target scoping where valid. Select the actual HAL
 source and constructor at compile time. Unselected portable dependency artifacts
 may still compile. Measure build cost separately from linked firmware size.
 Build scripts cannot enable optional dependencies. Any later dependency-pruning

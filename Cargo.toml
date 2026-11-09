@@ -10,6 +10,7 @@ members = [
     "app/home-cam",
     "platform/build",
     "platform/build-support",
+    "platform/devices/imu",
     "hal/detector/build-support",
     "driver/bmi270",
     "driver/i2c",
@@ -69,6 +70,7 @@ members = [
     "tests/rtos-bench/rust",
 ]
 default-members = [
+    "platform/devices/imu",
     "app/nxrs",
     "app/std-demo",
     "app/ao-stress",

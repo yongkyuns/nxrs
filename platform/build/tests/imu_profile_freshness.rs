@@ -30,6 +30,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     fs::write(sdk.join("Cargo.toml"), "[workspace]\n").unwrap();
     for (relative, files) in [
         ("hal/imu", &["Cargo.toml"][..]),
+        ("platform/devices/imu", &["Cargo.toml"][..]),
         ("hal/gnss", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
@@ -72,10 +73,10 @@ fn main() {
     // Render the actual NuttX resource bindings on the host without compiling native helpers.
     let profile = resolved::load(&receipt, &root, Some("m5stack-cores3-gnss"), "xtensa-esp32s3-nuttx", "nuttx").unwrap();
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for capability in ["imu", "gnss"] {
+    for (capability, directory) in [("imu", "platform/devices/imu"), ("gnss", "hal/gnss")] {
         let package_output = output.join(capability);
         std::fs::create_dir_all(&package_output).unwrap();
-        for path in preparation::prepare_package(&root.join("hal").join(capability), &profile, "nuttx", &package_output).unwrap() {
+        for path in preparation::prepare_package(&root.join(directory), &profile, "nuttx", &package_output).unwrap() {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
@@ -88,10 +89,13 @@ fn main() {
         root.join("src/main.rs"),
         r#"
 #![allow(dead_code, unused_imports)]
+extern crate self as imu;
 #[path = @API@] mod api;
 pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 #[cfg(unix)] pub use api::Device;
 #[path = @SESSION@] mod session;
+#[cfg(unix)]
+#[path = @DEVICE_STATE@] mod device_state;
 #[cfg(not(unix))] pub trait Device {}
 // Every host checks generated bindings below. Unix hosts additionally compile
 // the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
@@ -121,25 +125,25 @@ use ffi as events;
 #[cfg(unix)]
 mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [u8]) -> std::io::Result<()> { panic!("unexpected I/O") } }
 #[cfg(unix)]
-#[path = @FACTORY@] mod production;
+#[path = @HAL_FACTORY@] pub mod construction;
 #[cfg(unix)]
-mod platform { pub(crate) use crate::production::open_probed; }
+#[path = @FACTORY@] mod production;
 // Windows cannot compile the Unix descriptor implementation. Still compile
 // the generated declaration/alias syntax against its typed resource contracts.
 #[cfg(not(unix))]
 mod production {
-    mod factory {
+    mod resources {
         pub struct I2cBinding<'a> { pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
+        pub type I2cResource = (); pub type SpiResource = ();
         pub struct SpiBinding<'a> { pub path: &'a str, pub chip_select: u16, pub mode: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
     }
     mod implementations { pub struct Bmi270; pub struct Lsm6dso; pub struct Bmi270Spi; pub struct Lsm6dsoSpi; }
-    mod instance {
-        pub struct Instance<S, B>(pub B, pub std::marker::PhantomData<S>);
-        impl<S: Sync, B: Sync> crate::Device for Instance<S, B> {}
-    }
+    struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
+    impl<S: Sync, R: Sync> crate::Device for Instance<S, R> {}
     macro_rules! declare_device {
-        ($name:ident, $id:literal, $sensor:ty, $binding_type:ty, $binding:expr, $stack:expr) => {
-            static $name: instance::Instance<$sensor, $binding_type> = instance::Instance($binding, std::marker::PhantomData);
+        ($name:ident, $id:literal, $sensor:ty, $binding_type:ty, $resource:ty, $binding:expr, $stack:expr) => {
+            const _: $binding_type = $binding;
+            static $name: Instance<$sensor, $resource> = Instance(std::marker::PhantomData);
         };
     }
     include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
@@ -147,7 +151,7 @@ mod production {
 #[cfg(unix)] include!("named.rs");
 fn main() {
     #[cfg(unix)] {
-        let applied = production::primary().resolve(Config {
+        let applied = production::devices::primary_imu().resolve(Config {
             min_rate_millihz: 100000, max_rate_millihz: 110000,
             accel_range_g: 4, gyro_range_dps: 2000, max_delivery_interval_us: 10000,
         }).unwrap();
@@ -165,6 +169,7 @@ fn main() {
         )
         .replace("@SPI@", &format!("{:?}", source.join("driver/spi/tests/support/mod.rs")))
         .replace("@SESSION@", &format!("{:?}", source.join("hal/imu/src/session.rs")))
+        .replace("@DEVICE_STATE@", &format!("{:?}", source.join("hal/imu/src/device_state.rs")))
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
         .replace(
             "@PROBE@",
@@ -174,15 +179,16 @@ fn main() {
             "@RESOURCE@",
             &format!("{:?}", source.join("driver/i2c/tests/support/mod.rs")),
         )
+        .replace("@HAL_FACTORY@", &format!("{:?}", source.join("hal/imu/src/platform/nuttx/mod.rs")))
         .replace(
             "@FACTORY@",
-            &format!("{:?}", source.join("hal/imu/src/platform/nuttx/mod.rs")),
+            &format!("{:?}", source.join("platform/devices/imu/src/nuttx/mod.rs")),
         ),
     )
     .unwrap();
     let single_device = r#"
 fn verify_named() {
-    assert_eq!(production::primary() as *const _ as *const (), production::devices::@DEVICE@() as *const _ as *const ());
+    assert_eq!(production::devices::primary_imu() as *const _ as *const (), production::devices::@DEVICE@() as *const _ as *const ());
 }
 "#;
     let cargo = env!("CARGO");
@@ -314,7 +320,7 @@ imu_navigation = "imu"
     .unwrap();
     fs::write(root.join("src/named.rs"), r#"
 fn verify_named() {
-    let primary = production::primary();
+    let primary = production::devices::primary_imu();
     let alias = production::devices::navigation();
     assert_eq!(primary as *const _ as *const (), alias as *const _ as *const ());
     assert_eq!(primary as *const _ as *const (), production::devices::imu() as *const _ as *const ());
@@ -342,7 +348,7 @@ fn verify_named() {
     fs::write(&redirect, "[aliases]\nimu = \"backup\"\n").unwrap();
     fs::write(root.join("src/named.rs"), r#"
 fn verify_named() {
-    let primary = production::primary();
+    let primary = production::devices::primary_imu();
     assert_eq!(primary.id(), "backup");
     assert_eq!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
     assert_eq!(production::devices::imu().id(), "imu");
@@ -389,6 +395,7 @@ fn verify_named() {
         "driver/bmi270/bindings.toml",
         "driver/lsm6dso/bindings.toml",
         "driver/bmi270/Cargo.toml",
+        "platform/devices/imu/Cargo.toml",
         "hal/gnss/bindings.toml",
     ] {
         let path = sdk.join(relative);

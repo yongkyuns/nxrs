@@ -1,9 +1,6 @@
 //! Normalize observations from the profile's shared simulation session.
+use crate::device_state;
 use peripheral::imu::select_rate;
-#[path = "../device_state.rs"]
-mod device_state;
-
-pub(crate) use crate::probe::unsupported as open_probed;
 
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 use acquisition::Worker;
@@ -114,8 +111,7 @@ impl crate::Device for SelectedDevice {
     }
 }
 pub mod devices {
-    pub fn primary() -> &'static impl crate::Device {
+    pub fn primary_imu() -> &'static impl crate::Device {
         &super::DEVICE
     }
 }
-pub use devices::primary;

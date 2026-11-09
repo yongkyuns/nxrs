@@ -1,7 +1,7 @@
 //! Event-driven architecture demonstration.
 //!
-//! The app knows only product services and their connections. Each active
-//! service acquires and owns its required HAL capability internally.
+//! The app connects portable services and selects the named IMU device.
+//! Services acquire and own their HAL sessions.
 #![forbid(unsafe_code)]
 
 use std::time::{Duration, Instant};
@@ -33,7 +33,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let gnss = GnssService::new(inputs.gnss);
 
     let fusion = fusion.start()?;
-    let imu = imu.start()?;
+    let imu = imu.start_on(devices::primary_imu())?;
     let gnss = gnss.start()?;
 
     println!("EVENT_DEMO topology:");
@@ -42,7 +42,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("  FusionService owns one bounded inbox + fusion state + owner thread");
     println!("  active services use one wait point and run each event to completion");
     println!(
-        "  app has no provider dependency; build selects providers inside each HAL capability"
+        "  app selects a portable device name; the profile supplies its concrete construction"
     );
     println!("  app orchestration = create -> connect -> start -> command -> stop");
 

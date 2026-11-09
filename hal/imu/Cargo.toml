@@ -10,12 +10,12 @@ name = "imu"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
-bindings = [{ dependency = "nxrs-bmi270" }, { dependency = "nxrs-lsm6dso" }]
 
 [features]
-probe = []
+probe = ["dep:embedded-hal"]
 
 [dependencies]
+embedded-hal = { version = "=1.0.0", optional = true }
 nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 nxrs-acquisition = { path = "../acquisition" }
@@ -24,12 +24,7 @@ nxrs-acquisition = { path = "../acquisition" }
 nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
-nxrs-i2c = { path = "../../driver/i2c" }
-nxrs-spi = { path = "../../driver/spi" }
 nxrs-gpio = { path = "../../driver/gpio" }
-nxrs-bmi270 = { path = "../../driver/bmi270" }
-nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
-embedded-hal = "=1.0.0"
 
 [dev-dependencies]
 nxrs-i2c = { path = "../../driver/i2c" }

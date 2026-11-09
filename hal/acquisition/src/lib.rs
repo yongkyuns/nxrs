@@ -3,8 +3,9 @@
 #![deny(unsafe_code)]
 
 #[cfg(target_os = "nuttx")]
-#[path = "platform/nuttx/mod.rs"]
-pub mod nuttx;
+mod platform;
+#[cfg(target_os = "nuttx")]
+pub use platform::nuttx;
 
 pub mod mock;
 #[cfg(unix)]

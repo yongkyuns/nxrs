@@ -1,4 +1,4 @@
-//! Source-injected witnesses for the NuttX IMU resource lifecycle.
+//! Native-operation fakes and real sensor/resource lifecycle witnesses.
 use super::device_state::{self, State};
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::{
@@ -31,6 +31,7 @@ struct Fake {
     fail_reference: bool,
     irq_asserted: bool,
     periodic_wake: bool,
+    repeat_periodic: bool,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -56,6 +57,7 @@ impl Fake {
             fail_reference: false,
             irq_asserted: true,
             periodic_wake: false,
+            repeat_periodic: false,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -69,6 +71,14 @@ static FAKE: Mutex<Fake> = Mutex::new(Fake::new());
 
 pub(super) mod ffi {
     use super::*;
+    thread_local! { pub static FAIL_PIPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    pub(crate) fn pipe() -> io::Result<(File, File)> {
+        if FAIL_PIPE.with(|fail| fail.replace(false)) {
+            return Err(io::Error::other("injected cancellation setup failure"));
+        }
+        let (read, write) = UnixStream::pair()?;
+        Ok((OwnedFd::from(read).into(), OwnedFd::from(write).into()))
+    }
 
     pub(crate) fn transfer(
         _: i32,
@@ -122,11 +132,14 @@ pub(super) mod ffi {
         Ok(())
     }
 
-    pub(super) fn wait(_: i32, _: i32) -> io::Result<bool> {
+    pub(crate) fn wait(_: i32, _: i32) -> io::Result<bool> {
         Ok(false)
     }
-    pub(super) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
-        let wake = std::mem::take(&mut FAKE.lock().unwrap().periodic_wake);
+    pub(crate) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
+        let wake = {
+            let mut fake = FAKE.lock().unwrap();
+            fake.repeat_periodic || std::mem::take(&mut fake.periodic_wake)
+        };
         if wake {
             std::thread::sleep(std::time::Duration::from_millis(timeout as u64));
         }
@@ -186,60 +199,63 @@ pub(super) mod spi_ffi {
     }
 }
 
+use super::{device, factory as runtime_factory, signal, trace};
 use acquisition::readiness;
-#[path = "device.rs"]
-mod device;
-use self::ffi as events;
-use super::{gpio_resource, resource, spi_resource};
+#[allow(dead_code, reason = "The fixture uses contextual GPIO cleanup.")]
+#[path = "../../../../driver/gpio/tests/support/mod.rs"]
+pub(super) mod gpio_resource;
+#[path = "../../../../driver/i2c/tests/support/mod.rs"]
+mod resource;
 #[allow(dead_code)]
-#[path = "factory.rs"]
-mod factory;
+#[path = "../../../../platform/devices/imu/src/nuttx/resources.rs"]
+mod resources;
+#[path = "../../../../driver/spi/tests/support/mod.rs"]
+mod spi_resource;
+use super::{Observed, Trace};
+use crate::DeviceError;
 use peripheral::imu::Imu as ImuDevice;
-#[path = "signal.rs"]
-mod signal;
-use super::trace;
 
-type Bmi270Sensor = nxrs_bmi270::Bmi270<factory::Bus, factory::Delay>;
-type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<factory::Bus>;
+type Bmi270Sensor = nxrs_bmi270::Bmi270<resources::Bus, resources::Delay>;
+type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<resources::Bus>;
 
 fn acquire_bmi270(
-    binding: factory::I2cBinding<'_>,
+    binding: resources::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     acquire_bmi270_traced(binding, config, trace::Trace::default())
 }
 
 fn acquire_bmi270_traced(
-    binding: factory::I2cBinding<'_>,
+    binding: resources::I2cBinding<'_>,
     config: crate::Config,
     trace: trace::Trace,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     let observed = trace.clone();
-    factory::acquire(
+    runtime_factory::acquire(
         config,
         binding.irq_path,
         trace,
         &DEVICE_STATE,
         || binding.open(observed),
         |(bus, address), settings| {
-            Bmi270Sensor::open_configured(bus, address, factory::Delay, settings)
+            Bmi270Sensor::open_configured(bus, address, resources::Delay, settings)
                 .map_err(Into::into)
         },
     )
 }
 
 fn acquire_lsm6dso(
-    binding: factory::I2cBinding<'_>,
+    binding: resources::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
-    factory::acquire(
+    runtime_factory::acquire(
         config,
         binding.irq_path,
         trace::Trace::default(),
         &DEVICE_STATE,
         || binding.open(trace::Trace::default()),
         |(bus, address), settings| {
-            Lsm6dsoSensor::open_configured(bus, address, factory::Delay, settings)
+            Lsm6dsoSensor::open_configured(bus, address, resources::Delay, settings)
                 .map_err(Into::into)
         },
     )
@@ -289,8 +305,8 @@ fn reset() {
         .store(State::Available as u8, Ordering::Relaxed);
     *FAKE.lock().unwrap() = Fake::new();
 }
-fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> factory::I2cBinding<'a> {
-    factory::I2cBinding {
+fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> resources::I2cBinding<'a> {
+    resources::I2cBinding {
         path,
         address: 0x68,
         frequency: 400_000,
@@ -419,7 +435,7 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
         (alternate.path(), 0x69, 100_000),
     ] {
         reset();
-        let binding = factory::I2cBinding {
+        let binding = resources::I2cBinding {
             path,
             address,
             frequency,
@@ -440,7 +456,7 @@ fn replacement_sensor_uses_the_same_state_and_reports_its_exact_rate() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    let replacement = factory::I2cBinding {
+    let replacement = resources::I2cBinding {
         path: file.path(),
         address: 0x6a,
         frequency: 100_000,
@@ -452,7 +468,7 @@ fn replacement_sensor_uses_the_same_state_and_reports_its_exact_rate() {
         Some(crate::DeviceError::Unsupported)
     );
     let device = acquire_lsm6dso(
-        factory::I2cBinding {
+        resources::I2cBinding {
             path: file.path(),
             address: 0x6a,
             frequency: 100_000,
@@ -834,7 +850,7 @@ fn spi_factories_share_device_state_and_cleanup() {
     }
     for select in [0, 1] {
         reset();
-        let binding = factory::SpiBinding {
+        let binding = resources::SpiBinding {
             path: file.path(),
             chip_select: select,
             frequency: 4_000_000,
@@ -853,32 +869,32 @@ fn spi_factories_share_device_state_and_cleanup() {
             }
         }
         if select == 0 {
-            type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
+            type Sensor = nxrs_bmi270::Bmi270Spi<resources::Spi, resources::Delay>;
             verify(
-                factory::acquire(
+                runtime_factory::acquire(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
                     &DEVICE_STATE,
                     || binding.open(trace::Trace::default()),
                     |bus, settings| {
-                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                        Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into)
                     },
                 )
                 .unwrap(),
             );
             assert_eq!(FAKE.lock().unwrap().regs[0x7d], 0);
         } else {
-            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<factory::Spi>;
+            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<resources::Spi>;
             verify(
-                factory::acquire(
+                runtime_factory::acquire(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
                     &DEVICE_STATE,
                     || binding.open(trace::Trace::default()),
                     |bus, settings| {
-                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                        Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into)
                     },
                 )
                 .unwrap(),
@@ -888,21 +904,21 @@ fn spi_factories_share_device_state_and_cleanup() {
     }
     reset();
     FAKE.lock().unwrap().bad_init = true;
-    type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
-    let binding = factory::SpiBinding {
+    type Sensor = nxrs_bmi270::Bmi270Spi<resources::Spi, resources::Delay>;
+    let binding = resources::SpiBinding {
         path: file.path(),
         chip_select: 0,
         frequency: 4_000_000,
         mode: 3,
         irq_path: None,
     };
-    let result = factory::acquire(
+    let result = runtime_factory::acquire(
         Sensor::DEFAULT,
         None,
         trace::Trace::default(),
         &DEVICE_STATE,
         || binding.open(trace::Trace::default()),
-        |bus, settings| Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into),
+        |bus, settings| Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into),
     );
     assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));
     assert_state(State::Faulted);
@@ -937,4 +953,13 @@ fn periodic_wait_keeps_early_deadlines_and_skips_missed_periods() {
         None
     );
     assert_eq!(next_deadline, start + period * 11);
+}
+
+/// Use the same native boundary for normalized-sensor instance tests. Serialize
+/// with the register-model tests so their one-shot wake controls stay isolated.
+pub(super) fn periodic_fixture() -> std::sync::MutexGuard<'static, ()> {
+    let serial = SERIAL.lock().unwrap();
+    reset();
+    FAKE.lock().unwrap().repeat_periodic = true;
+    serial
 }

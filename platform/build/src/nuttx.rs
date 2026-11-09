@@ -941,7 +941,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     cargo
         .current_dir(root)
         .args(["build", "--locked", "--release", "--manifest-path"])
-        .arg(&app.manifest)
+        .arg(dunce::simplified(&app.manifest))
         .args(["-p", &app.package, "--bin", &app.bin, "--target"])
         .arg(&target_arg)
         .args([

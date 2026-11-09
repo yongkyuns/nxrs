@@ -167,7 +167,13 @@ impl Profile {
             if !CAPABILITIES.contains(&capability.as_str()) {
                 return Err(format!("unknown capability: {capability}"));
             }
-            let package = Package::load(&root.join("hal").join(capability))?;
+            let catalogue = root.join("platform/devices").join(capability);
+            let directory = if catalogue.join("Cargo.toml").is_file() {
+                catalogue
+            } else {
+                root.join("hal").join(capability)
+            };
+            let package = Package::load(&directory)?;
             catalogs.insert(capability, package)?;
         }
         self.catalogs = catalogs;

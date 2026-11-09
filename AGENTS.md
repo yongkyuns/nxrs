@@ -31,7 +31,7 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   adds stream metadata, resource ownership and delivery/lifecycle policy.
   Drivers must not depend on capability HALs, applications or services. Use `hal/<capability>/src/platform/` for OS
   implementations; the root
-  `platform/` tree owns product profiles and build wiring, not HAL code.
+  `platform/` tree owns product profiles, device catalogues and concrete construction, not HAL runtime code.
   Profile bindings name actual operating systems: `linux`, `macos`, `windows`,
   or `nuttx`. The coordinated host `simulation` binding is available to IMU
   and GNSS only through a distinct simulation profile. `mock` is an explicit
@@ -49,11 +49,11 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   NuttX poll/pipe binding used by IMU and GNSS. It has no profile binding and
   shares worker code, not an executor. `imu::Session` and `gnss::Session` describe
   acquisition lifetimes; synchronous chip operations remain driver contracts.
-  Sensor HALs supply resolved configuration and own sensor policy; chip drivers
+  Catalogues supply concrete resource configuration; sensor HALs own acquisition policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile alias. Host witnesses inject
   test-only bus bindings. IMU drivers own their `bindings.toml` declarations;
-  the HAL imports them through declared normal Cargo path dependencies. Product
+  the IMU catalogue under `platform/devices/imu` imports them through normal Cargo path dependencies. The IMU HAL must not depend on concrete sensors or the catalogue. Product
   profiles select BSP resources, native pin settings and peripheral addresses. The BSP mapping
   derives NuttX Kconfig and endpoint paths together; reject conflicting overrides
   and unsupported registrations. Shared tooling emits fixed
@@ -112,9 +112,14 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   internal cfg names and files. Retain namespacing only where an external
   interface or global symbol collision makes it necessary.
 - App and service source, manifests and build scripts must contain no OS/board
-  cfg, native imports, device paths, platform inspection or platform dependencies.
-  Platform code must be application-agnostic: accept the selected entry as input,
-  never name an application or provide an app-specific runtime crate. No exceptions.
+  cfg, native imports, device paths or platform inspection. Apps may depend on
+  portable catalogues under `platform/devices/<capability>` to select named devices;
+  services receive their normalized HAL references and have no production catalogue
+  dependency. Other app/service platform dependencies remain forbidden. Only catalogue
+  wiring and qualification may use `imu::construction`; apps/services cannot create
+  a second instance for an endpoint. Catalogues contain no acquisition/runtime policy.
+  Platform code stays application-agnostic; build frontends accept the selected entry
+  as input and never name an app or add an app-specific runtime crate.
 
 - Platform/provider selection belongs in crate/module wiring and platform-local
   factories. Shared APIs, controllers, workers, and I/O algorithms must not use
@@ -130,7 +135,8 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   explicit configuration/ownership. Optional diagnostic instrumentation uses
   the explicit `probe` feature. The detector product/model rules below still apply.
 - Group capability admission and acquisition selection in each HAL's
-  `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
+  `src/platform/mod.rs`. Select modules as `selected`, using ordinary named
+  modules and conditional `as selected` exports where practical. Keep constructors
   and unavailable stubs in those implementations, and host source-injection
   witnesses in separate test wiring. Prefer fixed named exports. The selector
   must not contain implementation bodies or force its entire public namespace

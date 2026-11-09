@@ -17,7 +17,7 @@ import sys
 import tomllib
 
 ALLOWED = {
-    'app': {'service', 'api', 'hal', 'shared'},
+    'app': {'service', 'api', 'hal', 'shared', 'devices'},
     'service': {'service', 'api', 'hal', 'shared'},
     'hal': {'api', 'hal', 'driver', 'support', 'shared'},
     'api': {'api'},
@@ -27,10 +27,11 @@ ALLOWED = {
     'driver': {'api', 'driver', 'shared'},
     'shared': {'shared'},
     'build-support': {'build-support'},
+    'devices': {'hal', 'driver', 'shared'},
     'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared', 'build-support'},
-    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'test', 'shared', 'build-support'},
+    'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'devices', 'test', 'shared', 'build-support'},
 }
-PORTABLE = {'app', 'service', 'hal', 'api', 'shared'}
+PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
 PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
@@ -44,6 +45,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     # Embedded bus traits for the IMU's driver adaptation and timing observer.
     # Bus access and chip protocols belong to independent driver packages.
     'nxrs-imu': {'embedded-hal'},
+    # Concrete resource construction uses the same portable bus traits.
+    'nxrs-imu-devices': {'embedded-hal'},
     # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
     'nxrs-gnss': {'kinavis-ubx'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
@@ -60,6 +63,8 @@ def layer(path: Path) -> str:
         raise ValueError('a package cannot live at the virtual workspace root')
     if parts == ('platform', 'build-support'):
         return 'build-support'
+    if len(parts) == 3 and parts[:2] == ('platform', 'devices'):
+        return 'devices'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
             return 'api'
@@ -123,7 +128,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: common contains radio identities and bounded payloads only')
                 # A HAL/driver can use generic host helpers or its own SDK build
                 # package. These are build edges only, never target libraries.
-                if (role in {'hal', 'driver'} and dep.get('kind') == 'build'
+                if (role in {'hal', 'driver', 'devices'} and dep.get('kind') == 'build'
                         and (destination == ('platform', 'build-support')
                              or (role == 'hal' and destination == (*source, 'build-support')))):
                     continue
@@ -279,7 +284,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                             r'|(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b'
                             r'|["\']/(?:dev|proc)/|["\'](?:nuttx|linux|macos|windows)["\']')
                 hidden_source = r'(?:#\[path|include!)[^;\n]*["\'][^"\']*(?:platform/|hal/[^/]+/src/platform/)'
-                if re.search(identity, text) or re.search(hidden_source, text):
+                if re.search(identity, text) or re.search(hidden_source, text) or re.search(r'(?:::|\{)\s*construction\b', text):
                     errors.append(f'{path.relative_to(root)}: app/service code must have no platform knowledge')
         if role not in PORTABLE:
             continue
@@ -414,11 +419,12 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     relative = lambda path: path.relative_to(root).as_posix()
     for capability in ('imu', 'gnss'):
         hal = root / 'hal' / capability
-        nuttx = hal / 'src/platform/nuttx/mod.rs'
+        owner = root / 'platform/devices/imu' if capability == 'imu' else hal
+        nuttx = owner / ('src/nuttx/mod.rs' if capability == 'imu' else 'src/platform/nuttx/mod.rs')
         if not nuttx.is_file():
             continue
-        build = hal / 'build.rs'
-        manifest = hal / 'Cargo.toml'
+        build = owner / 'build.rs'
+        manifest = owner / 'Cargo.toml'
         if not build.is_file() or not manifest.is_file():
             errors.append(f'hal/{capability}: declare configuration in the owning package and use shared preparation')
             continue
@@ -431,7 +437,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
                 or any(macro != 'panic' for macro in macros)
                 or re.search(r'\b(?:mod|include|format|configure_hal_with)\b', build_source)):
             errors.append(f'{relative(build)}: sensor build scripts must be generic shared-preparation adapters')
-        if any((hal / 'build').rglob('*.rs')):
+        if any((owner / 'build').rglob('*.rs')):
             errors.append(f'hal/{capability}/build: host generation belongs in shared build support')
 
         try:
@@ -439,7 +445,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             if 'configuration' in metadata:
                 raise ValueError('use resource bindings, not a Rust projection schema')
             implementations = set()
-            for catalog_path in declared_binding_catalogs(hal):
+            for catalog_path in declared_binding_catalogs(owner):
                 catalog = tomllib.loads(catalog_path.read_text())
                 if catalog.get('version') != 2 or not catalog.get('binding'):
                     raise ValueError('declare version 2 resource bindings')
@@ -456,7 +462,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
         source = re.sub(r'//[^\n]*|/\*.*?\*/', '', nuttx.read_text(), flags=re.S)
         include = f'include!(concat!(env!("OUT_DIR"), "/{output}"));'
         if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
-            errors.append(f'{relative(nuttx)}: include only the declared generated output from this HAL OUT_DIR')
+            errors.append(f'{relative(nuttx)}: include only the declared generated output from its owning OUT_DIR')
 
         aliases = set(re.findall(r'\btype\s+([A-Z]\w*)\s*(?:<[^;]+?>)?\s*=', source))
         if not implementations <= aliases or not re.search(r'\bmod\s+implementations\s*\{', source):
@@ -466,19 +472,36 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
         if capability == 'imu':
             compact = re.sub(r'\s+', '', source)
             if ('macro_rules!declare_device' not in compact
-                    or 'static$name:instance::Instance<' not in compact
-                    or 'factory::acquire(config,binding.irq_path,trace,state,' not in compact
-                    or 'binding.open(observed)' not in compact
+                    or 'static$name:Instance<' not in compact
+                    or 'binding.open(trace)' not in compact
                     or '<$sensor>::from_interface(' not in compact):
                 errors.append(f'{relative(nuttx)}: use canonical declarations and the checked-in typed resource factory')
-            instance = nuttx.parent / 'instance.rs'
+            instance = hal / 'src/platform/nuttx/instance.rs'
             runtime = re.sub(r'\s+', '', instance.read_text()) if instance.is_file() else ''
             if ('state:DeviceState' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
-                    or 'Worker::start_guarded("imu-acquire",self.stack_bytes,' not in runtime):
+                    or 'Worker::start_guarded("imu-acquire",self.stack_bytes,' not in runtime
+                    or 'factory::acquire(config,self.irq_path,trace,&self.state,' not in runtime):
                 errors.append(f'{relative(instance)}: retain per-device storage and ownership through guarded worker retirement')
-            for path in (nuttx, nuttx.parent / 'device.rs', nuttx.parent / 'factory.rs'):
+            for path in (nuttx, instance, instance.parent / 'device.rs', instance.parent / 'factory.rs'):
                 if path.is_file() and re.search(r'\bstatic\s+OWNED\b', path.read_text()):
                     errors.append(f'{relative(path)}: global device ownership must not replace canonical instance state')
+            hal_manifest = hal / 'Cargo.toml'
+            if hal_manifest.is_file():
+                data = tomllib.loads(hal_manifest.read_text())
+                if data.get('package', {}).get('metadata', {}).get('nxrs', {}).get('bindings'):
+                    errors.append(f'{relative(hal_manifest)}: concrete bindings belong to the platform device catalogue')
+                for table in [data, *data.get('target', {}).values()]:
+                    for alias, dependency in table.get('dependencies', {}).items():
+                        if isinstance(dependency, dict) and dependency.get('path'):
+                            package = (hal / dependency['path']).resolve()
+                            manifest = package / 'Cargo.toml'
+                            if manifest.is_file() and tomllib.loads(manifest.read_text()).get('package', {}).get('metadata', {}).get('nxrs', {}).get('bindings'):
+                                errors.append(f'{relative(hal_manifest)}: IMU must consume the normalized contract, not concrete sensor {alias}')
+            for path in (hal / 'src').rglob('*.rs'):
+                if path.name.endswith('_tests.rs'):
+                    continue
+                if any(re.search(r'\b' + re.escape(name) + r'\b', path.read_text()) for name in implementations):
+                    errors.append(f'{relative(path)}: concrete sensor wiring belongs in the platform device catalogue')
         elif not re.search(r'Session::start\(STACK_BYTES\s*,', source):
             errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
 
@@ -495,13 +518,15 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     for path in (root / 'hal').glob('*/src/platform/mod.rs'):
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
+        modules = set(re.findall(r'\bmod\s+(\w+)\s*;', text))
+        aliases = {f'{name} as selected' for name in modules if name != 'selected'}
         # Check the selection boundary, not a mandatory wildcard spelling.
         # Exact exports prevent backend internals from accidentally reaching
         # public namespaces. No platform selector may wildcard-reexport.
         selected_export = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
         if (not exports
-                or any(not re.fullmatch(selected_export, export.strip()) for export in exports)
-                or not re.search(r'\bmod\s+selected\s*;', text)
+                or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction' or export.strip() in aliases) for export in exports)
+                or not ('selected' in modules or any(export.strip() in aliases for export in exports))
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/lib.rs'):

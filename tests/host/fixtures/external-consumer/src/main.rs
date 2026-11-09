@@ -60,7 +60,7 @@ fn main() {
 
     if std::env::args().any(|argument| argument == "--sensors") {
         let (send, receive) = mpsc::channel();
-        let mut imu = motion::primary()
+        let mut imu = devices::primary_imu()
             .open_default(move |event| {
                 send.send(event).unwrap();
                 Ok(())

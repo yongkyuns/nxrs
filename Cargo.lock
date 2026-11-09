@@ -117,6 +117,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
 name = "embedded-hal"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -389,6 +395,7 @@ version = "0.1.0"
 name = "nxrs-build"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "embedded-hal",
  "nxrs-acquisition",
  "nxrs-bmi270",
@@ -488,7 +495,7 @@ dependencies = [
 name = "nxrs-dual-imu-demo"
 version = "0.1.0"
 dependencies = [
- "nxrs-imu",
+ "nxrs-imu-devices",
  "nxrs-navigation-services",
 ]
 
@@ -500,6 +507,7 @@ version = "0.1.0"
 name = "nxrs-event-demo"
 version = "0.1.0"
 dependencies = [
+ "nxrs-imu-devices",
  "nxrs-navigation-services",
 ]
 
@@ -592,11 +600,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-imu-devices"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-bmi270",
+ "nxrs-build-support",
+ "nxrs-i2c",
+ "nxrs-imu",
+ "nxrs-lsm6dso",
+ "nxrs-messaging",
+ "nxrs-peripheral",
+ "nxrs-spi",
+]
+
+[[package]]
 name = "nxrs-imu-qualification"
 version = "0.1.0"
 dependencies = [
  "nxrs-build-support",
  "nxrs-imu",
+ "nxrs-imu-devices",
  "nxrs-messaging",
 ]
 
@@ -644,6 +668,7 @@ version = "0.1.0"
 dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
+ "nxrs-imu-devices",
  "nxrs-messaging",
  "nxrs-simulation",
 ]

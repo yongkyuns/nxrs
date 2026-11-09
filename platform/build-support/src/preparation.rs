@@ -28,6 +28,7 @@ pub fn prepare_package(
     let name = package.name.clone();
     let capability = name
         .strip_prefix("nxrs-")
+        .map(|name| name.strip_suffix("-devices").unwrap_or(name))
         .filter(|name| {
             !name.is_empty()
                 && name

@@ -26,6 +26,7 @@ class ArchitectureTests(unittest.TestCase):
                                ('messaging', 'shared/messaging'),
                                ('driver', 'driver/demo'), ('platform', 'platform/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
+                               ('devices', 'platform/devices/imu'),
                                ('build-support', 'platform/build-support'),
                                ('camera-build', 'hal/camera/build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
@@ -53,6 +54,21 @@ class ArchitectureTests(unittest.TestCase):
     def violations(self):
         return CHECK.inspect(self.metadata, self.root) + CHECK.inspect_sources(self.metadata, self.root)
 
+    def test_catalogue_wires_drivers_but_only_apps_select_devices(self):
+        for source, target in [('app', 'devices'), ('devices', 'imu'), ('devices', 'bmi270')]:
+            self.add(source, target)
+        self.add('devices', 'build-support', kind='build')
+        self.assertEqual(self.violations(), [])
+        for source, target in [('service', 'devices'), ('imu', 'devices'), ('devices', 'app'), ('devices', 'service')]:
+            self.add(source, target)
+            self.assertTrue(self.violations())
+            self.packages[source]['dependencies'].pop()
+        for source in ['app', 'service']:
+            path = Path(self.packages[source]['manifest_path']).parent / 'src/entry.rs'
+            path.write_text('use imu::construction::Instance;')
+            self.assertTrue(any('platform knowledge' in error for error in self.violations()))
+            path.unlink()
+
     def test_hal_selector_exports_selected_items_without_implementation(self):
         directory = self.root / 'hal/camera/src/platform'
         directory.mkdir()
@@ -64,10 +80,13 @@ class ArchitectureTests(unittest.TestCase):
                 selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
                 self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
+        selector.write_text('mod unbound; pub use unbound as selected; pub use selected::open;')
+        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
                      'mod selected { pub fn open() {} } pub use selected::*;',
                      'mod selected;', 'mod selected; pub use selected::{open, other::Camera};',
-                     'mod selected; pub use selected::*;']:
+                     'mod selected; pub use selected::*;',
+                     'mod unbound; pub use missing as selected; pub use selected::open;']:
             with self.subTest(code=code):
                 selector.write_text(code)
                 self.assertTrue(any('select source modules' in error

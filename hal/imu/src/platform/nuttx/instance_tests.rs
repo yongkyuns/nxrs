@@ -1,9 +1,6 @@
 //! Device state and storage tests, with normalized test sensors.
-#![allow(dead_code)]
-use super::device_state;
-use super::gpio_resource;
+use super::{events, test_support};
 use crate::{AppliedConfig, Config, Device, DeviceError, Event, Session};
-use device_state::DeviceState;
 use peripheral::imu::{Buffering, Error, Imu, Measurement};
 use std::{
     sync::{
@@ -12,37 +9,6 @@ use std::{
     },
     time::Duration,
 };
-#[path = "device.rs"]
-mod device;
-#[path = "instance.rs"]
-mod instance;
-#[path = "signal.rs"]
-mod signal;
-use super::trace;
-
-mod events {
-    use std::{
-        fs::File,
-        io,
-        os::{fd::OwnedFd, unix::net::UnixStream},
-        time::Duration,
-    };
-    thread_local! { pub static FAIL_PIPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
-    pub fn pipe() -> io::Result<(File, File)> {
-        if FAIL_PIPE.with(|fail| fail.replace(false)) {
-            return Err(io::Error::other("injected cancellation setup failure"));
-        }
-        let (read, write) = UnixStream::pair()?;
-        Ok((OwnedFd::from(read).into(), OwnedFd::from(write).into()))
-    }
-    pub fn tick(_: i32, timeout: i32) -> io::Result<bool> {
-        std::thread::sleep(Duration::from_millis(timeout as u64));
-        Ok(true)
-    }
-    pub fn wait(_: i32, _: i32) -> io::Result<bool> {
-        panic!("fixture uses periodic readiness")
-    }
-}
 
 struct Control {
     fail: AtomicBool,
@@ -102,33 +68,16 @@ impl<const MODEL: u8> Drop for Sensor<MODEL> {
         self.0.drops.fetch_add(1, Ordering::Release);
     }
 }
-fn construct<const MODEL: u8>(
-    control: &&'static Control,
-    config: Config,
-    trace: trace::Trace,
-    state: &'static DeviceState,
-    _: bool,
-) -> Result<device::Device<Sensor<MODEL>>, DeviceError> {
-    let (_, applied) = device::resolve::<Sensor<MODEL>>(config)?;
-    let use_guard = state.begin_use()?;
-    Ok(device::Device::new(
-        Sensor(control),
-        applied,
-        signal::Signal::new(
-            None,
-            Duration::from_micros(applied.delivery_interval_us.into()),
-        ),
-        trace,
-        use_guard,
-    ))
+fn construct<const MODEL: u8>(control: &'static Control, _: ()) -> Result<Sensor<MODEL>, Error> {
+    Ok(Sensor(control))
 }
-type Instance<const MODEL: u8> = instance::Instance<Sensor<MODEL>, &'static Control>;
+type Instance<const MODEL: u8> = super::Instance<Sensor<MODEL>, &'static Control>;
 static A_CONTROL: Control = Control::new();
 static B_CONTROL: Control = Control::new();
 static C_CONTROL: Control = Control::new();
-static A: Instance<0> = Instance::new("front", &A_CONTROL, 65_536, construct);
-static B: Instance<0> = Instance::new("backup", &B_CONTROL, 65_536, construct);
-static C: Instance<1> = Instance::new("auxiliary", &C_CONTROL, 65_536, construct);
+static A: Instance<0> = Instance::new("front", None, 65_536, |_| Ok(&A_CONTROL), construct);
+static B: Instance<0> = Instance::new("backup", None, 65_536, |_| Ok(&B_CONTROL), construct);
+static C: Instance<1> = Instance::new("auxiliary", None, 65_536, |_| Ok(&C_CONTROL), construct);
 
 fn primary() -> &'static impl Device {
     &A
@@ -184,6 +133,7 @@ fn concurrent(left: &'static impl Device, right: &'static impl Device) {
 
 #[test]
 fn aliases_same_model_and_mixed_devices_have_independent_storage_and_faults() {
+    let _serial = test_support::periodic_fixture();
     assert_eq!(
         primary() as *const _ as *const (),
         navigation() as *const _ as *const ()
@@ -207,9 +157,16 @@ fn aliases_same_model_and_mixed_devices_have_independent_storage_and_faults() {
 }
 
 static RETIRING_CONTROL: Control = Control::new();
-static RETIRING: Instance<0> = Instance::new("retiring", &RETIRING_CONTROL, 65_536, construct);
+static RETIRING: Instance<0> = Instance::new(
+    "retiring",
+    None,
+    65_536,
+    |_| Ok(&RETIRING_CONTROL),
+    construct,
+);
 #[test]
 fn terminal_backpressure_and_dropped_session_keep_the_instance_owned() {
+    let _serial = test_support::periodic_fixture();
     use std::sync::Arc;
     events::FAIL_PIPE.with(|fail| fail.set(true));
     assert_eq!(

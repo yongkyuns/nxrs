@@ -1,11 +1,8 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
-#[path = "../device_state.rs"]
-mod device_state;
+use crate::device_state;
 
 use peripheral::imu::select_rate;
-
-pub(crate) use crate::probe::unsupported as open_probed;
 
 type MockSession = acquisition::mock::Session<DeviceError>;
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
@@ -105,7 +102,7 @@ impl crate::Device for SelectedDevice {
     }
 }
 pub mod devices {
-    pub fn primary() -> &'static impl crate::Device {
+    pub fn primary_imu() -> &'static impl crate::Device {
         &super::PRIMARY
     }
     /// Second independent scripted device in the explicit mock fixture.
@@ -113,4 +110,3 @@ pub mod devices {
         &super::SECONDARY
     }
 }
-pub use devices::primary;
