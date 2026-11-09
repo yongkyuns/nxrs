@@ -6,7 +6,7 @@ use navigation::{FusionService, GnssService, ImuService};
 fn sensor_services_fail_without_selected_providers() {
     let (_fusion, inputs) = FusionService::new();
 
-    let imu_error = match ImuService::new(inputs.imu).start() {
+    let imu_error = match ImuService::new(inputs.imu).start_on(imu_devices::primary_imu()) {
         Ok(_) => panic!("IMU unexpectedly started without a selected provider"),
         Err(error) => error,
     };

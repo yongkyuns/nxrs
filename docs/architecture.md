@@ -494,7 +494,8 @@ app-to-app production dependencies.
 
 The dual-IMU app proves that a capability may supply more than one resource
 instance when its selected provider supports that operation. The app passes
-`imu::primary()` and `imu::devices::secondary()` to `ImuService::start_on`;
+`devices::primary_imu()` and `devices::secondary()` from `nxrs-imu-devices`
+to `ImuService::start_on`;
 each service owns an exclusive session for its selected device. Starting two
 services on the same device returns Busy. Pausing one does not affect the other.
 

@@ -62,7 +62,7 @@ object, and acquisition creates a separate exclusive session. Common HAL
 machinery must enforce uniqueness and quiescent release. Different devices can
 run independently, including two of the same model; aliases cannot create new
 ownership guards. IMU implements this through `imu::Device` references returned by
-`primary()` and profile-defined `devices::<name>()`; acquisition uses
+`imu_devices::primary_imu()` and profile-defined `imu_devices::<name>()`; acquisition uses
 `Device::open` or `Device::open_default`. Its worker retains storage and ownership through final
 delivery, sink destruction and resource cleanup. GNSS retains its default owner.
 
@@ -84,8 +84,8 @@ binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
 NuttX SPI character ABI. Chip drivers depend on bus traits, not these concrete adapters. There are no
 host bus backends, unavailable stubs or additional logical profile aliases.
 IMU drivers own version 2 `bindings.toml` declarations for supported resource
-combinations and checked-in implementation IDs. HAL metadata imports them through
-declared normal Cargo path dependencies. Product profiles select actual wiring;
+combinations and checked-in implementation IDs. Platform device catalogues import them through
+declared normal Cargo path dependencies; IMU runtime has no concrete sensor dependency. Product profiles select actual wiring;
 shared tooling emits typed resource bindings and a selected factory implementation.
 For composed NuttX peripherals, BSP mappings derive required Kconfig and endpoint
 paths from the same profile resource selection. Resource `kconfig` tables name
@@ -169,7 +169,12 @@ Inventory checks support review; they cannot prove that C code is mechanical.
 
 Applications own their ordinary `main()` and workflows. App and service source,
 manifests and build scripts contain no OS/board cfgs, native imports, device
-paths, platform inspection or platform dependencies. Unbound HAL factories keep
+paths or platform inspection. Apps may select named devices through portable
+catalogues under `platform/devices/<capability>`; services receive HAL references.
+All other app/service dependencies on platform code remain forbidden. Catalogue
+construction depends on HAL runtime and concrete drivers, never the reverse.
+`imu::construction` is reserved for catalogue wiring and qualification, with
+architecture checks rejecting app/service use. Unbound HAL factories keep
 the same API and return `Unsupported`; applications never select a provider to
 compile. The architecture audit rejects these violations without app exceptions.
 
@@ -277,17 +282,17 @@ APIs over existing bus traits and own their supported settings. The shared
 `driver/peripheral::imu` contract defines synchronous configuration resolution,
 physical measurements, buffering semantics and device errors. BMI270 and LSM6DSO
 implement it directly alongside their chip APIs. HAL IMU reuses its configuration
-types and adds sequence/reception metadata, profile construction, readiness,
+types and adds sequence/reception metadata, readiness,
 acquisition and lifecycle errors. Its acquisition loop accepts a constructed
 `peripheral::imu::Imu`; chip constructors and qualification controls stay at the
-selected factory boundary. Resolve requests before acquiring resources;
+platform catalogue boundary. Resolve requests before acquiring resources;
 do not duplicate supported-mode tables or normalization wrappers in the HAL.
 Drivers have no dependency on the capability HAL. Reusable OS resource adapters
 live in `driver/<bus>`, with native glue beside the actual OS implementation.
 The I²C adapter supports NuttX; host tests inject fake bus operations rather than
 selecting another production backend. Product profiles supply concrete resource bindings.
-The root `platform/` tree supplies product profiles and build wiring; HAL code
-does not move there. A profile's `[hal]` values name actual OS implementations:
+The root `platform/` tree supplies product profiles, device catalogues and concrete
+construction; HAL runtime code stays in the HAL. A profile's `[hal]` values name actual OS implementations:
 `linux`, `macos`, `windows`, or `nuttx`. The matching OS must equal Rust's
 `target_os`; a macOS profile cannot select Linux code. `mock` and `none` are
 explicit fixture/unbound states. There is no `std` or `native` platform/profile.
@@ -326,6 +331,11 @@ do not require matching C entry points or status enums across providers. The C
 headers under `tests/host/native_radio_abi` let SDK witnesses exercise the Rust
 backends; they are not production SDK interfaces.
 
+The IMU catalogue returns `&'static impl imu::Device`. Its generated statics use
+`imu::construction::Instance<S, R>` with separate resource-open and sensor-init
+callbacks. The HAL owns all state, readiness, delivery and retirement around them;
+concrete drivers and resource paths appear only in catalogue construction.
+
 `api.rs` is an ordinary module, not another crate. Provider modules import
 the contract from their own crate, so no contract/provider dependency cycle
 exists. Providers are not public namespaces. Product code uses the capability
@@ -354,7 +364,8 @@ At the current baseline, each HAL owns its local `build.rs` and uses the host-on
 also uses its own `nxrs-detector-build-support` package for the shared SDK adapter.
 The deployment CLI reuses these packages, while HAL build scripts never depend
 on the CLI. Only build-dependency edges may enter these host support packages;
-runtime HAL edges and all app/service edges to platform code remain forbidden.
+runtime HAL edges to platform code remain forbidden. Apps may use only the portable
+device catalogue, and services receive devices from their caller.
 External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
 workspace. In-checkout builds can discover the SDK root.
 The resolver emits a single `hal_provider` value for each bound capability.

@@ -200,7 +200,10 @@ pub fn configure_hal() -> Result<String> {
         return Ok("none".into());
     };
     let package = env::var("CARGO_PKG_NAME").map_err(|e| e.to_string())?;
-    let capability = package.strip_prefix("nxrs-").ok_or("HAL package name")?;
+    let capability = package
+        .strip_prefix("nxrs-")
+        .ok_or("capability package name")?;
+    let capability = capability.strip_suffix("-devices").unwrap_or(capability);
     let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
     for line in profile.cargo_output(&root, capability, &os)? {
         println!("{line}")

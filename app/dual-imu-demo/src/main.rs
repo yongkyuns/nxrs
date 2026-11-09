@@ -1,6 +1,6 @@
 //! Multi-instance proof using two independent service-owned IMU resources.
 //!
-//! The app selects logical devices through the portable IMU HAL. Each service
+//! The app selects logical devices through the portable device catalogue. Each service
 //! acquires its selected device independently at start_on().
 #![forbid(unsafe_code)]
 
@@ -69,14 +69,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let fusion_a = fusion_a.start()?;
     let fusion_b = fusion_b.start()?;
-    let imu_a = imu_a.start_on(imu::primary())?;
-    let imu_b = imu_b.start_on(imu::devices::secondary())?;
+    let imu_a = imu_a.start_on(devices::primary_imu())?;
+    let imu_b = imu_b.start_on(devices::secondary())?;
 
     println!("DUAL_IMU topology:");
     println!("  app owns two independent FusionService instances");
     println!("  app owns two independent ImuService instances");
     println!("  each ImuService acquires a distinct named IMU device at start_on()");
-    println!("  portable role references hide provider, bus and chip details");
+    println!("  portable device references hide provider, bus and chip details");
 
     let first_a = first_state(&fusion_a, "pipeline A")?;
     let first_b = first_state(&fusion_b, "pipeline B")?;

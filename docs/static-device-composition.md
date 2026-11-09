@@ -10,8 +10,8 @@ to apply only to the revisions and configurations they measured.
 
 ## Decision
 
-HAL packages own runtime contracts, implementations and declarative descriptions
-of supported bindings. The shared build system resolves profiles and generates
+HAL packages own runtime contracts and acquisition. Platform device catalogues own
+concrete construction and import driver-owned supported binding declarations. The shared build system resolves profiles and generates
 validated configuration and instance declarations. Cargo features enable the
 required implementations. Every configured physical device in the firmware's
 active instance set has one canonical, statically allocated, opaque object with
@@ -59,7 +59,7 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU/GNSS output generation lives in shared build support. IMU imports version 2
+IMU/GNSS output generation lives in shared build support. The IMU platform catalogue imports version 2
 binding declarations from its chip driver dependencies; GNSS declares its file
 locally. They describe compatible devices, resource constraints and checked-in
 Rust implementation IDs. The shared renderer uses fixed typed resource
@@ -69,7 +69,7 @@ Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
 stream metadata, acquisition and optional transaction timing.
 
-The two HAL build scripts remain generic adapters for this slice. They preserve
+The IMU catalogue and GNSS HAL build scripts remain generic adapters. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
 native compilation/linking. Full pre-Cargo handoff, optional driver selection and
 GNSS static runtime instances remain later work. IMU now generates one canonical
@@ -77,9 +77,9 @@ instance per physical record and named alias accessors, as described below.
 
 ### Implemented IMU device access
 
-`imu::devices::<device_name>()` returns the configured device directly.
-`aliases.imu` selects `imu::primary()`; `imu_<alias>` adds another accessor in
-`imu::devices`. All return `&'static impl imu::Device` for the same canonical
+`imu_devices::<device_name>()` returns the configured device directly.
+`aliases.imu` selects `imu_devices::primary_imu()`; `imu_<alias>` adds another accessor in
+`imu_devices`. All return `&'static impl imu::Device` for the same canonical
 object. A single IMU needs no alias; multiple IMUs require an explicit default.
 Accessor name collisions between different devices are rejected. `Device::open`
 accepts configuration and a typed sink; `open_default` uses the driver's default.
@@ -87,7 +87,7 @@ The result is an exclusive `Session`, separate from permanent identity. Consumer
 secondary devices; coordinated simulation has primary only. Portable services
 can receive the selected reference through `ImuService::start_on(device)`.
 
-Each NuttX instance owns its immutable binding and a
+Each NuttX instance owns resource-opening and initialization callbacks and a
 `Mutex<Option<device::Device<S>>>`, plus a private `DeviceState` recording
 `Available`, `InUse` or `Faulted`.
 The driver initializes at acquisition and remains in that static slot while
@@ -136,7 +136,8 @@ that both drivers remain in the linked firmware.
 
 | Owner | Responsibilities |
 | --- | --- |
-| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy, selected factories, capability-specific configuration and Cargo feature declarations |
+| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy and OS resource integration |
+| `platform/devices/<capability>` | Portable named accessors, concrete driver/resource wiring, canonical static declarations and their Cargo dependencies |
 | `driver/<device>` | Reusable chip protocol, supported settings/resource bindings, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
 | `driver/peripheral` | Synchronous per-peripheral contracts; no resource construction or acquisition runtime |
 | Provider-local `ffi/` | Mechanical ABI source for the consuming provider |
@@ -278,8 +279,9 @@ acquisition according to the documented policy; compile-time allocation does
 not perform I/O.
 
 Common HAL instance machinery must enforce construction and acquisition
-invariants. Applications cannot manufacture a new ownership record for an
-existing endpoint through a public constructor. Generated alias accessors refer
+invariants. Applications use catalogue accessors. The HAL construction API is exposed for
+platform wiring and qualification; architecture checks reject its use in app or
+service code. External consumers must honor the same canonical-instance requirement. Generated alias accessors refer
 to the canonical object. Avoid copyable `const DeviceSlot` values and statics
 hidden inside generic functions: Rust defines one such generic-scope static,
 not a separate allocation for each monomorphization.
@@ -305,8 +307,8 @@ requests cancellation; it does not establish that retirement has completed.
 Opaque means private representation. It does not require `dyn` dispatch, a
 vtable, heap boxing or a heterogeneous runtime registry. Private typed instances
 and named accessors returning an opaque implementation can preserve static
-dispatch. The implemented IMU API is `Device`, `primary()` and
-`devices::<alias>()`; its `Instance<S, B>` representation stays private. A uniform collection
+dispatch. The implemented IMU API is `Device`, `imu_devices::primary_imu()` and
+`imu_devices::<name>()`; its `Instance<S, R>` fields stay private. A uniform collection
 of unlike devices needs a separately reviewed dispatch/storage choice. Preserve
 the generic typed callback contract without silently boxing sinks.
 
@@ -318,7 +320,7 @@ this decision does not replace the std thread/event model with a heap-free runti
 IMU stores its concrete driver, applied settings, readiness state, tracing and
 lease in the static slot. Initialization temporaries and transaction scratch
 buffers use stack space; threads, cancellation Arcs and native descriptors retain
-their existing allocation costs. A typed function pointer constructs the driver
+their existing allocation costs. Typed resource-opening and initialization callbacks run
 once per acquisition; sample processing and ordinary sinks use static dispatch.
 
 ## Resource identity, sharing and enforcement

@@ -406,7 +406,7 @@ They supersede S4/S6's local emitter, unconditional-driver and singleton
 construction mechanisms. Preserve the earlier steps' behavior and qualification
 evidence; do not restart the sensor extraction or simulation work.
 
-Continue the current implementation in PR #306 as requested; do not create stacked PRs.
+PR #306 and the profile/IMU cleanup in PR #308 are merged. Continue from main; do not create stacked PRs.
 Update affected architecture and regression checks in the same PR that replaces
 the mechanism they enforce. Every intermediate PR must retain passing relevant
 gates; D5 audits the integrated result, not deferred repair of earlier tests.
@@ -419,8 +419,9 @@ physical S8 results and unrelated radio/camera work separately scoped.
 
 Record current build duties and lifetime behavior before moving them. Shared
 preparation now loads package-owned catalogs and generates direct implementation
-selection with typed resource bindings. Unconditional NuttX sensor dependencies
-remain. IMU now has permanent `Device` references, static per-device acquisition
+selection with typed resource bindings. Unconditional NuttX sensor dependencies remain in the platform catalogue,
+which supplies named references to apps. Services accept device references and
+the IMU HAL consumes only normalized sensor operations. IMU now has permanent `Device` references, static per-device acquisition
 storage and per-device IRQ quarantine. GNSS retains its existing global owner.
 
 Extend the typed resource construction convention to permanent instances. Settle
@@ -483,7 +484,7 @@ Exit with a working handoff; do not delete HAL scripts while any of their
 responsibilities lacks a replacement.
 
 The configuration cleanup uses version 2 binding declarations, fixed I²C/UART
-resource contracts and direct checked-in implementation selection. IMU imports
+resource contracts and direct checked-in implementation selection. The IMU platform catalogue imports
 its driver-owned declarations; GNSS retains its local binding file. This
 removes field-projection schemas and both model-enum tables. The reusable NuttX
 I²C adapter is owned by `driver/i2c`. Profile/overlay semantics and singleton ownership
@@ -493,8 +494,8 @@ open below.
 
 ### D2 — Make implementations optional and additive
 
-Change `hal/imu/Cargo.toml`, driver module admission, binding metadata and NuttX
-construction. Use ordinary optional dependencies and one feature gate per named
+Change `platform/devices/imu/Cargo.toml`, catalogue module admission, binding metadata
+and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named
 implementation module. Keep direct implementation selection when extending generation to multiple
 instances; the global `MODEL` match has already been removed. No redundant `source` metadata,
 generated file selector, feature-per-instance or duplicate `mod selected`.

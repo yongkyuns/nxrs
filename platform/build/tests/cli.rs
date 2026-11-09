@@ -66,7 +66,12 @@ fn write_imu_fixture(root: &Path) {
         "[resources.i2c0]\nkind = \"i2c\"\ndevice = \"/dev/i2c0\"\n",
     )
     .unwrap();
-    for package in ["hal/imu", "driver/bmi270", "driver/lsm6dso"] {
+    for package in [
+        "hal/imu",
+        "platform/devices/imu",
+        "driver/bmi270",
+        "driver/lsm6dso",
+    ] {
         let directory = root.join(package);
         fs::create_dir_all(&directory).unwrap();
         fs::copy(

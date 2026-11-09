@@ -13,8 +13,8 @@ priority = 100
 stack-size = 65536
 
 [dependencies]
+devices = { package = "nxrs-imu-devices", path = "../../platform/devices/imu" }
 nxrs-navigation-services = { path = "../../service/navigation" }
-nxrs-imu = { path = "../../hal/imu" }
 
 [[bin]]
 name = "dual-imu-demo"

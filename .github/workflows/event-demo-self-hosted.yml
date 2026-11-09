@@ -14,6 +14,7 @@ on:
       - 'shared/messaging/**'
       - 'shared/simulation/**'
       - 'hal/imu/**'
+      - 'platform/devices/**'
       - 'driver/i2c/**'
       - 'driver/spi/**'
       - 'driver/gpio/**'
@@ -110,6 +111,7 @@ jobs:
             -p nxrs-navigation-services --test unconfigured
           NXRS_PLATFORM=host-demo cargo +1.90.0 test --locked \
             -p nxrs-navigation-services -p nxrs-messaging --test active
+          NXRS_PLATFORM=host-demo cargo +1.90.0 test --locked -p nxrs-imu-devices
           cargo +1.90.0 check --locked \
             -p nxrs-gnss \
             --target thumbv6m-none-eabi
@@ -183,6 +185,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo +1.90.0 test --locked -p nxrs-simulation
+          NXRS_PLATFORM=simulation cargo +1.90.0 test --locked -p nxrs-imu-devices
           cargo +1.90.0 nxrs build --app event-demo --profile simulation \
             --out target/event-demo/simulation
           target/event-demo/simulation/cargo/release/event-demo --duration-ms 1200 \

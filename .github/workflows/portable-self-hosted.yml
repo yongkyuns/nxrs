@@ -12,6 +12,7 @@ on:
       - 'shared/messaging/**'
       - 'driver/**'
       - 'platform/build-support/**'
+      - 'platform/devices/**'
       - 'platform/profiles/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'

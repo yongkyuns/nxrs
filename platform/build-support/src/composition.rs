@@ -1061,12 +1061,12 @@ fn validate_ids(
 }
 pub(crate) fn imu_alias_name(alias: &str) -> Result<&str> {
     if alias == "imu" {
-        return Ok("primary");
+        return Ok("primary_imu");
     }
     let name = alias
         .strip_prefix("imu_")
         .ok_or_else(|| format!("unsupported capability alias: {alias}"))?;
-    if name == "primary" {
+    if matches!(name, "primary" | "primary_imu") {
         return Err("use aliases.imu for the primary IMU".into());
     }
     accessor_name(name).map_err(|_| format!("invalid IMU alias accessor: {alias}"))?;
@@ -1157,11 +1157,11 @@ mod tests {
     fn fixture_catalogs() -> Catalogs {
         let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut catalogs = Catalogs::default();
-        for capability in ["imu", "gnss"] {
+        for (capability, directory) in [("imu", "platform/devices/imu"), ("gnss", "hal/gnss")] {
             catalogs
                 .insert(
                     capability,
-                    crate::bindings::Package::load(&sdk.join("hal").join(capability)).unwrap(),
+                    crate::bindings::Package::load(&sdk.join(directory)).unwrap(),
                 )
                 .unwrap();
         }
@@ -1203,7 +1203,7 @@ mod tests {
             BTreeMap::from([
                 ("imu", "imu"),
                 ("navigation", "imu"),
-                ("primary", "imu")
+                ("primary_imu", "imu")
             ])
         );
         value["aliases"]["imu_navigation"] = json!("absent");
@@ -1636,10 +1636,7 @@ mod tests {
         }
         for key in ["chip-select", "spi-mode"] {
             let mut bad = value.clone();
-            bad["devices"]["imu"]
-                .as_object_mut()
-                .unwrap()
-                .remove(key);
+            bad["devices"]["imu"].as_object_mut().unwrap().remove(key);
             assert!(resolve(&bad, "nuttx", &catalogs).unwrap_err().contains(key));
         }
         let mut bad = value.clone();
@@ -1773,7 +1770,7 @@ mod tests {
         catalogs
             .insert(
                 "imu",
-                crate::bindings::Package::load(&sdk.join("hal/imu")).unwrap(),
+                crate::bindings::Package::load(&sdk.join("platform/devices/imu")).unwrap(),
             )
             .unwrap();
         assert!(super::resolve_with_providers_and_origins(

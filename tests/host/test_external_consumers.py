@@ -124,6 +124,10 @@ class ExternalConsumerTests(unittest.TestCase):
                 (directory / "src/main.rs").write_text(
                     'fn main() { assert!(std::mem::size_of::<capability::DeviceError>() > 0); }\n')
                 copied = copy_dependency_closure(directory, [ROOT / "hal" / capability])
+                if capability == "imu":
+                    for concrete in ("platform/devices/imu", "driver/bmi270", "driver/lsm6dso",
+                                     "driver/i2c", "driver/spi"):
+                        self.assertNotIn((ROOT / concrete).resolve(), copied)
                 for other in {"imu", "gnss", "camera"} - {capability}:
                     self.assertNotIn((ROOT / "hal" / other).resolve(), copied)
                     self.assertFalse((directory / "deps/hal" / other).exists())
@@ -149,6 +153,9 @@ class ExternalConsumerTests(unittest.TestCase):
                         compiled = {item["target"]["name"] for item in records
                                     if item.get("reason") == "compiler-artifact"}
                         self.assertIn(capability, compiled)
+                        if capability == "imu":
+                            self.assertTrue(compiled.isdisjoint({"imu_devices", "nxrs_bmi270",
+                                                               "nxrs_lsm6dso", "i2c", "spi"}))
                         for other in {"imu", "gnss", "camera"} - {capability}:
                             self.assertNotIn(other, compiled)
                         self.assertNotIn("nxrs_build", compiled)

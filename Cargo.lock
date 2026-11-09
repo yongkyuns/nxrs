@@ -488,7 +488,7 @@ dependencies = [
 name = "nxrs-dual-imu-demo"
 version = "0.1.0"
 dependencies = [
- "nxrs-imu",
+ "nxrs-imu-devices",
  "nxrs-navigation-services",
 ]
 
@@ -500,6 +500,7 @@ version = "0.1.0"
 name = "nxrs-event-demo"
 version = "0.1.0"
 dependencies = [
+ "nxrs-imu-devices",
  "nxrs-navigation-services",
 ]
 
@@ -592,11 +593,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-imu-devices"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-bmi270",
+ "nxrs-build-support",
+ "nxrs-i2c",
+ "nxrs-imu",
+ "nxrs-lsm6dso",
+ "nxrs-messaging",
+ "nxrs-peripheral",
+ "nxrs-spi",
+]
+
+[[package]]
 name = "nxrs-imu-qualification"
 version = "0.1.0"
 dependencies = [
  "nxrs-build-support",
  "nxrs-imu",
+ "nxrs-imu-devices",
  "nxrs-messaging",
 ]
 
@@ -644,6 +661,7 @@ version = "0.1.0"
 dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
+ "nxrs-imu-devices",
  "nxrs-messaging",
  "nxrs-simulation",
 ]

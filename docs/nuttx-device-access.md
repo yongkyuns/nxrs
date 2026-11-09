@@ -316,7 +316,7 @@ For a raw bus, a Rust resource adapter implements an existing interface such as
 `embedded_hal::i2c::I2c` through the NuttX descriptor. A reusable package under
 `driver/<device>` owns the peripheral protocol. BMI270 and LSM6DSO directly
 implement the shared synchronous IMU contract in `driver/peripheral`, retaining
-chip-specific APIs. The HAL owns concrete construction, reception timestamps,
+chip-specific APIs. The platform catalogue owns concrete construction. The HAL owns reception timestamps,
 stream sequencing, readiness, acquisition and joined cleanup. It maps device
 failures into its lifecycle error vocabulary. `driver/i2c` owns the NuttX-only
 bus adapter, descriptor and bounded transfers; `driver/spi` similarly implements

@@ -1,4 +1,3 @@
-pub(crate) use crate::probe::unsupported as open_probed;
 use crate::{AppliedConfig, Config, DeviceError, Event, Session};
 
 struct Unconfigured;
@@ -39,11 +38,10 @@ impl crate::Device for SelectedDevice {
     }
 }
 pub mod devices {
-    pub fn primary() -> &'static impl crate::Device {
+    pub fn primary_imu() -> &'static impl crate::Device {
         &super::PRIMARY
     }
     pub fn secondary() -> &'static impl crate::Device {
         &super::SECONDARY
     }
 }
-pub use devices::primary;

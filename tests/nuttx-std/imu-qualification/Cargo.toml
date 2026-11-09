@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nxrs-imu-devices = { path = "../../../platform/devices/imu" }
 nxrs-imu = { path = "../../../hal/imu" }
 nxrs-messaging = { path = "../../../shared/messaging" }
 
 [features]
-probe = ["nxrs-imu/probe"]
+probe = ["nxrs-imu-devices/probe"]
 
 [package.metadata.nxrs]
 qualification-only = true

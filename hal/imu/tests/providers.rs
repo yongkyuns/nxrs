@@ -17,7 +17,7 @@ mod session;
 mod trace;
 
 #[cfg(unix)]
-#[path = "../src/platform/nuttx/irq_tests.rs"]
+#[path = "support/irq.rs"]
 mod irq_tests;
 
 #[cfg(unix)]

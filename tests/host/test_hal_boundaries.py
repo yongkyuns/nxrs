@@ -44,37 +44,38 @@ class HalBoundariesTests(unittest.TestCase):
                     path.unlink()
 
     def write_declarative_imu(self):
-        self.write('hal/imu/src/platform/nuttx/mod.rs', '''
+        self.write('platform/devices/imu/src/nuttx/mod.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
             mod implementations {
                 type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
                 type Lsm6dso = nxrs_lsm6dso::Lsm6dso<Bus>;
             }
             macro_rules! declare_device {
-                static $name: instance::Instance<$sensor, $binding> = instance::Instance::new();
+                static $name: Instance<$sensor, $resources> = Instance::new();
                 factory::acquire(config, binding.irq_path, trace, state,
-                    || binding.open(observed), |bus, settings| {
+                    || binding.open(trace), |bus, settings| {
                     <$sensor>::from_interface(bus.try_into()?, Delay, settings)
                 });
             }
         ''')
         self.write('hal/imu/src/platform/nuttx/instance.rs', """
+            factory::acquire(config, self.irq_path, trace, &self.state, open, initialize);
             state: DeviceState,
             storage: Mutex<Option<device::Device<S>>>,
             Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
         """)
-        self.write('hal/imu/build.rs', '''
+        self.write('platform/devices/imu/build.rs', '''
             fn main() {
                 nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}"));
             }
         ''')
-        self.write('hal/imu/Cargo.toml', '''
+        self.write('platform/devices/imu/Cargo.toml', '''
             [package]
             name = "nxrs-imu"
             [package.metadata.nxrs]
             bindings = ["bindings.toml"]
         ''')
-        self.write('hal/imu/bindings.toml', '''
+        self.write('platform/devices/imu/bindings.toml', '''
             version = 2
             [[binding]]
             compatible = "bosch,bmi270"
@@ -85,13 +86,13 @@ class HalBoundariesTests(unittest.TestCase):
     def test_sensor_generation_uses_declarative_package_inputs(self):
         self.write_declarative_imu()
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
-        build = self.root / 'hal/imu/build.rs'
+        build = self.root / 'platform/devices/imu/build.rs'
         generic = build.read_text()
         build.write_text(generic.replace('configure_hal()', 'configure_hal_with(emit)'))
         self.assertTrue(any('generic shared-preparation' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         build.write_text(generic)
-        emitter = self.write('hal/imu/build/emit.rs', 'fn emit() {}')
+        emitter = self.write('platform/devices/imu/build/emit.rs', 'fn emit() {}')
         self.assertTrue(any('host generation belongs' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         emitter.unlink()
@@ -99,19 +100,19 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_generated_sensor_include_matches_its_resource_contract(self):
         self.write_declarative_imu()
-        provider = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
+        provider = self.root / 'platform/devices/imu/src/nuttx/mod.rs'
         provider.write_text(provider.read_text().replace('imu_config.rs', 'other.rs'))
         self.assertTrue(any('declared generated output' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         provider.write_text(provider.read_text().replace('other.rs', 'imu_config.rs'))
-        manifest = self.root / 'hal/imu/Cargo.toml'
+        manifest = self.root / 'platform/devices/imu/Cargo.toml'
         manifest.write_text(manifest.read_text().replace('bindings.toml', '../outside.toml'))
         self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_generated_imu_keeps_the_current_checked_in_constructor_boundary(self):
         self.write_declarative_imu()
-        nuttx = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
+        nuttx = self.root / 'platform/devices/imu/src/nuttx/mod.rs'
         nuttx.write_text(nuttx.read_text().replace('type Bmi270 =', 'type Unknown ='))
         self.assertTrue(any('checked-in typed constructor' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
@@ -127,9 +128,19 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/imu/src/platform/nuttx/device.rs', 'static OWNED: AtomicU8 = AtomicU8::new(0);')
         self.assertTrue(any('global device ownership' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
 
+    def test_hal_cannot_reintroduce_concrete_sensor_wiring(self):
+        self.write_declarative_imu()
+        self.write('hal/imu/src/lib.rs', 'use nxrs_bmi270::Bmi270;')
+        self.assertTrue(any('concrete sensor wiring' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        self.write('hal/imu/src/lib.rs', '')
+        self.write('hal/imu/Cargo.toml', '[package.metadata.nxrs]\nbindings = ["bindings.toml"]\n')
+        self.assertTrue(any('concrete bindings belong' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
     def test_sensor_bindings_can_belong_to_a_declared_driver(self):
         self.write_declarative_imu()
-        catalog = self.root / 'hal/imu/bindings.toml'
+        catalog = self.root / 'platform/devices/imu/bindings.toml'
         self.write('driver/bmi270/bindings.toml', catalog.read_text())
         catalog.unlink()
         driver = self.write('driver/bmi270/Cargo.toml', '''
@@ -138,13 +149,13 @@ class HalBoundariesTests(unittest.TestCase):
             [package.metadata.nxrs]
             bindings = ["bindings.toml"]
         ''')
-        manifest = self.write('hal/imu/Cargo.toml', '''
+        manifest = self.write('platform/devices/imu/Cargo.toml', '''
             [package]
             name = "nxrs-imu"
             [package.metadata.nxrs]
             bindings = [{ dependency = "sensor" }]
             [target.'cfg(target_os = "nuttx")'.dependencies]
-            sensor = { package = "nxrs-bmi270", path = "../../driver/bmi270" }
+            sensor = { package = "nxrs-bmi270", path = "../../../driver/bmi270" }
         ''')
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
         original = manifest.read_text()
@@ -277,7 +288,7 @@ def wiring_errors(root, selector):
         errors.append('injected provider sources belong in test_support.rs')
     selected = exports(selector)
     named = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
-    if not selected or any(not re.fullmatch(named, item.strip()) for item in selected):
+    if not selected or any(not (re.fullmatch(named, item.strip()) or item.strip() == 'selected as construction') for item in selected):
         errors.append('selector must export named selected items only')
     if not re.search(r'\bmod\s+selected\s*;', selector):
         errors.append('selector must select a source module')
@@ -302,6 +313,8 @@ class WiringNegativeControls(unittest.TestCase):
 
     def test_explicit_api_and_named_selected_exports_are_allowed(self):
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR), [])
+        self.assertEqual(wiring_errors('mod platform; pub use platform::construction;',
+                                       'pub mod selected; pub use selected as construction;'), [])
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(hal_provider = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):

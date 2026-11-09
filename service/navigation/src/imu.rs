@@ -76,10 +76,6 @@ impl ImuService {
         self.processor = processor;
         self
     }
-    pub fn start(self) -> io::Result<ImuHandle> {
-        self.start_on(imu::primary())
-    }
-
     /// Acquire the caller's logical device while keeping service policy portable.
     pub fn start_on(self, selected: &'static impl imu::Device) -> io::Result<ImuHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);

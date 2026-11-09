@@ -4,7 +4,7 @@ use embedded_hal::{i2c, spi};
 use std::{sync::Arc, time::Instant};
 
 /// The same opt-in observer wraps either resource's transaction contract.
-pub(crate) struct Observed<T> {
+pub struct Observed<T> {
     inner: T,
     trace: Trace,
 }
@@ -34,17 +34,15 @@ impl<T: spi::SpiDevice> spi::SpiDevice for Observed<T> {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct Trace {
+pub struct Trace {
     observer: Option<Arc<dyn Fn(Timing) + Send + Sync>>,
 }
 
 impl Trace {
-    pub(crate) fn observe<T>(self, inner: T) -> Observed<T> {
+    pub fn observe<T>(self, inner: T) -> Observed<T> {
         Observed { inner, trace: self }
     }
-    pub(crate) fn new(
-        observe: impl Fn(Timing) + Send + Sync + 'static,
-    ) -> Result<Self, DeviceError> {
+    pub fn new(observe: impl Fn(Timing) + Send + Sync + 'static) -> Result<Self, DeviceError> {
         Ok(Self {
             observer: Some(Arc::new(observe)),
         })

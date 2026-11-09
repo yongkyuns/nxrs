@@ -6,4 +6,5 @@ pub mod probe;
 mod session;
 pub use api::{AppliedConfig, Config, Device, DeviceError, Event, ImuSample, Session};
 pub use messaging::{DeliveryError, Rejected};
-pub use platform::{devices, primary};
+/// Construction for platform catalogues; applications use their named device accessors.
+pub use platform::construction;

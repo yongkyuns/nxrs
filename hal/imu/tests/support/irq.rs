@@ -187,15 +187,20 @@ pub(super) mod spi_ffi {
 }
 
 use acquisition::readiness;
-#[path = "device.rs"]
+#[path = "../../src/platform/nuttx/device.rs"]
 mod device;
 use self::ffi as events;
 use super::{gpio_resource, resource, spi_resource};
 #[allow(dead_code)]
-#[path = "factory.rs"]
+#[path = "../../../../platform/devices/imu/src/nuttx/resources.rs"]
 mod factory;
+#[allow(dead_code)]
+#[path = "../../src/platform/nuttx/factory.rs"]
+mod runtime_factory;
+use crate::DeviceError;
 use peripheral::imu::Imu as ImuDevice;
-#[path = "signal.rs"]
+use trace::{Observed, Trace};
+#[path = "../../src/platform/nuttx/signal.rs"]
 mod signal;
 use super::trace;
 
@@ -215,7 +220,7 @@ fn acquire_bmi270_traced(
     trace: trace::Trace,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     let observed = trace.clone();
-    factory::acquire(
+    runtime_factory::acquire(
         config,
         binding.irq_path,
         trace,
@@ -232,7 +237,7 @@ fn acquire_lsm6dso(
     binding: factory::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
-    factory::acquire(
+    runtime_factory::acquire(
         config,
         binding.irq_path,
         trace::Trace::default(),
@@ -855,7 +860,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         if select == 0 {
             type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
             verify(
-                factory::acquire(
+                runtime_factory::acquire(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
@@ -871,7 +876,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         } else {
             type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<factory::Spi>;
             verify(
-                factory::acquire(
+                runtime_factory::acquire(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
@@ -896,7 +901,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         mode: 3,
         irq_path: None,
     };
-    let result = factory::acquire(
+    let result = runtime_factory::acquire(
         Sensor::DEFAULT,
         None,
         trace::Trace::default(),
