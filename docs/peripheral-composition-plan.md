@@ -391,14 +391,14 @@ remains separate.
 
 ## Static-device follow-up
 
-**Accepted direction; implementation pending in
+**Accepted direction; implementation in progress in
 [issue #246](https://github.com/yongkyuns/nxrs/issues/246).** D0–D5 implement the
 [declarative build and static-device contract](static-device-composition.md).
 They supersede S4/S6's local emitter, unconditional-driver and singleton
 construction mechanisms. Preserve the earlier steps' behavior and qualification
 evidence; do not restart the sensor extraction or simulation work.
 
-Use focused implementation PRs, each referencing #246 and its predecessor SHA.
+Continue the current implementation in PR #306 as requested; do not create stacked PRs.
 Update affected architecture and regression checks in the same PR that replaces
 the mechanism they enforce. Every intermediate PR must retain passing relevant
 gates; D5 audits the integrated result, not deferred repair of earlier tests.
@@ -412,8 +412,8 @@ physical S8 results and unrelated radio/camera work separately scoped.
 Record current build duties and lifetime behavior before moving them. Shared
 preparation now loads package-owned catalogs and generates direct implementation
 selection with typed resource bindings. Unconditional NuttX sensor dependencies
-and global IMU/GNSS ownership remain. IRQ rollback/unregister and GNSS restoration
-still write global fault state.
+remain. IMU now has permanent `Device` references, static per-device acquisition
+storage and per-device IRQ quarantine. GNSS retains its existing global owner.
 
 Extend the typed resource construction convention to permanent instances. Settle
 generated-input delivery and package-specific compiler/link configuration; the
@@ -421,13 +421,13 @@ public permanent-device versus session API; static state inventory; initializati
 and recovery policy; and reacquisition/terminal-event ordering. Define active
 instances from consumed, admitted capabilities and how unconsumed board-profile
 records are validated without pulling in their HAL packages or catalogs.
-Exact API names remain open. No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
+The IMU API and retirement ordering are recorded in the static-device contract.
+No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
 a global provider flag or Cargo features reaching undeclared dependency edges.
 
 Preserve current public defaults and configured sampling semantics. Specify
 compatibility for existing `open` callers and no-profile/fixture builds.
-Document that current resource cleanup can precede final worker event delivery;
-holding the lease through full worker exit would be a deliberate strengthening.
+IMU now retains its lease through final delivery, sink destruction and cleanup.
 Exit with the reviewed contract and a bounded baseline of relevant tests.
 
 ### D1 — Prove shared preparation and Cargo integration
@@ -500,6 +500,18 @@ Exit with valid mixed-model compilation and target graph evidence that the
 unselected driver is absent in each single-model production build.
 
 ### D3 — Enforce canonical static objects and per-device ownership
+
+**IMU implemented in PR #306.** Named role accessors alias permanent objects;
+same-model and mixed-model devices acquire independently. Tests cover concurrent
+settings/events, Busy aliases, failure isolation, cancellation-setup rollback,
+terminal backpressure, callback retirement and per-instance IRQ quarantine.
+Actual generated factories compile across profile switches in one Cargo output.
+Flat/protected target compile/link checks do not qualify physical concurrency.
+In the pinned 32-bit Xtensa release/probe witness, two BMI270 I²C slots and one
+LSM6DSO I²C slot occupy 144 + 144 + 168 = 456 static bytes; four roles emit three
+objects. These sizes exclude worker stacks, transient buffers and OS allocations.
+Optional dependency selection (D2), full pre-Cargo handoff (D1) and GNSS instances
+remain separate unfinished work.
 
 Generate one actual static object for each active physical device with private
 configuration, persistent instance storage and ownership/fault state. Common HAL

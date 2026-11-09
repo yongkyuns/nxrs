@@ -1,9 +1,44 @@
 # IMU
 
+`imu::primary()` and profile-defined `imu::devices::<role>()` return permanent,
+opaque `Device` references, usable directly by portable apps and services:
+
+```rust,ignore
+use imu::{Device, Session};
+let device = imu::primary();
+let mut session = device.open_default(sink)?;
+// Or device.open(config, sink)? for requested/applied settings.
+session.request_stop()?;
+session.join()?;
+```
+
+`roles.imu` selects `primary`; `roles.imu_navigation = "motion"` generates
+`devices::navigation()` for device `motion`. Additional role names use lowercase
+snake case; `primary`, `self`, `super` and `crate` are reserved. Aliases return
+the same canonical object. Separate physical records have independent storage,
+configuration, ownership and quarantine, including two sensors of the same model.
+Missing role accessors fail compilation; there is no runtime string lookup.
+Mock/simulation expose only `primary`; unbound acquisition returns `Unsupported`.
+
+Hardware initializes on acquisition, not when obtaining the reference. A device
+remains Busy through worker callbacks, terminal-event delivery and sink destruction.
+Its driver/resources are then destroyed before the lease is released. Uncertain
+shutdown quarantines only that device until restart. Dropping a session requests
+cancellation; it does not immediately make the device available again.
+
+Each physical instance reserves static storage for its binding, ownership record
+and a mutex-protected acquisition slot, including the concrete driver while active.
+Initialization values and transaction buffers are transient; worker stacks,
+thread/cancellation state and OS resources retain their existing allocation costs.
+Acquisition uses one typed constructor function pointer; sample operations and
+ordinary sinks are statically dispatched and are not boxed. See the
+[storage contract](../../docs/static-device-composition.md#permanent-device-objects-and-temporary-sessions).
+
 `open` and `open_configured` return an `imu::Session`: stop, join, completion and
 drop accounting for active acquisition. The synchronous device operations belong
 to `peripheral::imu::Imu`, implemented by the chip drivers. `imu::Imu` remains
 an alias of `Session` so existing consumers require no changes.
+These free functions and `resolve` delegate to `primary()`.
 
 This HAL and its BMI270/LSM6DSO drivers use Rust `std`, as do their NuttX and
 host consumers. There is no bare-metal `no_std` variant. The optional `probe`
@@ -39,7 +74,7 @@ budget. [BMI270](../../driver/bmi270/bindings.toml) and
 and checked-in implementation IDs in their driver packages. This HAL's Cargo
 metadata imports those declarations through its existing driver dependencies.
 Shared build support generates typed
-resource values and one implementation import; there is no model enum or Rust
+resource values and one canonical declaration per physical IMU; there is no model enum or Rust
 field-projection schema. The generic build adapter retains provider selection,
 freshness and native linking. The selected factory constructs the concrete sensor;
 shared acquisition accepts that instance using only `peripheral::imu::Imu`.

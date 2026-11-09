@@ -197,16 +197,23 @@ require provider support. A periodic wake derives its interval from the accepted
 sensor ODR. An interrupt acquisition failure remains an error. The M135 stock
 module uses periodic wakes because its interrupts are unwired.
 
-Device IDs identify configured instances. `roles.imu` names the default instance
-used by the existing `imu::open(sink)` API. The graph can describe two physical
-nodes sharing a bus at distinct addresses, but the current IMU projection emits
-only the default role and the NuttX factory uses one global acquisition guard.
-A second acquisition returns Busy even for an otherwise independent device;
-simultaneous named-device acquisition is not implemented.
+Device IDs identify configured instances. Each physical IMU has one canonical
+static object with its own driver storage and ownership/fault record. `roles.imu`
+selects `imu::primary()` and the existing `imu::open(sink)` default. Additional
+`imu_<name>` roles generate `imu::devices::<name>()` accessors:
 
-The accepted target is one canonical static object and ownership record per
-physical device. Roles alias those objects. Different devices may acquire
-independently; aliases of one device share its Busy/fault state. The OS/resource
+```toml
+[roles]
+imu = "motion"
+imu_navigation = "motion" # alias of primary
+imu_backup = "spare"     # separately declared device/endpoint
+```
+
+Applications import `imu::Device` and call `device.open(config, sink)` or
+`device.open_default(sink)`. References do not acquire hardware. Different devices
+may acquire independently; aliases share Busy/fault state until the prior worker,
+terminal delivery, sink and resource cleanup retire. GNSS retains its existing
+default-session API. The OS/resource
 adapter retains transaction serialization for a shared bus. See the
 [static-device contract](static-device-composition.md#permanent-device-objects-and-temporary-sessions)
 for lifecycle, opacity and storage requirements.
@@ -356,10 +363,10 @@ Keep an additional input fingerprint covering ordered source content hashes,
 binding schemas and resolver/emitter revision in the build/cache identity.
 Equivalent graphs share a semantic digest even if input spelling differs.
 Input/order changes still invalidate source-derived outputs through the input
-fingerprint. A common resource renderer generates typed bindings and one implementation
-import in the HAL's OUT_DIR. It validates identifiers and escapes literal values.
+fingerprint. A common resource renderer generates typed bindings in the HAL's
+OUT_DIR: canonical IMU instances and role accessors, or the default GNSS binding.
+It validates identifiers and escapes literal values.
 There are no per-HAL emitters, Rust projection schemas or model-enum matches.
-Per-instance ownership remains separate follow-up work.
 
 Cargo still resolves dependencies before running HAL build scripts. V1 keeps
 portable driver crates as ordinary declared dependencies in the applicable HAL

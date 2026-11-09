@@ -21,6 +21,40 @@ impl Wake for Cancel {
 }
 
 #[test]
+fn retained_owner_outlives_sink_even_when_callback_panics() {
+    struct Released(u8, Arc<std::sync::Mutex<Vec<u8>>>);
+    impl Drop for Released {
+        fn drop(&mut self) {
+            self.1.lock().unwrap().push(self.0);
+        }
+    }
+    for panic in [false, true] {
+        let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Released(1, order.clone());
+        let owner = Released(2, order.clone());
+        let mut worker = Worker::start_guarded(
+            "retirement-test",
+            65536,
+            Cancel(Arc::new(AtomicUsize::new(0))),
+            move |_: u8| {
+                let _retained_sink = &sink;
+                assert!(!panic, "injected callback panic");
+                Ok(())
+            },
+            owner,
+            |e| e,
+            |_, emit| {
+                emit(1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(worker.join(9), if panic { Err(9) } else { Ok(()) });
+        assert_eq!(*order.lock().unwrap(), [1, 2]);
+    }
+}
+
+#[test]
 fn failed_wake_preserves_running_handle_and_eventual_terminal_fault() {
     let (release, wait) = mpsc::sync_channel(1);
     let calls = Arc::new(AtomicUsize::new(0));

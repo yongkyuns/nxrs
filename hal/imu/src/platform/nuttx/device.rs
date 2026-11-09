@@ -1,15 +1,12 @@
 //! Acquisition and lifetime of an already-constructed normalized IMU.
-use super::{gpio_resource, signal::Signal, trace::Trace, OWNED};
+use super::{gpio_resource, signal::Signal, trace::Trace};
+use crate::instance::{Lease, Ownership};
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
 use core::sync::atomic::{AtomicBool, Ordering};
 use peripheral::imu::{Buffering, Imu};
 use std::{fs::File, time::Instant};
 
-pub(super) type Irq = gpio_resource::Interrupt<fn()>;
-
-pub(super) fn quarantine() {
-    OWNED.store(2, Ordering::Release);
-}
+pub(super) type Irq = gpio_resource::Interrupt<&'static Ownership>;
 
 pub(super) fn gpio_error(error: gpio_resource::Error) -> DeviceError {
     match error {
@@ -18,31 +15,9 @@ pub(super) fn gpio_error(error: gpio_resource::Error) -> DeviceError {
     }
 }
 
-pub(super) fn open_irq(path: &str) -> Result<Irq, DeviceError> {
-    gpio_resource::Interrupt::open_rising(path, quarantine as fn()).map_err(gpio_error)
-}
-
-pub(super) struct Lease;
-
-impl Lease {
-    pub(super) fn take() -> Result<Self, DeviceError> {
-        OWNED
-            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|state| {
-                if state == 1 {
-                    DeviceError::Busy
-                } else {
-                    DeviceError::Io
-                }
-            })?;
-        Ok(Self)
-    }
-}
-
-impl Drop for Lease {
-    fn drop(&mut self) {
-        let _ = OWNED.compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire);
-    }
+pub(super) fn open_irq(path: &str, owner: &'static Ownership) -> Result<Irq, DeviceError> {
+    gpio_resource::Interrupt::open_rising_with_context(path, owner, |owner| owner.quarantine())
+        .map_err(gpio_error)
 }
 
 pub(super) struct Device<S: Imu> {
@@ -97,7 +72,7 @@ impl<S: Imu> Device<S> {
     }
 
     pub(super) fn run(
-        mut self,
+        &mut self,
         stop: &AtomicBool,
         wake: &File,
         emit: &mut dyn FnMut(Event) -> bool,
@@ -140,7 +115,7 @@ impl<S: Imu> Device<S> {
         let stopped = self.sensor.stop().map_err(DeviceError::from);
         let detached = self.signal.close();
         if stopped.is_err() || detached.is_err() {
-            OWNED.store(2, Ordering::Release);
+            self._lease.quarantine();
         }
         stopped.and(detached)
     }

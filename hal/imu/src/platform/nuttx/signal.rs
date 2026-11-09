@@ -2,9 +2,10 @@
 use super::{
     cadence::Cadence,
     device::{gpio_error, Irq},
-    events, readiness,
+    events,
 };
 use crate::DeviceError;
+use acquisition::readiness;
 use std::{
     fs::File,
     io::ErrorKind,

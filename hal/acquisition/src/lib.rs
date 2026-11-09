@@ -39,10 +39,31 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
         name: &str,
         stack_bytes: usize,
         cancel: C,
-        mut sink: S,
+        sink: S,
         failure: fn(E) -> T,
         run: impl FnOnce(&AtomicBool, &mut dyn FnMut(T) -> bool) -> Result<(), E> + Send + 'static,
     ) -> io::Result<Self> {
+        Self::start_guarded(name, stack_bytes, cancel, sink, (), failure, run)
+    }
+
+    /// Retain owner storage through terminal delivery and sink destruction,
+    /// including spawn failure and unwinding. The guard is dropped last.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_guarded<
+        T: Send + 'static,
+        S: FnMut(T) -> messaging::DeliveryResult<T> + Send + 'static,
+        G: Send + 'static,
+    >(
+        name: &str,
+        stack_bytes: usize,
+        cancel: C,
+        sink: S,
+        guard: G,
+        failure: fn(E) -> T,
+        run: impl FnOnce(&AtomicBool, &mut dyn FnMut(T) -> bool) -> Result<(), E> + Send + 'static,
+    ) -> io::Result<Self> {
+        // Tuple fields drop in declaration order, also on panic/spawn failure.
+        let delivery = (sink, guard);
         let stopping = Arc::new(AtomicBool::new(false));
         let dropped = Arc::new(AtomicU32::new(0));
         let stop = stopping.clone();
@@ -51,6 +72,8 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
             .name(name.into())
             .stack_size(stack_bytes)
             .spawn(move || {
+                let mut delivery = delivery;
+                let sink = &mut delivery.0;
                 let mut emit = |event| match sink(event) {
                     Ok(()) => true,
                     Err(rejected) if rejected.error == DeliveryError::Full => {

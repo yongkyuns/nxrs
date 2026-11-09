@@ -1,11 +1,12 @@
 //! Acquire profile resources, then construct a device using the supplied factory.
 use super::{
-    device::{self, Device, Lease},
+    device::{self, Device},
     observed_bus::{Bus, Spi},
     signal::Signal,
     spi_resource,
     trace::Trace,
 };
+use crate::instance::Ownership;
 use crate::{Config, DeviceError};
 use embedded_hal::delay::DelayNs;
 use peripheral::imu::{Error, Imu};
@@ -56,17 +57,20 @@ pub(super) fn acquire<S: Imu, R>(
     config: Config,
     irq_path: Option<&str>,
     trace: Trace,
+    owner: &'static Ownership,
     open: impl FnOnce() -> Result<R, DeviceError>,
     construct: impl FnOnce(R, S::Settings) -> Result<S, Error>,
 ) -> Result<Device<S>, DeviceError> {
     let (settings, applied) = device::resolve::<S>(config)?;
-    let lease = Lease::take()?;
+    let lease = owner.take()?;
     // A configured IRQ failure must never select the periodic mode.
-    let irq = irq_path.map(device::open_irq).transpose()?;
+    let irq = irq_path
+        .map(|path| device::open_irq(path, owner))
+        .transpose()?;
     let bus = open()?;
     let sensor = construct(bus, settings).inspect_err(|_| {
         // An interrupted configuration may have left the sensor active.
-        device::quarantine();
+        owner.quarantine();
     })?;
     let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
     Ok(Device::new(

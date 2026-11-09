@@ -83,3 +83,42 @@ pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Sen
     let applied = resolve(config)?;
     open(sink).map(|session| (session, applied))
 }
+
+struct SelectedDevice(crate::instance::Ownership);
+static DEVICE: SelectedDevice = SelectedDevice(crate::instance::Ownership::new());
+impl crate::instance::Sealed for SelectedDevice {}
+impl crate::Device for SelectedDevice {
+    fn id(&self) -> &'static str {
+        "primary"
+    }
+    fn default_config(&self) -> Result<Config, DeviceError> {
+        Ok(Config {
+            min_rate_millihz: 1_000_000_000 / INTERVAL_US,
+            max_rate_millihz: 1_000_000_000 / INTERVAL_US,
+            accel_range_g: 4,
+            gyro_range_dps: 2000,
+            max_delivery_interval_us: INTERVAL_US,
+        })
+    }
+    fn resolve(&self, config: Config) -> Result<AppliedConfig, DeviceError> {
+        resolve(config)
+    }
+    fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+        &'static self,
+        config: Config,
+        sink: S,
+    ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
+        resolve(config)?;
+        let mut retained = (sink, self.0.take()?);
+        open_configured(config, move |event| {
+            let retained = &mut retained; // Capture the whole tuple; sink drops before lease.
+            (retained.0)(event)
+        })
+    }
+}
+pub mod devices {
+    pub fn primary() -> &'static impl crate::Device {
+        &super::DEVICE
+    }
+}
+pub use devices::primary;

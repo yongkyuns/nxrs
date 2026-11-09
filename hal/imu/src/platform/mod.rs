@@ -19,6 +19,6 @@ use {
     path = "unbound.rs"
 )]
 mod selected;
-pub use selected::{open, open_configured, resolve};
+pub use selected::{devices, primary};
 
 pub(crate) use selected::open_probed;

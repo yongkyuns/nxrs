@@ -84,7 +84,11 @@ pub fn prepare_package(
         .as_str()
         .ok_or("missing implementation")?;
     let stack = crate::profile::sensor_stack(&profile.data[capability])?;
-    let source = configuration::render(&composition, capability, implementation, stack)?;
+    let source = if capability == "imu" {
+        configuration::render_imu_instances(&composition, &catalogs, stack)?
+    } else {
+        configuration::render(&composition, capability, implementation, stack)?
+    };
     publish(
         out,
         &name,

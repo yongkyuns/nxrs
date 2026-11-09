@@ -77,6 +77,9 @@ fn main() {
 #![allow(dead_code, unused_imports)]
 #[path = @API@] mod api;
 pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
+#[cfg(unix)] pub use api::Device;
+#[path = @INSTANCE@] mod instance;
+#[cfg(not(unix))] pub trait Device {}
 // Every host checks generated bindings below. Unix hosts additionally compile
 // the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
 #[cfg(unix)]
@@ -108,52 +111,47 @@ mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [
 #[path = @FACTORY@] mod production;
 #[cfg(unix)]
 mod platform { pub(crate) use crate::production::open_probed; }
-mod motion {
+// Windows cannot compile the Unix descriptor implementation. Still compile
+// the generated declaration/alias syntax against its typed resource contracts.
+#[cfg(not(unix))]
+mod production {
     mod factory {
         pub struct I2cBinding<'a> { pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
         pub struct SpiBinding<'a> { pub path: &'a str, pub chip_select: u16, pub mode: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
-        impl I2cBinding<'_> { pub fn describe(&self) -> String { format!("{} {} {} {:?}", self.path, self.address, self.frequency, self.irq_path) } }
-        impl SpiBinding<'_> { pub fn describe(&self) -> String { format!("{} cs={} mode={} {} {:?}", self.path, self.chip_select, self.mode, self.frequency, self.irq_path) } }
     }
-    mod implementations {
-        pub struct Bmi270;
-        impl Bmi270 { pub const NAME: &str = "bmi270"; pub const RATE: u32 = 100000; }
-        pub type Bmi270Spi = Bmi270;
-        pub type Lsm6dsoSpi = Lsm6dso;
-        pub struct Lsm6dso;
-        impl Lsm6dso { pub const NAME: &str = "lsm6dso"; pub const RATE: u32 = 104000; }
+    mod implementations { pub struct Bmi270; pub struct Lsm6dso; pub struct Bmi270Spi; pub struct Lsm6dsoSpi; }
+    mod instance {
+        pub struct Instance<S, B>(pub B, pub std::marker::PhantomData<S>);
+        impl<S: Sync, B: Sync> crate::Device for Instance<S, B> {}
     }
-    include!(concat!(env!("OUT_DIR"), "/imu/imu_config.rs"));
-    pub fn expected_rate() -> u32 { Implementation::RATE }
-    pub fn describe() -> String {
-        let model = Implementation::NAME;
-        format!("{model} {} {STACK_BYTES}", BINDING.describe())
+    macro_rules! declare_device {
+        ($name:ident, $id:literal, $sensor:ty, $binding_type:ty, $binding:expr, $stack:expr) => {
+            static $name: instance::Instance<$sensor, $binding_type> = instance::Instance($binding, std::marker::PhantomData);
+        };
     }
+    include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 }
-mod position {
-    struct Binding<'a> { path: &'a str, baud: u32 }
-    mod implementations { pub struct NeoM9n; }
-    include!(concat!(env!("OUT_DIR"), "/gnss/gnss_config.rs"));
-    pub fn describe() -> String {
-        format!("{} {} {STACK_BYTES}", BINDING.path, BINDING.baud)
-    }
-}
+#[cfg(unix)] include!("named.rs");
 fn main() {
     #[cfg(unix)] {
-        let applied = production::resolve(Config {
+        let applied = production::primary().resolve(Config {
             min_rate_millihz: 100000, max_rate_millihz: 110000,
             accel_range_g: 4, gyro_range_dps: 2000, max_delivery_interval_us: 10000,
         }).unwrap();
-        assert_eq!(applied.rate_millihz, motion::expected_rate());
+        assert!(matches!(applied.rate_millihz, 100000 | 104000));
+        verify_named();
     }
-    println!("{} | {}", motion::describe(), position::describe());
+    println!("{}", include_str!(concat!(env!("OUT_DIR"), "/imu_config.rs")));
+    println!("{}", include_str!(concat!(env!("OUT_DIR"), "/gnss/gnss_config.rs")));
 }
+
 "#
         .replace(
             "@GPIO@",
             &format!("{:?}", source.join("driver/gpio/tests/support/mod.rs")),
         )
         .replace("@SPI@", &format!("{:?}", source.join("driver/spi/tests/support/mod.rs")))
+        .replace("@INSTANCE@", &format!("{:?}", source.join("hal/imu/src/instance.rs")))
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
         .replace(
             "@PROBE@",
@@ -169,6 +167,7 @@ fn main() {
         ),
     )
     .unwrap();
+    fs::write(root.join("src/named.rs"), "fn verify_named() {}\n").unwrap();
     let cargo = env!("CARGO");
     let version = nxrs_build::output(Command::new(cargo).current_dir(root).arg("-vV")).unwrap();
     let target = version
@@ -197,24 +196,49 @@ fn main() {
             .output()
             .unwrap()
     };
-    let original = "bmi270 /dev/i2c0 104 400000 None 16384 | /dev/ttyS1 38400 16384";
+    let original = [
+        "implementations::Bmi270,",
+        "address: 104",
+        "path: \"/dev/i2c0\"",
+        "path: \"/dev/ttyS1\", baud: 38400",
+    ];
     for (overlays, expected) in [
         (&[][..], original),
         (
             &[patch][..],
-            "bmi270 /dev/i2c1 105 100000 None 16384 | /dev/ttyS2 115200 16384",
+            [
+                "implementations::Bmi270,",
+                "address: 105",
+                "path: \"/dev/i2c1\"",
+                "path: \"/dev/ttyS2\", baud: 115200",
+            ],
         ),
         (
             &[replacement][..],
-            "lsm6dso /dev/i2c1 106 100000 None 16384 | /dev/ttyS1 38400 16384",
+            [
+                "implementations::Lsm6dso,",
+                "address: 106",
+                "frequency: 100000",
+                "path: \"/dev/ttyS1\", baud: 38400",
+            ],
         ),
         (
             &[bmi_spi][..],
-            "bmi270 /dev/spi2 cs=0 mode=3 4000000 None 16384 | /dev/ttyS1 38400 16384",
+            [
+                "implementations::Bmi270Spi,",
+                "chip_select: 0",
+                "mode: 3",
+                "path: \"/dev/spi2\"",
+            ],
         ),
         (
             &[lsm_spi][..],
-            "lsm6dso /dev/spi2 cs=0 mode=3 4000000 None 16384 | /dev/ttyS1 38400 16384",
+            [
+                "implementations::Lsm6dsoSpi,",
+                "chip_select: 0",
+                "mode: 3",
+                "path: \"/dev/spi2\"",
+            ],
         ),
         (&[][..], original),
     ] {
@@ -227,8 +251,76 @@ fn main() {
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
-        assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), expected);
+        let output = String::from_utf8_lossy(&result.stdout);
+        for field in expected {
+            assert!(output.contains(field), "missing {field}: {output}");
+        }
+        assert_eq!(output.matches("declare_device!(").count(), 1);
     }
+
+    // Same-model plus mixed-model instances and aliases compile in the actual factory.
+    let multiple = root.join("multiple.toml");
+    fs::write(
+        &multiple,
+        r#"
+[devices.backup]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 105
+[devices.backup.wake]
+kind = "periodic"
+[devices.auxiliary]
+compatible = "st,lsm6dso"
+bus = "sensor_bus"
+address = 106
+[devices.auxiliary.wake]
+kind = "periodic"
+[roles]
+imu_backup = "backup"
+imu_auxiliary = "auxiliary"
+imu_navigation = "motion"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/named.rs"), r#"
+fn verify_named() {
+    let primary = production::primary();
+    let alias = production::devices::navigation();
+    assert_eq!(primary as *const _ as *const (), alias as *const _ as *const ());
+    assert_eq!(production::devices::backup().id(), "backup");
+    assert_eq!(production::devices::auxiliary().id(), "auxiliary");
+    assert_ne!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
+}
+"#).unwrap();
+    let profile = Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", &[multiple]).unwrap();
+    resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+    let result = run();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout)
+            .matches("declare_device!(")
+            .count(),
+        3
+    );
+    fs::write(root.join("src/named.rs"), "fn verify_named() {}\n").unwrap();
+    let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+    resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+    let result = run();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout)
+            .matches("declare_device!(")
+            .count(),
+        1
+    );
 
     // Content changes at the same declared path must invalidate both Cargo and
     // the receipt, even when the resolved values are semantically unchanged.
@@ -257,6 +349,8 @@ fn main() {
             "{}",
             String::from_utf8_lossy(&refreshed.stderr)
         );
-        assert_eq!(String::from_utf8_lossy(&refreshed.stdout).trim(), original);
+        for field in original {
+            assert!(String::from_utf8_lossy(&refreshed.stdout).contains(field));
+        }
     }
 }

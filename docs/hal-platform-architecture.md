@@ -62,11 +62,14 @@ configuration, instance storage and ownership/fault state. Roles refer to that
 object, and acquisition creates a separate exclusive session. Common HAL
 machinery must enforce uniqueness and quiescent release. Different devices can
 run independently, including two of the same model; aliases cannot create new
-ownership guards. The current global IMU guard does not yet provide this behavior.
+ownership guards. IMU implements this through `imu::Device` references returned by
+`primary()` and profile-defined `devices::<role>()`; the existing free functions
+delegate to primary. Its worker retains storage and ownership through final
+delivery, sink destruction and resource cleanup. GNSS retains its default owner.
 
-Opaque access does not require dynamic dispatch or heap boxing. Public API
-spelling, generated-input transport and the exact release/terminal-event ordering
-must be settled in the [follow-up contract step](peripheral-composition-plan.md#d0--freeze-the-contract-and-record-the-baseline).
+Opaque access does not require dynamic dispatch or heap boxing. IMU's named
+accessors preserve concrete driver and sink types. Generated-input transport and
+optional-driver activation remain in the [follow-up plan](peripheral-composition-plan.md#static-device-follow-up).
 Static instance storage and remaining thread/queue/backend allocation costs must
 be reported separately. Existing lifecycle, native-boundary and portability
 requirements continue to apply throughout migration.

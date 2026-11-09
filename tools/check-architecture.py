@@ -463,12 +463,23 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             errors.append(f'{relative(nuttx)}: catalog implementations must name checked-in typed constructors')
         if re.search(r'\b(?:MODEL|SensorModel)\b', source):
             errors.append(f'{relative(nuttx)}: select the catalog implementation directly, without a model table')
-        if capability == 'imu' and (not re.search(
-                r'factory::acquire\(\s*config,\s*BINDING\.irq_path,\s*trace,', source)
-                or 'BINDING.open(observed)' not in source
-                or 'Implementation::from_interface(' not in source):
-            errors.append(f'{relative(nuttx)}: use the generated implementation and resource binding')
-        if not re.search(r'Session::start\(STACK_BYTES\s*,', source):
+        if capability == 'imu':
+            compact = re.sub(r'\s+', '', source)
+            if ('macro_rules!declare_device' not in compact
+                    or 'static$name:instance::Instance<' not in compact
+                    or 'factory::acquire(config,binding.irq_path,trace,owner,' not in compact
+                    or 'binding.open(observed)' not in compact
+                    or '<$sensor>::from_interface(' not in compact):
+                errors.append(f'{relative(nuttx)}: use canonical declarations and the checked-in typed resource factory')
+            instance = nuttx.parent / 'instance.rs'
+            runtime = re.sub(r'\s+', '', instance.read_text()) if instance.is_file() else ''
+            if ('owner:Ownership' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
+                    or 'WorkerSession::start_guarded(self.stack_bytes,' not in runtime):
+                errors.append(f'{relative(instance)}: retain per-device storage and ownership through guarded worker retirement')
+            for path in (nuttx, nuttx.parent / 'device.rs', nuttx.parent / 'factory.rs'):
+                if path.is_file() and re.search(r'\bstatic\s+OWNED\b', path.read_text()):
+                    errors.append(f'{relative(path)}: global device ownership must not replace canonical instance state')
+        elif not re.search(r'Session::start\(STACK_BYTES\s*,', source):
             errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
 
     return errors

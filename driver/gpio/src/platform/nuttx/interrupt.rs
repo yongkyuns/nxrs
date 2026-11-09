@@ -6,10 +6,11 @@ use std::{
 
 /// An owned rising-edge GPIO registration. ISR notification storage belongs to
 /// NuttX; no Rust function or context is registered in interrupt context.
-pub struct Interrupt<F: Fn()> {
+pub struct Interrupt<F> {
     file: File,
     registered: bool,
-    on_cleanup_failure: F,
+    context: F,
+    on_cleanup_failure: fn(&F),
 }
 
 impl<F: Fn()> Interrupt<F> {
@@ -18,6 +19,17 @@ impl<F: Fn()> Interrupt<F> {
     /// that uncertainty and prevent unsafe reacquisition. The hook must not panic.
     /// Only rising-edge endpoints are currently supported.
     pub fn open_rising(path: &str, on_cleanup_failure: F) -> Result<Self, Error> {
+        Self::open_rising_with_context(path, on_cleanup_failure, |notify| notify())
+    }
+}
+
+impl<F> Interrupt<F> {
+    /// Retain typed task-context state without allocating a callback closure.
+    pub fn open_rising_with_context(
+        path: &str,
+        context: F,
+        on_cleanup_failure: fn(&F),
+    ) -> Result<Self, Error> {
         let file = OpenOptions::new().read(true).open(path).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 Error::Unsupported
@@ -29,6 +41,7 @@ impl<F: Fn()> Interrupt<F> {
         let mut resource = Self {
             file,
             registered: true,
+            context,
             on_cleanup_failure,
         };
         if ffi::irq_register(resource.file.as_raw_fd()).is_err() {
@@ -55,17 +68,17 @@ impl<F: Fn()> Interrupt<F> {
             return Ok(());
         }
         ffi::irq_unregister(self.file.as_raw_fd()).map_err(|_| {
-            (self.on_cleanup_failure)();
+            (self.on_cleanup_failure)(&self.context);
             Error::Io
         })
     }
 }
 
-impl<F: Fn()> embedded_hal::digital::ErrorType for Interrupt<F> {
+impl<F> embedded_hal::digital::ErrorType for Interrupt<F> {
     type Error = Error;
 }
 
-impl<F: Fn()> embedded_hal::digital::InputPin for Interrupt<F> {
+impl<F> embedded_hal::digital::InputPin for Interrupt<F> {
     fn is_high(&mut self) -> Result<bool, Error> {
         self.read()
     }
@@ -74,7 +87,7 @@ impl<F: Fn()> embedded_hal::digital::InputPin for Interrupt<F> {
     }
 }
 
-impl<F: Fn()> Drop for Interrupt<F> {
+impl<F> Drop for Interrupt<F> {
     fn drop(&mut self) {
         let _ = self.unregister();
     }

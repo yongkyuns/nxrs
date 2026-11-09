@@ -508,8 +508,9 @@ pub(crate) fn resolve_with_providers_and_origins(
     validate_ids(&resources, &devices, &roles, origins)?;
     validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
     for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
-        let role = roles.contains_key(capability);
-        if provider == "nuttx" && !role {
+        let role = roles.contains_key(capability)
+            || (capability == "imu" && roles.keys().any(|role| role.starts_with("imu_")));
+        if provider == "nuttx" && !roles.contains_key(capability) {
             return Err(diagnostic(
                 origins,
                 &format!("roles.{capability}"),
@@ -852,16 +853,19 @@ fn validate_graph(
             }
         }
     }
-    if let Some(role_device) = roles.get("imu") {
+    for (role, role_device) in roles
+        .iter()
+        .filter(|(role, _)| role.as_str() == "imu" || role.starts_with("imu_"))
+    {
         let device = devices.get(role_device).ok_or_else(|| {
             diagnostic_related(
                 origins,
-                "roles.imu",
+                &format!("roles.{role}"),
                 &[&format!("devices.{role_device}")],
                 &format!("references unknown device {role_device}"),
             )
         })?;
-        imu_implementation = Some(
+        let implementation = Some(
             binding_for(
                 catalog,
                 &device.compatible,
@@ -874,6 +878,9 @@ fn validate_graph(
             .implementation
             .clone(),
         );
+        if role == "imu" {
+            imu_implementation = implementation;
+        }
     }
     if let Some(role_device) = roles.get("gnss") {
         let device = devices.get(role_device).ok_or_else(|| {
@@ -1009,10 +1016,31 @@ fn validate_ids(
     }
     Ok(())
 }
+pub(crate) fn imu_role_name(role: &str) -> Result<&str> {
+    if role == "imu" {
+        return Ok("primary");
+    }
+    let name = role
+        .strip_prefix("imu_")
+        .ok_or_else(|| format!("unsupported capability role: {role}"))?;
+    // Names are emitted as Rust identifiers. No normalization or collisions.
+    if name.is_empty()
+        || name == "_"
+        || name == "primary"
+        || !name.as_bytes()[0].is_ascii_alphabetic()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        || ["self", "super", "crate"].contains(&name)
+    {
+        return Err(format!("invalid IMU role accessor: {role}"));
+    }
+    Ok(name)
+}
 fn validate_roles(roles: &BTreeMap<String, String>) -> Result<()> {
     for role in roles.keys() {
-        if role != "imu" && role != "gnss" {
-            return Err(format!("unsupported capability role: {role}"));
+        if role != "gnss" {
+            imu_role_name(role)?;
         }
     }
     Ok(())
@@ -1108,6 +1136,44 @@ mod tests {
             "devices":{"navigation":{"compatible":"u-blox,neo-m9n","bus":"uart1"}},
             "roles":{"gnss":"navigation"}
         })
+    }
+
+    #[test]
+    fn named_imu_roles_validate_identity_and_accessor_names() {
+        let mut value = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        let catalogs = fixture_catalogs();
+        let resolve = |value: &Value| {
+            resolve_with_providers_and_origins(value, "nuttx", "none", &BTreeMap::new(), &catalogs)
+        };
+        value["roles"]["imu_navigation"] = json!("motion");
+        let graph = resolve(&value).unwrap().unwrap();
+        assert_eq!(graph.roles["imu_navigation"], graph.roles["imu"]);
+        assert_eq!(graph.devices.len(), 1);
+        value["roles"]["imu_navigation"] = json!("absent");
+        assert!(resolve(&value).is_err());
+        value["roles"]
+            .as_object_mut()
+            .unwrap()
+            .remove("imu_navigation");
+        for name in [
+            "imu_",
+            "imu_primary",
+            "imu_self",
+            "imu_super",
+            "imu_crate",
+            "imu_bad-name",
+            "imu_1backup",
+            "imu_Backup",
+        ] {
+            value["roles"][name] = json!("motion");
+            assert!(resolve(&value).is_err(), "{name}");
+            value["roles"].as_object_mut().unwrap().remove(name);
+        }
+        value["roles"] = json!({"imu_backup":"motion"});
+        assert!(
+            resolve(&value).is_err(),
+            "the default role remains required"
+        );
     }
 
     #[test]

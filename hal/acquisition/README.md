@@ -14,6 +14,10 @@ an executor; it adds no queue of its own. Drivers do not acquire a worker merely
 by implementing a device contract. A future shared executor must qualify bounded
 device work, fairness, cancellation and deadlines before replacing these workers.
 
+`Worker::start_guarded` additionally retains caller-owned storage through terminal
+delivery and destruction of the sink, including unwinding or spawn failure. IMU
+uses this to keep its canonical device leased until callbacks have retired.
+
 On NuttX, `acquisition::nuttx` provides one private target-header poll/pipe binding
 for both HALs. Rust owns the resulting descriptors. `wait` reports device
 readiness or cancellation; `tick` reports timeout or cancellation. Cancellation

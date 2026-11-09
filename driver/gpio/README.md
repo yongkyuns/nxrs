@@ -15,6 +15,10 @@ fails, the supplied hook runs in task context, including during Drop. The caller
 must retain that uncertainty and prevent unsafe reacquisition. The hook must not
 panic. Repeated unregister calls do not retry an uncertain native operation.
 
+`open_rising_with_context(path, context, on_cleanup_failure)` retains typed context
+and a task-context function pointer without boxing. IMU passes its canonical
+device owner so a failed IRQ cleanup quarantines only the affected instance.
+
 IMU supplies its quarantine hook and keeps sensor shutdown ordering, IRQ/timer
 selection and sample policy. Native GPIO ioctl glue stays beside this resource
 under `src/platform/nuttx/ffi/`. Host witnesses inject target operations into the
