@@ -888,6 +888,62 @@ fn feature_lists_preserve_the_profile_owned_model_policy() {
 }
 
 #[test]
+fn host_build_preserves_optional_workspace_edges_in_the_consumer_lockfile() {
+    let root = fixture();
+    let app = root.0.join("app/probe");
+    let manifest = app.join("Cargo.toml");
+    fs::write(
+        &manifest,
+        format!(
+            "{}\n[dependencies]\nsensor={{path=\"sensor\"}}\n",
+            fs::read_to_string(&manifest).unwrap()
+        ),
+    )
+    .unwrap();
+    for (name, dependencies) in [
+        (
+            "sensor",
+            "[dependencies]\nmarker={path=\"../marker\",optional=true}\n",
+        ),
+        ("marker", ""),
+    ] {
+        fs::create_dir_all(app.join(name).join("src")).unwrap();
+        fs::write(
+            app.join(name).join("Cargo.toml"),
+            format!(
+                "[package]\nname=\"{name}\"\nversion=\"0.0.0\"\nedition=\"2021\"\n{dependencies}"
+            ),
+        )
+        .unwrap();
+        fs::write(app.join(name).join("src/lib.rs"), "").unwrap();
+    }
+    success(
+        Command::new(env!("CARGO"))
+            .current_dir(&app)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap(),
+    );
+    let lock = fs::read(app.join("Cargo.lock")).unwrap();
+    // App loading canonicalizes this path. On Windows, Cargo 1.90 can drop
+    // optional workspace edges when given that verbatim spelling.
+    success(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "build",
+            "--app",
+            "probe",
+            "--profile",
+            "host",
+            "--out",
+            "artifacts",
+        ],
+    ));
+    assert_eq!(fs::read(app.join("Cargo.lock")).unwrap(), lock);
+}
+
+#[test]
 fn cargo_receives_repeated_feature_lists_and_no_default_features() {
     let root = fixture();
     let outside = TempDir::new(&env::temp_dir()).unwrap();

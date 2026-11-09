@@ -336,7 +336,7 @@ pub fn build(
     command
         .current_dir(root)
         .args(["build", "--locked", "--release", "--manifest-path"])
-        .arg(&app.manifest)
+        .arg(dunce::simplified(&app.manifest))
         .args([
             "-p",
             &app.package,

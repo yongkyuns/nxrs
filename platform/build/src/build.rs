@@ -366,7 +366,10 @@ pub fn host(
     command
         .current_dir(root)
         .args(["build", "--locked", "--release", "--manifest-path"])
-        .arg(&app.manifest)
+        // Cargo 1.90 resolves optional workspace edges differently with Windows
+        // verbatim paths. Simplify only when the ordinary spelling is equivalent;
+        // retain the canonical path for identity checks and build receipts.
+        .arg(dunce::simplified(&app.manifest))
         .args(["--bin", &app.bin])
         .env("CARGO_TARGET_DIR", out.join("cargo"));
     configure_profile(&mut command, &out, root, profile, &host_target(root)?, os)?;

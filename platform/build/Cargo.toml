@@ -13,6 +13,7 @@ nxrs-build-support = { path = "../build-support" }
 nxrs-detector-build-support = { path = "../../hal/detector/build-support" }
 serde_json = "1.0"
 regex = "1"
+dunce = "=1.0.5"
 
 [dev-dependencies]
 # The detached factory witness runs offline; declare its source dependencies so

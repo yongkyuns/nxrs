@@ -1,6 +1,5 @@
 """Build a handwritten, renamed consumer from only its declared Cargo packages."""
 import json
-import difflib
 import os
 from pathlib import Path
 import shutil
@@ -175,28 +174,8 @@ class ExternalConsumerTests(unittest.TestCase):
         result = subprocess.run(
             [str(frontend), "--workspace-root", str(ROOT), "build", "--profile", "mock",
              "--manifest-path", str(self.directory / "Cargo.toml"), "--out", str(output)],
-            cwd=self.directory,
-            env={**self.environment, "CARGO_LOG": "cargo::ops::resolve=trace,cargo::ops::lockfile=trace"},
-            capture_output=True, text=True, timeout=180,
+            cwd=self.directory, env=self.environment, capture_output=True, text=True, timeout=180,
         )
-        if result.returncode:
-            manifest = str(self.directory / "Cargo.toml")
-            for candidate in dict.fromkeys((manifest, "\\\\?\\" + manifest if sys.platform == "win32" else manifest)):
-                command = ["cargo", "tree", "--offline", "--manifest-path", candidate,
-                           "--edges", "normal,no-proc-macro"]
-                locked = subprocess.run([*command, "--locked"], cwd=ROOT,
-                                        env=self.environment, capture_output=True, text=True, timeout=180)
-                print(f"diagnostic manifest={candidate} locked={locked.returncode}", flush=True)
-                try:
-                    unlocked = subprocess.run(command, cwd=ROOT, env=self.environment,
-                                              capture_output=True, text=True, timeout=180)
-                    print(unlocked.stderr, flush=True)
-                    print("".join(difflib.unified_diff(
-                        self.lock.decode().splitlines(keepends=True),
-                        (self.directory / "Cargo.lock").read_text().splitlines(keepends=True),
-                        fromfile="original", tofile="diagnostic")), flush=True)
-                finally:
-                    (self.directory / "Cargo.lock").write_bytes(self.lock)
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = output / "resolved-profile.json"
         binary = output / "cargo/release" / ("independent-product" + suffix)
