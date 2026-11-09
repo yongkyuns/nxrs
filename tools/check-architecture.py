@@ -518,13 +518,15 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     for path in (root / 'hal').glob('*/src/platform/mod.rs'):
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
+        modules = set(re.findall(r'\bmod\s+(\w+)\s*;', text))
+        aliases = {f'{name} as selected' for name in modules if name != 'selected'}
         # Check the selection boundary, not a mandatory wildcard spelling.
         # Exact exports prevent backend internals from accidentally reaching
         # public namespaces. No platform selector may wildcard-reexport.
         selected_export = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
         if (not exports
-                or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction') for export in exports)
-                or not re.search(r'\bmod\s+selected\s*;', text)
+                or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction' or export.strip() in aliases) for export in exports)
+                or not ('selected' in modules or any(export.strip() in aliases for export in exports))
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/lib.rs'):

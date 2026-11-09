@@ -1,4 +1,4 @@
-//! Source-injected witnesses for the NuttX IMU resource lifecycle.
+//! Native-operation fakes and real sensor/resource lifecycle witnesses.
 use super::device_state::{self, State};
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::{
@@ -31,6 +31,7 @@ struct Fake {
     fail_reference: bool,
     irq_asserted: bool,
     periodic_wake: bool,
+    repeat_periodic: bool,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -56,6 +57,7 @@ impl Fake {
             fail_reference: false,
             irq_asserted: true,
             periodic_wake: false,
+            repeat_periodic: false,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -69,6 +71,14 @@ static FAKE: Mutex<Fake> = Mutex::new(Fake::new());
 
 pub(super) mod ffi {
     use super::*;
+    thread_local! { pub static FAIL_PIPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    pub(crate) fn pipe() -> io::Result<(File, File)> {
+        if FAIL_PIPE.with(|fail| fail.replace(false)) {
+            return Err(io::Error::other("injected cancellation setup failure"));
+        }
+        let (read, write) = UnixStream::pair()?;
+        Ok((OwnedFd::from(read).into(), OwnedFd::from(write).into()))
+    }
 
     pub(crate) fn transfer(
         _: i32,
@@ -122,11 +132,14 @@ pub(super) mod ffi {
         Ok(())
     }
 
-    pub(super) fn wait(_: i32, _: i32) -> io::Result<bool> {
+    pub(crate) fn wait(_: i32, _: i32) -> io::Result<bool> {
         Ok(false)
     }
-    pub(super) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
-        let wake = std::mem::take(&mut FAKE.lock().unwrap().periodic_wake);
+    pub(crate) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
+        let wake = {
+            let mut fake = FAKE.lock().unwrap();
+            fake.repeat_periodic || std::mem::take(&mut fake.periodic_wake)
+        };
         if wake {
             std::thread::sleep(std::time::Duration::from_millis(timeout as u64));
         }
@@ -186,23 +199,21 @@ pub(super) mod spi_ffi {
     }
 }
 
+use super::{device, factory as runtime_factory, signal, trace};
 use acquisition::readiness;
-#[path = "../../src/platform/nuttx/device.rs"]
-mod device;
-use self::ffi as events;
-use super::{gpio_resource, resource, spi_resource};
+#[allow(dead_code, reason = "The fixture uses contextual GPIO cleanup.")]
+#[path = "../../../../driver/gpio/tests/support/mod.rs"]
+pub(super) mod gpio_resource;
+#[path = "../../../../driver/i2c/tests/support/mod.rs"]
+mod resource;
 #[allow(dead_code)]
 #[path = "../../../../platform/devices/imu/src/nuttx/resources.rs"]
 mod resources;
-#[allow(dead_code)]
-#[path = "../../src/platform/nuttx/factory.rs"]
-mod runtime_factory;
+#[path = "../../../../driver/spi/tests/support/mod.rs"]
+mod spi_resource;
+use super::{Observed, Trace};
 use crate::DeviceError;
 use peripheral::imu::Imu as ImuDevice;
-use trace::{Observed, Trace};
-#[path = "../../src/platform/nuttx/signal.rs"]
-mod signal;
-use super::trace;
 
 type Bmi270Sensor = nxrs_bmi270::Bmi270<resources::Bus, resources::Delay>;
 type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<resources::Bus>;
@@ -942,4 +953,13 @@ fn periodic_wait_keeps_early_deadlines_and_skips_missed_periods() {
         None
     );
     assert_eq!(next_deadline, start + period * 11);
+}
+
+/// Use the same native boundary for normalized-sensor instance tests. Serialize
+/// with the register-model tests so their one-shot wake controls stay isolated.
+pub(super) fn periodic_fixture() -> std::sync::MutexGuard<'static, ()> {
+    let serial = SERIAL.lock().unwrap();
+    reset();
+    FAKE.lock().unwrap().repeat_periodic = true;
+    serial
 }

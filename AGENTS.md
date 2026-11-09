@@ -135,7 +135,8 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   explicit configuration/ownership. Optional diagnostic instrumentation uses
   the explicit `probe` feature. The detector product/model rules below still apply.
 - Group capability admission and acquisition selection in each HAL's
-  `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
+  `src/platform/mod.rs`. Select modules as `selected`, using ordinary named
+  modules and conditional `as selected` exports where practical. Keep constructors
   and unavailable stubs in those implementations, and host source-injection
   witnesses in separate test wiring. Prefer fixed named exports. The selector
   must not contain implementation bodies or force its entire public namespace

@@ -141,10 +141,15 @@ Each HAL's `src/platform/mod.rs` selects source modules as `selected` and
 re-exports only selected items. Prefer fixed named factory exports; do not
 require a wildcard or let backend exports implicitly define the crate's public
 API. Keep constructors and unavailable stubs in those selected modules, not
-inline in the selector. `cfg_attr(path = ...)` makes the OS-to-source mapping
-explicit. Identical Rust implementations remain ordinary shared modules outside
+inline in the selector. Prefer ordinary named modules and conditional
+`as selected` exports; source-path redirection is not required for selection.
+Identical Rust implementations remain ordinary shared modules outside
 `platform/`; selecting acquisition does not duplicate them per OS. Native source
-injection for host unit tests belongs in separate test wiring. All HAL selectors
+injection for host unit tests belongs in separate test wiring. Test private
+behavior through its owning modules where possible, replacing native operations
+at that boundary rather than recompiling the API and acquisition sources.
+Cross-crate resource witnesses may retain explicit source injection under tests.
+All HAL selectors
 now name their exports explicitly; wildcard exports obscure implementation boundaries.
 
 Platform factories supply resource budgets such as worker stack size. Providers

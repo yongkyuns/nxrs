@@ -80,10 +80,13 @@ class ArchitectureTests(unittest.TestCase):
                 selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
                 self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
+        selector.write_text('mod unbound; pub use unbound as selected; pub use selected::open;')
+        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
                      'mod selected { pub fn open() {} } pub use selected::*;',
                      'mod selected;', 'mod selected; pub use selected::{open, other::Camera};',
-                     'mod selected; pub use selected::*;']:
+                     'mod selected; pub use selected::*;',
+                     'mod unbound; pub use missing as selected; pub use selected::open;']:
             with self.subTest(code=code):
                 selector.write_text(code)
                 self.assertTrue(any('select source modules' in error

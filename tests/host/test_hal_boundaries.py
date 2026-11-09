@@ -287,10 +287,12 @@ def wiring_errors(root, selector):
     if re.search(r'#\s*\[\s*path\s*=\s*"platform/', root):
         errors.append('injected provider sources belong in test_support.rs')
     selected = exports(selector)
+    modules = set(re.findall(r'\bmod\s+(\w+)\s*;', selector))
+    aliases = {f'{name} as selected' for name in modules if name != 'selected'}
     named = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
-    if not selected or any(not (re.fullmatch(named, item.strip()) or item.strip() == 'selected as construction') for item in selected):
+    if not selected or any(not (re.fullmatch(named, item.strip()) or item.strip() == 'selected as construction' or item.strip() in aliases) for item in selected):
         errors.append('selector must export named selected items only')
-    if not re.search(r'\bmod\s+selected\s*;', selector):
+    if not ('selected' in modules or any(item.strip() in aliases for item in selected)):
         errors.append('selector must select a source module')
     if re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', selector):
         errors.append('selector must not implement behavior')
@@ -315,6 +317,8 @@ class WiringNegativeControls(unittest.TestCase):
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR), [])
         self.assertEqual(wiring_errors('mod platform; pub use platform::construction;',
                                        'pub mod selected; pub use selected as construction;'), [])
+        self.assertEqual(wiring_errors(self.ROOT,
+                                       'mod unbound; pub use unbound as selected; pub use selected::open;'), [])
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(hal_provider = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):
