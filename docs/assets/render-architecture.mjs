@@ -1,0 +1,109 @@
+// Regenerate the README's light/dark architecture illustrations with Node.js.
+// Run from any directory: node docs/assets/render-architecture.mjs
+// The emitted SVGs keep labels as editable, accessible text; no external assets.
+import { writeFileSync } from 'node:fs';
+
+const palettes = {
+  light: {
+    background: '#FAFBFD', ink: '#172331', secondary: '#536271', muted: '#5E6E7D',
+    blue: '#397EA8', orange: '#B4633A', blueWash: '#D8EDF9', orangeWash: '#FBE5D7',
+    foundation: '#EBF0F5',
+  },
+  dark: {
+    background: '#10161E', ink: '#EAF0F5', secondary: '#AFBCC8', muted: '#8193A4',
+    blue: '#8BC7EA', orange: '#F2A475', blueWash: '#19354A', orangeWash: '#392A24',
+    foundation: '#192330',
+  },
+};
+
+function svg(p) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" role="img" aria-labelledby="title description">
+  <title id="title">NXRS architecture</title>
+  <desc id="description">Reusable Rust applications, services, capability HALs and chip drivers form the firmware. Rust components can use the standard library directly and peripheral wrappers where needed. The standard library is compiled for NuttX; peripheral wrappers provide typed access to NuttX resources. NuttX supplies POSIX/C interfaces, the RTOS and board support for the embedded MCU. Separate platform profiles select hardware bindings and implementations at build time.</desc>
+  <defs>
+    <radialGradient id="std-wash" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="${p.blueWash}" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="${p.blueWash}" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="peripheral-wash" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="${p.orangeWash}" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="${p.orangeWash}" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="foundation-wash" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="${p.foundation}" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="${p.foundation}" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .eyebrow { fill: ${p.muted}; font-size: 14px; font-weight: 600; letter-spacing: 2.4px; }
+      .heading { fill: ${p.ink}; font-size: 36px; font-weight: 600; letter-spacing: -1px; }
+      .component { fill: ${p.ink}; font-size: 24px; font-weight: 500; letter-spacing: -0.4px; }
+      .secondary { fill: ${p.secondary}; font-size: 21px; font-weight: 400; }
+      .note { fill: ${p.muted}; font-size: 18px; font-weight: 400; }
+      .interface { font-size: 28px; font-weight: 600; letter-spacing: -0.7px; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="660" rx="28" fill="${p.background}"/>
+
+  <!-- Firmware composition: one typographic group, without mandatory arrows. -->
+  <text x="64" y="70" class="eyebrow">RUNTIME</text>
+  <text x="64" y="126" class="heading">Reusable Rust firmware</text>
+  <text x="64" y="166" class="secondary">Composed in ordinary Rust</text>
+  <g class="component">
+    <text x="64" y="225">Applications</text>
+    <text x="279" y="225">Services</text>
+    <text x="451" y="225">Capability HALs</text>
+    <text x="699" y="225">Chip drivers</text>
+  </g>
+
+  <!-- Complementary interfaces. Color is restrained to these two identities. -->
+  <ellipse cx="245" cy="352" rx="260" ry="120" fill="url(#std-wash)"/>
+  <ellipse cx="683" cy="352" rx="246" ry="120" fill="url(#peripheral-wash)"/>
+  <text x="64" y="305" class="eyebrow">OS FACILITIES</text>
+  <text x="64" y="350" class="interface" fill="${p.blue}">Rust standard library</text>
+  <text x="64" y="389" class="secondary">Compiled for NuttX</text>
+  <text x="487" y="305" class="eyebrow">HARDWARE INTERFACES</text>
+  <text x="487" y="350" class="interface" fill="${p.orange}">Rust peripheral wrappers</text>
+  <text x="487" y="389" class="secondary">Typed access to NuttX resources</text>
+
+  <!-- Profiles stay outside the runtime hierarchy. -->
+  <text x="938" y="70" class="eyebrow">BUILD TIME</text>
+  <g fill="${p.ink}" font-size="28" font-weight="500" letter-spacing="-0.6">
+    <text x="938" y="126">Platform</text>
+    <text x="938" y="161">profiles</text>
+  </g>
+  <g class="secondary">
+    <text x="938" y="210">Devices, resources</text>
+    <text x="938" y="239">and logical roles</text>
+  </g>
+  <g class="note">
+    <text x="938" y="302">Select hardware</text>
+    <text x="938" y="328">bindings for Rust</text>
+    <text x="938" y="354">components</text>
+  </g>
+
+  <!-- The foundation is a broad visual layer, not a chain of diagram boxes. -->
+  <ellipse cx="600" cy="544" rx="690" ry="150" fill="url(#foundation-wash)"/>
+  <text x="64" y="483" class="eyebrow">RTOS &amp; BOARD FOUNDATION</text>
+  <text x="63" y="547" fill="${p.ink}" font-size="42" font-weight="600" letter-spacing="-1.5">NuttX</text>
+  <g fill="${p.ink}" font-size="25" font-weight="500" letter-spacing="-0.3">
+    <text x="367" y="537">POSIX / C</text>
+    <text x="634" y="537">RTOS</text>
+    <text x="895" y="537">BSP</text>
+  </g>
+  <g class="note">
+    <text x="367" y="570">Standard OS interfaces</text>
+    <text x="634" y="570">Tasks and scheduling</text>
+    <text x="895" y="570">Board and MCU support</text>
+  </g>
+
+  <text x="64" y="607" class="note">Running on embedded MCUs</text>
+</svg>
+`;
+}
+
+for (const [theme, palette] of Object.entries(palettes)) {
+  const file = theme === 'light' ? 'nxrs-architecture.svg' : 'nxrs-architecture-dark.svg';
+  writeFileSync(new URL(file, import.meta.url), svg(palette));
+}

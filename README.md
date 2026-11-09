@@ -18,30 +18,11 @@ hardware qualification depend on the selected target and profile. See
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    P["Platform profiles: devices, resources and roles"]
-    subgraph F["Reusable and composable Rust firmware"]
-        direction LR
-        A["Applications"] --> S["Services"] --> H["Capability HALs"] --> D["Chip drivers"]
-    end
-    P -. "build-time composition" .-> F
-    F -->|"ordinary Rust APIs"| R["Rust std compiled for NuttX"]
-    F -->|"device access"| W["Rust peripheral wrappers"]
-    R --> N["NuttX: POSIX / C, RTOS and BSP"]
-    W --> N
-    N --> M["Embedded MCU"]
-
-    classDef rust fill:#E5F3FC,stroke:#73B9E2,color:#15232F
-    classDef runtime fill:#FFF0E5,stroke:#F08A4B,color:#15232F
-    classDef foundation fill:#15232F,stroke:#15232F,color:#FFFFFF
-    classDef config fill:#F3F5F7,stroke:#98A6B3,color:#15232F
-    class A,S,H,D rust
-    class R,W runtime
-    class N foundation
-    class P,M config
-    style F fill:#F8FBFE,stroke:#73B9E2,color:#15232F
-```
+<!-- Regenerate both themes with: node docs/assets/render-architecture.mjs -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/nxrs-architecture-dark.svg">
+  <img src="docs/assets/nxrs-architecture.svg" alt="NXRS architecture: reusable Rust firmware uses Rust std directly and peripheral wrappers where needed, above the NuttX RTOS and BSP. Platform profiles select hardware bindings at build time." width="1200">
+</picture>
 
 - **NuttX is the operating-system foundation.** Its C/POSIX environment provides
   the actual RTOS, scheduling, board support packages, MCU controller drivers and
