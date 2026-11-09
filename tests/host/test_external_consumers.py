@@ -174,7 +174,9 @@ class ExternalConsumerTests(unittest.TestCase):
         result = subprocess.run(
             [str(frontend), "--workspace-root", str(ROOT), "build", "--profile", "mock",
              "--manifest-path", str(self.directory / "Cargo.toml"), "--out", str(output)],
-            cwd=self.directory, env=self.environment, capture_output=True, text=True, timeout=180,
+            cwd=self.directory,
+            env={**self.environment, "CARGO_LOG": "cargo::ops::resolve=trace,cargo::ops::lockfile=trace"},
+            capture_output=True, text=True, timeout=180,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = output / "resolved-profile.json"
