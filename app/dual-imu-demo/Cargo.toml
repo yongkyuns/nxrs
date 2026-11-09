@@ -14,6 +14,7 @@ stack-size = 65536
 
 [dependencies]
 nxrs-navigation-services = { path = "../../service/navigation" }
+nxrs-imu = { path = "../../hal/imu" }
 
 [[bin]]
 name = "dual-imu-demo"

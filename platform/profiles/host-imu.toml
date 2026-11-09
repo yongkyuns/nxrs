@@ -1,4 +1,5 @@
-# IMU-only demonstration; GNSS remains explicitly unbound.
+# IMU-only demonstration using the scripted primary/secondary mock devices.
+# GNSS remains explicitly unbound.
 
 [hal]
 imu = "mock"

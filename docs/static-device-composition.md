@@ -69,7 +69,9 @@ instance per physical record and named role accessors, as described below.
 `roles.imu` names primary; `imu_<role>` names additional aliases. `Device::open`
 accepts configuration and a typed sink; `open_default` uses the driver's default.
 The result is an exclusive `Session`, separate from permanent identity. Existing
-free functions delegate to primary. Mock/simulation expose primary only.
+free functions delegate to primary. The explicit mock fixture has primary and
+secondary devices; coordinated simulation has primary only. Portable services
+can receive the selected reference through `ImuService::start_on(device)`.
 
 Each NuttX instance owns its immutable binding and a
 `Mutex<Option<device::Device<S>>>`, plus per-device ownership/quarantine.

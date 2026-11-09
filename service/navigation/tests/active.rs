@@ -32,6 +32,11 @@ fn active_services_own_hal_threads_and_lifecycle() {
     let _primary = PRIMARY.lock().unwrap();
     let (fusion, imu, gnss) = start_services();
     assert_eq!(imu::open(|_| Ok(())).err(), Some(imu::DeviceError::Busy));
+    let (other_fusion, other_inputs) = FusionService::new();
+    let other_fusion = other_fusion.start().unwrap();
+    let other_imu = ImuService::new(other_inputs.imu)
+        .start_on(imu::devices::secondary())
+        .unwrap();
 
     let mut health = HealthService::default();
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -46,6 +51,16 @@ fn active_services_own_hal_threads_and_lifecycle() {
     };
     let snapshot = health.observe(state);
     assert!(snapshot.imu_alive && snapshot.gnss_alive);
+
+    assert!(
+        other_fusion
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .imu_sequence
+            > 0
+    );
+    assert!(other_imu.stop().unwrap().produced > 0);
+    other_fusion.stop().unwrap();
 
     let imu_stats = imu.stop().unwrap();
     let gnss_stats = gnss.stop().unwrap();

@@ -28,12 +28,13 @@ pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Sen
     Err::<(Unconfigured, AppliedConfig), _>(DeviceError::Unsupported)
 }
 
-struct SelectedDevice(crate::instance::Ownership);
-static DEVICE: SelectedDevice = SelectedDevice(crate::instance::Ownership::new());
+struct SelectedDevice(&'static str, crate::instance::Ownership);
+static PRIMARY: SelectedDevice = SelectedDevice("primary", crate::instance::Ownership::new());
+static SECONDARY: SelectedDevice = SelectedDevice("secondary", crate::instance::Ownership::new());
 impl crate::instance::Sealed for SelectedDevice {}
 impl crate::Device for SelectedDevice {
     fn id(&self) -> &'static str {
-        "primary"
+        self.0
     }
     fn default_config(&self) -> Result<Config, DeviceError> {
         Err(DeviceError::Unsupported)
@@ -47,7 +48,7 @@ impl crate::Device for SelectedDevice {
         sink: S,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
         resolve(config)?;
-        let mut retained = (sink, self.0.take()?);
+        let mut retained = (sink, self.1.take()?);
         open_configured(config, move |event| {
             let retained = &mut retained; // Capture the whole tuple; sink drops before lease.
             (retained.0)(event)
@@ -56,7 +57,10 @@ impl crate::Device for SelectedDevice {
 }
 pub mod devices {
     pub fn primary() -> &'static impl crate::Device {
-        &super::DEVICE
+        &super::PRIMARY
+    }
+    pub fn secondary() -> &'static impl crate::Device {
+        &super::SECONDARY
     }
 }
 pub use devices::primary;

@@ -488,6 +488,7 @@ dependencies = [
 name = "nxrs-dual-imu-demo"
 version = "0.1.0"
 dependencies = [
+ "nxrs-imu",
  "nxrs-navigation-services",
 ]
 

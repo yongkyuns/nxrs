@@ -18,7 +18,11 @@ snake case; `primary`, `self`, `super` and `crate` are reserved. Aliases return
 the same canonical object. Separate physical records have independent storage,
 configuration, ownership and quarantine, including two sensors of the same model.
 Missing role accessors fail compilation; there is no runtime string lookup.
-Mock/simulation expose only `primary`; unbound acquisition returns `Unsupported`.
+The explicit mock fixture supplies `primary` and `secondary`; coordinated
+simulation supplies `primary`. Unbound acquisition returns `Unsupported`.
+
+`ImuService::start_on(device)` accepts either logical reference; `start()` uses
+primary. The dual-IMU demo selects separate primary/secondary devices explicitly.
 
 Hardware initializes on acquisition, not when obtaining the reference. A device
 remains Busy through worker callbacks, terminal-event delivery and sink destruction.

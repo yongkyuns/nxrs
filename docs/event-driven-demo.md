@@ -30,7 +30,10 @@ count as drops. Hardware ODR is independent of service commands. The former
 
 There are two sensor acquisition workers, two sensor service owners and one
 fusion owner in the full demonstration. The dual-IMU fixture creates two
-independent pipelines. This counts application workers, not OS/system tasks.
+independent pipelines by passing the mock fixture's primary and secondary device
+references to `ImuService::start_on`. A hardware composition needs a second
+physical device bound to `roles.imu_secondary` for the same app. This counts
+application workers, not OS/system tasks.
 Synthetic sources use timers solely as explicit mocks; production providers use
 UART readiness or IMU IRQ/ODR-derived wakes. The stock unwired M135 uses a HAL
 timer; a configured IRQ failure remains an error.
