@@ -2,6 +2,10 @@ use std::time::Duration;
 
 use navigation::{FusionConfig, FusionService, GnssService, HealthService, ImuService};
 
+// These integration cases use the profile's same canonical primary device.
+// Hold the fixture through joined service shutdown, not just startup.
+static PRIMARY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn start_services() -> (
     navigation::FusionHandle,
     navigation::ImuHandle,
@@ -25,7 +29,9 @@ fn start_services() -> (
 
 #[test]
 fn active_services_own_hal_threads_and_lifecycle() {
+    let _primary = PRIMARY.lock().unwrap();
     let (fusion, imu, gnss) = start_services();
+    assert_eq!(imu::open(|_| Ok(())).err(), Some(imu::DeviceError::Busy));
 
     let mut health = HealthService::default();
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -48,10 +54,15 @@ fn active_services_own_hal_threads_and_lifecycle() {
     assert!(imu_stats.produced > 0);
     assert!(gnss_stats.produced > 0);
     assert!(fusion_stats.inputs >= 2);
+
+    // A completed service shutdown releases the same device for its next owner.
+    use imu::Session;
+    imu::open(|_| Ok(())).unwrap().join().unwrap();
 }
 
 #[test]
 fn sensor_commands_are_processed_inside_the_service_loops() {
+    let _primary = PRIMARY.lock().unwrap();
     let (fusion, imu, gnss) = start_services();
 
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
