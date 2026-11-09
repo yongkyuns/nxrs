@@ -25,8 +25,8 @@ Fenced text/source diagrams remain source; checked-in SVG diagrams remain SVG.
 Use Python 3.12 or newer and a virtual environment:
 
 ```sh
-python3 -m venv .venv-site
-. .venv-site/bin/activate
+python3 -m venv website/.venv
+. website/.venv/bin/activate
 python -m pip install -r website/requirements.txt
 python -m unittest discover -s website/tests -p 'test_*.py' -v
 python website/build.py --base-path / --out target/website-local
@@ -78,7 +78,7 @@ artifacts and browser reports are retained for review; PRs cannot publish.
 ## Noon integration
 
 The optional demo is the existing `showcase-group-animation` page at the Noon
-project's Pages URL. It is not rebuilt or vendored, does not autoplay, and is not
-a dependency of NXRS firmware. A direct link remains available, and the iframe
+project's Pages URL. It is not rebuilt or vendored, loads only on an explicit
+request, and is not a dependency of NXRS firmware. A direct link remains available, and the iframe
 can be removed with Unload. Do not treat the iframe's `load` event as proof that
 WebAssembly initialized or the scene rendered. See the [user-facing explanation](guide/noon.md).
