@@ -112,7 +112,7 @@ struct Counts {
 
 struct IdleImu;
 
-impl imu_hal::Imu for IdleImu {
+impl imu_hal::Session for IdleImu {
     fn request_stop(&mut self) -> Result<(), imu_hal::DeviceError> {
         Ok(())
     }

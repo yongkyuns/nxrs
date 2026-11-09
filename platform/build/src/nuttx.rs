@@ -436,6 +436,11 @@ impl Tools {
 }
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
     options.validate_for_backend("nuttx")?;
+    nxrs_build_support::nuttx_resources::validate_overrides(
+        &p.data,
+        &options.enable,
+        &options.disable,
+    )?;
     let mut deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
     let protected = deployment["nuttx-build-mode"] == "protected";
     let target = string(&p.data, "target")?;
@@ -727,6 +732,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     }
     let config = read(&nuttx.join(".config"))?;
     required(&config, &requirements, forbid)?;
+    nxrs_build_support::nuttx_resources::validate_config(&p.data, &config)?;
     if protected
         && config
             .lines()
@@ -1048,6 +1054,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let config = read(&nuttx.join(".config"))?;
     if protected {
         required(&config, &requirements, forbid)?;
+        nxrs_build_support::nuttx_resources::validate_config(&p.data, &config)?;
     }
     fs::copy(nuttx.join(".config"), out.join("resolved.config")).map_err(|e| e.to_string())?;
     if let Some(signing) = signing {

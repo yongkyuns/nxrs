@@ -1,7 +1,9 @@
-//! Deterministic ownership/storage witnesses, with normalized test sensors.
+//! Device state and storage tests, with normalized test sensors.
 #![allow(dead_code)]
-use super::{cadence, gpio_resource};
-use crate::{instance::Ownership, AppliedConfig, Config, Device, DeviceError, Event, Session};
+use super::device_state;
+use super::gpio_resource;
+use crate::{AppliedConfig, Config, Device, DeviceError, Event, Session};
+use device_state::DeviceState;
 use peripheral::imu::{Buffering, Error, Imu, Measurement};
 use std::{
     sync::{
@@ -14,12 +16,9 @@ use std::{
 mod device;
 #[path = "instance.rs"]
 mod instance;
-#[path = "../../session.rs"]
-mod session;
 #[path = "signal.rs"]
 mod signal;
-#[path = "trace.rs"]
-mod trace;
+use super::trace;
 
 mod events {
     use std::{
@@ -107,11 +106,11 @@ fn construct<const MODEL: u8>(
     control: &&'static Control,
     config: Config,
     trace: trace::Trace,
-    owner: &'static Ownership,
+    state: &'static DeviceState,
     _: bool,
 ) -> Result<device::Device<Sensor<MODEL>>, DeviceError> {
     let (_, applied) = device::resolve::<Sensor<MODEL>>(config)?;
-    let lease = owner.take()?;
+    let use_guard = state.begin_use()?;
     Ok(device::Device::new(
         Sensor(control),
         applied,
@@ -120,7 +119,7 @@ fn construct<const MODEL: u8>(
             Duration::from_micros(applied.delivery_interval_us.into()),
         ),
         trace,
-        lease,
+        use_guard,
     ))
 }
 type Instance<const MODEL: u8> = instance::Instance<Sensor<MODEL>, &'static Control>;

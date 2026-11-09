@@ -8,6 +8,7 @@ pub mod composition;
 pub mod configuration;
 pub mod native;
 mod native_nuttx;
+pub mod nuttx_resources;
 mod overlay;
 pub mod preparation;
 pub mod profile;

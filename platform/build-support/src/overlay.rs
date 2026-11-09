@@ -12,11 +12,11 @@ use std::{
 
 pub(crate) type Origins = BTreeMap<String, PathBuf>;
 
-const GRAPH_TABLES: &[&str] = &["resources", "devices", "roles"];
+const GRAPH_TABLES: &[&str] = &["resources", "devices", "aliases"];
 const REMOVALS: &[(&str, &str)] = &[
     ("remove-devices", "devices"),
     ("remove-resources", "resources"),
-    ("remove-roles", "roles"),
+    ("remove-aliases", "aliases"),
 ];
 
 /// Merge one profile graph or explicit overlay into `data`.
@@ -33,6 +33,12 @@ pub(crate) fn merge(
     let input_table = input
         .as_object()
         .ok_or_else(|| error(path, "<root>", "expected a table"))?;
+
+    for (old, new) in [("roles", "aliases"), ("remove-roles", "remove-aliases")] {
+        if input_table.contains_key(old) {
+            return Err(error(path, old, &format!("rename {old} to {new}")));
+        }
+    }
 
     if overlay {
         for key in input_table.keys() {
@@ -133,9 +139,9 @@ fn merge_table(
 
     for (id, record) in incoming {
         let field = format!("{table}.{id}");
-        if table == "roles" {
+        if table == "aliases" {
             if !record.is_string() {
-                return Err(error(path, &field, "role assignment must be a string ID"));
+                return Err(error(path, &field, "alias assignment must be a string ID"));
             }
             target.insert(id.clone(), record.clone());
             origins.insert(field, path.to_path_buf());
@@ -160,6 +166,14 @@ fn merge_table(
 }
 
 fn record_replaces(old: &Value, new: &Value, table: &str) -> bool {
+    if table == "resources"
+        && old
+            .get("binding")
+            .zip(new.get("binding"))
+            .is_some_and(|(a, b)| a != b)
+    {
+        return true;
+    }
     let discriminator = if table == "devices" {
         "compatible"
     } else {
@@ -218,60 +232,67 @@ mod tests {
 
     #[test]
     fn merges_properties_in_order_and_tracks_last_contributor() {
-        let mut data = json!({"devices":{"motion":{"compatible":"bosch,bmi270","bus":"i2c","address":104,"wake":{"kind":"periodic"}}}});
+        let mut data = json!({"devices":{"imu":{"compatible":"bosch,bmi270","bus":"i2c","address":104,"wake":{"kind":"periodic"}}}});
         let mut origins = Origins::new();
-        merge(&mut data, &json!({"devices":{"motion":{"address":105,"wake":{"kind":"interrupt","resource":"irq"}}}}), Path::new("first.toml"), &mut origins, true).unwrap();
+        merge(&mut data, &json!({"devices":{"imu":{"address":105,"wake":{"kind":"interrupt","resource":"irq"}}}}), Path::new("first.toml"), &mut origins, true).unwrap();
         merge(
             &mut data,
-            &json!({"devices":{"motion":{"address":106}}}),
+            &json!({"devices":{"imu":{"address":106}}}),
             Path::new("second.toml"),
             &mut origins,
             true,
         )
         .unwrap();
-        assert_eq!(data["devices"]["motion"]["address"], 106);
-        assert_eq!(data["devices"]["motion"]["wake"]["resource"], "irq");
-        assert_eq!(origins["devices.motion.address"], source("second.toml"));
-        assert_eq!(origins["devices.motion.wake"], source("first.toml"));
+        assert_eq!(data["devices"]["imu"]["address"], 106);
+        assert_eq!(data["devices"]["imu"]["wake"]["resource"], "irq");
+        assert_eq!(origins["devices.imu.address"], source("second.toml"));
+        assert_eq!(origins["devices.imu.wake"], source("first.toml"));
     }
 
     #[test]
     fn discriminator_changes_replace_records_and_clear_stale_properties() {
-        let mut data = json!({"resources":{"bus":{"kind":"i2c","device":"/dev/i2c0","frequency":400000}},"devices":{"motion":{"compatible":"old,sensor","bus":"bus","address":104,"wake":{"kind":"interrupt","resource":"irq"}}}});
+        let mut data = json!({"resources":{"bus":{"kind":"i2c","device":"/dev/i2c0","frequency":400000}},"devices":{"imu":{"compatible":"old,sensor","bus":"bus","address":104,"wake":{"kind":"interrupt","resource":"irq"}}}});
         let mut origins = Origins::new();
-        merge(&mut data, &json!({"resources":{"bus":{"kind":"spi","device":"/dev/spi0"}},"devices":{"motion":{"compatible":"new,sensor","bus":"bus","address":1,"wake":{"kind":"periodic"}}}}), Path::new("replacement.toml"), &mut origins, true).unwrap();
+        merge(&mut data, &json!({"resources":{"bus":{"kind":"spi","device":"/dev/spi0"}},"devices":{"imu":{"compatible":"new,sensor","bus":"bus","address":1,"wake":{"kind":"periodic"}}}}), Path::new("replacement.toml"), &mut origins, true).unwrap();
         assert_eq!(
             data["resources"]["bus"],
             json!({"kind":"spi","device":"/dev/spi0"})
         );
         assert_eq!(
-            data["devices"]["motion"],
+            data["devices"]["imu"],
             json!({"compatible":"new,sensor","bus":"bus","address":1,"wake":{"kind":"periodic"}})
         );
-        assert!(!origins.contains_key("devices.motion.wake.resource"));
+        assert!(!origins.contains_key("devices.imu.wake.resource"));
         assert!(!origins.contains_key("resources.bus.frequency"));
-        assert_eq!(
-            origins["devices.motion.address"],
-            source("replacement.toml")
-        );
+        assert_eq!(origins["devices.imu.address"], source("replacement.toml"));
     }
 
     #[test]
     fn removals_create_tombstones_and_reject_unknown_duplicate_or_conflicting_ids() {
-        let mut data = json!({"devices":{"motion":{"compatible":"x"}},"roles":{"imu":"motion"}});
+        let mut data = json!({"devices":{"imu":{"compatible":"x"}},"aliases":{"imu":"imu"}});
         let mut origins = Origins::new();
         merge(
             &mut data,
-            &json!({"remove-devices":["motion"]}),
+            &json!({"remove-devices":["imu"]}),
             Path::new("remove.toml"),
             &mut origins,
             true,
         )
         .unwrap();
-        assert_eq!(origins["devices.motion"], source("remove.toml"));
+        assert_eq!(origins["devices.imu"], source("remove.toml"));
+        merge(
+            &mut data,
+            &json!({"remove-aliases":["imu"]}),
+            Path::new("remove.toml"),
+            &mut origins,
+            true,
+        )
+        .unwrap();
+        assert!(data["aliases"].as_object().unwrap().is_empty());
+        assert_eq!(origins["aliases.imu"], source("remove.toml"));
         assert!(merge(
             &mut data,
-            &json!({"remove-devices":["motion"]}),
+            &json!({"remove-devices":["imu"]}),
             Path::new("unknown.toml"),
             &mut origins,
             true
@@ -279,10 +300,10 @@ mod tests {
         .unwrap_err()
         .contains("remove-devices[0]"));
 
-        let mut data = json!({"devices":{"motion":{"compatible":"x"}}});
+        let mut data = json!({"devices":{"imu":{"compatible":"x"}}});
         assert!(merge(
             &mut data,
-            &json!({"devices":{"motion":{"address":1}},"remove-devices":["motion"]}),
+            &json!({"devices":{"imu":{"address":1}},"remove-devices":["imu"]}),
             Path::new("conflict.toml"),
             &mut origins,
             true
@@ -291,7 +312,7 @@ mod tests {
         .contains("removes and updates"));
         assert!(merge(
             &mut data,
-            &json!({"remove-devices":["motion","motion"]}),
+            &json!({"remove-devices":["imu","imu"]}),
             Path::new("duplicate.toml"),
             &mut origins,
             true
@@ -304,6 +325,22 @@ mod tests {
     fn overlays_reject_non_graph_settings_and_malformed_tables_with_locations() {
         let mut data = json!({});
         let mut origins = Origins::new();
+        for (old, new) in [("roles", "aliases"), ("remove-roles", "remove-aliases")] {
+            for overlay in [false, true] {
+                let error = merge(
+                    &mut data,
+                    &json!({old: {}}),
+                    Path::new("old.toml"),
+                    &mut origins,
+                    overlay,
+                )
+                .unwrap_err();
+                assert!(
+                    error.contains("old.toml") && error.contains(&format!("rename {old} to {new}")),
+                    "{error}"
+                );
+            }
+        }
         for key in [
             "include",
             "target-os",
@@ -325,22 +362,22 @@ mod tests {
         }
         assert!(merge(
             &mut data,
-            &json!({"devices":{"motion":1}}),
+            &json!({"devices":{"imu":1}}),
             Path::new("shape.toml"),
             &mut origins,
             true
         )
         .unwrap_err()
-        .contains("devices.motion"));
+        .contains("devices.imu"));
     }
 
     #[test]
     fn inherited_profiles_only_merge_graph_tables() {
-        let mut data = json!({"name":"parent","execution":"nuttx","roles":{"imu":"motion"}});
+        let mut data = json!({"name":"parent","execution":"nuttx","aliases":{"imu":"imu"}});
         let mut origins = Origins::new();
         merge(
             &mut data,
-            &json!({"name":"child","execution":"std","devices":{"motion":{"compatible":"x"}}}),
+            &json!({"name":"child","execution":"std","devices":{"imu":{"compatible":"x"}}}),
             Path::new("child.toml"),
             &mut origins,
             false,
@@ -348,6 +385,6 @@ mod tests {
         .unwrap();
         assert_eq!(data["name"], "parent");
         assert_eq!(data["execution"], "nuttx");
-        assert_eq!(data["devices"]["motion"]["compatible"], "x");
+        assert_eq!(data["devices"]["imu"]["compatible"], "x");
     }
 }

@@ -16,9 +16,9 @@ validated configuration and instance declarations. Cargo features enable the
 required implementations. Every configured physical device in the firmware's
 active instance set has one canonical, statically allocated, opaque object with
 its own configuration, persistent
-instance storage and ownership/fault state. Roles refer to those objects.
+instance storage and ownership/fault state. Aliases refer to those objects.
 
-Applications keep using capability contracts and logical roles. Fixed hardware
+Applications keep using capability contracts and logical aliases. Fixed hardware
 is bound to concrete implementations at build time. Multiple devices, including
 multiple devices using the same implementation, are supported by construction.
 
@@ -30,18 +30,30 @@ multiple devices using the same implementation, are supported by construction.
 | Implementation | Runtime code that implements the capability using a chip driver or OS facility | IMU acquisition using the BMI270 driver’s shared device contract |
 | Resource | An OS/controller facility needed by an implementation | I2C controller, UART, GPIO interrupt or SPI chip select |
 | Device instance | One configured physical endpoint with canonical identity and state | BMI270 at address 0x68 on the sensor bus |
-| Role | A logical name that refers to a device for a product purpose | Default IMU, front IMU or backup IMU |
+| Alias | A logical name that refers to a device for a product purpose | Default IMU, front IMU or backup IMU |
 | Acquisition session | A temporary, exclusive owner of active use of a device | A running sample worker with stop/join operations |
 
-A role is an alias, not an allocation. Two roles can refer to one device, but
-cannot use aliases to bypass that device's ownership policy. Two identical chips
+An alias refers to the existing allocation. Two aliases can refer to one device,
+sharing that device's ownership policy. Two identical chips
 at different endpoints are two devices using one implementation.
+
+Resource bindings describe construction inputs and may resolve directly to Rust
+std handles. Apply the [std-first interface choices](peripheral-composition.md#use-existing-rust-resource-interfaces)
+when extending composition. Permanent device identity preserves peripheral
+ownership; ordinary files and socket connections need no generated device object.
+Preserve exclusive ownership where required even when the underlying handle is a
+`File`. Profiles select supported BSP resources and native pin settings once;
+build support derives NuttX configuration and Rust endpoint paths together.
+NuttX owns MCU pin encoding, electrical setup, initialization and registration.
+Nxrs checks declared pin claims in the BSP's native numbering namespace and
+verifies effective NuttX configuration. Bindings, overlays and
+aliases select their use without imposing an additional runtime access layer.
 
 The firmware's active instance set consists of configured physical devices for
 capabilities both admitted by the profile and consumed in the target production
 Cargo graph. Available devices in a full board profile must not add an unconsumed
 HAL, driver, helper or static allocation to an application. Validate required
-roles against the active set. D0 must specify treatment and validation of
+aliases against the active set. D0 must specify treatment and validation of
 unconsumed profile records without undeclared catalog dependencies. This rule
 does not introduce a new profile field or a runtime device registry.
 
@@ -61,24 +73,28 @@ The two HAL build scripts remain generic adapters for this slice. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
 native compilation/linking. Full pre-Cargo handoff, optional driver selection and
 GNSS static runtime instances remain later work. IMU now generates one canonical
-instance per physical record and named role accessors, as described below.
+instance per physical record and named alias accessors, as described below.
 
 ### Implemented IMU device access
 
-`imu::primary()` and `imu::devices::<role>()` return `&'static impl imu::Device`.
-`roles.imu` names primary; `imu_<role>` names additional aliases. `Device::open`
+`imu::devices::<device_name>()` returns the configured device directly.
+`aliases.imu` selects `imu::primary()`; `imu_<alias>` adds another accessor in
+`imu::devices`. All return `&'static impl imu::Device` for the same canonical
+object. A single IMU needs no alias; multiple IMUs require an explicit default.
+Accessor name collisions between different devices are rejected. `Device::open`
 accepts configuration and a typed sink; `open_default` uses the driver's default.
-The result is an exclusive `Session`, separate from permanent identity. Existing
-free functions delegate to primary. The explicit mock fixture has primary and
+The result is an exclusive `Session`, separate from permanent identity. Consumers acquire through these device methods. The explicit mock fixture has primary and
 secondary devices; coordinated simulation has primary only. Portable services
 can receive the selected reference through `ImuService::start_on(device)`.
 
 Each NuttX instance owns its immutable binding and a
-`Mutex<Option<device::Device<S>>>`, plus per-device ownership/quarantine.
+`Mutex<Option<device::Device<S>>>`, plus a private `DeviceState` recording
+`Available`, `InUse` or `Faulted`.
 The driver initializes at acquisition and remains in that static slot while
 active. Retirement destroys the sink, cleans up/drops the driver and resource
-handles, then releases the lease. Cancellation setup or thread-start failure
-also retires the slot. Uncertain cleanup quarantines that device until restart.
+handles, then drops its `DeviceUseGuard` to make the device available again.
+Cancellation setup or thread-start failure also retires the slot. Failed cleanup
+keeps that device faulted until restart.
 Two aliases remain Busy through terminal delivery; independent devices can run
 concurrently with different settings. No runtime device registry is introduced.
 
@@ -110,7 +126,7 @@ See the baseline [IMU build script](https://github.com/yongkyuns/nxrs/blob/15f54
 [IRQ owner](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/hal/imu/src/platform/nuttx/irq.rs),
 [session API](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/hal/imu/src/api.rs), and
 [composition resolver](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/platform/build-support/src/composition.rs).
-At that baseline, the IMU projection selected only the default role despite the
+At that baseline, the IMU projection selected only the default alias despite the
 device map allowing multiple records. The current IMU generator and runtime
 implement simultaneous named instances; the table retains the migration baseline.
 A constant model match may optimize away; these source facts alone do not prove
@@ -124,7 +140,8 @@ that both drivers remain in the linked firmware.
 | `driver/<device>` | Reusable chip protocol, supported settings/resource bindings, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
 | `driver/peripheral` | Synchronous per-peripheral contracts; no resource construction or acquisition runtime |
 | Provider-local `ffi/` | Mechanical ABI source for the consuming provider |
-| Product profile and overlays | Physical devices, resource assignments, roles, requirements and budgets |
+| Product profile and overlays | Physical devices, BSP resource/pin assignments, aliases, requirements and budgets |
+| BSP resource mapping | Supported registrations, native pin symbols/numbering, fixed reservations, endpoint paths and required Kconfig |
 | Shared build support/controller | Schema discovery, resolution, validation, generic Rust generation, feature requests, target/native compilation orchestration and provenance |
 | Cargo | Software dependency and feature resolution |
 | OS/BSP | Controller registration, physical wiring, kernel facilities and qualified transaction behavior |
@@ -155,7 +172,7 @@ edges; they do not themselves name arbitrary Rust constructor paths.
 
 Discover bindings through explicit package-relative metadata or imports naming
 declared normal Cargo path dependencies. Chip resource constraints belong with
-the driver; product profiles assign actual endpoints, addresses and roles.
+the driver; product profiles assign actual endpoints, addresses and aliases.
 The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.
@@ -165,12 +182,12 @@ Profiles contain data and supported identifiers, never executable source paths.
 Before compiling target crates, the common build path must:
 
 1. Resolve the profile and ordered overlays with package-owned schemas; validate
-   resources, devices, roles and requested capability requirements.
+   resources, devices, aliases and requested capability requirements.
 2. Derive the union of required implementation features for consumed components
    and request them through valid declared Cargo edges. Ask Cargo for the actual
    production graph using the real compiler, target and feature settings.
 3. Generate typed configuration and one declaration per active device,
-   with package-specific provider selection and explicit role aliases.
+   with package-specific provider selection and explicit aliases.
 4. Compile the consumed packages' required native helpers against the configured
    target headers/SDK and supply the correct link inputs.
 5. Compile through Cargo and record selected packages, generated-input identity
@@ -234,7 +251,7 @@ choice. Avoid feature conditions scattered through methods and algorithms.
 | One BMI270 | BMI270 | One |
 | Two BMI270s at distinct endpoints | BMI270 | Two independent objects |
 | BMI270 and LSM6DSO | BMI270 and LSM6DSO | Two independent objects |
-| Two roles referring to one BMI270 | BMI270 | One object shared by both aliases |
+| Two aliases referring to one BMI270 | BMI270 | One object shared by both aliases |
 
 Features are additive implementation availability, not mutually exclusive
 whole-HAL selection and not a feature per instance. Runtime `match MODEL`
@@ -262,7 +279,7 @@ not perform I/O.
 
 Common HAL instance machinery must enforce construction and acquisition
 invariants. Applications cannot manufacture a new ownership record for an
-existing endpoint through a public constructor. Generated role accessors refer
+existing endpoint through a public constructor. Generated alias accessors refer
 to the canonical object. Avoid copyable `const DeviceSlot` values and statics
 hidden inside generic functions: Rust defines one such generic-scope static,
 not a separate allocation for each monomorphization.
@@ -273,7 +290,7 @@ is active or retiring. A different device can be acquired independently.
 Fault/poison state belongs to the affected device, including partial startup,
 IRQ registration rollback and IRQ unregister failures.
 
-Keep the existing `imu::Session` contract (`imu::Imu` is its compatibility alias):
+Keep the `imu::Session` contract:
 cancellation, observable terminal failure, dropped-event accounting, completion
 and explicit join. A permanent device is a separate concept. Session Drop
 requests cancellation without
@@ -289,7 +306,7 @@ Opaque means private representation. It does not require `dyn` dispatch, a
 vtable, heap boxing or a heterogeneous runtime registry. Private typed instances
 and named accessors returning an opaque implementation can preserve static
 dispatch. The implemented IMU API is `Device`, `primary()` and
-`devices::<role>()`; its `Instance<S, B>` representation stays private. A uniform collection
+`devices::<alias>()`; its `Instance<S, B>` representation stays private. A uniform collection
 of unlike devices needs a separately reviewed dispatch/storage choice. Preserve
 the generic typed callback contract without silently boxing sinks.
 
@@ -309,7 +326,7 @@ once per acquisition; sample processing and ordinary sinks use static dispatch.
 Canonicalize physical endpoint identity using the available resource metadata.
 Two logical resource names for the same bus/address must not create independent
 device owners. Reject duplicate device declarations for one endpoint; express
-legitimate aliases as roles referring to one device. Detect exclusive IRQ/CS and
+legitimate aliases as aliases referring to one device. Detect exclusive IRQ/CS and
 pin claims where metadata supports that proof, including console/UART conflicts.
 State the limits when BSP metadata or path aliases cannot establish identity.
 
@@ -336,7 +353,7 @@ protocol; this work does not add a generic resource manager.
 ## Portability and the Zephyr comparison
 
 Product configuration knows the chip and endpoint. Application/service logic
-knows the capability, its requirements and the logical role. Switching hardware
+knows the capability, its requirements and the logical alias. Switching hardware
 changes configuration and the selected implementation while preserving portable
 policy. The HAL must report accepted rate/range/timing and reject unsupported
 requirements; a common API does not make different sensors physically identical.

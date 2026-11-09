@@ -8,10 +8,13 @@ pub use imu::probe;
 #[path = "../src/api.rs"]
 mod api;
 pub use api::{AppliedConfig, Config, Device, DeviceError, Event, ImuSample, Session};
-#[path = "../src/cadence.rs"]
-mod cadence;
-#[path = "../src/instance.rs"]
-mod instance;
+#[path = "../src/device_state.rs"]
+mod device_state;
+#[path = "../src/session.rs"]
+mod session;
+#[cfg(unix)]
+#[path = "../src/platform/nuttx/trace.rs"]
+mod trace;
 
 #[cfg(unix)]
 #[path = "../src/platform/nuttx/irq_tests.rs"]

@@ -60,9 +60,9 @@ pub fn prepare_package(
         .composition()?
         .ok_or_else(|| format!("{name}/{provider} configuration requires a composition"))?;
     let device_id = composition
-        .roles
+        .aliases
         .get(capability)
-        .ok_or_else(|| format!("{name}: missing device role {capability}"))?;
+        .ok_or_else(|| format!("{name}: missing device alias {capability}"))?;
     let device = composition
         .devices
         .get(device_id)

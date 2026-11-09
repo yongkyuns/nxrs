@@ -1,19 +1,15 @@
 //! Profile-selected canonical IMU instances and concrete resource construction.
 use super::{events, gpio_resource, resource, spi_resource};
 use crate::{AppliedConfig, Config, DeviceError, Event, Session};
-use factory::Delay;
-use observed_bus::{Bus, Spi};
+use factory::{Bus, Delay, Spi};
 use trace::Trace;
+#[path = "../../device_state.rs"]
+mod device_state;
 
-#[path = "../../cadence.rs"]
-mod cadence;
 mod device;
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
 mod factory;
 mod instance;
-mod observed_bus;
-#[path = "../../session.rs"]
-mod session;
 mod signal;
 mod trace;
 
@@ -37,13 +33,13 @@ macro_rules! declare_device {
             $id,
             $binding,
             $stack,
-            |binding, config, trace, owner, reference| {
+            |binding, config, trace, state, reference| {
                 let observed = trace.clone();
                 let device = factory::acquire(
                     config,
                     binding.irq_path,
                     trace,
-                    owner,
+                    state,
                     || binding.open(observed),
                     |bus, settings| {
                         let interface = bus

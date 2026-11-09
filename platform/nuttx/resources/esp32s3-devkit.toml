@@ -1,0 +1,62 @@
+# Native NuttX registration contract; electrical setup stays in the BSP/driver.
+# These symbols take ESP32-S3 GPIO numbers, not port-local pin numbers.
+pin-namespace = "esp32s3-gpio"
+
+[kconfig]
+ARCH_BOARD_ESP32S3_DEVKIT = "y"
+
+[resources.i2c0]
+kind = "i2c"
+device = "/dev/i2c0"
+pin-settings = ["ESP32S3_I2C0_SDAPIN", "ESP32S3_I2C0_SCLPIN"]
+[resources.i2c0.kconfig]
+ESP32S3_I2C0 = "y"
+ESP32S3_I2C0_MASTER_MODE = "y"
+I2C_DRIVER = "y"
+I2C_POLLED = "n"
+BOARD_LATE_INITIALIZE = "y"
+
+[resources.i2c1]
+kind = "i2c"
+device = "/dev/i2c1"
+pin-settings = ["ESP32S3_I2C1_SDAPIN", "ESP32S3_I2C1_SCLPIN"]
+[resources.i2c1.kconfig]
+ESP32S3_I2C1 = "y"
+ESP32S3_I2C1_MASTER_MODE = "y"
+I2C_DRIVER = "y"
+I2C_POLLED = "n"
+BOARD_LATE_INITIALIZE = "y"
+
+[resources.gpio_irq]
+kind = "gpio-interrupt"
+device = "/dev/gpio2"
+pin-settings = ["ESP32S3_DEVKIT_GPIO_IRQ_PIN"]
+# GPIO bring-up also configures the fixed GPIO15 output and GPIO18 input.
+reserved-pins = [15, 18]
+# Patch 0111 rising-edge setup fixes active-high/pull-down for the current adapter.
+properties = { trigger = "rising" }
+[resources.gpio_irq.kconfig]
+DEV_GPIO = "y"
+GPIO_LOWER_HALF = "n"
+ESPRESSIF_GPIO_IRQ = "y"
+ESP32S3_DEVKIT_GPIO_IRQ_RISING = "y"
+DEV_GPIO_NPOLLWAITERS = "1"
+DEV_GPIO_NSIGNALS = "0"
+BOARD_LATE_INITIALIZE = "y"
+
+[resources.spi2]
+kind = "spi"
+device = "/dev/spi2"
+pin-settings = ["ESP32S3_SPI2_CLKPIN", "ESP32S3_SPI2_MOSIPIN", "ESP32S3_SPI2_MISOPIN", "ESP32S3_SPI2_CSPIN"]
+# Native SPI select uses the one configured CS pin.
+chip-selects = [0]
+[resources.spi2.kconfig]
+ESP32S3_SPI2 = "y"
+ESP32S3_SPI = "y"
+ESP32S3_SPI_IO_SPI = "y"
+SPI_DRIVER = "y"
+SPI_SLAVE_DRIVER = "n"
+SPI_SLAVE = "n"
+ESP32S3_SPI_UDCS = "n"
+ESP32S3_SPI_SWCS = "y"
+BOARD_LATE_INITIALIZE = "y"

@@ -14,6 +14,19 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     let sdk = root.join("sdk");
     fs::create_dir_all(sdk.join("platform/profiles")).unwrap();
     fs::create_dir_all(sdk.join("platform/nuttx/platforms")).unwrap();
+    fs::create_dir_all(sdk.join("platform/nuttx/resources")).unwrap();
+    // This isolated host fixture also models a SPI endpoint. The real CoreS3
+    // BSP does not register one and is independently required to reject it.
+    let mut bsp =
+        fs::read_to_string(source.join("platform/nuttx/resources/esp32s3-m5-cores3.toml")).unwrap();
+    let devkit =
+        fs::read_to_string(source.join("platform/nuttx/resources/esp32s3-devkit.toml")).unwrap();
+    bsp.push_str(&devkit[devkit.find("[resources.spi2]").unwrap()..]);
+    fs::write(
+        sdk.join("platform/nuttx/resources/esp32s3-m5-cores3.toml"),
+        bsp,
+    )
+    .unwrap();
     fs::write(sdk.join("Cargo.toml"), "[workspace]\n").unwrap();
     for (relative, files) in [
         ("hal/imu", &["Cargo.toml"][..]),
@@ -78,7 +91,7 @@ fn main() {
 #[path = @API@] mod api;
 pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 #[cfg(unix)] pub use api::Device;
-#[path = @INSTANCE@] mod instance;
+#[path = @SESSION@] mod session;
 #[cfg(not(unix))] pub trait Device {}
 // Every host checks generated bindings below. Unix hosts additionally compile
 // the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
@@ -151,7 +164,7 @@ fn main() {
             &format!("{:?}", source.join("driver/gpio/tests/support/mod.rs")),
         )
         .replace("@SPI@", &format!("{:?}", source.join("driver/spi/tests/support/mod.rs")))
-        .replace("@INSTANCE@", &format!("{:?}", source.join("hal/imu/src/instance.rs")))
+        .replace("@SESSION@", &format!("{:?}", source.join("hal/imu/src/session.rs")))
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
         .replace(
             "@PROBE@",
@@ -167,7 +180,11 @@ fn main() {
         ),
     )
     .unwrap();
-    fs::write(root.join("src/named.rs"), "fn verify_named() {}\n").unwrap();
+    let single_device = r#"
+fn verify_named() {
+    assert_eq!(production::primary() as *const _ as *const (), production::devices::@DEVICE@() as *const _ as *const ());
+}
+"#;
     let cargo = env!("CARGO");
     let version = nxrs_build::output(Command::new(cargo).current_dir(root).arg("-vV")).unwrap();
     let target = version
@@ -177,14 +194,16 @@ fn main() {
     let patch = root.join("alternate.toml");
     fs::write(
         &patch,
-        "[resources.sensor_bus]\ndevice = \"/dev/i2c1\"\nfrequency = 100000\n\
-         [devices.motion]\naddress = 105\n\
-         [resources.receiver_uart]\ndevice = \"/dev/ttyS2\"\nbaud = 115200\n",
+        "[resources.sensor_bus]\nbinding = \"i2c1\"\nkconfig = { ESP32S3_I2C1_SDAPIN = 12, ESP32S3_I2C1_SCLPIN = 11 }\nfrequency = 100000\n\
+         [devices.imu]\naddress = 105\n\
+         [resources.receiver_uart]\nbaud = 115200\n",
     )
     .unwrap();
     let replacement = source.join("tests/host/fixtures/lsm6dso-overlay.toml");
     let bmi_spi = source.join("tests/nuttx-std/imu-qualification/overlays/bmi270-spi.toml");
     let lsm_spi = source.join("tests/nuttx-std/imu-qualification/overlays/lsm6dso-spi.toml");
+    let inferred = root.join("inferred.toml");
+    fs::write(&inferred, "remove-aliases = [\"gnss\"]\n").unwrap();
     let receipt = root.join("resolved-profile.json");
     let run = || {
         Command::new(cargo)
@@ -202,16 +221,18 @@ fn main() {
         "path: \"/dev/i2c0\"",
         "path: \"/dev/ttyS1\", baud: 38400",
     ];
-    for (overlays, expected) in [
-        (&[][..], original),
+    for (overlays, expected, device_name) in [
+        (&[][..], original, "imu"),
+        (&[inferred][..], original, "imu"),
         (
             &[patch][..],
             [
                 "implementations::Bmi270,",
                 "address: 105",
                 "path: \"/dev/i2c1\"",
-                "path: \"/dev/ttyS2\", baud: 115200",
+                "path: \"/dev/ttyS1\", baud: 115200",
             ],
+            "imu",
         ),
         (
             &[replacement][..],
@@ -221,6 +242,7 @@ fn main() {
                 "frequency: 100000",
                 "path: \"/dev/ttyS1\", baud: 38400",
             ],
+            "imu",
         ),
         (
             &[bmi_spi][..],
@@ -230,6 +252,7 @@ fn main() {
                 "mode: 3",
                 "path: \"/dev/spi2\"",
             ],
+            "imu_spi",
         ),
         (
             &[lsm_spi][..],
@@ -239,12 +262,18 @@ fn main() {
                 "mode: 3",
                 "path: \"/dev/spi2\"",
             ],
+            "imu_spi",
         ),
-        (&[][..], original),
+        (&[][..], original, "imu"),
     ] {
         let profile =
             Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", overlays).unwrap();
         resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+        fs::write(
+            root.join("src/named.rs"),
+            single_device.replace("@DEVICE@", device_name),
+        )
+        .unwrap();
         let result = run();
         assert!(
             result.status.success(),
@@ -275,10 +304,11 @@ bus = "sensor_bus"
 address = 106
 [devices.auxiliary.wake]
 kind = "periodic"
-[roles]
+[aliases]
+imu = "imu"
 imu_backup = "backup"
 imu_auxiliary = "auxiliary"
-imu_navigation = "motion"
+imu_navigation = "imu"
 "#,
     )
     .unwrap();
@@ -287,6 +317,7 @@ fn verify_named() {
     let primary = production::primary();
     let alias = production::devices::navigation();
     assert_eq!(primary as *const _ as *const (), alias as *const _ as *const ());
+    assert_eq!(primary as *const _ as *const (), production::devices::imu() as *const _ as *const ());
     assert_eq!(production::devices::backup().id(), "backup");
     assert_eq!(production::devices::auxiliary().id(), "auxiliary");
     assert_ne!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
@@ -306,7 +337,36 @@ fn verify_named() {
             .count(),
         3
     );
-    fs::write(root.join("src/named.rs"), "fn verify_named() {}\n").unwrap();
+    // Move only the default alias; physical names continue to identify the same devices.
+    let redirect = root.join("redirect.toml");
+    fs::write(&redirect, "[aliases]\nimu = \"backup\"\n").unwrap();
+    fs::write(root.join("src/named.rs"), r#"
+fn verify_named() {
+    let primary = production::primary();
+    assert_eq!(primary.id(), "backup");
+    assert_eq!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
+    assert_eq!(production::devices::imu().id(), "imu");
+    assert_ne!(primary as *const _ as *const (), production::devices::imu() as *const _ as *const ());
+}
+"#).unwrap();
+    let profile = Profile::resolve_with_overlays(
+        &sdk,
+        "m5stack-cores3-gnss",
+        &[root.join("multiple.toml"), redirect],
+    )
+    .unwrap();
+    resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+    let result = run();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    fs::write(
+        root.join("src/named.rs"),
+        single_device.replace("@DEVICE@", "imu"),
+    )
+    .unwrap();
     let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
     resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
     let result = run();
@@ -325,6 +385,7 @@ fn verify_named() {
     // Content changes at the same declared path must invalidate both Cargo and
     // the receipt, even when the resolved values are semantically unchanged.
     for relative in [
+        "platform/nuttx/resources/esp32s3-m5-cores3.toml",
         "driver/bmi270/bindings.toml",
         "driver/lsm6dso/bindings.toml",
         "driver/bmi270/Cargo.toml",

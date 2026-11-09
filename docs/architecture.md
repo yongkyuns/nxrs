@@ -18,15 +18,15 @@ explains the current evidence for the bounded single-inbox path.
 
 The [declarative build and static device decision](static-device-composition.md)
 records the accepted follow-up to composition v1. It is tracked in
-[issue #246](https://github.com/yongkyuns/nxrs/issues/246); the current runtime
-still uses singular default sensor factories and global acquisition guards.
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246). IMU has canonical
+instances with direct device accessors and aliases; GNSS retains its default owner.
 
 HAL crates retain runtime contracts/implementations, native ABI source and
 declarative support metadata. Shared build tooling will own configuration
 generation and native compilation orchestration. Ordinary additive Cargo
-features enable implementations; profiles define physical devices and roles.
+features enable implementations; profiles define physical devices and aliases.
 Each active physical device will have one canonical static opaque object,
-with private instance state and an exclusive acquisition lease. Multiple roles
+with private instance state and an exclusive acquisition lease. Multiple aliases
 can refer to that same object; multiple devices can use the same implementation.
 
 Applications and services continue to consume portable capability contracts.
@@ -388,7 +388,7 @@ The [peripheral composition architecture](peripheral-composition.md) makes chip
 drivers reusable through existing Rust resource traits. Sensor-specific HAL
 modules translate into the capability API. OS factories construct them from
 resolved device and resource bindings. Profiles and explicit overlays select
-instances and roles. The [implementation plan](peripheral-composition-plan.md)
+instances and aliases. The [implementation plan](peripheral-composition-plan.md)
 records the stages and the separate requirements for host validation, target
 cross-linking, and physical qualification.
 

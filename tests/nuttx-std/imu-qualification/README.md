@@ -208,9 +208,12 @@ separately from the matched run with the ordinary qualification profiles.
 
 `overlays/bmi270-spi.toml` and `overlays/lsm6dso-spi.toml` select SPI resource
 bindings using the same qualification application. They use periodic FIFO wakes
-and `/dev/spi2`, mode 3, 4 MHz, `SPIDEV_USER(0)`. They do not configure physical
-pins or enable the controller. A board build must register that resource and
-provide the CS mapping described in [driver/spi](../../../driver/spi/README.md).
+and `/dev/spi2`, mode 3, 4 MHz, `SPIDEV_USER(0)`. Select the DevKit profile:
+the resource's native Kconfig pin settings and BSP mapping enable SPI2
+registration and assign CS/SCK/MOSI/MISO to
+10/4/5/6. CoreS3 rejects these overlays because its bring-up has no SPI registration.
+The [SPI limitations](../../../driver/spi/README.md) and physical qualification
+requirements still apply; generated configuration is not electrical evidence.
 The existing host freshness test compiles all four sensor/transport selections
 in one Cargo output directory. Local flat/protected checks compile production
 Rust and the enabled native SPI header layout and relocatably link the selected

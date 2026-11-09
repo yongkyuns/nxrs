@@ -37,15 +37,9 @@ impl<T: Registers, D: DelayNs> imu::Imu for Device<T, D> {
 
     fn read_available(
         &mut self,
-        mut emit: impl FnMut(imu::Measurement) -> bool,
+        emit: impl FnMut(imu::Measurement) -> bool,
     ) -> Result<Option<usize>, imu::Error> {
-        self.drain(|sample| {
-            emit(imu::Measurement {
-                accel_mps2: sample.accel_mps2,
-                gyro_rps: sample.gyro_rps,
-            })
-        })
-        .map_err(Into::into)
+        self.drain(emit).map_err(Into::into)
     }
 
     fn stop(&mut self) -> Result<(), imu::Error> {

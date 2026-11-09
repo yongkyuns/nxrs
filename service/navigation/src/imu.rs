@@ -7,7 +7,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{ImuInput, Submit};
-use imu::{DeliveryError, DeviceError, Imu, ImuSample, Rejected};
+use imu::{DeliveryError, DeviceError, ImuSample, Rejected, Session};
 use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
@@ -101,7 +101,7 @@ impl ImuService {
     }
 
     #[cfg(test)]
-    pub(super) fn start_with_test_device<D: Imu + Send + 'static>(
+    pub(super) fn start_with_test_device<D: Session + Send + 'static>(
         self,
         device: D,
     ) -> io::Result<(ImuHandle, TestInput)> {
@@ -122,7 +122,7 @@ impl TestInput {
 }
 
 impl ImuService {
-    fn start_device<D: Imu + Send + 'static>(
+    fn start_device<D: Session + Send + 'static>(
         self,
         device: D,
         control: Sender<Event>,
@@ -195,7 +195,7 @@ impl Drop for ImuHandle {
         self.request_stop();
     }
 }
-fn run<D: Imu>(
+fn run<D: Session>(
     mut service: ImuService,
     mut device: D,
     inbox: Inbox<Event>,
@@ -264,7 +264,7 @@ mod tests {
         stopped: bool,
         joined: SyncSender<()>,
     }
-    impl Imu for Source {
+    impl Session for Source {
         fn request_stop(&mut self) -> Result<(), DeviceError> {
             self.stopped = true;
             Ok(())

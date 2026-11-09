@@ -467,14 +467,14 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             compact = re.sub(r'\s+', '', source)
             if ('macro_rules!declare_device' not in compact
                     or 'static$name:instance::Instance<' not in compact
-                    or 'factory::acquire(config,binding.irq_path,trace,owner,' not in compact
+                    or 'factory::acquire(config,binding.irq_path,trace,state,' not in compact
                     or 'binding.open(observed)' not in compact
                     or '<$sensor>::from_interface(' not in compact):
                 errors.append(f'{relative(nuttx)}: use canonical declarations and the checked-in typed resource factory')
             instance = nuttx.parent / 'instance.rs'
             runtime = re.sub(r'\s+', '', instance.read_text()) if instance.is_file() else ''
-            if ('owner:Ownership' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
-                    or 'WorkerSession::start_guarded(self.stack_bytes,' not in runtime):
+            if ('state:DeviceState' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
+                    or 'Worker::start_guarded("imu-acquire",self.stack_bytes,' not in runtime):
                 errors.append(f'{relative(instance)}: retain per-device storage and ownership through guarded worker retirement')
             for path in (nuttx, nuttx.parent / 'device.rs', nuttx.parent / 'factory.rs'):
                 if path.is_file() and re.search(r'\bstatic\s+OWNED\b', path.read_text()):

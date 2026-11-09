@@ -1,5 +1,7 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
+#[path = "../device_state.rs"]
+mod device_state;
 
 use peripheral::imu::select_rate;
 
@@ -16,16 +18,16 @@ struct SyntheticImu {
 }
 
 impl SyntheticImu {
-    fn sample(&mut self, now_ms: u64) -> Result<ImuSample, DeviceError> {
+    fn sample(&mut self, now_ms: u64) -> ImuSample {
         self.sequence = self.sequence.saturating_add(1);
         let gyro_z = if self.sequence % 80 < 40 { 0.04 } else { -0.02 };
-        Ok(ImuSample {
+        ImuSample {
             sequence: self.sequence,
             timestamp_ms: now_ms,
             sample_interval_us: INTERVAL_US,
             accel_mps2: [0.10, 0.0, 9.81],
             gyro_rps: [0.0, 0.0, gyro_z],
-        })
+        }
     }
 }
 
@@ -43,47 +45,23 @@ impl Session for MockSession {
         MockSession::dropped(self)
     }
 }
-pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
-    sink: S,
-) -> Result<impl Session + Send + 'static, DeviceError> {
-    let mut model = SyntheticImu::default();
-    MockSession::start(
-        sink,
-        std::time::Duration::from_micros(u64::from(INTERVAL_US)),
-        DeviceError::Io,
-        Event::Failed,
-        move |now| Event::Sample(model.sample(now).expect("synthetic sample")),
-    )
-}
 
-/// Preview the fixed source mode without starting acquisition.
-pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
-    let (_, applied) = select_rate(
-        config,
-        [1_000_000_000 / INTERVAL_US],
-        core::convert::identity,
-    )?;
-    if config.accel_range_g != 4 || config.gyro_range_dps != 2000 {
-        return Err(DeviceError::Unsupported);
-    }
-    Ok(applied)
+struct SelectedDevice {
+    id: &'static str,
+    state: device_state::DeviceState,
 }
-
-pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
-    config: Config,
-    sink: S,
-) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
-    let applied = resolve(config)?;
-    open(sink).map(|session| (session, applied))
-}
-
-struct SelectedDevice(&'static str, crate::instance::Ownership);
-static PRIMARY: SelectedDevice = SelectedDevice("primary", crate::instance::Ownership::new());
-static SECONDARY: SelectedDevice = SelectedDevice("secondary", crate::instance::Ownership::new());
-impl crate::instance::Sealed for SelectedDevice {}
+static PRIMARY: SelectedDevice = SelectedDevice {
+    id: "primary",
+    state: device_state::DeviceState::new(),
+};
+static SECONDARY: SelectedDevice = SelectedDevice {
+    id: "secondary",
+    state: device_state::DeviceState::new(),
+};
+impl crate::api::Sealed for SelectedDevice {}
 impl crate::Device for SelectedDevice {
     fn id(&self) -> &'static str {
-        self.0
+        self.id
     }
     fn default_config(&self) -> Result<Config, DeviceError> {
         Ok(Config {
@@ -95,19 +73,35 @@ impl crate::Device for SelectedDevice {
         })
     }
     fn resolve(&self, config: Config) -> Result<AppliedConfig, DeviceError> {
-        resolve(config)
+        let (_, applied) = select_rate(
+            config,
+            [1_000_000_000 / INTERVAL_US],
+            core::convert::identity,
+        )?;
+        if config.accel_range_g != 4 || config.gyro_range_dps != 2000 {
+            return Err(DeviceError::Unsupported);
+        }
+        Ok(applied)
     }
     fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
         &'static self,
         config: Config,
         sink: S,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
-        resolve(config)?;
-        let mut retained = (sink, self.1.take()?);
-        open_configured(config, move |event| {
-            let retained = &mut retained; // Capture the whole tuple; sink drops before lease.
-            (retained.0)(event)
-        })
+        let applied = self.resolve(config)?;
+        let mut retained = (sink, self.state.begin_use()?);
+        let mut model = SyntheticImu::default();
+        MockSession::start(
+            move |event| {
+                let retained = &mut retained; // The sink is destroyed before the device becomes available.
+                (retained.0)(event)
+            },
+            std::time::Duration::from_micros(u64::from(INTERVAL_US)),
+            DeviceError::Io,
+            Event::Failed,
+            move |now| Event::Sample(model.sample(now)),
+        )
+        .map(|session| (session, applied))
     }
 }
 pub mod devices {

@@ -53,6 +53,7 @@ enum InputKind {
     Profile,
     DeclaredOverlay,
     CommandLineOverlay,
+    BspResources,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detector {
@@ -214,8 +215,36 @@ impl Profile {
             profile.inputs.push(input);
         }
         profile.load_catalogs(root)?;
+        profile.resolve_nuttx_resources(root)?;
         profile.validate_resources()?;
         Ok(profile)
+    }
+
+    fn resolve_nuttx_resources(&mut self, root: &Path) -> Result<()> {
+        if self
+            .data
+            .get("resources")
+            .is_none_or(|v| v.as_object().is_some_and(|o| o.is_empty()))
+        {
+            return Ok(());
+        }
+        let board = self.data["board"]
+            .as_str()
+            .and_then(|s| s.split_once(':'))
+            .map(|(board, _)| board)
+            .ok_or("physical resources require a NuttX board")?;
+        if !matches(board, r"^[a-z0-9][a-z0-9-]*$") {
+            return Err("invalid NuttX board resource name".into());
+        }
+        let path = root
+            .join("platform/nuttx/resources")
+            .join(format!("{board}.toml"))
+            .canonicalize()
+            .map_err(|e| format!("BSP resource mapping for {board}: {e}"))?;
+        let (_, input) = read_input(path, InputKind::BspResources)?;
+        crate::nuttx_resources::resolve(&mut self.data, &input.path)?;
+        self.inputs.push(input);
+        Ok(())
     }
 
     fn inherit(
@@ -273,8 +302,8 @@ impl Profile {
         )?;
         for (k, v) in child.as_object().unwrap() {
             match k.as_str() {
-                "resources" | "devices" | "roles" => {}
-                "remove-resources" | "remove-devices" | "remove-roles" => {
+                "resources" | "devices" | "aliases" => {}
+                "remove-resources" | "remove-devices" | "remove-aliases" => {
                     return Err(format!("{}: {k} belongs in an overlay", path.display()));
                 }
                 _ => {
@@ -404,7 +433,7 @@ impl Profile {
                     .replace('\\', "/")
             })
             .collect::<Vec<_>>();
-        let semantic = json!({"graph": graph, "target": self.data["target"]});
+        let semantic = json!({"graph": graph, "target": self.data["target"], "nuttx-resources": self.data.get("resolved-nuttx-resources")});
         let provenance = self
             .origins
             .iter()

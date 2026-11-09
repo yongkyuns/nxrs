@@ -1,6 +1,37 @@
 //! Instrumented tracing, compiled only by the explicit `probe` feature.
 use crate::{probe::Timing, DeviceError};
+use embedded_hal::{i2c, spi};
 use std::{sync::Arc, time::Instant};
+
+/// The same opt-in observer wraps either resource's transaction contract.
+pub(crate) struct Observed<T> {
+    inner: T,
+    trace: Trace,
+}
+impl<T: i2c::I2c> i2c::ErrorType for Observed<T> {
+    type Error = T::Error;
+}
+impl<T: i2c::I2c> i2c::I2c for Observed<T> {
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        self.trace
+            .ioctl(|| self.inner.transaction(address, operations))
+    }
+}
+impl<T: spi::SpiDevice> spi::ErrorType for Observed<T> {
+    type Error = T::Error;
+}
+impl<T: spi::SpiDevice> spi::SpiDevice for Observed<T> {
+    fn transaction(
+        &mut self,
+        operations: &mut [spi::Operation<'_, u8>],
+    ) -> Result<(), Self::Error> {
+        self.trace.ioctl(|| self.inner.transaction(operations))
+    }
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct Trace {
@@ -8,6 +39,9 @@ pub(crate) struct Trace {
 }
 
 impl Trace {
+    pub(crate) fn observe<T>(self, inner: T) -> Observed<T> {
+        Observed { inner, trace: self }
+    }
     pub(crate) fn new(
         observe: impl Fn(Timing) + Send + Sync + 'static,
     ) -> Result<Self, DeviceError> {

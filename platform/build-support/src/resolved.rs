@@ -49,7 +49,7 @@ fn graph(profile: &Profile) -> Result<Value> {
 
 fn semantic_digest(profile: &Profile, graph: &Value) -> String {
     hash_bytes(
-        json!({ "graph": graph, "target": profile.data.get("target") })
+        json!({ "graph": graph, "target": profile.data.get("target"), "nuttx-resources": profile.data.get("resolved-nuttx-resources") })
             .to_string()
             .as_bytes(),
     )

@@ -22,8 +22,7 @@ Use a capability-specific contract with explicit supported configuration,
 buffer ownership, completion, cancellation and failure semantics. Normalization
 does not imply equal hardware capabilities or a universal device API.
 `peripheral::imu::Imu` supplies synchronous device operations; `imu::Session`
-and `gnss::Session` describe active acquisition lifetimes. The old `imu::Imu`
-and `gnss::Gnss` names are aliases for existing consumers.
+and `gnss::Session` describe active acquisition lifetimes. `gnss::Gnss` remains an alias for existing GNSS consumers.
 
 A component does not automatically require a thread or queue. A driver may own
 execution when hardware or blocking operations require it; current IMU chip
@@ -34,10 +33,10 @@ and service execution are unchanged by this foundation cleanup.
 
 The implemented [peripheral composition design](peripheral-composition.md)
 defines reusable sensor-specific drivers, embedded-hal resource adapters and
-validated device/role bindings in profiles. The
+validated device/alias bindings in profiles. The
 [implementation plan](peripheral-composition-plan.md) records the migration
 and its qualification evidence. Composition version 1 and ordered overlays
-resolve the supported hardware bindings for physical IMU and GNSS roles. Named
+resolve the supported hardware bindings for physical IMU and GNSS aliases. Named
 test and qualification profiles can select explicit mock bindings.
 
 ## Accepted follow-up: declarative builds and static devices
@@ -58,13 +57,13 @@ with additive features; the existing OS/provider `selected` boundary does not
 require sensor implementations to be mutually exclusive.
 
 An active physical device has one permanent static allocation with private
-configuration, instance storage and ownership/fault state. Roles refer to that
+configuration, instance storage and ownership/fault state. Aliases refer to that
 object, and acquisition creates a separate exclusive session. Common HAL
 machinery must enforce uniqueness and quiescent release. Different devices can
 run independently, including two of the same model; aliases cannot create new
 ownership guards. IMU implements this through `imu::Device` references returned by
-`primary()` and profile-defined `devices::<role>()`; the existing free functions
-delegate to primary. Its worker retains storage and ownership through final
+`primary()` and profile-defined `devices::<name>()`; acquisition uses
+`Device::open` or `Device::open_default`. Its worker retains storage and ownership through final
 delivery, sink destruction and resource cleanup. GNSS retains its default owner.
 
 Opaque access does not require dynamic dispatch or heap boxing. IMU's named
@@ -83,11 +82,17 @@ when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/
 binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
 `driver/spi` provides bounded, single-CS `SpiDevice` transactions through the
 NuttX SPI character ABI. Chip drivers depend on bus traits, not these concrete adapters. There are no
-host bus backends, unavailable stubs or additional logical profile roles.
+host bus backends, unavailable stubs or additional logical profile aliases.
 IMU drivers own version 2 `bindings.toml` declarations for supported resource
 combinations and checked-in implementation IDs. HAL metadata imports them through
 declared normal Cargo path dependencies. Product profiles select actual wiring;
 shared tooling emits typed resource bindings and a selected factory implementation.
+For composed NuttX peripherals, BSP mappings derive required Kconfig and endpoint
+paths from the same profile resource selection. Resource `kconfig` tables name
+native pin symbols, with conflicts checked in the BSP's declared native namespace.
+NuttX owns port/mux encodings, electrical setup and numeric constraints.
+Explicit Kconfig cannot contradict
+those selections, and the effective NuttX configuration is checked after resolution.
 
 ## Required implementation boundaries
 

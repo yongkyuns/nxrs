@@ -246,6 +246,11 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         env::consts::OS
     };
     options.validate_for_backend(os)?;
+    nxrs_build_support::nuttx_resources::validate_overrides(
+        &profile.data,
+        &options.enable,
+        &options.disable,
+    )?;
     if os != "emscripten" && (html.is_some() || !web_fix) {
         return Err("browser switches require a web profile".into());
     }
