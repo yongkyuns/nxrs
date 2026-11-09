@@ -1,109 +1,95 @@
-// Regenerate the README's light/dark architecture illustrations with Node.js.
-// Run from any directory: node docs/assets/render-architecture.mjs
-// The emitted SVGs keep labels as editable, accessible text; no external assets.
+// Regenerate: node docs/assets/render-architecture.mjs
+// Preserve the original Mermaid topology; customize only visual presentation.
+// Both SVGs retain editable labels and accessible descriptions without dependencies.
 import { writeFileSync } from 'node:fs';
 
 const palettes = {
   light: {
-    background: '#FAFBFD', ink: '#172331', secondary: '#536271', muted: '#5E6E7D',
-    blue: '#397EA8', orange: '#B4633A', blueWash: '#D8EDF9', orangeWash: '#FBE5D7',
-    foundation: '#EBF0F5',
+    canvas: '#FCFDFE', surface: '#FFFFFF', group: '#F4F7FB', border: '#D7E1EB',
+    groupBorder: '#CCD9E6', ink: '#203042', secondary: '#596B7D', line: '#8A9CAF',
+    blue: '#73B9E2', orange: '#F08A4B', shadow: '#24374A',
   },
   dark: {
-    background: '#10161E', ink: '#EAF0F5', secondary: '#AFBCC8', muted: '#8193A4',
-    blue: '#8BC7EA', orange: '#F2A475', blueWash: '#19354A', orangeWash: '#392A24',
-    foundation: '#192330',
+    canvas: '#10161F', surface: '#1A2533', group: '#141E2B', border: '#34465A',
+    groupBorder: '#3B5066', ink: '#E5EDF5', secondary: '#ACBDCE', line: '#8199B1',
+    blue: '#83C5EA', orange: '#F2A06A', shadow: '#000000',
   },
 };
 
-function svg(p) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" role="img" aria-labelledby="title description">
+function diagram(p) {
+  const edge = (from, to, d, dashed = false) =>
+    `<path id="edge-${from}-${to}" data-from="${from}" data-to="${to}" d="${d}" class="edge"${dashed ? ' stroke-dasharray="4 6"' : ''}/>`;
+  const card = ({ id, x, y, w, h, title, subtitle, accent, size = 24 }) =>
+    `<g id="node-${id}">
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="15" class="card" filter="url(#shadow)"/>
+      ${accent ? `<rect x="${x + 20}" y="${y + 24}" width="4" height="${h - 48}" rx="2" fill="${accent}"/>` : ''}
+      <text x="${x + w / 2 + (accent ? 8 : 0)}" y="${y + (subtitle ? 35 : h / 2 + 8)}" text-anchor="middle" class="label" font-size="${size}">${title}</text>
+      ${subtitle ? `<text x="${x + w / 2 + (accent ? 8 : 0)}" y="${y + 65}" text-anchor="middle" class="subtitle">${subtitle}</text>` : ''}
+    </g>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="810" viewBox="0 0 1200 810" role="img" aria-labelledby="title description">
   <title id="title">NXRS architecture</title>
-  <desc id="description">Reusable Rust applications, services, capability HALs and chip drivers form the firmware. Rust components can use the standard library directly and peripheral wrappers where needed. The standard library is compiled for NuttX; peripheral wrappers provide typed access to NuttX resources. NuttX supplies POSIX/C interfaces, the RTOS and board support for the embedded MCU. Separate platform profiles select hardware bindings and implementations at build time.</desc>
+  <desc id="description">Platform profiles configure the reusable Rust firmware group at build time. Within that group, applications connect to services, capability HALs and chip drivers. The firmware group has two separate paths: ordinary Rust APIs through a standard library compiled for NuttX, and device access through Rust peripheral wrappers. Both paths lead to NuttX, which provides the POSIX C environment, RTOS and BSP on the embedded MCU.</desc>
   <defs>
-    <radialGradient id="std-wash" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="${p.blueWash}" stop-opacity="0.7"/>
-      <stop offset="1" stop-color="${p.blueWash}" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="peripheral-wash" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="${p.orangeWash}" stop-opacity="0.6"/>
-      <stop offset="1" stop-color="${p.orangeWash}" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="foundation-wash" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="${p.foundation}" stop-opacity="0.65"/>
-      <stop offset="1" stop-color="${p.foundation}" stop-opacity="0"/>
-    </radialGradient>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="${p.line}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="${p.shadow}" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
     <style>
       text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
-      .eyebrow { fill: ${p.muted}; font-size: 14px; font-weight: 600; letter-spacing: 2.4px; }
-      .heading { fill: ${p.ink}; font-size: 36px; font-weight: 600; letter-spacing: -1px; }
-      .component { fill: ${p.ink}; font-size: 24px; font-weight: 500; letter-spacing: -0.4px; }
-      .secondary { fill: ${p.secondary}; font-size: 21px; font-weight: 400; }
-      .note { fill: ${p.muted}; font-size: 18px; font-weight: 400; }
-      .interface { font-size: 28px; font-weight: 600; letter-spacing: -0.7px; }
+      .card { fill: ${p.surface}; stroke: ${p.border}; stroke-width: 1.2; }
+      .label { fill: ${p.ink}; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: ${p.secondary}; font-size: 19px; }
+      .edge { fill: none; stroke: ${p.line}; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: ${p.secondary}; font-size: 16px; }
     </style>
   </defs>
 
-  <rect width="1200" height="660" rx="28" fill="${p.background}"/>
+  <rect width="1200" height="810" rx="24" fill="${p.canvas}"/>
 
-  <!-- Firmware composition: one typographic group, without mandatory arrows. -->
-  <text x="64" y="70" class="eyebrow">RUNTIME</text>
-  <text x="64" y="126" class="heading">Reusable Rust firmware</text>
-  <text x="64" y="166" class="secondary">Composed in ordinary Rust</text>
-  <g class="component">
-    <text x="64" y="225">Applications</text>
-    <text x="279" y="225">Services</text>
-    <text x="451" y="225">Capability HALs</text>
-    <text x="699" y="225">Chip drivers</text>
-  </g>
+  <!-- Configuration is a dashed connection to the whole firmware group. -->
+  ${card({ id: 'P', x: 352, y: 32, w: 496, h: 80, title: 'Platform profiles', subtitle: 'Devices · resources · roles' })}
+  ${edge('P', 'F', 'M600 112 V170', true)}
+  <text x="616" y="148" class="edge-label">build-time composition</text>
 
-  <!-- Complementary interfaces. Color is restrained to these two identities. -->
-  <ellipse cx="245" cy="352" rx="260" ry="120" fill="url(#std-wash)"/>
-  <ellipse cx="683" cy="352" rx="246" ry="120" fill="url(#peripheral-wash)"/>
-  <text x="64" y="305" class="eyebrow">OS FACILITIES</text>
-  <text x="64" y="350" class="interface" fill="${p.blue}">Rust standard library</text>
-  <text x="64" y="389" class="secondary">Compiled for NuttX</text>
-  <text x="487" y="305" class="eyebrow">HARDWARE INTERFACES</text>
-  <text x="487" y="350" class="interface" fill="${p.orange}">Rust peripheral wrappers</text>
-  <text x="487" y="389" class="secondary">Typed access to NuttX resources</text>
-
-  <!-- Profiles stay outside the runtime hierarchy. -->
-  <text x="938" y="70" class="eyebrow">BUILD TIME</text>
-  <g fill="${p.ink}" font-size="28" font-weight="500" letter-spacing="-0.6">
-    <text x="938" y="126">Platform</text>
-    <text x="938" y="161">profiles</text>
-  </g>
-  <g class="secondary">
-    <text x="938" y="210">Devices, resources</text>
-    <text x="938" y="239">and logical roles</text>
-  </g>
-  <g class="note">
-    <text x="938" y="302">Select hardware</text>
-    <text x="938" y="328">bindings for Rust</text>
-    <text x="938" y="354">components</text>
+  <!-- Preserve the original application → service → HAL → driver topology. -->
+  <g id="node-F">
+    <rect x="48" y="172" width="1104" height="162" rx="21" fill="${p.group}" stroke="${p.groupBorder}" stroke-width="1.2"/>
+    <text x="80" y="210" class="label" font-size="22">Reusable and composable Rust firmware</text>
+    ${card({ id: 'A', x: 80, y: 244, w: 220, h: 60, title: 'Applications', size: 22 })}
+    ${card({ id: 'S', x: 353, y: 244, w: 220, h: 60, title: 'Services', size: 22 })}
+    ${card({ id: 'H', x: 626, y: 244, w: 220, h: 60, title: 'Capability HALs', size: 22 })}
+    ${card({ id: 'D', x: 899, y: 244, w: 220, h: 60, title: 'Chip drivers', size: 22 })}
+    ${edge('A', 'S', 'M300 274 H350')}
+    ${edge('S', 'H', 'M573 274 H623')}
+    ${edge('H', 'D', 'M846 274 H896')}
   </g>
 
-  <!-- The foundation is a broad visual layer, not a chain of diagram boxes. -->
-  <ellipse cx="600" cy="544" rx="690" ry="150" fill="url(#foundation-wash)"/>
-  <text x="64" y="483" class="eyebrow">RTOS &amp; BOARD FOUNDATION</text>
-  <text x="63" y="547" fill="${p.ink}" font-size="42" font-weight="600" letter-spacing="-1.5">NuttX</text>
-  <g fill="${p.ink}" font-size="25" font-weight="500" letter-spacing="-0.3">
-    <text x="367" y="537">POSIX / C</text>
-    <text x="634" y="537">RTOS</text>
-    <text x="895" y="537">BSP</text>
-  </g>
-  <g class="note">
-    <text x="367" y="570">Standard OS interfaces</text>
-    <text x="634" y="570">Tasks and scheduling</text>
-    <text x="895" y="570">Board and MCU support</text>
-  </g>
+  <!-- Two parallel paths from the firmware group, never one mandatory HAL path. -->
+  ${edge('F', 'R', 'M340 334 V400')}
+  <text x="356" y="373" class="edge-label">ordinary Rust APIs</text>
+  ${edge('F', 'W', 'M860 334 V400')}
+  <text x="876" y="373" class="edge-label">device access</text>
+  ${card({ id: 'R', x: 150, y: 402, w: 380, h: 88, title: 'Rust std', subtitle: 'Compiled for NuttX', accent: p.blue, size: 25 })}
+  ${card({ id: 'W', x: 670, y: 402, w: 380, h: 88, title: 'Rust peripheral wrappers', accent: p.orange, size: 24 })}
 
-  <text x="64" y="607" class="note">Running on embedded MCUs</text>
+  <!-- Both Rust interfaces lead to the same operating-system foundation. -->
+  ${edge('R', 'N', 'M340 490 V558')}
+  ${edge('W', 'N', 'M860 490 V558')}
+  ${card({ id: 'N', x: 280, y: 560, w: 640, h: 88, title: 'NuttX', subtitle: 'POSIX / C · RTOS · BSP', size: 26 })}
+  ${edge('N', 'M', 'M600 648 V708')}
+  ${card({ id: 'M', x: 450, y: 710, w: 300, h: 60, title: 'Embedded MCU', size: 22 })}
 </svg>
 `;
 }
 
 for (const [theme, palette] of Object.entries(palettes)) {
-  const file = theme === 'light' ? 'nxrs-architecture.svg' : 'nxrs-architecture-dark.svg';
-  writeFileSync(new URL(file, import.meta.url), svg(palette));
+  const filename = theme === 'light' ? 'nxrs-architecture.svg' : 'nxrs-architecture-dark.svg';
+  writeFileSync(new URL(filename, import.meta.url), diagram(palette).replace(/[ \t]+$/gm, ''));
 }

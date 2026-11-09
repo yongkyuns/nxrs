@@ -1,83 +1,104 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="810" viewBox="0 0 1200 810" role="img" aria-labelledby="title description">
   <title id="title">NXRS architecture</title>
-  <desc id="description">Reusable Rust applications, services, capability HALs and chip drivers form the firmware. Rust components can use the standard library directly and peripheral wrappers where needed. The standard library is compiled for NuttX; peripheral wrappers provide typed access to NuttX resources. NuttX supplies POSIX/C interfaces, the RTOS and board support for the embedded MCU. Separate platform profiles select hardware bindings and implementations at build time.</desc>
+  <desc id="description">Platform profiles configure the reusable Rust firmware group at build time. Within that group, applications connect to services, capability HALs and chip drivers. The firmware group has two separate paths: ordinary Rust APIs through a standard library compiled for NuttX, and device access through Rust peripheral wrappers. Both paths lead to NuttX, which provides the POSIX C environment, RTOS and BSP on the embedded MCU.</desc>
   <defs>
-    <radialGradient id="std-wash" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#19354A" stop-opacity="0.7"/>
-      <stop offset="1" stop-color="#19354A" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="peripheral-wash" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#392A24" stop-opacity="0.6"/>
-      <stop offset="1" stop-color="#392A24" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="foundation-wash" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#192330" stop-opacity="0.65"/>
-      <stop offset="1" stop-color="#192330" stop-opacity="0"/>
-    </radialGradient>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8199B1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
     <style>
       text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
-      .eyebrow { fill: #8193A4; font-size: 14px; font-weight: 600; letter-spacing: 2.4px; }
-      .heading { fill: #EAF0F5; font-size: 36px; font-weight: 600; letter-spacing: -1px; }
-      .component { fill: #EAF0F5; font-size: 24px; font-weight: 500; letter-spacing: -0.4px; }
-      .secondary { fill: #AFBCC8; font-size: 21px; font-weight: 400; }
-      .note { fill: #8193A4; font-size: 18px; font-weight: 400; }
-      .interface { font-size: 28px; font-weight: 600; letter-spacing: -0.7px; }
+      .card { fill: #1A2533; stroke: #34465A; stroke-width: 1.2; }
+      .label { fill: #E5EDF5; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #ACBDCE; font-size: 19px; }
+      .edge { fill: none; stroke: #8199B1; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #ACBDCE; font-size: 16px; }
     </style>
   </defs>
 
-  <rect width="1200" height="660" rx="28" fill="#10161E"/>
+  <rect width="1200" height="810" rx="24" fill="#10161F"/>
 
-  <!-- Firmware composition: one typographic group, without mandatory arrows. -->
-  <text x="64" y="70" class="eyebrow">RUNTIME</text>
-  <text x="64" y="126" class="heading">Reusable Rust firmware</text>
-  <text x="64" y="166" class="secondary">Composed in ordinary Rust</text>
-  <g class="component">
-    <text x="64" y="225">Applications</text>
-    <text x="279" y="225">Services</text>
-    <text x="451" y="225">Capability HALs</text>
-    <text x="699" y="225">Chip drivers</text>
-  </g>
+  <!-- Configuration is a dashed connection to the whole firmware group. -->
+  <g id="node-P">
+      <rect x="352" y="32" width="496" height="80" rx="15" class="card" filter="url(#shadow)"/>
 
-  <!-- Complementary interfaces. Color is restrained to these two identities. -->
-  <ellipse cx="245" cy="352" rx="260" ry="120" fill="url(#std-wash)"/>
-  <ellipse cx="683" cy="352" rx="246" ry="120" fill="url(#peripheral-wash)"/>
-  <text x="64" y="305" class="eyebrow">OS FACILITIES</text>
-  <text x="64" y="350" class="interface" fill="#8BC7EA">Rust standard library</text>
-  <text x="64" y="389" class="secondary">Compiled for NuttX</text>
-  <text x="487" y="305" class="eyebrow">HARDWARE INTERFACES</text>
-  <text x="487" y="350" class="interface" fill="#F2A475">Rust peripheral wrappers</text>
-  <text x="487" y="389" class="secondary">Typed access to NuttX resources</text>
+      <text x="600" y="67" text-anchor="middle" class="label" font-size="24">Platform profiles</text>
+      <text x="600" y="97" text-anchor="middle" class="subtitle">Devices · resources · roles</text>
+    </g>
+  <path id="edge-P-F" data-from="P" data-to="F" d="M600 112 V170" class="edge" stroke-dasharray="4 6"/>
+  <text x="616" y="148" class="edge-label">build-time composition</text>
 
-  <!-- Profiles stay outside the runtime hierarchy. -->
-  <text x="938" y="70" class="eyebrow">BUILD TIME</text>
-  <g fill="#EAF0F5" font-size="28" font-weight="500" letter-spacing="-0.6">
-    <text x="938" y="126">Platform</text>
-    <text x="938" y="161">profiles</text>
-  </g>
-  <g class="secondary">
-    <text x="938" y="210">Devices, resources</text>
-    <text x="938" y="239">and logical roles</text>
-  </g>
-  <g class="note">
-    <text x="938" y="302">Select hardware</text>
-    <text x="938" y="328">bindings for Rust</text>
-    <text x="938" y="354">components</text>
-  </g>
+  <!-- Preserve the original application → service → HAL → driver topology. -->
+  <g id="node-F">
+    <rect x="48" y="172" width="1104" height="162" rx="21" fill="#141E2B" stroke="#3B5066" stroke-width="1.2"/>
+    <text x="80" y="210" class="label" font-size="22">Reusable and composable Rust firmware</text>
+    <g id="node-A">
+      <rect x="80" y="244" width="220" height="60" rx="15" class="card" filter="url(#shadow)"/>
 
-  <!-- The foundation is a broad visual layer, not a chain of diagram boxes. -->
-  <ellipse cx="600" cy="544" rx="690" ry="150" fill="url(#foundation-wash)"/>
-  <text x="64" y="483" class="eyebrow">RTOS &amp; BOARD FOUNDATION</text>
-  <text x="63" y="547" fill="#EAF0F5" font-size="42" font-weight="600" letter-spacing="-1.5">NuttX</text>
-  <g fill="#EAF0F5" font-size="25" font-weight="500" letter-spacing="-0.3">
-    <text x="367" y="537">POSIX / C</text>
-    <text x="634" y="537">RTOS</text>
-    <text x="895" y="537">BSP</text>
-  </g>
-  <g class="note">
-    <text x="367" y="570">Standard OS interfaces</text>
-    <text x="634" y="570">Tasks and scheduling</text>
-    <text x="895" y="570">Board and MCU support</text>
+      <text x="190" y="282" text-anchor="middle" class="label" font-size="22">Applications</text>
+
+    </g>
+    <g id="node-S">
+      <rect x="353" y="244" width="220" height="60" rx="15" class="card" filter="url(#shadow)"/>
+
+      <text x="463" y="282" text-anchor="middle" class="label" font-size="22">Services</text>
+
+    </g>
+    <g id="node-H">
+      <rect x="626" y="244" width="220" height="60" rx="15" class="card" filter="url(#shadow)"/>
+
+      <text x="736" y="282" text-anchor="middle" class="label" font-size="22">Capability HALs</text>
+
+    </g>
+    <g id="node-D">
+      <rect x="899" y="244" width="220" height="60" rx="15" class="card" filter="url(#shadow)"/>
+
+      <text x="1009" y="282" text-anchor="middle" class="label" font-size="22">Chip drivers</text>
+
+    </g>
+    <path id="edge-A-S" data-from="A" data-to="S" d="M300 274 H350" class="edge"/>
+    <path id="edge-S-H" data-from="S" data-to="H" d="M573 274 H623" class="edge"/>
+    <path id="edge-H-D" data-from="H" data-to="D" d="M846 274 H896" class="edge"/>
   </g>
 
-  <text x="64" y="607" class="note">Running on embedded MCUs</text>
+  <!-- Two parallel paths from the firmware group, never one mandatory HAL path. -->
+  <path id="edge-F-R" data-from="F" data-to="R" d="M340 334 V400" class="edge"/>
+  <text x="356" y="373" class="edge-label">ordinary Rust APIs</text>
+  <path id="edge-F-W" data-from="F" data-to="W" d="M860 334 V400" class="edge"/>
+  <text x="876" y="373" class="edge-label">device access</text>
+  <g id="node-R">
+      <rect x="150" y="402" width="380" height="88" rx="15" class="card" filter="url(#shadow)"/>
+      <rect x="170" y="426" width="4" height="40" rx="2" fill="#83C5EA"/>
+      <text x="348" y="437" text-anchor="middle" class="label" font-size="25">Rust std</text>
+      <text x="348" y="467" text-anchor="middle" class="subtitle">Compiled for NuttX</text>
+    </g>
+  <g id="node-W">
+      <rect x="670" y="402" width="380" height="88" rx="15" class="card" filter="url(#shadow)"/>
+      <rect x="690" y="426" width="4" height="40" rx="2" fill="#F2A06A"/>
+      <text x="868" y="454" text-anchor="middle" class="label" font-size="24">Rust peripheral wrappers</text>
+
+    </g>
+
+  <!-- Both Rust interfaces lead to the same operating-system foundation. -->
+  <path id="edge-R-N" data-from="R" data-to="N" d="M340 490 V558" class="edge"/>
+  <path id="edge-W-N" data-from="W" data-to="N" d="M860 490 V558" class="edge"/>
+  <g id="node-N">
+      <rect x="280" y="560" width="640" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+      <text x="600" y="595" text-anchor="middle" class="label" font-size="26">NuttX</text>
+      <text x="600" y="625" text-anchor="middle" class="subtitle">POSIX / C · RTOS · BSP</text>
+    </g>
+  <path id="edge-N-M" data-from="N" data-to="M" d="M600 648 V708" class="edge"/>
+  <g id="node-M">
+      <rect x="450" y="710" width="300" height="60" rx="15" class="card" filter="url(#shadow)"/>
+
+      <text x="600" y="748" text-anchor="middle" class="label" font-size="22">Embedded MCU</text>
+
+    </g>
 </svg>
