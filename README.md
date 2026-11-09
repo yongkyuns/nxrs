@@ -2,6 +2,21 @@
   <img src="docs/assets/nxrs-logo.png" alt="NXRS" width="360">
 </h1>
 
+<p align="center">
+  <a href="https://github.com/yongkyuns/nxrs/actions/workflows/portable.yml"><img src="https://github.com/yongkyuns/nxrs/actions/workflows/portable.yml/badge.svg?branch=main" alt="Portable services CI"></a>
+  <a href="https://github.com/yongkyuns/nxrs/actions/workflows/security.yml"><img src="https://github.com/yongkyuns/nxrs/actions/workflows/security.yml/badge.svg?branch=main" alt="Security checks"></a>
+  <a href="https://github.com/yongkyuns/nxrs/actions/workflows/website.yml"><img src="https://github.com/yongkyuns/nxrs/actions/workflows/website.yml/badge.svg?branch=main" alt="Website build and deployment"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-73B9E2" alt="MIT license"></a>
+  <a href="#programming-model"><img src="https://img.shields.io/badge/status-experimental-F08A4B" alt="Experimental project"></a>
+</p>
+
+<p align="center">
+  <a href="https://yongkyuns.github.io/nxrs/">Website</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/guide/getting-started/">User guide</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/reference/">Engineering reference</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/guide/noon/">Noon demo</a>
+</p>
+
 **NXRS is an experimental Rust-based firmware development environment on top of
 [Apache NuttX](https://nuttx.apache.org/).**
 
@@ -170,6 +185,12 @@ qualification:
   with Zephyr's native `k_msgq`.
 
 ## Documentation
+
+The [website](https://yongkyuns.github.io/nxrs/) includes a
+[step-by-step user guide](https://yongkyuns.github.io/nxrs/guide/getting-started/),
+searchable engineering references and an optional embedded Noon demo. The
+engineering pages are rendered directly from the Markdown files below. See
+[website maintenance](website/README.md) for local preview and Pages setup.
 
 | Start here | What it covers |
 | --- | --- |
