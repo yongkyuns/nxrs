@@ -65,13 +65,20 @@ artifact and deploys through the `github-pages` environment. Runtime/firmware
 builds are not required to publish documentation.
 
 One-time repository setup: **Settings → Pages → Build and deployment → Source:
-GitHub Actions**. The workflow deliberately does not use an administrative token
-or bypass environment protection to enable Pages. The expected project URL is
+GitHub Actions**. Do not select **Deploy from a branch → main → /docs**: `docs/`
+contains the maintained Markdown and artwork, not the generated HTML site. Branch
+publishing skips the Python renderer and can compete with the custom deployment.
+The deployment job checks this setting and fails with an actionable message
+rather than silently publishing from the wrong source. It does not change
+repository settings, use an administrative token, or bypass environment protection.
+
+After changing the source, run **Actions → Website → Run workflow → main**, or
+rerun the failed deployment job. The expected project URL is
 `https://yongkyuns.github.io/nxrs/`; this URL is not evidence of a completed
 publication. Check the workflow's deployment result.
 
 The workflow is scoped to documentation, website assets, source files used by
-the guide and itself. It uses read-only permissions for builds and restricts
+ the guide and itself. It uses read-only permissions for builds and restricts
 `pages: write` and `id-token: write` to the main-branch deployment job. Preview
 artifacts and browser reports are retained for review; PRs cannot publish.
 

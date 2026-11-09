@@ -54,6 +54,12 @@ searchButton.addEventListener('click', openSearch);
 document.querySelector('#search-close').addEventListener('click', () => dialog.close());
 dialog.addEventListener('close', () => { searchButton.focus(); });
 document.addEventListener('keydown', event => {
+  // A search input can consume Escape to clear its value before the browser
+  // cancels the dialog. Close the modal on the first press, with or without a
+  // query, and leave focus restoration to the dialog's close handler.
+  if (event.key === 'Escape' && dialog.open) {
+    event.preventDefault(); dialog.close(); return;
+  }
   const editing = event.target.matches('input,textarea,select') || event.target.isContentEditable;
   if ((!editing && event.key === '/') || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) {
     event.preventDefault(); openSearch();
