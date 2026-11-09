@@ -20,7 +20,7 @@ pub struct Composition {
     mode: Mode,
     pub(crate) resources: BTreeMap<String, Resource>,
     pub(crate) devices: BTreeMap<String, Device>,
-    pub(crate) roles: BTreeMap<String, String>,
+    pub(crate) aliases: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imu_implementation: Option<String>,
     stack_bytes: u64,
@@ -73,8 +73,38 @@ pub struct GnssBinding<'a> {
 }
 
 impl Composition {
+    /// Direct device names and aliases share one accessor namespace and object.
+    pub(crate) fn imu_accessors<'a>(
+        &'a self,
+        catalogs: &Catalogs,
+    ) -> Result<BTreeMap<&'a str, &'a str>> {
+        let mut names: BTreeMap<_, _> = self
+            .devices
+            .iter()
+            .filter(|(_, device)| {
+                catalogs
+                    .values("imu")
+                    .any(|binding| binding["compatible"] == device.compatible)
+            })
+            .map(|(id, _)| (id.as_str(), id.as_str()))
+            .collect();
+        for (alias, id) in &self.aliases {
+            if alias == "imu" || alias.starts_with("imu_") {
+                let name = imu_alias_name(alias)?;
+                if let Some(previous) = names.insert(name, id) {
+                    if previous != id {
+                        return Err(format!(
+                            "IMU accessor {name} refers to both device {previous} and alias {alias} -> {id}"
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(names)
+    }
+
     pub fn imu(&self) -> Option<ImuBinding<'_>> {
-        let device_id = self.roles.get("imu")?;
+        let device_id = self.aliases.get("imu")?;
         let device = self.devices.get(device_id)?;
         let (path, frequency, transport) = match self.resources.get(&device.bus)? {
             Resource::I2c {
@@ -118,7 +148,7 @@ impl Composition {
     }
 
     pub fn gnss(&self) -> Option<GnssBinding<'_>> {
-        let device_id = self.roles.get("gnss")?;
+        let device_id = self.aliases.get("gnss")?;
         let device = self.devices.get(device_id)?;
         let Resource::Uart { device: path, baud } = self.resources.get(&device.bus)? else {
             return None;
@@ -263,7 +293,10 @@ pub(crate) fn resolve_with_providers_and_origins(
     origins: &BTreeMap<String, PathBuf>,
     catalogs: &Catalogs,
 ) -> Result<Option<Composition>> {
-    let has_graph_fields = ["resources", "devices", "roles"]
+    if data.get("roles").is_some() {
+        return Err(diagnostic(origins, "roles", "rename [roles] to [aliases]"));
+    }
+    let has_graph_fields = ["resources", "devices", "aliases"]
         .iter()
         .any(|key| data.get(*key).is_some());
     let Some(header_value) = data.get("composition") else {
@@ -282,7 +315,7 @@ pub(crate) fn resolve_with_providers_and_origins(
             return Err(diagnostic(
                 origins,
                 "resources",
-                "resources/devices/roles require a composition version header",
+                "resources/devices/aliases require a composition version header",
             ));
         }
         if imu_provider == "nuttx"
@@ -362,7 +395,7 @@ pub(crate) fn resolve_with_providers_and_origins(
             })
         }
         (Mode::Simulation, None) => {
-            if ["resources", "devices", "roles", "imu", "gnss"]
+            if ["resources", "devices", "aliases", "imu", "gnss"]
                 .iter()
                 .any(|key| data.get(*key).is_some())
             {
@@ -388,14 +421,14 @@ pub(crate) fn resolve_with_providers_and_origins(
         (_, None) => None,
     };
     if let Some(spec) = &simulation {
-        if ["resources", "devices", "roles", "imu", "gnss"]
+        if ["resources", "devices", "aliases", "imu", "gnss"]
             .iter()
             .any(|key| data.get(*key).is_some())
         {
             return Err(diagnostic(
                 origins,
                 "composition.mode",
-                "simulation profiles cannot declare physical resources, devices, or roles",
+                "simulation profiles cannot declare physical resources, devices, or aliases",
             ));
         }
         let bindings = data["hal"].as_object().ok_or("[hal] must be a table")?;
@@ -437,7 +470,7 @@ pub(crate) fn resolve_with_providers_and_origins(
             return Err(diagnostic(
                 origins,
                 sensor,
-                "composition version 1 uses resources, devices and roles for physical bindings. Only stack-bytes belongs here",
+                "composition version 1 uses resources, devices and aliases for physical bindings. Only stack-bytes belongs here",
             ));
         }
     }
@@ -476,7 +509,7 @@ pub(crate) fn resolve_with_providers_and_origins(
             mode: header.mode,
             resources: BTreeMap::new(),
             devices: BTreeMap::new(),
-            roles: BTreeMap::new(),
+            aliases: BTreeMap::new(),
             imu_implementation: None,
             stack_bytes,
             gnss_implementation: None,
@@ -496,35 +529,48 @@ pub(crate) fn resolve_with_providers_and_origins(
         "composition requires top-level [devices]",
         origins,
     )?;
-    let roles: BTreeMap<String, String> = decode_map(
-        data.get("roles"),
-        "roles",
-        "composition requires top-level [roles]",
-        origins,
-    )?;
-    validate_map_sizes(&resources, &devices, &roles)
-        .map_err(|e| diagnostic(origins, "resources", &e))?;
+    let mut aliases: BTreeMap<String, String> = match data.get("aliases") {
+        Some(value) => decode_map(Some(value), "aliases", "invalid [aliases]", origins)?,
+        None => BTreeMap::new(),
+    };
     let resources = normalize_resources(resources, origins)?;
-    validate_ids(&resources, &devices, &roles, origins)?;
-    validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
+    validate_ids(&resources, &devices, &aliases, origins)?;
+    validate_aliases(&aliases).map_err(|e| diagnostic(origins, "aliases", &e))?;
     for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
-        let role = roles.contains_key(capability)
-            || (capability == "imu" && roles.keys().any(|role| role.starts_with("imu_")));
-        if provider == "nuttx" && !roles.contains_key(capability) {
+        let alias = aliases.contains_key(capability)
+            || (capability == "imu" && aliases.keys().any(|alias| alias.starts_with("imu_")));
+        if alias && provider != "nuttx" {
             return Err(diagnostic(
                 origins,
-                &format!("roles.{capability}"),
-                &format!("nuttx {capability} requires a default device"),
-            ));
-        }
-        if role && provider != "nuttx" {
-            return Err(diagnostic(
-                origins,
-                &format!("roles.{capability}"),
+                &format!("aliases.{capability}"),
                 &format!("physical {capability} composition requires the nuttx provider"),
             ));
         }
+        if provider == "nuttx" && !aliases.contains_key(capability) {
+            let mut candidates = devices.iter().filter(|(_, device)| {
+                catalogs
+                    .values(capability)
+                    .any(|binding| binding["compatible"] == device.compatible)
+            });
+            let (id, _) = candidates.next().ok_or_else(|| {
+                diagnostic(
+                    origins,
+                    "devices",
+                    &format!("nuttx {capability} requires a device"),
+                )
+            })?;
+            if candidates.next().is_some() {
+                return Err(diagnostic(
+                    origins,
+                    &format!("aliases.{capability}"),
+                    &format!("multiple {capability} devices require an explicit default alias"),
+                ));
+            }
+            aliases.insert(capability.to_owned(), id.clone());
+        }
     }
+    validate_map_sizes(&resources, &devices, &aliases)
+        .map_err(|e| diagnostic(origins, "resources", &e))?;
     let catalog = Catalog {
         binding: catalogs
             .values("imu")
@@ -542,7 +588,7 @@ pub(crate) fn resolve_with_providers_and_origins(
         &gnss_catalog,
         &resources,
         &devices,
-        &roles,
+        &aliases,
         origins,
     )?;
     let graph = Composition {
@@ -550,13 +596,16 @@ pub(crate) fn resolve_with_providers_and_origins(
         mode: header.mode,
         resources,
         devices,
-        roles,
+        aliases,
         imu_implementation,
         stack_bytes,
         gnss_implementation,
         gnss_stack_bytes,
         simulation,
     };
+    graph
+        .imu_accessors(catalogs)
+        .map_err(|error| diagnostic(origins, "aliases", &error))?;
     Ok(Some(graph))
 }
 
@@ -565,10 +614,10 @@ fn validate_graph(
     gnss_catalog: &GnssCatalog,
     resources: &BTreeMap<String, Resource>,
     devices: &BTreeMap<String, Device>,
-    roles: &BTreeMap<String, String>,
+    aliases: &BTreeMap<String, String>,
     origins: &BTreeMap<String, PathBuf>,
 ) -> Result<(Option<String>, Option<String>)> {
-    // Validate every physical instance, including devices not selected by a role.
+    // Validate every physical instance, including devices not selected by an alias.
     // Discovery is limited to explicit [hal] capability keys, including "none".
     for (id, device) in devices {
         if !catalog
@@ -853,16 +902,16 @@ fn validate_graph(
             }
         }
     }
-    for (role, role_device) in roles
+    for (alias, alias_device) in aliases
         .iter()
-        .filter(|(role, _)| role.as_str() == "imu" || role.starts_with("imu_"))
+        .filter(|(alias, _)| alias.as_str() == "imu" || alias.starts_with("imu_"))
     {
-        let device = devices.get(role_device).ok_or_else(|| {
+        let device = devices.get(alias_device).ok_or_else(|| {
             diagnostic_related(
                 origins,
-                &format!("roles.{role}"),
-                &[&format!("devices.{role_device}")],
-                &format!("references unknown device {role_device}"),
+                &format!("aliases.{alias}"),
+                &[&format!("devices.{alias_device}")],
+                &format!("references unknown device {alias_device}"),
             )
         })?;
         let implementation = Some(
@@ -878,17 +927,17 @@ fn validate_graph(
             .implementation
             .clone(),
         );
-        if role == "imu" {
+        if alias == "imu" {
             imu_implementation = implementation;
         }
     }
-    if let Some(role_device) = roles.get("gnss") {
-        let device = devices.get(role_device).ok_or_else(|| {
+    if let Some(alias_device) = aliases.get("gnss") {
+        let device = devices.get(alias_device).ok_or_else(|| {
             diagnostic_related(
                 origins,
-                "roles.gnss",
-                &[&format!("devices.{role_device}")],
-                &format!("references unknown device {role_device}"),
+                "aliases.gnss",
+                &[&format!("devices.{alias_device}")],
+                &format!("references unknown device {alias_device}"),
             )
         })?;
         let binding = gnss_catalog
@@ -898,18 +947,11 @@ fn validate_graph(
             .ok_or_else(|| {
                 diagnostic(
                     origins,
-                    "roles.gnss",
-                    "role must select a supported GNSS device",
+                    "aliases.gnss",
+                    "alias must select a supported GNSS device",
                 )
             })?;
         gnss_implementation = Some(binding.implementation.clone());
-    }
-    if roles.is_empty() {
-        return Err(diagnostic(
-            origins,
-            "roles",
-            "composition requires at least one supported role",
-        ));
     }
     Ok((imu_implementation, gnss_implementation))
 }
@@ -992,17 +1034,17 @@ fn normalize_resources(
 fn validate_map_sizes(
     resources: &BTreeMap<String, Resource>,
     devices: &BTreeMap<String, Device>,
-    roles: &BTreeMap<String, String>,
+    aliases: &BTreeMap<String, String>,
 ) -> Result<()> {
-    if resources.len() > 64 || devices.len() > 64 || roles.len() > 16 {
-        return Err("composition graph exceeds bounded resource/device/role counts".into());
+    if resources.len() > 64 || devices.len() > 64 || aliases.len() > 16 {
+        return Err("composition graph exceeds bounded resource/device/alias counts".into());
     }
     Ok(())
 }
 fn validate_ids(
     resources: &BTreeMap<String, Resource>,
     devices: &BTreeMap<String, Device>,
-    roles: &BTreeMap<String, String>,
+    aliases: &BTreeMap<String, String>,
     origins: &BTreeMap<String, PathBuf>,
 ) -> Result<()> {
     for id in resources.keys() {
@@ -1010,37 +1052,44 @@ fn validate_ids(
     }
     for id in devices.keys() {
         valid_id(id).map_err(|error| diagnostic(origins, &format!("devices.{id}"), &error))?;
+        accessor_name(id).map_err(|error| diagnostic(origins, &format!("devices.{id}"), &error))?;
     }
-    for (role, id) in roles {
-        valid_id(id).map_err(|error| diagnostic(origins, &format!("roles.{role}"), &error))?;
+    for (alias, id) in aliases {
+        valid_id(id).map_err(|error| diagnostic(origins, &format!("aliases.{alias}"), &error))?;
     }
     Ok(())
 }
-pub(crate) fn imu_role_name(role: &str) -> Result<&str> {
-    if role == "imu" {
+pub(crate) fn imu_alias_name(alias: &str) -> Result<&str> {
+    if alias == "imu" {
         return Ok("primary");
     }
-    let name = role
+    let name = alias
         .strip_prefix("imu_")
-        .ok_or_else(|| format!("unsupported capability role: {role}"))?;
-    // Names are emitted as Rust identifiers. No normalization or collisions.
+        .ok_or_else(|| format!("unsupported capability alias: {alias}"))?;
+    if name == "primary" {
+        return Err("use aliases.imu for the primary IMU".into());
+    }
+    accessor_name(name).map_err(|_| format!("invalid IMU alias accessor: {alias}"))?;
+    Ok(name)
+}
+
+fn accessor_name(name: &str) -> Result<()> {
+    // Emit exact Rust identifiers, without lossy normalization.
     if name.is_empty()
-        || name == "_"
-        || name == "primary"
         || !name.as_bytes()[0].is_ascii_alphabetic()
         || !name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
         || ["self", "super", "crate"].contains(&name)
     {
-        return Err(format!("invalid IMU role accessor: {role}"));
+        return Err(format!("device/accessor name must be lowercase snake case and not self, super or crate: {name}"));
     }
-    Ok(name)
+    Ok(())
 }
-fn validate_roles(roles: &BTreeMap<String, String>) -> Result<()> {
-    for role in roles.keys() {
-        if role != "gnss" {
-            imu_role_name(role)?;
+fn validate_aliases(aliases: &BTreeMap<String, String>) -> Result<()> {
+    for alias in aliases.keys() {
+        if alias != "gnss" {
+            imu_alias_name(alias)?;
         }
     }
     Ok(())
@@ -1123,8 +1172,8 @@ mod tests {
         json!({
             "composition": {"version":1, "mode":mode},
             "resources": {"i2c": {"kind":"i2c", "device":path, "frequency":400000}},
-            "devices": {"motion": {"compatible":"bosch,bmi270", "bus":"i2c", "address":address, "wake":wake}},
-            "roles": {"imu":"motion"},
+            "devices": {"imu": {"compatible":"bosch,bmi270", "bus":"i2c", "address":address, "wake":wake}},
+            "aliases": {"imu":"imu"},
             "imu": {"stack-bytes":16384}
         })
     }
@@ -1134,24 +1183,32 @@ mod tests {
             "composition":{"version":1,"mode":"hardware"},
             "resources":{"uart1":{"kind":"uart","device":"/dev//ttyS1","baud":38400}},
             "devices":{"navigation":{"compatible":"u-blox,neo-m9n","bus":"uart1"}},
-            "roles":{"gnss":"navigation"}
+            "aliases":{"gnss":"navigation"}
         })
     }
 
     #[test]
-    fn named_imu_roles_validate_identity_and_accessor_names() {
+    fn named_imu_aliases_validate_identity_and_accessor_names() {
         let mut value = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         let catalogs = fixture_catalogs();
         let resolve = |value: &Value| {
             resolve_with_providers_and_origins(value, "nuttx", "none", &BTreeMap::new(), &catalogs)
         };
-        value["roles"]["imu_navigation"] = json!("motion");
+        value["aliases"]["imu_navigation"] = json!("imu");
         let graph = resolve(&value).unwrap().unwrap();
-        assert_eq!(graph.roles["imu_navigation"], graph.roles["imu"]);
+        assert_eq!(graph.aliases["imu_navigation"], graph.aliases["imu"]);
         assert_eq!(graph.devices.len(), 1);
-        value["roles"]["imu_navigation"] = json!("absent");
+        assert_eq!(
+            graph.imu_accessors(&catalogs).unwrap(),
+            BTreeMap::from([
+                ("imu", "imu"),
+                ("navigation", "imu"),
+                ("primary", "imu")
+            ])
+        );
+        value["aliases"]["imu_navigation"] = json!("absent");
         assert!(resolve(&value).is_err());
-        value["roles"]
+        value["aliases"]
             .as_object_mut()
             .unwrap()
             .remove("imu_navigation");
@@ -1165,15 +1222,62 @@ mod tests {
             "imu_1backup",
             "imu_Backup",
         ] {
-            value["roles"][name] = json!("motion");
+            value["aliases"][name] = json!("imu");
             assert!(resolve(&value).is_err(), "{name}");
-            value["roles"].as_object_mut().unwrap().remove(name);
+            value["aliases"].as_object_mut().unwrap().remove(name);
         }
-        value["roles"] = json!({"imu_backup":"motion"});
-        assert!(
-            resolve(&value).is_err(),
-            "the default role remains required"
+        value["aliases"] = json!({"imu_backup":"imu"});
+        assert_eq!(resolve(&value).unwrap().unwrap().aliases["imu"], "imu");
+        value["devices"]["backup"] = value["devices"]["imu"].clone();
+        value["devices"]["backup"]["address"] = json!(105);
+        assert!(resolve(&value)
+            .unwrap_err()
+            .contains("explicit default alias"));
+        value["aliases"]["imu"] = json!("imu");
+        assert!(resolve(&value).unwrap_err().contains("accessor backup"));
+        // An alias sharing a name with its own device is harmless and emitted once.
+        value["aliases"]["imu_backup"] = json!("backup");
+        assert_eq!(
+            resolve(&value)
+                .unwrap()
+                .unwrap()
+                .imu_accessors(&catalogs)
+                .unwrap()["backup"],
+            "backup"
         );
+    }
+
+    #[test]
+    fn aliases_are_optional_for_single_devices_and_legacy_roles_are_rejected() {
+        let catalogs = fixture_catalogs();
+        let mut imu = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        imu.as_object_mut().unwrap().remove("aliases");
+        let graph = resolve(&imu, "nuttx", &catalogs).unwrap().unwrap();
+        assert_eq!(graph.aliases["imu"], "imu");
+
+        let mut gnss = gnss_profile();
+        gnss.as_object_mut().unwrap().remove("aliases");
+        let graph =
+            resolve_with_providers_and_origins(&gnss, "none", "nuttx", &BTreeMap::new(), &catalogs)
+                .unwrap()
+                .unwrap();
+        assert_eq!(graph.aliases["gnss"], "navigation");
+        assert_eq!(graph.gnss().unwrap().baud, 38400);
+
+        for name in ["bad-name", "1sensor", "Imu", "self", "super", "crate"] {
+            let mut invalid = imu.clone();
+            let device = invalid["devices"]
+                .as_object_mut()
+                .unwrap()
+                .remove("imu")
+                .unwrap();
+            invalid["devices"][name] = device;
+            assert!(resolve(&invalid, "nuttx", &catalogs).is_err(), "{name}");
+        }
+        imu["roles"] = json!({"imu":"imu"});
+        assert!(resolve(&imu, "nuttx", &catalogs)
+            .unwrap_err()
+            .contains("rename [roles] to [aliases]"));
     }
 
     #[test]
@@ -1200,11 +1304,11 @@ mod tests {
     }
 
     #[test]
-    fn composes_imu_and_gnss_roles() {
+    fn composes_imu_and_gnss_aliases() {
         let mut joint = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         joint["resources"]["uart1"] = json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
         joint["devices"]["navigation"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart1"});
-        joint["roles"]["gnss"] = json!("navigation");
+        joint["aliases"]["gnss"] = json!("navigation");
         let binding = resolve_with_providers_and_origins(
             &joint,
             "nuttx",
@@ -1282,17 +1386,17 @@ mod tests {
         )
         .unwrap_err()
         .contains("exclusive UART"));
-        let mut unsupported_role = gnss_profile();
-        unsupported_role["roles"]["radio"] = json!("navigation");
+        let mut unsupported_alias = gnss_profile();
+        unsupported_alias["aliases"]["radio"] = json!("navigation");
         assert!(resolve_with_providers_and_origins(
-            &unsupported_role,
+            &unsupported_alias,
             "none",
             "nuttx",
             &BTreeMap::new(),
             &fixture_catalogs(),
         )
         .unwrap_err()
-        .contains("unsupported capability role"));
+        .contains("unsupported capability alias"));
         assert!(resolve_with_providers_and_origins(
             &gnss_profile(),
             "none",
@@ -1306,7 +1410,7 @@ mod tests {
         legacy_mix["resources"]["uart1"] =
             json!({"kind":"uart","device":"/dev/ttyS1","baud":38400});
         legacy_mix["devices"]["navigation"] = json!({"compatible":"u-blox,neo-m9n","bus":"uart1"});
-        legacy_mix["roles"]["gnss"] = json!("navigation");
+        legacy_mix["aliases"]["gnss"] = json!("navigation");
         legacy_mix["gnss"] = json!({"device":"/dev/ttyS1","baud":38400});
         assert!(resolve_with_providers_and_origins(
             &legacy_mix,
@@ -1369,7 +1473,7 @@ mod tests {
         mixed["imu"]["driver"] = json!("bmi270");
         assert!(resolve(&mixed, "nuttx", &fixture_catalogs()).is_err());
         let mut extra = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
-        extra["devices"]["motion"]["extra"] = json!(true);
+        extra["devices"]["imu"]["extra"] = json!(true);
         assert!(resolve(&extra, "nuttx", &fixture_catalogs()).is_err());
         let mut stale_wake = profile(
             "hardware",
@@ -1392,8 +1496,8 @@ mod tests {
                 "version": 1,
                 "mode": "hardware",
                 "resources": {"i2c": {"kind":"i2c", "device":"/dev/i2c0", "frequency":400000}},
-                "devices": {"motion": {"compatible":"bosch,bmi270", "bus":"i2c", "address":104, "wake":{"kind":"periodic"}}},
-                "roles": {"imu":"motion"}
+                "devices": {"imu": {"compatible":"bosch,bmi270", "bus":"i2c", "address":104, "wake":{"kind":"periodic"}}},
+                "aliases": {"imu":"imu"}
             },
             "imu": {"stack-bytes":16384}
         });
@@ -1475,7 +1579,7 @@ mod tests {
     #[test]
     fn replacement_lsm6dso_requires_its_own_address_and_periodic_wakes() {
         let mut replacement = profile("hardware", "/dev/i2c1", 106, json!({"kind":"periodic"}));
-        replacement["devices"]["motion"]["compatible"] = json!("st,lsm6dso");
+        replacement["devices"]["imu"]["compatible"] = json!("st,lsm6dso");
         let resolved = resolve(&replacement, "nuttx", &fixture_catalogs())
             .unwrap()
             .unwrap();
@@ -1486,12 +1590,12 @@ mod tests {
             ("/dev/i2c1", ImuTransport::I2c { address: 106 })
         );
 
-        replacement["devices"]["motion"]["address"] = json!(104);
+        replacement["devices"]["imu"]["address"] = json!(104);
         assert!(resolve(&replacement, "nuttx", &fixture_catalogs())
             .unwrap_err()
             .contains("address"));
-        replacement["devices"]["motion"]["address"] = json!(106);
-        replacement["devices"]["motion"]["wake"] = json!({"kind":"interrupt","resource":"irq"});
+        replacement["devices"]["imu"]["address"] = json!(106);
+        replacement["devices"]["imu"]["wake"] = json!({"kind":"interrupt","resource":"irq"});
         assert!(resolve(&replacement, "nuttx", &fixture_catalogs())
             .unwrap_err()
             .contains("does not support interrupt wake"));
@@ -1502,12 +1606,12 @@ mod tests {
         let mut value = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         value["resources"]["spi"] =
             json!({"kind":"spi","device":"/dev/spi2","frequency":4_000_000});
-        value["devices"]["motion"] = json!({"compatible":"bosch,bmi270","bus":"spi","chip-select":0,"spi-mode":3,"wake":{"kind":"periodic"}});
+        value["devices"]["imu"] = json!({"compatible":"bosch,bmi270","bus":"spi","chip-select":0,"spi-mode":3,"wake":{"kind":"periodic"}});
         let catalogs = fixture_catalogs();
         for (compatible, implementation) in
             [("bosch,bmi270", "Bmi270Spi"), ("st,lsm6dso", "Lsm6dsoSpi")]
         {
-            value["devices"]["motion"]["compatible"] = json!(compatible);
+            value["devices"]["imu"]["compatible"] = json!(compatible);
             let graph = resolve(&value, "nuttx", &catalogs).unwrap().unwrap();
             let binding = graph.imu().unwrap();
             assert_eq!(binding.implementation, implementation);
@@ -1525,14 +1629,14 @@ mod tests {
             ("address", json!(106), "I2C address"),
         ] {
             let mut bad = value.clone();
-            bad["devices"]["motion"][key] = invalid;
+            bad["devices"]["imu"][key] = invalid;
             assert!(resolve(&bad, "nuttx", &catalogs)
                 .unwrap_err()
                 .contains(message));
         }
         for key in ["chip-select", "spi-mode"] {
             let mut bad = value.clone();
-            bad["devices"]["motion"]
+            bad["devices"]["imu"]
                 .as_object_mut()
                 .unwrap()
                 .remove(key);
@@ -1545,7 +1649,7 @@ mod tests {
             .contains("frequency"));
         value["resources"]["alias"] =
             json!({"kind":"spi","device":"/dev/./spi2","frequency":1_000_000});
-        value["devices"]["other"] = value["devices"]["motion"].clone();
+        value["devices"]["other"] = value["devices"]["imu"].clone();
         value["devices"]["other"]["bus"] = json!("alias");
         assert!(resolve(&value, "nuttx", &catalogs)
             .unwrap_err()
@@ -1566,7 +1670,7 @@ mod tests {
             .unwrap_err()
             .contains("address"));
         let a = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
-        let b = json!({"imu":{"stack-bytes":16384},"roles":{"imu":"motion"},"devices":{"motion":{"wake":{"kind":"periodic"},"address":104,"bus":"i2c","compatible":"bosch,bmi270"}},"resources":{"i2c":{"frequency":400000,"device":"/dev/i2c0","kind":"i2c"}},"composition":{"mode":"hardware","version":1}});
+        let b = json!({"imu":{"stack-bytes":16384},"aliases":{"imu":"imu"},"devices":{"imu":{"wake":{"kind":"periodic"},"address":104,"bus":"i2c","compatible":"bosch,bmi270"}},"resources":{"i2c":{"frequency":400000,"device":"/dev/i2c0","kind":"i2c"}},"composition":{"mode":"hardware","version":1}});
         let a = serde_json::to_vec(&resolve(&a, "nuttx", &fixture_catalogs()).unwrap().unwrap())
             .unwrap();
         let b = serde_json::to_vec(&resolve(&b, "nuttx", &fixture_catalogs()).unwrap().unwrap())
@@ -1584,7 +1688,7 @@ mod tests {
         );
         let origins = BTreeMap::from([
             (
-                "devices.motion.wake.resource".into(),
+                "devices.imu.wake.resource".into(),
                 PathBuf::from("base.toml"),
             ),
             (
@@ -1594,7 +1698,7 @@ mod tests {
         ]);
         let error =
             resolve_with_origins(&value, "nuttx", &origins, &fixture_catalogs()).unwrap_err();
-        assert!(error.contains("devices.motion.wake.resource"));
+        assert!(error.contains("devices.imu.wake.resource"));
         assert!(error.contains("resources.ready changed by overlays/remove-ready.toml"));
     }
 
@@ -1644,7 +1748,7 @@ mod tests {
     fn unselected_devices_require_their_capability_catalog() {
         let mut value = gnss_profile();
         value["resources"]["i2c"] = json!({"kind":"i2c","device":"/dev/i2c0","frequency":400000});
-        value["devices"]["motion"] = json!({
+        value["devices"]["imu"] = json!({
             "compatible":"bosch,bmi270","bus":"i2c","address":104,
             "wake":{"kind":"periodic"}
         });
@@ -1680,7 +1784,7 @@ mod tests {
             &catalogs,
         )
         .is_ok());
-        value["devices"]["motion"]["address"] = json!(0x70);
+        value["devices"]["imu"]["address"] = json!(0x70);
         assert!(super::resolve_with_providers_and_origins(
             &value,
             "none",
@@ -1739,7 +1843,7 @@ mod tests {
             .unwrap_err()
             .contains("unsupported simulation endpoint"));
 
-        for key in ["resources", "devices", "roles", "imu", "gnss"] {
+        for key in ["resources", "devices", "aliases", "imu", "gnss"] {
             let mut value = simulation_profile();
             value[key] = json!({});
             assert!(

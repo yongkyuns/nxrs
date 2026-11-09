@@ -1,4 +1,4 @@
-//! IMU sample contract; no hardware, OS, or runtime ownership.
+//! Portable IMU samples, device access and acquisition contracts.
 #![forbid(unsafe_code)]
 
 /// Failures reported by this capability's providers.
@@ -14,9 +14,11 @@ pub enum DeviceError {
 
 pub use peripheral::imu::{AppliedConfig, Config};
 
+pub trait Sealed {}
+
 /// A permanent, profile-selected device. References may be shared; acquisition
 /// is exclusive. Construction and physical resources stay private to the HAL.
-pub trait Device: crate::instance::Sealed + Sync {
+pub trait Device: Sealed + Sync {
     /// Canonical profile device ID; aliases return the same identity.
     fn id(&self) -> &'static str;
     fn default_config(&self) -> Result<Config, DeviceError>;

@@ -60,6 +60,12 @@ path = "src/main.rs"
 
 fn write_imu_fixture(root: &Path) {
     let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    fs::create_dir_all(root.join("platform/nuttx/resources")).unwrap();
+    fs::write(
+        root.join("platform/nuttx/resources/fixture.toml"),
+        "[resources.i2c0]\nkind = \"i2c\"\ndevice = \"/dev/i2c0\"\n",
+    )
+    .unwrap();
     for package in ["hal/imu", "driver/bmi270", "driver/lsm6dso"] {
         let directory = root.join(package);
         fs::create_dir_all(&directory).unwrap();
@@ -95,10 +101,10 @@ fn legacy_imu_profile() -> &'static str {
 fn typed_imu_profile(mode: &str) -> String {
     format!(
         "[composition]\nversion = 1\nmode = \"{mode}\"\n\
-         [resources.sensor_bus]\nkind = \"i2c\"\ndevice = \"/dev/i2c0\"\nfrequency = 400000\n\
-         [devices.motion]\ncompatible = \"bosch,bmi270\"\nbus = \"sensor_bus\"\naddress = 104\n\
-         [devices.motion.wake]\nkind = \"periodic\"\n\
-         [roles]\nimu = \"motion\"\n\
+         [resources.sensor_bus]\nbinding = \"i2c0\"\nfrequency = 400000\n\
+         [devices.imu]\ncompatible = \"bosch,bmi270\"\nbus = \"sensor_bus\"\naddress = 104\n\
+         [devices.imu.wake]\nkind = \"periodic\"\n\
+         [aliases]\nimu = \"imu\"\n\
          [imu]\nstack-bytes = 16384\n"
     )
 }
@@ -261,7 +267,7 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     )
     .unwrap();
 
-    let address_overlay = |address| format!("[devices.motion]\naddress = {address}\n");
+    let address_overlay = |address| format!("[devices.imu]\naddress = {address}\n");
     fs::write(
         root.0.join("platform/profiles/patches/ancestor.toml"),
         address_overlay(105),
@@ -294,9 +300,9 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     };
     let profile = inspect();
     let composition = &profile["resolved-composition"];
-    assert_eq!(composition["graph"]["devices"]["motion"]["address"], 105);
+    assert_eq!(composition["graph"]["devices"]["imu"]["address"], 105);
     assert_eq!(
-        composition["provenance"]["devices.motion.address"],
+        composition["provenance"]["devices.imu.address"],
         root.0
             .join("overlays/last.toml")
             .canonicalize()
@@ -312,6 +318,7 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
         ("patches/child.toml", "declared-overlay"),
         ("overlays/first.toml", "command-line-overlay"),
         ("overlays/last.toml", "command-line-overlay"),
+        ("platform/nuttx/resources/fixture.toml", "bsp-resources"),
     ];
     assert_eq!(hashes.len(), expected.len());
     for (source, (suffix, kind)) in hashes.iter().zip(expected) {
@@ -357,7 +364,7 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     ));
     let reversed: Value = serde_json::from_str(&reversed).unwrap();
     assert_eq!(
-        reversed["resolved-composition"]["graph"]["devices"]["motion"]["address"],
+        reversed["resolved-composition"]["graph"]["devices"]["imu"]["address"],
         104
     );
     assert_ne!(
@@ -367,21 +374,21 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
 }
 
 #[test]
-fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
+fn cli_overlay_repairs_a_removed_alias_and_dry_run_matches_inspection() {
     let root = fixture();
     write_imu_fixture(&root.0);
     fs::create_dir_all(root.0.join("overlays")).unwrap();
     write_imu_profile(&root.0, "typed-imu", &typed_imu_profile("hardware"));
     fs::write(
-        root.0.join("overlays/remove-motion.toml"),
-        "remove-devices = [\"motion\"]\n",
+        root.0.join("overlays/remove-imu.toml"),
+        "remove-devices = [\"imu\"]\n",
     )
     .unwrap();
     fs::write(
         root.0.join("overlays/add-replacement.toml"),
         "[devices.replacement]\ncompatible = \"bosch,bmi270\"\nbus = \"sensor_bus\"\naddress = 105\n\
          [devices.replacement.wake]\nkind = \"periodic\"\n\
-         [roles]\nimu = \"replacement\"\n",
+         [aliases]\nimu = \"replacement\"\n",
     )
     .unwrap();
 
@@ -394,11 +401,11 @@ fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
             "--platform",
             "typed-imu",
             "--overlay",
-            "overlays/remove-motion.toml",
+            "overlays/remove-imu.toml",
         ],
     ));
     assert!(
-        dangling.contains("roles.imu") && dangling.contains("remove-motion.toml"),
+        dangling.contains("aliases.imu") && dangling.contains("remove-imu.toml"),
         "{dangling}"
     );
     let profile_output = success(frontend(
@@ -409,17 +416,17 @@ fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
             "--platform",
             "typed-imu",
             "--overlay",
-            "overlays/remove-motion.toml",
+            "overlays/remove-imu.toml",
             "--overlay",
             "overlays/add-replacement.toml",
         ],
     ));
     let inspected: Value = serde_json::from_str(&profile_output).unwrap();
     assert_eq!(
-        inspected["resolved-composition"]["graph"]["roles"]["imu"],
+        inspected["resolved-composition"]["graph"]["aliases"]["imu"],
         "replacement"
     );
-    assert!(inspected["resolved-composition"]["graph"]["devices"]["motion"].is_null());
+    assert!(inspected["resolved-composition"]["graph"]["devices"]["imu"].is_null());
     let plan_output = success(frontend(
         &root.0,
         &root.0,
@@ -430,7 +437,7 @@ fn cli_overlay_repairs_a_removed_role_and_dry_run_matches_inspection() {
             "--profile",
             "typed-imu",
             "--overlay",
-            "overlays/remove-motion.toml",
+            "overlays/remove-imu.toml",
             "--overlay",
             "overlays/add-replacement.toml",
             "--dry-run",
@@ -521,7 +528,7 @@ fn legacy_sensor_profile_fails_before_build_or_overlay() {
 }
 
 #[test]
-fn build_dry_run_admits_v1_required_imu_without_sdk_and_rejects_bad_default_roles() {
+fn build_dry_run_admits_v1_required_imu_without_sdk_and_rejects_bad_default_aliases() {
     let root = fixture();
     write_imu_fixture(&root.0);
     let manifest = root.0.join("app/probe/Cargo.toml");
@@ -532,15 +539,17 @@ fn build_dry_run_admits_v1_required_imu_without_sdk_and_rejects_bad_default_role
     )
     .unwrap();
 
-    let mut no_role = typed_imu_profile("hardware");
-    no_role = no_role.replace("imu = \"motion\"\n", "");
-    write_imu_profile(&root.0, "missing-role", &no_role);
-    let mut dangling_role = typed_imu_profile("hardware");
-    dangling_role = dangling_role.replace("imu = \"motion\"", "imu = \"missing\"");
-    write_imu_profile(&root.0, "dangling-role", &dangling_role);
+    let mut no_alias = typed_imu_profile("hardware");
+    no_alias = no_alias.replace("imu = \"imu\"\n", "");
+    write_imu_profile(&root.0, "single-device", &no_alias);
+    no_alias.push_str("\n[devices.backup]\ncompatible = \"bosch,bmi270\"\nbus = \"sensor_bus\"\naddress = 105\n[devices.backup.wake]\nkind = \"periodic\"\n");
+    write_imu_profile(&root.0, "ambiguous-default", &no_alias);
+    let mut dangling_alias = typed_imu_profile("hardware");
+    dangling_alias = dangling_alias.replace("imu = \"imu\"", "imu = \"missing\"");
+    write_imu_profile(&root.0, "dangling-alias", &dangling_alias);
     write_imu_profile(&root.0, "typed-imu", &typed_imu_profile("hardware"));
 
-    for profile in ["missing-role", "dangling-role"] {
+    for profile in ["ambiguous-default", "dangling-alias"] {
         let output = frontend(
             &root.0,
             &root.0,
@@ -566,7 +575,7 @@ fn build_dry_run_admits_v1_required_imu_without_sdk_and_rejects_bad_default_role
             "--manifest-path",
             "app/probe/Cargo.toml",
             "--profile",
-            "typed-imu",
+            "single-device",
             "--dry-run",
         ],
     )))

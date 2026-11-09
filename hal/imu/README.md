@@ -1,6 +1,6 @@
 # IMU
 
-`imu::primary()` and profile-defined `imu::devices::<role>()` return permanent,
+`imu::primary()` and profile-defined `imu::devices::<name>()` return permanent,
 opaque `Device` references, usable directly by portable apps and services:
 
 ```rust,ignore
@@ -12,12 +12,16 @@ session.request_stop()?;
 session.join()?;
 ```
 
-`roles.imu` selects `primary`; `roles.imu_navigation = "motion"` generates
-`devices::navigation()` for device `motion`. Additional role names use lowercase
-snake case; `primary`, `self`, `super` and `crate` are reserved. Aliases return
-the same canonical object. Separate physical records have independent storage,
-configuration, ownership and quarantine, including two sensors of the same model.
-Missing role accessors fail compilation; there is no runtime string lookup.
+`[devices.imu]` generates `devices::imu()`. Optional `aliases.imu` selects
+`primary`; `aliases.imu_navigation = "imu"` adds `devices::navigation()` for
+that same object. With one IMU, the default is inferred; multiple IMUs require
+`aliases.imu`. Device names and alias suffixes use lowercase snake case;
+`self`, `super` and `crate` are reserved. Use `imu` rather than `imu_primary`
+for the default alias. An accessor name cannot refer to different devices;
+matching device/alias names for the same object are emitted once.
+Separate physical records have independent storage,
+configuration and availability/fault state, including two sensors of the same model.
+Missing accessors fail compilation; there is no runtime string lookup.
 The explicit mock fixture supplies `primary` and `secondary`; coordinated
 simulation supplies `primary`. Unbound acquisition returns `Unsupported`.
 
@@ -26,11 +30,13 @@ primary. The dual-IMU demo selects separate primary/secondary devices explicitly
 
 Hardware initializes on acquisition, not when obtaining the reference. A device
 remains Busy through worker callbacks, terminal-event delivery and sink destruction.
-Its driver/resources are then destroyed before the lease is released. Uncertain
-shutdown quarantines only that device until restart. Dropping a session requests
+Its driver/resources are then destroyed before it becomes available again. Failed
+cleanup leaves only that device unavailable until restart. Dropping a session requests
 cancellation; it does not immediately make the device available again.
+The private `DeviceState` records `Available`, `InUse` or `Faulted`; its
+`DeviceUseGuard` keeps use exclusive through cleanup. Both live in `device_state.rs`.
 
-Each physical instance reserves static storage for its binding, ownership record
+Each physical instance reserves static storage for its binding, device state
 and a mutex-protected acquisition slot, including the concrete driver while active.
 Initialization values and transaction buffers are transient; worker stacks,
 thread/cancellation state and OS resources retain their existing allocation costs.
@@ -38,11 +44,12 @@ Acquisition uses one typed constructor function pointer; sample operations and
 ordinary sinks are statically dispatched and are not boxed. See the
 [storage contract](../../docs/static-device-composition.md#permanent-device-objects-and-temporary-sessions).
 
-`open` and `open_configured` return an `imu::Session`: stop, join, completion and
-drop accounting for active acquisition. The synchronous device operations belong
-to `peripheral::imu::Imu`, implemented by the chip drivers. `imu::Imu` remains
-an alias of `Session` so existing consumers require no changes.
-These free functions and `resolve` delegate to `primary()`.
+`Device::open` and `Device::open_default` return an `imu::Session`: stop,
+join, completion and drop accounting for active acquisition. Synchronous device
+operations belong to `peripheral::imu::Imu`, implemented by the chip drivers.
+The former root `open`, `open_configured`, `resolve` and `Imu` alias are removed;
+use the device methods and `Session`. The shared acquisition worker implements
+`Session` directly, without another worker wrapper.
 
 This HAL and its BMI270/LSM6DSO drivers use Rust `std`, as do their NuttX and
 host consumers. There is no bare-metal `no_std` variant. The optional `probe`
@@ -50,16 +57,16 @@ feature selects instrumentation at one tracing-module boundary.
 `lib.rs` exposes the API; each selected provider includes the shared helpers it
 uses. Shared implementations stay in ordinary modules outside `platform/`.
 
-`open(sink)` creates an owned acquisition session; services receive typed
+`device.open_default(sink)` creates an owned acquisition session; services receive typed
 `Event::Sample` messages and never read the bus. Call `request_stop()` and `join()`
 to wake acquisition, disable the sensor/IRQ and reclaim its worker. Drop requests
 cancellation without a hidden join; the worker retains resources through cleanup.
 
-Without `probe`, tracing is zero-sized and its hooks perform no timing reads,
-observer checks or callbacks. The diagnostic API remains callable, but returns
+Without `probe`, the factory supplies NuttX bus handles directly. Tracing is
+zero-sized and its hooks perform no timing reads, observer checks or callbacks. The diagnostic API remains callable, but returns
 `Unsupported` before resource acquisition. Build with `--features probe` and call
 `probe::open_configured(config, sink, observe)` to receive task-context wake,
-I²C and FIFO-drain events. The observer must not block; ownership lasts through
+I²C and FIFO-drain events. The observer must not block; the device stays in use through
 cleanup. Mock, simulation and unbound providers return `Unsupported` for this
 physical timing API. Sensor-reference output also requires the explicit
 `probe::open_sensor_reference_configured` call. Enabling the feature alone does
@@ -77,6 +84,10 @@ budget. [BMI270](../../driver/bmi270/bindings.toml) and
 [LSM6DSO](../../driver/lsm6dso/bindings.toml) declare supported resource combinations
 and checked-in implementation IDs in their driver packages. This HAL's Cargo
 metadata imports those declarations through its existing driver dependencies.
+NuttX resource bindings and native pin settings also generate the BSP's
+required Kconfig and
+registered endpoint paths. Unsupported BSP resources and contradictory settings
+fail before compilation; the resulting NuttX configuration is checked too.
 Shared build support generates typed
 resource values and one canonical declaration per physical IMU; there is no model enum or Rust
 field-projection schema. The generic build adapter retains provider selection,
@@ -86,20 +97,20 @@ Chip qualification controls run in the factory before publication and retain
 normal joined cleanup on failure.
 
 The shared [NuttX I²C adapter](../../driver/i2c/README.md) owns the controller descriptor
-and implements `embedded_hal::i2c::I2c`. This HAL only wraps transactions for its
-optional timing observer, then supplies that bus to the sensor driver.
+and implements `embedded_hal::i2c::I2c`. With `probe`, one transaction observer wraps either I²C or SPI. Ordinary builds
+supply the resource directly to the sensor driver.
 `driver/gpio` owns the GPIO interrupt descriptor and registration/rollback, and
 `nxrs-acquisition` supplies the shared NuttX poll/pipe binding. This HAL keeps
-interrupt/timer selection, cadence, stream metadata and acquisition lifetime.
-GPIO cleanup failures notify its quarantine policy even during setup or Drop. Buffering is
+interrupt/timer selection, periodic deadlines, stream metadata and acquisition lifetime.
+GPIO cleanup failures mark the device faulted, including during setup or Drop. Buffering is
 explicit in the shared device contract; this acquisition path requires a FIFO
 and rejects latest-value devices before acquiring resources.
 Composition overlays and coordinated simulation are tracked in the
 [migration plan](../../docs/peripheral-composition-plan.md).
 
-`resolve(config)` previews the selected provider's accepted settings without
+`device.resolve(config)` previews the selected provider's accepted settings without
 I/O or resource acquisition. It does not verify hardware availability or reserve
-the device. Use `open_configured(config, sink)` to request exact full scales, inclusive rate
+the device. Use `device.open(config, sink)` to request exact full scales, inclusive rate
 limits in millihertz and a maximum nominal interval between delivery
 opportunities. The HAL selects the slowest supported rate that satisfies both
 timing requirements and returns the session with its applied settings. For
@@ -116,13 +127,13 @@ chip-specific enums. Supported-mode enumeration is not part of this API.
 
 The BMI270 provider accepts 25, 50, 100 or 200 Hz at any combination of
 accelerometer ±2, ±4, ±8 or ±16 g and gyroscope ±125, ±250, ±500, ±1000 or
-±2000 degrees/s. `open(sink)` uses 100 Hz, ±4 g and ±2000 degrees/s.
+±2000 degrees/s. `device.open_default(sink)` uses 100 Hz, ±4 g and ±2000 degrees/s.
 The mock offers that default mode. The unbound build returns `Unsupported`.
 A zero rate, full scale or delivery interval and inverted
 rate limits return `InvalidData` on configured providers. Well-formed
 requirements without a matching mode return `Unsupported` before resource
 acquisition. A configuration readback mismatch returns `InvalidData` and
-quarantines the physical owner.
+marks the physical device faulted.
 
 The `nxrs-bmi270` package exposes sensor-specific errors and physical
 samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).

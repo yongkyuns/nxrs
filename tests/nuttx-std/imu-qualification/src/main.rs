@@ -2,7 +2,9 @@
 #![deny(unsafe_code)]
 
 #[cfg(not(feature = "probe"))]
-use imu::Imu;
+use imu::Device;
+#[cfg(not(feature = "probe"))]
+use imu::Session;
 use imu::{Config, DeviceError, Event};
 use messaging::{bounded, DeliveryError, Rejected};
 use std::{
@@ -222,7 +224,7 @@ fn main() -> ExitCode {
         (timing, opened)
     };
     #[cfg(not(feature = "probe"))]
-    let opened = imu::open_configured(CONFIG, sink);
+    let opened = imu::primary().open(CONFIG, sink);
     let (mut device, applied) = match opened {
         Ok(opened) => opened,
         Err(error) => return report("open_failed", 0, Duration::ZERO, seen, 0, Some(error)),

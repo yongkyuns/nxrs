@@ -1,4 +1,5 @@
 //! Source-injected witnesses for the NuttX IMU resource lifecycle.
+use super::device_state::{self, State};
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::{
     format,
@@ -10,7 +11,7 @@ use std::{
     vec::Vec,
 };
 
-static OWNED: crate::instance::Ownership = crate::instance::Ownership::new();
+static DEVICE_STATE: device_state::DeviceState = device_state::DeviceState::new();
 static SERIAL: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,24 +189,18 @@ pub(super) mod spi_ffi {
 use acquisition::readiness;
 #[path = "device.rs"]
 mod device;
-#[path = "observed_bus.rs"]
-mod observed_bus;
 use self::ffi as events;
 use super::{gpio_resource, resource, spi_resource};
-#[path = "../../session.rs"]
-mod session;
-use super::cadence;
 #[allow(dead_code)]
 #[path = "factory.rs"]
 mod factory;
 use peripheral::imu::Imu as ImuDevice;
 #[path = "signal.rs"]
 mod signal;
-#[path = "trace.rs"]
-mod trace;
+use super::trace;
 
-type Bmi270Sensor = nxrs_bmi270::Bmi270<observed_bus::Bus, factory::Delay>;
-type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<observed_bus::Bus>;
+type Bmi270Sensor = nxrs_bmi270::Bmi270<factory::Bus, factory::Delay>;
+type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<factory::Bus>;
 
 fn acquire_bmi270(
     binding: factory::I2cBinding<'_>,
@@ -224,7 +219,7 @@ fn acquire_bmi270_traced(
         config,
         binding.irq_path,
         trace,
-        &OWNED,
+        &DEVICE_STATE,
         || binding.open(observed),
         |(bus, address), settings| {
             Bmi270Sensor::open_configured(bus, address, factory::Delay, settings)
@@ -241,7 +236,7 @@ fn acquire_lsm6dso(
         config,
         binding.irq_path,
         trace::Trace::default(),
-        &OWNED,
+        &DEVICE_STATE,
         || binding.open(trace::Trace::default()),
         |(bus, address), settings| {
             Lsm6dsoSensor::open_configured(bus, address, factory::Delay, settings)
@@ -284,8 +279,14 @@ fn run<S: ImuDevice>(
     device.run(stop, wake, emit)
 }
 
+fn assert_state(expected: State) {
+    assert_eq!(DEVICE_STATE.value.load(Ordering::Relaxed), expected as u8);
+}
+
 fn reset() {
-    OWNED.0.store(0, Ordering::Relaxed);
+    DEVICE_STATE
+        .value
+        .store(State::Available as u8, Ordering::Relaxed);
     *FAKE.lock().unwrap() = Fake::new();
 }
 fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> factory::I2cBinding<'a> {
@@ -302,7 +303,7 @@ fn default_config() -> crate::Config {
 }
 
 #[test]
-fn irq_registration_rollback_and_quarantine_are_not_repeated() {
+fn irq_registration_rollback_and_fault_marking_are_not_repeated() {
     let _serial = SERIAL.lock().unwrap();
     for (fail_register, fail_unregister) in
         [(false, false), (true, false), (true, true), (false, true)]
@@ -311,7 +312,7 @@ fn irq_registration_rollback_and_quarantine_are_not_repeated() {
         let file = DeviceFile::new();
         FAKE.lock().unwrap().fail_register = fail_register;
         FAKE.lock().unwrap().fail_unregister = fail_unregister;
-        match device::open_irq(file.path(), &OWNED) {
+        match device::open_irq(file.path(), &DEVICE_STATE) {
             Err(crate::DeviceError::Io) => assert!(fail_register),
             Ok(mut irq) => {
                 assert!(!fail_register);
@@ -324,10 +325,11 @@ fn irq_registration_rollback_and_quarantine_are_not_repeated() {
         let f = FAKE.lock().unwrap();
         assert_eq!(f.registrations, 0);
         assert_eq!(f.unregisters, 1);
-        assert_eq!(
-            OWNED.0.load(Ordering::Relaxed),
-            if fail_unregister { 2 } else { 0 }
-        );
+        assert_state(if fail_unregister {
+            State::Faulted
+        } else {
+            State::Available
+        });
     }
 }
 
@@ -344,7 +346,7 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
         Some(crate::DeviceError::Unsupported)
     );
     assert_eq!(FAKE.lock().unwrap().transfers, 0);
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+    assert_state(State::Available);
 
     for fail_unregister in [false, true] {
         reset();
@@ -355,10 +357,11 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
         );
         let f = FAKE.lock().unwrap();
         assert_eq!((f.registrations, f.unregisters), (0, 1));
-        assert_eq!(
-            OWNED.0.load(Ordering::Relaxed),
-            if fail_unregister { 2 } else { 0 }
-        );
+        assert_state(if fail_unregister {
+            State::Faulted
+        } else {
+            State::Available
+        });
     }
 }
 
@@ -397,7 +400,7 @@ fn rejected_requests_do_not_acquire_resources() {
     let f = FAKE.lock().unwrap();
     assert_eq!(f.transfers, 0);
     assert_eq!((f.registrations, f.unregisters), (0, 0));
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+    assert_state(State::Available);
 }
 
 #[test]
@@ -428,12 +431,12 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
             Some((address, frequency))
         );
         drop(device);
-        assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+        assert_state(State::Available);
     }
 }
 
 #[test]
-fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
+fn replacement_sensor_uses_the_same_state_and_reports_its_exact_rate() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
@@ -468,21 +471,21 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
         Some(crate::DeviceError::Busy)
     );
     drop(device);
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+    assert_state(State::Available);
 }
 
 #[test]
-fn irq_cleanup_quarantines_only_its_instance() {
-    static LEFT: crate::instance::Ownership = crate::instance::Ownership::new();
-    static RIGHT: crate::instance::Ownership = crate::instance::Ownership::new();
+fn irq_cleanup_faults_only_its_instance() {
+    static LEFT: device_state::DeviceState = device_state::DeviceState::new();
+    static RIGHT: device_state::DeviceState = device_state::DeviceState::new();
     let _serial = SERIAL.lock().unwrap();
     reset();
     let file = DeviceFile::new();
     let mut irq = device::open_irq(file.path(), &LEFT).unwrap();
     FAKE.lock().unwrap().fail_unregister = true;
     assert!(irq.unregister().is_err());
-    assert!(matches!(LEFT.take(), Err(crate::DeviceError::Io)));
-    assert!(RIGHT.take().is_ok());
+    assert!(matches!(LEFT.begin_use(), Err(crate::DeviceError::Io)));
+    assert!(RIGHT.begin_use().is_ok());
     drop(irq);
     assert_eq!(FAKE.lock().unwrap().unregisters, 1);
 }
@@ -527,7 +530,7 @@ fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
 }
 
 #[test]
-fn partial_sensor_setup_quarantines() {
+fn partial_sensor_setup_marks_faulted() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
@@ -536,7 +539,7 @@ fn partial_sensor_setup_quarantines() {
         acquire_bmi270(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::InvalidData)
     );
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
+    assert_state(State::Faulted);
     let transfers = FAKE.lock().unwrap().transfers;
     assert_eq!(
         acquire_bmi270(binding(file.path(), None), default_config()).err(),
@@ -546,7 +549,7 @@ fn partial_sensor_setup_quarantines() {
 }
 
 #[test]
-fn config_readback_mismatch_quarantines_before_publishing_device() {
+fn config_readback_mismatch_faults_before_publishing_device() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
@@ -555,7 +558,7 @@ fn config_readback_mismatch_quarantines_before_publishing_device() {
         acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).err(),
         Some(crate::DeviceError::InvalidData)
     );
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
+    assert_state(State::Faulted);
     let transfers = {
         let fake = FAKE.lock().unwrap();
         assert_eq!((fake.registrations, fake.unregisters), (0, 1));
@@ -569,24 +572,25 @@ fn config_readback_mismatch_quarantines_before_publishing_device() {
 }
 
 fn join_device(device: device::Device<Bmi270Sensor>) {
-    use crate::Session;
     let cancel = readiness::Cancel::new(|| {
         let (reader, writer) = UnixStream::pair()?;
         Ok((OwnedFd::from(reader).into(), OwnedFd::from(writer).into()))
     })
     .unwrap();
     let wake = cancel.reader.clone();
-    let mut worker = session::WorkerSession::start(
+    let mut worker = acquisition::Worker::start(
+        "imu-test",
         16384,
         cancel,
         |_| Ok(()),
+        crate::Event::Failed,
         move |stop, emit| run(device, stop, &wake, emit),
     )
     .unwrap();
-    worker.join().unwrap();
+    crate::Session::join(&mut worker).unwrap();
     assert!(worker.is_finished());
     assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+    assert_state(State::Available);
 }
 
 #[test]
@@ -594,10 +598,10 @@ fn unpublished_device_and_joined_worker_both_stop_before_detach() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    // A cancel setup or thread spawn failure drops the unpublished owner.
+    // A cancel setup or thread spawn failure drops the unpublished state.
     drop(acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap());
     assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+    assert_state(State::Available);
 
     reset();
     FAKE.lock().unwrap().irq_asserted = false;
@@ -650,12 +654,12 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
             }
         }
         assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-        assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+        assert_state(State::Available);
     }
 }
 
 #[test]
-fn failed_stop_or_detach_quarantines_without_repeating_release() {
+fn failed_stop_or_detach_marks_faulted_without_repeating_release() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     for (fail_stop, fail_unregister) in [(true, false), (false, true)] {
@@ -677,7 +681,7 @@ fn failed_stop_or_detach_quarantines_without_repeating_release() {
             Err(crate::DeviceError::Io)
         );
         let f = FAKE.lock().unwrap();
-        assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
+        assert_state(State::Faulted);
         assert_eq!((f.registrations, f.unregisters), (0, 1));
         assert_eq!(f.ops, [Op::Stop, Op::Detach]);
     }
@@ -705,10 +709,11 @@ fn partial_reference_setup_releases_the_sensor_and_checks_irq_detach() {
         assert_eq!(fake.ops, [Op::Stop, Op::Detach]);
         assert_eq!(fake.regs[0x54] & 0x08, 0);
         assert_eq!(fake.regs[0x58], 0);
-        assert_eq!(
-            OWNED.0.load(Ordering::Relaxed),
-            if fail_unregister { 2 } else { 0 }
-        );
+        assert_state(if fail_unregister {
+            State::Faulted
+        } else {
+            State::Available
+        });
     }
 }
 
@@ -801,11 +806,11 @@ mod diagnostics {
 }
 
 #[test]
-fn spi_factories_share_acquisition_ownership_and_cleanup() {
+fn spi_factories_share_device_state_and_cleanup() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     fn verify<S: ImuDevice>(device: device::Device<S>) {
-        assert_eq!(OWNED.0.load(Ordering::Relaxed), 1);
+        assert_state(State::InUse);
         FAKE.lock().unwrap().periodic_wake = true;
         let mut samples = Vec::new();
         let expected_interval = 1_000_000_000u32.div_ceil(device.applied_config().rate_millihz);
@@ -825,7 +830,7 @@ fn spi_factories_share_acquisition_ownership_and_cleanup() {
         assert_eq!(samples[0].sequence, 1);
         assert_eq!(samples[0].sample_interval_us, expected_interval);
         assert!((samples[0].accel_mps2[0] - 9.80665).abs() < 0.01);
-        assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+        assert_state(State::Available);
     }
     for select in [0, 1] {
         reset();
@@ -848,13 +853,13 @@ fn spi_factories_share_acquisition_ownership_and_cleanup() {
             }
         }
         if select == 0 {
-            type Sensor = nxrs_bmi270::Bmi270Spi<observed_bus::Spi, factory::Delay>;
+            type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
             verify(
                 factory::acquire(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
-                    &OWNED,
+                    &DEVICE_STATE,
                     || binding.open(trace::Trace::default()),
                     |bus, settings| {
                         Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
@@ -864,13 +869,13 @@ fn spi_factories_share_acquisition_ownership_and_cleanup() {
             );
             assert_eq!(FAKE.lock().unwrap().regs[0x7d], 0);
         } else {
-            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<observed_bus::Spi>;
+            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<factory::Spi>;
             verify(
                 factory::acquire(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
-                    &OWNED,
+                    &DEVICE_STATE,
                     || binding.open(trace::Trace::default()),
                     |bus, settings| {
                         Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
@@ -883,7 +888,7 @@ fn spi_factories_share_acquisition_ownership_and_cleanup() {
     }
     reset();
     FAKE.lock().unwrap().bad_init = true;
-    type Sensor = nxrs_bmi270::Bmi270Spi<observed_bus::Spi, factory::Delay>;
+    type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
     let binding = factory::SpiBinding {
         path: file.path(),
         chip_select: 0,
@@ -895,10 +900,41 @@ fn spi_factories_share_acquisition_ownership_and_cleanup() {
         Sensor::DEFAULT,
         None,
         trace::Trace::default(),
-        &OWNED,
+        &DEVICE_STATE,
         || binding.open(trace::Trace::default()),
         |bus, settings| Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into),
     );
     assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));
-    assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
+    assert_state(State::Faulted);
+}
+
+#[test]
+fn periodic_wait_keeps_early_deadlines_and_skips_missed_periods() {
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    let period = Duration::from_millis(10);
+    let mut next_deadline = start + period;
+    assert_eq!(
+        signal::advance_periodic_deadline(
+            &mut next_deadline,
+            period,
+            start + Duration::from_millis(9)
+        ),
+        None
+    );
+    assert_eq!(next_deadline, start + period);
+    assert_eq!(
+        signal::advance_periodic_deadline(&mut next_deadline, period, start + period),
+        Some(start + period)
+    );
+    assert_eq!(next_deadline, start + period * 2);
+    assert_eq!(
+        signal::advance_periodic_deadline(&mut next_deadline, period, start + period * 10),
+        Some(start + period * 2)
+    );
+    assert_eq!(
+        signal::advance_periodic_deadline(&mut next_deadline, period, start + period * 10),
+        None
+    );
+    assert_eq!(next_deadline, start + period * 11);
 }

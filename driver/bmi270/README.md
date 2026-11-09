@@ -27,9 +27,9 @@ accepted accelerometer and gyroscope ODR and range fields by reading their
 registers back. All supported gyro ODRs are at least 25 Hz. FIFO conversion
 scales each raw axis using the chosen physical range. FIFO layout, watermark,
 interrupt mapping and bounded sensor startup behavior are unchanged.
-`SAMPLE_INTERVAL_US` remains the public 100 Hz default interval for existing
-consumers; configured consumers can derive their interval from
-`Config::rate`. The driver directly implements `peripheral::imu::Imu` alongside
+Derive the nominal sample interval from `Config::rate`; the fixed default-rate
+compatibility constant is removed. `Sample` uses the shared physical
+`Measurement` type directly. The driver directly implements `peripheral::imu::Imu` alongside
 its chip API. That contract resolves supported settings and returns synchronous
 SI measurements with explicit FIFO buffering and overflow errors. HAL IMU adds
 stream metadata and manages acquisition and resource lifetime.

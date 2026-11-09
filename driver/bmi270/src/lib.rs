@@ -155,9 +155,6 @@ impl GyroRange {
     }
 }
 
-// Retained for consumers that use the driver's established default cadence.
-// BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
-pub const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (Odr::Odr100 as u8);
 /// Failures from BMI270 protocol operations, independent of any capability HAL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -167,12 +164,8 @@ pub enum Error {
     Overflow,
 }
 
-/// One decoded physical observation. Timing and delivery sequence belong to the consumer.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sample {
-    pub accel_mps2: [f32; 3],
-    pub gyro_rps: [f32; 3],
-}
+/// One decoded physical observation, without host timing or delivery metadata.
+pub use peripheral::imu::Measurement as Sample;
 
 impl<B: I2c, D: DelayNs> Bmi270<B, D> {
     pub fn open(bus: B, address: u8, delay: D) -> Result<Self, Error> {
@@ -198,12 +191,6 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         sensor.initialize()?;
         Ok(sensor)
     }
-    fn read(&mut self, register: u8, bytes: &mut [u8]) -> Result<(), Error> {
-        self.io.read(register, bytes)
-    }
-    fn read_reg(&mut self, register: u8) -> Result<u8, Error> {
-        self.io.read_reg(register)
-    }
     fn write(&mut self, register: u8, bytes: &[u8]) -> Result<(), Error> {
         self.io.write(register, bytes)?;
         // SPI requires a write-to-next-access gap even with power save disabled.
@@ -217,13 +204,13 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
     }
     fn initialize(&mut self) -> Result<(), Error> {
         self.io.initialize()?;
-        if self.read_reg(0)? != 0x24 {
+        if self.io.read_reg(0)? != 0x24 {
             return Err(Error::InvalidData);
         }
         self.write_reg(0x7e, 0xb6)?;
         self.delay.delay_us(2_000);
         self.io.initialize()?; // Soft reset also resets SPI selection.
-        let power = self.read_reg(0x7c)? & !1;
+        let power = self.io.read_reg(0x7c)? & !1;
         self.write_reg(0x7c, power)?;
         self.delay.delay_us(450);
         self.write_reg(0x59, 0)?;
@@ -240,7 +227,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         }
         self.write_reg(0x59, 1)?;
         self.delay.delay_us(20_000);
-        if self.read_reg(0x21)? != 1 {
+        if self.io.read_reg(0x21)? != 1 {
             return Err(Error::InvalidData);
         }
         let config = self.config;
@@ -272,7 +259,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         }
         let mut ready = false;
         for _ in 0..100 {
-            if self.read_reg(0x03)? & 0xc0 == 0xc0 {
+            if self.io.read_reg(0x03)? & 0xc0 == 0xc0 {
                 ready = true;
                 break;
             }
@@ -308,7 +295,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
             (0x55, 0, 1),
             (0x58, 0x0b, 0xff),
         ] {
-            if self.read_reg(register)? & mask != expected {
+            if self.io.read_reg(register)? & mask != expected {
                 return Err(Error::InvalidData);
             }
         }
@@ -319,10 +306,10 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
     /// Call `stop` if setup fails after accessing the sensor.
     pub fn enable_sensor_reference(&mut self) -> Result<(), Error> {
         self.reference_enabled = true;
-        let map = self.read_reg(0x58)? | 0xc0;
+        let map = self.io.read_reg(0x58)? | 0xc0;
         self.write_reg(0x58, map)?;
         self.write_reg(0x54, 0x0a)?;
-        if self.read_reg(0x58)? != map || self.read_reg(0x54)? != 0x0a {
+        if self.io.read_reg(0x58)? != map || self.io.read_reg(0x54)? != 0x0a {
             return Err(Error::InvalidData);
         }
         Ok(())
@@ -331,7 +318,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         let reference = self.reference_enabled;
         let reference_stopped = if reference {
             self.write_reg(0x54, 0x02).and_then(|()| {
-                if self.read_reg(0x54)? & 0x18 != 0 {
+                if self.io.read_reg(0x54)? & 0x18 != 0 {
                     Err(Error::InvalidData)
                 } else {
                     Ok(())
@@ -346,10 +333,10 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         self.write_reg(0x58, 0)?;
         self.write_reg(0x53, 0x02)?;
         self.write_reg(0x7d, 0)?;
-        if self.read_reg(0x7d)? & 0x0f != 0 {
+        if self.io.read_reg(0x7d)? & 0x0f != 0 {
             return Err(Error::Bus);
         }
-        if reference && self.read_reg(0x58)? != 0 {
+        if reference && self.io.read_reg(0x58)? != 0 {
             return Err(Error::InvalidData);
         }
         reference_stopped
@@ -358,7 +345,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
     pub fn drain(&mut self, mut emit: impl FnMut(Sample) -> bool) -> Result<Option<usize>, Error> {
         let mut status = [0];
-        self.read(0x1d, &mut status)?;
+        self.io.read(0x1d, &mut status)?;
         if status[0] & 1 != 0 {
             return Err(Error::Overflow);
         }
@@ -366,7 +353,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
             return Err(Error::Bus);
         }
         let mut length = [0; 2];
-        self.read(0x24, &mut length)?;
+        self.io.read(0x24, &mut length)?;
         let count = usize::from(u16::from_le_bytes(length));
         // Headerless frames contain gyro XYZ followed by accel XYZ (12 bytes).
         // Equal ODR, no auxiliary data/tags/time, and no downsampling are required.
@@ -380,7 +367,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
             core::f32::consts::PI / 180.0 * self.config.gyro_range.full_scale_dps() / 32768.0;
         while remaining != 0 {
             let n = remaining.min(bytes.len());
-            self.read(0x26, &mut bytes[..n])?;
+            self.io.read(0x26, &mut bytes[..n])?;
             for frame in bytes[..n].chunks_exact(12) {
                 let axis = |i| f32::from(i16::from_le_bytes([frame[i], frame[i + 1]]));
                 if !emit(Sample {

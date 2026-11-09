@@ -1,0 +1,47 @@
+# Native NuttX registration contract; electrical setup stays in the BSP/driver.
+# These symbols take ESP32-S3 GPIO numbers, not port-local pin numbers.
+pin-namespace = "esp32s3-gpio"
+
+[kconfig]
+ARCH_BOARD_ESP32S3_M5_CORES3 = "y"
+
+[resources.i2c0]
+kind = "i2c"
+device = "/dev/i2c0"
+pin-settings = ["ESP32S3_I2C0_SDAPIN", "ESP32S3_I2C0_SCLPIN"]
+[resources.i2c0.kconfig]
+ESP32S3_I2C0 = "y"
+ESP32S3_I2C0_MASTER_MODE = "y"
+I2C_DRIVER = "y"
+I2C_POLLED = "n"
+BOARD_LATE_INITIALIZE = "y"
+
+[resources.i2c1]
+kind = "i2c"
+device = "/dev/i2c1"
+pin-settings = ["ESP32S3_I2C1_SDAPIN", "ESP32S3_I2C1_SCLPIN"]
+[resources.i2c1.kconfig]
+ESP32S3_I2C1 = "y"
+ESP32S3_I2C1_MASTER_MODE = "y"
+I2C_DRIVER = "y"
+I2C_POLLED = "n"
+BOARD_LATE_INITIALIZE = "y"
+
+[resources.uart1]
+kind = "uart"
+device = "/dev/ttyS1"
+pin-settings = ["ESP32S3_UART1_TXPIN", "ESP32S3_UART1_RXPIN"]
+# Keep UART0 first and USB as console so UART1 remains /dev/ttyS1.
+reserved-pins = [43, 44]
+values = { baud = "UART1_BAUD" }
+[resources.uart1.kconfig]
+ESP32S3_UART0 = "y"
+ESP32S3_UART0_TXPIN = "43"
+ESP32S3_UART0_RXPIN = "44"
+ESP32S3_UART1 = "y"
+ESP32S3_USBSERIAL = "y"
+OTHER_SERIAL_CONSOLE = "y"
+UART0_SERIAL_CONSOLE = "n"
+UART1_SERIAL_CONSOLE = "n"
+UART2_SERIAL_CONSOLE = "n"
+SERIAL_TERMIOS = "y"

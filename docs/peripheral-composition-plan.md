@@ -7,6 +7,14 @@ the [declarative build/static-device decision](static-device-composition.md)
 defines the new target. Do not repeat completed v1 work or treat an old stage's
 source paths as the current implementation. Physical claims still require S8.
 
+The BSP resource follow-up resolves profile bindings and native pin settings
+into both NuttX Kconfig and Rust endpoints. NuttX owns pin encoding and electrical
+setup; Nxrs checks declared claims in the BSP's native numbering namespace.
+CoreS3 and DevKit mappings, conflict checks, effective
+configuration checks and input freshness are covered by existing build suites.
+Additional BSP resources require verified registration support; this does not
+complete pending physical qualification. See the [current resource flow](peripheral-composition.md#profile-composition-v1).
+
 The original S0–S11 baseline was inspected at `3961a15d` on November 7, 2026.
 The follow-up was inspected at `15f547594512528db7cae43a7bd1293ee54668e3` on
 November 8, 2026. Recheck paths, tests and overlapping PRs at each implementation
@@ -132,25 +140,25 @@ and the supported combinations are documented with exact error behavior.
 Depends on S3. Primary paths are `platform/build-support/src/profile.rs`, a new
 focused `composition.rs`, `hal/imu/bindings/`, and host resolver tests.
 
-1. Implement composition version 1, resources, devices, wake choices and roles as
+1. Implement composition version 1, resources, devices, wake choices and aliases as
    specified in the architecture. Use typed records/enums with bounded validation.
    Keep native resource paths in platform configuration.
 2. Add the BMI270/I2C binding schema and an allowlisted constructor mapping. Reject
    unknown properties/models/buses, ambiguous matches, invalid addresses and
    inconsistent wake resources. Bindings identify implementations that exist.
-3. Resolve a default IMU role and validate resource claims. Distinct I2C addresses
+3. Resolve a default IMU alias and validate resource claims. Distinct I2C addresses
    may share a bus. Duplicate physical devices and exclusive IRQ conflicts fail.
 4. Translate legacy IMU profiles to the same internal graph at one resolver
    boundary, including their omitted-IRQ periodic semantics. Reject simultaneous
    legacy and v1 fields for the same capability. Keep unrelated capabilities in
    their current representation during incremental migration.
-5. Reuse application `required-capabilities` validation against the resolved role.
+5. Reuse application `required-capabilities` validation against the resolved alias.
    Add deterministic serialization and source provenance. Implement schema
    version rejection and target/provider compatibility before code generation.
 
 Run build-support tests, `test_deployment.py` and `test_platform_profiles.py`.
 Exit with legacy/v1 equivalence and negative cases for unresolved references,
-conflicting claims, incompatible roles and simulation in hardware mode.
+conflicting claims, incompatible aliases and simulation in hardware mode.
 
 ## S5 — Implement explicit overlay composition
 
@@ -164,7 +172,7 @@ options and `platform/build/tests/cli.rs`. Reuse the profile inspection command.
    build and inspection. Resolve relative paths against their declaring files.
    Plain builds must never discover overlays from the working directory.
 3. Validate after all merges so an overlay can replace a referenced device and
-   repair roles together. Errors must identify the responsible file/property.
+   repair aliases together. Errors must identify the responsible file/property.
 4. Print the resolved selection and provenance through profile inspection and
    dry-run. Hash normalized semantic inputs and record ordered source hashes.
    Track raw input fingerprints separately from semantic graph digests so that
@@ -299,7 +307,7 @@ capability-local simulation implementations and a named simulation profile.
    to test harnesses and prevent scenario reuse while old callbacks are alive.
 3. Preserve existing independent scripted-session tests as named qualification
    fixtures. Specify whether an endpoint allows subscribers or exclusive
-   acquisition. Reopening a physical device's role must retain Busy semantics.
+   acquisition. Reopening a physical device's alias must retain Busy semantics.
 4. Test repeated-run equality, cross-sensor consistency, cancellation while time
    is paused, overload, detach/rejoin and no state leakage between sessions.
 5. For application determinism, route relevant timer/deadline inputs through an
@@ -425,8 +433,9 @@ The IMU API and retirement ordering are recorded in the static-device contract.
 No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
 a global provider flag or Cargo features reaching undeclared dependency edges.
 
-Preserve current public defaults and configured sampling semantics. Specify
-compatibility for existing `open` callers and no-profile/fixture builds.
+Preserve public defaults and configured sampling semantics. IMU consumers now
+use `Device::open`/`open_default` and `Session`; root compatibility functions and
+the old session alias are removed. No-profile builds return `Unsupported`.
 IMU now retains its lease through final delivery, sink destruction and cleanup.
 Exit with the reviewed contract and a bounded baseline of relevant tests.
 
@@ -501,21 +510,21 @@ unselected driver is absent in each single-model production build.
 
 ### D3 — Enforce canonical static objects and per-device ownership
 
-**IMU implemented in PR #306.** Named role accessors alias permanent objects;
+**IMU implemented in PR #306.** Named accessors refer to permanent objects;
 same-model and mixed-model devices acquire independently. Tests cover concurrent
 settings/events, Busy aliases, failure isolation, cancellation-setup rollback,
 terminal backpressure, callback retirement and per-instance IRQ quarantine.
 Actual generated factories compile across profile switches in one Cargo output.
 Flat/protected target compile/link checks do not qualify physical concurrency.
 In the pinned 32-bit Xtensa release/probe witness, two BMI270 I²C slots and one
-LSM6DSO I²C slot occupy 144 + 144 + 168 = 456 static bytes; four roles emit three
+LSM6DSO I²C slot occupy 144 + 144 + 168 = 456 static bytes; four aliases emit three
 objects. These sizes exclude worker stacks, transient buffers and OS allocations.
 Optional dependency selection (D2), full pre-Cargo handoff (D1) and GNSS instances
 remain separate unfinished work.
 
 Generate one actual static object for each active physical device with private
 configuration, persistent instance storage and ownership/fault state. Common HAL
-machinery controls construction; role aliases return the same object. Keep the
+machinery controls construction; aliases return the same object. Keep the
 session's stop/join and typed callback contract independent from permanent identity.
 
 Migrate `hal/imu/src/platform/nuttx/{mod,device,irq}.rs`, session integration and
@@ -525,7 +534,7 @@ Preserve rollback, IRQ detach, sensor stop, worker-start failure and quarantine.
 Report static bytes separately from stack, queue, transient and backend allocation.
 
 Exercise two same-model devices and a mixed pair concurrently with independent
-configuration/events/state. Verify same-object Busy through two role aliases,
+configuration/events/state. Verify same-object Busy through two aliases,
 other-device availability after a fault, normal cleanup/reopen and the chosen
 terminal-event ordering. Normalize physical endpoint identities and reject
 duplicate owners and conflicting IRQ/CS claims. Sharing an I2C controller must
@@ -573,7 +582,7 @@ The implementation acceptance matrix is:
 | --- | --- |
 | Generic build ownership | IMU and GNSS plus a declarative fixture use common generation; no chip-specific central branch or hidden sibling file |
 | Implementation selection | One implementation for two same-model instances; both for a mixed pair; unused target driver absent in single-model builds |
-| Identity and ownership | Actual static identity, shared role aliases, duplicate-acquire Busy and independent device availability |
+| Identity and ownership | Actual static identity, shared aliases, duplicate-acquire Busy and independent device availability |
 | Lifecycle and faults | Cancel/drop/cleanup barriers, successful reopen, partial-start and IRQ failures, per-device quarantine |
 | Resource sharing | Duplicate endpoint/IRQ/CS rejection and correct shared-controller transactions with documented enforcement limits |
 | Freshness and package use | A→B→A, changed catalog/instance count, stale/mismatched inputs, concurrent profiles and isolated detached consumers |

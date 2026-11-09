@@ -1,3 +1,4 @@
+use imu::Device;
 use std::time::Duration;
 
 use navigation::{FusionConfig, FusionService, GnssService, HealthService, ImuService};
@@ -31,7 +32,10 @@ fn start_services() -> (
 fn active_services_own_hal_threads_and_lifecycle() {
     let _primary = PRIMARY.lock().unwrap();
     let (fusion, imu, gnss) = start_services();
-    assert_eq!(imu::open(|_| Ok(())).err(), Some(imu::DeviceError::Busy));
+    assert_eq!(
+        imu::primary().open_default(|_| Ok(())).err(),
+        Some(imu::DeviceError::Busy)
+    );
     let (other_fusion, other_inputs) = FusionService::new();
     let other_fusion = other_fusion.start().unwrap();
     let other_imu = ImuService::new(other_inputs.imu)
@@ -72,7 +76,11 @@ fn active_services_own_hal_threads_and_lifecycle() {
 
     // A completed service shutdown releases the same device for its next owner.
     use imu::Session;
-    imu::open(|_| Ok(())).unwrap().join().unwrap();
+    imu::primary()
+        .open_default(|_| Ok(()))
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 #[test]

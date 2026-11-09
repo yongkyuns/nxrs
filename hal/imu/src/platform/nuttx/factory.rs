@@ -1,16 +1,19 @@
 //! Acquire profile resources, then construct a device using the supplied factory.
+use super::device_state::DeviceState;
 use super::{
     device::{self, Device},
-    observed_bus::{Bus, Spi},
+    resource,
     signal::Signal,
     spi_resource,
-    trace::Trace,
+    trace::{Observed, Trace},
 };
-use crate::instance::Ownership;
 use crate::{Config, DeviceError};
 use embedded_hal::delay::DelayNs;
 use peripheral::imu::{Error, Imu};
 use std::time::Duration;
+
+pub(super) type Bus = Observed<resource::Bus>;
+pub(super) type Spi = Observed<spi_resource::Device>;
 
 pub(super) struct I2cBinding<'a> {
     pub(super) path: &'a str,
@@ -21,7 +24,12 @@ pub(super) struct I2cBinding<'a> {
 
 impl I2cBinding<'_> {
     pub(super) fn open(&self, trace: Trace) -> Result<(Bus, u8), DeviceError> {
-        Ok((Bus::open(self.path, self.frequency, trace)?, self.address))
+        let bus = resource::Bus::open(resource::Config {
+            path: self.path,
+            frequency: self.frequency,
+        })
+        .map_err(|_| DeviceError::Io)?;
+        Ok((trace.observe(bus), self.address))
     }
 }
 pub(super) struct SpiBinding<'a> {
@@ -33,15 +41,14 @@ pub(super) struct SpiBinding<'a> {
 }
 impl SpiBinding<'_> {
     pub(super) fn open(&self, trace: Trace) -> Result<Spi, DeviceError> {
-        Spi::open(
-            spi_resource::Config {
-                path: self.path,
-                chip_select: self.chip_select,
-                frequency: self.frequency,
-                mode: self.mode,
-            },
-            trace,
-        )
+        spi_resource::Device::open(spi_resource::Config {
+            path: self.path,
+            chip_select: self.chip_select,
+            frequency: self.frequency,
+            mode: self.mode,
+        })
+        .map(|device| trace.observe(device))
+        .map_err(|_| DeviceError::Io)
     }
 }
 
@@ -57,20 +64,20 @@ pub(super) fn acquire<S: Imu, R>(
     config: Config,
     irq_path: Option<&str>,
     trace: Trace,
-    owner: &'static Ownership,
+    state: &'static DeviceState,
     open: impl FnOnce() -> Result<R, DeviceError>,
     construct: impl FnOnce(R, S::Settings) -> Result<S, Error>,
 ) -> Result<Device<S>, DeviceError> {
     let (settings, applied) = device::resolve::<S>(config)?;
-    let lease = owner.take()?;
+    let use_guard = state.begin_use()?;
     // A configured IRQ failure must never select the periodic mode.
     let irq = irq_path
-        .map(|path| device::open_irq(path, owner))
+        .map(|path| device::open_irq(path, state))
         .transpose()?;
     let bus = open()?;
     let sensor = construct(bus, settings).inspect_err(|_| {
         // An interrupted configuration may have left the sensor active.
-        owner.quarantine();
+        state.mark_faulted();
     })?;
     let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
     Ok(Device::new(
@@ -78,6 +85,6 @@ pub(super) fn acquire<S: Imu, R>(
         applied,
         Signal::new(irq, period),
         trace,
-        lease,
+        use_guard,
     ))
 }

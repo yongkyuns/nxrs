@@ -1,12 +1,12 @@
 //! Acquisition and lifetime of an already-constructed normalized IMU.
+use super::device_state::{DeviceState, DeviceUseGuard};
 use super::{gpio_resource, signal::Signal, trace::Trace};
-use crate::instance::{Lease, Ownership};
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
 use core::sync::atomic::{AtomicBool, Ordering};
 use peripheral::imu::{Buffering, Imu};
 use std::{fs::File, time::Instant};
 
-pub(super) type Irq = gpio_resource::Interrupt<&'static Ownership>;
+pub(super) type Irq = gpio_resource::Interrupt<&'static DeviceState>;
 
 pub(super) fn gpio_error(error: gpio_resource::Error) -> DeviceError {
     match error {
@@ -15,8 +15,8 @@ pub(super) fn gpio_error(error: gpio_resource::Error) -> DeviceError {
     }
 }
 
-pub(super) fn open_irq(path: &str, owner: &'static Ownership) -> Result<Irq, DeviceError> {
-    gpio_resource::Interrupt::open_rising_with_context(path, owner, |owner| owner.quarantine())
+pub(super) fn open_irq(path: &str, state: &'static DeviceState) -> Result<Irq, DeviceError> {
+    gpio_resource::Interrupt::open_rising_with_context(path, state, |state| state.mark_faulted())
         .map_err(gpio_error)
 }
 
@@ -26,7 +26,7 @@ pub(super) struct Device<S: Imu> {
     signal: Signal,
     trace: Trace,
     cleaned: bool,
-    _lease: Lease,
+    use_guard: DeviceUseGuard,
 }
 
 /// The current acquisition loop requires FIFO retention. Latest-value sensors
@@ -44,7 +44,7 @@ impl<S: Imu> Device<S> {
         applied: AppliedConfig,
         signal: Signal,
         trace: Trace,
-        lease: Lease,
+        use_guard: DeviceUseGuard,
     ) -> Self {
         Self {
             sensor,
@@ -52,7 +52,7 @@ impl<S: Imu> Device<S> {
             signal,
             trace,
             cleaned: false,
-            _lease: lease,
+            use_guard,
         }
     }
 
@@ -115,7 +115,7 @@ impl<S: Imu> Device<S> {
         let stopped = self.sensor.stop().map_err(DeviceError::from);
         let detached = self.signal.close();
         if stopped.is_err() || detached.is_err() {
-            self._lease.quarantine();
+            self.use_guard.mark_faulted();
         }
         stopped.and(detached)
     }

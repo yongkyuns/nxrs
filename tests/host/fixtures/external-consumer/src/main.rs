@@ -3,7 +3,7 @@
 
 use archive::{recording::FileRecorder, recording::StorageLimits, Storage};
 use frames::{Camera, Format, Frame, PixelFormat};
-use motion::Imu;
+use motion::{Device, Session};
 use packets::PacketSink;
 use position::Gnss;
 use std::{fs, net::UdpSocket, path::PathBuf, sync::mpsc, time::Duration};
@@ -60,11 +60,12 @@ fn main() {
 
     if std::env::args().any(|argument| argument == "--sensors") {
         let (send, receive) = mpsc::channel();
-        let mut imu = motion::open(move |event| {
-            send.send(event).unwrap();
-            Ok(())
-        })
-        .unwrap();
+        let mut imu = motion::primary()
+            .open_default(move |event| {
+                send.send(event).unwrap();
+                Ok(())
+            })
+            .unwrap();
         assert!(matches!(
             receive.recv_timeout(Duration::from_secs(3)).unwrap(),
             motion::Event::Sample(_)

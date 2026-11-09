@@ -1,13 +1,13 @@
 # Build qualification for a replacement sensor. This is not the stock M135 wiring.
 [resources.alternate_i2c]
-kind = "i2c"
-device = "/dev/i2c1"
+binding = "i2c1"
+kconfig = { ESP32S3_I2C1_SDAPIN = 38, ESP32S3_I2C1_SCLPIN = 39 }
 frequency = 100000
 
-[devices.motion]
+[devices.imu]
 compatible = "st,lsm6dso"
 bus = "alternate_i2c"
 address = 0x6a
 
-[devices.motion.wake]
+[devices.imu.wake]
 kind = "periodic"

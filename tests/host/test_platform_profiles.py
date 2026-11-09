@@ -207,15 +207,15 @@ class FirmwareFrontendTests(unittest.TestCase):
                          {"kind": "uart", "device": "/dev/ttyS1", "baud": 38400})
         self.assertEqual(graph["resources"]["sensor_bus"],
                          {"kind": "i2c", "device": "/dev/i2c0", "frequency": 400000})
-        self.assertEqual(graph["devices"]["motion"]["address"], 0x68)
-        self.assertEqual(graph["devices"]["motion"]["wake"], {"kind": "periodic"})
+        self.assertEqual(graph["devices"]["imu"]["address"], 0x68)
+        self.assertEqual(graph["devices"]["imu"]["wake"], {"kind": "periodic"})
         self.assertEqual((graph["stack_bytes"], graph["gnss_stack_bytes"]), (16384, 16384))
         for path, value in (
                 (("resources", "receiver_uart", "baud"), True),
                 (("resources", "receiver_uart", "device"), "/dev/../ttyS1"),
-                (("devices", "motion", "address"), 0x70),
+                (("devices", "imu", "address"), 0x70),
                 (("resources", "sensor_bus", "frequency"), 0),
-                (("devices", "motion", "wake"), {"kind": "interrupt", "resource": "missing"}),
+                (("devices", "imu", "wake"), {"kind": "interrupt", "resource": "missing"}),
                 (("gnss", "stack-bytes"), 1),
                 (("hal", "gnss"), "mock"),
                 (("hal", "imu"), "mock")):

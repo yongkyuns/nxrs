@@ -51,19 +51,29 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   acquisition lifetimes; synchronous chip operations remain driver contracts.
   Sensor HALs supply resolved configuration and own sensor policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
-  backends, host stubs or another logical profile role. Host witnesses inject
+  backends, host stubs or another logical profile alias. Host witnesses inject
   test-only bus bindings. IMU drivers own their `bindings.toml` declarations;
   the HAL imports them through declared normal Cargo path dependencies. Product
-  profiles select actual endpoints and addresses. Shared tooling emits fixed
+  profiles select BSP resources, native pin settings and peripheral addresses. The BSP mapping
+  derives NuttX Kconfig and endpoint paths together; reject conflicting overrides
+  and unsupported registrations. Shared tooling emits fixed
   typed resource bindings and checked-in factory selections. Acquisition consumes
   constructed devices through the shared contract, without chip constructor traits.
   Do not restore per-field Rust schemas or model-enum mappings.
 
-- Product profiles own device/resource composition. NuttX BSP/configuration owns
-  MCU wiring and registration. A resolved hardware profile must select concrete
+- Product profiles are the single source for device/resource composition and
+  supported pin selections. Reuse native NuttX Kconfig, board headers and
+  initialization for MCU pins and electrical behavior. Resource `kconfig` tables
+  name the binding's admitted native pin symbols; mappings identify their native
+  numbering namespace and fixed reservations for conflict checks. Do not maintain
+  a second GPIO/pinctrl catalogue or infer native port/mux encoding. NuttX checks
+  ranges/dependencies; verify its effective configuration against requested values.
+  Checked BSP mappings under `platform/nuttx/resources/`
+  derive NuttX configuration and Rust endpoints together. NuttX owns actual MCU
+  initialization and registration; declarations cannot invent missing BSP support. A resolved hardware profile must select concrete
   supported devices; simulation uses a separate explicit profile and coordinated
   session. Use mock bindings in explicit test and qualification profiles.
-  Physical IMU and GNSS roles select supported hardware bindings.
+  Physical IMU and GNSS aliases select supported hardware bindings.
   Generate only validated constants and checked-in factory selections. Cargo
   dependencies must be declared before build scripts run. Keep runtime policy
   out of build support and preserve detached-consumer qualification.
@@ -79,6 +89,13 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   transport uses one shared Rust socket implementation. Wi-Fi/BLE
   control still needs native radio APIs. Share identical Rust protocol/resource
   helpers (such as Linux GIO); keep radio schemas and device policy local.
+  For each NuttX endpoint, prefer qualified std operations first: UART data uses
+  `File` and `Read`/`Write`; termios, readiness and device controls may need thin
+  native bindings. Use embedded-hal adapters for transaction/pin semantics std
+  cannot express, and chip/protocol drivers where Nxrs owns that behavior.
+  Profiles borrow declarative bindings, overlays and aliases from Zephyr; NuttX
+  retains MCU wiring and VFS registration. Resource/device/alias records describe
+  composition, not mandatory runtime layers or a replacement for std handles.
 - Private C/Objective-C is allowed only for target-header ABI translation and
   native SDK operations that Rust/std cannot directly express. Keep bindings
   mechanical. A scalar ABI does not make a C state machine a thin binding.

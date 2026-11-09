@@ -7,12 +7,12 @@ use crate::{
 
 pub fn render(
     graph: &Composition,
-    role: &str,
+    alias: &str,
     implementation: &str,
     stack_bytes: u64,
 ) -> Result<String> {
     crate::bindings::validate_implementation(implementation)?;
-    let id = graph.roles.get(role).ok_or("missing device role")?;
+    let id = graph.aliases.get(alias).ok_or("missing device alias")?;
     let (binding_type, fields) = resource_binding(graph, id)?;
     Ok(format!(
         "// Generated from validated device/resource bindings.\n\
@@ -65,7 +65,7 @@ fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, Stri
     Ok(binding)
 }
 
-/// Emit canonical physical instances and named role aliases for one consumed HAL.
+/// Emit canonical instances, direct device accessors and aliases for one HAL.
 pub fn render_imu_instances(
     graph: &Composition,
     catalogs: &crate::bindings::Catalogs,
@@ -98,20 +98,19 @@ pub fn render_imu_instances(
         instances.insert(id.as_str(), (name, implementation, binding_type));
     }
     source.push_str("pub mod devices {\n");
-    for (role, id) in &graph.roles {
-        if role != "imu" && !role.starts_with("imu_") {
-            continue;
-        }
-        let accessor = crate::composition::imu_role_name(role)?;
+    for (accessor, id) in graph.imu_accessors(catalogs)? {
         let (instance, _, _) = instances
-            .get(id.as_str())
-            .ok_or("IMU role references an inactive device")?;
+            .get(id)
+            .ok_or("IMU accessor references an inactive device")?;
         source.push_str(&format!(
             "pub fn r#{accessor}() -> &'static impl crate::Device {{ &super::{instance} }}\n"
         ));
     }
     source.push_str("}\npub use devices::primary;\n");
-    let id = graph.roles.get("imu").ok_or("missing primary IMU role")?;
+    let id = graph
+        .aliases
+        .get("imu")
+        .ok_or("missing primary IMU alias")?;
     let (instance, implementation, binding_type) = instances
         .get(id.as_str())
         .ok_or("missing primary IMU instance")?;

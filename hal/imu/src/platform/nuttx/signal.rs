@@ -1,6 +1,5 @@
 //! Platform-local wake sources; both feed the same FIFO acquisition loop.
 use super::{
-    cadence::Cadence,
     device::{gpio_error, Irq},
     events,
 };
@@ -14,8 +13,14 @@ use std::{
 };
 
 pub(super) enum Signal {
-    Interrupt { irq: Irq, ready: Option<bool> },
-    Periodic(Cadence),
+    Interrupt {
+        irq: Irq,
+        ready: Option<bool>,
+    },
+    Periodic {
+        period: Duration,
+        next_deadline: Instant,
+    },
 }
 
 pub(super) struct Wake {
@@ -26,7 +31,13 @@ impl Signal {
     pub(super) fn new(irq: Option<Irq>, period: Duration) -> Self {
         match irq {
             Some(irq) => Self::Interrupt { irq, ready: None },
-            None => Self::Periodic(Cadence::new(Instant::now(), period)),
+            None => {
+                assert!(!period.is_zero());
+                Self::Periodic {
+                    period,
+                    next_deadline: Instant::now() + period,
+                }
+            }
         }
     }
     pub(super) fn wait(&mut self, cancel: &File) -> Result<Option<Wake>, DeviceError> {
@@ -47,9 +58,12 @@ impl Signal {
                     periodic_deadline: None,
                 }))
             }
-            Self::Periodic(clock) => loop {
-                let timeout = clock
-                    .remaining(Instant::now())
+            Self::Periodic {
+                period,
+                next_deadline,
+            } => loop {
+                let timeout = next_deadline
+                    .saturating_duration_since(Instant::now())
                     .as_nanos()
                     .div_ceil(1_000_000)
                     .min(i32::MAX as u128) as i32;
@@ -57,7 +71,9 @@ impl Signal {
                     Ok(false) => return Ok(None),
                     Ok(true) => {
                         // Early or spurious wakes retain the absolute deadline.
-                        if let Some(deadline) = clock.take_due(Instant::now()) {
+                        if let Some(deadline) =
+                            advance_periodic_deadline(next_deadline, *period, Instant::now())
+                        {
                             return Ok(Some(Wake {
                                 periodic_deadline: Some(deadline),
                             }));
@@ -82,7 +98,24 @@ impl Signal {
     pub(super) fn close(&mut self) -> Result<(), DeviceError> {
         match self {
             Self::Interrupt { irq, .. } => irq.unregister().map_err(gpio_error),
-            Self::Periodic(_) => Ok(()),
+            Self::Periodic { .. } => Ok(()),
         }
     }
+}
+
+/// Keep early wakes on schedule and skip missed periods instead of accumulating reads.
+pub(super) fn advance_periodic_deadline(
+    next_deadline: &mut Instant,
+    period: Duration,
+    now: Instant,
+) -> Option<Instant> {
+    if now < *next_deadline {
+        return None;
+    }
+    let due = *next_deadline;
+    *next_deadline += period;
+    if *next_deadline <= now {
+        *next_deadline = now + period;
+    }
+    Some(due)
 }

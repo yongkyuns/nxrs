@@ -25,7 +25,15 @@ live in `hal/acquisition`; reusable I²C/GPIO resource access lives in `driver/`
 The [peripheral composition design](peripheral-composition.md) and its
 [migration steps](peripheral-composition-plan.md) extend this boundary to
 Nxrs-owned Rust peripheral drivers over NuttX bus resources. The product profile
-and explicit overlays resolve the resource bindings before compilation.
+and explicit overlays resolve resource bindings before compilation. For composed
+peripherals, a checked BSP mapping derives both NuttX Kconfig and Rust endpoint
+paths from each resource selection. Products supply the binding's native pin
+symbols once; declared claims use the BSP's native numbering namespace.
+Port/mux encodings and electrical setup stay in NuttX board headers and drivers,
+without a separate Nxrs pinctrl catalogue.
+NuttX still owns registration; the build checks its effective Kconfig and
+acquisition checks actual endpoints. See the composition design for supported
+BSP mappings and migration from raw resource paths.
 
 ## 1. Architecture
 
@@ -313,7 +321,7 @@ stream sequencing, readiness, acquisition and joined cleanup. It maps device
 failures into its lifecycle error vocabulary. `driver/i2c` owns the NuttX-only
 bus adapter, descriptor and bounded transfers; `driver/spi` similarly implements
 bounded `SpiDevice` transactions with one native sequence per transaction; NuttX still owns the controller
-driver and bus serialization. The IMU's `observed_bus.rs` only adds optional
+driver and bus serialization. The IMU's `trace/` module only adds optional
 transaction timing through the embedded-hal interface. Its device owner holds
 the sensor and wake resources through acquisition and joined cleanup.
 `driver/gpio` owns the GPIO descriptor, registration/rollback and target ioctls;

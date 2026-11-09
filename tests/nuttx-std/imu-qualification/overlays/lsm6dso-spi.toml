@@ -1,20 +1,19 @@
-# Compile/link fixture, not stock board wiring. BSP must register /dev/spi2
-# and route SPIDEV_USER(0) to the sensor CS. NuttX owns pinmux and controller setup.
-remove-devices = ["motion"]
+# DevKit SPI2 wiring; physical SPI qualification remains pending.
+remove-devices = ["imu"]
 
 [resources.sensor_spi]
-kind = "spi"
-device = "/dev/spi2"
+binding = "spi2"
+kconfig = { ESP32S3_SPI2_CLKPIN = 4, ESP32S3_SPI2_MOSIPIN = 5, ESP32S3_SPI2_MISOPIN = 6, ESP32S3_SPI2_CSPIN = 10 }
 frequency = 4_000_000
 
-[devices.motion_spi]
+[devices.imu_spi]
 compatible = "st,lsm6dso"
 bus = "sensor_spi"
 chip-select = 0
 spi-mode = 3
 
-[devices.motion_spi.wake]
+[devices.imu_spi.wake]
 kind = "periodic"
 
-[roles]
-imu = "motion_spi"
+[aliases]
+imu = "imu_spi"

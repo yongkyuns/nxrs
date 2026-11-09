@@ -52,16 +52,16 @@ class HalBoundariesTests(unittest.TestCase):
             }
             macro_rules! declare_device {
                 static $name: instance::Instance<$sensor, $binding> = instance::Instance::new();
-                factory::acquire(config, binding.irq_path, trace, owner,
+                factory::acquire(config, binding.irq_path, trace, state,
                     || binding.open(observed), |bus, settings| {
                     <$sensor>::from_interface(bus.try_into()?, Delay, settings)
                 });
             }
         ''')
         self.write('hal/imu/src/platform/nuttx/instance.rs', """
-            owner: Ownership,
+            state: DeviceState,
             storage: Mutex<Option<device::Device<S>>>,
-            WorkerSession::start_guarded(self.stack_bytes, cancel, sink, retained, run)
+            Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
         """)
         self.write('hal/imu/build.rs', '''
             fn main() {
@@ -120,7 +120,7 @@ class HalBoundariesTests(unittest.TestCase):
         self.write_declarative_imu()
         instance = self.root / 'hal/imu/src/platform/nuttx/instance.rs'
         original = instance.read_text()
-        for removed in ['storage: Mutex<Option<device::Device<S>>>', 'owner: Ownership', 'WorkerSession::start_guarded']:
+        for removed in ['storage: Mutex<Option<device::Device<S>>>', 'state: DeviceState', 'Worker::start_guarded']:
             instance.write_text(original.replace(removed, 'missing'))
             self.assertTrue(any('guarded worker retirement' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
         instance.write_text(original)
