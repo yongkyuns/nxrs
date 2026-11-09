@@ -1,0 +1,6 @@
+# Website-only dependencies; never part of a firmware build.
+markdown-it-py==4.2.0
+mdurl==0.1.2
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+Pygments==2.20.0

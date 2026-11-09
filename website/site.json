@@ -1,0 +1,31 @@
+{
+  "name": "NXRS",
+  "description": "An experimental Rust-based firmware development environment on NuttX.",
+  "url": "https://yongkyuns.github.io/nxrs/",
+  "repository": "https://github.com/yongkyuns/nxrs",
+  "guides": [
+    ["overview", "Overview", "Understand the project"],
+    ["getting-started", "Getting started", "Start on your computer"],
+    ["first-application", "Your first application", "Follow a real example"],
+    ["services", "Services and concurrency", "Compose your firmware"],
+    ["hardware", "Drivers and HALs", "Access hardware"],
+    ["profiles", "Profiles and overlays", "Describe a product"],
+    ["firmware", "Building for NuttX", "Build an MCU image"],
+    ["testing", "Testing and debugging", "Validate the behavior"],
+    ["performance", "Performance and memory", "Measure the costs"],
+    ["troubleshooting", "Troubleshooting", "Find the next check"],
+    ["noon", "Noon visual playground", "Optional browser demo"]
+  ],
+  "reference": [
+    ["architecture.md", "Architecture"],
+    ["build-system.md", "Build system"],
+    ["hal-platform-architecture.md", "HAL ownership"],
+    ["peripheral-composition.md", "Peripheral composition"],
+    ["concurrency-event-communication.md", "Event communication"],
+    ["event-driven-demo.md", "Navigation demo"],
+    ["nuttx-std.md", "Rust std integration"],
+    ["std-channel-performance.md", "Event-path measurements"],
+    ["rust-std-footprint.md", "Rust std footprint"],
+    ["rtos-comparison.md", "RTOS comparisons"]
+  ]
+}
