@@ -13,7 +13,7 @@ impl From<Error> for imu::Error {
     }
 }
 
-impl<B: I2c, D: DelayNs> imu::Imu for Bmi270<B, D> {
+impl<T: Registers, D: DelayNs> imu::Imu for Device<T, D> {
     const DEFAULT: imu::Config = imu::Config {
         min_rate_millihz: Rate::Hz100.milli_hz(),
         max_rate_millihz: Rate::Hz100.milli_hz(),
@@ -49,6 +49,6 @@ impl<B: I2c, D: DelayNs> imu::Imu for Bmi270<B, D> {
     }
 
     fn stop(&mut self) -> Result<(), imu::Error> {
-        Bmi270::stop(self).map_err(Into::into)
+        Device::stop(self).map_err(Into::into)
     }
 }

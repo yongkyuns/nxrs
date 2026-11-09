@@ -11,11 +11,16 @@ The governing rule is:
 > A hardware capability is implemented in its single Rust HAL crate. Use
 > qualified Rust `std` APIs directly for ordinary file/socket operations. Keep
 > the small amount of NuttX-specific ABI glue required for device controls
-> private to that crate's selected provider module.
+> private to the owning provider or reused resource package.
 
 Portable applications and services see only typed capability APIs. They never
 see device paths, file descriptors, `ioctl` request numbers, NuttX C structs,
 or NuttX-specific error values.
+
+This is a capability boundary, not a rule that all native code must move into
+drivers. Wi-Fi/BLE adapters remain with their owning HALs. Ordinary networking
+uses `std::net` without a second socket driver. Shared acquisition mechanics
+live in `hal/acquisition`; reusable I²C/GPIO resource access lives in `driver/`.
 
 The [peripheral composition design](peripheral-composition.md) and its
 [migration steps](peripheral-composition-plan.md) extend this boundary to
@@ -306,10 +311,15 @@ implement the shared synchronous IMU contract in `driver/peripheral`, retaining
 chip-specific APIs. The HAL owns concrete construction, reception timestamps,
 stream sequencing, readiness, acquisition and joined cleanup. It maps device
 failures into its lifecycle error vocabulary. `driver/i2c` owns the NuttX-only
-bus adapter, descriptor and bounded transfers; NuttX still owns the controller
+bus adapter, descriptor and bounded transfers; `driver/spi` similarly implements
+bounded `SpiDevice` transactions with one native sequence per transaction; NuttX still owns the controller
 driver and bus serialization. The IMU's `observed_bus.rs` only adds optional
 transaction timing through the embedded-hal interface. Its device owner holds
 the sensor and wake resources through acquisition and joined cleanup.
+`driver/gpio` owns the GPIO descriptor, registration/rollback and target ioctls;
+its task-context cleanup-failure hook lets IMU retain quarantine on all failure
+paths. Shared `nxrs-acquisition` owns the NuttX poll/pipe ABI used by both IMU and
+GNSS. IMU retains readiness mode, cadence, sample admission and teardown ordering.
 
 For a complete NuttX device driver, the capability can consume that registered
 interface directly. A resource must have one active driver owner. The CoreS3
@@ -343,9 +353,9 @@ This device-access design does not prescribe a second execution framework.
 
 A HAL/provider may need blocking I/O, descriptor readiness, an IRQ-originated
 notification, or a dedicated acquisition loop. Whatever mechanism is chosen,
-the NuttX-specific wait/readiness details remain inside the capability/provider
-boundary and integrate with the service communication model documented
-elsewhere.
+the NuttX-specific wait/readiness details remain below the public capability
+boundary, in its provider or the shared resource/acquisition support. They
+integrate with the service communication model documented elsewhere.
 
 Do not expose raw descriptor readiness as application policy solely because the
 underlying NuttX device uses a file descriptor.
@@ -417,7 +427,8 @@ silently weaken an already tested failure contract.
 The following are architectural invariants:
 
 - Applications and services consume typed Rust capability APIs.
-- A concrete hardware resource is implemented in its dedicated Rust HAL provider.
+- Hardware access belongs to the owning Rust HAL provider or a reusable driver
+  resource adapter; consumers see the capability contract.
 - NuttX device paths, descriptors and request numbers stay below that boundary.
 - Qualified `std` APIs are used directly instead of being rewrapped.
 - Device-specific native ABI glue is private and minimal.

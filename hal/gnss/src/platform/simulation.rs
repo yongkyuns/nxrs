@@ -1,5 +1,5 @@
 //! Normalize fixes from the profile's shared simulation session.
-use crate::{session::Session, DeviceError, Event, Gnss, GnssFix};
+use crate::{session::WorkerSession, DeviceError, Event, GnssFix, Session};
 use nxrs_simulation::{self as simulation, runtime, CancelHandle, Error, Observation, Source};
 use std::io;
 
@@ -16,7 +16,7 @@ impl acquisition::Wake for Cancel {
 
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
-) -> Result<impl Gnss + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     let endpoint =
         runtime::acquire(SIM_SEED, SIM_SOURCES, Source::Gnss).map_err(|error| match error {
             runtime::AcquireError::Engine(Error::Busy) | runtime::AcquireError::ConflictingSpec => {
@@ -26,7 +26,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
             _ => DeviceError::Io,
         })?;
     let cancel = Cancel(endpoint.cancel_handle());
-    Session::start(65_536, cancel, sink, move |stop, emit| {
+    WorkerSession::start(65_536, cancel, sink, move |stop, emit| {
         while !stop.load(core::sync::atomic::Ordering::Acquire) {
             let event = match endpoint.recv() {
                 Ok(event) => event,

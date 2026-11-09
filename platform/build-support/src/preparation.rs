@@ -35,8 +35,7 @@ pub fn prepare_package(
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
         })
         .ok_or("configuration package must have an nxrs- capability name")?;
-    let mut inputs = vec![package.manifest.path.clone()];
-    inputs.extend(package.catalogs.iter().map(|input| input.path.clone()));
+    let mut inputs: Vec<_> = package.inputs().map(|input| input.path.clone()).collect();
     inputs.extend(profile.source_paths().cloned());
     inputs.extend(profile.catalogs().source_paths().cloned());
     inputs.sort();
@@ -74,8 +73,9 @@ pub fn prepare_package(
         .ok_or_else(|| format!("{name}: missing bus {}", device.bus))?;
     let bus = match resource {
         crate::composition::Resource::I2c { .. } => "i2c",
+        crate::composition::Resource::Spi { .. } => "spi",
         crate::composition::Resource::Uart { .. } => "uart",
-        _ => return Err("device bus must be I2C or UART".into()),
+        _ => return Err("device bus must be I2C, SPI or UART".into()),
     };
     let mut catalogs = Catalogs::default();
     catalogs.insert(capability, package)?;
@@ -84,7 +84,11 @@ pub fn prepare_package(
         .as_str()
         .ok_or("missing implementation")?;
     let stack = crate::profile::sensor_stack(&profile.data[capability])?;
-    let source = configuration::render(&composition, capability, implementation, stack)?;
+    let source = if capability == "imu" {
+        configuration::render_imu_instances(&composition, &catalogs, stack)?
+    } else {
+        configuration::render(&composition, capability, implementation, stack)?
+    };
     publish(
         out,
         &name,

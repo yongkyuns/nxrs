@@ -1,6 +1,11 @@
 //! Platform-local wake sources; both feed the same FIFO acquisition loop.
-use super::{cadence::Cadence, ffi, irq::Irq, readiness};
+use super::{
+    cadence::Cadence,
+    device::{gpio_error, Irq},
+    events,
+};
 use crate::DeviceError;
+use acquisition::readiness;
 use std::{
     fs::File,
     io::ErrorKind,
@@ -29,15 +34,15 @@ impl Signal {
             Self::Interrupt { irq, ready } => {
                 // Close the sensor-enable/initial-wait race without losing a level.
                 if ready.is_none() {
-                    *ready = Some(irq.read()?);
+                    *ready = Some(irq.read().map_err(gpio_error)?);
                 }
                 if !ready.unwrap_or(false)
-                    && !readiness::wait(&irq.file, cancel, ffi::wait)
+                    && !readiness::wait(irq.file(), cancel, events::wait)
                         .map_err(|_| DeviceError::Io)?
                 {
                     return Ok(None);
                 }
-                irq.read()?; // acknowledge the GPIO notification before FIFO I/O
+                irq.read().map_err(gpio_error)?; // acknowledge the GPIO notification before FIFO I/O
                 Ok(Some(Wake {
                     periodic_deadline: None,
                 }))
@@ -48,7 +53,7 @@ impl Signal {
                     .as_nanos()
                     .div_ceil(1_000_000)
                     .min(i32::MAX as u128) as i32;
-                match ffi::tick(cancel.as_raw_fd(), timeout) {
+                match events::tick(cancel.as_raw_fd(), timeout) {
                     Ok(false) => return Ok(None),
                     Ok(true) => {
                         // Early or spurious wakes retain the absolute deadline.
@@ -66,7 +71,7 @@ impl Signal {
     }
     pub(super) fn drained(&mut self, count: usize) -> Result<(), DeviceError> {
         if let Self::Interrupt { irq, ready } = self {
-            let high = irq.read()?;
+            let high = irq.read().map_err(gpio_error)?;
             *ready = Some(high);
             if high && count == 0 {
                 return Err(DeviceError::Io);
@@ -76,7 +81,7 @@ impl Signal {
     }
     pub(super) fn close(&mut self) -> Result<(), DeviceError> {
         match self {
-            Self::Interrupt { irq, .. } => irq.unregister(),
+            Self::Interrupt { irq, .. } => irq.unregister().map_err(gpio_error),
             Self::Periodic(_) => Ok(()),
         }
     }

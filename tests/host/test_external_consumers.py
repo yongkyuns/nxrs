@@ -85,7 +85,8 @@ class ExternalConsumerTests(unittest.TestCase):
     def test_detached_consumer_with_own_lock_and_renamed_dependencies(self):
         self.assertFalse((self.directory / "deps/platform/build").exists())
         self.assertFalse((self.directory / "deps/platform/profiles").exists())
-        self.assertFalse((self.directory / "deps/driver/acquisition.rs").exists())
+        self.assertFalse((self.directory / "deps/driver/acquisition").exists())
+        self.assertTrue((self.directory / "deps/hal/acquisition/Cargo.toml").is_file())
         self.assertFalse((self.directory / "deps/platform/hal-build.rs").exists())
         native = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
         for profile in dict.fromkeys((None, "mock", native)):

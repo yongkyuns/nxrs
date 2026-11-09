@@ -50,9 +50,19 @@ class HalBoundariesTests(unittest.TestCase):
                 type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
                 type Lsm6dso = nxrs_lsm6dso::Lsm6dso<Bus>;
             }
-            let device = acquire::<Implementation>(BINDING, config, sink, trace);
-            Session::start(STACK_BYTES, cancel, sink, run)
+            macro_rules! declare_device {
+                static $name: instance::Instance<$sensor, $binding> = instance::Instance::new();
+                factory::acquire(config, binding.irq_path, trace, owner,
+                    || binding.open(observed), |bus, settings| {
+                    <$sensor>::from_interface(bus.try_into()?, Delay, settings)
+                });
+            }
         ''')
+        self.write('hal/imu/src/platform/nuttx/instance.rs', """
+            owner: Ownership,
+            storage: Mutex<Option<device::Device<S>>>,
+            WorkerSession::start_guarded(self.stack_bytes, cancel, sink, retained, run)
+        """)
         self.write('hal/imu/build.rs', '''
             fn main() {
                 nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}"));
@@ -104,6 +114,46 @@ class HalBoundariesTests(unittest.TestCase):
         nuttx = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
         nuttx.write_text(nuttx.read_text().replace('type Bmi270 =', 'type Unknown ='))
         self.assertTrue(any('checked-in typed constructor' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_static_devices_cannot_regress_to_global_or_descriptor_only_ownership(self):
+        self.write_declarative_imu()
+        instance = self.root / 'hal/imu/src/platform/nuttx/instance.rs'
+        original = instance.read_text()
+        for removed in ['storage: Mutex<Option<device::Device<S>>>', 'owner: Ownership', 'WorkerSession::start_guarded']:
+            instance.write_text(original.replace(removed, 'missing'))
+            self.assertTrue(any('guarded worker retirement' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
+        instance.write_text(original)
+        self.write('hal/imu/src/platform/nuttx/device.rs', 'static OWNED: AtomicU8 = AtomicU8::new(0);')
+        self.assertTrue(any('global device ownership' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_sensor_bindings_can_belong_to_a_declared_driver(self):
+        self.write_declarative_imu()
+        catalog = self.root / 'hal/imu/bindings.toml'
+        self.write('driver/bmi270/bindings.toml', catalog.read_text())
+        catalog.unlink()
+        driver = self.write('driver/bmi270/Cargo.toml', '''
+            [package]
+            name = "nxrs-bmi270"
+            [package.metadata.nxrs]
+            bindings = ["bindings.toml"]
+        ''')
+        manifest = self.write('hal/imu/Cargo.toml', '''
+            [package]
+            name = "nxrs-imu"
+            [package.metadata.nxrs]
+            bindings = [{ dependency = "sensor" }]
+            [target.'cfg(target_os = "nuttx")'.dependencies]
+            sensor = { package = "nxrs-bmi270", path = "../../driver/bmi270" }
+        ''')
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        original = manifest.read_text()
+        manifest.write_text(original.replace('.dependencies]', '.dev-dependencies]'))
+        self.assertTrue(any('normal Cargo path dependency' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        manifest.write_text(original)
+        driver.write_text(driver.read_text().replace('bindings.toml', '../outside.toml'))
+        self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
 

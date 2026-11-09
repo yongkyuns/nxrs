@@ -3,6 +3,9 @@ name = "nxrs-bmi270"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.nxrs]
+bindings = ["bindings.toml"]
+
 [dependencies]
 nxrs-peripheral = { path = "../peripheral" }
 bmi2 = "=0.1.2"

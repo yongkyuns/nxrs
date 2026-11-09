@@ -1,5 +1,9 @@
 # GNSS capability
 
+`open` returns a `gnss::Session`: stop, join, completion and drop accounting for
+active acquisition. Receiver protocol operations remain in the UBX driver.
+`gnss::Gnss` remains an alias of `Session` for existing consumers.
+
 `nxrs-gnss` owns receiver communication, configuration and the hardware-independent
 fix API. Services receive WGS84 latitude/longitude, speed in m/s and optional
 movement course in radians. `timestamp_ms` is the owner’s monotonic reception
@@ -28,8 +32,9 @@ deadline; uncertain restoration quarantines acquisition until reboot. Baud,
 protocol enables, navigation rate, BBR and flash settings are preserved. UART1
 must already accept/output UBX (the receiver’s default configuration).
 
-A HAL-owned worker reads bounded UART chunks after descriptor readiness. Protocol
-buffers remain fixed-size. Host fixtures and native builds qualify software
+A HAL-owned worker reads bounded UART chunks after descriptor readiness. IMU and
+GNSS share the NuttX poll/pipe binding in `nxrs-acquisition`; UART termios controls,
+receiver policy and restoration remain here. Protocol buffers remain fixed-size. Host fixtures and native builds qualify software
 behavior/linking; physical receiver firmware, power, UART timing, RF, accuracy
 and peak task-stack usage remain unqualified.
 

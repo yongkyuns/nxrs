@@ -47,12 +47,18 @@ pub enum SimulationEndpoint {
     Gnss,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImuTransport {
+    I2c { address: u8 },
+    Spi { chip_select: u16, mode: u8 },
+}
+
 /// Borrowed view of the resolved default IMU device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImuBinding<'a> {
     pub implementation: &'a str,
     pub path: &'a str,
-    pub address: u8,
+    pub transport: ImuTransport,
     pub frequency: u32,
     pub irq_path: Option<&'a str>,
     pub stack_bytes: u64,
@@ -70,25 +76,42 @@ impl Composition {
     pub fn imu(&self) -> Option<ImuBinding<'_>> {
         let device_id = self.roles.get("imu")?;
         let device = self.devices.get(device_id)?;
-        let Resource::I2c {
-            device: path,
-            frequency,
-        } = self.resources.get(&device.bus)?
-        else {
-            return None;
+        let (path, frequency, transport) = match self.resources.get(&device.bus)? {
+            Resource::I2c {
+                device: path,
+                frequency,
+            } => (
+                path,
+                *frequency,
+                ImuTransport::I2c {
+                    address: device.address?,
+                },
+            ),
+            Resource::Spi {
+                device: path,
+                frequency,
+            } => (
+                path,
+                *frequency,
+                ImuTransport::Spi {
+                    chip_select: device.chip_select?,
+                    mode: device.spi_mode?,
+                },
+            ),
+            _ => return None,
         };
         let irq_path = match device.wake.as_ref()? {
             Wake::Periodic {} => None,
             Wake::Interrupt { resource } => match self.resources.get(resource)? {
                 Resource::GpioInterrupt { device, .. } => Some(device.as_str()),
-                Resource::I2c { .. } | Resource::Uart { .. } => return None,
+                Resource::I2c { .. } | Resource::Spi { .. } | Resource::Uart { .. } => return None,
             },
         };
         Some(ImuBinding {
             implementation: self.imu_implementation.as_deref()?,
             path,
-            address: device.address?,
-            frequency: *frequency,
+            transport,
+            frequency,
             irq_path,
             stack_bytes: self.stack_bytes,
         })
@@ -121,6 +144,7 @@ impl Composition {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum Resource {
     I2c { device: String, frequency: u32 },
+    Spi { device: String, frequency: u32 },
     GpioInterrupt { device: String, trigger: Trigger },
     Uart { device: String, baud: u32 },
 }
@@ -139,6 +163,14 @@ pub(crate) struct Device {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) address: Option<u8>,
+    #[serde(
+        default,
+        rename = "chip-select",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) chip_select: Option<u16>,
+    #[serde(default, rename = "spi-mode", skip_serializing_if = "Option::is_none")]
+    pub(crate) spi_mode: Option<u8>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) wake: Option<Wake>,
@@ -179,7 +211,10 @@ struct CatalogBinding {
     compatible: String,
     bus: String,
     implementation: String,
+    #[serde(default)]
     addresses: Vec<u8>,
+    #[serde(default)]
+    modes: Vec<u8>,
     frequencies: Vec<u32>,
     interrupt: bool,
 }
@@ -473,8 +508,9 @@ pub(crate) fn resolve_with_providers_and_origins(
     validate_ids(&resources, &devices, &roles, origins)?;
     validate_roles(&roles).map_err(|e| diagnostic(origins, "roles", &e))?;
     for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
-        let role = roles.contains_key(capability);
-        if provider == "nuttx" && !role {
+        let role = roles.contains_key(capability)
+            || (capability == "imu" && roles.keys().any(|role| role.starts_with("imu_")));
+        if provider == "nuttx" && !roles.contains_key(capability) {
             return Err(diagnostic(
                 origins,
                 &format!("roles.{capability}"),
@@ -557,14 +593,14 @@ fn validate_graph(
     let mut endpoints: BTreeMap<&str, (&str, &Resource)> = BTreeMap::new();
     for (id, resource) in resources {
         let path = match resource {
-            Resource::I2c { device, frequency } => {
+            Resource::I2c { device, frequency } | Resource::Spi { device, frequency } => {
                 // Resource validity is independent of the declared device
                 // catalogs. A claiming device checks its own supported rates.
                 if *frequency == 0 {
                     return Err(diagnostic(
                         origins,
                         &format!("resources.{id}.frequency"),
-                        &format!("unsupported I2C frequency {frequency}"),
+                        &format!("unsupported bus frequency {frequency}"),
                     ));
                 }
                 device
@@ -572,7 +608,11 @@ fn validate_graph(
             Resource::GpioInterrupt { device, .. } | Resource::Uart { device, .. } => device,
         };
         if let Some((previous_id, previous)) = endpoints.insert(path, (id, resource)) {
-            if previous != resource
+            if (previous != resource
+                && !matches!(
+                    (previous, resource),
+                    (Resource::Spi { .. }, Resource::Spi { .. })
+                ))
                 || matches!(previous, Resource::Uart { .. })
                 || matches!(resource, Resource::Uart { .. })
             {
@@ -621,7 +661,11 @@ fn validate_graph(
                         "unsupported GNSS compatible/bus binding",
                     )
                 })?;
-            if device.address.is_some() || device.wake.is_some() {
+            if device.address.is_some()
+                || device.chip_select.is_some()
+                || device.spi_mode.is_some()
+                || device.wake.is_some()
+            {
                 return Err(diagnostic(
                     origins,
                     &format!("devices.{id}"),
@@ -664,22 +708,81 @@ fn validate_graph(
             gnss_implementation = Some(binding.implementation.clone());
             continue;
         }
-        let binding = binding_for(catalog, &device.compatible, "i2c")
-            .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
-        let address = device.address.ok_or_else(|| {
-            diagnostic(
+        let bus = resources.get(&device.bus).ok_or_else(|| {
+            diagnostic_related(
                 origins,
-                &format!("devices.{id}.address"),
-                "IMU device requires address",
+                &format!("devices.{id}.bus"),
+                &[&format!("resources.{}", device.bus)],
+                "references unknown bus",
             )
         })?;
-        if !binding.addresses.contains(&address) {
-            return Err(diagnostic(
-                origins,
-                &format!("devices.{id}.address"),
-                &format!("unsupported {} address {:#04x}", device.compatible, address),
-            ));
-        }
+        let (kind, path, frequency) = match bus {
+            Resource::I2c { device, frequency } => ("i2c", device, frequency),
+            Resource::Spi { device, frequency } => ("spi", device, frequency),
+            _ => {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.bus"),
+                    "requires an I2C or SPI bus",
+                ))
+            }
+        };
+        let binding = binding_for(catalog, &device.compatible, kind)
+            .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
+        let (claim, field) = if kind == "i2c" {
+            if device.chip_select.is_some() || device.spi_mode.is_some() {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}"),
+                    "I2C device cannot have SPI settings",
+                ));
+            }
+            let address = device.address.ok_or_else(|| {
+                diagnostic(
+                    origins,
+                    &format!("devices.{id}.address"),
+                    "IMU device requires address",
+                )
+            })?;
+            if !binding.addresses.contains(&address) {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.address"),
+                    "unsupported IMU address",
+                ));
+            }
+            (u32::from(address), "address")
+        } else {
+            if device.address.is_some() {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.address"),
+                    "SPI device cannot have an I2C address",
+                ));
+            }
+            let select = device.chip_select.ok_or_else(|| {
+                diagnostic(
+                    origins,
+                    &format!("devices.{id}.chip-select"),
+                    "SPI device requires chip-select",
+                )
+            })?;
+            let mode = device.spi_mode.ok_or_else(|| {
+                diagnostic(
+                    origins,
+                    &format!("devices.{id}.spi-mode"),
+                    "SPI device requires spi-mode",
+                )
+            })?;
+            if mode > 3 || !binding.modes.contains(&mode) {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.spi-mode"),
+                    "unsupported SPI mode",
+                ));
+            }
+            (u32::from(select), "chip-select")
+        };
         if device.wake.is_none() {
             return Err(diagnostic(
                 origins,
@@ -687,44 +790,21 @@ fn validate_graph(
                 "IMU device requires wake configuration",
             ));
         }
-        let bus = resources.get(&device.bus).ok_or_else(|| {
-            diagnostic_related(
-                origins,
-                &format!("devices.{id}.bus"),
-                &[&format!("resources.{}", device.bus)],
-                &format!("references unknown bus {}", device.bus),
-            )
-        })?;
-        let Resource::I2c {
-            device: path,
-            frequency,
-        } = bus
-        else {
-            return Err(diagnostic_related(
-                origins,
-                &format!("devices.{id}.bus"),
-                &[&format!("resources.{}.kind", device.bus)],
-                "requires an I2C bus",
-            ));
-        };
         if !binding.frequencies.contains(frequency) {
             return Err(diagnostic(
                 origins,
                 &format!("resources.{}.frequency", device.bus),
-                &format!(
-                    "unsupported {} I2C frequency {frequency}",
-                    device.compatible
-                ),
+                "unsupported IMU bus frequency",
             ));
         }
         if let Some((previous_id, previous_bus)) =
-            physical_claims.insert((path.as_str(), address as u32), (id, &device.bus))
+            physical_claims.insert((path.as_str(), claim), (id, &device.bus))
         {
             return Err(diagnostic_related(
                 origins,
-                &format!("devices.{id}.address"),
+                &format!("devices.{id}.{field}"),
                 &[
-                    &format!("devices.{previous_id}.address"),
+                    &format!("devices.{previous_id}.{field}"),
                     &format!("devices.{id}.bus"),
                     &format!("devices.{previous_id}.bus"),
                     &format!("resources.{}.device", device.bus),
@@ -762,7 +842,7 @@ fn validate_graph(
                         ));
                     }
                 }
-                Resource::I2c { .. } | Resource::Uart { .. } => {
+                Resource::I2c { .. } | Resource::Spi { .. } | Resource::Uart { .. } => {
                     return Err(diagnostic_related(
                         origins,
                         &format!("devices.{id}.wake.resource"),
@@ -773,20 +853,34 @@ fn validate_graph(
             }
         }
     }
-    if let Some(role_device) = roles.get("imu") {
+    for (role, role_device) in roles
+        .iter()
+        .filter(|(role, _)| role.as_str() == "imu" || role.starts_with("imu_"))
+    {
         let device = devices.get(role_device).ok_or_else(|| {
             diagnostic_related(
                 origins,
-                "roles.imu",
+                &format!("roles.{role}"),
                 &[&format!("devices.{role_device}")],
                 &format!("references unknown device {role_device}"),
             )
         })?;
-        imu_implementation = Some(
-            binding_for(catalog, &device.compatible, "i2c")?
-                .implementation
-                .clone(),
+        let implementation = Some(
+            binding_for(
+                catalog,
+                &device.compatible,
+                match resources.get(&device.bus) {
+                    Some(Resource::I2c { .. }) => "i2c",
+                    Some(Resource::Spi { .. }) => "spi",
+                    _ => return Err("invalid IMU bus".into()),
+                },
+            )?
+            .implementation
+            .clone(),
         );
+        if role == "imu" {
+            imu_implementation = implementation;
+        }
     }
     if let Some(role_device) = roles.get("gnss") {
         let device = devices.get(role_device).ok_or_else(|| {
@@ -884,6 +978,7 @@ fn normalize_resources(
     for (id, resource) in &mut resources {
         match resource {
             Resource::I2c { device, .. }
+            | Resource::Spi { device, .. }
             | Resource::GpioInterrupt { device, .. }
             | Resource::Uart { device, .. } => {
                 *device = normalized_path(device).map_err(|error| {
@@ -921,10 +1016,31 @@ fn validate_ids(
     }
     Ok(())
 }
+pub(crate) fn imu_role_name(role: &str) -> Result<&str> {
+    if role == "imu" {
+        return Ok("primary");
+    }
+    let name = role
+        .strip_prefix("imu_")
+        .ok_or_else(|| format!("unsupported capability role: {role}"))?;
+    // Names are emitted as Rust identifiers. No normalization or collisions.
+    if name.is_empty()
+        || name == "_"
+        || name == "primary"
+        || !name.as_bytes()[0].is_ascii_alphabetic()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        || ["self", "super", "crate"].contains(&name)
+    {
+        return Err(format!("invalid IMU role accessor: {role}"));
+    }
+    Ok(name)
+}
 fn validate_roles(roles: &BTreeMap<String, String>) -> Result<()> {
     for role in roles.keys() {
-        if role != "imu" && role != "gnss" {
-            return Err(format!("unsupported capability role: {role}"));
+        if role != "gnss" {
+            imu_role_name(role)?;
         }
     }
     Ok(())
@@ -1020,6 +1136,44 @@ mod tests {
             "devices":{"navigation":{"compatible":"u-blox,neo-m9n","bus":"uart1"}},
             "roles":{"gnss":"navigation"}
         })
+    }
+
+    #[test]
+    fn named_imu_roles_validate_identity_and_accessor_names() {
+        let mut value = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        let catalogs = fixture_catalogs();
+        let resolve = |value: &Value| {
+            resolve_with_providers_and_origins(value, "nuttx", "none", &BTreeMap::new(), &catalogs)
+        };
+        value["roles"]["imu_navigation"] = json!("motion");
+        let graph = resolve(&value).unwrap().unwrap();
+        assert_eq!(graph.roles["imu_navigation"], graph.roles["imu"]);
+        assert_eq!(graph.devices.len(), 1);
+        value["roles"]["imu_navigation"] = json!("absent");
+        assert!(resolve(&value).is_err());
+        value["roles"]
+            .as_object_mut()
+            .unwrap()
+            .remove("imu_navigation");
+        for name in [
+            "imu_",
+            "imu_primary",
+            "imu_self",
+            "imu_super",
+            "imu_crate",
+            "imu_bad-name",
+            "imu_1backup",
+            "imu_Backup",
+        ] {
+            value["roles"][name] = json!("motion");
+            assert!(resolve(&value).is_err(), "{name}");
+            value["roles"].as_object_mut().unwrap().remove(name);
+        }
+        value["roles"] = json!({"imu_backup":"motion"});
+        assert!(
+            resolve(&value).is_err(),
+            "the default role remains required"
+        );
     }
 
     #[test]
@@ -1327,7 +1481,10 @@ mod tests {
             .unwrap();
         let binding = resolved.imu().unwrap();
         assert_eq!(binding.implementation, "Lsm6dso");
-        assert_eq!((binding.path, binding.address), ("/dev/i2c1", 106));
+        assert_eq!(
+            (binding.path, binding.transport),
+            ("/dev/i2c1", ImuTransport::I2c { address: 106 })
+        );
 
         replacement["devices"]["motion"]["address"] = json!(104);
         assert!(resolve(&replacement, "nuttx", &fixture_catalogs())
@@ -1338,6 +1495,67 @@ mod tests {
         assert!(resolve(&replacement, "nuttx", &fixture_catalogs())
             .unwrap_err()
             .contains("does not support interrupt wake"));
+    }
+
+    #[test]
+    fn spi_selection_validates_transport_fields_and_physical_claims() {
+        let mut value = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
+        value["resources"]["spi"] =
+            json!({"kind":"spi","device":"/dev/spi2","frequency":4_000_000});
+        value["devices"]["motion"] = json!({"compatible":"bosch,bmi270","bus":"spi","chip-select":0,"spi-mode":3,"wake":{"kind":"periodic"}});
+        let catalogs = fixture_catalogs();
+        for (compatible, implementation) in
+            [("bosch,bmi270", "Bmi270Spi"), ("st,lsm6dso", "Lsm6dsoSpi")]
+        {
+            value["devices"]["motion"]["compatible"] = json!(compatible);
+            let graph = resolve(&value, "nuttx", &catalogs).unwrap().unwrap();
+            let binding = graph.imu().unwrap();
+            assert_eq!(binding.implementation, implementation);
+            assert_eq!(
+                binding.transport,
+                ImuTransport::Spi {
+                    chip_select: 0,
+                    mode: 3
+                }
+            );
+        }
+        for (key, invalid, message) in [
+            ("chip-select", json!(65536), "u16"),
+            ("spi-mode", json!(1), "unsupported SPI mode"),
+            ("address", json!(106), "I2C address"),
+        ] {
+            let mut bad = value.clone();
+            bad["devices"]["motion"][key] = invalid;
+            assert!(resolve(&bad, "nuttx", &catalogs)
+                .unwrap_err()
+                .contains(message));
+        }
+        for key in ["chip-select", "spi-mode"] {
+            let mut bad = value.clone();
+            bad["devices"]["motion"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            assert!(resolve(&bad, "nuttx", &catalogs).unwrap_err().contains(key));
+        }
+        let mut bad = value.clone();
+        bad["resources"]["spi"]["frequency"] = json!(9_000_000);
+        assert!(resolve(&bad, "nuttx", &catalogs)
+            .unwrap_err()
+            .contains("frequency"));
+        value["resources"]["alias"] =
+            json!({"kind":"spi","device":"/dev/./spi2","frequency":1_000_000});
+        value["devices"]["other"] = value["devices"]["motion"].clone();
+        value["devices"]["other"]["bus"] = json!("alias");
+        assert!(resolve(&value, "nuttx", &catalogs)
+            .unwrap_err()
+            .contains("conflicting physical device"));
+        value["devices"]["other"]["chip-select"] = json!(1);
+        assert!(resolve(&value, "nuttx", &catalogs).is_ok());
+        value["devices"]["other"]["bus"] = json!("i2c");
+        assert!(resolve(&value, "nuttx", &catalogs)
+            .unwrap_err()
+            .contains("I2C device cannot have SPI"));
     }
 
     #[test]
@@ -1413,13 +1631,13 @@ mod tests {
             &catalogs,
         )
         .unwrap_err();
-        assert!(error.contains("unsupported I2C frequency 0"), "{error}");
+        assert!(error.contains("unsupported bus frequency 0"), "{error}");
 
         let mut claimed = profile("hardware", "/dev/i2c0", 104, json!({"kind":"periodic"}));
         claimed["resources"]["i2c"]["frequency"] = json!(12345);
         assert!(resolve(&claimed, "nuttx", &fixture_catalogs())
             .unwrap_err()
-            .contains("unsupported bosch,bmi270 I2C frequency 12345"));
+            .contains("unsupported IMU bus frequency"));
     }
 
     #[test]

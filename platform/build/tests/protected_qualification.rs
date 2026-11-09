@@ -68,7 +68,82 @@ fn qualification_profiles_keep_the_same_sensor_bindings_and_select_mode() {
     assert_eq!(flat_graph.imu(), protected_graph.imu());
     assert_eq!(flat_graph.gnss(), protected_graph.gnss());
     assert_eq!(protected_graph.imu().unwrap().path, "/dev/i2c0");
-    assert_eq!(protected_graph.imu().unwrap().address, 0x68);
+    assert_eq!(
+        protected_graph.imu().unwrap().transport,
+        nxrs_build_support::composition::ImuTransport::I2c { address: 0x68 }
+    );
+}
+
+#[test]
+fn shared_runtime_access_requires_qualification_without_exposing_provider_internals() {
+    let repo = Repo::new();
+    let fixture = TempDir::new(&env::temp_dir()).unwrap();
+    let app = fixture.0.join("Cargo.toml");
+    for (qualification_only, profile, dependency, features, expected_error) in [
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/acquisition",
+            "",
+            None,
+        ),
+        (
+            false,
+            "cores3-imu-qualification",
+            "hal/acquisition",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "m5stack-cores3-gnss",
+            "hal/acquisition",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/acquisition/src/platform/nuttx",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/imu/src/platform/nuttx",
+            "",
+            Some("concrete HAL implementation"),
+        ),
+        (
+            true,
+            "cores3-imu-qualification",
+            "hal/acquisition",
+            "'nuttx'",
+            Some("provider feature"),
+        ),
+    ] {
+        fs::write(
+            &app,
+            format!(
+                "[package]\nname = 'runtime-fixture'\nversion = '0.1.0'\n\
+             [package.metadata.nxrs]\nqualification-only = {qualification_only}\n\
+             [dependencies.renamed]\npath = {:?}\nfeatures = [{features}]\n",
+                repo.root.join(dependency).to_str().unwrap(),
+            ),
+        )
+        .unwrap();
+        let result = repo.validate(&app, &repo.profile(profile));
+        match expected_error {
+            Some(expected) => {
+                let error = result.unwrap_err();
+                assert!(error.contains(expected), "{dependency}: {error}");
+            }
+            None => {
+                result.unwrap();
+            }
+        }
+    }
 }
 
 #[test]
@@ -128,7 +203,7 @@ fn devkit_uses_the_same_bus_in_both_modes_and_supports_periodic_controls() {
         let graph = periodic.composition().unwrap().unwrap();
         let periodic = graph.imu().unwrap();
         assert_eq!(periodic.path, binding.path);
-        assert_eq!(periodic.address, binding.address);
+        assert_eq!(periodic.transport, binding.transport);
         assert_eq!(periodic.frequency, binding.frequency);
         assert_eq!(periodic.implementation, binding.implementation);
         assert_eq!(periodic.irq_path, None);
@@ -145,7 +220,10 @@ fn devkit_uses_the_same_bus_in_both_modes_and_supports_periodic_controls() {
     let graph = lsm.composition().unwrap().unwrap();
     let binding = graph.imu().unwrap();
     assert_eq!(binding.path, "/dev/i2c0");
-    assert_eq!(binding.address, 0x6a);
+    assert_eq!(
+        binding.transport,
+        nxrs_build_support::composition::ImuTransport::I2c { address: 0x6a }
+    );
     assert_eq!(binding.irq_path, None);
 }
 

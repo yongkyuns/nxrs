@@ -1,5 +1,49 @@
 # IMU
 
+`imu::primary()` and profile-defined `imu::devices::<role>()` return permanent,
+opaque `Device` references, usable directly by portable apps and services:
+
+```rust,ignore
+use imu::{Device, Session};
+let device = imu::primary();
+let mut session = device.open_default(sink)?;
+// Or device.open(config, sink)? for requested/applied settings.
+session.request_stop()?;
+session.join()?;
+```
+
+`roles.imu` selects `primary`; `roles.imu_navigation = "motion"` generates
+`devices::navigation()` for device `motion`. Additional role names use lowercase
+snake case; `primary`, `self`, `super` and `crate` are reserved. Aliases return
+the same canonical object. Separate physical records have independent storage,
+configuration, ownership and quarantine, including two sensors of the same model.
+Missing role accessors fail compilation; there is no runtime string lookup.
+The explicit mock fixture supplies `primary` and `secondary`; coordinated
+simulation supplies `primary`. Unbound acquisition returns `Unsupported`.
+
+`ImuService::start_on(device)` accepts either logical reference; `start()` uses
+primary. The dual-IMU demo selects separate primary/secondary devices explicitly.
+
+Hardware initializes on acquisition, not when obtaining the reference. A device
+remains Busy through worker callbacks, terminal-event delivery and sink destruction.
+Its driver/resources are then destroyed before the lease is released. Uncertain
+shutdown quarantines only that device until restart. Dropping a session requests
+cancellation; it does not immediately make the device available again.
+
+Each physical instance reserves static storage for its binding, ownership record
+and a mutex-protected acquisition slot, including the concrete driver while active.
+Initialization values and transaction buffers are transient; worker stacks,
+thread/cancellation state and OS resources retain their existing allocation costs.
+Acquisition uses one typed constructor function pointer; sample operations and
+ordinary sinks are statically dispatched and are not boxed. See the
+[storage contract](../../docs/static-device-composition.md#permanent-device-objects-and-temporary-sessions).
+
+`open` and `open_configured` return an `imu::Session`: stop, join, completion and
+drop accounting for active acquisition. The synchronous device operations belong
+to `peripheral::imu::Imu`, implemented by the chip drivers. `imu::Imu` remains
+an alias of `Session` so existing consumers require no changes.
+These free functions and `resolve` delegate to `primary()`.
+
 This HAL and its BMI270/LSM6DSO drivers use Rust `std`, as do their NuttX and
 host consumers. There is no bare-metal `no_std` variant. The optional `probe`
 feature selects instrumentation at one tracing-module boundary.
@@ -29,16 +73,25 @@ wrapper objects. Drivers own supported rates and exact physical-range conversion
 The HAL asks the selected driver to resolve a request into concrete configuration
 and accepted settings before reserving resources.
 The product profile supplies the device, bus/address, optional IRQ and worker
-budget. [bindings.toml](bindings.toml) declares supported sensor combinations and
-their checked-in Rust implementation IDs. Shared build support generates typed
-resource values and one implementation import; there is no model enum or Rust
+budget. [BMI270](../../driver/bmi270/bindings.toml) and
+[LSM6DSO](../../driver/lsm6dso/bindings.toml) declare supported resource combinations
+and checked-in implementation IDs in their driver packages. This HAL's Cargo
+metadata imports those declarations through its existing driver dependencies.
+Shared build support generates typed
+resource values and one canonical declaration per physical IMU; there is no model enum or Rust
 field-projection schema. The generic build adapter retains provider selection,
-freshness and native linking.
+freshness and native linking. The selected factory constructs the concrete sensor;
+shared acquisition accepts that instance using only `peripheral::imu::Imu`.
+Chip qualification controls run in the factory before publication and retain
+normal joined cleanup on failure.
 
 The shared [NuttX I²C adapter](../../driver/i2c/README.md) owns the controller descriptor
 and implements `embedded_hal::i2c::I2c`. This HAL only wraps transactions for its
-optional timing observer, then supplies that bus to the sensor driver. GPIO
-readiness, stream metadata and acquisition lifecycle remain here. Buffering is
+optional timing observer, then supplies that bus to the sensor driver.
+`driver/gpio` owns the GPIO interrupt descriptor and registration/rollback, and
+`nxrs-acquisition` supplies the shared NuttX poll/pipe binding. This HAL keeps
+interrupt/timer selection, cadence, stream metadata and acquisition lifetime.
+GPIO cleanup failures notify its quarantine policy even during setup or Drop. Buffering is
 explicit in the shared device contract; this acquisition path requires a FIFO
 and rejects latest-value devices before acquiring resources.
 Composition overlays and coordinated simulation are tracked in the
@@ -89,7 +142,9 @@ Batch delivery time is not a measured hardware sample timestamp. Queue-full
 rejections are counted by `dropped()`; terminal errors remain observable through
 `join()` and are retried as a bounded single pending fault event.
 
-The NuttX provider owns the I2C File and an optional platform-registered GPIO descriptor.
+The NuttX provider owns the I²C and optional GPIO resource adapters through its
+acquisition session. Their native glue lives in the resource packages; IMU has
+no private C/FFI code.
 Its I2C adapter admits one read, one write or a repeated-start write/read pair,
 with at most 64 bytes in each direction. Other operation sequences fail without
 bus I/O. The host bridge witness checks message layout and cancellation using

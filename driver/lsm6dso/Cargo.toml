@@ -3,6 +3,9 @@ name = "nxrs-lsm6dso"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.nxrs]
+bindings = ["bindings.toml"]
+
 [dependencies]
 nxrs-peripheral = { path = "../peripheral" }
 embedded-hal = "=1.0.0"

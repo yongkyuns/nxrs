@@ -13,13 +13,13 @@
 #endif
 
 int imu_witness_i2c(void);
-int imu_event_pipe(int descriptors[2]);
-int imu_event_wait(int device, int cancel);
-int imu_event_tick(int cancel, int timeout_ms);
-int imu_irq_check(int fd);
-int imu_irq_register(int fd);
-int imu_irq_unregister(int fd);
-int imu_irq_read(int fd);
+int acquisition_event_pipe(int descriptors[2]);
+int acquisition_event_wait(int device, int cancel);
+int acquisition_event_tick(int cancel, int timeout_ms);
+int gpio_resource_irq_check(int fd);
+int gpio_resource_irq_register(int fd);
+int gpio_resource_irq_unregister(int fd);
+int gpio_resource_irq_read(int fd);
 
 struct wake_request
 {
@@ -66,7 +66,7 @@ static int check_wait(int gpio, int cancel, int writer)
       return -1;
     }
 
-  int result = imu_event_wait(gpio, cancel);
+  int result = acquisition_event_wait(gpio, cancel);
   int error = errno;
   if (pthread_join(worker, NULL) != 0 || request.status != 0)
     {
@@ -91,7 +91,7 @@ static int check_gpio(void)
       return -1;
     }
 
-  if (imu_event_pipe(cancel) != 0)
+  if (acquisition_event_pipe(cancel) != 0)
     {
       close(gpio);
       return -1;
@@ -104,20 +104,20 @@ static int check_gpio(void)
       goto out;
     }
 
-  if (imu_irq_check(gpio) != 0 || imu_irq_read(gpio) != 0
-      || imu_event_tick(cancel[0], 0) != 1
+  if (gpio_resource_irq_check(gpio) != 0 || gpio_resource_irq_read(gpio) != 0
+      || acquisition_event_tick(cancel[0], 0) != 1
       || check_wait(gpio, cancel[0], cancel[1]) != 0
       || read(cancel[0], &byte, 1) != 1 || byte != 'c'
       || check_wait(gpio, cancel[0], -1) != 0
-      || imu_irq_register(gpio) != 0)
+      || gpio_resource_irq_register(gpio) != 0)
     {
       goto restore_signal;
     }
 
   registered = 1;
-  if (imu_event_wait(gpio, cancel[0]) != 1 || imu_irq_read(gpio) != 1
+  if (acquisition_event_wait(gpio, cancel[0]) != 1 || gpio_resource_irq_read(gpio) != 1
       || write(cancel[1], "c", 1) != 1
-      || imu_event_wait(gpio, cancel[0]) != 0)
+      || acquisition_event_wait(gpio, cancel[0]) != 0)
     {
       goto restore_signal;
     }
@@ -131,7 +131,7 @@ restore_signal:
     }
 
 out:
-  if (registered && (imu_irq_unregister(gpio) != 0 || imu_irq_read(gpio) != 0))
+  if (registered && (gpio_resource_irq_unregister(gpio) != 0 || gpio_resource_irq_read(gpio) != 0))
     {
       result = -1;
     }

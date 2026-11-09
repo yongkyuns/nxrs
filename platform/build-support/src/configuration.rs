@@ -13,35 +13,110 @@ pub fn render(
 ) -> Result<String> {
     crate::bindings::validate_implementation(implementation)?;
     let id = graph.roles.get(role).ok_or("missing device role")?;
+    let (binding_type, fields) = resource_binding(graph, id)?;
+    Ok(format!(
+        "// Generated from validated device/resource bindings.\n\
+         use implementations::{implementation} as Implementation;\n\
+         const STACK_BYTES: usize = {stack_bytes};\n\
+         const BINDING: {binding_type}<'static> = {binding_type} {{ {fields} }};\n"
+    ))
+}
+
+fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, String)> {
     let device = graph.devices.get(id).ok_or("missing device")?;
     let bus = graph
         .resources
         .get(&device.bus)
         .ok_or("missing device bus")?;
-    let fields = match bus {
+    let irq_path = || -> Result<Option<&str>> {
+        match device.wake.as_ref().ok_or("missing wake configuration")? {
+            Wake::Periodic {} => Ok(None),
+            Wake::Interrupt { resource } => match graph.resources.get(resource) {
+                Some(Resource::GpioInterrupt { device, .. }) => Ok(Some(device.as_str())),
+                _ => Err("wake requires an interrupt resource".into()),
+            },
+        }
+    };
+    let binding = match bus {
         Resource::I2c {
             device: path,
             frequency,
         } => {
             let address = device.address.ok_or("I2C device requires an address")?;
-            let irq_path = match device.wake.as_ref().ok_or("missing wake configuration")? {
-                Wake::Periodic {} => None,
-                Wake::Interrupt { resource } => match graph.resources.get(resource) {
-                    Some(Resource::GpioInterrupt { device, .. }) => Some(device.as_str()),
-                    _ => return Err("wake requires an interrupt resource".into()),
-                },
-            };
-            format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}")
+            let irq_path = irq_path()?;
+            ("factory::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
         }
-        Resource::Uart { device: path, baud } => format!("path: {path:?}, baud: {baud}"),
+        Resource::Spi {
+            device: path,
+            frequency,
+        } => {
+            let chip_select = device
+                .chip_select
+                .ok_or("SPI device requires chip-select")?;
+            let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
+            let irq_path = irq_path()?;
+            ("factory::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
+        }
+        Resource::Uart { device: path, baud } => {
+            ("Binding", format!("path: {path:?}, baud: {baud}"))
+        }
         Resource::GpioInterrupt { .. } => return Err("interrupt resource is not a bus".into()),
     };
-    Ok(format!(
-        "// Generated from validated device/resource bindings.\n\
-         use implementations::{implementation} as Implementation;\n\
-         const STACK_BYTES: usize = {stack_bytes};\n\
-         const BINDING: Binding<'static> = Binding {{ {fields} }};\n"
-    ))
+    Ok(binding)
+}
+
+/// Emit canonical physical instances and named role aliases for one consumed HAL.
+pub fn render_imu_instances(
+    graph: &Composition,
+    catalogs: &crate::bindings::Catalogs,
+    stack: u64,
+) -> Result<String> {
+    let mut source = String::from(
+        "// Generated canonical instances; runtime policy remains in checked-in factories.\n",
+    );
+    let mut instances = std::collections::BTreeMap::new();
+    for (id, device) in &graph.devices {
+        if !catalogs
+            .values("imu")
+            .any(|b| b["compatible"] == device.compatible)
+        {
+            continue;
+        }
+        let (binding_type, fields) = resource_binding(graph, id)?;
+        let bus = match graph.resources.get(&device.bus) {
+            Some(Resource::I2c { .. }) => "i2c",
+            Some(Resource::Spi { .. }) => "spi",
+            _ => return Err("IMU requires an I2C or SPI bus".into()),
+        };
+        let binding = catalogs.binding("imu", &device.compatible, bus)?;
+        let implementation = binding["implementation"]
+            .as_str()
+            .ok_or("missing implementation")?;
+        crate::bindings::validate_implementation(implementation)?;
+        let name = format!("DEVICE_{}", instances.len());
+        source.push_str(&format!("declare_device!({name}, {id:?}, implementations::{implementation}, {binding_type}<'static>, {binding_type} {{ {fields} }}, {stack});\n"));
+        instances.insert(id.as_str(), (name, implementation, binding_type));
+    }
+    source.push_str("pub mod devices {\n");
+    for (role, id) in &graph.roles {
+        if role != "imu" && !role.starts_with("imu_") {
+            continue;
+        }
+        let accessor = crate::composition::imu_role_name(role)?;
+        let (instance, _, _) = instances
+            .get(id.as_str())
+            .ok_or("IMU role references an inactive device")?;
+        source.push_str(&format!(
+            "pub fn r#{accessor}() -> &'static impl crate::Device {{ &super::{instance} }}\n"
+        ));
+    }
+    source.push_str("}\npub use devices::primary;\n");
+    let id = graph.roles.get("imu").ok_or("missing primary IMU role")?;
+    let (instance, implementation, binding_type) = instances
+        .get(id.as_str())
+        .ok_or("missing primary IMU instance")?;
+    source.push_str(&format!("fn primary_instance() -> &'static instance::Instance<implementations::{implementation}, {binding_type}<'static>> {{ &{instance} }}\n"));
+    Ok(source)
 }
 
 #[cfg(test)]
@@ -55,8 +130,15 @@ mod tests {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let profile = Profile::resolve(&source, "m5stack-cores3-gnss").unwrap();
         let graph = profile.composition().unwrap().unwrap();
-        let imu = render(&graph, "imu", "AnotherSensor", 16384).unwrap();
-        assert!(imu.contains("use implementations::AnotherSensor as Implementation;"));
+        let mut package = crate::bindings::Package::load(&source.join("hal/imu")).unwrap();
+        for input in &mut package.catalogs {
+            input.contents = input.contents.replace("Bmi270", "AnotherSensor");
+            input.sha256 = crate::hash_bytes(input.contents.as_bytes());
+        }
+        let mut catalogs = crate::bindings::Catalogs::default();
+        catalogs.insert("imu", package).unwrap();
+        let imu = render_imu_instances(&graph, &catalogs, 16384).unwrap();
+        assert!(imu.contains("implementations::AnotherSensor"));
         assert!(imu.contains("address: 104, frequency: 400000, irq_path: None"));
         let gnss = render(&graph, "gnss", "NeoM9n", 32768).unwrap();
         assert!(gnss.contains("path: \"/dev/ttyS1\", baud: 38400"));
@@ -77,9 +159,19 @@ mod tests {
         let witness = temp.0.join("witness.rs");
         fs::write(&witness, format!(r#"
             #![allow(dead_code, unused_imports)]
+            trait Device {{}}
             mod imu {{
                 mod implementations {{ pub struct AnotherSensor; }}
-                struct Binding<'a> {{ path: &'a str, address: u8, frequency: u32, irq_path: Option<&'a str> }}
+                mod factory {{ pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
+                mod instance {{
+                    pub struct Instance<S, B>(pub std::marker::PhantomData<S>, pub B);
+                    impl<S, B> crate::Device for Instance<S, B> {{}}
+                }}
+                macro_rules! declare_device {{
+                    ($name:ident, $id:literal, $sensor:ty, $binding:ty, $value:expr, $stack:literal) => {{
+                        static $name: instance::Instance<$sensor, $binding> = instance::Instance(std::marker::PhantomData, $value);
+                    }};
+                }}
                 {imu}
             }}
             mod gnss {{

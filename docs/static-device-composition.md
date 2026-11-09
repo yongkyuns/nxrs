@@ -47,9 +47,10 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU/GNSS output generation lives in shared build support. Each manifest declares
-one version 2 binding catalog with compatible devices, resource constraints and
-checked-in Rust implementation IDs. The shared renderer uses fixed typed resource
+IMU/GNSS output generation lives in shared build support. IMU imports version 2
+binding declarations from its chip driver dependencies; GNSS declares its file
+locally. They describe compatible devices, resource constraints and checked-in
+Rust implementation IDs. The shared renderer uses fixed typed resource
 contracts and selects the implementation directly. Separate field-projection
 schemas, generated model enums and runtime model matches have been removed.
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
@@ -59,8 +60,32 @@ stream metadata, acquisition and optional transaction timing.
 The two HAL build scripts remain generic adapters for this slice. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
 native compilation/linking. Full pre-Cargo handoff, optional driver selection and
-canonical static runtime instances remain later work. This stage changes host
-preparation while preserving current single-device runtime behavior.
+GNSS static runtime instances remain later work. IMU now generates one canonical
+instance per physical record and named role accessors, as described below.
+
+### Implemented IMU device access
+
+`imu::primary()` and `imu::devices::<role>()` return `&'static impl imu::Device`.
+`roles.imu` names primary; `imu_<role>` names additional aliases. `Device::open`
+accepts configuration and a typed sink; `open_default` uses the driver's default.
+The result is an exclusive `Session`, separate from permanent identity. Existing
+free functions delegate to primary. The explicit mock fixture has primary and
+secondary devices; coordinated simulation has primary only. Portable services
+can receive the selected reference through `ImuService::start_on(device)`.
+
+Each NuttX instance owns its immutable binding and a
+`Mutex<Option<device::Device<S>>>`, plus per-device ownership/quarantine.
+The driver initializes at acquisition and remains in that static slot while
+active. Retirement destroys the sink, cleans up/drops the driver and resource
+handles, then releases the lease. Cancellation setup or thread-start failure
+also retires the slot. Uncertain cleanup quarantines that device until restart.
+Two aliases remain Busy through terminal delivery; independent devices can run
+concurrently with different settings. No runtime device registry is introduced.
+
+Host witnesses cover same-model/mixed pairs, aliases, independent faults,
+backpressure, dropped sessions and IRQ cleanup isolation. Same-output Cargo
+rebuilds exercise single/multiple instances and all four supported sensor/bus
+bindings. Target compile/link evidence is separate from physical qualification.
 
 ## Current implementation and migration boundary
 
@@ -85,8 +110,9 @@ See the baseline [IMU build script](https://github.com/yongkyuns/nxrs/blob/15f54
 [IRQ owner](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/hal/imu/src/platform/nuttx/irq.rs),
 [session API](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/hal/imu/src/api.rs), and
 [composition resolver](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/platform/build-support/src/composition.rs).
-The device map already describes multiple records, but the IMU projection selects
-only the default role. That is not runtime support for simultaneous IMUs.
+At that baseline, the IMU projection selected only the default role despite the
+device map allowing multiple records. The current IMU generator and runtime
+implement simultaneous named instances; the table retains the migration baseline.
 A constant model match may optimize away; these source facts alone do not prove
 that both drivers remain in the linked firmware.
 
@@ -94,8 +120,8 @@ that both drivers remain in the linked firmware.
 
 | Owner | Responsibilities |
 | --- | --- |
-| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy, private runtime implementations, declarative binding/configuration schema and Cargo feature declarations |
-| `driver/<device>` | Reusable chip protocol, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
+| `hal/<capability>` | Managed public contract, acquisition/lifecycle policy, selected factories, capability-specific configuration and Cargo feature declarations |
+| `driver/<device>` | Reusable chip protocol, supported settings/resource bindings, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
 | `driver/peripheral` | Synchronous per-peripheral contracts; no resource construction or acquisition runtime |
 | Provider-local `ffi/` | Mechanical ABI source for the consuming provider |
 | Product profile and overlays | Physical devices, resource assignments, roles, requirements and budgets |
@@ -116,9 +142,9 @@ arbitrary build plugin system or service/capability solver.
 
 Binding catalogs describe supported device/resource combinations and one reviewed
 implementation ID. The implemented resource vocabulary covers I²C endpoints with
-optional GPIO readiness and UART endpoints. Rust defines the configuration and
+optional GPIO readiness, SPI chip-select endpoints and UART endpoints. Rust defines the configuration and
 constructor types. Shared generation produces literal resource values and
-`use implementations::<ID> as Implementation`; IDs are validated single type names,
+checked-in implementation selections; IDs are validated single type names,
 not arbitrary Rust paths. Extending resource kinds belongs in shared tooling;
 adding a sensor using an existing kind needs no generator model table.
 
@@ -127,8 +153,10 @@ Do not restore per-field Rust projection schemas, programmable TOML, templates o
 per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
-Discover catalogs through explicit package-relative metadata. The production
-dependency closure must contain its declared inputs. Shared support must not
+Discover bindings through explicit package-relative metadata or imports naming
+declared normal Cargo path dependencies. Chip resource constraints belong with
+the driver; product profiles assign actual endpoints, addresses and roles.
+The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.
 
@@ -245,26 +273,23 @@ is active or retiring. A different device can be acquired independently.
 Fault/poison state belongs to the affected device, including partial startup,
 IRQ registration rollback and IRQ unregister failures.
 
-Keep the existing `Imu` session contract: cancellation, observable terminal
-failure, dropped-event accounting, completion and explicit join. A permanent
-device is a separate concept. Session Drop requests cancellation without
+Keep the existing `imu::Session` contract (`imu::Imu` is its compatibility alias):
+cancellation, observable terminal failure, dropped-event accounting, completion
+and explicit join. A permanent device is a separate concept. Session Drop
+requests cancellation without
 blocking; it must not free the lease while a worker or callback can still touch
 hardware or instance state.
 
-The exact reacquisition boundary must be specified before implementation.
-Today's device cleanup can release its lease before the
-[acquisition worker](https://github.com/yongkyuns/nxrs/blob/15f547594512528db7cae43a7bd1293ee54668e3/driver/acquisition/src/lib.rs)
-finishes retrying terminal-event delivery. Retaining ownership until the entire
-worker exits would strengthen that behavior. In either design, prove hardware
-and callback quiescence and define ordering between the previous session's final
-events and a new session. Do not equate release with dropping the user handle
-or merely invoking join.
+IMU retains ownership through terminal-event delivery and sink destruction, then
+destroys its driver/resources before releasing the lease. A later acquisition
+cannot overlap the previous session's callbacks or final events. Session Drop
+requests cancellation; it does not establish that retirement has completed.
 
 Opaque means private representation. It does not require `dyn` dispatch, a
 vtable, heap boxing or a heterogeneous runtime registry. Private typed instances
 and named accessors returning an opaque implementation can preserve static
-dispatch. `Device`, `Instance<Backend>`, `primary()` and `.open(...)` are
-illustrative names, not an approved public API signature. A uniform collection
+dispatch. The implemented IMU API is `Device`, `primary()` and
+`devices::<role>()`; its `Instance<S, B>` representation stays private. A uniform collection
 of unlike devices needs a separately reviewed dispatch/storage choice. Preserve
 the generic typed callback contract without silently boxing sinks.
 
@@ -273,6 +298,11 @@ A static descriptor plus a lease atomic alone is not proof that driver state is
 static. Inventory actual state, buffers and ownership. Worker stacks, session
 queues and remaining OS/backend allocations need separate memory accounting;
 this decision does not replace the std thread/event model with a heap-free runtime.
+IMU stores its concrete driver, applied settings, readiness state, tracing and
+lease in the static slot. Initialization temporaries and transaction scratch
+buffers use stack space; threads, cancellation Arcs and native descriptors retain
+their existing allocation costs. A typed function pointer constructs the driver
+once per acquisition; sample processing and ordinary sinks use static dispatch.
 
 ## Resource identity, sharing and enforcement
 
@@ -333,10 +363,8 @@ comparative context; it does not establish NuttX ownership, ABI or timing.
 
 ## Remaining design choices and completion
 
-Extend the typed resource convention to permanent device instances and settle
-generated-input delivery, package-specific compiler/link integration, public
-device/session API, static storage inventory, initialization/recovery policy and
-reacquisition/terminal-event ordering. These choices must satisfy the invariants
+Complete generated-input delivery, package-specific compiler/link integration,
+optional driver activation and extension beyond IMU. These choices must satisfy the invariants
 above; none authorizes a new runtime registry or a per-HAL host emitter.
 
 Start with IMU, prove same-model and mixed-model instances, then use GNSS as a

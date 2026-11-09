@@ -4,6 +4,34 @@ Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
 `imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
+## Capability boundaries and execution
+
+`hal/` owns capability/subsystem APIs and their implementations, rather than
+vendor register HALs. Consumers use portable contracts; private implementations
+may use their native OS or SDK. Native code does not all belong in `driver/`.
+
+| Responsibility | Owner |
+| --- | --- |
+| Ordinary files, sockets, threads, synchronization and time | Rust `std`, used directly |
+| Reusable chip protocols and hardware-resource adapters | `driver/<device-or-resource>` |
+| Managed capability behavior and private OS/SDK adapters | Owning `hal/<capability>` |
+| Shared acquisition worker, cancellation and readiness mechanisms | `hal/acquisition`, an implementation helper with no profile binding |
+| Device selection, resource bindings and execution budgets | Product profiles and build wiring |
+
+Use a capability-specific contract with explicit supported configuration,
+buffer ownership, completion, cancellation and failure semantics. Normalization
+does not imply equal hardware capabilities or a universal device API.
+`peripheral::imu::Imu` supplies synchronous device operations; `imu::Session`
+and `gnss::Session` describe active acquisition lifetimes. The old `imu::Imu`
+and `gnss::Gnss` names are aliases for existing consumers.
+
+A component does not automatically require a thread or queue. A driver may own
+execution when hardware or blocking operations require it; current IMU chip
+contracts create none. `nxrs-acquisition` shares implementation code and starts
+one worker per explicit call, not a shared executor. Shared scheduling requires
+bounded device work, fairness and cancellation/deadline qualification. Application
+and service execution are unchanged by this foundation cleanup.
+
 The implemented [peripheral composition design](peripheral-composition.md)
 defines reusable sensor-specific drivers, embedded-hal resource adapters and
 validated device/role bindings in profiles. The
@@ -34,11 +62,14 @@ configuration, instance storage and ownership/fault state. Roles refer to that
 object, and acquisition creates a separate exclusive session. Common HAL
 machinery must enforce uniqueness and quiescent release. Different devices can
 run independently, including two of the same model; aliases cannot create new
-ownership guards. The current global IMU guard does not yet provide this behavior.
+ownership guards. IMU implements this through `imu::Device` references returned by
+`primary()` and profile-defined `devices::<role>()`; the existing free functions
+delegate to primary. Its worker retains storage and ownership through final
+delivery, sink destruction and resource cleanup. GNSS retains its default owner.
 
-Opaque access does not require dynamic dispatch or heap boxing. Public API
-spelling, generated-input transport and the exact release/terminal-event ordering
-must be settled in the [follow-up contract step](peripheral-composition-plan.md#d0--freeze-the-contract-and-record-the-baseline).
+Opaque access does not require dynamic dispatch or heap boxing. IMU's named
+accessors preserve concrete driver and sink types. Generated-input transport and
+optional-driver activation remain in the [follow-up plan](peripheral-composition-plan.md#static-device-follow-up).
 Static instance storage and remaining thread/queue/backend allocation costs must
 be reported separately. Existing lifecycle, native-boundary and portability
 requirements continue to apply throughout migration.
@@ -46,11 +77,17 @@ requirements continue to apply throughout migration.
 Resource adapters belong in `driver/<bus>`. `driver/i2c` implements
 `embedded_hal::i2c::I2c` for NuttX only and owns its native glue; IMU supplies
 resolved configuration and keeps acquisition and stream metadata policy.
-Chip drivers depend on the bus trait, not this concrete adapter. There are no
+`driver/gpio` similarly owns NuttX interrupt registration and embedded-hal pin
+reads. Its task-context cleanup-failure hook lets the HAL retain quarantine even
+when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/pipe
+binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
+`driver/spi` provides bounded, single-CS `SpiDevice` transactions through the
+NuttX SPI character ABI. Chip drivers depend on bus traits, not these concrete adapters. There are no
 host bus backends, unavailable stubs or additional logical profile roles.
-Version 2 sensor catalogs name checked-in
-Rust implementations; shared tooling emits typed resource bindings rather than
-interpreting per-field Rust schemas.
+IMU drivers own version 2 `bindings.toml` declarations for supported resource
+combinations and checked-in implementation IDs. HAL metadata imports them through
+declared normal Cargo path dependencies. Product profiles select actual wiring;
+shared tooling emits typed resource bindings and a selected factory implementation.
 
 ## Required implementation boundaries
 
@@ -236,7 +273,9 @@ APIs over existing bus traits and own their supported settings. The shared
 physical measurements, buffering semantics and device errors. BMI270 and LSM6DSO
 implement it directly alongside their chip APIs. HAL IMU reuses its configuration
 types and adds sequence/reception metadata, profile construction, readiness,
-acquisition and lifecycle errors. Resolve requests before acquiring resources;
+acquisition and lifecycle errors. Its acquisition loop accepts a constructed
+`peripheral::imu::Imu`; chip constructors and qualification controls stay at the
+selected factory boundary. Resolve requests before acquiring resources;
 do not duplicate supported-mode tables or normalization wrappers in the HAL.
 Drivers have no dependency on the capability HAL. Reusable OS resource adapters
 live in `driver/<bus>`, with native glue beside the actual OS implementation.

@@ -1,88 +1,80 @@
-//! Profile-selected NuttX IMU factory.
-use self::{construction::Construct, session::Session};
-use super::resource;
-use crate::{AppliedConfig, Config, DeviceError, Event, Imu};
-use acquisition::readiness;
-use core::sync::atomic::AtomicU8;
-use device::{Binding, Delay, Device};
-use observed_bus::Bus;
-use peripheral::imu::Imu as ImuDevice;
+//! Profile-selected canonical IMU instances and concrete resource construction.
+use super::{events, gpio_resource, resource, spi_resource};
+use crate::{AppliedConfig, Config, DeviceError, Event, Session};
+use factory::Delay;
+use observed_bus::{Bus, Spi};
 use trace::Trace;
 
 #[path = "../../cadence.rs"]
 mod cadence;
+mod device;
+#[allow(dead_code, reason = "Profiles select the resource constructors.")]
+mod factory;
+mod instance;
+mod observed_bus;
 #[path = "../../session.rs"]
 mod session;
-
-mod construction;
-mod device;
-#[allow(unsafe_code)]
-mod ffi;
-mod irq;
-mod observed_bus;
 mod signal;
 mod trace;
 
-static OWNED: AtomicU8 = AtomicU8::new(0);
-include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
-
-// Catalog implementation IDs name these checked-in concrete types.
-#[allow(dead_code, reason = "The catalog selects one concrete implementation.")]
+#[allow(dead_code, reason = "Profiles select concrete implementations.")]
 mod implementations {
     pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
     pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
+    pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::Spi, super::Delay>;
+    pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::Spi>;
 }
 
-pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
-    sink: S,
-) -> Result<impl Imu + Send + 'static, DeviceError> {
-    let config = Implementation::DEFAULT;
-    open_configured(config, sink).map(|(session, _)| session)
+// Generated input supplies only checked implementation IDs and typed values.
+// One factory call at acquisition; no model/bus dispatch in the sample loop.
+macro_rules! declare_device {
+    ($name:ident, $id:literal, $sensor:ty, $binding_type:ty, $binding:expr, $stack:expr) => {
+        #[allow(
+            dead_code,
+            reason = "Profiles may declare devices without a consuming role."
+        )]
+        static $name: instance::Instance<$sensor, $binding_type> = instance::Instance::new(
+            $id,
+            $binding,
+            $stack,
+            |binding, config, trace, owner, reference| {
+                let observed = trace.clone();
+                let device = factory::acquire(
+                    config,
+                    binding.irq_path,
+                    trace,
+                    owner,
+                    || binding.open(observed),
+                    |bus, settings| {
+                        let interface = bus
+                            .try_into()
+                            .map_err(|_| peripheral::imu::Error::InvalidData)?;
+                        <$sensor>::from_interface(interface, Delay, settings).map_err(Into::into)
+                    },
+                )?;
+                if reference {
+                    device.prepare(|sensor| sensor.enable_sensor_reference().map_err(Into::into))
+                } else {
+                    Ok(device)
+                }
+            },
+        );
+    };
 }
-
-/// Preview accepted settings without opening hardware or reserving the device.
-pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
-    device::resolve::<Implementation>(config).map(|(_, applied)| applied)
-}
-
-pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
-    config: Config,
-    sink: S,
-) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
-    open_with_trace(config, sink, Trace::default())
-}
+include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 
 pub(crate) fn open_probed(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     observe: impl Fn(crate::probe::Timing) + Send + Sync + 'static,
     sensor_reference: bool,
-) -> Result<(std::boxed::Box<dyn Imu + Send>, AppliedConfig), DeviceError> {
-    let trace = Trace::new(observe, sensor_reference)?;
-    let (session, applied) = open_with_trace(config, sink, trace)?;
-    Ok((std::boxed::Box::new(session), applied))
-}
-
-fn open_with_trace(
-    config: Config,
-    sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
-    trace: Trace,
-) -> Result<(Session<readiness::Cancel>, AppliedConfig), DeviceError> {
-    acquire::<Implementation>(BINDING, config, sink, trace)
-}
-
-fn acquire<T: Construct + Send + 'static>(
-    binding: Binding<'_>,
-    config: Config,
-    sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
-    trace: Trace,
-) -> Result<(Session<readiness::Cancel>, AppliedConfig), DeviceError> {
-    let device = Device::<T>::acquire(binding, config, trace)?;
-    let applied = device.applied_config();
-    let cancel = readiness::Cancel::new(ffi::event_pipe).map_err(|_| DeviceError::Io)?;
-    let wake = cancel.reader.clone();
-    Session::start(STACK_BYTES, cancel, sink, move |stop, emit| {
-        device.run(stop, &wake, emit)
-    })
-    .map(|session| (session, applied))
+) -> Result<(std::boxed::Box<dyn Session + Send>, AppliedConfig), DeviceError> {
+    primary_instance()
+        .start(config, Trace::new(observe)?, sensor_reference, sink)
+        .map(|(session, applied)| {
+            (
+                std::boxed::Box::new(session) as std::boxed::Box<dyn Session + Send>,
+                applied,
+            )
+        })
 }

@@ -1,6 +1,10 @@
 //! Shared task-context execution for bounded sensor event producers.
-//! Device waits, cancellation mechanisms, errors and cleanup belong to the HAL.
-#![forbid(unsafe_code)]
+//! Shared cancellation/readiness mechanisms; device and deadline policy stays in HALs.
+#![deny(unsafe_code)]
+
+#[cfg(target_os = "nuttx")]
+#[path = "platform/nuttx/mod.rs"]
+pub mod nuttx;
 
 pub mod mock;
 #[cfg(unix)]
@@ -35,10 +39,31 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
         name: &str,
         stack_bytes: usize,
         cancel: C,
-        mut sink: S,
+        sink: S,
         failure: fn(E) -> T,
         run: impl FnOnce(&AtomicBool, &mut dyn FnMut(T) -> bool) -> Result<(), E> + Send + 'static,
     ) -> io::Result<Self> {
+        Self::start_guarded(name, stack_bytes, cancel, sink, (), failure, run)
+    }
+
+    /// Retain owner storage through terminal delivery and sink destruction,
+    /// including spawn failure and unwinding. The guard is dropped last.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_guarded<
+        T: Send + 'static,
+        S: FnMut(T) -> messaging::DeliveryResult<T> + Send + 'static,
+        G: Send + 'static,
+    >(
+        name: &str,
+        stack_bytes: usize,
+        cancel: C,
+        sink: S,
+        guard: G,
+        failure: fn(E) -> T,
+        run: impl FnOnce(&AtomicBool, &mut dyn FnMut(T) -> bool) -> Result<(), E> + Send + 'static,
+    ) -> io::Result<Self> {
+        // Tuple fields drop in declaration order, also on panic/spawn failure.
+        let delivery = (sink, guard);
         let stopping = Arc::new(AtomicBool::new(false));
         let dropped = Arc::new(AtomicU32::new(0));
         let stop = stopping.clone();
@@ -47,6 +72,8 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
             .name(name.into())
             .stack_size(stack_bytes)
             .spawn(move || {
+                let mut delivery = delivery;
+                let sink = &mut delivery.0;
                 let mut emit = |event| match sink(event) {
                     Ok(()) => true,
                     Err(rejected) if rejected.error == DeliveryError::Full => {
@@ -85,7 +112,7 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
     }
     pub fn request_stop(&self) -> io::Result<()> {
         self.stopping.store(true, Ordering::Release);
-        self.cancel.wake()
+        wake(&self.cancel)
     }
     pub fn is_finished(&self) -> bool {
         self.join.as_ref().is_none_or(JoinHandle::is_finished)
@@ -99,11 +126,31 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
         }
         self.result.unwrap_or(Ok(()))
     }
+
+    /// Join completed work even if its cancellation source has failed. If a
+    /// running worker cannot be woken, retain its handle/resources for retry;
+    /// returning that error does not claim quiescence.
+    pub fn stop_and_join(&mut self, io_error: E) -> Result<(), E> {
+        if !self.is_finished() && self.request_stop().is_err() && !self.is_finished() {
+            return Err(io_error);
+        }
+        self.join(io_error)
+    }
+}
+fn wake(cancel: &impl Wake) -> io::Result<()> {
+    loop {
+        match cancel.wake() {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
 }
 impl<C: Wake, E: Copy> Drop for Worker<C, E> {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
-        let _ = self.cancel.wake();
+        if self.join.as_ref().is_some_and(|join| !join.is_finished()) {
+            let _ = wake(&self.cancel);
+        }
         // No hidden join. The worker owns device resources until cleanup completes.
     }
 }

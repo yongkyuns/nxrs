@@ -3,7 +3,10 @@
 
 mod imu;
 
-use embedded_hal::{delay::DelayNs, i2c::I2c};
+use embedded_hal::{delay::DelayNs, i2c::I2c, spi::SpiDevice};
+mod transport;
+use transport::Registers;
+pub use transport::{I2cBus, SpiBus};
 
 const WHO_AM_I: u8 = 0x0f;
 const CTRL1_XL: u8 = 0x10;
@@ -224,24 +227,15 @@ pub fn parse_fifo_record(bytes: [u8; 7]) -> Result<FifoRecord, Error> {
     }
 }
 
-pub struct Lsm6dso<B> {
-    bus: B,
-    address: u8,
+pub type Lsm6dso<B> = Device<I2cBus<B>>;
+pub type Lsm6dsoSpi<S> = Device<SpiBus<S>>;
+
+pub struct Device<T> {
+    io: T,
     config: Config,
     pending_accel: Option<(u8, [i16; 3])>,
     pending_gyro: Option<(u8, [i16; 3])>,
     reference_state: Option<(u8, u8)>,
-}
-
-fn read_reg<B: I2c>(bus: &mut B, address: u8, reg: u8) -> Result<u8, Error> {
-    let mut value = [0];
-    bus.write_read(address, &[reg], &mut value)
-        .map_err(|_| Error::Bus)?;
-    Ok(value[0])
-}
-
-fn write_reg<B: I2c>(bus: &mut B, address: u8, reg: u8, value: u8) -> Result<(), Error> {
-    bus.write(address, &[reg, value]).map_err(|_| Error::Bus)
 }
 
 impl<B: I2c> Lsm6dso<B> {
@@ -250,23 +244,34 @@ impl<B: I2c> Lsm6dso<B> {
     }
 
     pub fn open_configured<D: DelayNs>(
-        mut bus: B,
+        bus: B,
         address: u8,
-        mut delay: D,
+        delay: D,
         config: Config,
     ) -> Result<Self, Error> {
-        if !matches!(address, 0x6a | 0x6b) {
-            return Err(Error::InvalidData);
-        }
-        if read_reg(&mut bus, address, WHO_AM_I)? != 0x6c {
+        Self::from_interface(I2cBus::new(bus, address)?, delay, config)
+    }
+}
+impl<S: SpiDevice> Lsm6dsoSpi<S> {
+    pub fn open_spi(device: S, delay: impl DelayNs, config: Config) -> Result<Self, Error> {
+        Self::from_interface(SpiBus::new(device), delay, config)
+    }
+}
+impl<T: Registers> Device<T> {
+    pub fn from_interface(
+        mut io: T,
+        mut delay: impl DelayNs,
+        config: Config,
+    ) -> Result<Self, Error> {
+        if io.read_reg(WHO_AM_I)? != 0x6c {
             return Err(Error::InvalidData);
         }
         let setup = (|| {
             // SW_RESET self-clears; poll it with a hard upper bound.
-            write_reg(&mut bus, address, CTRL3_C, 0x01)?;
+            io.write_reg(CTRL3_C, 0x01)?;
             let mut reset_done = false;
             for _ in 0..20 {
-                if read_reg(&mut bus, address, CTRL3_C)? & 1 == 0 {
+                if io.read_reg(CTRL3_C)? & 1 == 0 {
                     reset_done = true;
                     break;
                 }
@@ -277,30 +282,23 @@ impl<B: I2c> Lsm6dso<B> {
             }
 
             // BDU + register auto-increment; first leave FIFO in bypass.
-            write_reg(&mut bus, address, CTRL3_C, 0x44)?;
-            write_reg(&mut bus, address, FIFO_CTRL4, 0x00)?;
+            io.write_reg(CTRL3_C, 0x44)?;
+            io.write_reg(FIFO_CTRL4, 0x00)?;
             let xl = config.rate.register() << 4 | config.accel_range.bits();
             let gyro = config.rate.register() << 4 | config.gyro_range.bits();
-            write_reg(&mut bus, address, CTRL1_XL, xl)?;
-            write_reg(&mut bus, address, CTRL2_G, gyro)?;
+            io.write_reg(CTRL1_XL, xl)?;
+            io.write_reg(CTRL2_G, gyro)?;
             // Batching ODRs equal the live ODRs; only accel and gyro are batched.
-            write_reg(&mut bus, address, FIFO_CTRL1, FIFO_WATERMARK_WORDS as u8)?;
-            write_reg(
-                &mut bus,
-                address,
-                FIFO_CTRL2,
-                ((FIFO_WATERMARK_WORDS >> 8) as u8) & 1,
-            )?;
-            write_reg(
-                &mut bus,
-                address,
+            io.write_reg(FIFO_CTRL1, FIFO_WATERMARK_WORDS as u8)?;
+            io.write_reg(FIFO_CTRL2, ((FIFO_WATERMARK_WORDS >> 8) as u8) & 1)?;
+            io.write_reg(
                 FIFO_CTRL3,
                 config.rate.register() | (config.rate.register() << 4),
             )?;
             // Continuous mode; compression, timestamp, and temperature batching stay disabled.
-            write_reg(&mut bus, address, FIFO_CTRL4, 0x06)?;
+            io.write_reg(FIFO_CTRL4, 0x06)?;
             // INT1 reports threshold, full-soon and overrun status to the HAL worker.
-            write_reg(&mut bus, address, INT1_CTRL, 0x38)?;
+            io.write_reg(INT1_CTRL, 0x38)?;
 
             for (reg, expected, mask) in [
                 (CTRL3_C, 0x44, 0x44),
@@ -316,7 +314,7 @@ impl<B: I2c> Lsm6dso<B> {
                 (FIFO_CTRL4, 0x06, 0x07),
                 (INT1_CTRL, 0x38, 0x38),
             ] {
-                if read_reg(&mut bus, address, reg)? & mask != expected & mask {
+                if io.read_reg(reg)? & mask != expected & mask {
                     return Err(Error::InvalidData);
                 }
             }
@@ -324,15 +322,14 @@ impl<B: I2c> Lsm6dso<B> {
         })();
         if let Err(error) = setup {
             // Cleanup is bounded and best-effort; preserve the initiating failure.
-            let _ = write_reg(&mut bus, address, FIFO_CTRL4, 0x00);
-            let _ = write_reg(&mut bus, address, INT1_CTRL, 0x00);
-            let _ = write_reg(&mut bus, address, CTRL1_XL, 0x00);
-            let _ = write_reg(&mut bus, address, CTRL2_G, 0x00);
+            let _ = io.write_reg(FIFO_CTRL4, 0x00);
+            let _ = io.write_reg(INT1_CTRL, 0x00);
+            let _ = io.write_reg(CTRL1_XL, 0x00);
+            let _ = io.write_reg(CTRL2_G, 0x00);
             return Err(error);
         }
         Ok(Self {
-            bus,
-            address,
+            io,
             config,
             pending_accel: None,
             pending_gyro: None,
@@ -346,18 +343,13 @@ impl<B: I2c> Lsm6dso<B> {
         if self.reference_state.is_some() {
             return Err(Error::InvalidData);
         }
-        let old_int2 = read_reg(&mut self.bus, self.address, INT2_CTRL)?;
-        let old_counter = read_reg(&mut self.bus, self.address, COUNTER_BDR_REG1)?;
+        let old_int2 = self.io.read_reg(INT2_CTRL)?;
+        let old_counter = self.io.read_reg(COUNTER_BDR_REG1)?;
         self.reference_state = Some((old_int2, old_counter));
-        write_reg(
-            &mut self.bus,
-            self.address,
-            COUNTER_BDR_REG1,
-            old_counter | 0x80,
-        )?;
-        write_reg(&mut self.bus, self.address, INT2_CTRL, old_int2 | 0x01)?;
-        if read_reg(&mut self.bus, self.address, COUNTER_BDR_REG1)? != (old_counter | 0x80)
-            || read_reg(&mut self.bus, self.address, INT2_CTRL)? != (old_int2 | 0x01)
+        self.io.write_reg(COUNTER_BDR_REG1, old_counter | 0x80)?;
+        self.io.write_reg(INT2_CTRL, old_int2 | 0x01)?;
+        if self.io.read_reg(COUNTER_BDR_REG1)? != (old_counter | 0x80)
+            || self.io.read_reg(INT2_CTRL)? != (old_int2 | 0x01)
         {
             return Err(Error::InvalidData);
         }
@@ -373,15 +365,13 @@ impl<B: I2c> Lsm6dso<B> {
         let reference_state = self.reference_state;
         if let Some((old_int2, old_counter)) = reference_state {
             for (reg, value) in [(INT2_CTRL, old_int2), (COUNTER_BDR_REG1, old_counter)] {
-                if write_reg(&mut self.bus, self.address, reg, value).is_err()
-                    && first_error.is_none()
-                {
+                if self.io.write_reg(reg, value).is_err() && first_error.is_none() {
                     first_error = Some(Error::Bus);
                 }
             }
         }
         for reg in [INT1_CTRL, FIFO_CTRL4, CTRL1_XL, CTRL2_G] {
-            if write_reg(&mut self.bus, self.address, reg, 0).is_err() && first_error.is_none() {
+            if self.io.write_reg(reg, 0).is_err() && first_error.is_none() {
                 first_error = Some(Error::Bus);
             }
         }
@@ -391,7 +381,7 @@ impl<B: I2c> Lsm6dso<B> {
             (CTRL1_XL, 0xf0),
             (CTRL2_G, 0xf0),
         ] {
-            match read_reg(&mut self.bus, self.address, reg) {
+            match self.io.read_reg(reg) {
                 Ok(value) if value & mask == 0 => {}
                 Ok(_) if first_error.is_none() => first_error = Some(Error::InvalidData),
                 Err(error) if first_error.is_none() => first_error = Some(error),
@@ -399,9 +389,8 @@ impl<B: I2c> Lsm6dso<B> {
             }
         }
         if let Some((old_int2, old_counter)) = reference_state {
-            let int_ok = read_reg(&mut self.bus, self.address, INT2_CTRL) == Ok(old_int2);
-            let counter_ok =
-                read_reg(&mut self.bus, self.address, COUNTER_BDR_REG1) == Ok(old_counter);
+            let int_ok = self.io.read_reg(INT2_CTRL) == Ok(old_int2);
+            let counter_ok = self.io.read_reg(COUNTER_BDR_REG1) == Ok(old_counter);
             if !int_ok || !counter_ok {
                 if first_error.is_none() {
                     first_error = Some(Error::InvalidData);
@@ -417,9 +406,7 @@ impl<B: I2c> Lsm6dso<B> {
     /// `None` means the consumer declined a sample; no later words are read in that call.
     pub fn drain(&mut self, mut emit: impl FnMut(Sample) -> bool) -> Result<Option<usize>, Error> {
         let mut status = [0u8; 2];
-        self.bus
-            .write_read(self.address, &[FIFO_STATUS1], &mut status)
-            .map_err(|_| Error::Bus)?;
+        self.io.read(FIFO_STATUS1, &mut status)?;
         // STATUS2: bit7 watermark, bit6 overrun, bit5 full-at-next-ODR,
         // bit4 batch-counter, bit3 latched overrun, bit2 reserved, bits1:0 count.
         if status[1] & 0x68 != 0 {
@@ -440,9 +427,7 @@ impl<B: I2c> Lsm6dso<B> {
         let mut completed = 0usize;
         let mut word = [0u8; 7];
         while read < count {
-            self.bus
-                .write_read(self.address, &[FIFO_DATA_OUT_TAG], &mut word)
-                .map_err(|_| Error::Bus)?;
+            self.io.read(FIFO_DATA_OUT_TAG, &mut word)?;
             match parse_fifo_record(word)? {
                 FifoRecord::Gyroscope { slot, xyz } => {
                     if self.pending_gyro.is_some()
@@ -598,50 +583,50 @@ mod tests {
     fn configuration_uses_exact_chip_rate_and_ranges_with_readback() {
         let sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
         assert_eq!(sensor.config().rate.milli_hz(), 104_000);
-        assert_eq!(sensor.bus.regs[CTRL1_XL as usize], 0x48);
-        assert_eq!(sensor.bus.regs[CTRL2_G as usize], 0x4c);
+        assert_eq!(sensor.io.bus.regs[CTRL1_XL as usize], 0x48);
+        assert_eq!(sensor.io.bus.regs[CTRL2_G as usize], 0x4c);
         assert_eq!(
-            sensor.bus.regs[FIFO_CTRL1 as usize],
+            sensor.io.bus.regs[FIFO_CTRL1 as usize],
             FIFO_WATERMARK_WORDS as u8
         );
-        assert_eq!(sensor.bus.regs[FIFO_CTRL4 as usize], 0x06);
-        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0x38);
+        assert_eq!(sensor.io.bus.regs[FIFO_CTRL4 as usize], 0x06);
+        assert_eq!(sensor.io.bus.regs[INT1_CTRL as usize], 0x38);
         let config = Config {
             rate: Rate::Hz26,
             accel_range: AccelRange::G16,
             gyro_range: GyroRange::Dps125,
         };
         let sensor = Lsm6dso::open_configured(Bus::new(), 0x6b, Delay, config).unwrap();
-        assert_eq!(sensor.bus.regs[CTRL1_XL as usize], 0x24);
-        assert_eq!(sensor.bus.regs[CTRL2_G as usize], 0x22);
+        assert_eq!(sensor.io.bus.regs[CTRL1_XL as usize], 0x24);
+        assert_eq!(sensor.io.bus.regs[CTRL2_G as usize], 0x22);
     }
 
     #[test]
     fn optional_accel_ready_reference_is_pulsed_on_int2_and_cleans_up() {
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-        sensor.bus.regs[INT2_CTRL as usize] = 0x40;
-        sensor.bus.regs[COUNTER_BDR_REG1 as usize] = 0x05;
+        sensor.io.bus.regs[INT2_CTRL as usize] = 0x40;
+        sensor.io.bus.regs[COUNTER_BDR_REG1 as usize] = 0x05;
         sensor.enable_sensor_reference().unwrap();
-        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0x38);
-        assert_eq!(sensor.bus.regs[INT2_CTRL as usize], 0x41);
-        assert_eq!(sensor.bus.regs[COUNTER_BDR_REG1 as usize], 0x85);
+        assert_eq!(sensor.io.bus.regs[INT1_CTRL as usize], 0x38);
+        assert_eq!(sensor.io.bus.regs[INT2_CTRL as usize], 0x41);
+        assert_eq!(sensor.io.bus.regs[COUNTER_BDR_REG1 as usize], 0x85);
         sensor.stop().unwrap();
-        assert_eq!(sensor.bus.regs[INT2_CTRL as usize], 0x40);
-        assert_eq!(sensor.bus.regs[COUNTER_BDR_REG1 as usize], 0x05);
-        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0);
+        assert_eq!(sensor.io.bus.regs[INT2_CTRL as usize], 0x40);
+        assert_eq!(sensor.io.bus.regs[COUNTER_BDR_REG1 as usize], 0x05);
+        assert_eq!(sensor.io.bus.regs[INT1_CTRL as usize], 0);
     }
 
     #[test]
     fn optional_accel_ready_reference_partial_write_failure_cleans_up() {
         let bus = Bus::new();
         let mut sensor = Lsm6dso::open(bus, 0x6a, Delay).unwrap();
-        sensor.bus.failed_write = Some(COUNTER_BDR_REG1);
+        sensor.io.bus.failed_write = Some(COUNTER_BDR_REG1);
         assert_eq!(sensor.enable_sensor_reference(), Err(Error::Bus));
-        sensor.bus.failed_write = None;
+        sensor.io.bus.failed_write = None;
         sensor.stop().unwrap();
-        assert_eq!(sensor.bus.regs[INT2_CTRL as usize], 0);
-        assert_eq!(sensor.bus.regs[COUNTER_BDR_REG1 as usize], 0);
-        assert_eq!(sensor.bus.regs[INT1_CTRL as usize], 0);
+        assert_eq!(sensor.io.bus.regs[INT2_CTRL as usize], 0);
+        assert_eq!(sensor.io.bus.regs[COUNTER_BDR_REG1 as usize], 0);
+        assert_eq!(sensor.io.bus.regs[INT1_CTRL as usize], 0);
     }
 
     #[test]
@@ -698,22 +683,22 @@ mod tests {
             Ok(Some(1))
         );
         let sample = emitted.unwrap();
-        assert_eq!(sensor.bus.status_bursts, 1);
+        assert_eq!(sensor.io.bus.status_bursts, 1);
         assert_eq!(sample.slot, 0);
         assert!((sample.accel_mps2[0] - 9.80665 * 0.999424).abs() < 0.001);
         assert!((sample.gyro_rps[0] - 16384.0 * 0.070_f32.to_radians()).abs() < 0.001);
 
-        sensor.bus.status_flags = 0x40;
+        sensor.io.bus.status_flags = 0x40;
         assert_eq!(sensor.drain(|_| true), Err(Error::Overflow));
     }
 
     #[test]
     fn pending_tagged_record_survives_fifo_snapshot_boundary() {
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-        sensor.bus.push(1, 2, [100, 0, 0]);
+        sensor.io.bus.push(1, 2, [100, 0, 0]);
         assert_eq!(sensor.drain(|_| true), Ok(Some(0)));
         assert_eq!(sensor.pending_gyro, Some((2, [100, 0, 0])));
-        sensor.bus.push(2, 2, [200, 0, 0]);
+        sensor.io.bus.push(2, 2, [200, 0, 0]);
         let mut sample = None;
         assert_eq!(
             sensor.drain(|s| {
@@ -725,8 +710,8 @@ mod tests {
         assert_eq!(sample.unwrap().slot, 2);
         assert_eq!(sensor.pending_gyro, None);
         assert_eq!(sensor.pending_accel, None);
-        sensor.bus.push(1, 3, [0; 3]);
-        sensor.bus.push(2, 3, [0; 3]);
+        sensor.io.bus.push(1, 3, [0; 3]);
+        sensor.io.bus.push(2, 3, [0; 3]);
         let mut calls = 0;
         assert_eq!(
             sensor.read_available(|_| {
@@ -736,7 +721,7 @@ mod tests {
             Ok(None)
         );
         assert_eq!(calls, 1);
-        sensor.bus.status_flags = 0x40;
+        sensor.io.bus.status_flags = 0x40;
         assert_eq!(
             sensor.read_available(|_| panic!("overflow sample")),
             Err(peripheral::imu::Error::Overflow)
@@ -784,7 +769,7 @@ mod tests {
                 assert!((sample.accel_mps2[1] + expected_accel).abs() < 0.0001);
                 assert!((sample.gyro_rps[0] - expected_gyro).abs() < 0.00001);
                 assert!((sample.gyro_rps[1] + expected_gyro).abs() < 0.00001);
-                assert_eq!(sensor.bus.status_bursts, 1);
+                assert_eq!(sensor.io.bus.status_bursts, 1);
             }
         }
     }
@@ -792,13 +777,13 @@ mod tests {
     #[test]
     fn duplicate_source_mismatched_slots_and_unexpected_status_are_rejected() {
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-        sensor.bus.push(1, 0, [1, 0, 0]);
-        sensor.bus.push(1, 0, [2, 0, 0]);
+        sensor.io.bus.push(1, 0, [1, 0, 0]);
+        sensor.io.bus.push(1, 0, [2, 0, 0]);
         assert_eq!(sensor.drain(|_| true), Err(Error::InvalidData));
 
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-        sensor.bus.push(1, 0, [1, 0, 0]);
-        sensor.bus.push(2, 1, [2, 0, 0]);
+        sensor.io.bus.push(1, 0, [1, 0, 0]);
+        sensor.io.bus.push(2, 1, [2, 0, 0]);
         assert_eq!(sensor.drain(|_| true), Err(Error::InvalidData));
 
         for (flag, expected) in [
@@ -808,7 +793,7 @@ mod tests {
             (0x04, Error::InvalidData),
         ] {
             let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-            sensor.bus.status_flags = flag;
+            sensor.io.bus.status_flags = flag;
             assert_eq!(sensor.drain(|_| true), Err(expected));
         }
     }
@@ -817,24 +802,25 @@ mod tests {
     fn stop_disables_fifo_and_both_sensor_odrs() {
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
         peripheral::imu::Imu::stop(&mut sensor).unwrap();
-        assert_eq!(sensor.bus.regs[FIFO_CTRL4 as usize] & 7, 0);
-        assert_eq!(sensor.bus.regs[INT1_CTRL as usize] & 0x38, 0);
-        assert_eq!(sensor.bus.regs[CTRL1_XL as usize] & 0xf0, 0);
-        assert_eq!(sensor.bus.regs[CTRL2_G as usize] & 0xf0, 0);
+        assert_eq!(sensor.io.bus.regs[FIFO_CTRL4 as usize] & 7, 0);
+        assert_eq!(sensor.io.bus.regs[INT1_CTRL as usize] & 0x38, 0);
+        assert_eq!(sensor.io.bus.regs[CTRL1_XL as usize] & 0xf0, 0);
+        assert_eq!(sensor.io.bus.regs[CTRL2_G as usize] & 0xf0, 0);
     }
 
     #[test]
     fn stop_attempts_every_shutdown_write_after_a_bus_failure() {
         let mut sensor = Lsm6dso::open(Bus::new(), 0x6a, Delay).unwrap();
-        sensor.bus.write_attempts.clear();
-        sensor.bus.failed_write = Some(INT1_CTRL);
+        sensor.io.bus.write_attempts.clear();
+        sensor.io.bus.failed_write = Some(INT1_CTRL);
         assert_eq!(sensor.stop(), Err(Error::Bus));
         assert_eq!(
-            &sensor.bus.write_attempts[..4],
+            &sensor.io.bus.write_attempts[..4],
             &[INT1_CTRL, FIFO_CTRL4, CTRL1_XL, CTRL2_G]
         );
-        assert_eq!(sensor.bus.regs[FIFO_CTRL4 as usize] & 7, 0);
-        assert_eq!(sensor.bus.regs[CTRL1_XL as usize] & 0xf0, 0);
-        assert_eq!(sensor.bus.regs[CTRL2_G as usize] & 0xf0, 0);
+        assert_eq!(sensor.io.bus.regs[FIFO_CTRL4 as usize] & 7, 0);
+        assert_eq!(sensor.io.bus.regs[CTRL1_XL as usize] & 0xf0, 0);
+        assert_eq!(sensor.io.bus.regs[CTRL2_G as usize] & 0xf0, 0);
     }
+    include!("spi_tests.rs");
 }

@@ -493,11 +493,12 @@ Neither app depends on the other. The architecture checker continues to reject
 app-to-app production dependencies.
 
 The dual-IMU app proves that a capability may supply more than one resource
-instance when its selected provider supports that operation: each
-`ImuService::start()` calls `imu::open()` and owns the returned
-resource for its lifetime. Pausing one service does not affect the other.
+instance when its selected provider supports that operation. The app passes
+`imu::primary()` and `imu::devices::secondary()` to `ImuService::start_on`;
+each service owns an exclusive session for its selected device. Starting two
+services on the same device returns Busy. Pausing one does not affect the other.
 
-The `host-imu` profile extends native bindings with only a mock IMU; GNSS stays
+The `host-imu` profile selects the scripted two-device mock IMU fixture; GNSS stays
 unbound. The event demo uses `host-demo`, which binds mock IMU and GNSS. Starting
 the dual app without an IMU binding is required to fail Unsupported, so no
 implicit mock fallback hides an unsupported image.

@@ -9,8 +9,9 @@ depend on application/service policy or platform launchers.
 The [peripheral composition design](../docs/peripheral-composition.md) makes this
 split explicit. Chip packages such as `driver/bmi270/` expose their
 sensor-specific configuration, samples and errors over `embedded-hal` interfaces.
-They have no dependency on capability HALs or profile selection. Each consuming
-HAL owns normalization into its public contract and acquisition lifecycle.
+They have no dependency on capability HALs or profile selection. BMI270 and
+LSM6DSO directly implement the synchronous IMU contract in `driver/peripheral`.
+Each consuming HAL adds stream metadata and owns acquisition lifecycle.
 Retain existing upstream dependencies and protocol corrections when extracting
 a driver. `bmi270/` and `lsm6dso/` own their respective IMU protocols. `ubx/`
 owns receiver-specific GNSS behavior. Keep protocol tests with each driver
@@ -30,10 +31,11 @@ D-Bus schemas, control sequencing and errors. Rust std supplies memory, strings,
 clocks, sleeping and callback ownership; the remaining FFI expresses SDK
 operations unavailable in std.
 
-`acquisition/` is the `nxrs-acquisition` Cargo package. It shares the task-context
-lifecycle of GNSS/IMU event producers: bounded sink admission, loss counts,
-terminal-fault retention, explicit stop/join and resource ownership through
-worker completion. Each HAL supplies its device wait, cleanup and error type.
-`acquisition/src/mock.rs` supplies scripted fixture mechanics. On Unix targets,
-`acquisition/src/readiness.rs` shares Rust descriptor ownership and cancellation;
-native ABI glue remains beside each provider.
+`i2c/` and `gpio/` own reusable NuttX resource access and its private target-header
+glue. Capability-specific native adapters, such as BLE and Wi-Fi control, remain
+inside their owning HALs. Ordinary files, sockets and threads use Rust `std`
+directly; they do not require another driver layer.
+
+Shared acquisition execution lives in [`hal/acquisition`](../hal/acquisition/README.md).
+Execution resources are an explicit implementation choice, not a requirement of
+every driver. The current chip contracts are synchronous and create no workers.

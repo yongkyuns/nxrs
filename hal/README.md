@@ -7,13 +7,22 @@ not inspect platform identity. Factories supply worker budgets and providers
 report capabilities.
 
 The [peripheral composition architecture](../docs/peripheral-composition.md)
-separates sensor-specific driver packages from capability implementations. A
-private HAL module translates each supported sensor API into common capability
-behavior. OS factories supply resources through existing Rust interfaces such as
-embedded-hal. IMU and GNSS hardware profiles resolve concrete device bindings.
+separates sensor-specific driver packages from capability implementations. IMU
+drivers implement the common device contract directly; its HAL adds managed
+acquisition and stream metadata. OS factories supply resources through existing
+Rust interfaces such as embedded-hal. IMU and GNSS hardware profiles resolve
+concrete device bindings.
 The separate simulation profile supplies both capabilities from one coordinated
 session. The [implementation plan](../docs/peripheral-composition-plan.md)
 records the migration and qualification gates.
+
+`hal/` owns capability/subsystem APIs and their private native implementations;
+it is not a vendor register HAL. There is no mandatory driver/HAL/service chain.
+Use Rust `std` directly where it already supplies the portable operation. Add
+device adapters and execution resources only for requirements it cannot express.
+The [`acquisition`](acquisition/README.md) package is shared implementation support
+with no profile binding. `imu::Session` and `gnss::Session` name acquisition
+lifetimes; `imu::Imu` and `gnss::Gnss` remain aliases for existing consumers.
 
 OS implementations live in each HAL's `src/platform/`, named `linux`,
 `macos`, `windows`, or `nuttx`, matching the profile bindings in the root

@@ -77,6 +77,11 @@ impl ImuService {
         self
     }
     pub fn start(self) -> io::Result<ImuHandle> {
+        self.start_on(imu::primary())
+    }
+
+    /// Acquire the caller's logical device while keeping service policy portable.
+    pub fn start_on(self, selected: &'static impl imu::Device) -> io::Result<ImuHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
         let sender = control.clone();
         // This endpoint only admits messages; acquisition invokes it in task context.
@@ -91,7 +96,7 @@ impl ImuService {
                     },
                 })
         };
-        let device = imu::open(sink).map_err(hal_error)?;
+        let device = selected.open_default(sink).map_err(hal_error)?;
         Self::start_device(self, device, control, inbox)
     }
 

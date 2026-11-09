@@ -5,8 +5,8 @@ use peripheral::imu::select_rate;
 
 pub(crate) use crate::probe::unsupported as open_probed;
 
-type Session = acquisition::mock::Session<DeviceError>;
-use crate::{AppliedConfig, Config, DeviceError, Event, Imu, ImuSample};
+type MockSession = acquisition::mock::Session<DeviceError>;
+use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 
 const INTERVAL_US: u32 = 10_000;
 
@@ -29,25 +29,25 @@ impl SyntheticImu {
     }
 }
 
-impl Imu for Session {
+impl Session for MockSession {
     fn request_stop(&mut self) -> Result<(), DeviceError> {
-        Session::request_stop(self)
+        MockSession::request_stop(self)
     }
     fn join(&mut self) -> Result<(), DeviceError> {
-        Session::join(self)
+        MockSession::join(self)
     }
     fn is_finished(&self) -> bool {
-        Session::is_finished(self)
+        MockSession::is_finished(self)
     }
     fn dropped(&self) -> u32 {
-        Session::dropped(self)
+        MockSession::dropped(self)
     }
 }
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
-) -> Result<impl Imu + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     let mut model = SyntheticImu::default();
-    Session::start(
+    MockSession::start(
         sink,
         std::time::Duration::from_micros(u64::from(INTERVAL_US)),
         DeviceError::Io,
@@ -72,7 +72,51 @@ pub fn resolve(config: Config) -> Result<AppliedConfig, DeviceError> {
 pub fn open_configured<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     config: Config,
     sink: S,
-) -> Result<(impl Imu + Send + 'static, AppliedConfig), DeviceError> {
+) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
     let applied = resolve(config)?;
     open(sink).map(|session| (session, applied))
 }
+
+struct SelectedDevice(&'static str, crate::instance::Ownership);
+static PRIMARY: SelectedDevice = SelectedDevice("primary", crate::instance::Ownership::new());
+static SECONDARY: SelectedDevice = SelectedDevice("secondary", crate::instance::Ownership::new());
+impl crate::instance::Sealed for SelectedDevice {}
+impl crate::Device for SelectedDevice {
+    fn id(&self) -> &'static str {
+        self.0
+    }
+    fn default_config(&self) -> Result<Config, DeviceError> {
+        Ok(Config {
+            min_rate_millihz: 1_000_000_000 / INTERVAL_US,
+            max_rate_millihz: 1_000_000_000 / INTERVAL_US,
+            accel_range_g: 4,
+            gyro_range_dps: 2000,
+            max_delivery_interval_us: INTERVAL_US,
+        })
+    }
+    fn resolve(&self, config: Config) -> Result<AppliedConfig, DeviceError> {
+        resolve(config)
+    }
+    fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+        &'static self,
+        config: Config,
+        sink: S,
+    ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
+        resolve(config)?;
+        let mut retained = (sink, self.1.take()?);
+        open_configured(config, move |event| {
+            let retained = &mut retained; // Capture the whole tuple; sink drops before lease.
+            (retained.0)(event)
+        })
+    }
+}
+pub mod devices {
+    pub fn primary() -> &'static impl crate::Device {
+        &super::PRIMARY
+    }
+    /// Second independent scripted device in the explicit mock fixture.
+    pub fn secondary() -> &'static impl crate::Device {
+        &super::SECONDARY
+    }
+}
+pub use devices::primary;

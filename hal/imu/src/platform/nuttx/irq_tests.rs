@@ -1,5 +1,5 @@
 //! Source-injected witnesses for the NuttX IMU resource lifecycle.
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 use std::{
     format,
     fs::{self, File, OpenOptions},
@@ -10,7 +10,7 @@ use std::{
     vec::Vec,
 };
 
-static OWNED: AtomicU8 = AtomicU8::new(0);
+static OWNED: crate::instance::Ownership = crate::instance::Ownership::new();
 static SERIAL: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +29,7 @@ struct Fake {
     fail_stop: bool,
     fail_reference: bool,
     irq_asserted: bool,
+    periodic_wake: bool,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -53,6 +54,7 @@ impl Fake {
             fail_stop: false,
             fail_reference: false,
             irq_asserted: true,
+            periodic_wake: false,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -104,7 +106,10 @@ pub(super) mod ffi {
                 0x1d => r.fill(f.regs[0x1d]),
                 0x24 => r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes()),
                 0x25 => r.fill(0),
-                0x26 => {
+                0x3a if address == 0x6a => {
+                    r.copy_from_slice(&((f.fifo.len() / 7) as u16).to_le_bytes())
+                }
+                0x26 | 0x78 => {
                     for byte in r {
                         *byte = f.fifo.remove(0);
                     }
@@ -119,16 +124,20 @@ pub(super) mod ffi {
     pub(super) fn wait(_: i32, _: i32) -> io::Result<bool> {
         Ok(false)
     }
-    pub(super) fn tick(_: i32, _: i32) -> io::Result<bool> {
-        Ok(false)
+    pub(super) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
+        let wake = std::mem::take(&mut FAKE.lock().unwrap().periodic_wake);
+        if wake {
+            std::thread::sleep(std::time::Duration::from_millis(timeout as u64));
+        }
+        Ok(wake)
     }
-    pub(super) fn irq_check(_: i32) -> io::Result<()> {
+    pub(crate) fn irq_check(_: i32) -> io::Result<()> {
         Ok(())
     }
-    pub(super) fn irq_read(_: i32) -> io::Result<bool> {
+    pub(crate) fn irq_read(_: i32) -> io::Result<bool> {
         Ok(FAKE.lock().unwrap().irq_asserted)
     }
-    pub(super) fn irq_register(_: i32) -> io::Result<()> {
+    pub(crate) fn irq_register(_: i32) -> io::Result<()> {
         let mut f = FAKE.lock().unwrap();
         f.registrations += 1;
         if f.fail_register {
@@ -137,7 +146,7 @@ pub(super) mod ffi {
             Ok(())
         }
     }
-    pub(super) fn irq_unregister(_: i32) -> io::Result<()> {
+    pub(crate) fn irq_unregister(_: i32) -> io::Result<()> {
         let mut f = FAKE.lock().unwrap();
         f.registrations -= 1;
         f.unregisters += 1;
@@ -150,33 +159,95 @@ pub(super) mod ffi {
     }
 }
 
+// Decode chip-specific SPI wire bytes independently before reusing the register model.
+// This exercises the real SPI resource and observed-bus wrappers, not a host provider.
+pub(super) mod spi_ffi {
+    use super::*;
+    pub(crate) fn transfer(
+        fd: i32,
+        select: u16,
+        frequency: u32,
+        mode: u8,
+        tx: &[u8],
+        rx: &mut [u8],
+    ) -> io::Result<()> {
+        assert!(select <= 1);
+        assert_eq!((frequency, mode), (4_000_000, 3));
+        let address = if select == 0 { 0x68 } else { 0x6a };
+        let register = tx[0] & 0x7f;
+        if tx[0] & 0x80 != 0 {
+            let prefix = if select == 0 { 2 } else { 1 };
+            assert!(tx[1..].iter().all(|byte| *byte == 0));
+            ffi::transfer(fd, address, frequency, &[register], &mut rx[prefix..])
+        } else {
+            ffi::transfer(fd, address, frequency, tx, &mut [])
+        }
+    }
+}
+
 use acquisition::readiness;
 #[path = "device.rs"]
 mod device;
 #[path = "observed_bus.rs"]
 mod observed_bus;
-use super::resource;
-#[path = "irq.rs"]
-mod irq;
+use self::ffi as events;
+use super::{gpio_resource, resource, spi_resource};
 #[path = "../../session.rs"]
 mod session;
 use super::cadence;
-#[path = "construction.rs"]
-mod construction;
+#[allow(dead_code)]
+#[path = "factory.rs"]
+mod factory;
 use peripheral::imu::Imu as ImuDevice;
 #[path = "signal.rs"]
 mod signal;
 #[path = "trace.rs"]
 mod trace;
 
-type Bmi270Sensor = nxrs_bmi270::Bmi270<observed_bus::Bus, device::Delay>;
+type Bmi270Sensor = nxrs_bmi270::Bmi270<observed_bus::Bus, factory::Delay>;
 type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<observed_bus::Bus>;
 
-fn acquire<S: construction::Construct>(
-    binding: device::Binding<'_>,
+fn acquire_bmi270(
+    binding: factory::I2cBinding<'_>,
     config: crate::Config,
-) -> Result<device::Device<S>, crate::DeviceError> {
-    device::Device::acquire(binding, config, trace::Trace::default())
+) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
+    acquire_bmi270_traced(binding, config, trace::Trace::default())
+}
+
+fn acquire_bmi270_traced(
+    binding: factory::I2cBinding<'_>,
+    config: crate::Config,
+    trace: trace::Trace,
+) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
+    let observed = trace.clone();
+    factory::acquire(
+        config,
+        binding.irq_path,
+        trace,
+        &OWNED,
+        || binding.open(observed),
+        |(bus, address), settings| {
+            Bmi270Sensor::open_configured(bus, address, factory::Delay, settings)
+                .map_err(Into::into)
+        },
+    )
+}
+
+fn acquire_lsm6dso(
+    binding: factory::I2cBinding<'_>,
+    config: crate::Config,
+) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
+    factory::acquire(
+        config,
+        binding.irq_path,
+        trace::Trace::default(),
+        &OWNED,
+        || binding.open(trace::Trace::default()),
+        |(bus, address), settings| {
+            Lsm6dsoSensor::open_configured(bus, address, factory::Delay, settings)
+                .map_err(Into::into)
+        },
+    )
 }
 
 struct DeviceFile(PathBuf);
@@ -204,12 +275,21 @@ impl Drop for DeviceFile {
     }
 }
 
+fn run<S: ImuDevice>(
+    mut device: device::Device<S>,
+    stop: &AtomicBool,
+    wake: &File,
+    emit: &mut dyn FnMut(crate::Event) -> bool,
+) -> Result<(), crate::DeviceError> {
+    device.run(stop, wake, emit)
+}
+
 fn reset() {
-    OWNED.store(0, Ordering::Relaxed);
+    OWNED.0.store(0, Ordering::Relaxed);
     *FAKE.lock().unwrap() = Fake::new();
 }
-fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> device::Binding<'a> {
-    device::Binding {
+fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> factory::I2cBinding<'a> {
+    factory::I2cBinding {
         path,
         address: 0x68,
         frequency: 400_000,
@@ -231,7 +311,7 @@ fn irq_registration_rollback_and_quarantine_are_not_repeated() {
         let file = DeviceFile::new();
         FAKE.lock().unwrap().fail_register = fail_register;
         FAKE.lock().unwrap().fail_unregister = fail_unregister;
-        match irq::Irq::open(file.path()) {
+        match device::open_irq(file.path(), &OWNED) {
             Err(crate::DeviceError::Io) => assert!(fail_register),
             Ok(mut irq) => {
                 assert!(!fail_register);
@@ -245,7 +325,7 @@ fn irq_registration_rollback_and_quarantine_are_not_repeated() {
         assert_eq!(f.registrations, 0);
         assert_eq!(f.unregisters, 1);
         assert_eq!(
-            OWNED.load(Ordering::Relaxed),
+            OWNED.0.load(Ordering::Relaxed),
             if fail_unregister { 2 } else { 0 }
         );
     }
@@ -260,20 +340,26 @@ fn configured_irq_failure_has_no_timer_fallback_and_i2c_failure_detaches_irq() {
 
     reset();
     assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(missing)), default_config()).err(),
+        acquire_bmi270(binding(file.path(), Some(missing)), default_config()).err(),
         Some(crate::DeviceError::Unsupported)
     );
     assert_eq!(FAKE.lock().unwrap().transfers, 0);
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
 
-    reset();
-    assert_eq!(
-        acquire::<Bmi270Sensor>(binding(missing, Some(file.path())), default_config()).err(),
-        Some(crate::DeviceError::Io)
-    );
-    let f = FAKE.lock().unwrap();
-    assert_eq!((f.registrations, f.unregisters), (0, 1));
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    for fail_unregister in [false, true] {
+        reset();
+        FAKE.lock().unwrap().fail_unregister = fail_unregister;
+        assert_eq!(
+            acquire_bmi270(binding(missing, Some(file.path())), default_config()).err(),
+            Some(crate::DeviceError::Io)
+        );
+        let f = FAKE.lock().unwrap();
+        assert_eq!((f.registrations, f.unregisters), (0, 1));
+        assert_eq!(
+            OWNED.0.load(Ordering::Relaxed),
+            if fail_unregister { 2 } else { 0 }
+        );
+    }
 }
 
 #[test]
@@ -300,18 +386,18 @@ fn rejected_requests_do_not_acquire_resources() {
             max_delivery_interval_us: interval,
         };
         assert_eq!(
-            acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), config).err(),
+            acquire_bmi270(binding(file.path(), Some(file.path())), config).err(),
             Some(error)
         );
         assert_eq!(
-            acquire::<Lsm6dsoSensor>(binding(file.path(), Some(file.path())), config).err(),
+            acquire_lsm6dso(binding(file.path(), Some(file.path())), config).err(),
             Some(error)
         );
     }
     let f = FAKE.lock().unwrap();
     assert_eq!(f.transfers, 0);
     assert_eq!((f.registrations, f.unregisters), (0, 0));
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
 }
 
 #[test]
@@ -330,19 +416,19 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
         (alternate.path(), 0x69, 100_000),
     ] {
         reset();
-        let binding = device::Binding {
+        let binding = factory::I2cBinding {
             path,
             address,
             frequency,
             irq_path: None,
         };
-        let device = acquire::<Bmi270Sensor>(binding, default_config()).unwrap();
+        let device = acquire_bmi270(binding, default_config()).unwrap();
         assert_eq!(
             FAKE.lock().unwrap().last_endpoint,
             Some((address, frequency))
         );
         drop(device);
-        assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+        assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
     }
 }
 
@@ -351,7 +437,7 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    let replacement = device::Binding {
+    let replacement = factory::I2cBinding {
         path: file.path(),
         address: 0x6a,
         frequency: 100_000,
@@ -359,11 +445,11 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
     };
     let default = Lsm6dsoSensor::DEFAULT;
     assert_eq!(
-        acquire::<Lsm6dsoSensor>(replacement, default_config()).err(),
+        acquire_lsm6dso(replacement, default_config()).err(),
         Some(crate::DeviceError::Unsupported)
     );
-    let device = acquire::<Lsm6dsoSensor>(
-        device::Binding {
+    let device = acquire_lsm6dso(
+        factory::I2cBinding {
             path: file.path(),
             address: 0x6a,
             frequency: 100_000,
@@ -378,11 +464,27 @@ fn replacement_sensor_uses_the_same_lease_and_reports_its_exact_rate() {
     // The accepted 104 Hz / 4 g / 2000 dps reaches the sensor's control registers.
     assert_eq!(&FAKE.lock().unwrap().regs[0x10..=0x11], &[0x48, 0x4c]);
     assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), None), default_config()).err(),
+        acquire_bmi270(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::Busy)
     );
     drop(device);
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn irq_cleanup_quarantines_only_its_instance() {
+    static LEFT: crate::instance::Ownership = crate::instance::Ownership::new();
+    static RIGHT: crate::instance::Ownership = crate::instance::Ownership::new();
+    let _serial = SERIAL.lock().unwrap();
+    reset();
+    let file = DeviceFile::new();
+    let mut irq = device::open_irq(file.path(), &LEFT).unwrap();
+    FAKE.lock().unwrap().fail_unregister = true;
+    assert!(irq.unregister().is_err());
+    assert!(matches!(LEFT.take(), Err(crate::DeviceError::Io)));
+    assert!(RIGHT.take().is_ok());
+    drop(irq);
+    assert_eq!(FAKE.lock().unwrap().unregisters, 1);
 }
 
 #[test]
@@ -397,7 +499,7 @@ fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
         gyro_range_dps: 2000,
         delivery_interval_us: 10_000,
     };
-    let device = acquire::<Bmi270Sensor>(binding(file.path(), None), defaults).unwrap();
+    let device = acquire_bmi270(binding(file.path(), None), defaults).unwrap();
     assert_eq!(device.applied_config(), expected_defaults);
     drop(device);
 
@@ -409,7 +511,7 @@ fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
         gyro_range_dps: 125,
         max_delivery_interval_us: 20_000,
     };
-    let device = acquire::<Bmi270Sensor>(binding(file.path(), None), requested).unwrap();
+    let device = acquire_bmi270(binding(file.path(), None), requested).unwrap();
     let applied = device.applied_config();
     assert_eq!(applied.rate_millihz, 50_000);
     assert_eq!(applied.accel_range_g, 8);
@@ -431,13 +533,13 @@ fn partial_sensor_setup_quarantines() {
     reset();
     FAKE.lock().unwrap().bad_init = true;
     assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), None), default_config()).err(),
+        acquire_bmi270(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::InvalidData)
     );
-    assert_eq!(OWNED.load(Ordering::Relaxed), 2);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
     let transfers = FAKE.lock().unwrap().transfers;
     assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), None), default_config()).err(),
+        acquire_bmi270(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::Io)
     );
     assert_eq!(FAKE.lock().unwrap().transfers, transfers);
@@ -450,41 +552,41 @@ fn config_readback_mismatch_quarantines_before_publishing_device() {
     reset();
     FAKE.lock().unwrap().bad_config_readback = true;
     assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).err(),
+        acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).err(),
         Some(crate::DeviceError::InvalidData)
     );
-    assert_eq!(OWNED.load(Ordering::Relaxed), 2);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
     let transfers = {
         let fake = FAKE.lock().unwrap();
         assert_eq!((fake.registrations, fake.unregisters), (0, 1));
         fake.transfers
     };
     assert_eq!(
-        acquire::<Bmi270Sensor>(binding(file.path(), None), default_config()).err(),
+        acquire_bmi270(binding(file.path(), None), default_config()).err(),
         Some(crate::DeviceError::Io)
     );
     assert_eq!(FAKE.lock().unwrap().transfers, transfers);
 }
 
 fn join_device(device: device::Device<Bmi270Sensor>) {
-    use crate::Imu;
+    use crate::Session;
     let cancel = readiness::Cancel::new(|| {
         let (reader, writer) = UnixStream::pair()?;
         Ok((OwnedFd::from(reader).into(), OwnedFd::from(writer).into()))
     })
     .unwrap();
     let wake = cancel.reader.clone();
-    let mut worker = session::Session::start(
+    let mut worker = session::WorkerSession::start(
         16384,
         cancel,
         |_| Ok(()),
-        move |stop, emit| device.run(stop, &wake, emit),
+        move |stop, emit| run(device, stop, &wake, emit),
     )
     .unwrap();
     worker.join().unwrap();
     assert!(worker.is_finished());
     assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
 }
 
 #[test]
@@ -493,16 +595,13 @@ fn unpublished_device_and_joined_worker_both_stop_before_detach() {
     let file = DeviceFile::new();
     reset();
     // A cancel setup or thread spawn failure drops the unpublished owner.
-    drop(
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap(),
-    );
+    drop(acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap());
     assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-    assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
 
     reset();
     FAKE.lock().unwrap().irq_asserted = false;
-    let device =
-        acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config()).unwrap();
+    let device = acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
     join_device(device);
 }
 
@@ -513,8 +612,7 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
     for overflow in [false, true] {
         reset();
         let device =
-            acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config())
-                .unwrap();
+            acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
         {
             let mut fake = FAKE.lock().unwrap();
             fake.regs[0x1d] = u8::from(overflow);
@@ -525,7 +623,8 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
             }
         }
         let mut samples = Vec::new();
-        let result = device.run(
+        let result = run(
+            device,
             &AtomicBool::new(false),
             &File::open(file.path()).unwrap(),
             &mut |event| {
@@ -551,7 +650,7 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
             }
         }
         assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
-        assert_eq!(OWNED.load(Ordering::Relaxed), 0);
+        assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
     }
 }
 
@@ -567,10 +666,10 @@ fn failed_stop_or_detach_quarantines_without_repeating_release() {
             f.fail_unregister = fail_unregister;
         }
         let device =
-            acquire::<Bmi270Sensor>(binding(file.path(), Some(file.path())), default_config())
-                .unwrap();
+            acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
         assert_eq!(
-            device.run(
+            run(
+                device,
                 &AtomicBool::new(true),
                 &File::open(file.path()).unwrap(),
                 &mut |_| true
@@ -578,47 +677,44 @@ fn failed_stop_or_detach_quarantines_without_repeating_release() {
             Err(crate::DeviceError::Io)
         );
         let f = FAKE.lock().unwrap();
-        assert_eq!(OWNED.load(Ordering::Relaxed), 2);
+        assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
         assert_eq!((f.registrations, f.unregisters), (0, 1));
         assert_eq!(f.ops, [Op::Stop, Op::Detach]);
+    }
+}
+
+#[test]
+fn partial_reference_setup_releases_the_sensor_and_checks_irq_detach() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for fail_unregister in [false, true] {
+        reset();
+        {
+            let mut fake = FAKE.lock().unwrap();
+            fake.fail_reference = true;
+            fake.fail_unregister = fail_unregister;
+        }
+        assert_eq!(
+            acquire_bmi270(binding(file.path(), Some(file.path())), default_config())
+                .and_then(|device| device
+                    .prepare(|sensor| sensor.enable_sensor_reference().map_err(Into::into)))
+                .err(),
+            Some(crate::DeviceError::Io)
+        );
+        let fake = FAKE.lock().unwrap();
+        assert_eq!(fake.ops, [Op::Stop, Op::Detach]);
+        assert_eq!(fake.regs[0x54] & 0x08, 0);
+        assert_eq!(fake.regs[0x58], 0);
+        assert_eq!(
+            OWNED.0.load(Ordering::Relaxed),
+            if fail_unregister { 2 } else { 0 }
+        );
     }
 }
 
 #[cfg(feature = "probe")]
 mod diagnostics {
     use super::*;
-
-    #[test]
-    fn partial_reference_setup_releases_the_sensor_and_checks_irq_detach() {
-        let _serial = SERIAL.lock().unwrap();
-        let file = DeviceFile::new();
-        for fail_unregister in [false, true] {
-            reset();
-            {
-                let mut fake = FAKE.lock().unwrap();
-                fake.fail_reference = true;
-                fake.fail_unregister = fail_unregister;
-            }
-            let trace = trace::Trace::new(|_| {}, true).unwrap();
-            assert_eq!(
-                device::Device::<Bmi270Sensor>::acquire(
-                    binding(file.path(), Some(file.path())),
-                    default_config(),
-                    trace,
-                )
-                .err(),
-                Some(crate::DeviceError::Io)
-            );
-            let fake = FAKE.lock().unwrap();
-            assert_eq!(fake.ops, [Op::Stop, Op::Detach]);
-            assert_eq!(fake.regs[0x54] & 0x08, 0);
-            assert_eq!(fake.regs[0x58], 0);
-            assert_eq!(
-                OWNED.load(Ordering::Relaxed),
-                if fail_unregister { 2 } else { 0 }
-            );
-        }
-    }
 
     #[test]
     fn timing_marks_worker_io_between_setup_and_cleanup() {
@@ -630,16 +726,16 @@ mod diagnostics {
         reset();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured = events.clone();
-        let trace =
-            trace::Trace::new(move |event| captured.lock().unwrap().push(event), false).unwrap();
-        let device = device::Device::<Bmi270Sensor>::acquire(
+        let trace = trace::Trace::new(move |event| captured.lock().unwrap().push(event)).unwrap();
+        let device = acquire_bmi270_traced(
             binding(file.path(), Some(file.path())),
             default_config(),
             trace,
         )
         .unwrap();
         assert_eq!(
-            device.run(
+            run(
+                device,
                 &AtomicBool::new(false),
                 &File::open(file.path()).unwrap(),
                 &mut |_| true
@@ -684,14 +780,11 @@ mod diagnostics {
         FAKE.lock().unwrap().irq_asserted = false;
         let retained = Arc::new(());
         let observer = retained.clone();
-        let trace = trace::Trace::new(
-            move |_| {
-                let _ = &observer;
-            },
-            false,
-        )
+        let trace = trace::Trace::new(move |_| {
+            let _ = &observer;
+        })
         .unwrap();
-        let device = device::Device::<Bmi270Sensor>::acquire(
+        let device = acquire_bmi270_traced(
             binding(file.path(), Some(file.path())),
             default_config(),
             trace,
@@ -705,4 +798,107 @@ mod diagnostics {
             "join released the observer"
         );
     }
+}
+
+#[test]
+fn spi_factories_share_acquisition_ownership_and_cleanup() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    fn verify<S: ImuDevice>(device: device::Device<S>) {
+        assert_eq!(OWNED.0.load(Ordering::Relaxed), 1);
+        FAKE.lock().unwrap().periodic_wake = true;
+        let mut samples = Vec::new();
+        let expected_interval = 1_000_000_000u32.div_ceil(device.applied_config().rate_millihz);
+        run(
+            device,
+            &AtomicBool::new(false),
+            &File::open("/dev/null").unwrap(),
+            &mut |event| {
+                if let crate::Event::Sample(sample) = event {
+                    samples.push(sample);
+                }
+                true
+            },
+        )
+        .unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].sequence, 1);
+        assert_eq!(samples[0].sample_interval_us, expected_interval);
+        assert!((samples[0].accel_mps2[0] - 9.80665).abs() < 0.01);
+        assert_eq!(OWNED.0.load(Ordering::Relaxed), 0);
+    }
+    for select in [0, 1] {
+        reset();
+        let binding = factory::SpiBinding {
+            path: file.path(),
+            chip_select: select,
+            frequency: 4_000_000,
+            mode: 3,
+            irq_path: None,
+        };
+        {
+            let mut fake = FAKE.lock().unwrap();
+            for (sensor, xyz) in [(1u8, [0i16, 0, 16384]), (2, [8192, 0, 0])] {
+                if select == 1 {
+                    fake.fifo.push((sensor << 3) | 1);
+                } // Even-parity LSM tags.
+                for axis in xyz {
+                    fake.fifo.extend_from_slice(&axis.to_le_bytes());
+                }
+            }
+        }
+        if select == 0 {
+            type Sensor = nxrs_bmi270::Bmi270Spi<observed_bus::Spi, factory::Delay>;
+            verify(
+                factory::acquire(
+                    Sensor::DEFAULT,
+                    None,
+                    trace::Trace::default(),
+                    &OWNED,
+                    || binding.open(trace::Trace::default()),
+                    |bus, settings| {
+                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                    },
+                )
+                .unwrap(),
+            );
+            assert_eq!(FAKE.lock().unwrap().regs[0x7d], 0);
+        } else {
+            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<observed_bus::Spi>;
+            verify(
+                factory::acquire(
+                    Sensor::DEFAULT,
+                    None,
+                    trace::Trace::default(),
+                    &OWNED,
+                    || binding.open(trace::Trace::default()),
+                    |bus, settings| {
+                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                    },
+                )
+                .unwrap(),
+            );
+            assert_eq!(&FAKE.lock().unwrap().regs[0x10..=0x11], &[0, 0]);
+        }
+    }
+    reset();
+    FAKE.lock().unwrap().bad_init = true;
+    type Sensor = nxrs_bmi270::Bmi270Spi<observed_bus::Spi, factory::Delay>;
+    let binding = factory::SpiBinding {
+        path: file.path(),
+        chip_select: 0,
+        frequency: 4_000_000,
+        mode: 3,
+        irq_path: None,
+    };
+    let result = factory::acquire(
+        Sensor::DEFAULT,
+        None,
+        trace::Trace::default(),
+        &OWNED,
+        || binding.open(trace::Trace::default()),
+        |bus, settings| Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into),
+    );
+    assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));
+    assert_eq!(OWNED.0.load(Ordering::Relaxed), 2);
 }

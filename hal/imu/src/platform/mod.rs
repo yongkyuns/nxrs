@@ -1,6 +1,8 @@
 //! Select one checked-in implementation from the resolved profile.
 #[cfg(all(hal_provider = "hardware", target_os = "nuttx"))]
-use ::i2c as resource;
+use {
+    ::gpio as gpio_resource, ::i2c as resource, ::spi as spi_resource, acquisition::nuttx as events,
+};
 
 #[cfg_attr(
     all(hal_provider = "hardware", target_os = "nuttx"),
@@ -17,6 +19,6 @@ use ::i2c as resource;
     path = "unbound.rs"
 )]
 mod selected;
-pub use selected::{open, open_configured, resolve};
+pub use selected::{devices, primary};
 
 pub(crate) use selected::open_probed;

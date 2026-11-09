@@ -20,6 +20,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   are implemented. Use the profile resolver and normal build/inspection entry
   points. Keep retired sensor selectors and their translation paths out of new wiring.
 - Keep managed capability APIs and acquisition implementations in their HALs.
+  HALs are capability/subsystem boundaries, not vendor register HALs. Reuse Rust
+  `std` directly; do not add a mandatory driver layer for ordinary OS operations.
+  Capability-specific native adapters stay with their owning HAL. Threads,
+  queues and executors require an execution need, not merely another component.
   Reusable chip protocols belong in `driver/<device>` with sensor-specific APIs
   over existing Rust bus traits. Shared synchronous device contracts belong in
   `driver/peripheral`; chip drivers implement them directly. The IMU contract
@@ -37,14 +41,23 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   OS-specific code stays under its actual OS directory. Do not copy std code
   into OS folders or reintroduce `std`/`native` pseudo-platforms.
 
-- Reusable controller access belongs in `driver/<bus>`. `driver/i2c` supports
-  NuttX only, owning the descriptor and embedded-hal implementation. Sensor HALs
-  supply resolved configuration and own sensor policy; chip drivers consume bus
-  traits without depending on the concrete adapter. Do not add speculative OS
+- Reusable hardware resource access belongs in `driver/<resource>`. `driver/i2c`
+  and `driver/gpio` support NuttX only and own their descriptors and embedded-hal
+  implementations. GPIO owns registration/rollback and reports teardown failures
+  through a task-context hook; the consuming HAL retains quarantine policy.
+  `hal/acquisition` is shared worker/readiness implementation support, with one
+  NuttX poll/pipe binding used by IMU and GNSS. It has no profile binding and
+  shares worker code, not an executor. `imu::Session` and `gnss::Session` describe
+  acquisition lifetimes; synchronous chip operations remain driver contracts.
+  Sensor HALs supply resolved configuration and own sensor policy; chip drivers
+  consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile role. Host witnesses inject
-  test-only bus bindings. Sensor catalogs name
-  checked-in implementation types; shared tooling emits fixed typed resource
-  bindings. Do not restore per-field Rust schemas or model-enum mappings.
+  test-only bus bindings. IMU drivers own their `bindings.toml` declarations;
+  the HAL imports them through declared normal Cargo path dependencies. Product
+  profiles select actual endpoints and addresses. Shared tooling emits fixed
+  typed resource bindings and checked-in factory selections. Acquisition consumes
+  constructed devices through the shared contract, without chip constructor traits.
+  Do not restore per-field Rust schemas or model-enum mappings.
 
 - Product profiles own device/resource composition. NuttX BSP/configuration owns
   MCU wiring and registration. A resolved hardware profile must select concrete

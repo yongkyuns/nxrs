@@ -1,11 +1,16 @@
 # LSM6DSO driver
 
 `nxrs-lsm6dso` is an original, synchronous Rust `std` register/FIFO driver over
-`embedded-hal` 1.0 `I2c` and caller-supplied `DelayNs`. The protocol choices are
+`embedded-hal` 1.0 `I2c` or `SpiDevice` and caller-supplied `DelayNs`. The protocol choices are
 based on ST datasheet DS12140 Rev 3 (2024), and FIFO behavior also on ST
 application note AN5192 Rev 6. ST's documents are copyright STMicroelectronics;
 all rights are reserved. This crate does not copy ST source code. The driver
 source is distributed under the workspace MIT license.
+
+[bindings.toml](bindings.toml) declares supported I²C addresses, SPI modes, bus
+frequencies and readiness modes for profile validation. A product profile chooses the actual
+bus and address or chip select; NuttX configures the physical pins. The current Nxrs binding
+admits periodic acquisition only; the chip's interrupt capability is separate.
 
 Supported paired ODRs are the exact silicon rates 12.5, 26, 52, 104, and 208
 Hz. `Rate::SUPPORTED` enumerates the typed rates. `AccelRange::from_g()` and
@@ -28,3 +33,8 @@ The driver directly implements `peripheral::imu::Imu` alongside its chip API.
 The shared contract returns SI measurements and explicit FIFO/overflow semantics;
 chip-specific samples retain their slot metadata. HAL IMU owns stream timing,
 readiness, acquisition and resource lifetime.
+
+`Lsm6dsoSpi::open_spi` uses the same initialization, FIFO and normalized-device
+implementation. Its SPI reads have no extra dummy byte; each register operation
+is one `SpiDevice` transaction. Host witnesses check this framing, normalized
+FIFO samples, overflow and shutdown errors. Physical SPI remains unqualified.

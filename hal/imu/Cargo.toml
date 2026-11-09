@@ -10,7 +10,7 @@ name = "imu"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
-bindings = ["bindings.toml"]
+bindings = [{ dependency = "nxrs-bmi270" }, { dependency = "nxrs-lsm6dso" }]
 
 [features]
 probe = []
@@ -18,19 +18,23 @@ probe = []
 [dependencies]
 nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
-nxrs-acquisition = { path = "../../driver/acquisition" }
+nxrs-acquisition = { path = "../acquisition" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
 nxrs-i2c = { path = "../../driver/i2c" }
+nxrs-spi = { path = "../../driver/spi" }
+nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 embedded-hal = "=1.0.0"
 
 [dev-dependencies]
 nxrs-i2c = { path = "../../driver/i2c" }
+nxrs-spi = { path = "../../driver/spi" }
+nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 embedded-hal = "=1.0.0"

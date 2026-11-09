@@ -36,6 +36,12 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
     let path = path.canonicalize().map_err(|e| e.to_string())?;
     let app = manifest(&path)?;
     validate_metadata(&app)?;
+    let qualification_only =
+        app.pointer("/package/metadata/nxrs/qualification-only") == Some(&Value::Bool(true));
+    let composition = profile.composition()?;
+    let qualification = composition
+        .as_ref()
+        .is_some_and(|graph| graph.mode() == nxrs_build_support::composition::Mode::Qualification);
     let hal = root.join("hal").canonicalize().map_err(|e| e.to_string())?;
     if let Some(deps) = app["dependencies"].as_object() {
         for (alias, dep) in deps {
@@ -47,8 +53,11 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
             })?;
             if let Ok(relative) = target.strip_prefix(&hal) {
                 let name = relative.to_str().ok_or("invalid HAL dependency path")?;
+                // Runtime witnesses exercise the shared worker directly, without
+                // admitting implementation helpers to ordinary applications.
+                let runtime_witness = qualification_only && qualification && name == "acquisition";
                 if relative.components().count() != 1
-                    || (!CAPABILITIES.contains(&name) && name != "common")
+                    || (!CAPABILITIES.contains(&name) && name != "common" && !runtime_witness)
                 {
                     return Err(format!(
                         "application dependency {alias} selects a concrete HAL implementation"
@@ -72,13 +81,7 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         }
     }
     profile.validate_target(os)?;
-    let composition = profile.composition()?;
-    let qualification = composition
-        .as_ref()
-        .is_some_and(|graph| graph.mode() == nxrs_build_support::composition::Mode::Qualification);
-    if qualification
-        && app.pointer("/package/metadata/nxrs/qualification-only") != Some(&Value::Bool(true))
-    {
+    if qualification && !qualification_only {
         return Err(
             "qualification composition requires package.metadata.nxrs.qualification-only = true"
                 .into(),

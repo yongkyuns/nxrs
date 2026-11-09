@@ -59,11 +59,22 @@ path = "src/main.rs"
 }
 
 fn write_imu_fixture(root: &Path) {
-    let directory = root.join("hal/imu");
-    fs::create_dir_all(&directory).unwrap();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../hal/imu");
-    for file in ["Cargo.toml", "bindings.toml"] {
-        fs::copy(source.join(file), directory.join(file)).unwrap();
+    let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for package in ["hal/imu", "driver/bmi270", "driver/lsm6dso"] {
+        let directory = root.join(package);
+        fs::create_dir_all(&directory).unwrap();
+        fs::copy(
+            sdk.join(package).join("Cargo.toml"),
+            directory.join("Cargo.toml"),
+        )
+        .unwrap();
+        if package.starts_with("driver/") {
+            fs::copy(
+                sdk.join(package).join("bindings.toml"),
+                directory.join("bindings.toml"),
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -217,7 +228,13 @@ fn profile_cli_reports_the_resolved_imu_and_its_provenance() {
             .to_str()
             .unwrap()
     );
-    assert_eq!(composition["binding-sources"][0], "hal/imu/bindings.toml");
+    assert_eq!(
+        composition["binding-sources"],
+        serde_json::json!([
+            "driver/bmi270/bindings.toml",
+            "driver/lsm6dso/bindings.toml"
+        ])
+    );
 }
 
 #[test]

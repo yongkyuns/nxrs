@@ -1,8 +1,8 @@
 //! Deterministic synthetic GNSS for architecture demonstrations.
 #![forbid(unsafe_code)]
 
-type Session = acquisition::mock::Session<DeviceError>;
-use crate::{DeviceError, Event, Gnss, GnssFix};
+type MockSession = acquisition::mock::Session<DeviceError>;
+use crate::{DeviceError, Event, GnssFix, Session};
 
 #[derive(Default)]
 struct SyntheticGnss {
@@ -27,25 +27,25 @@ impl SyntheticGnss {
     }
 }
 
-impl Gnss for Session {
+impl Session for MockSession {
     fn request_stop(&mut self) -> Result<(), DeviceError> {
-        Session::request_stop(self)
+        MockSession::request_stop(self)
     }
     fn join(&mut self) -> Result<(), DeviceError> {
-        Session::join(self)
+        MockSession::join(self)
     }
     fn is_finished(&self) -> bool {
-        Session::is_finished(self)
+        MockSession::is_finished(self)
     }
     fn dropped(&self) -> u32 {
-        Session::dropped(self)
+        MockSession::dropped(self)
     }
 }
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
-) -> Result<impl Gnss + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     let mut model = SyntheticGnss::default();
-    Session::start(
+    MockSession::start(
         sink,
         std::time::Duration::from_millis(200),
         DeviceError::Io,
