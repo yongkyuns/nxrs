@@ -193,7 +193,7 @@ use self::ffi as events;
 use super::{gpio_resource, resource, spi_resource};
 #[allow(dead_code)]
 #[path = "../../../../platform/devices/imu/src/nuttx/resources.rs"]
-mod factory;
+mod resources;
 #[allow(dead_code)]
 #[path = "../../src/platform/nuttx/factory.rs"]
 mod runtime_factory;
@@ -204,18 +204,18 @@ use trace::{Observed, Trace};
 mod signal;
 use super::trace;
 
-type Bmi270Sensor = nxrs_bmi270::Bmi270<factory::Bus, factory::Delay>;
-type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<factory::Bus>;
+type Bmi270Sensor = nxrs_bmi270::Bmi270<resources::Bus, resources::Delay>;
+type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<resources::Bus>;
 
 fn acquire_bmi270(
-    binding: factory::I2cBinding<'_>,
+    binding: resources::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     acquire_bmi270_traced(binding, config, trace::Trace::default())
 }
 
 fn acquire_bmi270_traced(
-    binding: factory::I2cBinding<'_>,
+    binding: resources::I2cBinding<'_>,
     config: crate::Config,
     trace: trace::Trace,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
@@ -227,14 +227,14 @@ fn acquire_bmi270_traced(
         &DEVICE_STATE,
         || binding.open(observed),
         |(bus, address), settings| {
-            Bmi270Sensor::open_configured(bus, address, factory::Delay, settings)
+            Bmi270Sensor::open_configured(bus, address, resources::Delay, settings)
                 .map_err(Into::into)
         },
     )
 }
 
 fn acquire_lsm6dso(
-    binding: factory::I2cBinding<'_>,
+    binding: resources::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
     runtime_factory::acquire(
@@ -244,7 +244,7 @@ fn acquire_lsm6dso(
         &DEVICE_STATE,
         || binding.open(trace::Trace::default()),
         |(bus, address), settings| {
-            Lsm6dsoSensor::open_configured(bus, address, factory::Delay, settings)
+            Lsm6dsoSensor::open_configured(bus, address, resources::Delay, settings)
                 .map_err(Into::into)
         },
     )
@@ -294,8 +294,8 @@ fn reset() {
         .store(State::Available as u8, Ordering::Relaxed);
     *FAKE.lock().unwrap() = Fake::new();
 }
-fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> factory::I2cBinding<'a> {
-    factory::I2cBinding {
+fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> resources::I2cBinding<'a> {
+    resources::I2cBinding {
         path,
         address: 0x68,
         frequency: 400_000,
@@ -424,7 +424,7 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
         (alternate.path(), 0x69, 100_000),
     ] {
         reset();
-        let binding = factory::I2cBinding {
+        let binding = resources::I2cBinding {
             path,
             address,
             frequency,
@@ -445,7 +445,7 @@ fn replacement_sensor_uses_the_same_state_and_reports_its_exact_rate() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    let replacement = factory::I2cBinding {
+    let replacement = resources::I2cBinding {
         path: file.path(),
         address: 0x6a,
         frequency: 100_000,
@@ -457,7 +457,7 @@ fn replacement_sensor_uses_the_same_state_and_reports_its_exact_rate() {
         Some(crate::DeviceError::Unsupported)
     );
     let device = acquire_lsm6dso(
-        factory::I2cBinding {
+        resources::I2cBinding {
             path: file.path(),
             address: 0x6a,
             frequency: 100_000,
@@ -839,7 +839,7 @@ fn spi_factories_share_device_state_and_cleanup() {
     }
     for select in [0, 1] {
         reset();
-        let binding = factory::SpiBinding {
+        let binding = resources::SpiBinding {
             path: file.path(),
             chip_select: select,
             frequency: 4_000_000,
@@ -858,7 +858,7 @@ fn spi_factories_share_device_state_and_cleanup() {
             }
         }
         if select == 0 {
-            type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
+            type Sensor = nxrs_bmi270::Bmi270Spi<resources::Spi, resources::Delay>;
             verify(
                 runtime_factory::acquire(
                     Sensor::DEFAULT,
@@ -867,14 +867,14 @@ fn spi_factories_share_device_state_and_cleanup() {
                     &DEVICE_STATE,
                     || binding.open(trace::Trace::default()),
                     |bus, settings| {
-                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                        Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into)
                     },
                 )
                 .unwrap(),
             );
             assert_eq!(FAKE.lock().unwrap().regs[0x7d], 0);
         } else {
-            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<factory::Spi>;
+            type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<resources::Spi>;
             verify(
                 runtime_factory::acquire(
                     Sensor::DEFAULT,
@@ -883,7 +883,7 @@ fn spi_factories_share_device_state_and_cleanup() {
                     &DEVICE_STATE,
                     || binding.open(trace::Trace::default()),
                     |bus, settings| {
-                        Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into)
+                        Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into)
                     },
                 )
                 .unwrap(),
@@ -893,8 +893,8 @@ fn spi_factories_share_device_state_and_cleanup() {
     }
     reset();
     FAKE.lock().unwrap().bad_init = true;
-    type Sensor = nxrs_bmi270::Bmi270Spi<factory::Spi, factory::Delay>;
-    let binding = factory::SpiBinding {
+    type Sensor = nxrs_bmi270::Bmi270Spi<resources::Spi, resources::Delay>;
+    let binding = resources::SpiBinding {
         path: file.path(),
         chip_select: 0,
         frequency: 4_000_000,
@@ -907,7 +907,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         trace::Trace::default(),
         &DEVICE_STATE,
         || binding.open(trace::Trace::default()),
-        |bus, settings| Sensor::open_spi(bus, factory::Delay, settings).map_err(Into::into),
+        |bus, settings| Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into),
     );
     assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));
     assert_state(State::Faulted);

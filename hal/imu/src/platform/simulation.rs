@@ -1,7 +1,6 @@
 //! Normalize observations from the profile's shared simulation session.
+use crate::device_state;
 use peripheral::imu::select_rate;
-#[path = "../device_state.rs"]
-mod device_state;
 
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 use acquisition::Worker;

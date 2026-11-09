@@ -94,6 +94,8 @@ extern crate self as imu;
 pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 #[cfg(unix)] pub use api::Device;
 #[path = @SESSION@] mod session;
+#[cfg(unix)]
+#[path = @DEVICE_STATE@] mod device_state;
 #[cfg(not(unix))] pub trait Device {}
 // Every host checks generated bindings below. Unix hosts additionally compile
 // the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
@@ -130,7 +132,7 @@ mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [
 // the generated declaration/alias syntax against its typed resource contracts.
 #[cfg(not(unix))]
 mod production {
-    mod factory {
+    mod resources {
         pub struct I2cBinding<'a> { pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
         pub type I2cResource = (); pub type SpiResource = ();
         pub struct SpiBinding<'a> { pub path: &'a str, pub chip_select: u16, pub mode: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
@@ -167,6 +169,7 @@ fn main() {
         )
         .replace("@SPI@", &format!("{:?}", source.join("driver/spi/tests/support/mod.rs")))
         .replace("@SESSION@", &format!("{:?}", source.join("hal/imu/src/session.rs")))
+        .replace("@DEVICE_STATE@", &format!("{:?}", source.join("hal/imu/src/device_state.rs")))
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
         .replace(
             "@PROBE@",

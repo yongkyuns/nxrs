@@ -44,7 +44,7 @@ fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, Stri
         } => {
             let address = device.address.ok_or("I2C device requires an address")?;
             let irq_path = irq_path()?;
-            ("factory::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
+            ("resources::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
         }
         Resource::Spi {
             device: path,
@@ -55,7 +55,7 @@ fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, Stri
                 .ok_or("SPI device requires chip-select")?;
             let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
             let irq_path = irq_path()?;
-            ("factory::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
+            ("resources::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
         }
         Resource::Uart { device: path, baud } => {
             ("Binding", format!("path: {path:?}, baud: {baud}"))
@@ -89,8 +89,8 @@ pub fn render_imu_instances(
             _ => return Err("IMU requires an I2C or SPI bus".into()),
         };
         let resources = match bus {
-            "i2c" => "factory::I2cResource",
-            "spi" => "factory::SpiResource",
+            "i2c" => "resources::I2cResource",
+            "spi" => "resources::SpiResource",
             _ => unreachable!(),
         };
         let binding = catalogs.binding("imu", &device.compatible, bus)?;
@@ -168,7 +168,7 @@ mod tests {
             trait Device {{}}
             mod imu_wiring {{
                 mod implementations {{ pub struct AnotherSensor; }}
-                mod factory {{ pub type I2cResource = (); pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
+                mod resources {{ pub type I2cResource = (); pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
                 struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
                 impl<S, R> crate::Device for Instance<S, R> {{}}
                 macro_rules! declare_device {{

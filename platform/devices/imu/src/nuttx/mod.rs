@@ -3,9 +3,8 @@ use super::{resource, spi_resource};
 use imu::construction::{Instance, Observed, Trace};
 use imu::{AppliedConfig, Config, DeviceError, Event, Session};
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
-#[path = "resources.rs"]
-mod factory;
-use factory::{Bus, Delay, Spi};
+mod resources;
+use resources::{Bus, Delay, Spi};
 
 #[allow(dead_code, reason = "Profiles select concrete implementations.")]
 mod implementations {

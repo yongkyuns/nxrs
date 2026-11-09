@@ -1,7 +1,6 @@
 //! Deterministic synthetic IMU for architecture demonstrations.
 #![forbid(unsafe_code)]
-#[path = "../device_state.rs"]
-mod device_state;
+use crate::device_state;
 
 use peripheral::imu::select_rate;
 
