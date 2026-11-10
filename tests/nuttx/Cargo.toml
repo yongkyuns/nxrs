@@ -24,5 +24,5 @@ nxrs-storage = { path = "../../hal/storage" }
 nxrs-transport = { path = "../../hal/transport" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-recording-service = { path = "../../service/recording" }
-nxrs-applications = { path = "../../app/nxrs", default-features = false }
+nxrs-camera-test-support = { path = "../camera-support" }
 nxrs-nuttx-support = { path = "support" }

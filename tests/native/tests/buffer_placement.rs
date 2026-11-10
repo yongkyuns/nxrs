@@ -3,7 +3,7 @@ use std::net::UdpSocket;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nxrs_applications::{CameraProduct, Error as AppError};
+use camera_test_support::{CameraProduct, Error as AppError};
 use camera::{Camera, Capture, DeviceError, Format, PixelFormat, ReplayCamera};
 use storage::recording::{read_record, FileRecorder, StorageLimits};
 use transport::udp::UdpTransport;

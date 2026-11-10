@@ -71,10 +71,10 @@ navigation services but creates two ImuService/FusionService pipelines. The two
 service-owned IMU acquisitions are independent; app instances do not require a
 global resource registry or application-defined HAL instance IDs.
 
-app/nxrs follows the same provider-hiding rule for its native replay
-profile. It acquires camera, storage and transport through `nxrs-camera`,
-`nxrs-storage`, and `nxrs-transport`, then moves those resources into
-CameraService, RecordingService and TelemetryService.
+`app/home-cam` is the home-monitoring product. It acquires camera and radio
+capabilities through their HAL APIs and composes streaming, detection,
+enrollment and update services. The retired replay demo is no longer an app;
+its camera/recording/telemetry composition exists only in `tests/camera-support`.
 App and service code has no OS or board knowledge. Apps select named IMUs
 through the portable device catalogue; services receive those references.
 HAL factories own admission and acquisition, including typed `Unsupported`
@@ -346,7 +346,7 @@ For example:
 ImuService -> imu                 # package nxrs-imu
                 -> private provider module selected by profile
 
-app/nxrs -> camera               # package nxrs-camera
+app/home-cam -> camera            # package nxrs-camera
                 -> private provider module selected by profile
 ~~~
 
@@ -511,18 +511,15 @@ profiles.
 
 ## Camera stack
 
-The camera/recording/telemetry stack keeps its capability-first
-camera/storage/transport split. With `NXRS_PLATFORM=linux`, app/nxrs acquires
-those capabilities through the `camera`, `storage`, and `transport` crate
-roots, then transfers ownership into the existing services.
+The camera/recording/telemetry services remain generic over their capability
+contracts. `tests/camera-support` composes them for native, NuttX and browser
+qualification; no production package depends on that helper. Native tests use
+explicit replay, directory recording and UDP APIs, independently of hardware
+admission. See [native qualification](native-backend.md).
 
-The services remain generic over their capability contracts; this migration does
-not add service factories or a runtime registry merely to hide construction.
-Future NuttX/web bindings should use the same provider-hiding rule while
-preserving capability-level build exclusion.
-
-Existing native/NuttX/browser qualification remains valid within its documented
-scope.
+Product-level camera integration belongs to `app/home-cam`, which owns the
+streaming and monitoring lifecycle. Replay qualification does not establish
+physical capture or radio behavior.
 
 ## Build policy
 

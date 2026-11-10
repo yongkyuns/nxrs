@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nxrs_applications::CameraProduct;
+use camera_test_support::CameraProduct;
 use camera::{Camera, Capture, DeviceError, Format, Frame, PixelFormat, ReplayCamera};
 use storage::recording::{read_record, FileRecorder, StorageLimits};
 use storage::Storage;
 use transport::udp::UdpTransport;
 use transport::PacketSink;
-use nxrs_applications::Error;
+use camera_test_support::Error;
 use recording_service::Error as RecordingError;
 
 const FORMAT: Format = Format { width: 2, height: 2, pixels: PixelFormat::Gray8 };
@@ -188,7 +188,7 @@ fn udp_uses_real_loopback_datagrams_with_independent_owners() {
 }
 
 #[test]
-fn unchanged_applications_compose_real_replay_disk_and_udp_adapters() {
+fn shared_services_compose_real_replay_disk_and_udp_adapters() {
     let temp = Temp::new();
     let source = temp.join("source.raw");
     fs::write(&source, [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).unwrap();
@@ -223,15 +223,35 @@ fn unchanged_applications_compose_real_replay_disk_and_udp_adapters() {
             result => { result.unwrap(); break; }
         }
     }
-    drop(product); // joins the actual filesystem worker
-    assert_eq!(read_record(record_path(&directory, 1), 16).unwrap().bytes, [1; 4]);
-    assert_eq!(read_record(record_path(&directory, 3), 16).unwrap().bytes, [3; 4]);
+    drop(product); // accepted records have passed the flush barrier
+    // Decode the persisted bytes independently of the production record reader.
+    for sequence in [1_u64, 3] {
+        let bytes = fs::read(record_path(&directory, sequence)).unwrap();
+        assert_eq!(bytes.len(), 44);
+        assert_eq!(&bytes[..8], b"RCAMREC1");
+        assert_eq!(&bytes[8..16], &[2, 0, 2, 0, 0, 0, 0, 0]);
+        assert_eq!(u64::from_le_bytes(bytes[16..24].try_into().unwrap()), sequence);
+        assert_eq!(u64::from_le_bytes(bytes[24..32].try_into().unwrap()), (sequence - 1) * 10);
+        assert_eq!(u64::from_le_bytes(bytes[32..40].try_into().unwrap()), 4);
+        assert_eq!(&bytes[40..], &[sequence as u8; 4]);
+    }
     assert!(!record_path(&directory, 2).exists());
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 2); // no partial files
     let mut sequences = Vec::new();
     for _ in 0..3 {
         let mut bytes = [0; 64];
         assert_eq!(receiver.recv(&mut bytes).unwrap(), 28);
-        sequences.push(u64::from_le_bytes(bytes[8..16].try_into().unwrap()));
+        assert_eq!(&bytes[..8], &[1, 0, 2, 0, 2, 0, 0, 0]);
+        let sequence = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+        assert!((1..=3).contains(&sequence));
+        assert_eq!(u64::from_le_bytes(bytes[16..24].try_into().unwrap()), (sequence - 1) * 10);
+        // Independent FNV-1a calculation over the known source payload, not
+        // the telemetry encoder or record decoder.
+        let checksum = [sequence as u8; 4].iter().fold(2_166_136_261_u32, |hash, byte| {
+            (hash ^ u32::from(*byte)).wrapping_mul(16_777_619)
+        });
+        assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), checksum);
+        sequences.push(sequence);
     }
     sequences.sort_unstable();
     assert_eq!(sequences, [1, 2, 3]);

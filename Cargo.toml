@@ -2,7 +2,6 @@
 resolver = "2"
 exclude = ["vendor/microflow"]
 members = [
-    "app/nxrs",
     "app/event-demo",
     "app/dual-imu-demo",
     "app/std-demo",
@@ -54,6 +53,7 @@ members = [
     "tests/service-footprint",
     "tests/portable",
     "tests/native",
+    "tests/camera-support",
     "tests/nuttx",
     "tests/browser-threads",
     "tests/nuttx-std/resources",
@@ -71,7 +71,6 @@ members = [
 ]
 default-members = [
     "platform/devices/imu",
-    "app/nxrs",
     "app/std-demo",
     "app/ao-stress",
     "app/home-cam",

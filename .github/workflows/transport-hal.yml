@@ -15,7 +15,8 @@ on:
       - 'tools/platform_config.py'
       - 'tools/check-hal-isolation.py'
       - 'tests/host/test_transport_isolation.py'
-      - 'tests/host/test-native-runner.py'
+      - 'tests/native/**'
+      - 'tests/camera-support/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/transport-hal.yml'
@@ -45,17 +46,16 @@ jobs:
         run: |
           python -m unittest discover -s tests/host -p test_transport_isolation.py -v
           python tools/check-hal-isolation.py --capability transport --out target/transport-isolation
-      - name: Check socket ownership, rejection and app startup allocation
+      - name: Check socket ownership and rejection
         run: |
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport --features udp
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-transport --features udp
-          NXRS_PLATFORM=linux cargo test --locked -p nxrs-applications --bin nxrs
       - name: Real loopback UDP without a hardware profile
         run: |
           env -u NXRS_PLATFORM cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
           env -u NXRS_PLATFORM cargo clippy --locked -p nxrs-transport --features udp --all-targets -- -D warnings
-      - name: CLI disk and UDP outputs under unset, mock and native profiles
-        run: python tests/host/test-native-runner.py
+      - name: Native camera qualification with independent disk and UDP decoding
+        run: python tests/native/qualify.py
       - name: Lint portable and native transport selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --features udp --all-targets -- -D warnings

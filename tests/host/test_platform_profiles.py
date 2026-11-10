@@ -363,7 +363,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
-        self.assertEqual(apps, sorted([*FIRMWARE_APPS,"nxrs"]))
+        self.assertEqual(apps, sorted(FIRMWARE_APPS))
 
         platforms = self.cargo_firmware("--list-platforms").stdout.splitlines()
         self.assertEqual(platforms,["wroom","cores3","pico2w","linux","macos","windows","web"])

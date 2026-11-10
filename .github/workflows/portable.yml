@@ -134,14 +134,8 @@ jobs:
         run: |
           cargo test --locked -p nxrs-storage --features recording --test std_recording
           cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
-      - name: Event-driven native owner unit tests
-        env:
-          NXRS_PLATFORM: ${{ matrix.platform }}
-        run: cargo test --locked -p nxrs-applications --bin nxrs
-      - name: Native HAL integration qualification
-        env:
-          NXRS_PLATFORM: ${{ matrix.platform }}
-        run: cargo test --locked -p nxrs-native-integration
+      - name: Native HAL integration under unset, mock and host profiles
+        run: python tests/native/qualify.py
       - name: Scan fixture single-wait owner tests
         run: |
           cargo test --locked -p nxrs-std-wifi --lib
@@ -194,12 +188,10 @@ jobs:
           cargo test --locked -p nxrs-simulator
           cargo test --locked -p nxrs-navigation-services --lib --test active
           cargo run --locked -p nxrs-simulator --bin nxrs-simulator
-      - name: App-owned CLI with independently decoded disk and UDP outputs
-        run: python tests/host/test-native-runner.py
-      - name: Lint production crates and selected app binary
+      - name: Lint capability APIs, services and test composition
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}
-        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-applications --lib --bins -- -D warnings
+        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
 
   no-std:
     name: No-std Cortex-M0 compile
@@ -213,8 +205,8 @@ jobs:
         with:
           toolchain: 1.90.0
           targets: thumbv6m-none-eabi,wasm32-unknown-unknown
-      - name: Compile app library and services without selecting a backend
-        run: cargo check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
+      - name: Compile shared qualification and services without selecting a backend
+        run: cargo check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
       - name: Compile allocation-free radio contracts and controllers
         run: cargo check --locked -p nxrs-wifi -p nxrs-ble --no-default-features --lib --target thumbv6m-none-eabi
       - name: Verify sensor contract and mock dependency isolation

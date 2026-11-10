@@ -21,7 +21,7 @@ cleanly to NSH. The injected failure command was rejected. Artifact
 `886f1abf27994de1c7fe1968de9fe4ecbc07f6aad0b31458b3022738a39a1db6`.
 
 This qualifies full behavior under ESP32-S3 emulation, not physical camera/radio
-hardware or the final production `app/nxrs` firmware packaging. The x86
+hardware or the production `app/home-cam` firmware. The x86
 NuttX simulator remains a separate core-only compatibility oracle.
 
 

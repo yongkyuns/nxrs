@@ -95,10 +95,10 @@ The review's main implementation gaps remain:
   packaging remain separate work. [R11], [R13], [R14]
 - IMU/GNSS demonstrate service-owned HAL acquisition: app/event-demo creates
   services only and those services acquire their capabilities internally.
-  The native camera/storage/transport profile now demonstrates the other valid
-  case: app/nxrs acquires portable HAL capabilities directly, then transfers
-  ownership into the generic services. Neither app path names concrete provider
-  packages, and the former checker exception has been removed. [R01], [R12]
+  The former replay demo demonstrated direct capability ownership and transfer
+  into generic services. That composition now lives only in
+  `tests/camera-support`; `app/home-cam` is the camera product. Neither app path
+  names concrete provider packages. [R01], [R12]
 
 Retain the existing lifetime checks, staging isolation, sequence-gap reporting,
 independent byte/ABI oracles, target link checks, and failure tests. Full current

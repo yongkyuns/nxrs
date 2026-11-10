@@ -17,6 +17,8 @@ on:
       - 'tools/check-hal-isolation.py'
       - 'tests/host/test_transport_isolation.py'
       - 'tests/host/test_architecture.py'
+      - 'tests/native/**'
+      - 'tests/camera-support/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/transport-hal-self-hosted.yml'
@@ -61,11 +63,11 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_transport_isolation.py -v
           python3 tools/check-hal-isolation.py --capability transport --out target/transport-isolation
 
-      - name: Check ownership, rejection and app startup allocation
+      - name: Check ownership, rejection and native composition
         run: |
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-transport --features udp
           NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-transport --features udp
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
+          python3 tests/native/qualify.py
 
       - name: Lint portable/native transport packages
         run: |

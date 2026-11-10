@@ -156,8 +156,8 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   keeps one signature and an explicit unavailable result.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
-  default and no hardware-profile requirement. Its native CLI forwards that
-  functionality normally; core-only library fixtures disable the CLI defaults.
+  default and no hardware-profile requirement. Native qualification enables it
+  directly; shared test support and core-only fixtures do not enable software I/O.
   Do not reintroduce OS whitelists or unavailable replay stubs. See
   `hal/camera/README.md` for the public API and compatibility aliases.
   Keep model features in the detector HAL; services consume `detector::Detector`
