@@ -47,6 +47,8 @@ kbd{border:1px solid var(--line);border-radius:5px;padding:0 .3rem;font-size:.72
 .secondary:hover{border-color:var(--muted);text-decoration:none}
 .architecture-art{border:1px solid var(--line);border-radius:20px;background:var(--surface);overflow:hidden;padding:1rem}
 .architecture-art img{display:block;width:100%}
+.prose .architecture-art{margin:1.5rem 0}
+.architecture-art figcaption{margin-top:.8rem;color:var(--muted);font-size:.82rem}
 .theme-dark,html[data-theme=dark] .theme-light{display:none!important}
 html[data-theme=dark] .theme-dark{display:block!important}
 .docs-layout{display:grid;grid-template-columns:230px minmax(0,1fr) 205px;gap:3rem;max-width:1440px;padding:2.5rem 2rem 5rem;margin:auto;align-items:start}
