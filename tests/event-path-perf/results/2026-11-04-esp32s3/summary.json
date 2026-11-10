@@ -1,0 +1,1057 @@
+{
+  "schema": "event-path-public-summary-v1",
+  "capture_count": 18,
+  "retained_samples": 18000,
+  "failed_captures": 0,
+  "rejected_transfers": 0,
+  "rom_digest_warnings": 0,
+  "pooled": false,
+  "physical_timing_qualified": false,
+  "priority_progress_qualified": false,
+  "runs": [
+    {
+      "pass_number": 1,
+      "case": "ready-std-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 141,
+          "p50_ticks": 141,
+          "p95_ticks": 143,
+          "p99_ticks": 143,
+          "max_ticks": 143,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 141,
+          "p50_ticks": 141,
+          "p95_ticks": 143,
+          "p99_ticks": 143,
+          "max_ticks": 143,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 318,
+          "p50_ticks": 318,
+          "p95_ticks": 322,
+          "p99_ticks": 322,
+          "max_ticks": 322,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 150,
+          "p50_ticks": 150,
+          "p95_ticks": 152,
+          "p99_ticks": 152,
+          "max_ticks": 152,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 1,
+      "case": "ready-messaging-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 147,
+          "p50_ticks": 147,
+          "p95_ticks": 149,
+          "p99_ticks": 149,
+          "max_ticks": 149,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 147,
+          "p50_ticks": 147,
+          "p95_ticks": 149,
+          "p99_ticks": 149,
+          "max_ticks": 149,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 326,
+          "p50_ticks": 326,
+          "p95_ticks": 330,
+          "p99_ticks": 330,
+          "max_ticks": 330,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 152,
+          "p50_ticks": 152,
+          "p95_ticks": 154,
+          "p99_ticks": 154,
+          "max_ticks": 154,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 1,
+      "case": "ready-crossbeam-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 167,
+          "p50_ticks": 167,
+          "p95_ticks": 170,
+          "p99_ticks": 170,
+          "max_ticks": 170,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 167,
+          "p50_ticks": 167,
+          "p95_ticks": 170,
+          "p99_ticks": 170,
+          "max_ticks": 170,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 412,
+          "p50_ticks": 412,
+          "p95_ticks": 418,
+          "p99_ticks": 418,
+          "max_ticks": 418,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 214,
+          "p50_ticks": 214,
+          "p95_ticks": 217,
+          "p99_ticks": 217,
+          "max_ticks": 217,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 1,
+      "case": "blocked-std-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 29392,
+          "p50_ticks": 30226,
+          "p95_ticks": 31456,
+          "p99_ticks": 31456,
+          "max_ticks": 33097,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 29392,
+          "p50_ticks": 30226,
+          "p95_ticks": 31456,
+          "p99_ticks": 31456,
+          "max_ticks": 33097,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 12714,
+          "p50_ticks": 13624,
+          "p95_ticks": 13885,
+          "p99_ticks": 13885,
+          "max_ticks": 15442,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 1,
+      "case": "blocked-messaging-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 21205,
+          "p50_ticks": 22009,
+          "p95_ticks": 24952,
+          "p99_ticks": 24952,
+          "max_ticks": 28015,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 21205,
+          "p50_ticks": 22009,
+          "p95_ticks": 24952,
+          "p99_ticks": 24952,
+          "max_ticks": 28015,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 12551,
+          "p50_ticks": 13355,
+          "p95_ticks": 13355,
+          "p99_ticks": 13355,
+          "max_ticks": 15368,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 1,
+      "case": "blocked-crossbeam-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 31158,
+          "p50_ticks": 33963,
+          "p95_ticks": 33969,
+          "p99_ticks": 35010,
+          "max_ticks": 35871,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 31158,
+          "p50_ticks": 33963,
+          "p95_ticks": 33969,
+          "p99_ticks": 35010,
+          "max_ticks": 35871,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 19132,
+          "p50_ticks": 21931,
+          "p95_ticks": 21937,
+          "p99_ticks": 21937,
+          "max_ticks": 23611,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 2,
+      "case": "ready-std-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 141,
+          "p50_ticks": 141,
+          "p95_ticks": 143,
+          "p99_ticks": 143,
+          "max_ticks": 143,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 141,
+          "p50_ticks": 141,
+          "p95_ticks": 143,
+          "p99_ticks": 143,
+          "max_ticks": 143,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 318,
+          "p50_ticks": 318,
+          "p95_ticks": 322,
+          "p99_ticks": 322,
+          "max_ticks": 322,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 150,
+          "p50_ticks": 150,
+          "p95_ticks": 152,
+          "p99_ticks": 152,
+          "max_ticks": 152,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 2,
+      "case": "ready-messaging-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 147,
+          "p50_ticks": 147,
+          "p95_ticks": 149,
+          "p99_ticks": 149,
+          "max_ticks": 149,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 147,
+          "p50_ticks": 147,
+          "p95_ticks": 149,
+          "p99_ticks": 149,
+          "max_ticks": 149,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 326,
+          "p50_ticks": 326,
+          "p95_ticks": 330,
+          "p99_ticks": 330,
+          "max_ticks": 330,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 152,
+          "p50_ticks": 152,
+          "p95_ticks": 154,
+          "p99_ticks": 154,
+          "max_ticks": 154,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 2,
+      "case": "ready-crossbeam-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 167,
+          "p50_ticks": 167,
+          "p95_ticks": 170,
+          "p99_ticks": 170,
+          "max_ticks": 170,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 167,
+          "p50_ticks": 167,
+          "p95_ticks": 170,
+          "p99_ticks": 170,
+          "max_ticks": 170,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 412,
+          "p50_ticks": 412,
+          "p95_ticks": 418,
+          "p99_ticks": 418,
+          "max_ticks": 418,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 214,
+          "p50_ticks": 214,
+          "p95_ticks": 217,
+          "p99_ticks": 217,
+          "max_ticks": 217,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 2,
+      "case": "blocked-std-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 29392,
+          "p50_ticks": 30226,
+          "p95_ticks": 31456,
+          "p99_ticks": 31456,
+          "max_ticks": 32938,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 29392,
+          "p50_ticks": 30226,
+          "p95_ticks": 31456,
+          "p99_ticks": 31456,
+          "max_ticks": 32938,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 12714,
+          "p50_ticks": 13624,
+          "p95_ticks": 13885,
+          "p99_ticks": 13885,
+          "max_ticks": 15255,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 2,
+      "case": "blocked-messaging-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 21205,
+          "p50_ticks": 22009,
+          "p95_ticks": 24952,
+          "p99_ticks": 24952,
+          "max_ticks": 26597,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 21205,
+          "p50_ticks": 22009,
+          "p95_ticks": 24952,
+          "p99_ticks": 24952,
+          "max_ticks": 26597,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 12551,
+          "p50_ticks": 13355,
+          "p95_ticks": 13355,
+          "p99_ticks": 13355,
+          "max_ticks": 14683,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 2,
+      "case": "blocked-crossbeam-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 31158,
+          "p50_ticks": 33963,
+          "p95_ticks": 33969,
+          "p99_ticks": 34929,
+          "max_ticks": 35970,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 31158,
+          "p50_ticks": 33963,
+          "p95_ticks": 33969,
+          "p99_ticks": 34929,
+          "max_ticks": 35970,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 19132,
+          "p50_ticks": 21931,
+          "p95_ticks": 21937,
+          "p99_ticks": 22141,
+          "max_ticks": 23593,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 3,
+      "case": "ready-std-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 141,
+          "p50_ticks": 141,
+          "p95_ticks": 143,
+          "p99_ticks": 143,
+          "max_ticks": 143,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 141,
+          "p50_ticks": 141,
+          "p95_ticks": 143,
+          "p99_ticks": 143,
+          "max_ticks": 143,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 318,
+          "p50_ticks": 318,
+          "p95_ticks": 322,
+          "p99_ticks": 322,
+          "max_ticks": 322,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 150,
+          "p50_ticks": 150,
+          "p95_ticks": 152,
+          "p99_ticks": 152,
+          "max_ticks": 152,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 3,
+      "case": "ready-messaging-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 147,
+          "p50_ticks": 147,
+          "p95_ticks": 149,
+          "p99_ticks": 149,
+          "max_ticks": 149,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 147,
+          "p50_ticks": 147,
+          "p95_ticks": 149,
+          "p99_ticks": 149,
+          "max_ticks": 149,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 326,
+          "p50_ticks": 326,
+          "p95_ticks": 330,
+          "p99_ticks": 330,
+          "max_ticks": 330,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 152,
+          "p50_ticks": 152,
+          "p95_ticks": 154,
+          "p99_ticks": 154,
+          "max_ticks": 154,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 3,
+      "case": "ready-crossbeam-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 167,
+          "p50_ticks": 167,
+          "p95_ticks": 170,
+          "p99_ticks": 170,
+          "max_ticks": 170,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 167,
+          "p50_ticks": 167,
+          "p95_ticks": 170,
+          "p99_ticks": 170,
+          "max_ticks": 170,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 412,
+          "p50_ticks": 412,
+          "p95_ticks": 418,
+          "p99_ticks": 418,
+          "max_ticks": 418,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": {
+          "count": 1000,
+          "min_ticks": 214,
+          "p50_ticks": 214,
+          "p95_ticks": 217,
+          "p99_ticks": 217,
+          "max_ticks": 217,
+          "percentile_method": "nearest-rank"
+        },
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": false
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 3,
+      "case": "blocked-std-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 29392,
+          "p50_ticks": 30226,
+          "p95_ticks": 31456,
+          "p99_ticks": 31456,
+          "max_ticks": 32938,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 29392,
+          "p50_ticks": 30226,
+          "p95_ticks": 31456,
+          "p99_ticks": 31456,
+          "max_ticks": 32938,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 12714,
+          "p50_ticks": 13624,
+          "p95_ticks": 13885,
+          "p99_ticks": 13885,
+          "max_ticks": 15268,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 3,
+      "case": "blocked-messaging-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 21919,
+          "p50_ticks": 22009,
+          "p95_ticks": 24952,
+          "p99_ticks": 24952,
+          "max_ticks": 26149,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 21919,
+          "p50_ticks": 22009,
+          "p95_ticks": 24952,
+          "p99_ticks": 24952,
+          "max_ticks": 26149,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 12551,
+          "p50_ticks": 13355,
+          "p95_ticks": 13355,
+          "p99_ticks": 13355,
+          "max_ticks": 15236,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    },
+    {
+      "pass_number": 3,
+      "case": "blocked-crossbeam-try",
+      "samples": 1000,
+      "warmup": 100,
+      "raw_ticks": {
+        "admission_call": {
+          "count": 1000,
+          "min_ticks": 31158,
+          "p50_ticks": 33963,
+          "p95_ticks": 33969,
+          "p99_ticks": 35022,
+          "max_ticks": 35871,
+          "percentile_method": "nearest-rank"
+        },
+        "accepted_admission_call": {
+          "count": 1000,
+          "min_ticks": 31158,
+          "p50_ticks": 33963,
+          "p95_ticks": 33969,
+          "p99_ticks": 35022,
+          "max_ticks": 35871,
+          "percentile_method": "nearest-rank"
+        },
+        "rejected_admission_call": null,
+        "admission_to_receive_return": {
+          "count": 1000,
+          "min_ticks": 19132,
+          "p50_ticks": 21931,
+          "p95_ticks": 21937,
+          "p99_ticks": 22405,
+          "max_ticks": 23608,
+          "percentile_method": "nearest-rank"
+        },
+        "ready_receive_call": null,
+        "provider_to_admission_start": null,
+        "provider_to_handler_end": null,
+        "receive_to_handler_start": null,
+        "handler_duration": null
+      },
+      "counts": {
+        "attempted": 1100,
+        "admitted": 1100,
+        "rejected": 0,
+        "handled": 1100,
+        "sample_count": 1000,
+        "threads_joined": true,
+        "terminal_quiescence_verified": true
+      },
+      "timing_qualification_blockers": [
+        "P0-matched-physical-cohort-review-required",
+        "clock-not-independently-calibrated"
+      ]
+    }
+  ]
+}

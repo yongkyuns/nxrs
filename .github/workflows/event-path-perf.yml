@@ -1,0 +1,223 @@
+name: P2 event-path transport ladder
+
+on:
+  pull_request:
+    paths:
+      - 'tests/event-path-perf/**'
+      - 'tests/std-channel-perf/**'
+      - 'shared/messaging/**'
+      - 'hal/imu/**'
+      - 'driver/acquisition.rs'
+      - 'driver/mock_acquisition.rs'
+      - 'platform/hal-build.rs'
+      - 'platform/nuttx/**'
+      - 'upstream/rust-std/**'
+      - 'upstream/libc/**'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'tests/nuttx-std/prepare-std.py'
+      - 'tests/nuttx-std/check-abi.py'
+      - 'tests/nuttx-std/link.py'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'tools/platform_config.py'
+      - 'tools/check-deployment.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/event-path-perf.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/event-path-perf/**'
+      - 'tests/std-channel-perf/**'
+      - 'shared/messaging/**'
+      - 'hal/imu/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/event-path-perf.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: event-path-perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+      - name: Rust, evidence refusal, architecture and unchanged P0 controls
+        run: |
+          cargo +1.90.0 fmt --check -p nxrs-event-path-perf
+          cargo +1.90.0 test --locked -p nxrs-event-path-perf
+          cargo +1.90.0 clippy --locked -p nxrs-event-path-perf --all-targets -- -D warnings
+          python3 -m unittest discover -s tests/event-path-perf -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/std-channel-perf -p 'test_*.py' -v
+          python3 tools/check-architecture.py
+          python3 -m unittest discover -s tests/host -p test_architecture.py -v
+          python3 -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+          python3 -m unittest discover -s tests/host -p test_evaluation_docs.py -v
+      - name: Optimized real host corpus (functional only)
+        run: |
+          CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_LTO=false cargo +1.90.0 build --locked --release -p nxrs-event-path-perf
+          python3 tests/event-path-perf/run-host.py --binary target/release/event-path-perf --output target/event-path-host
+      - name: Preserve exact source and executable identity
+        if: always()
+        run: |
+          mkdir -p target/event-path-host
+          git archive --format=tar.gz --output=target/event-path-host/source.tar.gz HEAD
+          git rev-parse HEAD > target/event-path-host/source-revision.txt
+          sha256sum target/event-path-host/source.tar.gz > target/event-path-host/source.sha256
+          if test -f target/event-path-host/binary/event-path-perf; then
+            sha256sum target/event-path-host/binary/event-path-perf > target/event-path-host/executable.sha256
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: event-path-host-functional
+          path: target/event-path-host/
+
+  arm:
+    needs: host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Pinned Rust and ARM prerequisites
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs libncurses-dev python3-venv xxd
+          python3 -m venv target/event-path-venv
+          target/event-path-venv/bin/pip install kconfiglib==14.1.0
+          echo "$GITHUB_WORKSPACE/target/event-path-venv/bin" >> "$GITHUB_PATH"
+      - name: Isolated uninstrumented ARM build
+        run: python3 tests/event-path-perf/build.py --platform mps2-an521-mock --out target/event-path-arm
+      - name: One command per fresh QEMU boot (functional only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for case in \
+            ready-std-try ready-messaging-try ready-crossbeam-try \
+            ready-std-send ready-messaging-send ready-crossbeam-send \
+            full-std full-messaging full-crossbeam \
+            blocked-std-try blocked-messaging-try blocked-crossbeam-try \
+            blocked-std-send blocked-messaging-send blocked-crossbeam-send \
+            ready-select-one ready-select-three \
+            blocked-select-one blocked-select-three semaphore park fixed-peer \
+            fanin-messaging-4 \
+            fanin-messaging-1-normal fanin-messaging-4-normal \
+            fanin-messaging-1-saturation fanin-messaging-4-saturation \
+            timer-provider-messaging; do
+            python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --artifact-root target/event-path-arm --case "$case" --samples 16 --warmup 4 --output "target/event-path-arm/runs/$case"
+          done
+          python3 tests/event-path-perf/capture.py qemu --build-directory target/event-path-arm --artifact-root target/event-path-arm --case timer-provider-messaging --samples 16 --warmup 4 --payload imu16 --output target/event-path-arm/runs/timer-provider-messaging-imu16
+      - name: Replay retained QEMU evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in target/event-path-arm/runs/*; do
+            python3 tests/event-path-perf/replay.py "$run" --artifact-root target/event-path-arm
+          done
+      - name: Validate seven matched comparison groups
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("event_path_ci_compare", "tests/event-path-perf/compare.py")
+          comparison = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(comparison)
+          root = Path("target/event-path-arm")
+          output = root / "comparisons"
+          output.mkdir()
+          for group, cases in comparison.GROUPS.items():
+              result = comparison.compare(group, [root / "runs" / case for case in cases], artifact_root=root)
+              (output / f"{group}.json").write_text(json.dumps(result, indent=2) + "\n")
+              print(f"P2 {group}: {len(result['members'])} matched complete captures")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: event-path-arm-functional
+          path: |
+            target/event-path-arm/*.json
+            target/event-path-arm/*.log
+            target/event-path-arm/runs/
+            target/event-path-arm/comparisons/
+            target/event-path-arm/prepared/*.json
+            target/event-path-arm/firmware/*.json
+            target/event-path-arm/firmware/*.jsonl
+            target/event-path-arm/firmware/*.config
+            target/event-path-arm/firmware/*.txt
+            target/event-path-arm/firmware/nuttx/nuttx
+            target/event-path-arm/firmware/nuttx/nuttx.bin
+
+  esp32s3:
+    needs: host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        boot_image_profile: [platform-default, ram-prefix-digest-v1]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Pinned Xtensa prerequisites
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 xxd
+          python3 -m venv target/event-path-venv
+          target/event-path-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/event-path-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Hash-pinned SDK and isolated ESP32-S3 image profile (build only)
+        run: |
+          bash tools/install-qemu-tools.sh
+          python3 tests/event-path-perf/build.py --platform esp32s3-service-footprint --clock-source native-counter --boot-image-profile '${{ matrix.boot_image_profile }}' --out target/event-path-esp32s3
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("event_path_ci_build_receipt", "tests/event-path-perf/capture.py")
+          capture = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(capture)
+          receipt = capture.build_receipt(Path("target/event-path-esp32s3"))
+          print(f"P2 retained build verified: {receipt['boot_image_profile']} {receipt['image_sha256']}")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: event-path-esp32s3-${{ matrix.boot_image_profile }}-build-only
+          path: |
+            target/event-path-esp32s3/*.json
+            target/event-path-esp32s3/*.log
+            target/event-path-esp32s3/prepared/*.json
+            target/event-path-esp32s3/firmware/*.json
+            target/event-path-esp32s3/firmware/*.jsonl
+            target/event-path-esp32s3/firmware/*.config
+            target/event-path-esp32s3/firmware/*.txt
+            target/event-path-esp32s3/firmware/*.patch
+            target/event-path-esp32s3/firmware/nuttx/nuttx
+            target/event-path-esp32s3/firmware/nuttx/nuttx.bin
+            target/event-path-esp32s3/firmware/nuttx/nuttx.merged.bin
+            target/event-path-esp32s3/firmware/nuttx/nuttx.rom-digest.bin
+            target/event-path-esp32s3/firmware/nuttx/arch/xtensa/src/common/espressif/esp_loader.c
