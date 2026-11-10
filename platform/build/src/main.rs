@@ -1,5 +1,7 @@
 //! One host-only entry for Nxrs build orchestration.
 #![forbid(unsafe_code)]
+mod editor;
+
 use nxrs_build::{
     build::{self, App, Options},
     profile::Profile,
@@ -33,6 +35,7 @@ fn usage() -> &'static str {
   cargo nxrs platforms
   cargo nxrs apps
   cargo nxrs profile --platform <profile> [--target-os <os>]
+  cargo nxrs editor <host | --build-dir path>
   cargo nxrs fetch <tls|detector>
 
 Platforms: wroom, cores3, pico2w, linux, macos, windows, web.
@@ -377,6 +380,7 @@ fn run() -> Result<ExitCode> {
             println!("{}", nxrs_build::inspect::query(request)?);
         }
         "profile" => return profile_command(&root, &raw[1..]),
+        "editor" => editor::select(&root, &raw[1..])?,
         "build" => return build_command(&root, &raw[1..]),
         "nuttx-build" => {
             let args: Vec<_> = raw[1..]

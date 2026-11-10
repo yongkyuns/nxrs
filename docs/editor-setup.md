@@ -1,5 +1,27 @@
-# Zed and clangd
+# Zed platform setup
 
+In Zed, run **task: spawn** and search for **Nxrs editor**. Choose **Host**
+for the current desktop OS or choose the board you are editing for. The task
+updates this checkout's local Zed settings and Zed reloads rust-analyzer.
+The terminal equivalent for the host is `cargo nxrs editor host`.
+
+NuttX needs a prepared build. Run your usual `cargo nxrs build` with
+`--out target/editor/wroom`, `target/editor/cores3`, or `target/editor/pico2w`
+to use the corresponding task. For any other output directory, use
+`cargo nxrs editor --build-dir <path>`. It uses that build's resolved profile,
+target, compiler, and native headers, and checks the selected package. Rebuild
+if the resolved profile is stale or if an older output predates editor support
+and used custom Cargo options. The application must be in the Nxrs workspace.
+The task reads and writes standard JSON project settings. It only changes
+rust-analyzer configuration.
+
+To verify the selection, use Go to Definition on `selected` in a HAL's
+`src/platform/mod.rs`. Zed can dim code that rust-analyzer reports as
+inactive. Some branches inside `cfg_if!` still use ordinary syntax highlighting.
+
+## C and Objective-C
+
+Select an editor profile once to install the project clangd settings.
 Run `python3 tools/setup-clangd.py` from this checkout, then run
 `editor: restart language server` from Zed's command palette (or reopen the
 project). Project settings enable clangd's configuration support.
