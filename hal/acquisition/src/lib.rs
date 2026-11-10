@@ -25,10 +25,15 @@ pub trait Wake: Send + Sync + 'static {
     fn wake(&self) -> io::Result<()>;
 }
 
+#[derive(Default)]
+struct State {
+    stopping: AtomicBool,
+    dropped: AtomicU32,
+}
+
 pub struct Worker<C: Wake, E: Copy> {
     cancel: C,
-    stopping: Arc<AtomicBool>,
-    dropped: Arc<AtomicU32>,
+    state: Arc<State>,
     join: Option<JoinHandle<Result<(), E>>>,
     result: Option<Result<(), E>>,
 }
@@ -65,10 +70,8 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
     ) -> io::Result<Self> {
         // Tuple fields drop in declaration order, also on panic/spawn failure.
         let delivery = (sink, guard);
-        let stopping = Arc::new(AtomicBool::new(false));
-        let dropped = Arc::new(AtomicU32::new(0));
-        let stop = stopping.clone();
-        let losses = dropped.clone();
+        let state = Arc::new(State::default());
+        let shared = state.clone();
         let join = thread::Builder::new()
             .name(name.into())
             .stack_size(stack_bytes)
@@ -78,19 +81,21 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
                 let mut emit = |event| match sink(event) {
                     Ok(()) => true,
                     Err(rejected) if rejected.error == DeliveryError::Full => {
-                        let _ = losses.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                            Some(n.saturating_add(1))
-                        });
+                        let _ = shared.dropped.fetch_update(
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                            |n| Some(n.saturating_add(1)),
+                        );
                         true
                     }
                     Err(_) => false,
                 };
-                let result = run(&stop, &mut emit);
+                let result = run(&shared.stopping, &mut emit);
                 if let Err(error) = result {
                     // Retain one terminal event until admitted, closed, or canceled.
                     // The join result independently retains the failure.
                     let mut pending = failure(error);
-                    while !stop.load(Ordering::Acquire) {
+                    while !shared.stopping.load(Ordering::Acquire) {
                         match sink(pending) {
                             Ok(()) => break,
                             Err(rejected) if rejected.error == DeliveryError::Full => {
@@ -105,21 +110,20 @@ impl<C: Wake, E: Copy + Send + 'static> Worker<C, E> {
             })?;
         Ok(Self {
             cancel,
-            stopping,
-            dropped,
+            state,
             join: Some(join),
             result: None,
         })
     }
     pub fn request_stop(&self) -> io::Result<()> {
-        self.stopping.store(true, Ordering::Release);
+        self.state.stopping.store(true, Ordering::Release);
         wake(&self.cancel)
     }
     pub fn is_finished(&self) -> bool {
         self.join.as_ref().is_none_or(JoinHandle::is_finished)
     }
     pub fn dropped(&self) -> u32 {
-        self.dropped.load(Ordering::Relaxed)
+        self.state.dropped.load(Ordering::Relaxed)
     }
     pub fn join(&mut self, panic_error: E) -> Result<(), E> {
         if let Some(join) = self.join.take() {
@@ -148,7 +152,7 @@ fn wake(cancel: &impl Wake) -> io::Result<()> {
 }
 impl<C: Wake, E: Copy> Drop for Worker<C, E> {
     fn drop(&mut self) {
-        self.stopping.store(true, Ordering::Release);
+        self.state.stopping.store(true, Ordering::Release);
         if self.join.as_ref().is_some_and(|join| !join.is_finished()) {
             let _ = wake(&self.cancel);
         }

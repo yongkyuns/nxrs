@@ -199,7 +199,7 @@ pub(super) mod spi_ffi {
     }
 }
 
-use super::{device, factory as runtime_factory, signal, trace};
+use super::{device, signal, trace};
 use acquisition::readiness;
 #[allow(dead_code, reason = "The fixture uses contextual GPIO cleanup.")]
 #[path = "../../../../driver/gpio/tests/support/mod.rs"]
@@ -231,7 +231,7 @@ fn acquire_bmi270_traced(
     trace: trace::Trace,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     let observed = trace.clone();
-    runtime_factory::acquire(
+    device::Device::open(
         config,
         binding.irq_path,
         trace,
@@ -248,7 +248,7 @@ fn acquire_lsm6dso(
     binding: resources::I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
-    runtime_factory::acquire(
+    device::Device::open(
         config,
         binding.irq_path,
         trace::Trace::default(),
@@ -871,7 +871,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         if select == 0 {
             type Sensor = nxrs_bmi270::Bmi270Spi<resources::Spi, resources::Delay>;
             verify(
-                runtime_factory::acquire(
+                device::Device::open(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
@@ -887,7 +887,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         } else {
             type Sensor = nxrs_lsm6dso::Lsm6dsoSpi<resources::Spi>;
             verify(
-                runtime_factory::acquire(
+                device::Device::open(
                     Sensor::DEFAULT,
                     None,
                     trace::Trace::default(),
@@ -912,7 +912,7 @@ fn spi_factories_share_device_state_and_cleanup() {
         mode: 3,
         irq_path: None,
     };
-    let result = runtime_factory::acquire(
+    let result = device::Device::open(
         Sensor::DEFAULT,
         None,
         trace::Trace::default(),

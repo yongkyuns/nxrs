@@ -90,7 +90,6 @@ hal/imu/
   src/platform/simulation.rs          adapter to a coordinated simulation session
   src/platform/mod.rs                 selected acquisition exports
   src/platform/nuttx/mod.rs            normalized acquisition and construction API
-  src/platform/nuttx/factory.rs        resource setup with a supplied chip constructor
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
   src/platform/nuttx/trace/           optional I²C/SPI timing; ordinary resources stay unwrapped
 platform/devices/imu/                 named IMU accessors and concrete construction

@@ -1,10 +1,13 @@
-//! Acquisition and lifetime of an already-constructed normalized IMU.
+//! Resource opening, acquisition and lifetime of a normalized IMU.
 use super::device_state::{DeviceState, DeviceUseGuard};
 use super::{gpio_resource, signal::Signal, trace::Trace};
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
 use core::sync::atomic::{AtomicBool, Ordering};
-use peripheral::imu::{Buffering, Imu};
-use std::{fs::File, time::Instant};
+use peripheral::imu::{Buffering, Error, Imu};
+use std::{
+    fs::File,
+    time::{Duration, Instant},
+};
 
 pub(super) type Irq = gpio_resource::Interrupt<&'static DeviceState>;
 
@@ -39,24 +42,36 @@ pub(super) fn resolve<S: Imu>(config: Config) -> Result<(S::Settings, AppliedCon
 }
 
 impl<S: Imu> Device<S> {
-    pub(super) fn new(
-        sensor: S,
-        applied: AppliedConfig,
-        signal: Signal,
+    /// Validate, reserve and open resources before initializing the sensor.
+    pub(super) fn open<R>(
+        config: Config,
+        irq_path: Option<&str>,
         trace: Trace,
-        use_guard: DeviceUseGuard,
-    ) -> Self {
-        Self {
+        state: &'static DeviceState,
+        open: impl FnOnce() -> Result<R, DeviceError>,
+        initialize: impl FnOnce(R, S::Settings) -> Result<S, Error>,
+    ) -> Result<Self, DeviceError> {
+        let (settings, applied) = resolve::<S>(config)?;
+        let use_guard = state.begin_use()?;
+        // A configured IRQ failure must never select the periodic mode.
+        let irq = irq_path.map(|path| open_irq(path, state)).transpose()?;
+        let resources = open()?;
+        let sensor = initialize(resources, settings).inspect_err(|_| {
+            // An interrupted configuration may have left the sensor active.
+            state.mark_faulted();
+        })?;
+        let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
+        Ok(Self {
             sensor,
             applied,
-            signal,
+            signal: Signal::new(irq, period),
             trace,
             cleaned: false,
             use_guard,
-        }
+        })
     }
 
-    /// Apply factory-owned setup before publication, retaining cleanup on failure.
+    /// Apply optional sensor setup before publication, retaining cleanup on failure.
     pub(super) fn prepare(
         mut self,
         configure: impl FnOnce(&mut S) -> Result<(), peripheral::imu::Error>,

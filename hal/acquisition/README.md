@@ -13,6 +13,8 @@ Each explicit `Worker::start` creates one thread. This package shares code, not
 an executor; it adds no queue of its own. Drivers do not acquire a worker merely
 by implementing a device contract. A future shared executor must qualify bounded
 device work, fairness, cancellation and deadlines before replacing these workers.
+The worker and session handle share one allocation for the cancellation flag and
+loss counter; thread and wake-endpoint allocations are separate.
 
 `Worker::start_guarded` additionally retains caller-owned storage through terminal
 delivery and destruction of the sink, including unwinding or spawn failure. IMU
