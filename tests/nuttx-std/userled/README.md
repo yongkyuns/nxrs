@@ -41,7 +41,7 @@ concurrently in that directory.
 
 The GitHub workflow retains final firmware, config, toolchain provenance,
 compiler-artifact evidence for the unified `nxrs-led` crate root target `led`,
-and the NuttX build-script cfg `hal_provider="hardware"` in
+and the NuttX build-script cfg `hal_provider="nuttx"` in
 `userled-hal-selection.json`, plus native ABI results, updated
 `userled-sources.sha256`/image hashes and console transcripts. Successful
 source compilation alone does not pass this gate.

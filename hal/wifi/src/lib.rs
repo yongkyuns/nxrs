@@ -2,7 +2,12 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_provider = "hardware", test))]
+#[cfg(any(
+    hal_provider = "nuttx",
+    hal_provider = "linux",
+    hal_provider = "macos",
+    test
+))]
 extern crate std;
 mod api;
 pub use api::{
@@ -13,12 +18,14 @@ pub use api::{
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 mod platform;
+#[cfg(any(hal_provider = "linux", hal_provider = "macos", all(test, unix)))]
+mod shared;
 #[cfg(any(
-    all(hal_provider = "hardware", not(target_os = "nuttx")),
+    hal_provider = "nuttx",
+    hal_provider = "linux",
+    hal_provider = "macos",
     all(test, unix)
 ))]
-mod shared;
-#[cfg(any(hal_provider = "hardware", all(test, unix)))]
 mod worker;
 
 mod acquisition;

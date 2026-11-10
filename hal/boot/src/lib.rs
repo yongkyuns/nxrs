@@ -51,9 +51,11 @@ pub trait Control {
     fn confirm(&mut self) -> Result<(), DeviceError>;
 }
 
-#[cfg(any(hal_provider = "hardware", test))]
-mod control;
+cfg_if::cfg_if! {
+    if #[cfg(any(hal_provider = "nuttx", test))] {
+        mod control;
+        mod staging;
+    }
+}
 mod platform;
-#[cfg(any(hal_provider = "hardware", test))]
-mod staging;
 pub use platform::open;

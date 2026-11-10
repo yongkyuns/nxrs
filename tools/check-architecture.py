@@ -35,7 +35,8 @@ PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
 PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
-PORTABLE_EXTERNAL: set[str] = set()
+# cfg-if is a no_std, macro-only conditional expansion with no runtime dependency.
+PORTABLE_EXTERNAL: set[str] = {'cfg-if'}
 # Optional detector model packages: MicroFlow generates no_std quantized kernels,
 # nalgebra has no std backend, and zune-jpeg is a single-threaded scalar decoder.
 # Native PICO compute is private to the selected HAL implementation. Model/SDK
@@ -520,13 +521,18 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
         modules = set(re.findall(r'\bmod\s+(\w+)\s*;', text))
         aliases = {f'{name} as selected' for name in modules if name != 'selected'}
+        crate_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', (path.parent.parent / 'lib.rs').read_text(), flags=re.S)
+        crate_modules = set(re.findall(r'\bmod\s+(\w+)\s*;', crate_source))
+        aliases.update(f'crate::{name} as selected' for name in crate_modules)
+        selected_aliases = re.findall(r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;', text)
         # Check the selection boundary, not a mandatory wildcard spelling.
         # Exact exports prevent backend internals from accidentally reaching
         # public namespaces. No platform selector may wildcard-reexport.
         selected_export = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
         if (not exports
                 or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction' or export.strip() in aliases) for export in exports)
-                or not ('selected' in modules or any(export.strip() in aliases for export in exports))
+                or any(alias not in aliases for alias in selected_aliases)
+                or not ('selected' in modules or any(alias in aliases for alias in selected_aliases))
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/lib.rs'):

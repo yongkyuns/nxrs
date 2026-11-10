@@ -18,7 +18,7 @@ class CameraOrganizationTests(unittest.TestCase):
         self.assertNotRegex(source, r'\btarget_(?:os|arch|family|env|vendor)\b')
         self.assertNotRegex(source, r'pub\s+use\s+platform::\*')
         self.assertIn('pub fn open() -> Result<impl Camera, DeviceError>', source)
-        self.assertIn('#[cfg(feature = "replay")]\npub mod replay;', source)
+        self.assertRegex(source, r'if #\[cfg\(feature = "replay"\)\] \{\s*pub mod replay;\s*pub use replay::')
         self.assertIn('#![no_std]', source)
         self.assertIn('mod test_support;', source)
 

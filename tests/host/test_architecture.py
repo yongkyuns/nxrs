@@ -82,7 +82,19 @@ class ArchitectureTests(unittest.TestCase):
         valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
         selector.write_text('mod unbound; pub use unbound as selected; pub use selected::open;')
         self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
+        grouped = ('cfg_if::cfg_if! { if #[cfg(hal_provider = "nuttx")] '
+                   '{ mod nuttx; use nuttx as selected; } else '
+                   '{ mod unbound; use unbound as selected; } } pub use selected::open;')
+        selector.write_text(grouped)
+        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
+        with (directory.parent / 'lib.rs').open('a') as source:
+            source.write('mod model; // mod missing;')
+        selector.write_text('use crate::model as selected; pub use selected::open;')
+        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
+                     grouped.replace('mod nuttx;', 'mod nuttx; fn hidden() {}'),
+                     grouped.replace('use nuttx as selected;', 'use missing as selected;'),
+                     'use crate::missing as selected; pub use selected::open;',
                      'mod selected { pub fn open() {} } pub use selected::*;',
                      'mod selected;', 'mod selected; pub use selected::{open, other::Camera};',
                      'mod selected; pub use selected::*;',

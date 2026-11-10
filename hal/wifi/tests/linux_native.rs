@@ -1,9 +1,6 @@
 #![cfg(all(
     target_os = "linux",
-    any(
-        all(hal_provider = "hardware", target_os = "linux"),
-        all(hal_provider = "hardware", target_os = "macos")
-    )
+    any(hal_provider = "linux", hal_provider = "macos")
 ))]
 
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};

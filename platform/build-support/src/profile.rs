@@ -767,12 +767,8 @@ impl Profile {
                 .iter()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
-        let provider = match self.binding(capability) {
-            "none" => None,
-            mode @ ("mock" | "simulation") => Some(mode),
-            _ => Some("hardware"),
-        };
-        if let Some(provider) = provider {
+        let provider = self.binding(capability);
+        if provider != "none" {
             output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
         }
         Ok(output)
@@ -836,7 +832,7 @@ mod tests {
         let profile = Profile::resolve(&root(), "m5stack-cores3-gnss").unwrap();
         for capability in ["imu", "gnss"] {
             let output = profile.cargo_output(&root(), capability, "nuttx").unwrap();
-            assert!(output.contains(&"cargo:rustc-cfg=hal_provider=\"hardware\"".into()));
+            assert!(output.contains(&"cargo:rustc-cfg=hal_provider=\"nuttx\"".into()));
             assert!(!output
                 .iter()
                 .any(|line| line.starts_with("cargo:rustc-env=")));

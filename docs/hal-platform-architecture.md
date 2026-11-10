@@ -143,6 +143,9 @@ require a wildcard or let backend exports implicitly define the crate's public
 API. Keep constructors and unavailable stubs in those selected modules, not
 inline in the selector. Prefer ordinary named modules and conditional
 `as selected` exports; source-path redirection is not required for selection.
+Group each implementation's declaration and alias in one `cfg_if` branch rather
+than repeating its selection condition. A branch may select a shared crate
+module directly; do not add OS wrappers that only re-export it.
 Identical Rust implementations remain ordinary shared modules outside
 `platform/`; selecting acquisition does not duplicate them per OS. Native source
 injection for host unit tests belongs in separate test wiring. Test private
@@ -373,8 +376,10 @@ runtime HAL edges to platform code remain forbidden. Apps may use only the porta
 device catalogue, and services receive devices from their caller.
 External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
 workspace. In-checkout builds can discover the SDK root.
-The resolver emits a single `hal_provider` value for each bound capability.
-Hardware uses `target_os` at the OS module boundary. Named simulation and mock
+The resolver emits the exact validated binding as `hal_provider` for each bound
+capability: `nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`. Hardware
+bindings must match Rust's `target_os` before emission; `hardware` is not a
+second category. An unbound capability emits no selector. Named simulation and mock
 profiles select their corresponding factories. Unbound capabilities compile
 their contract and unavailable factory. Keep this selection in HAL wiring so
 shared algorithms can use explicit resources and capability information.

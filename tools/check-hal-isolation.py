@@ -87,8 +87,7 @@ def check(text, names, expected, host, directory, target):
 def provider_cfgs(provider):
     if provider == "none":
         return []
-    mode = provider if provider in {"mock", "simulation"} else "hardware"
-    return [f'hal_provider="{mode}"']
+    return [f'hal_provider="{provider}"']
 
 
 def check_selection(text, names, package, provider):
@@ -154,6 +153,9 @@ def run(out, capabilities=CAPABILITIES):
         ["cargo", "metadata", "--locked", "--format-version=1"], cwd=ROOT, text=True))
     names = {p["id"]: p["name"] for p in metadata["packages"]}
     workspace = {names[identity]: identity for identity in metadata["workspace_members"]}
+    # Every HAL uses this pinned, macro-only dependency for grouped selection.
+    conditional, = (p["id"] for p in metadata["packages"]
+                    if p["name"] == "cfg-if" and p["version"] == "1.0.5")
     compiler = subprocess.check_output([os.environ.get("RUSTC", "rustc"), "-vV"], text=True)
     host_target = next(line.removeprefix("host: ") for line in compiler.splitlines()
                        if line.startswith("host: "))
@@ -194,6 +196,7 @@ def run(out, capabilities=CAPABILITIES):
             if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
+            expected.add(conditional)
             host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
             target = target or host_target

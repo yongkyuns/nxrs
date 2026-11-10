@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(not(any(hal_provider = "hardware", hal_provider = "mock")))]
+#[cfg(not(any(hal_provider = "nuttx", hal_provider = "mock")))]
 #[test]
 fn unconfigured_never_silently_selects_a_mock() {
     assert!(matches!(open(), Err(DeviceError::Unsupported)));

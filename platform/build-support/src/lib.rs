@@ -181,7 +181,7 @@ pub fn configure_resource() -> Result<()> {
 pub fn configure_hal() -> Result<String> {
     use std::{env, path::PathBuf};
     println!(
-        "cargo:rustc-check-cfg=cfg(hal_provider, values(\"hardware\", \"mock\", \"simulation\"))"
+        "cargo:rustc-check-cfg=cfg(hal_provider, values(\"nuttx\", \"linux\", \"macos\", \"windows\", \"mock\", \"simulation\"))"
     );
     for name in [
         "CARGO_CFG_HAL_ENABLED",

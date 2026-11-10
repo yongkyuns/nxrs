@@ -3,7 +3,7 @@
 #![deny(unsafe_code)]
 #[cfg(any(
     test,
-    hal_provider = "hardware",
+    hal_provider = "nuttx",
     hal_provider = "mock",
     hal_provider = "simulation"
 ))]
@@ -14,9 +14,9 @@ pub use api::Session as Gnss;
 pub use api::{DeviceError, Event, GnssFix, Session};
 pub use messaging::{DeliveryError, Rejected};
 mod platform;
-#[cfg(any(test, hal_provider = "hardware"))]
+#[cfg(any(test, hal_provider = "nuttx"))]
 mod receiver;
-#[cfg(any(hal_provider = "hardware", hal_provider = "simulation"))]
+#[cfg(any(hal_provider = "nuttx", hal_provider = "simulation"))]
 mod session;
 pub use platform::open;
 
