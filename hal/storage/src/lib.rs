@@ -2,28 +2,22 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_provider = "mock", test))]
+#[cfg(any(platform = "mock", test))]
 extern crate alloc;
-#[cfg(any(
-    all(hal_provider = "hardware", target_os = "nuttx"),
-    feature = "recording",
-    test
-))]
-extern crate std;
+cfg_if::cfg_if! {
+    if #[cfg(any(platform = "nuttx", feature = "recording", test))] {
+        extern crate std;
+        mod record;
+    }
+}
 
 mod api;
 pub use api::{DeviceError, Storage};
 pub use camera::{Capture, Format, Frame, PixelFormat};
-#[cfg(any(all(hal_provider = "hardware", target_os = "nuttx"), test))]
+#[cfg(any(platform = "nuttx", test))]
 #[cfg_attr(test, allow(dead_code))]
 mod file;
 mod platform;
-#[cfg(any(
-    all(hal_provider = "hardware", target_os = "nuttx"),
-    feature = "recording",
-    test
-))]
-mod record;
 #[cfg(feature = "recording")]
 pub mod recording;
 
@@ -40,7 +34,7 @@ pub fn create_record_file(
     platform::create_record_file(path, max_records, max_frame_bytes)
 }
 
-#[cfg(hal_provider = "mock")]
+#[cfg(platform = "mock")]
 pub use platform::{MockStorage, StoredFrame};
 
 #[cfg(test)]

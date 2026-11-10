@@ -207,7 +207,7 @@ Removing HAL build scripts also removes their package-local `OUT_DIR`,
 supply a concrete replacement for all of them before deleting the old path.
 An application build script cannot broadcast its outputs into dependency crates.
 Provider selection must retain per-package scope: a single global
-`hal_provider` value cannot represent mixed hardware, mock and unbound HALs.
+`platform` value cannot represent mixed hardware, mock and unbound HALs.
 
 Write generated files atomically outside source directories. Key outputs by the
 resolved configuration, target, package/schema inputs and generator revision;

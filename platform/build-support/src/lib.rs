@@ -181,7 +181,7 @@ pub fn configure_resource() -> Result<()> {
 pub fn configure_hal() -> Result<String> {
     use std::{env, path::PathBuf};
     println!(
-        "cargo:rustc-check-cfg=cfg(hal_provider, values(\"hardware\", \"mock\", \"simulation\"))"
+        "cargo:rustc-check-cfg=cfg(platform, values(\"nuttx\", \"linux\", \"macos\", \"windows\", \"mock\", \"simulation\"))"
     );
     for name in [
         "CARGO_CFG_HAL_ENABLED",
@@ -189,9 +189,10 @@ pub fn configure_hal() -> Result<String> {
         "CARGO_CFG_NXRS_HAL_PLATFORM",
         "CARGO_CFG_NXRS_PROVIDER",
         "CARGO_CFG_HAL_PROVIDER",
+        "CARGO_CFG_PLATFORM",
     ] {
         if env::var_os(name).is_some() {
-            return Err("Select one NXRS_PLATFORM, not hand-written provider cfg flags".into());
+            return Err("Select one NXRS_PLATFORM, not hand-written platform cfg flags".into());
         }
     }
     let directory =

@@ -8,6 +8,7 @@ mod platform;
 pub use platform::nuttx;
 
 pub mod mock;
+pub mod probe;
 #[cfg(unix)]
 pub mod readiness;
 

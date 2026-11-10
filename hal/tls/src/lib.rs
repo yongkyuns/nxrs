@@ -17,11 +17,14 @@ pub enum Error {
     Io,
 }
 
-#[cfg_attr(not(hal_provider = "hardware"), allow(dead_code))]
+#[cfg_attr(
+    not(any(platform = "linux", platform = "macos", platform = "nuttx")),
+    allow(dead_code)
+)]
 mod api;
 pub use api::{CertificatePolicy, Certificates, TimeLease};
 mod platform;
-#[cfg(hal_provider = "hardware")]
+#[cfg(any(platform = "linux", platform = "macos", platform = "nuttx"))]
 #[allow(unsafe_code)]
 mod sdk;
 pub use platform::{open, Connection, Identity};

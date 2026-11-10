@@ -20,6 +20,7 @@ name = "std_recording"
 required-features = ["recording"]
 
 [dependencies]
+cfg-if = "=1.0.5"
 nxrs-camera = { path = "../camera" }
 
 [package.metadata.nxrs]

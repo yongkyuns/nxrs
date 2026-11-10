@@ -767,13 +767,9 @@ impl Profile {
                 .iter()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
-        let provider = match self.binding(capability) {
-            "none" => None,
-            mode @ ("mock" | "simulation") => Some(mode),
-            _ => Some("hardware"),
-        };
-        if let Some(provider) = provider {
-            output.push(format!("cargo:rustc-cfg=hal_provider=\"{provider}\""));
+        let provider = self.binding(capability);
+        if provider != "none" {
+            output.push(format!("cargo:rustc-cfg=platform=\"{provider}\""));
         }
         Ok(output)
     }
@@ -836,7 +832,7 @@ mod tests {
         let profile = Profile::resolve(&root(), "m5stack-cores3-gnss").unwrap();
         for capability in ["imu", "gnss"] {
             let output = profile.cargo_output(&root(), capability, "nuttx").unwrap();
-            assert!(output.contains(&"cargo:rustc-cfg=hal_provider=\"hardware\"".into()));
+            assert!(output.contains(&"cargo:rustc-cfg=platform=\"nuttx\"".into()));
             assert!(!output
                 .iter()
                 .any(|line| line.starts_with("cargo:rustc-env=")));
@@ -882,13 +878,13 @@ mod tests {
             assert!(profile.validate_target(os).is_err(), "{os}");
         }
         let imu = profile.cargo_output(&root, "imu", "linux").unwrap();
-        assert!(imu.contains(&"cargo:rustc-cfg=hal_provider=\"simulation\"".into()));
+        assert!(imu.contains(&"cargo:rustc-cfg=platform=\"simulation\"".into()));
         assert!(!imu.contains(&"cargo:rustc-cfg=hal_enabled".into()));
         assert!(!imu.contains(&"cargo:rustc-cfg=hal_mock".into()));
         let gnss = profile.cargo_output(&root, "gnss", "linux").unwrap();
-        assert!(gnss.contains(&"cargo:rustc-cfg=hal_provider=\"simulation\"".into()));
+        assert!(gnss.contains(&"cargo:rustc-cfg=platform=\"simulation\"".into()));
         let absent = profile.cargo_output(&root, "camera", "linux").unwrap();
-        assert!(!absent.iter().any(|line| line.contains("rustc-cfg=hal_")));
+        assert!(!absent.iter().any(|line| line.starts_with("cargo:rustc-cfg=")));
     }
 
     #[test]

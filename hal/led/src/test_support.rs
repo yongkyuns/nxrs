@@ -4,7 +4,7 @@
 #[path = "platform/nuttx/mod.rs"]
 mod nuttx_tests;
 
-#[cfg(not(hal_provider = "mock"))]
+#[cfg(not(platform = "mock"))]
 #[allow(dead_code, unused_imports)]
 #[path = "platform/mock.rs"]
 mod mock_tests;

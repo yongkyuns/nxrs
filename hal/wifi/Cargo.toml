@@ -11,6 +11,7 @@ probe = []
 name = "wifi"
 
 [dependencies]
+cfg-if = "=1.0.5"
 nxrs-hal-common = { path = "../common" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 

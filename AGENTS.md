@@ -127,7 +127,9 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit simulation or qualification fixtures. HALs use one
-  internal `hal_provider` value at their module boundary.
+  internal `platform` value at their module boundary. It names the exact
+  validated binding (`nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`),
+  with no selector for unbound capabilities; do not collapse OS names to `hardware`.
 - Cargo manifests own component dependencies. Ordinary additive features may
   select optional functionality, formats, algorithms and driver code at their
   owning module boundary. Do not maintain a global feature-name allowlist.
@@ -136,8 +138,9 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   the explicit `probe` feature. The detector product/model rules below still apply.
 - Group capability admission and acquisition selection in each HAL's
   `src/platform/mod.rs`. Select modules as `selected`, using ordinary named
-  modules and conditional `as selected` exports where practical. Keep constructors
-  and unavailable stubs in those implementations, and host source-injection
+  modules and conditional `as selected` exports where practical. Group each
+  declaration and alias in one `cfg_if` branch rather than repeating its condition.
+  Keep constructors and unavailable stubs in those implementations, and host source-injection
   witnesses in separate test wiring. Prefer fixed named exports. The selector
   must not contain implementation bodies or force its entire public namespace
   into the crate root. A crate's public API should be explicit in `lib.rs`;

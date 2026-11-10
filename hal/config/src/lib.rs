@@ -2,7 +2,7 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_provider = "hardware", test))]
+#[cfg(any(platform = "nuttx", test))]
 extern crate std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

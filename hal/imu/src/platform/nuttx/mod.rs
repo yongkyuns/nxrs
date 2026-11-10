@@ -7,10 +7,8 @@ use test_support::{ffi as events, gpio_resource};
 mod device;
 mod instance;
 mod signal;
-mod trace;
 
 pub use instance::Instance;
-pub use trace::{Observed, Trace};
 
 #[cfg(test)]
 mod instance_tests;

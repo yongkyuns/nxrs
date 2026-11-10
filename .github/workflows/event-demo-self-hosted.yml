@@ -165,7 +165,7 @@ jobs:
           reports = [item for item in messages if item.get('reason') == 'build-script-executed'
                      and item.get('package_id') == package['id']]
           assert len(reports) == 1, 'missing/duplicate GNSS build-script cfg evidence'
-          cfgs = [cfg for cfg in reports[0]['cfgs'] if cfg.startswith('hal_')]
+          cfgs = [cfg for cfg in reports[0]['cfgs'] if cfg.startswith(('platform=', 'hal_', 'nxrs_hal_'))]
           assert cfgs == [], f'host-imu unexpectedly bound GNSS: {cfgs}'
           PY
 

@@ -1,10 +1,4 @@
-#![cfg(all(
-    target_os = "linux",
-    any(
-        all(hal_provider = "hardware", target_os = "linux"),
-        all(hal_provider = "hardware", target_os = "macos")
-    )
-))]
+#![cfg(all(target_os = "linux", any(platform = "linux", platform = "macos")))]
 
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::time::{Duration, Instant};

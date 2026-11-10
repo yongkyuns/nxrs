@@ -1,17 +1,16 @@
-//! Select configured acquisition only. Replay is an independent Rust module.
-#[cfg_attr(
-    all(hal_provider = "hardware", target_os = "nuttx"),
-    path = "nuttx/mod.rs"
-)]
-#[cfg_attr(hal_provider = "mock", path = "mock.rs")]
-#[cfg_attr(
-    not(any(
-        all(hal_provider = "hardware", target_os = "nuttx"),
-        hal_provider = "mock"
-    )),
-    path = "unbound.rs"
-)]
-mod selected;
+//! Select one implementation from the validated profile binding.
+cfg_if::cfg_if! {
+    if #[cfg(platform = "nuttx")] {
+        mod nuttx;
+        use nuttx as selected;
+    } else if #[cfg(platform = "mock")] {
+        mod mock;
+        use mock as selected;
+        pub use selected::{CameraAction, MockCamera, FORMAT};
+    } else {
+        mod unbound;
+        use unbound as selected;
+    }
+}
+
 pub(super) use selected::open;
-#[cfg(hal_provider = "mock")]
-pub use selected::{CameraAction, MockCamera, FORMAT};

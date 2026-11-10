@@ -36,12 +36,19 @@ class HalBoundariesTests(unittest.TestCase):
                               'let x = cfg!(nxrs_hal_platform = "nuttx");',
                               '#[cfg(hal_enabled)] fn f() {}',
                               '#[cfg(hal_mock)] fn f() {}',
-                              '#[cfg(hal_provider = "simulation")] fn f() {}',
+                              '#[cfg(platform = "simulation")] fn f() {}',
+                              '#[cfg_attr(platform = "mock", allow(dead_code))] fn f() {}',
+                              'let x = cfg!(platform = "simulation");',
+                              'let x = option_env!("CARGO_CFG_PLATFORM");',
                               'let x = option_env!("NXRS_PLATFORM");'):
                 with self.subTest(module=module, selection=selection):
                     path = self.write('hal/demo/src/' + module, selection)
                     self.assertTrue(self.errors())
                     path.unlink()
+
+    def test_platform_identifier_is_not_a_selection_flag(self):
+        self.write('hal/demo/src/api.rs', '#[cfg(test)] fn platform() {}')
+        self.assertEqual(self.errors(), [])
 
     def write_declarative_imu(self):
         self.write('platform/devices/imu/src/nuttx/mod.rs', '''
@@ -289,10 +296,13 @@ def wiring_errors(root, selector):
     selected = exports(selector)
     modules = set(re.findall(r'\bmod\s+(\w+)\s*;', selector))
     aliases = {f'{name} as selected' for name in modules if name != 'selected'}
+    aliases.update(f'crate::{name} as selected' for name in re.findall(r'\bmod\s+(\w+)\s*;', root))
+    selected_aliases = re.findall(r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;', selector)
     named = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
     if not selected or any(not (re.fullmatch(named, item.strip()) or item.strip() == 'selected as construction' or item.strip() in aliases) for item in selected):
         errors.append('selector must export named selected items only')
-    if not ('selected' in modules or any(item.strip() in aliases for item in selected)):
+    if (any(alias not in aliases for alias in selected_aliases)
+            or not ('selected' in modules or any(alias in aliases for alias in selected_aliases))):
         errors.append('selector must select a source module')
     if re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', selector):
         errors.append('selector must not implement behavior')
@@ -319,7 +329,13 @@ class WiringNegativeControls(unittest.TestCase):
                                        'pub mod selected; pub use selected as construction;'), [])
         self.assertEqual(wiring_errors(self.ROOT,
                                        'mod unbound; pub use unbound as selected; pub use selected::open;'), [])
-        self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(hal_provider = "mock")] pub use selected::{Mock, FORMAT};'), [])
+        self.assertEqual(wiring_errors(self.ROOT,
+                                       'cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
+                                       '{ mod nuttx; use nuttx as selected; } else '
+                                       '{ mod unbound; use unbound as selected; } } pub use selected::open;'), [])
+        self.assertEqual(wiring_errors(self.ROOT + 'mod model;',
+                                       'use crate::model as selected; pub use selected::open;'), [])
+        self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(platform = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):
         for export in ('pub use platform::*;', 'pub use self::platform::{open, *};'):
@@ -340,6 +356,8 @@ class WiringNegativeControls(unittest.TestCase):
         self.assertTrue(wiring_errors(self.ROOT, ''))
         self.assertTrue(wiring_errors(self.ROOT, 'mod selected;'))
         self.assertTrue(wiring_errors(self.ROOT, 'pub use selected::open;'))
+        self.assertTrue(wiring_errors(self.ROOT, 'use crate::missing as selected; pub use selected::open;'))
+        self.assertTrue(wiring_errors(self.ROOT, 'mod unbound; use unbound as selected; use missing as selected; pub use selected::open;'))
 
     def test_public_backend_namespace_and_root_injection_are_rejected(self):
         self.assertIn('platform namespace must remain private', wiring_errors('pub mod platform;', self.SELECTOR))

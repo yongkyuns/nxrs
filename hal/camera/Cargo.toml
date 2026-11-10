@@ -26,3 +26,6 @@ platforms = ["mock", "linux", "macos", "windows", "nuttx"]
 
 [build-dependencies]
 nxrs-build-support = { path = "../../platform/build-support" }
+
+[dependencies]
+cfg-if = "=1.0.5"

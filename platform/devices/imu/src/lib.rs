@@ -2,18 +2,16 @@
 //! normalized `imu::Device` references. Acquisition remains in the IMU HAL.
 #![forbid(unsafe_code)]
 
-#[cfg(all(hal_provider = "hardware", target_os = "nuttx"))]
-use {::i2c as resource, ::spi as spi_resource};
-
-#[cfg(not(all(hal_provider = "hardware", target_os = "nuttx")))]
-mod fixtures;
-#[cfg(all(hal_provider = "hardware", target_os = "nuttx"))]
-mod nuttx;
-
-#[cfg(not(all(hal_provider = "hardware", target_os = "nuttx")))]
-use fixtures as selected;
-#[cfg(all(hal_provider = "hardware", target_os = "nuttx"))]
-use nuttx as selected;
+cfg_if::cfg_if! {
+    if #[cfg(platform = "nuttx")] {
+        use {::i2c as resource, ::spi as spi_resource};
+        mod nuttx;
+        use nuttx as selected;
+    } else {
+        mod fixtures;
+        use fixtures as selected;
+    }
+}
 
 // The generated device names are this catalogue’s public API.
 pub use selected::devices::*;

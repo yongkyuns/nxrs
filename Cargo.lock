@@ -333,6 +333,7 @@ dependencies = [
 name = "nxrs-acquisition"
 version = "0.1.0"
 dependencies = [
+ "embedded-hal",
  "nxrs-build-support",
  "nxrs-messaging",
 ]
@@ -365,6 +366,7 @@ dependencies = [
 name = "nxrs-ble"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
  "nxrs-hal-common",
  "nxrs-linux-gio",
@@ -384,6 +386,7 @@ dependencies = [
 name = "nxrs-boot"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -426,6 +429,7 @@ dependencies = [
 name = "nxrs-camera"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -440,6 +444,7 @@ dependencies = [
 name = "nxrs-config"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -454,6 +459,7 @@ dependencies = [
 name = "nxrs-console"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -477,6 +483,7 @@ dependencies = [
 name = "nxrs-detector"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "microflow",
  "nalgebra",
  "nxrs-build-support",
@@ -515,6 +522,7 @@ dependencies = [
 name = "nxrs-execution"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -533,6 +541,7 @@ dependencies = [
 name = "nxrs-gnss"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-acquisition",
  "nxrs-build-support",
  "nxrs-messaging",
@@ -586,6 +595,7 @@ dependencies = [
 name = "nxrs-imu"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "embedded-hal",
  "nxrs-acquisition",
  "nxrs-bmi270",
@@ -603,7 +613,9 @@ dependencies = [
 name = "nxrs-imu-devices"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "embedded-hal",
+ "nxrs-acquisition",
  "nxrs-bmi270",
  "nxrs-build-support",
  "nxrs-i2c",
@@ -628,6 +640,7 @@ dependencies = [
 name = "nxrs-led"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -841,6 +854,7 @@ dependencies = [
 name = "nxrs-storage"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
  "nxrs-camera",
 ]
@@ -864,6 +878,7 @@ dependencies = [
 name = "nxrs-tls"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -871,6 +886,7 @@ dependencies = [
 name = "nxrs-transport"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -885,6 +901,7 @@ dependencies = [
 name = "nxrs-watchdog"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
@@ -892,6 +909,7 @@ dependencies = [
 name = "nxrs-wifi"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "nxrs-build-support",
  "nxrs-hal-common",
  "nxrs-linux-gio",

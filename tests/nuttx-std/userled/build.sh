@@ -49,8 +49,8 @@ assert len(led_roots) == 1, 'unified HAL root target led was not compiled'
 selection = [m for m in messages if m.get('reason') == 'build-script-executed'
              and m['package_id'] == led_id]
 assert len(selection) == 1, 'missing/duplicate LED platform cfg evidence'
-cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith('hal_')]
-assert cfgs == ['hal_provider="hardware"'], f'wrong LED platform selection: {cfgs}'
+cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith(('platform=', 'hal_', 'nxrs_hal_'))]
+assert cfgs == ['platform="nuttx"'], f'wrong LED platform selection: {cfgs}'
 assert dict(selection[0]['env'])['NXRS_USERLED_PATH'] == '/dev/nxrs-userled'
 assert 'static=led_native' in selection[0]['linked_libs'], 'LED package did not own its native archive'
 (out / 'userled-hal-selection.json').write_text(json.dumps({

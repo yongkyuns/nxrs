@@ -1,6 +1,8 @@
 //! Explicit scripted fixtures; real UDP is selected by its Cargo functionality.
-#[cfg(hal_provider = "mock")]
-#[path = "mock.rs"]
-mod selected;
-#[cfg(hal_provider = "mock")]
-pub use selected::MockTransport;
+cfg_if::cfg_if! {
+    if #[cfg(platform = "mock")] {
+        mod mock;
+        use mock as selected;
+        pub use selected::MockTransport;
+    }
+}

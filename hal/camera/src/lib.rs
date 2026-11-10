@@ -5,9 +5,9 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_provider = "mock", test))]
+#[cfg(any(platform = "mock", test))]
 extern crate alloc;
-#[cfg(any(hal_provider = "hardware", feature = "replay", test))]
+#[cfg(any(platform = "nuttx", feature = "replay", test))]
 extern crate std;
 
 mod api;
@@ -20,15 +20,16 @@ pub fn open() -> Result<impl Camera, DeviceError> {
     platform::open()
 }
 
-#[cfg(feature = "replay")]
-pub mod replay;
-// Explicit compatibility names; unlike backend exports, these always refer to
-// the same replay implementation whenever the replay feature is enabled.
-#[cfg(feature = "replay")]
-pub use replay::{open as camera, open as replay, ReplayCamera};
+cfg_if::cfg_if! {
+    if #[cfg(feature = "replay")] {
+        pub mod replay;
+        // These names always refer to explicit file replay.
+        pub use replay::{open as camera, open as replay, ReplayCamera};
+    }
+}
 
 // Scripted fixtures are explicitly selected, never an implicit live fallback.
-#[cfg(hal_provider = "mock")]
+#[cfg(platform = "mock")]
 pub use platform::{CameraAction, MockCamera, FORMAT};
 
 #[cfg(test)]

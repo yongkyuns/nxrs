@@ -40,7 +40,7 @@ impl QuiescenceControl for Unavailable {
     }
 }
 
-#[cfg(not(hal_provider = "hardware"))]
+#[cfg(not(any(platform = "nuttx", platform = "linux", platform = "macos")))]
 pub(crate) fn open<S>(_: S, _: CredentialStorage) -> Result<impl Wifi + Send, Error>
 where
     S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,

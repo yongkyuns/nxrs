@@ -35,16 +35,17 @@ PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
 PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
-PORTABLE_EXTERNAL: set[str] = set()
+# cfg-if is a no_std, macro-only conditional expansion with no runtime dependency.
+PORTABLE_EXTERNAL: set[str] = {'cfg-if'}
 # Optional detector model packages: MicroFlow generates no_std quantized kernels,
 # nalgebra has no std backend, and zune-jpeg is a single-threaded scalar decoder.
 # Native PICO compute is private to the selected HAL implementation. Model/SDK
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    # Embedded bus traits for the IMU's driver adaptation and timing observer.
+    # Embedded bus traits for shared acquisition timing observers.
     # Bus access and chip protocols belong to independent driver packages.
-    'nxrs-imu': {'embedded-hal'},
+    'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-imu-devices': {'embedded-hal'},
     # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
@@ -279,9 +280,9 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 if not path.is_file() or 'target' in path.relative_to(directory).parts:
                     continue
                 text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
-                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b'
+                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|CARGO_CFG_PLATFORM|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b'
                             r'|(?:std|core)::(?:os|arch)::|std::env::consts::(?:OS|ARCH|FAMILY)|\blibc::'
-                            r'|(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b'
+                            r'|(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^\];{}]*\b(?:unix|windows|platform)\b'
                             r'|["\']/(?:dev|proc)/|["\'](?:nuttx|linux|macos|windows)["\']')
                 hidden_source = r'(?:#\[path|include!)[^;\n]*["\'][^"\']*(?:platform/|hal/[^/]+/src/platform/)'
                 if re.search(identity, text) or re.search(hidden_source, text) or re.search(r'(?:::|\{)\s*construction\b', text):
@@ -520,13 +521,18 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
         modules = set(re.findall(r'\bmod\s+(\w+)\s*;', text))
         aliases = {f'{name} as selected' for name in modules if name != 'selected'}
+        crate_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', (path.parent.parent / 'lib.rs').read_text(), flags=re.S)
+        crate_modules = set(re.findall(r'\bmod\s+(\w+)\s*;', crate_source))
+        aliases.update(f'crate::{name} as selected' for name in crate_modules)
+        selected_aliases = re.findall(r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;', text)
         # Check the selection boundary, not a mandatory wildcard spelling.
         # Exact exports prevent backend internals from accidentally reaching
         # public namespaces. No platform selector may wildcard-reexport.
         selected_export = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
         if (not exports
                 or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction' or export.strip() in aliases) for export in exports)
-                or not ('selected' in modules or any(export.strip() in aliases for export in exports))
+                or any(alias not in aliases for alias in selected_aliases)
+                or not ('selected' in modules or any(alias in aliases for alias in selected_aliases))
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/lib.rs'):
@@ -554,8 +560,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         # SDK callbacks are ABI operations. These retired high-level symbols
         # instead connected Rust modules to Rust modules through a C protocol.
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
-        if re.search(r'\b(?:hal_enabled|hal_mock)\b', text):
-            errors.append(f'{relative}: use the resolved hal_provider selector')
+        if re.search(r'\b(?:hal_enabled|hal_mock|hal_provider)\b', text):
+            errors.append(f'{relative}: use the resolved platform selector')
         if re.search(r'\bfn\s+(?:(?:nxrs_)?host_wifi_\w+|(?:nxrs_)?host_ble_scan_\w+|'
                      r'(?:nxrs_)?ble_gatt_(?:open|submit|poll|recover|close)|'
                      r'(?:nxrs_)?ble_peer_lookup(?:_rust)?)\s*\(', text):
@@ -567,8 +573,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
                 and not relative.endswith('platform/gatt.rs')):
             continue
         # Comments may describe the rule without becoming platform selection.
-        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b', text)
-                or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b', text)):
+        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|CARGO_CFG_PLATFORM|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b', text)
+                or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^\];{}]*\b(?:unix|windows|platform)\b', text)):
             errors.append(f'{relative}: shared Rust behavior must not select a platform/provider')
     inventory = root / 'hal/ffi-boundaries.toml'
     entries = tomllib.loads(inventory.read_text()).get('bridge', []) if inventory.is_file() else []

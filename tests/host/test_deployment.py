@@ -68,7 +68,7 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual({key: profile['hal'][key] for key in ('wifi', 'ble')},
                                  {'wifi': name, 'ble': name})
                 for capability in ('wifi', 'ble'):
-                    self.assertIn('cargo:rustc-cfg=hal_provider="hardware"',
+                    self.assertIn(f'cargo:rustc-cfg=platform="{name}"',
                                   PLATFORM.cargo_output(profile, capability, name))
                 PLATFORM.validate_target(profile, name)
                 other = 'macos' if name == 'linux' else 'linux'
@@ -132,14 +132,14 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unsupported camera implementation'):
             PLATFORM.resolve('legacy-std', self.root)
 
-    def test_enabled_cfg_has_no_platform_identity_and_unbound_has_no_cfg(self):
+    def test_provider_cfg_names_the_validated_binding(self):
         for name in ('linux', 'macos', 'windows'):
             profile = PLATFORM.resolve(name)
             for capability in ('camera', 'storage', 'transport', 'detector'):
                 self.assertEqual(profile['hal'][capability], name)
                 cfgs = [line for line in PLATFORM.cargo_output(profile, capability, name)
                         if line.startswith('cargo:rustc-cfg=')]
-                self.assertEqual(cfgs, ['cargo:rustc-cfg=hal_provider="hardware"'])
+                self.assertEqual(cfgs, [f'cargo:rustc-cfg=platform="{name}"'])
                 for wrong in ('none', 'unknown', 'nuttx'):
                     with self.assertRaises(ValueError):
                         PLATFORM.validate_target(profile, wrong)

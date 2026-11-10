@@ -1,22 +1,20 @@
-//! Select one implementation from profile admission, model features and Rust target_os.
-#[cfg(all(
-    hal_provider = "hardware",
-    any(feature = "person-model", feature = "pico-model")
-))]
-#[cfg_attr(target_os = "linux", path = "linux/mod.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/mod.rs")]
-#[cfg_attr(target_os = "windows", path = "windows/mod.rs")]
-#[cfg_attr(target_os = "nuttx", path = "nuttx/mod.rs")]
-mod selected;
-#[cfg(not(all(
-    hal_provider = "hardware",
-    any(feature = "person-model", feature = "pico-model")
-)))]
-#[path = "unbound.rs"]
-mod selected;
+//! Admit a configured model; NuttX additionally owns its compute-context lease.
+cfg_if::cfg_if! {
+    if #[cfg(all(platform = "nuttx", any(feature = "person-model", feature = "pico-model")))] {
+        mod nuttx;
+        use nuttx as selected;
+    } else if #[cfg(all(
+        any(platform = "linux", platform = "macos", platform = "windows"),
+        any(feature = "person-model", feature = "pico-model")
+    ))] {
+        use crate::model as selected;
+    } else {
+        mod unbound;
+        use unbound as selected;
+    }
+}
 pub use selected::open;
 
-// Qualification must retain the selected factory, including NuttX's native
-// compute-context lease and the unbound implementation's explicit rejection.
+// Qualification retains the same admission and native compute-context rules.
 #[cfg(all(feature = "probe", feature = "pico-model"))]
 pub(crate) use selected::kernel;
