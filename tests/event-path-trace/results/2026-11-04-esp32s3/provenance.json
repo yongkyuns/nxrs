@@ -1,0 +1,69 @@
+{
+  "schema": "event-path-trace-public-provenance-v1",
+  "firmware_head": "ae36637c862536f3c5cff8deeba4b93155bf27ee",
+  "ci_revision": "35cef2010c4eb111c5488ac074b588ecba385d5a",
+  "workflow_run": 41856717255,
+  "capture_verifier_revision": "d6749dd6fd3354af01bef5ae35ed1fb66ff65476",
+  "capture_verifier_sources_sha256": {
+    "tests/event-path-trace/capture.py": "86a21709017a12db7a6e726e687fa55f32016591324bf57d21aa8628aa135add",
+    "tests/event-path-trace/compare.py": "b02c4434bc10b58d2593733a9d99064d2055106010c66a2a5d008ad105509d54",
+    "tests/event-path-trace/analyze.py": "dff07520a36831656514b899a22d205707f69ee52d7d75d1c0d74bb1b40bce47",
+    "tests/event-path-trace/build.py": "d7943f3313f800cd026206bbefe8fc13bfce21737efa942503be95c9d2f7f620",
+    "tests/event-path-trace/native-pins.json": "ac82b2f7f8229ca68943e897effe021a8e3c74139fc8a5910de750f09088ee4a"
+  },
+  "artifacts": {
+    "baseline": {
+      "id": 13337927268,
+      "zip_sha256": "0754b016936747a06bd2440d9d869c544562d7d863b40fb50474215bc0e7480a",
+      "build_id": "3994ebeb0b262a3200fda2f339be281174b7626ffc454077127e32b3691e79cb",
+      "image_sha256": "8334fee05f1ed45489ea360d3cfa8904fcfbd8b4cdbf96f898c2ef77e57c1977",
+      "elf_sha256": "0b91eb8a6721d3a6135ca16861a0ae76070a7868b7eb7c8c866173e06b001abf",
+      "config_sha256": "9c3acc349b2a2ad5175ce1b814393579ea17d262be78a1622c93040091967bb9",
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "std_array_sha256": "3b7cce4fa348ff357658c44fa9def9bffe7ed6ff97a6ab4be74da3a0350e804c",
+      "std_library_tree_sha256": "7a166f0c369548065b0ccdeee1df9a5a74baba53d6c3f59b6346a47d66976da6",
+      "native_source_sha256": {
+        "sched/sched/sched_addreadytorun.c": "9969e9395eb1cb91127229bd6b65e2f12b7078f41b420067bf0ae2d82f579fa0",
+        "sched/sched/sched.h": "57b4cc2d873a57f9a2410598d953b7ab0bf0cb21eb11d019d29b29407885b21a",
+        "sched/sched/sched_switchcontext.c": "14c0eecd6ac0a6218f7a1e14e870cd619e80f90008108410237d7e78c452e1b7",
+        "drivers/note/note_driver.c": "e7a059a2e5f11d87c494c2d87a63df5e03fa9d7a1fc12fe5a7a99b66427aa6a6",
+        "include/nuttx/note/note_driver.h": "4b378d4851c4aa60fd7749029b079e3a46179596ea4b561919ae1baaafae514a",
+        "include/nuttx/sched.h": "5cc14e5f63b75a7cc0586c5494e0cb2d15e5fb2cc0528eada7cffbcbfb1859d8",
+        "arch/xtensa/include/irq.h": "6dea737b3988df72a615b474acfd4bef42490bc69dc0360ae95c5ff7a5097cf1",
+        "arch/xtensa/src/Makefile": "4d911ffdf9e5a1198c13d8e2811926909d87f573f05c224f678a4a992eded23d",
+        "arch/xtensa/src/esp32s3/esp32s3_spiram.c": "ff769b650c42b8cd530397dd71f790261b5b5d7c4d1293b5ab4bc39e33d9a13c",
+        "arch/xtensa/src/esp32s3/esp32s3_spiram.h": "61481452673bae878d32772ed1591a711564e7c3a6c11a35c52dc4aa76f71e8f",
+        "include/nuttx/irq.h": "26234d3172f50ef16099cd9e07fb5468f3d422381f89883c03ab43a63d495de5",
+        "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/soc/esp32s3/include/soc/soc.h": "7c5d0a1870cd659d78e2e551352ddfeab6973d6e20ee7dbc8abf9b0eaf53eadc"
+      }
+    },
+    "trace": {
+      "id": 13339100046,
+      "zip_sha256": "44bdd0dc8713d0032ba6f706b5777b1c7f8dc81740ab3126ec78bd99d7bb42b4",
+      "build_id": "606022217e5c78a7baa14d95cc5de631d4748b74002a89ea296e49cd9812c4b9",
+      "image_sha256": "18d283ec33e67bb432e31818d8f3bce080440d8fee4a8e383727a6bd96d8b3bb",
+      "elf_sha256": "a5413053b50ee9fc296d131cf37ae403248f4a15201654ff4b3e638fddb441a6",
+      "config_sha256": "5f1567c2186ae15f07dd4679cf5679273b1b3244230cf759d7a344adc510391d",
+      "kernel_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "std_array_sha256": "3b7cce4fa348ff357658c44fa9def9bffe7ed6ff97a6ab4be74da3a0350e804c",
+      "std_library_tree_sha256": "7a166f0c369548065b0ccdeee1df9a5a74baba53d6c3f59b6346a47d66976da6",
+      "native_source_sha256": {
+        "sched/sched/sched_addreadytorun.c": "9969e9395eb1cb91127229bd6b65e2f12b7078f41b420067bf0ae2d82f579fa0",
+        "sched/sched/sched.h": "57b4cc2d873a57f9a2410598d953b7ab0bf0cb21eb11d019d29b29407885b21a",
+        "sched/sched/sched_switchcontext.c": "14c0eecd6ac0a6218f7a1e14e870cd619e80f90008108410237d7e78c452e1b7",
+        "drivers/note/note_driver.c": "e7a059a2e5f11d87c494c2d87a63df5e03fa9d7a1fc12fe5a7a99b66427aa6a6",
+        "include/nuttx/note/note_driver.h": "4b378d4851c4aa60fd7749029b079e3a46179596ea4b561919ae1baaafae514a",
+        "include/nuttx/sched.h": "5cc14e5f63b75a7cc0586c5494e0cb2d15e5fb2cc0528eada7cffbcbfb1859d8",
+        "arch/xtensa/include/irq.h": "6dea737b3988df72a615b474acfd4bef42490bc69dc0360ae95c5ff7a5097cf1",
+        "arch/xtensa/src/Makefile": "4d911ffdf9e5a1198c13d8e2811926909d87f573f05c224f678a4a992eded23d",
+        "arch/xtensa/src/esp32s3/esp32s3_spiram.c": "ff769b650c42b8cd530397dd71f790261b5b5d7c4d1293b5ab4bc39e33d9a13c",
+        "arch/xtensa/src/esp32s3/esp32s3_spiram.h": "61481452673bae878d32772ed1591a711564e7c3a6c11a35c52dc4aa76f71e8f",
+        "include/nuttx/irq.h": "26234d3172f50ef16099cd9e07fb5468f3d422381f89883c03ab43a63d495de5",
+        "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/soc/esp32s3/include/soc/soc.h": "7c5d0a1870cd659d78e2e551352ddfeab6973d6e20ee7dbc8abf9b0eaf53eadc"
+      }
+    }
+  },
+  "private_evidence": "Raw consoles, sessions, runtime addresses, device identifiers and flash backups remain local."
+}

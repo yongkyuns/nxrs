@@ -219,6 +219,11 @@ not by assuming a method called `try_recv` is bounded or allocation-free.
 
 ## P4 — attribute wakeup and switching before optimizing the kernel
 
+The [physical P4 report](../tests/event-path-trace/results/2026-11-04-esp32s3/README.md)
+retains 36 matched fresh-boot observations. It finds one ready/resume per
+admission-to-receive interval and material instrumentation perturbation; equal
+FIFO increases delivery latency. No production priority/transport change is admitted.
+
 Keep release timing and diagnostic attribution in separate images. Preallocate
 bounded trace storage, detect overflow, avoid per-event printing/allocation and
 measure instrumentation perturbation with the same workload.

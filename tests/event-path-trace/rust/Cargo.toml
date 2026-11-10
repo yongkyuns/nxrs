@@ -1,0 +1,21 @@
+[package]
+name = "nxrs-event-path-trace"
+version.workspace = true
+edition.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+nxrs-messaging = { path = "../../../shared/messaging" }
+nxrs-imu = { path = "../../../hal/imu" }
+crossbeam-channel = "=0.5.17"
+
+[package.metadata.nxrs.firmware]
+bin = "event-path-trace"
+command = "event_path_trace"
+priority = 100
+stack-size = 65536
+
+[[bin]]
+name = "event-path-trace"
+path = "src/main.rs"

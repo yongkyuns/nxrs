@@ -55,6 +55,7 @@ members = [
     "tests/rtos-bench/rust",
     "tests/std-channel-perf/rust",
     "tests/event-path-perf/rust",
+    "tests/event-path-trace/rust",
 ]
 default-members = [
     "app/nxrs",
