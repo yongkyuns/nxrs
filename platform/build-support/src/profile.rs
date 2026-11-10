@@ -884,7 +884,7 @@ mod tests {
         let gnss = profile.cargo_output(&root, "gnss", "linux").unwrap();
         assert!(gnss.contains(&"cargo:rustc-cfg=platform=\"simulation\"".into()));
         let absent = profile.cargo_output(&root, "camera", "linux").unwrap();
-        assert!(!absent.iter().any(|line| line.contains("rustc-cfg=hal_")));
+        assert!(!absent.iter().any(|line| line.starts_with("cargo:rustc-cfg=")));
     }
 
     #[test]
