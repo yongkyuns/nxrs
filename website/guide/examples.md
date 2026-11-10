@@ -1,27 +1,27 @@
 # NXRS examples
 
-These examples exercise different parts of NXRS. They are not a gallery of finished products. Start with the host example for the programming model; read the application-specific reports before choosing a hardware configuration.
+NXRS includes a navigation application for learning the service model and an IoT camera application that combines capture, detection, communication and client integration.
 
 ## Navigation and service composition
 
-The [event-demo application](../../app/event-demo/src/main.rs) connects IMU and GNSS services to a fusion owner and observes the resulting state. It is useful for understanding typed delivery, control commands, bounded waits and explicit shutdown.
+The [event-demo application](../../app/event-demo/src/main.rs) connects IMU and GNSS services to a fusion service and observes the resulting state. It demonstrates typed messages, control commands, bounded waits and explicit shutdown.
 
-The [getting-started guide](getting-started.md) runs it with the explicit `host-demo` profile and synthetic inputs. This checks application behavior without opening physical sensors. The app selects a logical IMU through `devices::primary_imu()`; the selected profile supplies its implementation.
+The [getting-started guide](getting-started.md) runs it with the `host-demo` profile and synthetic inputs. The app selects a logical IMU through `devices::primary_imu()`; the selected profile supplies its implementation.
 
-Read [Your first application](first-application.md) alongside the source. The [event-driven reference](../../docs/event-driven-demo.md) describes the execution model and its validation. Synthetic input is not sensor accuracy or real-time hardware qualification.
+Read [Your first application](first-application.md) alongside the source. The [event-driven reference](../../docs/event-driven-demo.md) describes the execution model and test results.
 
-## Experimental IoT camera
+<span id="experimental-iot-camera"></span>
 
-The camera work is an application of the same separation of concerns to a larger system: frame acquisition, detection, recording/streaming, gateway delivery and client-visible state. It provides a practical setting for resource ownership, bounded buffering, failure recovery and stale-data handling.
+## IoT camera
 
-The [camera detection delivery reference](../../docs/camera-detection-delivery.md) follows observations from the camera application through the gateway to the iOS view. It explains authenticated publication and viewing, bounded message formats, expiration and cancellation. Detection state and video progress are tracked separately so old observations are not presented as current merely because a video view is still open.
+The camera application combines frame acquisition, detection, recording/streaming, gateway delivery and client-visible state. It uses bounded buffering, explicit resource ownership, failure recovery and stale-data handling.
 
-The [VWW baseline qualification report](../../docs/camera-detection-qualification.md) records a particular model, board and camera configuration, including memory use and failure cases. It also points to subsequent model-specific work. Those results must not be generalized across resolutions, models or boards. In particular, the baseline report explicitly describes missed detections and does not establish a dependable intrusion detector.
+The [camera detection delivery reference](../../docs/camera-detection-delivery.md) follows observations from the camera through the gateway to the iOS view. It describes authenticated publication and viewing, bounded message formats, expiration and cancellation. Detection state and video progress are tracked separately so stale observations are cleared even while a video view remains open.
 
-This is a functional experimental camera workflow, not a production security-camera certification or a promise of remote alert delivery. Deployment and threat boundaries belong to the [security design and release requirements](../../docs/security.md) and the application-specific guides.
+The [VWW baseline evaluation](../../docs/camera-detection-qualification.md) records streaming performance, detection accuracy, memory use and recovery tests for the tested model and board. It also links to subsequent detector work. The baseline has documented missed detections; use the model-specific results when selecting a configuration. Remote alert delivery and deployment requirements are described in the application guides and [security documentation](../../docs/security.md).
 
-## Tests are not interchangeable examples
+## Tests and evaluations
 
-Host fixtures, mocked providers, emulator runs and hardware probes are useful for different questions. A workload designed to isolate channel overhead is not a complete application; an emulator pass is not a physical-device timing measurement.
+The applications are tested on the host, in emulation and on supported hardware. Separate benchmarks measure channel performance, event delivery and memory use.
 
-For the validation paths, see [Testing and debugging](testing.md), the [repository test index](../../tests/README.md), and [Performance and memory](performance.md). More application examples will be documented as they are added, together with their configuration and evidence.
+See [Testing and debugging](testing.md), the [repository test index](../../tests/README.md), and [Performance and memory](performance.md) for the test procedures and results. Additional examples are documented as they are added.

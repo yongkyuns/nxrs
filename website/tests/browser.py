@@ -59,10 +59,12 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             page.goto(url, wait_until='networkidle')
             expect(page.locator('h1')).to_have_text('NXRS')
             expect(page.locator('.lead')).to_contain_text('experimental')
+            assert page.locator('body').inner_text().lower().count('experimental') == 1
+            expect(page.locator('#validation-title')).to_have_text('Implementation and validation')
             assert page.locator('iframe').count() == 0
             assert page.locator('.brand img').evaluate('(img) => img.complete && img.naturalWidth > 0')
             page.screenshot(path=str(output / 'home-light.png'), full_page=True)
-            report['checks'].append('experimental-project homepage and approved artwork')
+            report['checks'].append('project homepage, introductory status and approved artwork')
 
             page.locator('#theme-toggle').click()
             expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
@@ -96,11 +98,13 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             expect(page.locator('.breadcrumb')).to_contain_text('About the project')
             expect(page.locator('.page-navigation a[rel="next"]')).to_have_attribute('href', prefix + 'guide/overview/')
             page.screenshot(path=str(output / 'motivation-desktop.png'), full_page=True)
-            page.locator('#sidebar').get_by_role('link', name='Status and limitations', exact=True).click()
+            page.locator('#sidebar').get_by_role('link', name='Current status', exact=True).click()
+            expect(page.locator('h1')).to_have_text('Current status')
+            expect(page.locator('#completed-validation')).to_be_visible()
             assert page.locator('.page-navigation a[rel="next"]').count() == 0
             main_nav.get_by_role('link', name='Examples', exact=True).click()
             expect(page.locator('h1')).to_have_text('NXRS examples')
-            expect(page.locator('#experimental-iot-camera')).to_be_visible()
+            expect(page.locator('#iot-camera')).to_be_visible()
             report['checks'].append('primary navigation, complete grouped sidebar, breadcrumbs and within-section pagination')
 
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')

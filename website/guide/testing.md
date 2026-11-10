@@ -1,6 +1,6 @@
 # Testing and debugging
 
-Use the smallest test that can establish the behavior you changed, then move across the relevant target boundary. Keep functional correctness, native ABI, emulated execution and physical measurements separate.
+NXRS uses host tests, target build checks, simulator and QEMU runs, and on-board tests. Start with the tests for the component you changed, then run the relevant platform and application tests.
 
 ## Start with the host checks
 
@@ -10,39 +10,40 @@ python3 tools/check-architecture.py
 NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo -- --duration-ms 2000
 ```
 
-The root workspace has host-compatible default members. Target-only and destructive probes are separately selected; do not infer that the default test command exercised every board or fixture.
+The default workspace tests cover host-compatible members. Target-specific suites have separate commands in the [test index](../../tests/README.md).
 
-For HAL or native-boundary changes, run the corresponding focused suites described in [AGENTS.md](../../AGENTS.md) and the [test index](../../tests/README.md). The architecture checker is useful, but a source-boundary pass is not a device behavior test.
+For HAL or native-interface changes, follow the focused test requirements in [AGENTS.md](../../AGENTS.md). The architecture checker verifies module and dependency rules; the corresponding runtime tests check behavior.
 
-## Test lifecycle, not just the happy path
+## Test lifecycle and failure handling
 
-Exercise full queues, slow consumers, malformed input, source faults, partial initialization, cancellation during a blocking wait and explicit shutdown. Check returned values, counters and ownership. Verify that no callback, worker or DMA operation can still access a released resource.
+Test full queues, slow consumers, malformed input, source faults, partial initialization, cancellation during a blocking wait and explicit shutdown. Check returned values, counters and ownership. Verify that callbacks, workers and DMA operations have stopped before releasing their resources.
 
-The navigation service tests are under `service/navigation/tests/`; the [demo reference](../../docs/event-driven-demo.md) explains the intended control and teardown behavior. Test pause/resume semantics without pretending that processing pause stops physical acquisition.
+Navigation service tests are under `service/navigation/tests/`. The [demo reference](../../docs/event-driven-demo.md) describes control and teardown behavior. Processing pause and physical acquisition are separate operations and should be tested accordingly.
 
-## Cross the native boundary explicitly
+## Check target integration
 
-A native ABI gate checks the actual configured target headers against the Rust artifacts used in that build. Host layout assumptions do not prove a NuttX ABI. Preserve the source pins, configuration and image identity with the result.
+Native ABI checks compare the configured target headers with the Rust artifacts used in the build. Record the source revision, configuration and firmware image with the result.
 
-After linking, use the target runner to check the complete transcript, not just the appearance of an expected success word. Unexpected faults, missing cleanup or a runtime identity mismatch remain failures.
+After linking, run the firmware with the corresponding simulator, emulator or device test runner. Review the full transcript for faults, startup, expected output and cleanup.
 
-## Keep an evidence ladder
+## Tests and evaluations
 
-| Evidence | What it can establish | What it does not establish by itself |
-| --- | --- | --- |
-| Host unit/behavior tests | Portable algorithms, ownership and injected failure handling | Device wiring or target ABI |
-| Target build and ABI inspection | Compilation, linking and the checked native layout/interface facts | Physical execution |
-| Simulator/QEMU run | Behavior under that emulated environment | Physical interrupt latency or throughput |
-| Controlled device run | Observed behavior on the recorded image and hardware | Universal timing guarantees or every operating condition |
+| Test or evaluation | Coverage |
+| --- | --- |
+| Host unit and behavior tests | Algorithms, component ownership, service lifecycle and injected failures |
+| Target build and ABI checks | Compilation, linking and native interface compatibility |
+| NuttX simulator and QEMU runs | Firmware startup, application execution and shutdown |
+| On-board tests | Drivers, peripherals, interrupts, recovery and application behavior |
+| Performance and memory evaluations | Event latency, throughput, code size, stacks, queues and heap use |
 
-The [test guide](../../tests/README.md), [NuttX simulator guide](../../docs/nuttx-sim.md) and [QEMU guide](../../docs/nuttx-qemu.md) identify their different scopes.
+The [test index](../../tests/README.md), [NuttX simulator guide](../../docs/nuttx-sim.md) and [QEMU guide](../../docs/nuttx-qemu.md) contain setup and execution instructions. The [performance guide](performance.md) links to measurements and comparisons.
 
-## Debug from the failed boundary
+## Diagnose a failure
 
-Record the repository revision, app/profile, overlay order, compiler/SDK identity, complete command, build receipt and full log. First establish which stage failed: configuration, dependency selection, native compilation, linking/ABI, startup, acquisition, processing or shutdown.
+Record the repository revision, application, profile, overlay order, compiler/SDK version, complete command and full log. Identify the failing stage: configuration, dependency selection, native compilation, linking, startup, acquisition, processing or shutdown.
 
-Do not “fix” a failed runtime by suppressing the warning, increasing every timeout or silently selecting a mock. Reduce to the smallest fixture that retains the failing boundary, preserve the failed evidence and compare against a named control.
+Reproduce the failure with a small test case using the same configuration. Keep the original log and compare against a passing run. Fix the underlying behavior rather than suppressing errors, increasing every timeout or silently selecting a mock provider.
 
 ## Editor setup
 
-Use the [editor configuration guide](../../docs/editor-setup.md) for the current Rust and clangd setup. Generated target headers and native compile flags must match the selected build; editor diagnostics against an unrelated host configuration can be misleading.
+Use the [editor configuration guide](../../docs/editor-setup.md) for Rust and clangd setup. Generated target headers and native compile flags must match the selected build.
