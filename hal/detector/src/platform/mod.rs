@@ -1,10 +1,10 @@
 //! Admit a configured model; NuttX additionally owns its compute-context lease.
 cfg_if::cfg_if! {
-    if #[cfg(all(hal_provider = "nuttx", any(feature = "person-model", feature = "pico-model")))] {
+    if #[cfg(all(platform = "nuttx", any(feature = "person-model", feature = "pico-model")))] {
         mod nuttx;
         use nuttx as selected;
     } else if #[cfg(all(
-        any(hal_provider = "linux", hal_provider = "macos", hal_provider = "windows"),
+        any(platform = "linux", platform = "macos", platform = "windows"),
         any(feature = "person-model", feature = "pico-model")
     ))] {
         use crate::model as selected;

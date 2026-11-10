@@ -1,14 +1,14 @@
 //! Select one implementation from the validated profile binding.
 cfg_if::cfg_if! {
-    if #[cfg(hal_provider = "linux")] {
+    if #[cfg(platform = "linux")] {
         #[allow(unsafe_code)]
         mod linux;
         use linux as selected;
-    } else if #[cfg(hal_provider = "macos")] {
+    } else if #[cfg(platform = "macos")] {
         #[allow(unsafe_code)]
         mod macos;
         use macos as selected;
-    } else if #[cfg(hal_provider = "nuttx")] {
+    } else if #[cfg(platform = "nuttx")] {
         #[allow(unsafe_code)]
         mod nuttx;
         use nuttx as selected;

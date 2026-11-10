@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 cfg_if::cfg_if! {
-    if #[cfg(hal_provider = "nuttx")] {
+    if #[cfg(platform = "nuttx")] {
         use {::i2c as resource, ::spi as spi_resource};
         mod nuttx;
         use nuttx as selected;

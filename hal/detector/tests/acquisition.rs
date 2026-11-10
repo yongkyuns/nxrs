@@ -1,9 +1,9 @@
 #[cfg(any(
     not(any(
-        hal_provider = "linux",
-        hal_provider = "macos",
-        hal_provider = "windows",
-        hal_provider = "nuttx"
+        platform = "linux",
+        platform = "macos",
+        platform = "windows",
+        platform = "nuttx"
     )),
     not(any(feature = "person-model", feature = "pico-model"))
 ))]
@@ -18,10 +18,10 @@ fn unbound_contract_does_not_implicitly_open_a_mock() {
 
 #[cfg(all(
     any(
-        hal_provider = "linux",
-        hal_provider = "macos",
-        hal_provider = "windows",
-        hal_provider = "nuttx"
+        platform = "linux",
+        platform = "macos",
+        platform = "windows",
+        platform = "nuttx"
     ),
     feature = "person-model",
     not(feature = "pico-model")
@@ -53,10 +53,10 @@ fn presence_provider_reports_its_limits_and_rejects_required_localization() {
     feature = "probe",
     feature = "pico-model",
     not(any(
-        hal_provider = "linux",
-        hal_provider = "macos",
-        hal_provider = "windows",
-        hal_provider = "nuttx"
+        platform = "linux",
+        platform = "macos",
+        platform = "windows",
+        platform = "nuttx"
     ))
 ))]
 #[test]

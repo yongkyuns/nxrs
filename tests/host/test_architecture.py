@@ -75,14 +75,14 @@ class ArchitectureTests(unittest.TestCase):
         selector = directory / 'mod.rs'
         for exports in ['pub(super) use selected::open;',
                         'pub use selected::{open, Camera};',
-                        'pub(super) use selected::open;\n#[cfg(hal_provider = "mock")] pub use selected::{CameraAction, MockCamera, FORMAT};']:
+                        'pub(super) use selected::open;\n#[cfg(platform = "mock")] pub use selected::{CameraAction, MockCamera, FORMAT};']:
             with self.subTest(exports=exports):
                 selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
                 self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
         selector.write_text('mod unbound; pub use unbound as selected; pub use selected::open;')
         self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
-        grouped = ('cfg_if::cfg_if! { if #[cfg(hal_provider = "nuttx")] '
+        grouped = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
                    '{ mod nuttx; use nuttx as selected; } else '
                    '{ mod unbound; use unbound as selected; } } pub use selected::open;')
         selector.write_text(grouped)
@@ -244,6 +244,7 @@ class ArchitectureTests(unittest.TestCase):
                 self.packages[source]['dependencies'].clear()
         directory = Path(self.packages['app']['manifest_path']).parent
         for code in ['#[cfg(target_os = "nuttx")] fn f() {}', 'fn f() { cfg!(unix); }',
+                     '#[cfg(platform = "mock")] fn f() {}', 'fn f() { cfg!(platform = "simulation"); }',
                      'fn f() { let _ = std::env::consts::OS; }',
                      'fn f() { let _ = std::fs::File::open("/dev/ttyACM0"); }',
                      '#[path="../../platform/provider.rs"] mod hidden;']:

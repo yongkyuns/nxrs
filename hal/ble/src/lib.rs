@@ -2,12 +2,7 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(
-    hal_provider = "nuttx",
-    hal_provider = "linux",
-    hal_provider = "macos",
-    test
-))]
+#[cfg(any(platform = "nuttx", platform = "linux", platform = "macos", test))]
 extern crate std;
 mod api;
 pub use api::{
@@ -19,9 +14,9 @@ pub use controller::{Controller, ControllerError, Outcome, Update};
 pub mod gatt;
 cfg_if::cfg_if! {
     if #[cfg(any(
-        hal_provider = "nuttx",
-        hal_provider = "linux",
-        hal_provider = "macos",
+        platform = "nuttx",
+        platform = "linux",
+        platform = "macos",
         all(test, unix)
     ))] {
         mod gatt_backend;
@@ -29,11 +24,11 @@ cfg_if::cfg_if! {
         mod worker;
     }
 }
-#[cfg(any(hal_provider = "linux", hal_provider = "macos", all(test, unix)))]
+#[cfg(any(platform = "linux", platform = "macos", all(test, unix)))]
 mod shared;
 
 cfg_if::cfg_if! {
-    if #[cfg(any(hal_provider = "nuttx", hal_provider = "linux", hal_provider = "macos"))] {
+    if #[cfg(any(platform = "nuttx", platform = "linux", platform = "macos"))] {
         mod platform;
 
         pub fn open<S>(sink: S) -> Result<Controller<impl Ble + Send>, Error>

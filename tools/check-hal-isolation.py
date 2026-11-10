@@ -87,7 +87,7 @@ def check(text, names, expected, host, directory, target):
 def provider_cfgs(provider):
     if provider == "none":
         return []
-    return [f'hal_provider="{provider}"']
+    return [f'platform="{provider}"']
 
 
 def check_selection(text, names, package, provider):
@@ -95,7 +95,7 @@ def check_selection(text, names, package, provider):
                if (r := json.loads(line)).get("reason") == "build-script-executed"
                and names.get(r["package_id"]) == package]
     assert len(reports) == 1, "missing/duplicate platform build-script evidence"
-    cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("hal_", "nxrs_hal_"))]
+    cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("platform=", "hal_", "nxrs_hal_"))]
     expected = provider_cfgs(provider)
     assert cfgs == expected, f"wrong capability selection: {cfgs} != {expected}"
 
@@ -259,7 +259,7 @@ def run(out, capabilities=CAPABILITIES):
                                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
             assert result.returncode == 0, result.stderr
             check_selection(result.stdout, names, "nxrs-camera", provider)
-        for selector in ('hal_mock', 'hal_provider="mock"'):
+        for selector in ('hal_mock', 'hal_provider="mock"', 'platform="mock"'):
             env["CARGO_ENCODED_RUSTFLAGS"] = "--cfg\x1f" + selector
             result = subprocess.run(["cargo", "check", "--locked", "-p", "nxrs-camera", "--lib"],
                                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)

@@ -135,7 +135,7 @@ capability-owned Rust API and shared behavior
 
 Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
-not branch on `target_os`, `hal_provider`, or platform environment
+not branch on `target_os`, `platform`, or platform environment
 variables. Rust model features select model code, never an OS.
 Each HAL's `src/platform/mod.rs` selects source modules as `selected` and
 re-exports only selected items. Prefer fixed named factory exports; do not
@@ -376,7 +376,7 @@ runtime HAL edges to platform code remain forbidden. Apps may use only the porta
 device catalogue, and services receive devices from their caller.
 External profile builds supply `NXRS_SDK_ROOT`, independently of the consumer
 workspace. In-checkout builds can discover the SDK root.
-The resolver emits the exact validated binding as `hal_provider` for each bound
+The resolver emits the exact validated binding as `platform` for each bound
 capability: `nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`. Hardware
 bindings must match Rust's `target_os` before emission; `hardware` is not a
 second category. An unbound capability emits no selector. Named simulation and mock
@@ -392,7 +392,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 
 | Control | Owner | Purpose |
 | --- | --- | --- |
-| `hal_provider` | HAL module/acquisition wiring | Select the resolved provider or compile the unavailable factory |
+| `platform` | HAL module/acquisition wiring | Select the resolved platform implementation or the unavailable factory |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
 | `replay`, `recording`, `udp` | Owning HAL and its consumers' Cargo manifests | Include explicit std software operations; do not select or require a hardware backend |
 | `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |

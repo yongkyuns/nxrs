@@ -5,9 +5,9 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(hal_provider = "mock", test))]
+#[cfg(any(platform = "mock", test))]
 extern crate alloc;
-#[cfg(any(hal_provider = "nuttx", feature = "replay", test))]
+#[cfg(any(platform = "nuttx", feature = "replay", test))]
 extern crate std;
 
 mod api;
@@ -29,7 +29,7 @@ cfg_if::cfg_if! {
 }
 
 // Scripted fixtures are explicitly selected, never an implicit live fallback.
-#[cfg(hal_provider = "mock")]
+#[cfg(platform = "mock")]
 pub use platform::{CameraAction, MockCamera, FORMAT};
 
 #[cfg(test)]

@@ -18,13 +18,13 @@ pub enum Error {
 }
 
 #[cfg_attr(
-    not(any(hal_provider = "linux", hal_provider = "macos", hal_provider = "nuttx")),
+    not(any(platform = "linux", platform = "macos", platform = "nuttx")),
     allow(dead_code)
 )]
 mod api;
 pub use api::{CertificatePolicy, Certificates, TimeLease};
 mod platform;
-#[cfg(any(hal_provider = "linux", hal_provider = "macos", hal_provider = "nuttx"))]
+#[cfg(any(platform = "linux", platform = "macos", platform = "nuttx"))]
 #[allow(unsafe_code)]
 mod sdk;
 pub use platform::{open, Connection, Identity};

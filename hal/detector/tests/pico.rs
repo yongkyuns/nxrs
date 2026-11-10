@@ -1,10 +1,10 @@
 #![cfg(all(
     feature = "pico-model",
     any(
-        hal_provider = "linux",
-        hal_provider = "macos",
-        hal_provider = "windows",
-        hal_provider = "nuttx"
+        platform = "linux",
+        platform = "macos",
+        platform = "windows",
+        platform = "nuttx"
     )
 ))]
 use detector::{Config, Detector, DeviceError, Image};

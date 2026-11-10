@@ -1,12 +1,7 @@
 //! GNSS contract and capability-local acquisition.
 #![no_std]
 #![deny(unsafe_code)]
-#[cfg(any(
-    test,
-    hal_provider = "nuttx",
-    hal_provider = "mock",
-    hal_provider = "simulation"
-))]
+#[cfg(any(test, platform = "nuttx", platform = "mock", platform = "simulation"))]
 extern crate std;
 mod api;
 /// Compatibility name for the acquisition session; use `Session` in new code.
@@ -14,9 +9,9 @@ pub use api::Session as Gnss;
 pub use api::{DeviceError, Event, GnssFix, Session};
 pub use messaging::{DeliveryError, Rejected};
 mod platform;
-#[cfg(any(test, hal_provider = "nuttx"))]
+#[cfg(any(test, platform = "nuttx"))]
 mod receiver;
-#[cfg(any(hal_provider = "nuttx", hal_provider = "simulation"))]
+#[cfg(any(platform = "nuttx", platform = "simulation"))]
 mod session;
 pub use platform::open;
 

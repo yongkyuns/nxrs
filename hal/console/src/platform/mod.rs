@@ -1,6 +1,6 @@
 //! Select one implementation from the validated profile binding.
 cfg_if::cfg_if! {
-    if #[cfg(hal_provider = "nuttx")] {
+    if #[cfg(platform = "nuttx")] {
         mod nuttx;
         use nuttx as selected;
     } else {

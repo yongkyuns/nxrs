@@ -214,7 +214,7 @@ fn profile_cli_reports_the_resolved_imu_and_its_provenance() {
     ));
     assert!(cargo_output
         .lines()
-        .any(|line| line == "cargo:rustc-cfg=hal_provider=\"nuttx\""));
+        .any(|line| line == "cargo:rustc-cfg=platform=\"nuttx\""));
     assert!(!cargo_output
         .lines()
         .any(|line| line.starts_with("cargo:rustc-env=IMU_")));

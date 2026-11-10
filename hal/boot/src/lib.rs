@@ -52,7 +52,7 @@ pub trait Control {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(any(hal_provider = "nuttx", test))] {
+    if #[cfg(any(platform = "nuttx", test))] {
         mod control;
         mod staging;
     }

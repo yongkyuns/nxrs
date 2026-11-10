@@ -1,12 +1,12 @@
 //! Select one implementation from the validated profile binding.
 cfg_if::cfg_if! {
-    if #[cfg(hal_provider = "nuttx")] {
+    if #[cfg(platform = "nuttx")] {
         mod nuttx;
         use nuttx as selected;
-    } else if #[cfg(hal_provider = "mock")] {
+    } else if #[cfg(platform = "mock")] {
         mod mock;
         use mock as selected;
-    } else if #[cfg(hal_provider = "simulation")] {
+    } else if #[cfg(platform = "simulation")] {
         mod simulation;
         use simulation as selected;
     } else {

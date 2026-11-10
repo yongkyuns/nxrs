@@ -13,10 +13,10 @@ cfg_if::cfg_if! {
         extern crate std;
         #[cfg_attr(
             not(any(
-                hal_provider = "linux",
-                hal_provider = "macos",
-                hal_provider = "windows",
-                hal_provider = "nuttx"
+                platform = "linux",
+                platform = "macos",
+                platform = "windows",
+                platform = "nuttx"
             )),
             allow(dead_code, unused_imports)
         )]

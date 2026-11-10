@@ -1,4 +1,4 @@
-#![cfg(hal_provider = "mock")]
+#![cfg(platform = "mock")]
 
 use transport::{DeviceError, MockTransport, PacketSink};
 

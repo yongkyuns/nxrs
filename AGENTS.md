@@ -127,7 +127,7 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit simulation or qualification fixtures. HALs use one
-  internal `hal_provider` value at their module boundary. It names the exact
+  internal `platform` value at their module boundary. It names the exact
   validated binding (`nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`),
   with no selector for unbound capabilities; do not collapse OS names to `hardware`.
 - Cargo manifests own component dependencies. Ordinary additive features may
