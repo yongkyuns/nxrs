@@ -90,7 +90,7 @@ cargo test --locked
 python3 tools/check-architecture.py
 ```
 
-Performance and memory remain part of ongoing development. Evaluations include image size, stacks, heap use, queues, event latency, and throughput, with reference comparisons such as Zephyr. See the [test index](tests/README.md), [performance guide](website/guide/performance.md), [event-path measurements](docs/std-channel-performance.md), and [footprint study](docs/rust-std-footprint.md).
+Performance and memory remain part of ongoing development. Evaluations include image size, stacks, heap use, queues, event latency, and throughput, with reference comparisons such as Zephyr. See the [test index](tests/README.md), [performance guide](website/guide/performance.md), [event-path measurements](docs/std-channel-performance.md), [footprint study](docs/rust-std-footprint.md), and [RTOS comparisons](docs/rtos-comparison.md).
 
 ## Documentation and examples
 
