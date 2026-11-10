@@ -15,8 +15,8 @@ from esptool.reset import HardReset
 
 ROOT = Path(__file__).resolve().parent
 REPO = Path('/private/tmp/nxrs-pr257-wroom-20261103')
-PORT = '/dev/cu.usbmodem21101'
-DEVICE = (0x303a, 0x1001, '20:6E:F1:A7:6F:58')
+PORT = '<serial-device>'
+DEVICE = (0x303a, 0x1001, 'esp32s3-bench-01')
 sys.path.insert(0, str(REPO / 'tests/std-channel-perf'))
 import analyze
 

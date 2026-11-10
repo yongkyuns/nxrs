@@ -3,7 +3,7 @@
   "runtime_kind": "physical",
   "measurement_session": "pr255-20261104-select-published",
   "board": "ESP32-S3 N16R8 QFN56 rev v0.2; single-core configured 240 MHz; 16 MiB flash and 8 MiB octal PSRAM",
-  "board_serial": "20:6E:F1:A7:6F:58",
+  "board_serial": "esp32s3-bench-01",
   "active_cores": 1,
   "build_id": "8817b6d0e3f02a5b1fb79bf1ad548fe60d48cf700691732d601f787f4aa9bfd7",
   "image_sha256": "180062de54c10f24dfbcd57ada791a0342443c7bccdfc4c94cb8aa0a7a7c7ac2",

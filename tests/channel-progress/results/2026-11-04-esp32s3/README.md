@@ -28,7 +28,7 @@ three-class owner or arbitrary-priority transport.
 ## Coverage and physical limits
 
 The board identifies as ESP32-S3 QFN56 rev v0.2, N16R8, USB/MAC
-`20:6E:F1:A7:6F:58`: 16 MiB flash, 8 MiB octal PSRAM, one configured 240 MHz core.
+`esp32s3-bench-01`: 16 MiB flash, 8 MiB octal PSRAM, one configured 240 MHz core.
 Each command followed a fresh USB reset with exclusive test access. A new private
 full-flash backup was verified before flashing, restored afterward and verified
 again; older snapshots were not used. The backup bytes and credentials are
@@ -109,3 +109,16 @@ temporary-path alias initially failed source-receipt comparisons. No fixture
 code was changed. The 53-package architecture audit, 23 architecture, 10
 HAL-boundary and three documentation regressions pass. The inherited separate
 Security workflow failure is not resolved by this physical campaign.
+
+## Privacy of this public copy
+
+The physical board MAC/USB serial is represented by the stable pseudonym
+`esp32s3-bench-01`; the host serial-device path is `<serial-device>`. These labels
+preserve the relationship between this board's runs without publishing its
+hardware identifier. They are not connection settings for a new measurement.
+
+`privacy-redaction.json` records the original and public-copy file digests.
+`SHA256SUMS` and cohort evidence references describe the sanitized files.
+Firmware/build/source identities, console measurements, numeric results and
+qualification outcomes are unchanged. This is a publication edit, not a new
+hardware run or a rewrite of Git history.
