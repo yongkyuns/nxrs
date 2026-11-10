@@ -1,24 +1,34 @@
-# NXRS website
+# NXRS website maintenance
 
-The website is a static HTML build. A small Python renderer uses markdown-it-py,
-Jinja2 and Pygments; the output needs no backend, npm runtime, remote font,
-analytics service or JavaScript framework. Reading documents works without JS;
-search, theme controls and the optional Noon embed progressively enhance it.
+The website is a static HTML build using markdown-it-py, Jinja2 and Pygments.
+It documents an experimental project: motivation, usage, examples and evidence
+are distinct, and a working example is not a production-readiness claim.
 
-## Content ownership
+## Content and navigation
 
-- `website/guide/*.md`: the onboarding/user-guide sequence.
-- `docs/**/*.md`: engineering references, rendered directly from their existing
-  sources. Do not copy them into a parallel manual.
-- `website/site.json`: guide order and frequently used reference links.
-- `website/layout.html`, `website/static/*`: presentation and browser behavior.
-- `docs/assets/nxrs-logo.png` and the two architecture SVGs: approved G7 artwork,
-  reused without changing its diagram topology.
+- `website/guide/*.md` contains the explanatory and introductory pages.
+- `docs/**/*.md` contains the engineering references. They are rendered from
+  their original sources, not copied into a second maintained manual.
+- `website/site.json` owns guide titles, routes, navigation groups and commonly
+  used reference links. Every guide belongs to exactly one group. The sidebar
+  and previous/next links use those same groups.
+- `website/layout.html` and `website/static/*` own the presentation and behavior.
+  The G7 logo and approved architecture SVGs remain in `docs/assets/`.
 
-Relative Markdown links to published pages are rewritten to site routes. Links
-to code, tests or other repository content point to the source revision. Media
-beneath `docs/` are copied into the static site. No source files are modified.
-Fenced text/source diagrams remain source; checked-in SVG diagrams remain SVG.
+The homepage introduces the experiment rather than repeating the README or
+promising product outcomes. Put design reasoning in `motivation.md`, practical
+reading paths in `start-here.md`, application-specific context in `examples.md`,
+and unresolved constraints in `status.md`. Preserve the distinction between
+host, emulator and physical-device evidence. Link technical comparisons to
+primary references; do not infer adoption rankings or general performance from
+individual fixtures.
+
+Relative Markdown links to published documents become site routes. Links to
+source code and other repository files point to the build's revision. Media in
+`docs/` are copied to the generated site. The build does not modify source files.
+The site does not embed external applications or require a remote runtime to
+read documentation. JavaScript adds search, theme controls and code copying;
+ordinary links and document text work without it.
 
 ## Local build and preview
 
@@ -34,13 +44,13 @@ python website/check.py target/website-local --base-path /
 python -m http.server 8000 --directory target/website-local
 ```
 
-Open `http://localhost:8000`. To reproduce project-site hosting, build with
+Open `http://localhost:8000`. For project-site hosting, build with
 `--base-path /nxrs/` into `target/site-preview/nxrs`, then serve
-`target/site-preview`. Test deep links, not only the homepage.
+`target/site-preview`. Check deep links as well as the homepage.
 
-The renderer refuses to clean a nonempty output directory unless it contains its
-own `.nxrs-website` marker. Never use a source directory as build output.
-`--revision <commit>` controls repository source links. CI uses its exact checkout.
+The renderer refuses to clean an unowned, nonempty output directory. Never use a
+source directory as output. `--revision <commit>` controls repository source
+links; CI supplies its checkout revision.
 
 ## Browser checks
 
@@ -50,42 +60,28 @@ python -m playwright install chromium
 python website/tests/browser.py --site target/website-local --base-path /
 ```
 
-The deterministic browser suite tests navigation, search, theme persistence,
-mobile overflow, keyboard behavior and the embed's load/unload lifecycle using a
-local response in place of Noon. This does not qualify Noon rendering. Set
-`NXRS_TEST_LIVE_NOON=1` to additionally attempt the real remote page; the resulting
-report distinguishes remote page load from actual scene readiness. External
-availability is not silently promoted into a passing engine test.
+The suite checks primary and grouped navigation, current-page markers,
+within-section pagination, search and Escape/focus behavior, persisted themes,
+mobile overflow, the mobile menu and no-JavaScript reading. It also checks that
+visiting the site does not request an external application. Screenshots and a
+machine-readable report are retained by CI. These are website checks, not
+firmware or hardware qualification.
+
+The content tests enforce navigation coverage, the application-source excerpt,
+local reading-path links and the absence of an embedded-player dependency.
 
 ## GitHub Pages
 
-The `Website` workflow builds and validates pull requests without deployment or
-write permissions. A push to `main` (or a manual run on `main`) uploads the static
-artifact and deploys through the `github-pages` environment. Runtime/firmware
-builds are not required to publish documentation.
+Use **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+`docs/` is a source directory, not a generated-site publishing directory.
 
-One-time repository setup: **Settings → Pages → Build and deployment → Source:
-GitHub Actions**. Do not select **Deploy from a branch → main → /docs**: `docs/`
-contains the maintained Markdown and artwork, not the generated HTML site. Branch
-publishing skips the Python renderer and can compete with the custom deployment.
-The deployment job checks this setting and fails with an actionable message
-rather than silently publishing from the wrong source. It does not change
-repository settings, use an administrative token, or bypass environment protection.
+The `Website` workflow builds and validates pull requests with read-only
+permissions. Only `main` pushes or manual runs on `main` can package and deploy
+through the `github-pages` environment. The deployment job checks the configured
+Pages source and keeps Pages/OIDC permissions separate from the build job.
+No administrative token or protection bypass is used.
 
-After changing the source, run **Actions → Website → Run workflow → main**, or
-rerun the failed deployment job. The expected project URL is
-`https://yongkyuns.github.io/nxrs/`; this URL is not evidence of a completed
-publication. Check the workflow's deployment result.
-
-The workflow is scoped to documentation, website assets, source files used by
- the guide and itself. It uses read-only permissions for builds and restricts
-`pages: write` and `id-token: write` to the main-branch deployment job. Preview
-artifacts and browser reports are retained for review; PRs cannot publish.
-
-## Noon integration
-
-The optional demo is the existing `showcase-group-animation` page at the Noon
-project's Pages URL. It is not rebuilt or vendored, loads only on an explicit
-request, and is not a dependency of NXRS firmware. A direct link remains available, and the iframe
-can be removed with Unload. Do not treat the iframe's `load` event as proof that
-WebAssembly initialized or the scene rendered. See the [user-facing explanation](guide/noon.md).
+After merging a website change, check the deployment result and the public site
+at `https://yongkyuns.github.io/nxrs/`. A successful local build or a merged PR is
+not evidence that publication has completed. Preview artifacts and browser
+reports are retained for review.

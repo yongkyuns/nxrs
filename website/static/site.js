@@ -26,6 +26,12 @@ menu?.addEventListener('click', () => {
   menu.setAttribute('aria-expanded', String(open));
   sidebar.dataset.open = String(open);
 });
+sidebar?.addEventListener('click', event => {
+  if (event.target.closest('a')) {
+    menu.setAttribute('aria-expanded', 'false');
+    sidebar.dataset.open = 'false';
+  }
+});
 
 for (const block of document.querySelectorAll('.prose pre')) {
   const code = block.querySelector('code');
@@ -107,41 +113,3 @@ async function search() {
   }
 }
 input.addEventListener('input', () => { clearTimeout(timer); generation++; timer = setTimeout(search, 120); });
-
-const load = document.querySelector('#load-noon');
-if (load) {
-  const unload = document.querySelector('#unload-noon');
-  const holder = document.querySelector('#noon-frame');
-  const noonStatus = document.querySelector('#noon-status');
-  const direct = document.querySelector('#noon-direct');
-  const placeholder = holder.firstElementChild.cloneNode(true);
-  let timeout;
-  load.addEventListener('click', () => {
-    if (holder.querySelector('iframe')) return;
-    const url = new URL(direct.href);
-    if (url.origin !== 'https://yongkyuns.github.io' || url.pathname !== '/noon/') {
-      noonStatus.textContent = 'The configured demo URL is not supported. Use the direct link.'; return;
-    }
-    const frame = document.createElement('iframe');
-    frame.title = 'Noon: Move the whole diagram — interactive animation playground';
-    frame.referrerPolicy = 'no-referrer'; frame.allowFullscreen = true;
-    frame.allow = 'fullscreen';
-    frame.addEventListener('load', () => {
-      clearTimeout(timeout);
-      noonStatus.textContent = 'The embedded page loaded. Engine readiness and playback controls are shown inside Noon.';
-    });
-    frame.addEventListener('error', () => {
-      clearTimeout(timeout); noonStatus.textContent = 'The player could not load. Open the scene directly using the link below.';
-    });
-    noonStatus.textContent = 'Loading Noon. This optional player downloads its own WebAssembly and Python runtime.';
-    load.hidden = true; unload.hidden = false;
-    timeout = setTimeout(() => { noonStatus.textContent = 'The player is taking longer to load. You can unload it or open the same scene directly.'; }, 45000);
-    frame.src = url.href; holder.replaceChildren(frame); unload.focus();
-  });
-  unload.addEventListener('click', () => {
-    clearTimeout(timeout); holder.replaceChildren(placeholder.cloneNode(true));
-    load.hidden = false; unload.hidden = true;
-    noonStatus.textContent = 'Demo unloaded. The documentation remains available without its runtime.';
-    load.focus();
-  });
-}

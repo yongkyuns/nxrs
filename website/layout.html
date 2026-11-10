@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="{{ config.description }} User guides, architecture, platform configuration, and measurement references.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src https://yongkyuns.github.io; connect-src 'self'; object-src 'none'; base-uri 'self'">
+  <meta name="description" content="{{ config.description }} Motivation, user guide, examples and engineering notes.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'none'; connect-src 'self'; object-src 'none'; base-uri 'self'">
   <title>{{ title }} · NXRS</title>
   <link rel="canonical" href="{{ config.url }}{{ route }}">
   <link rel="icon" type="image/png" href="{{ logo }}">
@@ -21,95 +21,114 @@
     <a class="brand" href="{{ url() }}" aria-label="NXRS home"><img src="{{ logo }}" alt="nxrs" width="96" height="32"></a>
     <span class="status">Experimental</span>
     <nav class="top-nav" aria-label="Main navigation">
-      <a href="{{ url('guide/overview/') }}"{% if kind == 'guide' %} aria-current="true"{% endif %}>User guide</a>
-      <a href="{{ url('reference/') }}"{% if kind.startswith('reference') %} aria-current="true"{% endif %}>Reference</a>
-      <a href="{{ config.repository }}" class="github-link">GitHub ↗</a>
+      {% for target, label in [('guide/motivation/', 'Why NXRS?'), ('guide/start-here/', 'User guide'), ('guide/examples/', 'Examples'), ('reference/', 'Reference')] %}
+      <a href="{{ url(target) }}"{% if route == target %} aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+      <a href="{{ config.repository }}">GitHub ↗</a>
     </nav>
     <button class="search-open utility" type="button" aria-haspopup="dialog" aria-controls="search-dialog">Search <kbd>/</kbd></button>
     <button id="theme-toggle" class="utility" type="button" aria-label="Change color theme">Theme</button>
   </div>
 </header>
 {% if kind == 'home' %}
-<main id="main" class="home" tabindex="-1">
-  <section class="hero">
+<main id="main" class="project-home" tabindex="-1">
+  <section class="project-intro" aria-labelledby="project-title">
     <div>
-      <p class="eyebrow">RUST ON NUTTX</p>
-      <h1>Ordinary Rust.<br><span>Embedded firmware.</span></h1>
-      <p class="lead">NXRS is an experimental Rust-based firmware development environment on top of NuttX. Build applications from reusable components, with familiar standard-library APIs.</p>
-      <div class="actions"><a class="button primary" href="{{ url('guide/getting-started/') }}">Start with the host demo <span aria-hidden="true">→</span></a><a class="button secondary" href="{{ url('guide/overview/') }}">Explore the architecture</a></div>
-      <p class="hero-note">Independent project. Maintained SDK patches. Qualification varies by target.</p>
+      <p class="eyebrow">Project notes and documentation</p>
+      <h1 id="project-title">NXRS</h1>
+      <p class="lead">An experimental Rust-based firmware development environment on top of NuttX.</p>
+      <p>Embedded projects repeatedly need similar pieces: hardware access, data processing, communication and recovery. The difficult part is making those pieces reusable without losing track of the constraints of a particular device.</p>
+      <p>NXRS explores ordinary Rust <code>std</code>, threads and event-driven components for that work. NuttX provides the RTOS and board support. The aim is to keep application code familiar while making hardware boundaries and resource costs explicit.</p>
+      <a href="{{ url('guide/motivation/') }}">Read the reasoning behind NXRS →</a>
     </div>
-    <div class="code-card">
-      <div class="code-title"><span class="code-dot" aria-hidden="true"></span> app/event-demo/src/main.rs</div>
-      <pre><code><span class="code-comment">// Create the components and connect their inputs.</span>
-let (fusion, inputs) = FusionService::new();
-let imu = ImuService::new(inputs.imu);
-let gnss = GnssService::new(inputs.gnss);
-
-<span class="code-comment">// Each active service owns its execution.</span>
-let fusion = fusion.start()?;
-let imu = imu.start()?;
-let gnss = gnss.start()?;</code></pre>
-      <a class="code-footer" href="{{ config.repository }}/blob/{{ revision }}/app/event-demo/src/main.rs">Excerpt from the navigation demo. Read the complete application ↗</a>
-    </div>
+    <aside class="project-note" aria-labelledby="experiment-title">
+      <h2 id="experiment-title">Still an experiment</h2>
+      <p>The questions include portability, memory use, timing and the maintenance cost of the Rust/NuttX integration. Working examples are a way to investigate those questions, not a claim of general production readiness.</p>
+      <p><a href="{{ url('guide/status/') }}">Status and limitations</a><br><a href="{{ url('guide/performance/') }}">Performance and memory</a></p>
+    </aside>
   </section>
-  <section class="principles" aria-label="Design principles">
-    <a href="{{ url('guide/overview/') }}"><span class="number">01</span><h2>Familiar Rust</h2><p>Use std for threads, synchronization, time, files and sockets where the target supports them.</p></a>
-    <a href="{{ url('guide/services/') }}"><span class="number">02</span><h2>Explicit ownership</h2><p>Compose event-driven services with typed messages, bounded queues and deliberate shutdown.</p></a>
-    <a href="{{ url('guide/profiles/') }}"><span class="number">03</span><h2>Product configuration</h2><p>Keep devices and resource bindings in platform profiles, not in reusable application code.</p></a>
+  <section class="project-section" aria-labelledby="reading-title">
+    <h2 id="reading-title">Find your way around</h2>
+    <nav class="reading-paths" aria-label="Reading paths">
+      {% for key, heading, description in [('motivation', 'Understand the choices', 'Why NuttX, why ordinary threads, and what this approach does not solve.'), ('start-here', 'Use the guide', 'A path from a host example to services, hardware bindings and a NuttX build.'), ('examples', 'Read the NXRS examples', 'Navigation/service composition and the experimental camera workflow, with their evidence and limitations.'), ('testing', 'Test and measure', 'Host tests, emulation and physical measurements answer different questions.')] %}
+      <a href="{{ url('guide/' + key + '/') }}"><h3>{{ heading }}</h3><p>{{ description }}</p></a>
+      {% endfor %}
+    </nav>
   </section>
-  <section class="architecture-section">
-    <div class="section-heading"><div><p class="eyebrow">HOW IT FITS TOGETHER</p><h2>A Rust environment.<br>A NuttX foundation.</h2></div><p>NuttX supplies the RTOS and board support. NXRS connects that foundation to ordinary Rust and a composable firmware stack.</p></div>
+  <section class="project-section" aria-labelledby="architecture-title">
+    <h2 id="architecture-title">Architecture at a glance</h2>
+    <p class="section-intro">NuttX supplies the operating system. Rust <code>std</code> and peripheral wrappers connect that foundation to reusable firmware components; platform profiles describe the product's bindings.</p>
     <div class="architecture-art">
       <img class="theme-light" src="{{ url('assets/docs/assets/nxrs-architecture.svg') }}" alt="Platform profiles configure reusable Rust applications, services, HALs and chip drivers. Parallel std and peripheral-wrapper paths lead to NuttX and the MCU." width="1200" height="810" loading="lazy">
       <img class="theme-dark" src="{{ url('assets/docs/assets/nxrs-architecture-dark.svg') }}" alt="Platform profiles configure reusable Rust applications, services, HALs and chip drivers. Parallel std and peripheral-wrapper paths lead to NuttX and the MCU." width="1200" height="810" loading="lazy">
     </div>
+    <p class="section-link"><a href="{{ url('guide/overview/') }}">Architecture overview</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p>
   </section>
-  <section class="learning-section">
-    <div class="section-heading"><div><p class="eyebrow">A PRACTICAL PATH</p><h2>From a host demo<br>to a firmware image.</h2></div><a class="text-link" href="{{ url('guide/getting-started/') }}">Read the user guide →</a></div>
-    <div class="learning-grid">
-      {% for key, heading, description in [('getting-started', 'Run your first demo', 'Set up the checkout and exercise synthetic IMU and GNSS services on your computer.'), ('first-application', 'Understand an application', 'Follow a real main function: construct, connect, start, observe and shut down.'), ('firmware', 'Build for NuttX', 'Choose a profile, prepare its toolchain and inspect the resulting firmware artifacts.'), ('performance', 'Measure what matters', 'Track latency, thread stacks, queues, heap and deployed image size without overstating results.')] %}
-      <a class="learning-card" href="{{ url('guide/' + key + '/') }}"><h3>{{ heading }} <span aria-hidden="true">↗</span></h3><p>{{ description }}</p></a>
-      {% endfor %}
+  <section class="project-section project-evidence" aria-labelledby="evidence-title">
+    <h2 id="evidence-title">Examples and evidence</h2>
+    <div>
+      <p>The finite navigation example exercises service composition and shutdown with synthetic inputs. The camera work adds capture, detection, gateway delivery and client-visible state. They exercise different parts of the environment.</p>
+      <p>Neither a host test nor a successful build proves board-level behavior. Resource measurements and qualification reports apply to the configurations they record. Additional examples and measurements are added as the project develops.</p>
+      <p><a href="{{ url('guide/examples/') }}">Application examples and their scope</a></p>
     </div>
   </section>
-  <section class="closing-panel"><div><p class="eyebrow">OPTIONAL VISUAL PLAYGROUND</p><h2>Explore a Noon animation.</h2><p>A browser-based companion from the separate Noon project. Nothing loads until you ask for it.</p></div><a class="button secondary" href="{{ url('guide/noon/') }}">Open the embedded demo →</a></section>
 </main>
 {% elif kind == 'not-found' %}
-<main id="main" class="not-found" tabindex="-1"><p class="eyebrow">404</p><h1>That page isn’t here.</h1><p>The documentation may have moved. Browse the guide or search the reference library.</p><div class="actions"><a class="button primary" href="{{ url('guide/overview/') }}">User guide</a><a class="button secondary" href="{{ url('reference/') }}">Reference library</a></div></main>
+<main id="main" class="not-found" tabindex="-1"><p class="eyebrow">404</p><h1>Page not found</h1><p>This page may have moved or been removed.</p><p><a href="{{ url('guide/start-here/') }}">Guide index</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p></main>
 {% else %}
+{% set current = namespace(section='Engineering reference', entry='reference/', previous='', next='') %}
+{% for section in config.sections %}
+  {% for key in section.pages %}
+    {% if route == 'guide/' ~ key ~ '/' %}
+      {% set current.section = section.title %}
+      {% set current.entry = 'guide/' ~ section.pages[0] ~ '/' %}
+      {% if not loop.first %}{% set current.previous = 'guide/' ~ section.pages[loop.index0 - 1] ~ '/' %}{% endif %}
+      {% if not loop.last %}{% set current.next = 'guide/' ~ section.pages[loop.index0 + 1] ~ '/' %}{% endif %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
 <div class="docs-layout">
   <button id="menu-toggle" class="utility mobile-menu" aria-controls="sidebar" aria-expanded="false" type="button">Documentation navigation</button>
   <aside id="sidebar" class="sidebar" aria-label="Documentation navigation">
-    <nav><p class="nav-heading">User guide</p>{% for item in guides %}<a href="{{ url(item.route) }}"{% if route == item.route %} aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}
-    <p class="nav-heading">Engineering reference</p>{% for item in references %}<a href="{{ url(item.route) }}"{% if route == item.route %} aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}<a href="{{ url('reference/') }}"{% if kind == 'reference-index' %} aria-current="page"{% endif %}>All reference documents →</a></nav>
+    <nav aria-label="Documentation sections">
+      {% for section in config.sections %}
+      <section class="nav-group">
+        <h2 class="nav-heading">{{ section.title }}</h2>
+        {% for key in section.pages %}{% for item in guides if item.route == 'guide/' ~ key ~ '/' %}
+        <a href="{{ url(item.route) }}"{% if route == item.route %} aria-current="page"{% endif %}>{{ item.title }}</a>
+        {% endfor %}{% endfor %}
+      </section>
+      {% endfor %}
+      <section class="nav-group"><h2 class="nav-heading">Engineering reference</h2>
+        <a href="{{ url('reference/') }}"{% if kind == 'reference-index' %} aria-current="page"{% endif %}>Reference index</a>
+        {% for item in references %}<a href="{{ url(item.route) }}"{% if route == item.route %} aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}
+      </section>
+    </nav>
   </aside>
   <main id="main" class="document" tabindex="-1">
-    <div class="breadcrumb"><a href="{{ url() }}">NXRS</a><span aria-hidden="true">/</span><span>{{ 'Engineering reference' if kind.startswith('reference') else 'User guide' }}</span></div>
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="{{ url() }}">Home</a><span aria-hidden="true">/</span><a href="{{ url(current.entry) }}">{{ current.section }}</a>{% if kind != 'reference-index' %}<span aria-hidden="true">/</span><span aria-current="page">{{ title }}</span>{% endif %}</nav>
     {% if kind == 'reference-index' %}
-    <article class="prose"><h1>Engineering reference</h1><p class="intro">The repository’s documentation, rendered directly from its Markdown sources.</p><p>Start with the <a href="{{ url('guide/overview/') }}">user guide</a> for an onboarding path. These references include design decisions, implementation notes and historical qualification reports; their stated revisions and limitations remain part of the evidence.</p>
+    <article class="prose"><h1>Engineering reference</h1><p class="intro">Design decisions, implementation notes and measurement reports from the repository.</p><p>Use the <a href="{{ url('guide/start-here/') }}">guide index</a> for a reading path. These reference pages are rendered directly from their maintained Markdown sources. Historical reports retain their stated revisions and limitations.</p>
+      <h2 id="common-topics">Common topics</h2><ul>{% for item in references %}<li><a href="{{ url(item.route) }}">{{ item.title }}</a></li>{% endfor %}</ul>
+      <h2 id="all-documents">All repository documents</h2>
       <div class="reference-list">{% for item in all_references %}<a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ item.source }}</span></a>{% endfor %}</div>
     </article>
     {% else %}
-      {% if kind == 'reference' %}<p class="reference-note">Repository reference · Results and qualification claims apply to the revisions and configurations stated in this document.</p>{% endif %}
+      {% if kind == 'reference' %}<p class="reference-note">Repository reference · Results apply to the revisions and configurations stated in this document.</p>{% endif %}
       <article class="prose">{{ content | safe }}</article>
-      {% if route == 'guide/noon/' %}
-      <section class="noon-panel" aria-label="Embedded Noon demo">
-        <div class="noon-controls"><div><strong>Move the whole diagram</strong><p>Published Noon showcase · Python-authored animation</p></div><div class="actions"><button type="button" class="button primary" id="load-noon">Load Noon demo</button><button type="button" class="button secondary" id="unload-noon" hidden>Unload demo</button></div></div>
-        <p id="noon-status" role="status">Not loaded. The documentation does not require WebAssembly or a GPU.</p>
-        <div id="noon-frame" class="noon-frame"><p class="placeholder">An optional interactive player will appear here.<br>Use the Noon player’s own controls to run the scene.</p></div>
-        <p class="noon-fallback"><a id="noon-direct" href="https://yongkyuns.github.io/noon/?example=showcase-group-animation" target="_blank" rel="noopener noreferrer">Open the same scene directly ↗</a> · This link remains available when embedding or browser graphics are unavailable.</p>
-        <noscript><p>JavaScript is disabled. Use the direct link above to open Noon.</p></noscript>
-      </section>
+      <div class="page-footer"><a href="{{ url('guide/start-here/') }}">Guide index</a><a href="{{ source_url }}">View Markdown source ↗</a><a href="{{ config.repository }}/issues/new">Report a documentation problem ↗</a></div>
+      {% if kind == 'guide' and (current.previous or current.next) %}
+      <nav class="page-navigation" aria-label="Guide pagination">
+        {% for item in guides if item.route == current.previous %}<a href="{{ url(item.route) }}" rel="prev"><span>Previous in {{ current.section }}</span>{{ item.title }}</a>{% endfor %}
+        {% for item in guides if item.route == current.next %}<a href="{{ url(item.route) }}" rel="next"><span>Next in {{ current.section }}</span>{{ item.title }} →</a>{% endfor %}
+      </nav>
       {% endif %}
-      <div class="page-footer"><a href="{{ source_url }}">View Markdown source ↗</a><a href="{{ config.repository }}/issues/new">Report a documentation problem ↗</a></div>
-      {% if kind == 'guide' %}<nav class="page-navigation" aria-label="Guide pagination">{% for item in guides %}{% if item.route == route %}{% if not loop.first %}<a href="{{ url(guides[loop.index0 - 1].route) }}"><span>Previous</span>{{ guides[loop.index0 - 1].title }}</a>{% endif %}{% if not loop.last %}<a href="{{ url(guides[loop.index0 + 1].route) }}"><span>Next</span>{{ guides[loop.index0 + 1].title }} →</a>{% endif %}{% endif %}{% endfor %}</nav>{% endif %}
     {% endif %}
   </main>
   <aside class="toc" aria-label="On this page">{% if toc %}<p class="nav-heading">On this page</p><nav>{% for item in toc %}<a href="#{{ item.id }}" class="level-{{ item.level }}">{{ item.title }}</a>{% endfor %}</nav>{% endif %}</aside>
 </div>
 {% endif %}
 <footer class="footer"><a href="{{ url() }}">NXRS</a><p>An independent experimental project. Not an official NuttX or Rust distribution.</p><a href="{{ config.repository }}/blob/{{ revision }}/LICENSE">MIT license</a></footer>
-<dialog id="search-dialog" aria-labelledby="search-title"><div class="search-heading"><h2 id="search-title">Search the documentation</h2><button class="utility" id="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div><label for="search-input">Search guides and engineering references</label><input id="search-input" type="search" autocomplete="off" placeholder="Try “profiles”, “shutdown”, or “memory”…"><p id="search-status" role="status">Type to search.</p><ol id="search-results"></ol></dialog>
+<dialog id="search-dialog" aria-labelledby="search-title"><div class="search-heading"><h2 id="search-title">Search this site</h2><button class="utility" id="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div><label for="search-input">Search guides and engineering references</label><input id="search-input" type="search" autocomplete="off" placeholder="Try “profiles”, “shutdown”, or “memory”…"><p id="search-status" role="status">Type to search.</p><ol id="search-results"></ol></dialog>
 </body>
 </html>
