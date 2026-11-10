@@ -58,6 +58,35 @@ path = "src/main.rs"
     root
 }
 
+#[test]
+fn editor_switch_preserves_project_settings_on_invalid_build() {
+    let root = fixture();
+    fs::copy(
+        root.0.join("platform/profiles/host.toml"),
+        root.0.join(format!("platform/profiles/{}.toml", env::consts::OS)),
+    )
+    .unwrap();
+    let editor = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_nxrs-build"))
+            .current_dir(&root.0)
+            .arg("editor")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    assert!(editor(&["host"]).status.success());
+    let path = root.0.join(".zed/settings.json");
+    let before = fs::read(&path).unwrap();
+    let settings: Value = serde_json::from_slice(&before).unwrap();
+    assert!(settings["lsp"]["clangd"].is_object());
+    assert_eq!(
+        settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"]["extraEnv"]["NXRS_PLATFORM"],
+        env::consts::OS
+    );
+    assert!(!editor(&["--build-dir", "missing"]).status.success());
+    assert_eq!(fs::read(path).unwrap(), before);
+}
+
 fn write_imu_fixture(root: &Path) {
     let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     fs::create_dir_all(root.join("platform/nuttx/resources")).unwrap();
