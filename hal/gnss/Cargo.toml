@@ -13,11 +13,11 @@ platforms = ["mock", "nuttx", "simulation"]
 
 [dependencies]
 cfg-if = "=1.0.5"
-nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 nxrs-acquisition = { path = "../acquisition" }
+nxrs-peripheral = { path = "../../driver/peripheral" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 nxrs-simulation = { path = "../../shared/simulation" }

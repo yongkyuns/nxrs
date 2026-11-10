@@ -1,4 +1,5 @@
 //! GNSS contract and capability-local acquisition.
+#![cfg_attr(target_os = "none", no_std)]
 #![deny(unsafe_code)]
 mod api;
 pub use api::{Device, DeviceError, Event, GnssFix, Session};
