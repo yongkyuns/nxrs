@@ -6,7 +6,7 @@ control reproduced the warning on the same board. All five commands returned
 valid results and matched their flashed image's runtime build identity.
 
 The connected ESP32-S3 N16R8 board identifies as QFN56 revision v0.2, USB/MAC
-`20:6E:F1:A7:6F:58`, 16 MiB flash and 8 MiB embedded octal PSRAM. The fixture uses
+`esp32s3-bench-01`, 16 MiB flash and 8 MiB embedded octal PSRAM. The fixture uses
 one configured 240 MHz core, PM disabled, 16 KiB instruction / 32 KiB data cache,
 and PSRAM in the common heap. No camera or radio application was running.
 These observations qualify this board and USB-reset boot path only.
@@ -67,3 +67,16 @@ regressions and three documentation tests passed. The PR-head std-channel CI
 workflow passed; its separate secrets-scanning job failed and is not resolved by
 these physical results. PR #257 remains draft; independent calibration and
 placement/resource qualification under #252 remain open.
+
+## Privacy of this public copy
+
+The physical board MAC/USB serial is represented by the stable pseudonym
+`esp32s3-bench-01`; the host serial-device path is `<serial-device>`. These labels
+preserve the relationship between this board's runs without publishing its
+hardware identifier. They are not connection settings for a new measurement.
+
+`privacy-redaction.json` records the original and public-copy file digests.
+`SHA256SUMS` and cohort evidence references describe the sanitized files.
+Firmware/build/source identities, console measurements, numeric results and
+qualification outcomes are unchanged. This is a publication edit, not a new
+hardware run or a rewrite of Git history.

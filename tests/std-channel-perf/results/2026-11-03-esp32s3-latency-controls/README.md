@@ -53,7 +53,7 @@ image. Active pacing is not representative offered load, idle or power evidence.
 
 ## Device, provenance and limits
 
-ESP32-S3 N16R8 rev v0.2, USB/MAC `20:6E:F1:A7:6F:58`, 16 MiB flash and
+ESP32-S3 N16R8 rev v0.2, USB/MAC `esp32s3-bench-01`, 16 MiB flash and
 8 MiB octal PSRAM. One configured 240 MHz core, PM disabled, 16 KiB instruction
 and 32 KiB data cache, PSRAM in the common heap; exact allocation/stack placement
 was not measured. No camera/radio application ran; normal tick/USB interrupts
@@ -96,3 +96,16 @@ Local validation passed: 91 fixture tests, the 52-package architecture audit,
 std-channel CI passed host/Rust and target checks; the inherited separate secrets
 check was failing and is not resolved here. This campaign closes the listed
 physical control runs, not the remaining calibration/placement/causal gates.
+
+## Privacy of this public copy
+
+The physical board MAC/USB serial is represented by the stable pseudonym
+`esp32s3-bench-01`; the host serial-device path is `<serial-device>`. These labels
+preserve the relationship between this board's runs without publishing its
+hardware identifier. They are not connection settings for a new measurement.
+
+`privacy-redaction.json` records the original and public-copy file digests.
+`SHA256SUMS` and cohort evidence references describe the sanitized files.
+Firmware/build/source identities, console measurements, numeric results and
+qualification outcomes are unchanged. This is a publication edit, not a new
+hardware run or a rewrite of Git history.

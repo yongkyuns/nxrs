@@ -387,7 +387,7 @@
     "runtime_kind": "physical",
     "measurement_session": "pr259-20261103-01-tight",
     "board": "ESP32-S3 QFN56 rev v0.2, 16 MiB quad flash / 8 MiB embedded octal PSRAM",
-    "board_serial": "20:6E:F1:A7:6F:58",
+    "board_serial": "esp32s3-bench-01",
     "image_sha256": "7ab92e67f5442d324abeb753266edfac64206230e8ac06972162e17bd0123943",
     "active_cores": 1,
     "cpu_clock_hz": 240000000,
