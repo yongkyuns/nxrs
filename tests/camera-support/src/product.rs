@@ -25,9 +25,9 @@ pub struct ShutdownReport {
     pub camera: Result<(), Error>,
 }
 
-/// Example composition, NOT a compulsory framework or service registry.
+/// Test composition shared by native, WASM and NuttX qualification.
 /// The owner drives capture -> recorder -> monitor; errors do not skip peers.
-/// Public fields are owner-side controls. Individual apps only see their ports.
+/// Public fields let scenarios control each service independently.
 /// B chooses backing storage at construction, not application behavior.
 pub struct CameraProduct<C, S, T, const BYTES: usize, const HISTORY: usize, B = [u8; BYTES]> {
     pub camera: CameraService<C, BYTES, HISTORY, B>,
@@ -73,7 +73,7 @@ impl<C: Camera, S: Storage, T: PacketSink, const BYTES: usize, const HISTORY: us
         ConsumerReport { recorder, monitor }
     }
 
-    /// Compatibility helper for deterministic/cooperative callers. Active
+    /// One deterministic capture/consumer step for qualification. Active
     /// owners should schedule poll_camera() from readiness/deadline information
     /// and use process_consumers() for independent sink retries.
     pub fn step(&mut self, now_ms: u64) -> TickReport {

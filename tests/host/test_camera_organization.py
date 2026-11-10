@@ -51,15 +51,11 @@ class CameraOrganizationTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertNotRegex(code(path), r'\bplatform\s*=|\b(?:hal_enabled|hal_mock|target_os|NXRS_PLATFORM)\b')
 
-    def test_core_only_library_fixtures_do_not_enable_cli_replay(self):
-        for name in ('portable', 'nuttx'):
-            manifest = tomllib.loads((ROOT / 'tests' / name / 'Cargo.toml').read_text())
-            self.assertIs(manifest['dependencies']['nxrs-applications']['default-features'], False)
-        manifest = tomllib.loads((ROOT / 'app/nxrs/Cargo.toml').read_text())
-        self.assertEqual(manifest['features']['replay'], [
-            'nxrs-camera/replay', 'nxrs-storage/recording', 'nxrs-transport/udp',
-        ])
-        self.assertEqual(manifest['bin'][0]['required-features'], ['replay'])
+    def test_shared_qualification_composition_does_not_enable_software_io(self):
+        manifest = tomllib.loads((ROOT / 'tests/camera-support/Cargo.toml').read_text())
+        for name in ('nxrs-camera', 'nxrs-storage', 'nxrs-transport'):
+            self.assertFalse(manifest['dependencies'][name].get('features'))
+        self.assertFalse(manifest.get('features'))
 
 
 if __name__ == '__main__':

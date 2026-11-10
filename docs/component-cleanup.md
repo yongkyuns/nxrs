@@ -28,8 +28,8 @@ The rules are defined in [HAL architecture](hal-platform-architecture.md) and
 
 Replay, recording and UDP require Rust std but have no OS whitelist or hardware
 profile requirement. Selecting them beside a mock profile still performs real
-file/socket I/O. The native CLI forwards all three features through its existing
-`replay` feature. Core-only application-library consumers disable that default.
+file/socket I/O. `tests/native` enables all three features explicitly; shared
+qualification support in `tests/camera-support` enables none of them.
 
 The profile-dependent storage and transport `open()`, `storage()` and
 `transport()` factories, concrete root aliases and the `Transport` trait alias
@@ -127,7 +127,7 @@ never treated as evidence that the current build succeeded.
 | [Native helper ownership](../platform/build/tests/nuttx_helper_ownership.rs) and [header freshness](../platform/build/tests/native_header_freshness.rs) | Compile/link only consumed helpers; rerun or fail after header/source/configuration changes. |
 | [Reuse controls](../platform/build/src/reuse.rs) | Matching bytes, changed configuration, interrupted builds, explicit clean and unchanged-file timestamps. |
 | [Storage faults](../hal/storage/src/file_tests.rs), [worker lifecycle](../hal/storage/src/recording/writer.rs) and [UDP tests](../hal/transport/tests) | Rollback, poisoning, bounded buffers, barriers, completion, packet bytes, rejection and distinct empty-packet behavior. |
-| [CLI oracle](../tests/host/test-native-runner.py) | Independently decode four persisted frames and four UDP datagrams per unset/mock/native profile, with owner waits and cleanup. |
+| [Native composition](../tests/native/tests/native.rs) | Independently decode persisted frames and UDP datagrams under unset/mock/host profiles; cover consumer restart, cleanup and small-stack buffers. |
 
 The portable workflow runs native consumers on Linux, macOS and Windows and
 retains core-only and WASM gates. Storage/transport workflows select their
@@ -145,7 +145,7 @@ cargo test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs
 cargo test --locked -p nxrs-storage --features recording
 cargo test --locked -p nxrs-transport --features udp
 python3 -m unittest discover -s tests/host -p test_external_consumers.py -v
-python3 tests/host/test-native-runner.py
+python3 tests/native/qualify.py
 ```
 
 These checks establish source/build ownership and host software behavior. Real

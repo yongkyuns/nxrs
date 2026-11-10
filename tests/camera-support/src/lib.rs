@@ -1,4 +1,5 @@
-//! Portable nxrs product policy and composition; no OS or device construction.
+//! Shared camera/recording/telemetry composition for qualification only.
+//! Product firmware composes its own services; it must not depend on this crate.
 #![no_std]
 #![forbid(unsafe_code)]
 

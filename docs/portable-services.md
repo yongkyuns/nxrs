@@ -2,82 +2,65 @@
 
 ## Scope and status
 
-This is an additive executable architecture slice. It does not replace the
-previous diagnostic application or silently adapt its Linux/NuttX global HAL.
-There is no Zephyr migration in this change.
+This guide describes the camera/recording/telemetry service qualification.
+`tests/camera-support` supplies the small shared Recorder, Monitor and
+`CameraProduct` composition used by native, NuttX and WASM tests. It is test
+support, not a production application or runtime framework. The old `app/nxrs`
+replay executable is retired; `app/home-cam` owns the home-monitoring product
+and its integration tests.
 
-The current portable application and service code is `no_std`, allocation-free
-and forbids unsafe code. The simulator supplies deterministic devices. The same
-Rust scenario registry executes natively and as WASM in Node/Chromium. Hardware,
-RTOS scheduling, DMA, physical images and actual network delivery still require
-adapter and hardware qualification.
-
-The firmware model is one selected app per production MCU image. In this slice,
-Recorder and Monitor are workflows inside `app/nxrs`, not separate runtime
-apps. `CameraProduct` is the existing composition type; its name and source path
-remain unchanged. The target app interface is a normal Cargo binary with its own
-handwritten `src/main.rs` and `fn main()`, not a library hosted by a platform
-launcher. Main constructs services from configured HAL resources and starts
-execution through ordinary Rust calls. An optional library can support tests but
-is not required. See the [architecture review and roadmap](architecture-and-roadmap.md)
-for the proposed entry, runtime, build-selection and configuration work. None is
-implemented by this documentation update.
+The shared qualification composition and service contracts are `no_std` and
+allocation-free. Deterministic scenarios execute natively and as WASM in
+Node/Chromium. Native tests additionally exercise real disk and UDP I/O.
+These do not establish physical capture, RTOS scheduling or radio behavior.
 
 ## Dependency direction
 
-The current production direction is capability-first:
+The qualification composes the same capability-first service APIs:
 
 ```text
-nxrs-applications -> nxrs-camera-service
-                     nxrs-recording-service
-                     nxrs-telemetry-service
-                     -> nxrs-camera / nxrs-storage / nxrs-transport
-                          -> provider-independent api contract
-                          -> one build-selected provider
+tests/camera-support -> nxrs-camera-service
+                        nxrs-recording-service
+                        nxrs-telemetry-service
+                        -> nxrs-camera / nxrs-storage / nxrs-transport
 
 service/navigation   -> nxrs-imu / nxrs-gnss
                           -> provider-independent api contract
                           -> one build-selected provider
 ```
 
-Applications and services depend on capability facades/contracts when that is
-the natural ownership boundary. Neither may depend on concrete native/mock/NuttX
-provider crates. Provider packages are capability-scoped optional dependencies
-selected by the build on the corresponding facade.
-
-For the native nxrs profile, main acquires camera/storage/transport through
-their capability facades and transfers ownership into the existing generic
-services. For the event demo, IMU/GNSS services acquire their resources
-internally from `nxrs-imu` and `nxrs-gnss`. No HAL facade constructs
-services or owns application lifecycle, and there is no global HAL package.
+Production apps and services depend on capability contracts, never on this test
+helper. Native qualification explicitly constructs replay, recording and UDP
+resources and transfers them into the generic services. Hardware acquisition
+remains inside the owning capability HAL; test support does not select a
+platform or construct native devices.
 
 Selected images exclude unselected HAL provider implementations and their
 exclusive Rust/C driver code; linker dead-code elimination is not the provider
 selection mechanism.
 
-`tests/portable` is the shared scenario runner, using devices from `hal/mock`.
+`tests/portable` is the shared scenario runner, using explicit capability-local mocks.
 Mock storage and transport use host vectors with configured maximum record/packet
 counts. Device scripts and test oracle allocations belong only to the test
 harness, not production services.
 
-## App workflows request capabilities, not platforms
+## Qualification workflows request capabilities, not platforms
 
 Recorder composes `Frames + Recordings`. Monitor composes `Frames + Telemetry`.
 These workflows operate through the traits and can be tested separately or
-wired together inside one app. They cannot start/stop the camera through `Frames`.
+wired together inside the test composition. They cannot start/stop the camera
+through `Frames`.
 
 `CameraProduct` is one ordinary explicit constructor and tick function, not a
 registry or mandatory framework. One camera service is shared by both workflows,
 while the storage and transport services own their respective HAL adapters.
-Another app configuration may omit Monitor or substitute a frame provider.
-A different `app/<name>` composes reusable services into a separate firmware
-image, never a second app running alongside this one. No product package or
-global service/app registry is required.
+Scenarios can omit Monitor or substitute a frame provider. Product apps
+compose their own services; this helper is not part of their dependency graph.
 
 The current service-level composition API looks like:
 
 ```rust,ignore
-// Concrete resources come through capability-local HAL facades.
+// A qualification fixture supplies resources through the capability contracts.
 let mut camera = CameraService::<_, 65536, 2, _>::with_buffers(
     platform_camera, history_buffers, staging_buffer,
 )?;
@@ -90,19 +73,15 @@ let actual = camera.start(requested)?;
 recorder.start(&camera)?;
 monitor.start(&camera)?;
 
-// Cooperative callers may still use a simple step. The native active owner
-// schedules camera polling independently from local consumer retries.
+// Tests supply explicit times and can retry consumers independently.
 let capture_result = camera.poll(clock.now_ms());
 let recording_result = recorder.step(&camera, &mut recordings);
 let monitor_result = monitor.step(&camera, &mut telemetry);
 // Handle all three results; one error must not skip an independent workflow.
 ```
 
-This construction belongs in the selected app's main or private modules in the
-target design. The variable names above do not imply an external app launcher.
-Ordinary checked-in Rust may supply the capability-local HAL entry; generation is
-optional. Settings must not duplicate service wiring in a second language or
-move it out of handwritten app code.
+This construction belongs to qualification. Product service wiring stays in
+handwritten app code; it is not a platform launcher or generated service graph.
 
 The actual negotiated camera format is exposed; unsupported/invalid formats
 are rejected rather than reported as successful configurations. This is a
@@ -214,11 +193,11 @@ not required unless another concrete use needs it.
 The root toolchain is pinned to Rust 1.90.0. Current portable commands are:
 
 ```sh
-cargo +1.90.0 test --locked -p nxrs-simulator
-cargo +1.90.0 run --locked -p nxrs-simulator
+NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
+NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator
 rustup target add --toolchain 1.90.0 thumbv6m-none-eabi wasm32-unknown-unknown
-cargo +1.90.0 check --locked -p nxrs-applications --target thumbv6m-none-eabi
-cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
+cargo +1.90.0 check --locked -p nxrs-camera-test-support --target thumbv6m-none-eabi
+NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
 node tests/browser/run-wasm-scenarios.mjs target/wasm32-unknown-unknown/release/nxrs_simulator.wasm
 ```
 

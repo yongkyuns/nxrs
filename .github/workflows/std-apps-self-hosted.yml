@@ -27,6 +27,7 @@ on:
       - 'tests/host/**'
       - 'tests/portable/**'
       - 'tests/native/**'
+      - 'tests/camera-support/**'
       - 'tests/nuttx-std/**'
       - 'external/nuttx'
       - 'external/nuttx-apps'
@@ -60,6 +61,7 @@ on:
       - 'tests/host/**'
       - 'tests/portable/**'
       - 'tests/native/**'
+      - 'tests/camera-support/**'
       - 'tests/nuttx-std/**'
       - 'external/nuttx'
       - 'external/nuttx-apps'
@@ -126,19 +128,17 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 tools/check-architecture.py
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
+          python3 tests/native/qualify.py
           export NXRS_PLATFORM=linux
           cargo +1.90.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
-            -p nxrs-applications \
-            --lib --bins -- -D warnings
+            -p nxrs-camera-test-support -p nxrs-native-integration \
+            --lib -- -D warnings
           unset NXRS_PLATFORM
-          cargo +1.90.0 check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
+          cargo +1.90.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
           NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
       - name: Check firmware discovery and app isolation
         shell: bash

@@ -1,13 +1,11 @@
 [package]
-name = "nxrs-applications"
+name = "nxrs-camera-test-support"
+publish = false
 version.workspace = true
 edition.workspace = true
 
-[features]
-# The replay CLI composes file replay, queued recording and UDP. Core-only
-# library consumers opt out without compiling these std operations.
-default = ["replay"]
-replay = ["nxrs-camera/replay", "nxrs-storage/recording", "nxrs-transport/udp"]
+[lib]
+name = "camera_test_support"
 
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
@@ -16,8 +14,3 @@ nxrs-transport = { path = "../../hal/transport" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-recording-service = { path = "../../service/recording" }
 nxrs-telemetry-service = { path = "../../service/telemetry" }
-
-[[bin]]
-name = "nxrs"
-path = "src/main.rs"
-required-features = ["replay"]

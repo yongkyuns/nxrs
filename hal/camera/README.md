@@ -29,11 +29,10 @@ feature. They are not backend-dependent exports. Prefer the `camera::replay`
 namespace for new code. Scripted fixture exports require a mock profile. An
 unbound profile selects the unavailable factory.
 
-The native `nxrs` CLI enables replay through its default `replay` feature and
-keeps its existing invocation. Consumers of its contract-only application
-library use `default-features = false`; the CLI target requires replay. Services
-and the physical `home-cam` product do not need this feature. The old core-only
-read-device adapter remains test-local in `tests/nuttx/support`.
+Native qualification in `tests/native` enables replay explicitly. Shared test
+composition in `tests/camera-support`, services and the physical `home-cam`
+product do not enable it. The core-only read-device adapter remains test-local
+in `tests/nuttx/support`.
 
 Desktop physical capture currently returns `Unsupported`; `camera::open()`
 never silently becomes replay. Explicit replay also works without

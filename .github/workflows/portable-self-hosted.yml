@@ -7,7 +7,8 @@ on:
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'app/nxrs/**'
+      - 'tests/camera-support/**'
+      - 'app/home-cam/**'
       - 'hal/**'
       - 'shared/messaging/**'
       - 'driver/**'
@@ -67,19 +68,17 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
-            --app-manifest app/nxrs/Cargo.toml \
-            --platform linux --target-os linux
+            --app-manifest app/home-cam/Cargo.toml \
+            --platform esp32s3-camera-stream-startup --target-os nuttx
 
       - name: Run portable/native qualification
         run: |
           # Exact-head gate for the app -> HAL platform provider-boundary migration.
           cargo +1.90.0 test --locked
           cargo +1.90.0 test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
+          python3 tests/native/qualify.py
 
       - name: Qualify explicit recording and UDP software
         run: |
@@ -93,14 +92,14 @@ jobs:
 
       - name: Compile no-std and wasm profiles
         run: |
-          cargo +1.90.0 check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
+          cargo +1.90.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
           NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
 
-      - name: Lint capability APIs, providers and app
+      - name: Lint capability APIs, services and test composition
         run: |
           export NXRS_PLATFORM=linux
           cargo +1.90.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
-            -p nxrs-applications \
-            --lib --bins -- -D warnings
+            -p nxrs-camera-test-support -p nxrs-native-integration \
+            --lib -- -D warnings

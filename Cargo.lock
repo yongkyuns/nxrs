@@ -351,18 +351,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-applications"
-version = "0.1.0"
-dependencies = [
- "nxrs-camera",
- "nxrs-camera-service",
- "nxrs-recording-service",
- "nxrs-storage",
- "nxrs-telemetry-service",
- "nxrs-transport",
-]
-
-[[package]]
 name = "nxrs-ble"
 version = "0.1.0"
 dependencies = [
@@ -438,6 +426,18 @@ name = "nxrs-camera-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
+]
+
+[[package]]
+name = "nxrs-camera-test-support"
+version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
+ "nxrs-camera-service",
+ "nxrs-recording-service",
+ "nxrs-storage",
+ "nxrs-telemetry-service",
+ "nxrs-transport",
 ]
 
 [[package]]
@@ -667,9 +667,9 @@ version = "0.1.0"
 name = "nxrs-native-integration"
 version = "0.1.0"
 dependencies = [
- "nxrs-applications",
  "nxrs-camera",
  "nxrs-camera-service",
+ "nxrs-camera-test-support",
  "nxrs-recording-service",
  "nxrs-storage",
  "nxrs-transport",
@@ -690,9 +690,9 @@ dependencies = [
 name = "nxrs-nuttx-app"
 version = "0.1.0"
 dependencies = [
- "nxrs-applications",
  "nxrs-camera",
  "nxrs-camera-service",
+ "nxrs-camera-test-support",
  "nxrs-nuttx-support",
  "nxrs-recording-service",
  "nxrs-storage",
@@ -740,9 +740,9 @@ version = "0.1.0"
 name = "nxrs-simulator"
 version = "0.1.0"
 dependencies = [
- "nxrs-applications",
  "nxrs-camera",
  "nxrs-camera-service",
+ "nxrs-camera-test-support",
  "nxrs-recording-service",
  "nxrs-storage",
  "nxrs-telemetry-service",

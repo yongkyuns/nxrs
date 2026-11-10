@@ -1,6 +1,6 @@
 //! The SAME assertions execute in native tests, the CLI, Node, and Chromium.
 use std::collections::VecDeque;
-use nxrs_applications::{AppState, CameraProduct, Error, Monitor, Progress, Recorder};
+use camera_test_support::{AppState, CameraProduct, Error, Monitor, Progress, Recorder};
 use camera_service::{CameraService, CameraState, CaptureProgress, Error as CameraError, Frames};
 use camera::{Capture, DeviceError, Format, PixelFormat};
 use recording_service::{Error as RecordingError, RecordingService};

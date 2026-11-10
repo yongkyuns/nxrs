@@ -357,8 +357,8 @@ exports; replay is not a desktop backend or an unavailable stub.
 The additive, opt-in `replay` Cargo feature exposes `camera::replay::open` and
 `camera::replay::ReplayCamera` on std-capable targets, independently of a camera
 binding. Contract-only builds and hardware consumers need not compile replay.
-The native CLI forwards this functionality in Cargo; core-only library fixtures
-use `default-features = false` for the CLI package. Existing root replay names
+Native qualification enables replay directly; the shared test composition and
+core-only fixtures do not enable software I/O features. Existing root replay names
 remain explicit compatibility aliases under that feature, not platform exports.
 See [camera organization and verification](../hal/camera/README.md).
 
