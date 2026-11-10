@@ -16,21 +16,21 @@ The same application can be built with a different profile without adding board 
 
 ## Direct Cargo builds
 
-For host code using profile-selected HALs, `NXRS_PLATFORM` selects the profile. For example, with the Linux host integration:
+For host code using profile-selected HALs, `NXRS_PLATFORM` selects the profile. For example, check the storage package with the Linux host integration:
 
 ```sh
-NXRS_PLATFORM=linux cargo test --locked
+NXRS_PLATFORM=linux cargo check --locked -p nxrs-storage
 ```
 
-PowerShell uses an environment assignment before the command and removes it afterward:
+On Windows, PowerShell uses an environment assignment before the command and removes it afterward:
 
 ```powershell
 $env:NXRS_PLATFORM = "windows"
-cargo test --locked
+cargo check --locked -p nxrs-storage
 Remove-Item Env:NXRS_PLATFORM
 ```
 
-Use the profile matching the host and the packages being tested. Standard-library-only programs, including the first examples, do not need a profile. Without one, HAL crates expose portable contracts and leave hardware implementations unbound.
+Use the profile matching the host and package, with the prerequisites in the owning HAL's documentation. Standard-library-only programs, including the first examples, do not need a profile. Without one, HAL crates expose portable contracts and leave hardware implementations unbound.
 
 ## Configuration responsibilities
 

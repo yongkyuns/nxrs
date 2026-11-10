@@ -43,6 +43,9 @@ def main() -> None:
             raise RuntimeError('unexpected worker output')
         run(['cargo', 'test', '--locked', '--offline', '--manifest-path', manifest, '--all-targets'], project, env)
         report['checks'].append('copied independent workspace: hello, worker and lifecycle unit tests')
+        run(['cargo', 'nxrs', 'build', '--manifest-path', manifest,
+             '--profile', 'esp32s3-qemu-mock', '--dry-run'], ROOT, env)
+        report['checks'].append('copied application accepted by the NuttX build planner (dry run)')
 
     # Exercise the same public commands shown by the guide on the real checkout.
     output = run(['cargo', 'run', '--locked', '-p', 'nxrs-std-demo', '--', '--list'], ROOT, env)
