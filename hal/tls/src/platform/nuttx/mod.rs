@@ -3,8 +3,7 @@ unsafe extern "C" {
     fn tls_rng_admitted() -> bool;
     fn tls_entropy_open_flags() -> i32;
 }
-#[path = "../../entropy.rs"]
-mod entropy;
+use crate::entropy;
 #[cfg(test)]
 pub(crate) use entropy::Source;
 

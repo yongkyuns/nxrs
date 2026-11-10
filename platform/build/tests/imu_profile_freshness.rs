@@ -31,7 +31,9 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     for (relative, files) in [
         ("hal/imu", &["Cargo.toml"][..]),
         ("platform/devices/imu", &["Cargo.toml"][..]),
-        ("hal/gnss", &["Cargo.toml", "bindings.toml"][..]),
+        ("hal/gnss", &["Cargo.toml"][..]),
+        ("platform/devices/gnss", &["Cargo.toml"][..]),
+        ("driver/ubx", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
     ] {
@@ -51,7 +53,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         root.join("Cargo.toml"),
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
-             [features]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
+             [features]\ndefault = [\"bmi270\", \"lsm6dso\"]\nbmi270=[]\nlsm6dso=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
              nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
@@ -73,7 +75,7 @@ fn main() {
     // Render the actual NuttX resource bindings on the host without compiling native helpers.
     let profile = resolved::load(&receipt, &root, Some("m5stack-cores3-gnss"), "xtensa-esp32s3-nuttx", "nuttx").unwrap();
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for (capability, directory) in [("imu", "platform/devices/imu"), ("gnss", "hal/gnss")] {
+    for (capability, directory) in [("imu", "platform/devices/imu"), ("gnss", "platform/devices/gnss")] {
         let package_output = output.join(capability);
         std::fs::create_dir_all(&package_output).unwrap();
         for path in preparation::prepare_package(&root.join(directory), &profile, "nuttx", &package_output).unwrap() {
@@ -219,7 +221,7 @@ fn verify_named() {
         "implementations::Bmi270,",
         "address: 104",
         "path: \"/dev/i2c0\"",
-        "path: \"/dev/ttyS1\", baud: 38400",
+        "\"/dev/ttyS1\", 38400",
     ];
     for (overlays, expected, device_name) in [
         (&[][..], original, "imu"),
@@ -230,7 +232,7 @@ fn verify_named() {
                 "implementations::Bmi270,",
                 "address: 105",
                 "path: \"/dev/i2c1\"",
-                "path: \"/dev/ttyS1\", baud: 115200",
+                "\"/dev/ttyS1\", 115200",
             ],
             "imu",
         ),
@@ -240,7 +242,7 @@ fn verify_named() {
                 "implementations::Lsm6dso,",
                 "address: 106",
                 "frequency: 100000",
-                "path: \"/dev/ttyS1\", baud: 38400",
+                "\"/dev/ttyS1\", 38400",
             ],
             "imu",
         ),
@@ -284,7 +286,7 @@ fn verify_named() {
         for field in expected {
             assert!(output.contains(field), "missing {field}: {output}");
         }
-        assert_eq!(output.matches("declare_device!(").count(), 1);
+        assert_eq!(output.matches("declare_device!(").count(), 2);
     }
 
     // Same-model plus mixed-model instances and aliases compile in the actual factory.
@@ -335,7 +337,7 @@ fn verify_named() {
         String::from_utf8_lossy(&result.stdout)
             .matches("declare_device!(")
             .count(),
-        3
+        4
     );
     // Move only the default alias; physical names continue to identify the same devices.
     let redirect = root.join("redirect.toml");
@@ -379,7 +381,7 @@ fn verify_named() {
         String::from_utf8_lossy(&result.stdout)
             .matches("declare_device!(")
             .count(),
-        1
+        2
     );
 
     // Content changes at the same declared path must invalidate both Cargo and
@@ -390,7 +392,7 @@ fn verify_named() {
         "driver/lsm6dso/bindings.toml",
         "driver/bmi270/Cargo.toml",
         "platform/devices/imu/Cargo.toml",
-        "hal/gnss/bindings.toml",
+        "driver/ubx/bindings.toml",
     ] {
         let path = sdk.join(relative);
         let mut content = fs::read_to_string(&path).unwrap();

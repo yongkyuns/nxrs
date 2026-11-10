@@ -116,7 +116,8 @@ pub fn sdk_root(manifest: &Path) -> Result<std::path::PathBuf> {
         .map_err(|e| e.to_string())
 }
 
-fn selected_profile(manifest: &Path) -> Result<Option<(std::path::PathBuf, profile::Profile)>> {
+/// Load and validate the same profile input for every package build adapter.
+pub fn selected_profile(manifest: &Path) -> Result<Option<(std::path::PathBuf, profile::Profile)>> {
     use std::{env, path::PathBuf};
     println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
     println!("cargo:rerun-if-env-changed=NXRS_RESOLVED_PROFILE");
@@ -210,6 +211,21 @@ pub fn configure_hal() -> Result<String> {
         println!("{line}")
     }
     let binding = profile.binding(capability);
+    let package_bindings = bindings::Package::load(&directory)?;
+    if binding == os && !package_bindings.driver_features.is_empty() {
+        let graph = profile
+            .composition()?
+            .ok_or("driver features require composition")?;
+        for device in graph.devices.values() {
+            if let Some(feature) = package_bindings.driver_features.get(&device.compatible) {
+                let variable =
+                    format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
+                if env::var_os(&variable).is_none() {
+                    return Err(format!("{package} requires Cargo feature {feature}; use cargo nxrs build or enable the prepared profile's driver features"));
+                }
+            }
+        }
+    }
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
     for path in preparation::prepare_package(&directory, &profile, &os, &out)? {
         println!("cargo:rerun-if-changed={}", path.display());

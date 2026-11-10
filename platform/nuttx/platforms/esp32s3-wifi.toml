@@ -74,3 +74,6 @@ require = [
   "CONFIG_DEBUG_NET_ERROR=y",
 ]
 forbid-regex = "^CONFIG_(WIRELESS_WAPI|NETINIT_DHCPC|ESPRESSIF_BLE|SMP|DEBUG_WIRELESS_INFO|DEBUG_NET_INFO)=y$"
+
+[wifi]
+interface = "wlan0"

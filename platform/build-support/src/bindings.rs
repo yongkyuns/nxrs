@@ -24,6 +24,7 @@ pub struct Package {
     pub manifest: Input,
     pub catalogs: Vec<Input>,
     pub dependencies: Vec<Input>,
+    pub driver_features: BTreeMap<String, String>,
 }
 
 impl Package {
@@ -59,6 +60,7 @@ impl Package {
             .to_owned();
         let mut catalogs = Vec::new();
         let mut dependencies = Vec::new();
+        let mut driver_features = BTreeMap::new();
         if let Some(metadata) = data.pointer("/package/metadata/nxrs") {
             let metadata = metadata.as_object().ok_or_else(|| {
                 format!(
@@ -85,7 +87,10 @@ impl Package {
                     } else {
                         let entry = path
                             .as_object()
-                            .filter(|v| v.len() == 1)
+                            .filter(|v| {
+                                v.keys()
+                                    .all(|key| ["dependency", "feature"].contains(&key.as_str()))
+                            })
                             .ok_or("nxrs.bindings entries must be paths or dependency imports")?;
                         let alias = entry
                             .get("dependency")
@@ -95,6 +100,25 @@ impl Package {
                         let imported = Self::load_with_dependencies(&directory, stack)?;
                         if imported.name != expected_name || imported.catalogs.is_empty() {
                             return Err(format!("binding dependency {alias} must name {expected_name} with declared catalogs"));
+                        }
+                        if let Some(feature) = entry.get("feature") {
+                            let feature = feature
+                                .as_str()
+                                .filter(|f| !f.is_empty() && data["features"][*f].is_array())
+                                .ok_or("binding feature must name a declared Cargo feature")?;
+                            for input in &imported.catalogs {
+                                for binding in catalog(input)?.binding {
+                                    let compatible = selector(&binding, "compatible", input)?;
+                                    if driver_features
+                                        .insert(compatible.to_owned(), feature.to_owned())
+                                        .is_some_and(|old| old != feature)
+                                    {
+                                        return Err(
+                                            "conflicting driver features for a compatible".into()
+                                        );
+                                    }
+                                }
+                            }
                         }
                         dependencies.push(imported.manifest);
                         dependencies.extend(imported.dependencies);
@@ -121,6 +145,7 @@ impl Package {
             manifest,
             catalogs,
             dependencies,
+            driver_features,
         })
     }
 

@@ -9,10 +9,18 @@ use resources::{Bus, Delay, Spi};
 
 #[allow(dead_code, reason = "Profiles select concrete implementations.")]
 mod implementations {
-    pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
-    pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
-    pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::Spi, super::Delay>;
-    pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::Spi>;
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "bmi270")] {
+            pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
+            pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::Spi, super::Delay>;
+        }
+    }
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "lsm6dso")] {
+            pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
+            pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::Spi>;
+        }
+    }
 }
 
 // Resource opening and sensor initialization are separate callbacks so the HAL

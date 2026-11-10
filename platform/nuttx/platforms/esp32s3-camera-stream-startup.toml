@@ -16,3 +16,6 @@ abi-profile = "minimal"
 size-optimized = true
 trace-only-backtrace = true
 panic-immediate-abort = true
+
+[watchdog]
+device = "/dev/watchdog2"

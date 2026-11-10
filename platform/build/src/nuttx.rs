@@ -992,6 +992,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let selection = crate::cargo_graph::resolve(&mut cargo, p)?;
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
+    deployment["driver_features"] = json!(selection.driver_features);
     write_json(&out.join("provider-selection.json"), &deployment)?;
     build::cargo_messages(&mut cargo, &out.join("cargo-messages.jsonl"))?;
     restore_link_evidence(&out, &elf)?;

@@ -44,3 +44,13 @@ pub trait Session {
     /// Events rejected because the destination was full, saturated at u32::MAX.
     fn dropped(&self) -> u32;
 }
+
+/// A permanent configured receiver, separate from an active acquisition session.
+pub trait Device: Sealed + Sync {
+    fn id(&self) -> &'static str;
+    fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+        &'static self,
+        sink: S,
+    ) -> Result<impl Session + Send + 'static, DeviceError>;
+}
+pub trait Sealed {}

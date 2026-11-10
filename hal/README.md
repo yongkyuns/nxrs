@@ -22,7 +22,7 @@ Use Rust `std` directly where it already supplies the portable operation. Add
 device adapters and execution resources only for requirements it cannot express.
 The [`acquisition`](acquisition/README.md) package is shared implementation support
 with no profile binding. `imu::Session` and `gnss::Session` name acquisition
-lifetimes; `gnss::Gnss` remains an alias for existing GNSS consumers.
+lifetimes.
 
 OS implementations live in each HAL's `src/platform/`, named `linux`,
 `macos`, `windows`, or `nuttx`, matching the profile bindings in the root
@@ -31,7 +31,8 @@ available environment, not a platform or provider choice. Reusable code lives
 in ordinary modules outside `platform/`, with no OS flags or copied OS wrappers.
 The root tree owns configuration and build wiring; HAL code stays in its crate.
 Rust's target selects the OS; profiles enable capabilities at module/factory
-boundaries. No per-platform Cargo features or OS-valued custom cfg are used.
+boundaries. One internal `platform` cfg names the exact validated binding at
+each selector; there are no per-platform Cargo features.
 
 Rust owns validation, ownership, queues, synchronization, retries, cancellation,
 recovery, deadlines, and error policy. Use ordinary qualified `std::fs`,

@@ -1,4 +1,13 @@
 use super::*;
+use nxrs_ubx_driver::Driver;
+use peripheral::gnss::Receiver as Protocol;
+use std::{
+    io::{Read, Write},
+    time::{Duration, Instant},
+};
+fn deadline() -> Instant {
+    Instant::now() + Duration::from_secs(1)
+}
 use std::{collections::VecDeque, io::ErrorKind, vec::Vec};
 
 // Independent wire fixtures use M9 SPG4.04/protocol32.01 offsets, not the
@@ -127,20 +136,20 @@ impl Write for Stream {
         Ok(())
     }
 }
-impl Receiver<Stream> {
+impl Receiver<Driver<Stream>> {
     // Collect the finite scripted input through the production event-read path.
     fn fixture_fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
         let mut latest = Err(DeviceError::Busy);
-        while !self.io().input.is_empty() {
+        while !self.source.io().input.is_empty() {
             self.read_events(now_ms, |event| latest = event)?;
         }
         latest
     }
 }
-fn receiver_with(payload: &[u8]) -> Receiver<Stream> {
+fn receiver_with(payload: &[u8]) -> Receiver<Driver<Stream>> {
     let mut stream = Stream::default();
     stream.input.extend(frame(1, 7, payload));
-    Receiver::new(stream)
+    Receiver::new(Driver::new(stream))
 }
 #[test]
 fn fragmented_nav_pvt_normalizes_units_and_never_replays_an_epoch() {
@@ -151,11 +160,15 @@ fn fragmented_nav_pvt_normalizes_units_and_never_replays_an_epoch() {
     assert!((fix.longitude_deg + 11.5166667).abs() < 1e-7);
     assert!((fix.speed_mps - 5.144).abs() < 1e-6);
     assert!((fix.course_rad.unwrap() - core::f32::consts::FRAC_PI_2).abs() < 1e-6);
-    receiver.io_mut().input.extend(frame(1, 7, &pvt(1000)));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(1000)));
     assert_eq!(receiver.fixture_fix(124), Err(DeviceError::Busy));
     let mut still = pvt(2000);
     still[60..64].fill(0);
-    receiver.io_mut().input.extend(frame(1, 7, &still));
+    receiver.source.io_mut().input.extend(frame(1, 7, &still));
     let fix = receiver.fixture_fix(125).unwrap();
     assert_eq!(fix.sequence, 2);
     assert_eq!(fix.course_rad, None);
@@ -192,86 +205,98 @@ fn rejects_unusable_fixes_and_bad_coordinates() {
 #[test]
 fn checksum_length_noise_resynchronize_and_each_event_read_is_bounded() {
     let mut receiver = receiver_with(&pvt(1));
-    *receiver.io_mut().input.back_mut().unwrap() ^= 1;
+    *receiver.source.io_mut().input.back_mut().unwrap() ^= 1;
     assert_eq!(receiver.fixture_fix(1), Err(DeviceError::InvalidData));
     receiver
+        .source
         .io_mut()
         .input
         .extend([0xb5, 0x62, 1, 7, 0xff, 0xff]);
-    receiver.io_mut().input.extend(frame(1, 7, &[0; 91]));
-    receiver.io_mut().input.extend(b"$GNRMC,ignored*00\r\n");
-    receiver.io_mut().input.extend(frame(1, 7, &pvt(2)));
+    receiver.source.io_mut().input.extend(frame(1, 7, &[0; 91]));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(b"$GNRMC,ignored*00\r\n");
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(2)));
     assert_eq!(receiver.fixture_fix(2).unwrap().sequence, 1);
     assert_eq!(receiver.fixture_fix(3), Err(DeviceError::Busy));
     receiver
+        .source
         .io_mut()
         .input
         .extend(core::iter::repeat_n(b'x', 1000));
-    let before = receiver.io().reads;
+    let before = receiver.source.io().reads;
     receiver
         .read_events(4, |_| panic!("noise produced a fix"))
         .unwrap();
-    assert_eq!(receiver.io().reads - before, 1);
-    assert_eq!(receiver.io().input.len(), 989);
+    assert_eq!(receiver.source.io().reads - before, 1);
+    assert_eq!(receiver.source.io().input.len(), 989);
 }
 #[test]
 fn ram_configuration_is_acknowledged_read_back_and_restored() {
-    let mut receiver = Receiver::new(Stream::default());
-    receiver.configure().unwrap();
-    assert_eq!(receiver.io().rate, 1);
-    receiver.restore().unwrap();
-    assert_eq!(receiver.io().rate, 7);
-    assert_eq!(receiver.io().commands, 5); // Initial GET, SET/GET, restore SET/GET.
-    receiver.restore().unwrap();
-    assert_eq!(receiver.io().commands, 5);
+    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    receiver.source.configure(deadline()).unwrap();
+    assert_eq!(receiver.source.io().rate, 1);
+    receiver.source.restore(deadline()).unwrap();
+    assert_eq!(receiver.source.io().rate, 7);
+    assert_eq!(receiver.source.io().commands, 5); // Initial GET, SET/GET, restore SET/GET.
+    receiver.source.restore(deadline()).unwrap();
+    assert_eq!(receiver.source.io().commands, 5);
 }
 #[test]
 fn negative_ack_readback_mismatch_and_uncertain_apply_can_be_rolled_back() {
     for fault in [Fault::Nak, Fault::ReadAfterSet, Fault::WrongReadback] {
-        let mut receiver = Receiver::new(Stream {
+        let mut receiver = Receiver::new(Driver::new(Stream {
             fault,
             ..Stream::default()
-        });
-        assert!(receiver.configure().is_err());
-        receiver.restore().unwrap();
-        assert_eq!(receiver.io().rate, 7);
+        }));
+        assert!(receiver.source.configure(deadline()).is_err());
+        receiver.source.restore(deadline()).unwrap();
+        assert_eq!(receiver.source.io().rate, 7);
     }
-    let mut receiver = Receiver::new(Stream {
+    let mut receiver = Receiver::new(Driver::new(Stream {
         fault: Fault::Silent,
         ..Stream::default()
-    });
+    }));
     assert_eq!(
-        receiver.configure_until(Instant::now() + Duration::from_millis(5)),
-        Err(DeviceError::Timeout)
+        receiver
+            .source
+            .configure(Instant::now() + Duration::from_millis(5)),
+        Err(peripheral::gnss::Error::Timeout)
     );
-    receiver.restore().unwrap();
-    assert_eq!(receiver.io().commands, 1);
+    receiver.source.restore(deadline()).unwrap();
+    assert_eq!(receiver.source.io().commands, 1);
 }
 
 #[test]
 fn failed_restoration_stays_pending_until_it_is_verified() {
-    let mut receiver = Receiver::new(Stream::default());
-    receiver.configure().unwrap();
-    receiver.io_mut().fault = Fault::Silent;
+    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    receiver.source.configure(deadline()).unwrap();
+    receiver.source.io_mut().fault = Fault::Silent;
     assert_eq!(
-        receiver.restore_until(Instant::now() + Duration::from_millis(5)),
-        Err(DeviceError::Timeout)
+        receiver
+            .source
+            .restore(Instant::now() + Duration::from_millis(5)),
+        Err(peripheral::gnss::Error::Timeout)
     );
-    assert_eq!(receiver.saved_rate, Some(7));
-    receiver.io_mut().fault = Fault::None;
-    receiver.restore().unwrap();
-    assert_eq!(receiver.io().rate, 7);
-    assert_eq!(receiver.saved_rate, None);
+    receiver.source.io_mut().fault = Fault::None;
+    receiver.source.restore(deadline()).unwrap();
+    assert_eq!(receiver.source.io().rate, 7);
 }
 
 #[test]
 fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
-    let mut receiver = Receiver::new(Stream::default());
+    let mut receiver = Receiver::new(Driver::new(Stream::default()));
     for epoch in 1..=3 {
-        receiver.io_mut().input.extend(frame(1, 7, &pvt(epoch)));
+        receiver
+            .source
+            .io_mut()
+            .input
+            .extend(frame(1, 7, &pvt(epoch)));
     }
     let mut fixes = Vec::new();
-    while !receiver.io().input.is_empty() {
+    while !receiver.source.io().input.is_empty() {
         receiver
             .read_events(123, |fix| fixes.push(fix.unwrap()))
             .unwrap();
@@ -288,13 +313,13 @@ fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
 
 #[test]
 fn corrupt_event_frame_is_reported_then_next_valid_fix_is_delivered() {
-    let mut receiver = Receiver::new(Stream::default());
+    let mut receiver = Receiver::new(Driver::new(Stream::default()));
     let mut wire = frame(1, 7, &pvt(1));
     *wire.last_mut().unwrap() ^= 1;
-    receiver.io_mut().input.extend(wire);
-    receiver.io_mut().input.extend(frame(1, 7, &pvt(2)));
+    receiver.source.io_mut().input.extend(wire);
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(2)));
     let mut events = Vec::new();
-    while !receiver.io().input.is_empty() {
+    while !receiver.source.io().input.is_empty() {
         receiver.read_events(0, |event| events.push(event)).unwrap();
     }
     assert_eq!(events.len(), 2);

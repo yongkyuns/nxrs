@@ -10,10 +10,10 @@ name = "gnss"
 [package.metadata.nxrs]
 kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
-bindings = ["bindings.toml"]
 
 [dependencies]
 cfg-if = "=1.0.5"
+nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
@@ -21,9 +21,6 @@ nxrs-acquisition = { path = "../acquisition" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 nxrs-simulation = { path = "../../shared/simulation" }
-
-[target.'cfg(target_os = "nuttx")'.dependencies]
-nxrs-ubx-driver = { path = "../../driver/ubx" }
 
 [dev-dependencies]
 # Host tests exercise the physical receiver's bounded UBX protocol.

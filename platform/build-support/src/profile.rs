@@ -181,6 +181,24 @@ impl Profile {
         Ok(())
     }
 
+    /// Additive catalogue features for every configured physical instance.
+    pub fn driver_features(&self, capability: &str) -> Result<BTreeSet<String>> {
+        let mut features = BTreeSet::new();
+        if self.binding(capability) != "nuttx" {
+            return Ok(features);
+        }
+        if let (Some(graph), Some(package)) =
+            (self.composition()?, self.catalogs.package(capability))
+        {
+            for device in graph.devices.values() {
+                if let Some(feature) = package.driver_features.get(&device.compatible) {
+                    features.insert(feature.clone());
+                }
+            }
+        }
+        Ok(features)
+    }
+
     pub fn catalogs(&self) -> &Catalogs {
         &self.catalogs
     }
@@ -600,6 +618,31 @@ impl Profile {
             }
         }
         self.network_initialization()?;
+        for capability in ["camera", "watchdog", "wifi"] {
+            let field = if capability == "wifi" {
+                "interface"
+            } else {
+                "device"
+            };
+            let value = &self.data[capability];
+            if self.binding(capability) == "nuttx" {
+                let valid = if capability == "wifi" {
+                    value[field].as_str().is_some_and(|v| {
+                        !v.is_empty()
+                            && v.len() < 16
+                            && v.bytes()
+                                .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c))
+                    })
+                } else {
+                    device(&value[field])
+                };
+                if !keys(value, &[field], &[]) || !valid {
+                    return Err(format!("{capability} requires a valid profile {field}"));
+                }
+            } else if !value.is_null() {
+                return Err(format!("{capability} resource requires its NuttX binding"));
+            }
+        }
         let graph = self.composition()?;
         match (
             self.binding("gnss"),
@@ -728,7 +771,23 @@ impl Profile {
                 }
             }
             "wifi" if self.binding(capability) == "nuttx" => {
-                env("WIFI_INITIALIZATION", self.network_initialization()?.into())
+                env("WIFI_INITIALIZATION", self.network_initialization()?.into());
+                env(
+                    "WIFI_INTERFACE",
+                    self.data["wifi"]["interface"]
+                        .as_str()
+                        .ok_or("missing wifi interface")?
+                        .into(),
+                );
+            }
+            "camera" | "watchdog" if self.binding(capability) == "nuttx" => {
+                env(
+                    &format!("{}_DEVICE", capability.to_uppercase()),
+                    self.data[capability]["device"]
+                        .as_str()
+                        .ok_or("missing device path")?
+                        .into(),
+                );
             }
             "console" if self.binding(capability) != "none" => env(
                 "CONSOLE_DEVICE",
@@ -785,6 +844,29 @@ mod tests {
             .canonicalize()
             .unwrap()
     }
+    #[test]
+    fn registered_endpoints_are_explicit_validated_profile_inputs() {
+        let root = root();
+        let base = Profile::resolve(&root, "esp32s3-camera-stream-startup").unwrap();
+        for (capability, field, environment, value) in [
+            ("camera", "device", "CAMERA_DEVICE", "/dev/video1"),
+            ("watchdog", "device", "WATCHDOG_DEVICE", "/dev/watchdog0"),
+            ("wifi", "interface", "WIFI_INTERFACE", "wlan1"),
+        ] {
+            let mut profile = base.clone();
+            profile.data[capability][field] = json!(value);
+            profile.validate_resources().unwrap();
+            assert!(profile
+                .cargo_output(&root, capability, "nuttx")
+                .unwrap()
+                .contains(&format!("cargo:rustc-env={environment}={value}")));
+            for invalid in [json!(null), json!(""), json!("../bad\nvalue")] {
+                profile.data[capability][field] = invalid;
+                assert!(profile.validate_resources().is_err());
+            }
+        }
+    }
+
     #[test]
     fn profiles_use_actual_os_and_reject_malformed_execution() {
         for (name, os) in [
@@ -884,7 +966,9 @@ mod tests {
         let gnss = profile.cargo_output(&root, "gnss", "linux").unwrap();
         assert!(gnss.contains(&"cargo:rustc-cfg=platform=\"simulation\"".into()));
         let absent = profile.cargo_output(&root, "camera", "linux").unwrap();
-        assert!(!absent.iter().any(|line| line.starts_with("cargo:rustc-cfg=")));
+        assert!(!absent
+            .iter()
+            .any(|line| line.starts_with("cargo:rustc-cfg=")));
     }
 
     #[test]

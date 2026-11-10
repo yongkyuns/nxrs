@@ -14,7 +14,6 @@ pub use client::*;
 /// Linux requires exclusive application control of the target peripheral:
 /// BlueZ connections/disconnections are device-wide, not per-client leases.
 /// Existing-link checks cannot prevent races with another process using it.
-#[cfg(any(platform = "nuttx", platform = "linux", platform = "macos"))]
 pub fn open<const N: usize>(
     wake: impl Fn() + Send + Sync + 'static,
     recovery_timeout_ms: u64,

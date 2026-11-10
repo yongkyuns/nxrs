@@ -76,8 +76,7 @@ pub(super) struct Native {
 }
 
 fn open_interface() -> Result<(UdpSocket, CString), Error> {
-    let interface = CString::new(option_env!("NXRS_WIFI_INTERFACE").unwrap_or("wlan0"))
-        .map_err(|_| Error::InvalidConfig)?;
+    let interface = CString::new(env!("WIFI_INTERFACE")).map_err(|_| Error::InvalidConfig)?;
     let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)).map_err(io_error)?;
     // SAFETY: live descriptor and name; validation retains no pointer and has
     // no interface side effects. Already-down interfaces are refused.

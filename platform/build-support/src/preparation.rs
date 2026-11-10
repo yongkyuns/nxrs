@@ -60,35 +60,13 @@ pub fn prepare_package(
     let composition = profile
         .composition()?
         .ok_or_else(|| format!("{name}/{provider} configuration requires a composition"))?;
-    let device_id = composition
-        .aliases
-        .get(capability)
-        .ok_or_else(|| format!("{name}: missing device alias {capability}"))?;
-    let device = composition
-        .devices
-        .get(device_id)
-        .ok_or_else(|| format!("{name}: missing device {device_id}"))?;
-    let resource = composition
-        .resources
-        .get(&device.bus)
-        .ok_or_else(|| format!("{name}: missing bus {}", device.bus))?;
-    let bus = match resource {
-        crate::composition::Resource::I2c { .. } => "i2c",
-        crate::composition::Resource::Spi { .. } => "spi",
-        crate::composition::Resource::Uart { .. } => "uart",
-        _ => return Err("device bus must be I2C, SPI or UART".into()),
-    };
     let mut catalogs = Catalogs::default();
     catalogs.insert(capability, package)?;
-    let binding = catalogs.binding(capability, &device.compatible, bus)?;
-    let implementation = binding["implementation"]
-        .as_str()
-        .ok_or("missing implementation")?;
     let stack = crate::profile::sensor_stack(&profile.data[capability])?;
-    let source = if capability == "imu" {
-        configuration::render_imu_instances(&composition, &catalogs, stack)?
-    } else {
-        configuration::render(&composition, capability, implementation, stack)?
+    let source = match capability {
+        "imu" => configuration::render_imu_instances(&composition, &catalogs, stack)?,
+        "gnss" => configuration::render_gnss_instances(&composition, &catalogs, stack)?,
+        _ => return Err(format!("no device renderer for {capability}")),
     };
     publish(
         out,
@@ -102,6 +80,7 @@ pub fn prepare_package(
 /// build data must still match the inputs against which the profile was resolved.
 fn same_declarations(actual: &Package, expected: &Package) -> bool {
     actual.name == expected.name
+        && actual.driver_features == expected.driver_features
         && actual
             .catalogs
             .iter()

@@ -45,3 +45,10 @@ It forwards the HAL's tracing feature and selects the device and optional
 sensor-reference setup. Ordinary acquisition does not enable those controls.
 The existing factory/lifetime witnesses preserve rollback and cleanup behavior;
 host source injection is not physical qualification.
+
+The additive `bmi270` and `lsm6dso` Cargo features include concrete drivers; neither
+is enabled by default. `cargo nxrs build` derives the required features from all
+configured IMUs when this catalogue is consumed. Direct Cargo qualification must
+enable those features explicitly. A mixed profile enables both. Cargo feature
+unification can include additional drivers requested by another dependency;
+selection never disables explicitly requested features.

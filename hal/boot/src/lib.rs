@@ -1,8 +1,6 @@
 //! Trial and confirmation control. Image authentication and recovery belong to
 //! the bootloader; application health must be established before confirmation.
-#![no_std]
 #![deny(unsafe_code)]
-extern crate std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {

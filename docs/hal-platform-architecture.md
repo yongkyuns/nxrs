@@ -22,7 +22,7 @@ Use a capability-specific contract with explicit supported configuration,
 buffer ownership, completion, cancellation and failure semantics. Normalization
 does not imply equal hardware capabilities or a universal device API.
 `peripheral::imu::Imu` supplies synchronous device operations; `imu::Session`
-and `gnss::Session` describe active acquisition lifetimes. `gnss::Gnss` remains an alias for existing GNSS consumers.
+and `gnss::Session` describe active acquisition lifetimes.
 
 A component does not automatically require a thread or queue. A driver may own
 execution when hardware or blocking operations require it; current IMU chip
@@ -64,11 +64,12 @@ run independently, including two of the same model; aliases cannot create new
 ownership guards. IMU implements this through `imu::Device` references returned by
 `imu_devices::primary_imu()` and profile-defined `imu_devices::<name>()`; acquisition uses
 `Device::open` or `Device::open_default`. Its worker retains storage and ownership through final
-delivery, sink destruction and resource cleanup. GNSS retains its default owner.
+delivery, sink destruction and resource cleanup. GNSS uses the same named-device
+pattern through `gnss_devices`, with per-receiver UART restoration and quarantine.
 
 Opaque access does not require dynamic dispatch or heap boxing. IMU's named
 accessors preserve concrete driver and sink types. Generated-input transport and
-optional-driver activation remain in the [follow-up plan](peripheral-composition-plan.md#static-device-follow-up).
+the full pre-Cargo native handoff remain in the [follow-up plan](peripheral-composition-plan.md#static-device-follow-up).
 Static instance storage and remaining thread/queue/backend allocation costs must
 be reported separately. Existing lifecycle, native-boundary and portability
 requirements continue to apply throughout migration.
@@ -788,3 +789,24 @@ sampling interval is a product budget; report achieved observations/s and decode
 video FPS independently. Memory/cache/clock settings belong to product wiring,
 with explicit resource costs and physical qualification. Duty cycling protects
 capture but does not by itself demonstrate efficient model execution.
+
+## Consistent profile consumption
+
+All build adapters, including shared Linux GIO, validate the same optional
+`NXRS_RESOLVED_PROFILE` receipt. A receipt can select the profile without
+`NXRS_PLATFORM`; a conflicting name, stale input or wrong target fails.
+
+IMU and GNSS catalogues import driver-owned bindings. Each import's `feature`
+names an ordinary declared Cargo feature. Before target compilation, the product
+frontend asks Cargo which catalogues are consumed and enables the required
+features through direct catalogue dependencies, including renamed dependencies.
+Unused capability records do not activate packages. Mixed devices add features;
+there is no mutually exclusive chip selector. Plain Cargo builds with a physical
+profile must enable its catalogue features explicitly. Shared I2C/SPI adapters
+remain common catalogue dependencies; chip feature selection is distinct from
+resource selection and final linker dead-code elimination.
+
+NuttX profiles explicitly supply `[camera].device`, `[watchdog].device` and
+`[wifi].interface`, alongside existing console and LED configuration. These are
+registered OS resources, not new sensor drivers or pin descriptions. The build
+validates their form and emits private constants; NuttX still owns registration.

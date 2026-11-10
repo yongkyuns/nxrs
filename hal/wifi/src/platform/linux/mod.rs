@@ -5,8 +5,7 @@ mod station;
 
 pub(super) use station::State;
 
-#[path = "../unbound.rs"]
-mod unbound;
+use super::unbound;
 pub(crate) use unbound::open_quiescence;
 pub(crate) fn open<S>(
     sink: S,

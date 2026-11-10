@@ -1,3 +1,4 @@
+pub use crate::fixtures::devices;
 use crate::{DeviceError, Event, Session};
 struct Unconfigured;
 impl Session for Unconfigured {
