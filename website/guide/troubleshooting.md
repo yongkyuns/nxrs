@@ -44,10 +44,6 @@ Keep resource quarantine and terminal cleanup failures visible. Resetting counte
 
 Compare exact image/source identity, workload, schedule, compiler, cache/clock settings and memory placement. Confirm that you are measuring the same boundary. Re-running a historical script on a different image does not reproduce its original qualification.
 
-## Noon does not load inside the site
-
-The demo is optional and comes from the separate Noon Pages deployment. Browser graphics, WebAssembly, runtime downloads, embedding restrictions or that deployment can fail independently of NXRS documentation. Use the direct-open link below the player; it does not require the iframe to work. Unload the demo to release the embedded page.
-
 ## Report an actionable problem
 
 Include the failing command, revision, profile/overlays, toolchain identities, host/board model, full relevant logs and the smallest reproducer. Exclude credentials, private device backups and secrets. Use [GitHub issues](https://github.com/yongkyuns/nxrs/issues) for ordinary bugs and [SECURITY.md](../../SECURITY.md) for vulnerability reporting.

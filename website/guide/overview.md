@@ -1,39 +1,35 @@
-# A Rust firmware environment on NuttX
+# Architecture overview
 
-NXRS is an **experimental** environment for developing firmware with ordinary Rust and its standard library on embedded MCUs. NuttX supplies the operating system and board support. NXRS brings together the target integration, Rust peripheral access, reusable components and product configuration.
+NXRS is an experimental Rust-based firmware development environment on top of NuttX. It is not a new RTOS. The experiment is to use ordinary Rust `std` code for application behavior while keeping hardware integration and product configuration separate.
 
-The aim is similar to the benefit NuttX offers C developers through its POSIX-oriented environment: keep useful application code close to familiar language and library interfaces, rather than requiring a special application runtime for every board.
+For the reasoning behind those choices, read [Why NXRS?](motivation.md). For an execution path through a real application, start with [Getting started](getting-started.md).
 
-> NXRS is independent of the Apache NuttX and Rust projects. It is not an official distribution of either. Maintained SDK patches and target-specific qualification are currently part of using Rust `std` on NuttX.
+## NuttX supplies the operating system
 
-## What belongs where
+NuttX's C/POSIX environment supplies scheduling, board support, controller drivers and hardware resource registration. NXRS does not replace those responsibilities with a Rust scheduler or a second BSP.
 
-| Part | Responsibility |
-| --- | --- |
-| NuttX | RTOS scheduling, POSIX/C interfaces, board support, controller initialization and resource registration |
-| Rust standard library | Familiar threads, synchronization, time, file and socket operations where supported by the target |
-| Peripheral wrappers and chip drivers | Rust access to resources and reusable chip or protocol behavior |
-| Capability HALs | Portable subsystem contracts, resource acquisition and managed device lifetimes |
-| Services | Reusable processing, state and event-driven behavior |
-| Applications | Product composition, connections and lifecycle in a handwritten `main()` |
-| Platform profiles | Build-time selection of devices, resources, aliases and implementations |
+A Rust standard library compiled for the selected NuttX target provides the familiar thread, synchronization, time, file and socket interfaces where supported. Maintained patches and target configuration are part of that integration; [Rust std on NuttX](../../docs/nuttx-std.md) records the scope.
 
-This is not a mandatory runtime chain. A file operation that `std::fs` already expresses does not need another NXRS HAL. A simple component does not need a thread merely because it is a separate crate.
+## Rust components supply firmware behavior
 
-## The execution model
+Peripheral wrappers connect Rust code to resources that NuttX exposes. Chip drivers implement device protocols. Capability HALs present interfaces such as IMU or GNSS acquisition without making applications name a particular chip. Services add reusable behavior, and the application composes the parts.
 
-Active owners keep their state and resources together. They block waiting for typed events, process an event synchronously, then wait again. Queue capacities, full-queue behavior, cancellation and shutdown are explicit. Ordinary Rust functions remain the default inside an owner.
+These are responsibility boundaries, not a rule that every operation needs to pass through every layer. Ordinary file or socket operations can use `std` directly. An application can own a capability directly when that is the natural fit.
 
-The framework does not require an async executor. `std::thread`, blocking waits and synchronization provide the execution model. This does not make arbitrary blocking work safe in every handler: deadlines, resource contention and scheduling still need design and measurement.
+The [architecture reference](../../docs/architecture.md), [HAL ownership reference](../../docs/hal-platform-architecture.md) and [peripheral composition reference](../../docs/peripheral-composition.md) describe the current implementation and remaining work.
 
-## Choose a starting point
+## Profiles describe the product
 
-Begin with the [host demo](getting-started.md), which uses explicitly selected synthetic sensors. Then follow [the actual application](first-application.md) and [service ownership](services.md). Move to [platform configuration](profiles.md) and [NuttX firmware builds](firmware.md) once the host behavior is clear.
+Platform profiles and overlays select implementations, devices, resource bindings and logical roles at build time. This is device-tree-like configuration, not a runtime devicetree interpreter. NuttX still owns MCU pin configuration, controller initialization and device registration.
 
-The [architecture reference](../../docs/architecture.md) and [HAL ownership guide](../../docs/hal-platform-architecture.md) contain deeper implementation rules. The [reference library](../../docs/README.md) also includes research and historical qualification reports; those reports must be read with their stated revisions and scope.
+The application can select a portable device name, such as `devices::primary_imu()`, rather than construct a particular chip driver. The profile supplies that construction. Read [Profiles and overlays](profiles.md) before changing a binding; a declared role does not establish that arbitrary combinations of devices are implemented or physically tested.
 
-## Experimental boundaries
+## Concurrency uses ordinary Rust
 
-A successful host test is not a hardware qualification. A linked MCU image is not evidence that a physical device executed it. A QEMU pass is not an interrupt-latency measurement. Support depends on the exact application, profile, SDK, peripheral provider and test evidence.
+Applications use handwritten `main()` functions. Active owners use ordinary threads, blocking waits and synchronization, rather than requiring an async executor. Typed events cross ownership boundaries; handlers use synchronous calls within an owner. Queue capacity, overload handling, stop requests and joined cleanup remain explicit.
 
-Keep performance and memory budgets visible from the beginning. The [measurement guide](performance.md) explains what to record and how to compare reference implementations without turning a narrow result into a general performance claim.
+The [services guide](services.md) explains this model. It is a set of conventions for reusable firmware, not a claim that all application code is framework-free or that threads have no cost.
+
+## Boundaries need evidence
+
+Host tests, emulated firmware and physical hardware answer different questions. Monitor stacks, queues, heap, image size and event-path latency as components and applications grow. See [Testing and debugging](testing.md), [Performance and memory](performance.md) and [Status and limitations](status.md).

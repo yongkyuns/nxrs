@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser checks for a built site. Remote Noon is mocked unless explicitly opted in."""
+"""Browser checks for the static NXRS site, without external applications."""
 from __future__ import annotations
 import argparse
 from functools import partial
@@ -35,8 +35,16 @@ def run(site: Path, prefix: str, output: Path) -> dict:
     thread.start()
     origin = f'http://127.0.0.1:{server.server_port}'
     url = origin + prefix
-    report = {'checks': [], 'live_noon': {'attempted': False, 'engine_qualified': False}}
-    errors = []
+    report = {'checks': []}
+    errors, external_requests = [], []
+    guides = [item for item in json.loads((site / 'search.json').read_text()) if item['section'] == 'User guide']
+
+    def observe_request(request):
+        parsed = urlsplit(request.url)
+        if parsed.scheme in ('http', 'https') and f'{parsed.scheme}://{parsed.netloc}' != origin:
+            if request.resource_type in ('document', 'script', 'xhr', 'fetch'):
+                external_requests.append(request.url)
+
     try:
         with sync_playwright() as p:
             launch = {'headless': True, 'args': ['--no-sandbox']}
@@ -45,14 +53,16 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             browser = p.chromium.launch(**launch)
             report['browser'] = browser.version
             context = browser.new_context(viewport={'width': 1440, 'height': 1000}, color_scheme='light')
+            context.on('request', observe_request)
             page = context.new_page()
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(url, wait_until='networkidle')
-            expect(page.locator('h1')).to_contain_text('Ordinary Rust')
+            expect(page.locator('h1')).to_have_text('NXRS')
+            expect(page.locator('.lead')).to_contain_text('experimental')
             assert page.locator('iframe').count() == 0
             assert page.locator('.brand img').evaluate('(img) => img.complete && img.naturalWidth > 0')
             page.screenshot(path=str(output / 'home-light.png'), full_page=True)
-            report['checks'].append('homepage and approved artwork')
+            report['checks'].append('experimental-project homepage and approved artwork')
 
             page.locator('#theme-toggle').click()
             expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
@@ -72,71 +82,78 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             expect(page.locator('.search-open')).to_be_focused()
             report['checks'].append('keyboard search, ranked results and focus restoration')
 
+            main_nav = page.get_by_role('navigation', name='Main navigation')
+            main_nav.get_by_role('link', name='User guide', exact=True).click()
+            expect(page).to_have_url(url + 'guide/start-here/')
+            expect(page.locator('h1')).to_have_text('Guide index')
+            expect(page.locator('#sidebar .nav-group')).to_have_count(5)
+            for item in guides:
+                expect(page.locator(f'#sidebar a[href="{item["url"]}"]')).to_have_count(1)
+            expect(page.locator('#sidebar a[aria-current="page"]')).to_have_text('Guide index')
+            page.screenshot(path=str(output / 'guide-index.png'), full_page=True)
+            main_nav.get_by_role('link', name='Why NXRS?', exact=True).click()
+            expect(page.locator('h1')).to_have_text('Why NXRS?')
+            expect(page.locator('.breadcrumb')).to_contain_text('About the project')
+            expect(page.locator('.page-navigation a[rel="next"]')).to_have_attribute('href', prefix + 'guide/overview/')
+            page.screenshot(path=str(output / 'motivation-desktop.png'), full_page=True)
+            page.locator('#sidebar').get_by_role('link', name='Status and limitations', exact=True).click()
+            assert page.locator('.page-navigation a[rel="next"]').count() == 0
+            main_nav.get_by_role('link', name='Examples', exact=True).click()
+            expect(page.locator('h1')).to_have_text('NXRS examples')
+            expect(page.locator('#experimental-iot-camera')).to_be_visible()
+            report['checks'].append('primary navigation, complete grouped sidebar, breadcrumbs and within-section pagination')
+
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')
             expect(page.locator('h1')).to_contain_text('Getting started')
             assert page.locator('.copy-code').count() > 0
             page.screenshot(path=str(output / 'guide-desktop.png'), full_page=True)
-            page.locator('.page-navigation a').last.click()
+            page.locator('.page-navigation a[rel="next"]').click()
             expect(page).to_have_url(url + 'guide/first-application/')
-            report['checks'].append('deep links, code controls and guide pagination')
-
-            requested = []
-            def mock_noon(route):
-                requested.append(route.request.url)
-                route.fulfill(status=200, content_type='text/html', body='<html><body><h1>Local embed lifecycle fixture</h1></body></html>')
-            context.route('https://yongkyuns.github.io/noon/**', mock_noon)
-            page.goto(url + 'guide/noon/', wait_until='networkidle')
-            assert requested == [] and page.locator('iframe').count() == 0
-            expect(page.locator('#noon-direct')).to_have_attribute('href', 'https://yongkyuns.github.io/noon/?example=showcase-group-animation')
-            page.locator('#load-noon').click()
-            expect(page.locator('#noon-status')).to_contain_text('embedded page loaded')
-            assert len(requested) == 1
-            expect(page.locator('#noon-frame iframe')).to_have_attribute('title', 'Noon: Move the whole diagram — interactive animation playground')
-            page.locator('#unload-noon').click()
-            assert page.locator('iframe').count() == 0
-            expect(page.locator('#load-noon')).to_be_focused()
-            page.locator('#load-noon').click()
-            expect(page.locator('#noon-status')).to_contain_text('embedded page loaded')
-            assert len(requested) == 2
-            page.locator('#unload-noon').click()
-            report['checks'].append('Noon opt-in only, labeled iframe, load/unload/reload and direct fallback (mocked)')
+            expect(page.locator('.prose pre').first).to_contain_text('imu.start_on(devices::primary_imu())?')
+            report['checks'].append('deep links, code controls, source-backed example and guide pagination')
 
             page.set_viewport_size({'width': 390, 'height': 844})
-            routes = ['', 'reference/'] + [item['url'][len(prefix):] for item in json.loads((site / 'search.json').read_text()) if item['section'] == 'User guide']
+            routes = ['', 'reference/'] + [item['url'][len(prefix):] for item in guides]
             for route in routes:
                 page.goto(url + route, wait_until='networkidle')
                 width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
                 assert width['document'] <= width['viewport'] + 1, (route, width)
+                assert page.locator('iframe').count() == 0
+                for label in ('Why NXRS?', 'User guide', 'Examples', 'Reference', 'GitHub ↗'):
+                    expect(main_nav.get_by_role('link', name=label, exact=True)).to_be_visible()
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')
             page.locator('#menu-toggle').click()
             expect(page.locator('#menu-toggle')).to_have_attribute('aria-expanded', 'true')
             expect(page.locator('#sidebar')).to_be_visible()
             page.keyboard.press('Escape')
             expect(page.locator('#menu-toggle')).to_have_attribute('aria-expanded', 'false')
+            expect(page.locator('#menu-toggle')).to_be_focused()
             page.screenshot(path=str(output / 'guide-mobile.png'), full_page=True)
+            page.locator('#menu-toggle').click()
+            page.locator('#sidebar').get_by_role('link', name='Why NXRS?', exact=True).click()
+            expect(page).to_have_url(url + 'guide/motivation/')
+            expect(page.locator('#menu-toggle')).to_have_attribute('aria-expanded', 'false')
             page.goto(url, wait_until='networkidle')
             page.screenshot(path=str(output / 'home-mobile.png'), full_page=True)
-            report['checks'].append(f'mobile layout without page overflow on {len(routes)} routes; menu and Escape')
+            report['checks'].append(f'mobile layout without page overflow on {len(routes)} routes; visible primary links, menu, Escape and navigation')
 
-            no_js = browser.new_context(java_script_enabled=False, viewport={'width': 1280, 'height': 900})
+            no_js = browser.new_context(java_script_enabled=False, viewport={'width': 390, 'height': 844})
+            no_js.on('request', observe_request)
             plain = no_js.new_page()
-            plain.goto(url + 'guide/noon/')
-            expect(plain.locator('h1')).to_be_visible()
-            expect(plain.locator('#noon-direct')).to_be_visible()
+            plain.goto(url + 'guide/start-here/')
+            expect(plain.locator('h1')).to_have_text('Guide index')
+            expect(plain.locator('#sidebar')).to_be_visible()
+            plain.locator('#sidebar').get_by_role('link', name='Why NXRS?', exact=True).click()
+            expect(plain.locator('h1')).to_have_text('Why NXRS?')
+            plain.locator('#sidebar').get_by_role('link', name='NXRS examples', exact=True).click()
+            expect(plain.locator('h1')).to_have_text('NXRS examples')
             assert plain.locator('iframe').count() == 0
             no_js.close()
-            report['checks'].append('documentation and Noon direct link without JavaScript')
+            report['checks'].append('mobile reading and grouped navigation without JavaScript')
 
-            if os.environ.get('NXRS_TEST_LIVE_NOON') == '1':
-                report['live_noon']['attempted'] = True
-                live = browser.new_page()
-                try:
-                    response = live.goto('https://yongkyuns.github.io/noon/?example=showcase-group-animation', timeout=45000, wait_until='domcontentloaded')
-                    report['live_noon'].update(page_status=response.status if response else None, page_title=live.title(), note='Page response only; engine playback is not qualified by this test.')
-                except Exception as error:
-                    report['live_noon']['error'] = str(error)
-                live.close()
+            assert not external_requests, external_requests
             assert not errors, errors
+            report['checks'].append('no external application, script or fetch requests')
             context.close()
             browser.close()
         report['result'] = 'passed'
@@ -144,6 +161,7 @@ def run(site: Path, prefix: str, output: Path) -> dict:
         server.shutdown()
         server.server_close()
         report['page_errors'] = errors
+        report['external_requests'] = external_requests
         (output / 'browser-report.json').write_text(json.dumps(report, indent=2) + '\n')
     return report
 
