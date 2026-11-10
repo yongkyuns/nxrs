@@ -63,7 +63,7 @@ implementation, not an irreducible cost of the language or RTOS.
 
 | RAM portion | NuttX C / Rust | Zephyr C | Embassy | How to interpret it |
 | --- | ---: | ---: | ---: | --- |
-| Service execution workspace | 81,920 | 81,920 | 12,512 | Native: 20 × 4 KiB stacks. Async: 8 KiB shared stack + 4,320 B service futures. Required state; application-sized. |
+| Service execution workspace | 81,920 | 81,920 | 12,512 | Native: 20 × 4 KiB stack requests. Async: 8 KiB shared stack + 4,320 B service task pool, including futures and task headers. Application-sized. |
 | Chosen event capacity | 30,720 | 30,720 | 30,720 | Artificial: 21,120 dummy payload + 9,600 routing/timing/check bytes. Choose real messages/burst capacity. |
 | Queue/adapter controls | 18,512 | 7,040 | 1,932 | Selected metadata/lifecycle bookkeeping, including test choices; not payload or a universal minimum. |
 | Fixture application state | 3,040 | 3,040 | 3,040 | Synthetic flow/digest state, not messaging infrastructure. Real services need their own state. |
@@ -95,6 +95,54 @@ are shared only for this configuration.
 Lean NuttX/Zephyr leave **29/45 kB against 250,000 B**, before product drivers,
 buffers and state. The total is not “messaging overhead”; subtracting test bytes
 does not qualify a product. Rebuild with real workloads. Image/timing cohorts differ.
+
+### What the RAM ratio establishes
+
+The full-telemetry NuttX Rust / Embassy ratio is **2.83×**; the lean ratio is
+**3.61×**. Removing the same 26,112 B from both changes the ratio while leaving
+the absolute gap unchanged. These are configured whole-system footprints for
+the [October 10 images](../tests/event-services-comparison/results/esp32s3-instrumentation-2026-10-10.json),
+not a measurement of an intrinsic thread-versus-async multiplier.
+
+The lean NuttX Rust / Embassy gap is 159,936 B. The execution-workspace
+difference accounts for 69,408 B, or 43.4%. The remaining 90,528 B includes
+queue implementations, RAM code, OS reservations and unsplit allocations.
+Some unsplit NuttX allocations are thread-related; this remainder must not all
+be labeled fixed platform overhead. The Embassy shared stack is already
+included, and both implementations provision all 480 payload slots.
+
+The native fixture uses uniform 4 KiB worker stacks without recorded
+per-worker high-water observations. Thus the evidence does not establish how
+much of that reservation is safely removable. Changing twenty requests from
+4 KiB to 2 KiB would remove 40,960 B of requested stack budget arithmetically;
+it is not a measured, safe 180,148 B Rust firmware. Allocator rounding, thread
+objects, exceptional paths and background stacks need their own observations.
+
+Even correctly sized threads retain separate stack capacity for concurrent
+execution contexts, plus native lifecycle/scheduler metadata. Cooperative
+async tasks retain suspension state while sharing transient call depth on the
+executor stack. Async can therefore save RAM beyond unused safety margins,
+with the responsiveness contract described below: this executor cannot
+preempt a long synchronous handler.
+
+The **16 B C/Rust delta applies to the shared native C pthread/mqueue adapter**.
+It does not qualify ordinary Rust startup, `std::thread`, Nxrs inboxes or
+Crossbeam. The separate twenty-idle-thread std-wrapper experiment is a
+different cohort and cannot be added to or subtracted from these totals.
+
+The [fresh RAM controls](../tests/event-services-comparison/RAM.md) now collect
+thread-only 0/1/5/10/20-worker increments, queue empty/full/drained increments,
+and worker/shared-stack observations with configurable requests. The Zephyr
+helper now uses effective `K_HEAP_MEM_POOL_SIZE`: a board-added arena can
+exist when `CONFIG_HEAP_MEM_POOL_SIZE=0`. This corrects helper visibility;
+the historical ELF ledger already counted that 4,096 B arena once.
+The separate [ordinary Rust controls](../tests/ram-footprint-std/README.md)
+exercise the actual Nxrs and Crossbeam paths.
+
+These additions are a new measurement cohort. Their host checks and target
+compilation do not replace physical stack and heap observations. The October
+tables and frozen result files remain unchanged; no smaller-stack target RAM
+result has been inferred from the new host evidence.
 
 ## Image size: distinguish contents from address span
 

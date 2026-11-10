@@ -31,6 +31,18 @@ minimal = load('event_nuttx_minimal', HERE/'nuttx_profile.py')
 
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
+def stack_configuration(args):
+    worker = getattr(args, 'worker_stack_bytes', 4096)
+    shared = getattr(args, 'shared_stack_bytes', 8192)
+    for name, value, minimum in (('worker', worker, 512), ('shared', shared, 1024)):
+        if type(value) is not int or not minimum <= value <= 65536 or value % 16:
+            raise ValueError(f'{name} stack must be {minimum}..65536 bytes and 16-byte aligned')
+    if args.platform == 'embassy' and worker != 4096:
+        raise ValueError('worker stack sizing applies only to native threads')
+    if args.platform != 'embassy' and shared != 8192:
+        raise ValueError('shared stack sizing applies only to Embassy')
+    return worker, shared, bool(getattr(args, 'stack_watermark', False))
+
 def command(argv, out, name, cwd=ROOT, env=None):
     result = subprocess.run(list(map(str, argv)), cwd=cwd, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -41,12 +53,12 @@ def command(argv, out, name, cwd=ROOT, env=None):
 def inventory(nuttx_profile='baseline'):
     # Only build inputs: measurement tools and documentation may change while
     # a build runs, but firmware inputs must stay frozen through completion.
-    names = ('contract.h','platform.h','runtime.h','clock.h','core.c','core.rs','runtime.c',
+    names = ('contract.h','platform.h','native_stack.h','runtime.h','clock.h','core.c','core.rs','runtime.c',
              'entry.c','nuttx.rs','platform_nuttx.c','platform_zephyr.c','instrumentation.h',
              'zephyr_main.c','embassy.rs','owned_slot.rs','telemetry.rs',
              'controls.h','controls.rs','experiment.rs','scheduling.rs','saturation.h','saturation.c',
              'hal.h','hal_nuttx.c','hal_zephyr.c','hal.rs','timer-1ms.conf',
-             'Cargo.toml','Cargo.lock','build.rs','CMakeLists.txt',
+             'Cargo.toml','Cargo.lock','build.rs','stack_config.rs','stack_watermark.rs','CMakeLists.txt',
              '.cargo/config.toml','build.py')
     files = [HERE/name for name in names]
     files += [HERE.parent/'zephyr-comparison'/n for n in ('prj.conf','app.overlay')]
@@ -72,10 +84,15 @@ def build(args):
         raise ValueError('cooperative controls apply only to Embassy')
     if work_mode == 'chunked' and scheduling_policy != 'budget':
         raise ValueError('chunked work requires the budget scheduling policy')
+    worker_stack, shared_stack, stack_watermark = stack_configuration(args)
     out=args.out.resolve();out.mkdir(parents=True,exist_ok=False)
     record={'schema':1,'status':'failed','failure':'build incomplete',
             'platform':args.platform,'layout':args.layout,'configuration':{
                 'instrumentation':instrumentation,
+                'ram_contract':1,
+                'worker_stack_bytes':worker_stack if args.platform != 'embassy' else 0,
+                'shared_stack_bytes':shared_stack if args.platform == 'embassy' else 0,
+                'stack_watermark':stack_watermark,
                 'cpu_mhz':240,'cores':1,'flash_mode':'DIO','flash_frequency_mhz':40,
                 'queues':20 if args.layout=='one' else 60,'slots':480,'event_bytes':64,
                 'duration_us':2000000,'drain_us':500000,'handler_work':'contract.h and README.md',
@@ -99,6 +116,8 @@ def build(args):
             argv += ['--config', f'env.NXRS_EVENT_CASE="{case}"']
             if instrumentation == 'full': argv += ['--features','probe']
             env=os.environ.copy()
+            env['NXRS_EVENT_STACK_BYTES'] = str(shared_stack)
+            env['NXRS_EVENT_STACK_WATERMARK'] = str(int(stack_watermark))
             env['PATH']=str(args.readelf.resolve().parent)+os.pathsep+env.get('PATH','')
             command(argv,out,'build.log',HERE,env)
             elf=cargo_target/'xtensa-esp32s3-none-elf/release/embassy-services'
@@ -123,6 +142,8 @@ def build(args):
                 '-DZEPHYR_SDK_INSTALL_DIR='+str(args.sdk.resolve()),
                 '-DPython3_EXECUTABLE='+str(args.zephyr_python.absolute()),
                 '-DES_MAILBOX='+str(mailbox),'-DES_TIMER_MS='+str(timer_ms),
+                '-DES_STACK_BYTES='+str(worker_stack),
+                '-DES_STACK_WATERMARK='+str(int(stack_watermark)),
                 '-DES_LEAN='+str(int(instrumentation == 'lean')),
                 *([] if timer_ms == 10 else ['-DEXTRA_CONF_FILE='+str(HERE/'timer-1ms.conf')])],out,'configure.log',env=env)
             command(['cmake','--build',stage,'--parallel','2'],out,'build.log',env=env)
@@ -142,9 +163,11 @@ def build(args):
                                        str(esptool.absolute().parent),
                                        '/usr/local/opt/gnu-sed/libexec/gnubin',env.get('PATH','')))
             stage=out/'nuttx-build'
-            definitions=['ES_SPEED=1','ES_MAILBOX='+str(mailbox),'ES_TIMER_MS='+str(timer_ms)]
+            definitions=['ES_SPEED=1','ES_MAILBOX='+str(mailbox),'ES_TIMER_MS='+str(timer_ms),
+                         'ES_STACK_BYTES='+str(worker_stack),
+                         'ES_STACK_WATERMARK='+str(int(stack_watermark))]
             if instrumentation == 'lean': definitions += ['ES_LEAN=1']
-            headers=[HERE/n for n in ('contract.h','platform.h','runtime.h','clock.h','controls.h','saturation.h','hal.h','instrumentation.h')]
+            headers=[HERE/n for n in ('contract.h','platform.h','native_stack.h','runtime.h','clock.h','controls.h','saturation.h','hal.h','instrumentation.h')]
             helpers=[HERE/n for n in ('runtime.c','core.c','platform_nuttx.c','saturation.c','hal_nuttx.c')]
             if nuttx_profile == 'minimal':
                 minimal.validate(nuttx/'.config', args.matched_baseline)
@@ -220,7 +243,7 @@ def build(args):
         parsed=parse_sections(table)
         record['elf_sections']=parsed
         record['section_accounting']=section_accounting(parsed)
-        if args.platform=='embassy': assert_stack_section(parsed)
+        if args.platform=='embassy': assert_stack_section(parsed, shared_stack)
         record['image_file']='image.bin';record['elf_file']='app.elf'
         record['artifacts']={p.name:digest(p) for p in out.iterdir() if p.suffix in ('.elf','.bin','.config')}
         record['artifact_bytes']={p.name:p.stat().st_size for p in out.iterdir() if p.name in record['artifacts']}
@@ -239,7 +262,13 @@ def main():
     p.add_argument('--platform',required=True,choices=('nuttx-c','nuttx-rust','zephyr-c','embassy'))
     p.add_argument('--layout',required=True,choices=('one','three'))
     p.add_argument('--timer-ms',type=int,choices=(1,10),default=10,
-                   help='publication tick resolution; timeslice/stacks stay unchanged')
+                   help='publication tick resolution; native timeslice stays unchanged')
+    p.add_argument('--worker-stack-bytes', type=int, default=4096,
+                   help='native per-worker reservation; a sweep is not a safe-size qualification')
+    p.add_argument('--shared-stack-bytes', type=int, default=8192,
+                   help='Embassy shared main/executor/interrupt stack reservation')
+    p.add_argument('--stack-watermark', action='store_true',
+                   help='enable stack observations for RAM qualification, separate from timing cohorts')
     p.add_argument('--embassy-scheduling',choices=('event','natural','budget'),default='event')
     p.add_argument('--work-mode',choices=('monolithic','chunked'),default='monolithic')
     p.add_argument('--instrumentation',choices=('full','lean'),default='full',

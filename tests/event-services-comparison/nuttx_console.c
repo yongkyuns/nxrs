@@ -20,7 +20,7 @@ int es_console_main(int argc, char **argv) {
   (void)argv;
   puts("EVENT_SERVICES_READY console=event");
   for (;;) {
-    char command[16];
+    char command[32];
     unsigned length = 0;
     int overflow = 0;
     printf("event> ");

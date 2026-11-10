@@ -112,6 +112,15 @@ class ImageValidationTests(unittest.TestCase):
             with self.subTest(sections=sections), self.assertRaisesRegex(ValueError, 'exactly 8192'):
                 assert_stack_section(sections)
 
+    def test_custom_stack_reservation_matches_the_linked_section(self):
+        section = dict(name='.stack', size=4096, address=0x3fcfe000)
+        self.assertEqual(assert_stack_section([section], 4096), section)
+        with self.assertRaisesRegex(ValueError, 'exactly 8192'):
+            assert_stack_section([section])
+        for invalid in (0, 512, 1025, True, '4096'):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                assert_stack_section([section], invalid)
+
 
 if __name__ == '__main__':
     unittest.main()

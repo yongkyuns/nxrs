@@ -23,11 +23,31 @@ CASE_MIGRATION_SHA256 = {'controls.rs': '82a7ffd9755eba600e57cd7f6868a724e122e08
 
 CASE_MIGRATION_SHA256.update({'../service-footprint/Cargo.toml': '7bcb4c7530ebe73aa760eacec21e151ff5186eb2f26197adb8746e5abba96341', 'nuttx.rs': '247f14d23a6babfe359f8b8c76bebc01b1106a9152768c2481718afd1154be6e'})
 
+# Inputs at 1c6e92b477afa802d27921a9a1c7f98fcc4a9409, before the RAM controls
+# and stack instrumentation. These hashes were computed from that commit's
+# bytes, not the new firmware. October's recorded runs remain a separate source
+# cohort; their identities must not imply that the new probes ran on hardware.
+PRE_RAM_CONTROLS_SHA256 = {
+    "CMakeLists.txt": "552895881137103c408890fdf6d71a07fe9b82f345e6c7ae6190fe4384267242",
+    "platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+    "platform_nuttx.c": "c8a9216ae7e3356ff56fb88de2cd3fba345d8f8246505df6169aa84303f28882",
+    "platform_zephyr.c": "3b5300f6c1666d0ef23189bbb667aa540b9726763f737259b472ecd2139ab99b",
+    "runtime.c": "d0cb926895fad653ffabef2f6e82d7d1eff7e73ec41ade4df543b2947d03dca1",
+    "saturation.c": "cd6ff28d84e2a33ceeacbdc2922d453c4a99296a3841f00c32f2b6ef0a25e378",
+    "zephyr_main.c": "6872f9f0f555c9c5f37e191e9fe42b5e000aeb5a8f3b43d0cb3c383c7ee7e675",
+    "nuttx_console.c": "7ed6e46c7bcfddeb0540fedce08ddd12b6a0ee8832b0ad7f1fabfcced758fedd",
+}
+
+
+def instrumentation_firmware_hash(name):
+    return (CASE_MIGRATION_SHA256.get(name) or PRE_RAM_CONTROLS_SHA256.get(name)
+            or hashlib.sha256((HERE / name).read_bytes()).hexdigest())
+
 
 def firmware_hash(name):
     if name in HISTORICAL_INSTRUMENTATION_SHA256:
         return HISTORICAL_INSTRUMENTATION_SHA256[name]
-    return CASE_MIGRATION_SHA256.get(name) or hashlib.sha256((HERE / name).read_bytes()).hexdigest()
+    return instrumentation_firmware_hash(name)
 
 
 class SchedulingEvidenceTests(unittest.TestCase):

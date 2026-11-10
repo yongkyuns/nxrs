@@ -95,9 +95,11 @@ def image_header(image):
             'flash_size_mb': 16, 'flash_size_value': size_frequency >> 4}
 
 
-def assert_stack_section(sections):
+def assert_stack_section(sections, expected_size=8192):
+    if type(expected_size) is not int or expected_size < 1024 or expected_size % 16:
+        raise ValueError('shared stack size must be at least 1024 bytes and 16-byte aligned')
     stacks = [section for section in sections if section['name'] == '.stack']
-    if len(stacks) != 1 or stacks[0]['size'] != 8192:
+    if len(stacks) != 1 or stacks[0]['size'] != expected_size:
         actual = [section['size'] for section in stacks]
-        raise ValueError(f'ELF must contain one .stack section of exactly 8192 bytes; got {actual}')
+        raise ValueError(f'ELF must contain one .stack section of exactly {expected_size} bytes; got {actual}')
     return stacks[0]

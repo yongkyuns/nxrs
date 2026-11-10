@@ -7,6 +7,7 @@ mod owned_slot;
 #[path = "core.rs"]
 mod protocol;
 mod scheduling;
+mod stack_watermark;
 mod telemetry;
 #[cfg(not(target_os = "none"))]
 fn main() {}
@@ -14,7 +15,7 @@ fn main() {}
 mod board {
     use super::{controls, hal, owned_slot::Slot, protocol::{Event, Release, Schedule, State,
         ES_HZ, ES_DURATION_US, ES_DRAIN_US, destination, work_value, work_value_range},
-        scheduling, telemetry::*};
+        scheduling, stack_watermark, telemetry::*};
     use core::{
         cell::RefCell,
         fmt::Write,
@@ -490,8 +491,8 @@ mod board {
             errors += 1;
         }
         let queue_storage = core::mem::size_of_val(&INBOXES);
-        writeln!(console,"ES_RESOURCES queue_buffers=30720 queue_objects={} thread_objects=0 entry_storage=0 stack_storage=8192 heap_allocated=0 diagnostics_queue_peaks=4 note=queue_peak_observation_may_underestimate",
-            queue_storage-30720).unwrap();
+        writeln!(console,"ES_RESOURCES queue_buffers=30720 queue_objects={} thread_objects=0 entry_storage=0 stack_storage={} heap_allocated=0 diagnostics_queue_peaks=4 note=queue_peak_observation_may_underestimate",
+            queue_storage-30720, stack_watermark::SHARED_STACK_BYTES).unwrap();
         writeln!(
             console,
             "ES_MEMORY application_state={} diagnostics={} heap_before=0 heap_live=0",
@@ -597,7 +598,7 @@ mod board {
                     }
                 }
             }
-            writeln!(console,"ES_RESOURCES queue_buffers=30720 queue_objects={} thread_objects=0 entry_storage=0 stack_storage=8192 heap_allocated=0 diagnostics_queue_peaks=4 note=static_arena_counted_in_ELF", core::mem::size_of_val(&INBOXES) - 30720).unwrap();
+            writeln!(console,"ES_RESOURCES queue_buffers=30720 queue_objects={} thread_objects=0 entry_storage=0 stack_storage={} heap_allocated=0 diagnostics_queue_peaks=4 note=static_arena_counted_in_ELF", core::mem::size_of_val(&INBOXES) - 30720, stack_watermark::SHARED_STACK_BYTES).unwrap();
             for destination in 0..20 {
                 let mut cursor = 0;
                 let mut per_kind = [0u32; 3];
@@ -644,7 +645,7 @@ mod board {
         while DONE.load(Ordering::Acquire) != 20 {
             poll(executor);
         }
-        writeln!(console,"ES_SAT_RESULT platform=embassy queues={} slots=480 event_bytes=64 cycles=3 errors={} stacks=8192",20*QUEUES,errors).unwrap();
+        writeln!(console,"ES_SAT_RESULT platform=embassy queues={} slots=480 event_bytes=64 cycles=3 errors={} stacks={}",20*QUEUES,errors,stack_watermark::SHARED_STACK_BYTES).unwrap();
         writeln!(
             console,
             "{}",
@@ -659,6 +660,9 @@ mod board {
     }
     #[esp_hal::main]
     fn main() -> ! {
+        // Paint before HAL/executor setup, preserving this entry's live frame.
+        // The resulting coverage explicitly excludes the earlier boot path.
+        let stack = stack_watermark::StackWatermark::start();
         let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
         // SAFETY: no other task or alarm uses Unit0's stall configuration;
         // keep the counter enabled through idle, without resetting its value.
@@ -702,6 +706,7 @@ mod board {
                     } else {
                         false
                     };
+                    let success = stack.report(&mut console) && success;
                     writeln!(console, "ES_COMMAND_EXIT status={}", u32::from(!success)).unwrap();
                     if !success {
                         loop {

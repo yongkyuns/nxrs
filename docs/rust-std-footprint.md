@@ -127,6 +127,32 @@ its much smaller language RAM delta is documented in the RTOS guide.
 Do not substitute it for this stress workload. Common stack sizing is a
 separate product decision, not an explanation for Rust messaging overhead.
 
+### Ordinary Rust scaling controls
+
+The [RAM scaling fixture](../tests/ram-footprint-std/README.md) adds four
+separate ordinary-entry binaries: baseline, std threads, actual Nxrs bounded
+inboxes, and the pinned Crossbeam selection candidate. It measures 0, 1, 5,
+10 and 20 owners, with queue-only and complete worker/queue lifecycle cases.
+All capacity cases use 64-byte events and 24 slots per owner. The std service
+uses one 24-slot FIFO; Crossbeam uses three isolated eight-slot FIFOs, so their
+admission and selection semantics remain explicit.
+
+The [November 10 host evidence](../tests/ram-footprint-std/results/README.md)
+contains 78 fresh-process invocations. All reclaimed requested Rust allocation
+bytes and blocks after cleanup, and repeated timeout rounds allocated nothing
+further after the first completed wait. These are host functional/allocation
+observations, not MCU footprints. The target helper records native heap and
+live-thread stack coloration through actual NuttX headers; those observations
+remain unavailable in host records. Native heap already includes Rust backing
+allocations, so the two counters must never be summed.
+
+The new `esp32s3-ram-footprint` profile keeps ordinary std support, a common
+NSH baseline, one core, stack coloration and no PSRAM. Use the same compiler,
+profile, command name and main-stack request for every binary. This profile
+is separate from the older shell-free native-API size comparison. Physical
+target runs are required before assigning a per-thread or per-channel MCU
+cost or choosing reduced stack requests.
+
 ## Speed
 
 The timed interval starts after setup and ends at the last validated reply;
