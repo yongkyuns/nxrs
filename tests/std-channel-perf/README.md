@@ -37,6 +37,11 @@ records four clean boots of the paired digest image/loader, a legacy control
 that reproduces the warning, and 4,000 corrected tight/seeded candidate samples.
 Independent calibration and actual allocation placement remain outstanding.
 
+The [subsequent latency controls](results/2026-11-03-esp32s3-latency-controls/README.md)
+retain 13,000 samples from one new executable, including repeated seed-1 and
+counterbalanced fixed-delay/warmup pairs. They show a repeatable transfer-count
+pattern while leaving placement, causation and absolute timing unqualified.
+
 ## What is measured and proved
 
 The channel has eight slots and a 16-byte Rust value. Payload validation uses a

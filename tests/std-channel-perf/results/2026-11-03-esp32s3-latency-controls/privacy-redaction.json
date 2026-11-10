@@ -1,0 +1,313 @@
+{
+  "schema": "nxrs-public-evidence-redaction-v1",
+  "board_pseudonym": "esp32s3-bench-01",
+  "serial_device_placeholder": "<serial-device>",
+  "scope": "Public copies replace hardware and host serial identifiers only. Numeric measurements, qualification outcomes, source/build identities and firmware digests are unchanged. Cohort evidence digests and the checksum index now identify these public copies. Git history is unchanged.",
+  "original_checksum_index_sha256": "5d0d4ae60aeeb1d188953aedea4d67b81d7ede95810ab515b7b40152ef25a113",
+  "files": [
+    {
+      "path": "README.md",
+      "original_git_blob": "65b7a841f267bbf25406976b5f7a79883c68514c",
+      "original_sha256": "dbd6a075b043b7c45ba799700ec0fe4f1cf17896ed1ccc4bc81a3ab40af9c7a2",
+      "public_sha256": "98d6f151f9d5273a6a39499b3e9b6e3212f63df7ad653d178c82697e10416ba3",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "public_copy_documentation"
+      ]
+    },
+    {
+      "path": "backup-verify.log",
+      "original_git_blob": "8717d9bbc8cbc15bbb13cb6090c88555e6061791",
+      "original_sha256": "a6b7786af69349877ed15246035a4d2747332d15ab97fdef3d76fb0e20fe8d9b",
+      "public_sha256": "db4aa658f4fa63e14f3f0fd59a1e05bf075900b6098d5f1a8ce256d17c0b6eb0",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "fresh-original-restore-flash.log",
+      "original_git_blob": "6213887202a7d1798f6c59eedc7024b2413cc60c",
+      "original_sha256": "e8d45ac73e2813c6ab11de32af8c266bb0a28644daa6eee477f74df59070cd2c",
+      "public_sha256": "2cdf45ea4fcf4271028e6c1115db8742b12d9ab9dd31e1be97cc0bd75f1c31df",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "fresh-original-restore-verify.log",
+      "original_git_blob": "8717d9bbc8cbc15bbb13cb6090c88555e6061791",
+      "original_sha256": "a6b7786af69349877ed15246035a4d2747332d15ab97fdef3d76fb0e20fe8d9b",
+      "public_sha256": "db4aa658f4fa63e14f3f0fd59a1e05bf075900b6098d5f1a8ce256d17c0b6eb0",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "latency-rom-digest-flash.log",
+      "original_git_blob": "46ecd24bfb2be509fbeaaeacb5bcd1ab1029364e",
+      "original_sha256": "65e664206ab58905a839cf75f2b0ad4a36323729a6f3a0d22ae1afba1f4ba5e6",
+      "public_sha256": "9d9e78d8ff74f069545c9950504e7c14512371d60b878b9ecac71d0da1c06731",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "latency-rom-digest-verify.log",
+      "original_git_blob": "628b4e1e6bc4e71096979b98372865ddb5732888",
+      "original_sha256": "bb32096c7133fcddff6a734e3d470c6b59107c8fd9bcb8a30808aff6405850c7",
+      "public_sha256": "54b71c6d183d5819684aea894219584a14424aacafae40426830d9467374d542",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "run-physical.py",
+      "original_git_blob": "2b0b06acfb01790f61f5b1bdbe3ebd0b60ac40bb",
+      "original_sha256": "2e7af1e8ae51596e2156e25d347c7cad6f3ff9c8c1fac9d2abecf01ff331748b",
+      "public_sha256": "45ac92e6a5e2cdeec993e8d9ccd14ed0613b4456ff1c774df92fa5907a9424b0",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "runs/01-tight/analysis.json",
+      "original_git_blob": "924ec67d3aab562bf99444afd09a08ba8555db79",
+      "original_sha256": "ce736daeca87f9b56e25c49ca003946ec059dd641d5aa25dade11b1cbf072ab2",
+      "public_sha256": "41b7ddee236e246e67d8cf47a7dac7705e10f0c53ff5e8275ee7ee71772c24f6",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/01-tight/session.json",
+      "original_git_blob": "f945a0a89dc0813614d7484bd4ef24d1aef3a69a",
+      "original_sha256": "68205d9dc501a4f3cb087f3aa20cd28c1a30f9142422b5f57297011927c70a7b",
+      "public_sha256": "cf5ea9d3e8aed6bf367c8229d786847216db07f98214a512b9c3534e1acb415b",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/02-seed-1-a/analysis.json",
+      "original_git_blob": "064f698cda35b544534a50fe913c49d3c09558b9",
+      "original_sha256": "1bff07dd639479fb3a39ffb40636084c98ebea4d9179ba22f5455e3d56d23c4d",
+      "public_sha256": "f810a09503173c52d734f126c2f7a6c8665c58c3d789b81aa07984eae9878c0d",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/02-seed-1-a/session.json",
+      "original_git_blob": "a155aa13442ec028d7030dfe8e7cf17e2ccaca05",
+      "original_sha256": "92d6a6327b9283f3b9cb39cc30cd854c40aec35033d163600f84d550f62de4a3",
+      "public_sha256": "4b7071a156e3288c659d1cf6b4cb5d1b01ac8a4287638025520c8fec093d6fbe",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/03-seed-17/analysis.json",
+      "original_git_blob": "d49aba65fa1d0ec4755bbe087edbfcf6220b223e",
+      "original_sha256": "ba9755bd52a45b4ddf3d4a37c006978383cbff427a60d491099a430a3ceb6c53",
+      "public_sha256": "5cb3de89ef3ad1222e5e6f1643afde0a7a166f1451f7e025c5cfec4336432664",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/03-seed-17/session.json",
+      "original_git_blob": "20ff26807cabd21a190a1df80680b28f9fb4237d",
+      "original_sha256": "dda69b37ce381ca105b99bda2f2a26ceff1f7417b15a3a23934b129e013fce67",
+      "public_sha256": "df209598bf0816416cfcf472f9e008353ae12b090f309d605a54361d36191a16",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/04-fixed-100-w100-a/analysis.json",
+      "original_git_blob": "6cc653a856c58bb0438e946eaaabbf4f44607d8c",
+      "original_sha256": "cbf22587e1f60d6c44cc64c1e192a4a934183db42f08912d7624cc2c10f9bcd1",
+      "public_sha256": "3479ca0a090f9cb25335eb061fbb94e2063c02e0e2394d97fc123ae932444736",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/04-fixed-100-w100-a/session.json",
+      "original_git_blob": "88d2ef4ceed503d1b539c8ada51b6e65468e4bad",
+      "original_sha256": "d270467517a6a8c667894ff1006e8c848d4e6304495ecfef69e0617fe0d59f64",
+      "public_sha256": "f7b7d89f24795435958ab11629fd73f2f773029dd56ebc3918b608cd2854dae7",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/05-fixed-100-w101-a/analysis.json",
+      "original_git_blob": "c82867e0d47a67d62b749936db3dd0b9045314a0",
+      "original_sha256": "1decc194e64e1897af2b09a3bac655424cd05743f3ab2d9c4fa632dc0c976f0d",
+      "public_sha256": "2eed4ff7c31e9c6d4d83774715605a3aa9ac3f1150fddf881277c23b8818977f",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/05-fixed-100-w101-a/session.json",
+      "original_git_blob": "9041033e88305da45af173a578dbd870e7907524",
+      "original_sha256": "74672e22db78aecdd7eb98762dd3cb5a2b389b18bf1ef0d430abb15da5f61e38",
+      "public_sha256": "22aa2472302849ebfae0e836a3760e2a8817cde3be479e4d1491c19da6d925da",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/06-fixed-1000-w100-a/analysis.json",
+      "original_git_blob": "a13c8aefe4f99b2c9f320b7509db2d5cbcd31fc7",
+      "original_sha256": "71e8e506ee73eac301088f71f38791bd340a361d3fcbb8be7a4cb943fe551f0b",
+      "public_sha256": "b0cd3284b988378b642f7974d1f0c90c7f0496bac2cfbe6f2aa72c0c4f6e0fb6",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/06-fixed-1000-w100-a/session.json",
+      "original_git_blob": "8fa677ae3d1abb226033de66282a9e433254a283",
+      "original_sha256": "cbfdf5fcf821d003739021e20dcb249c95074ef63c26b986f0e9c0ea5356c2a2",
+      "public_sha256": "d6b013e97dee5c5bd86c744d8628ccb1d7a37185053b063df0806f3642de65da",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/07-fixed-1000-w101-a/analysis.json",
+      "original_git_blob": "3a5775808de79162f6d47c7e1d3c0f9bb13db0b0",
+      "original_sha256": "f972a793a1dd46b46d3bb4b559922a63261f148c32d0d33a5588aa462c0d4e1e",
+      "public_sha256": "983f9702be31de99f0116acc48918c683024a222c13ca48b082a4ff601e28296",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/07-fixed-1000-w101-a/session.json",
+      "original_git_blob": "6d66f2c73aabe3fd8831e63b75533bbe9acac499",
+      "original_sha256": "8018a582d7416a7905490b941614f8d847b9f192c451e5a3606f97985157d4ec",
+      "public_sha256": "2de6b51c995ee2b977c7296901844db1f528b91a6578622795d94b54df7a95ef",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/08-seed-113/analysis.json",
+      "original_git_blob": "9ada46e08d9a45a47067a2e6f79c26ab752db3ca",
+      "original_sha256": "2682f5114a51ac4722269b3a8407d913e615b1dfa285f70047c130271262b217",
+      "public_sha256": "b440d0b05daaff784064e63be212c2ba78902a561060bf23deaeb831ee09a7e5",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/08-seed-113/session.json",
+      "original_git_blob": "df51d11beb4cfdd59543b61f08e1c05a431f4974",
+      "original_sha256": "d77410a56c736dfaf495d71ee1153400d42c8f91f90561ca0e48885a3ba3112c",
+      "public_sha256": "b5fcba9752de3b0f166f4623bac92f8e9f4af305d10e1dd2940676f7b4967e70",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/09-seed-1-b/analysis.json",
+      "original_git_blob": "b26be0bc01b9165fed7797263692c1ae8844b164",
+      "original_sha256": "a0c48ef7efc9c0681f8eed4a2a7e0dc50269e009dec72f89e63c1c78675ff3e9",
+      "public_sha256": "580f454cd0a0ed123ef85ba59399ff908eb4d839ab8c4232e08c2a74dc11a9e1",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/09-seed-1-b/session.json",
+      "original_git_blob": "d8a024bd1d94cedff7b03e2c3cf77b0279d77959",
+      "original_sha256": "c2f69e95137addf20774615a31032e8cfce35cd603e6eb2ddee68049d1123131",
+      "public_sha256": "9c3de323cb15d1293d1a669616632efa628c10f3c9e83f08df518106e5117d1b",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/10-fixed-1000-w101-b/analysis.json",
+      "original_git_blob": "1bcbe8b4299d4477071d360053e7add334a0a2f5",
+      "original_sha256": "f0626a7acf9fc09ea556e3eab0b8b52e3b37643c1a352b7394f2ef02337923ef",
+      "public_sha256": "7de646321791fd3a8a1e10cb9fa4aa389916a06691ebc5507f0b9ac3ed9f5ff3",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/10-fixed-1000-w101-b/session.json",
+      "original_git_blob": "1ef113731f1fe44e389866859326b264111ee5d1",
+      "original_sha256": "40bb850eabcd44894312d961bf88f63552057249c9f68864ffb6697d9fb518c3",
+      "public_sha256": "3ac2b4b24d95b319828dadcdc3d249b2da986b698502ed87a521393b895bf75a",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/11-fixed-1000-w100-b/analysis.json",
+      "original_git_blob": "685d131e802d1e3502213551a4949062a4344aa8",
+      "original_sha256": "20cc3406210704110cf41acc8fc731f49eb9e227b74d61d27b3a577852cdce0e",
+      "public_sha256": "3d476763c22fa770f43ca066c6c3ca728a21ef558c9e8696935f5f0c7b2df7a1",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/11-fixed-1000-w100-b/session.json",
+      "original_git_blob": "2a57c33cc6fd8115033a35c5d940e08f6de1330e",
+      "original_sha256": "960c4e5b420a2e338856538e7615f02c680b79eddb2546e158848947a3914e73",
+      "public_sha256": "8915887144c46a83cc7f3ab16481f948e53cf304540a9c3d1bc8b051bf39fd39",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/12-fixed-100-w101-b/analysis.json",
+      "original_git_blob": "58394cc1aafcb60d964106b426228247501576c7",
+      "original_sha256": "d432cdcd56b17b3f03b4f2f3f9c033418b53a121bc30624d3253cdbde09ba97f",
+      "public_sha256": "8005789c1d54df989d202bbf65ee5f76b492c3c5bbaf59fa1bf377d08fcd416d",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/12-fixed-100-w101-b/session.json",
+      "original_git_blob": "9612745642a60171224559b206140bcf906e8498",
+      "original_sha256": "84080c8487b9937f2f39c725d8ffe8d50fec8dff410bb3c31c9987c142c88975",
+      "public_sha256": "b2d690d975cbae05d996f96fc7e5881e59e08ba515f1818c2b927cf11da6f26f",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/13-fixed-100-w100-b/analysis.json",
+      "original_git_blob": "7d42e0b22f8a11e429a63f53777c3861ec620b34",
+      "original_sha256": "3a12ccfdc9a59ba0994150ce31bd0b4cb8dc7d61189e848921b5874b47aad905",
+      "public_sha256": "818f0141c77940f64036cd09f7cd00d66ee581cf181991116d83316d2902d259",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/13-fixed-100-w100-b/session.json",
+      "original_git_blob": "9d8a783404a1bfd7d280278ef04c1d173c90c1be",
+      "original_sha256": "d98bd584d0abae098b3b57338602e289f97d4f162eb6a4af8590473dd45b1923",
+      "public_sha256": "d586cb9b0e9dfc3be51bbdcd0285c628242d7156c0423d9092676d31bf6142c3",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    }
+  ]
+}

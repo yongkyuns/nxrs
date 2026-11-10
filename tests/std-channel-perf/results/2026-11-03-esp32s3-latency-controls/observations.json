@@ -1,0 +1,941 @@
+{
+  "schema": "std-channel-latency-controls-observations-v1",
+  "retained_samples": 13000,
+  "run_count": 13,
+  "same_executable": true,
+  "all_captures_complete": true,
+  "all_boots_without_rom_digest_warning": true,
+  "all_receivers_blocked_and_terminal_quiescent": true,
+  "physical_timing_qualified": false,
+  "internal_channel_slot_observed": false,
+  "root_cause_established": false,
+  "runs": [
+    {
+      "case": "01-tight",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 1872,
+        "max_ticks": 5140,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 7800,
+        "max_ns": 21417,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 3580,
+        "p99_ticks": 4522,
+        "max_ticks": 7623,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 14917,
+        "p99_ns": 18842,
+        "max_ns": 31763,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "tight-v1",
+        "seed": 0,
+        "fixed_delay_us": 0,
+        "requested_pacing_ticks": 0,
+        "retained_window_ns": 40000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          367
+        ],
+        "max_receive_sample_indices": [
+          367
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        125
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        125
+      ]
+    },
+    {
+      "case": "02-seed-1-a",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 6050,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 25209,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 9663,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 40263,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-counter-delay-v1",
+        "seed": 1,
+        "fixed_delay_us": 0,
+        "requested_pacing_ticks": 236025120,
+        "retained_window_ns": 1030000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          308
+        ],
+        "max_receive_sample_indices": [
+          308
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        1,
+        97
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        97
+      ]
+    },
+    {
+      "case": "03-seed-17",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 2821,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 11755,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 7958,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 33159,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-counter-delay-v1",
+        "seed": 17,
+        "fixed_delay_us": 0,
+        "requested_pacing_ticks": 242502720,
+        "retained_window_ns": 1060000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          734,
+          970
+        ],
+        "max_receive_sample_indices": [
+          83,
+          147,
+          195,
+          235,
+          275,
+          395,
+          427,
+          515,
+          603,
+          627,
+          659,
+          667,
+          675,
+          859,
+          939,
+          971
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        97
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        97
+      ]
+    },
+    {
+      "case": "04-fixed-100-w100-a",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5515,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22980,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 3580,
+        "p99_ticks": 5472,
+        "max_ticks": 9129,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 14917,
+        "p99_ns": 22800,
+        "max_ns": 38038,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 100,
+        "requested_pacing_ticks": 24000000,
+        "retained_window_ns": 140000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          882
+        ],
+        "max_receive_sample_indices": [
+          882
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        119
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        119
+      ]
+    },
+    {
+      "case": "05-fixed-100-w101-a",
+      "warmup": 101,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5518,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22992,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 3580,
+        "p99_ticks": 5472,
+        "max_ticks": 9132,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 14917,
+        "p99_ns": 22800,
+        "max_ns": 38050,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 100,
+        "requested_pacing_ticks": 24000000,
+        "retained_window_ns": 140000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          881
+        ],
+        "max_receive_sample_indices": [
+          881
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        119,
+        0
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        119
+      ]
+    },
+    {
+      "case": "06-fixed-1000-w100-a",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 3079,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 12830,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 7009,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 29205,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 1000,
+        "requested_pacing_ticks": 240000000,
+        "retained_window_ns": 1050000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          288,
+          662
+        ],
+        "max_receive_sample_indices": [
+          1
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        105
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        105
+      ]
+    },
+    {
+      "case": "07-fixed-1000-w101-a",
+      "warmup": 101,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2815,
+        "max_ticks": 2821,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11730,
+        "max_ns": 11755,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 7016,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 29234,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 1000,
+        "requested_pacing_ticks": 240000000,
+        "retained_window_ns": 1050000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          498
+        ],
+        "max_receive_sample_indices": [
+          546,
+          594,
+          642,
+          690,
+          738,
+          786,
+          834,
+          882,
+          930,
+          978
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        108,
+        0
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        107
+      ]
+    },
+    {
+      "case": "08-seed-113",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 2821,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 11755,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 7010,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 29209,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-counter-delay-v1",
+        "seed": 113,
+        "fixed_delay_us": 0,
+        "requested_pacing_ticks": 231719040,
+        "retained_window_ns": 1010000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          89
+        ],
+        "max_receive_sample_indices": [
+          19,
+          51,
+          139,
+          147,
+          155,
+          411,
+          491,
+          499,
+          531,
+          571,
+          603,
+          667,
+          675,
+          811,
+          875,
+          899,
+          923,
+          971
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        1,
+        101
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        101
+      ]
+    },
+    {
+      "case": "09-seed-1-b",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 6050,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 25209,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 9663,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 40263,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-counter-delay-v1",
+        "seed": 1,
+        "fixed_delay_us": 0,
+        "requested_pacing_ticks": 236025120,
+        "retained_window_ns": 1030000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          308
+        ],
+        "max_receive_sample_indices": [
+          308
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        97
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        97
+      ]
+    },
+    {
+      "case": "10-fixed-1000-w101-b",
+      "warmup": 101,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 5341,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 22255,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 8953,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 37305,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 1000,
+        "requested_pacing_ticks": 240000000,
+        "retained_window_ns": 1050000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          124
+        ],
+        "max_receive_sample_indices": [
+          124
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        107,
+        0
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        107
+      ]
+    },
+    {
+      "case": "11-fixed-1000-w100-b",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 2815,
+        "p99_ticks": 2821,
+        "max_ticks": 3079,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 11730,
+        "p99_ns": 11755,
+        "max_ns": 12830,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 5472,
+        "p99_ticks": 5478,
+        "max_ticks": 7016,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 22800,
+        "p99_ns": 22825,
+        "max_ns": 29234,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 1000,
+        "requested_pacing_ticks": 240000000,
+        "retained_window_ns": 1050000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          499
+        ],
+        "max_receive_sample_indices": [
+          1
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        108
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        107
+      ]
+    },
+    {
+      "case": "12-fixed-100-w101-b",
+      "warmup": 101,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5310,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22125,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 3580,
+        "p99_ticks": 5472,
+        "max_ticks": 8922,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 14917,
+        "p99_ns": 22800,
+        "max_ns": 37175,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 100,
+        "requested_pacing_ticks": 24000000,
+        "retained_window_ns": 140000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          881
+        ],
+        "max_receive_sample_indices": [
+          881
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        119,
+        0
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        119
+      ]
+    },
+    {
+      "case": "13-fixed-100-w100-b",
+      "warmup": 100,
+      "samples": 1000,
+      "receive": {
+        "count": 1000,
+        "min_ticks": 1865,
+        "p50_ticks": 1865,
+        "p95_ticks": 1872,
+        "p99_ticks": 2815,
+        "max_ticks": 5515,
+        "min_ns": 7771,
+        "p50_ns": 7771,
+        "p95_ns": 7800,
+        "p99_ns": 11730,
+        "max_ns": 22980,
+        "percentile_method": "nearest-rank"
+      },
+      "send_call": {
+        "count": 1000,
+        "min_ticks": 3573,
+        "p50_ticks": 3573,
+        "p95_ticks": 3580,
+        "p99_ticks": 5472,
+        "max_ticks": 9129,
+        "min_ns": 14888,
+        "p50_ns": 14888,
+        "p95_ns": 14917,
+        "p99_ns": 22800,
+        "max_ns": 38038,
+        "percentile_method": "nearest-rank"
+      },
+      "sampling": {
+        "profile": "setup-fixed-counter-delay-v1",
+        "seed": 0,
+        "fixed_delay_us": 100,
+        "requested_pacing_ticks": 24000000,
+        "retained_window_ns": 140000000,
+        "counter_read_probe": {
+          "count": 64,
+          "min_ticks": 20,
+          "max_ticks": 398,
+          "subtracted_from_samples": false
+        },
+        "max_send_sample_indices": [
+          882
+        ],
+        "max_receive_sample_indices": [
+          882
+        ],
+        "phase_coverage_qualified": false,
+        "scope": "Requested setup-delay diversity and window duration only; no IRQ phase mapping, open-loop offered-load, CPU-utilization, idle or power qualification"
+      },
+      "receive_1872_ticks_by_retained_parity": [
+        0,
+        119
+      ],
+      "receive_1872_ticks_by_transfer_mod_capacity": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        119
+      ]
+    }
+  ]
+}
