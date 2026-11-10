@@ -1,46 +1,48 @@
 # Drivers and HALs
 
-Use Rust's standard library for ordinary OS operations. Resource adapters, chip drivers and capability HALs provide the additional interfaces needed for hardware access.
+Hardware access is split between NuttX board support, Rust resource adapters, device drivers, and capability interfaces. Application code uses the interface appropriate to the operation.
 
-## Use std where it fits
+## NuttX owns board support
 
-Use `std::fs`, `std::io`, `std::net` and `std::time` directly when the target supports them. A UART data stream can use an owned `File` with `Read`/`Write`, and IP transport can use ordinary Rust sockets.
+The NuttX BSP configures pins and controllers, initializes devices, and registers OS resources. Platform profiles select the configuration used by a firmware build. Start by checking that the BSP exposes the resource the application needs.
 
-UART configuration, cancellable readiness, device controls and radio SDK operations may need thin native bindings. Keep validation, ownership, error handling, retry and cleanup in Rust.
+## Use std for standard operations
+
+Files, byte streams, sockets, time, and synchronization can use `std` directly. A serial stream can use an owned file handle and `Read`/`Write`; IP communication can use `std::net`.
+
+Device configuration, ioctls, cancellable readiness, and radio-control operations may need a Rust adapter over native APIs. Keep those bindings small. Validation, ownership, retries, and cleanup stay in Rust.
 
 ## Resource adapters and chip drivers
 
-I²C transactions, SPI chip-select sequencing and GPIO use resource-specific interfaces such as embedded-hal traits. NuttX adapters own the underlying descriptors and implement those operations.
+Resource adapters expose bus or pin operations such as I²C transactions and GPIO changes. A chip driver implements the device's register protocol using those resource interfaces. The driver should not need to know which application is using it or how the product names its logical devices.
 
-Chip drivers receive their resources from the caller. They implement device identification, register protocols, FIFO decoding and chip-specific settings. Board selection and product profiles stay outside the driver.
+Use existing Rust bus traits where they express the operation. Keep controller initialization and electrical configuration with the BSP rather than duplicating them in each driver.
 
 ## Capability HALs
 
-A capability HAL provides an interface for a subsystem such as IMU, GNSS, storage or transport. It owns its public Rust API and errors, selects the appropriate platform implementation, and manages acquisition and resource lifetimes.
+A capability HAL presents a subsystem interface, such as storage, transport, a camera, or a data-acquisition device. It owns its public Rust API, errors, resource lifetime, and OS-specific implementation selection.
 
-For example, an IMU driver provides synchronous device operations. The IMU HAL adds stream metadata, resource ownership, acquisition and delivery. `imu::Session` represents active use of a device.
+The application can receive a capability through a constructor or acquire a named device through a portable catalogue. Services consume the interface rather than constructing board-specific drivers. A synchronous driver call and a streaming acquisition session are different APIs because their lifetimes differ.
 
-Shared Rust behavior stays in ordinary modules. OS-specific integration belongs in the corresponding platform implementation.
+For example, a data logger can separate input acquisition from formatting, recording, and transmission. Only the acquisition and resource configuration need to change when the hardware changes; the record format and processing code can remain ordinary Rust.
 
 ## Source layout
 
-| Location | Purpose |
+| Location | Responsibility |
 | --- | --- |
-| `driver/<device>` | Chip and protocol implementations |
-| `driver/i2c`, `driver/spi`, `driver/gpio` | NuttX resource adapters |
-| `driver/peripheral` | Shared synchronous device interfaces |
-| `hal/<capability>/src/api.rs` | Public capability interface |
-| `hal/<capability>/src/platform/` | Private OS/provider integration |
-| The provider's `ffi/` directory | Native ABI translation |
-| `hal/acquisition` | Shared acquisition and cancellation logic |
-| `service/` | Reusable processing and execution policy |
+| `driver/` | Resource adapters and device protocols |
+| `driver/peripheral/` | Shared synchronous device contracts |
+| `hal/<capability>/` | Public capability API and implementations |
+| `hal/<capability>/src/platform/` | OS-specific implementation selection |
+| Provider-local `ffi/` directories | Native ABI bindings |
+| `platform/devices/` | Portable device catalogues and construction |
+| `platform/profiles/` and `platform/nuttx/` | Product and target configuration |
+| `service/` | Reusable application behavior |
 
-Follow the [peripheral architecture](../../docs/peripheral-composition.md), [HAL architecture](../../docs/hal-platform-architecture.md) and [NuttX device-access rules](../../docs/nuttx-device-access.md) when adding or changing hardware integration.
+## Add a peripheral
 
-## Add and test hardware
+Check the BSP registration, implement or reuse the resource adapter, then test the device protocol and capability lifecycle. Add its supported device and resource bindings to the profile configuration. Verify startup, I/O, failure handling, and shutdown on the target.
 
-Start by checking that the NuttX BSP initializes and registers the required controller or endpoint. Test the resource operations, device protocol and capability lifecycle, then add the platform bindings.
+DMA buffers, callbacks, file descriptors, and device leases must remain valid until the associated work has stopped. Include those lifetimes in tests when changing an implementation.
 
-Use host mocks for protocol and failure-handling tests. Run on-board tests for transaction timing, interrupts, electrical configuration and throughput.
-
-Preserve resource lifetimes when moving code between C and Rust. Keep DMA buffers, callback state, descriptors and interface leases alive until the associated work has stopped, then release them and report any cleanup errors.
+The [HAL architecture](../../docs/hal-platform-architecture.md), [NuttX device access](../../docs/nuttx-device-access.md), and [peripheral composition](../../docs/peripheral-composition.md) references contain the implementation rules and current device-specific details.

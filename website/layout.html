@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="{{ config.description }} Motivation, user guide, examples and engineering notes.">
+  <meta name="description" content="{{ config.description }} Application development, configuration, testing and examples.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'none'; connect-src 'self'; object-src 'none'; base-uri 'self'">
   <title>{{ title }} · NXRS</title>
   <link rel="canonical" href="{{ config.url }}{{ route }}">
@@ -20,7 +20,7 @@
   <div class="header-inner">
     <a class="brand" href="{{ url() }}" aria-label="NXRS home"><img src="{{ logo }}" alt="nxrs" width="96" height="32"></a>
     <nav class="top-nav" aria-label="Main navigation">
-      {% for target, label in [('guide/motivation/', 'Why NXRS?'), ('guide/start-here/', 'User guide'), ('guide/examples/', 'Examples'), ('reference/', 'Reference')] %}
+      {% for target, label in [('guide/getting-started/', 'Getting started'), ('guide/start-here/', 'User guide'), ('guide/examples/', 'Examples'), ('reference/', 'Reference')] %}
       <a href="{{ url(target) }}"{% if route == target %} aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
       <a href="{{ config.repository }}">GitHub ↗</a>
@@ -33,26 +33,27 @@
 <main id="main" class="project-home" tabindex="-1">
   <section class="project-intro" aria-labelledby="project-title">
     <div>
-      <p class="eyebrow">Project notes and documentation</p>
+      <p class="eyebrow">Firmware development with Rust and NuttX</p>
       <h1 id="project-title">NXRS</h1>
-      <p class="lead">An experimental Rust-based firmware development environment on top of NuttX.</p>
-      <p>Embedded projects need hardware access, data processing, communication and recovery. NXRS organizes these into reusable components, with platform profiles describing the hardware configuration.</p>
-      <p>Applications use ordinary Rust <code>std</code>, threads and event-driven services. NuttX provides the RTOS and board support. This keeps application logic separate from hardware integration and makes components easier to test and reuse.</p>
-      <a href="{{ url('guide/motivation/') }}">Read the reasoning behind NXRS →</a>
+      <p class="lead">An experimental, general-purpose Rust firmware development environment built on NuttX.</p>
+      <p>Applications use ordinary Rust standard-library APIs, threads and event-driven components. NuttX supplies the RTOS and board support; NXRS provides the Rust integration, peripheral interfaces, reusable components and platform profiles.</p>
+      <p>The guide starts with a small application, then covers services, hardware access, configuration, networking, storage and testing. The framework does not require a particular application domain or messaging middleware.</p>
+      <p><a href="{{ url('guide/getting-started/') }}">Getting started →</a> · <a href="{{ url('guide/motivation/') }}">Why NXRS?</a></p>
     </div>
     <aside class="project-note" aria-labelledby="validation-title">
       <h2 id="validation-title">Implementation and validation</h2>
-      <p>The navigation and camera applications use the component model. Basic validation includes host tests, firmware execution in the NuttX simulator and QEMU, and on-board performance and memory measurements.</p>
-      <p><a href="{{ url('guide/status/') }}">Current status</a><br><a href="{{ url('guide/performance/') }}">Performance and memory</a></p>
+      <p>Basic validation includes host tests, target integration checks, execution in the NuttX simulator and QEMU, and on-board performance and memory evaluations.</p>
+      <p><a href="{{ url('guide/status/') }}">Current status</a><br><a href="{{ url('guide/testing/') }}">Tests and evaluations</a></p>
     </aside>
   </section>
   <section class="project-section" aria-labelledby="reading-title">
-    <h2 id="reading-title">Find your way around</h2>
+    <h2 id="reading-title">Documentation</h2>
     <nav class="reading-paths" aria-label="Reading paths">
-      {% for key, heading, description in [('motivation', 'Why NXRS?', 'The reasoning behind NuttX, ordinary Rust threads and reusable firmware components.'), ('start-here', 'User guide', 'Run a host example, work with services, connect hardware and build for NuttX.'), ('examples', 'Application examples', 'Navigation services and the IoT camera, with source code and configuration.'), ('testing', 'Tests and evaluations', 'Host tests, firmware execution, and on-board performance measurements.')] %}
+      {% for key, heading, description in [('getting-started', 'Start an application', 'Run a small Rust program, understand its manifest and build for NuttX.'), ('overview', 'Develop firmware', 'Use standard APIs, organize services and connect hardware capabilities.'), ('profiles', 'Configure a target', 'Select a board, device instances, resources and build settings.'), ('testing', 'Test and evaluate', 'Run component and firmware tests, then measure performance and memory.')] %}
       <a href="{{ url('guide/' + key + '/') }}"><h3>{{ heading }}</h3><p>{{ description }}</p></a>
       {% endfor %}
     </nav>
+    <p><a href="{{ url('guide/start-here/') }}">Full guide index</a> · <a href="{{ url('guide/examples/') }}">Examples</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p>
   </section>
   <section class="project-section" aria-labelledby="architecture-title">
     <h2 id="architecture-title">Architecture at a glance</h2>
@@ -61,15 +62,13 @@
       <img class="theme-light" src="{{ url('assets/docs/assets/nxrs-architecture.svg') }}" alt="Platform profiles configure reusable Rust applications, services, HALs and chip drivers. Parallel std and peripheral-wrapper paths lead to NuttX and the MCU." width="1200" height="810" loading="lazy">
       <img class="theme-dark" src="{{ url('assets/docs/assets/nxrs-architecture-dark.svg') }}" alt="Platform profiles configure reusable Rust applications, services, HALs and chip drivers. Parallel std and peripheral-wrapper paths lead to NuttX and the MCU." width="1200" height="810" loading="lazy">
     </div>
-    <p class="section-link"><a href="{{ url('guide/overview/') }}">Architecture overview</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p>
+    <p class="section-link"><a href="{{ url('guide/overview/') }}">Architecture overview</a> · <a href="{{ url('guide/motivation/') }}">Design reasoning</a></p>
   </section>
-  <section class="project-section project-evidence" aria-labelledby="examples-title">
-    <h2 id="examples-title">Applications</h2>
-    <div>
-      <p>The navigation example connects sensor, fusion and health services, with control commands and explicit shutdown. The camera application combines capture, detection, gateway delivery and client-visible state.</p>
-      <p>The documentation includes setup instructions, implementation details and test results. More examples and evaluations are added as development continues.</p>
-      <p><a href="{{ url('guide/examples/') }}">Application examples</a></p>
-    </div>
+  <section class="project-section" aria-labelledby="development-title">
+    <h2 id="development-title">From components to an application</h2>
+    <p>For a connected device, hardware access, command processing, recording and network communication can be separate components. The application decides how they interact; platform configuration supplies the device and resource bindings.</p>
+    <p>The documentation explains those responsibilities independently of the use case. Optional examples show both small API patterns and larger applications.</p>
+    <p><a href="{{ url('guide/services/') }}">Services and concurrency</a> · <a href="{{ url('guide/io/') }}">Networking and storage</a> · <a href="{{ url('guide/examples/') }}">Examples</a></p>
   </section>
 </main>
 {% elif kind == 'not-found' %}
@@ -107,10 +106,19 @@
   <main id="main" class="document" tabindex="-1">
     <nav class="breadcrumb" aria-label="Breadcrumb"><a href="{{ url() }}">Home</a><span aria-hidden="true">/</span><a href="{{ url(current.entry) }}">{{ current.section }}</a>{% if kind != 'reference-index' %}<span aria-hidden="true">/</span><span aria-current="page">{{ title }}</span>{% endif %}</nav>
     {% if kind == 'reference-index' %}
-    <article class="prose"><h1>Engineering reference</h1><p class="intro">Design decisions, implementation notes and evaluation reports from the repository.</p><p>Use the <a href="{{ url('guide/start-here/') }}">guide index</a> for a reading path. These reference pages are rendered directly from their maintained Markdown sources.</p>
-      <h2 id="common-topics">Common topics</h2><ul>{% for item in references %}<li><a href="{{ url(item.route) }}">{{ item.title }}</a></li>{% endfor %}</ul>
-      <h2 id="all-documents">All repository documents</h2>
-      <div class="reference-list">{% for item in all_references %}<a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ item.source }}</span></a>{% endfor %}</div>
+    <article class="prose"><h1>Engineering reference</h1><p class="intro">Design documents, implementation notes and evaluation reports from the repository.</p><p>Use the <a href="{{ url('guide/start-here/') }}">user guide</a> for step-by-step development. These references provide the implementation detail.</p>
+      {% set grouped = namespace(sources=[]) %}
+      {% for group in config.reference_groups %}
+      <section class="reference-category"><h2 id="reference-group-{{ loop.index }}">{{ group.title }}</h2><div class="reference-list">
+        {% for name in group.pages %}{% for item in all_references if item.source == 'docs/' ~ name %}
+        {% set grouped.sources = grouped.sources + [item.source] %}
+        <a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ item.source }}</span></a>
+        {% endfor %}{% endfor %}
+      </div></section>
+      {% endfor %}
+      <section class="reference-category"><h2 id="additional-notes">Additional engineering notes</h2><div class="reference-list">
+        {% for item in all_references if item.source not in grouped.sources %}<a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ item.source }}</span></a>{% endfor %}
+      </div></section>
     </article>
     {% else %}
       {% if kind == 'reference' %}<p class="reference-note">Engineering reference</p>{% endif %}

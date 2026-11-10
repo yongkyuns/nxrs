@@ -1,14 +1,14 @@
 # Getting started
 
-Start on your development computer. The navigation demo exercises the application and service model without requiring a board, a sensor, an async runtime or a NuttX cross-toolchain.
+Start with a small Rust program on your development computer. Then run the standard-library examples supplied with NXRS. Neither step needs a board, a peripheral, or a NuttX cross-compiler.
 
-## Prerequisites
+## Install the host tools
 
-Install Git and Rust through rustup, along with your operating system’s native linker and build tools. Work from a terminal in the repository root. The checkout’s `rust-toolchain.toml` selects the host Rust toolchain; do not replace it with a guessed target toolchain.
+Install Git and Rust through [rustup](https://rustup.rs/), together with the native build tools for your operating system. On Linux, install a C compiler and linker; on macOS, install the Xcode command-line tools; on Windows, use the Rust MSVC toolchain with the Visual Studio C++ build tools.
 
-The commands below use a POSIX shell. On Windows, use the PowerShell equivalents shown separately. Python 3 is needed for the repository’s independent checks and target tooling, but the first Rust host demo does not build the documentation website.
+Python 3 is used by repository checks and firmware tooling. Target-specific compilers are covered in [Building for NuttX](firmware.md).
 
-## Clone the project
+## Get the source
 
 ```sh
 git clone https://github.com/yongkyuns/nxrs.git
@@ -16,44 +16,49 @@ cd nxrs
 rustup show
 ```
 
-Run `rustup show` inside the checkout so you can see the toolchain override. Initial Cargo builds may need network access to obtain the locked dependencies. `--locked` preserves dependency resolution; it does not mean “offline.”
+The repository's `rust-toolchain.toml` selects the Rust version. Run the following commands from the repository root. The Cargo commands work in both a POSIX shell and PowerShell.
 
-## Run the navigation demo
-
-```sh
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo -- --duration-ms 2000
-```
-
-PowerShell:
-
-```powershell
-$env:NXRS_PLATFORM = "host-demo"
-cargo run --locked -p nxrs-event-demo -- --duration-ms 2000
-Remove-Item Env:NXRS_PLATFORM
-```
-
-`host-demo` explicitly supplies synthetic IMU and GNSS providers. It is not a physical-board profile. The app composes sensor services, a fusion owner and synchronous health processing, exercises GNSS pause/resume, and stops after the requested interval.
-
-## Read the result
-
-The output begins with `EVENT_DEMO topology:`. Navigation observations use the `NAV` prefix; the two control phases use `CONTROL`. A successful completed run prints `EVENT_DEMO PASS` with observation, production, drop and error counters and exits successfully.
-
-Do not copy particular counts into an acceptance rule: scheduling changes them. Read the process exit status and the complete transcript. A success marker followed by a fault is not a clean run.
-
-The demo is intentionally finite. You do not need to terminate it to demonstrate normal teardown.
-
-## Explore the checkout
+## Run a minimal application
 
 ```sh
-cargo nxrs apps
-cargo nxrs platforms
-cargo nxrs build --help
+cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --bin hello
 ```
 
-These commands discover the application/build vocabulary. `cargo nxrs` is a repository Cargo alias, not a claim that an `nxrs` executable has been installed globally from crates.io.
+The program prints:
 
-The key starting files are the [application](../../app/event-demo/src/main.rs), its [Cargo manifest](../../app/event-demo/Cargo.toml), and the [navigation demo reference](../../docs/event-driven-demo.md).
+```text
+Hello from NXRS
+```
+
+This is an ordinary Rust executable with its own manifest and lockfile. It uses no NXRS runtime API. [Your first application](first-application.md) explains how to copy it into a project and add firmware metadata.
+
+## Try standard-library facilities
+
+The existing `std-demo` application contains short examples of collections, ownership, channels, synchronization, and deadlines:
+
+```sh
+cargo run --locked -p nxrs-std-demo -- --list
+cargo run --locked -p nxrs-std-demo -- --case channels
+```
+
+The channels example checks a bounded queue, transfers a buffer to a worker, receives the result, and joins the thread. A completed run ends with:
+
+```text
+STD_DEMO case=channels status=pass
+STD_DEMO PASS cases=1
+```
+
+Other cases include `vec`, `fixed`, `maps`, `queues`, `bytes`, `ownership`, `synchronization`, and `deadlines`. Run all cases by omitting the arguments after `--`:
+
+```sh
+cargo run --locked -p nxrs-std-demo
+cargo test --locked -p nxrs-std-demo
+```
+
+These examples use `std` directly and do not need `NXRS_PLATFORM`. Profiles become relevant when selecting hardware implementations or building a NuttX image.
 
 ## Next steps
 
-Follow [Your first application](first-application.md) to understand the composition, then read [Services and concurrency](services.md). Use [Building for NuttX](firmware.md) only after preparing the selected target’s dependencies. The [troubleshooting guide](troubleshooting.md) separates environment, profile, runtime and device failures.
+Continue with [Your first application](first-application.md), then [Building for NuttX](firmware.md). [Services and concurrency](services.md) introduces a bounded event loop, while [Standard-library APIs](standard-library.md) covers the facilities available to application code.
+
+For errors during setup, see [Troubleshooting](troubleshooting.md). Application-specific examples are collected separately under [Examples](examples.md).

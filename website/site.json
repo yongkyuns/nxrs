@@ -1,41 +1,47 @@
 {
   "name": "NXRS",
-  "description": "A Rust-based firmware development environment on NuttX.",
+  "description": "A general-purpose Rust firmware framework built on NuttX.",
   "url": "https://yongkyuns.github.io/nxrs/",
   "repository": "https://github.com/yongkyuns/nxrs",
   "guides": [
-    ["motivation", "Why NXRS?", "Context, choices and tradeoffs"],
-    ["overview", "Architecture overview", "What belongs to each layer"],
-    ["status", "Current status", "Implementation, validation and ongoing work"],
-    ["start-here", "Guide index", "Choose a reading path"],
-    ["getting-started", "Getting started", "Run the host example"],
-    ["first-application", "Your first application", "Read a real main function"],
-    ["services", "Services and concurrency", "Ownership, events and shutdown"],
-    ["hardware", "Drivers and HALs", "Access hardware"],
-    ["profiles", "Profiles and overlays", "Select devices and resources"],
-    ["firmware", "Building for NuttX", "Prepare and build a target"],
-    ["examples", "NXRS examples", "Navigation and camera applications"],
+    ["start-here", "Guide index", "Application development, configuration and tests"],
+    ["getting-started", "Getting started", "Install tools and run a small Rust program"],
+    ["first-application", "Your first application", "Create an independent Cargo application"],
+    ["firmware", "Building for NuttX", "Prepare a target and build firmware"],
+    ["overview", "Architecture overview", "NuttX, Rust and component responsibilities"],
+    ["standard-library", "Standard-library APIs", "Threads, time, collections, files and sockets"],
+    ["services", "Services and concurrency", "Typed commands, event loops and shutdown"],
+    ["hardware", "Drivers and HALs", "Resources, devices and capability interfaces"],
+    ["io", "Networking and storage", "Communication, files and I/O ownership"],
+    ["profiles", "Profiles and overlays", "Select devices, resources and target settings"],
     ["testing", "Testing and debugging", "Host, firmware and on-board tests"],
     ["performance", "Performance and memory", "Measure resource costs"],
-    ["troubleshooting", "Troubleshooting", "Find the next check"]
+    ["troubleshooting", "Troubleshooting", "Resolve setup and runtime errors"],
+    ["examples", "NXRS examples", "Learning programs and optional application examples"],
+    ["motivation", "Why NXRS?", "Project background and design choices"],
+    ["status", "Current status", "Implementation, validation and ongoing work"]
   ],
   "sections": [
-    {"title": "About the project", "pages": ["motivation", "overview", "status"]},
-    {"title": "Using NXRS", "pages": ["start-here", "getting-started", "first-application", "services", "hardware", "profiles", "firmware"]},
+    {"title": "Getting started", "pages": ["start-here", "getting-started", "first-application", "firmware"]},
+    {"title": "Develop firmware", "pages": ["overview", "standard-library", "services", "hardware", "io", "profiles"]},
+    {"title": "Tests and evaluations", "pages": ["testing", "performance", "troubleshooting"]},
     {"title": "Examples", "pages": ["examples"]},
-    {"title": "Testing and measurements", "pages": ["testing", "performance", "troubleshooting"]}
+    {"title": "About the project", "pages": ["motivation", "status"]}
   ],
   "reference": [
     ["architecture.md", "Architecture"],
     ["build-system.md", "Build system"],
+    ["nuttx-std.md", "Rust std integration"],
     ["hal-platform-architecture.md", "HAL ownership"],
     ["peripheral-composition.md", "Peripheral composition"],
     ["concurrency-event-communication.md", "Event communication"],
-    ["event-driven-demo.md", "Navigation example"],
-    ["camera-detection-delivery.md", "Camera and gateway"],
-    ["nuttx-std.md", "Rust std integration"],
     ["std-channel-performance.md", "Event-path measurements"],
     ["rust-std-footprint.md", "Rust std footprint"],
     ["rtos-comparison.md", "RTOS comparisons"]
+  ],
+  "reference_groups": [
+    {"title": "Framework and build system", "pages": ["architecture.md", "build-system.md", "nuttx-std.md", "hal-platform-architecture.md", "nuttx-device-access.md", "peripheral-composition.md", "static-device-composition.md", "concurrency-event-communication.md", "editor-setup.md", "security.md"]},
+    {"title": "Tests and evaluations", "pages": ["nuttx-sim.md", "nuttx-qemu.md", "std-channel-performance.md", "rust-std-footprint.md", "rtos-comparison.md"]},
+    {"title": "Application-specific notes", "pages": ["event-driven-demo.md", "camera-detection-delivery.md", "camera-detection-qualification.md", "client-camera-architecture.md"]}
   ]
 }

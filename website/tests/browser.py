@@ -37,7 +37,8 @@ def run(site: Path, prefix: str, output: Path) -> dict:
     url = origin + prefix
     report = {'checks': []}
     errors, external_requests = [], []
-    guides = [item for item in json.loads((site / 'search.json').read_text()) if item['section'] == 'User guide']
+    search = json.loads((site / 'search.json').read_text())
+    guides = [item for item in search if item['section'] == 'User guide']
 
     def observe_request(request):
         parsed = urlsplit(request.url)
@@ -61,10 +62,11 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             expect(page.locator('.lead')).to_contain_text('experimental')
             assert page.locator('body').inner_text().lower().count('experimental') == 1
             expect(page.locator('#validation-title')).to_have_text('Implementation and validation')
+            assert 'fusion' not in page.locator('main').inner_text().lower()
             assert page.locator('iframe').count() == 0
             assert page.locator('.brand img').evaluate('(img) => img.complete && img.naturalWidth > 0')
             page.screenshot(path=str(output / 'home-light.png'), full_page=True)
-            report['checks'].append('project homepage, introductory status and approved artwork')
+            report['checks'].append('general-purpose homepage, introductory status and approved artwork')
 
             page.locator('#theme-toggle').click()
             expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
@@ -88,15 +90,17 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             main_nav.get_by_role('link', name='User guide', exact=True).click()
             expect(page).to_have_url(url + 'guide/start-here/')
             expect(page.locator('h1')).to_have_text('Guide index')
-            expect(page.locator('#sidebar .nav-group')).to_have_count(5)
+            expect(page.locator('#sidebar .nav-group')).to_have_count(6)
+            expect(page.locator('#sidebar .nav-heading').first).to_have_text('Getting started')
             for item in guides:
                 expect(page.locator(f'#sidebar a[href="{item["url"]}"]')).to_have_count(1)
             expect(page.locator('#sidebar a[aria-current="page"]')).to_have_text('Guide index')
+            assert page.locator('#sidebar a[href$="/reference/event-driven-demo/"]').count() == 0
             page.screenshot(path=str(output / 'guide-index.png'), full_page=True)
-            main_nav.get_by_role('link', name='Why NXRS?', exact=True).click()
+            page.locator('#sidebar').get_by_role('link', name='Why NXRS?', exact=True).click()
             expect(page.locator('h1')).to_have_text('Why NXRS?')
             expect(page.locator('.breadcrumb')).to_contain_text('About the project')
-            expect(page.locator('.page-navigation a[rel="next"]')).to_have_attribute('href', prefix + 'guide/overview/')
+            expect(page.locator('.page-navigation a[rel="next"]')).to_have_attribute('href', prefix + 'guide/status/')
             page.screenshot(path=str(output / 'motivation-desktop.png'), full_page=True)
             page.locator('#sidebar').get_by_role('link', name='Current status', exact=True).click()
             expect(page.locator('h1')).to_have_text('Current status')
@@ -104,17 +108,35 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             assert page.locator('.page-navigation a[rel="next"]').count() == 0
             main_nav.get_by_role('link', name='Examples', exact=True).click()
             expect(page.locator('h1')).to_have_text('NXRS examples')
+            expect(page.locator('#basic-firmware')).to_be_visible()
             expect(page.locator('#iot-camera')).to_be_visible()
-            report['checks'].append('primary navigation, complete grouped sidebar, breadcrumbs and within-section pagination')
+            assert page.locator('#experimental-iot-camera').count() == 1
+            assert page.locator('#navigation-and-service-composition').count() == 1
+            report['checks'].append('primary navigation, grouped sidebar, breadcrumbs, pagination and existing example anchors')
 
-            page.goto(url + 'guide/getting-started/', wait_until='networkidle')
+            main_nav.get_by_role('link', name='Getting started', exact=True).click()
+            expect(page).to_have_url(url + 'guide/getting-started/')
             expect(page.locator('h1')).to_contain_text('Getting started')
+            expect(page.locator('.prose')).to_contain_text('nxrs-std-demo')
             assert page.locator('.copy-code').count() > 0
             page.screenshot(path=str(output / 'guide-desktop.png'), full_page=True)
             page.locator('.page-navigation a[rel="next"]').click()
             expect(page).to_have_url(url + 'guide/first-application/')
-            expect(page.locator('.prose pre').first).to_contain_text('imu.start_on(devices::primary_imu())?')
-            report['checks'].append('deep links, code controls, source-backed example and guide pagination')
+            expect(page.locator('.prose pre').first).to_contain_text('println!("Hello from NXRS")')
+            expect(page.locator('.page-navigation a[rel="next"]')).to_have_attribute('href', prefix + 'guide/firmware/')
+            page.screenshot(path=str(output / 'first-application.png'), full_page=True)
+            page.locator('#sidebar').get_by_role('link', name='Standard-library APIs', exact=True).click()
+            expect(page.locator('h1')).to_have_text('Standard-library APIs')
+            page.locator('#sidebar').get_by_role('link', name='Networking and storage', exact=True).click()
+            expect(page.locator('h1')).to_have_text('Networking and storage')
+            report['checks'].append('neutral onboarding, new subsystem guides, code controls and source-backed example')
+
+            main_nav.get_by_role('link', name='Reference', exact=True).click()
+            expect(page.locator('.reference-category h2').first).to_have_text('Framework and build system')
+            expected = sorted(item['url'] for item in search if item['section'] == 'Reference')
+            actual = sorted(page.locator('.reference-list a').evaluate_all('(links) => links.map(a => a.getAttribute("href"))'))
+            assert actual == expected, (actual, expected)
+            report['checks'].append('categorized reference index retains every source exactly once')
 
             page.set_viewport_size({'width': 390, 'height': 844})
             routes = ['', 'reference/'] + [item['url'][len(prefix):] for item in guides]
@@ -123,7 +145,7 @@ def run(site: Path, prefix: str, output: Path) -> dict:
                 width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
                 assert width['document'] <= width['viewport'] + 1, (route, width)
                 assert page.locator('iframe').count() == 0
-                for label in ('Why NXRS?', 'User guide', 'Examples', 'Reference', 'GitHub ↗'):
+                for label in ('Getting started', 'User guide', 'Examples', 'Reference', 'GitHub ↗'):
                     expect(main_nav.get_by_role('link', name=label, exact=True)).to_be_visible()
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')
             page.locator('#menu-toggle').click()
@@ -147,8 +169,8 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             plain.goto(url + 'guide/start-here/')
             expect(plain.locator('h1')).to_have_text('Guide index')
             expect(plain.locator('#sidebar')).to_be_visible()
-            plain.locator('#sidebar').get_by_role('link', name='Why NXRS?', exact=True).click()
-            expect(plain.locator('h1')).to_have_text('Why NXRS?')
+            plain.locator('#sidebar').get_by_role('link', name='Your first application', exact=True).click()
+            expect(plain.locator('h1')).to_have_text('Your first application')
             plain.locator('#sidebar').get_by_role('link', name='NXRS examples', exact=True).click()
             expect(plain.locator('h1')).to_have_text('NXRS examples')
             assert plain.locator('iframe').count() == 0
