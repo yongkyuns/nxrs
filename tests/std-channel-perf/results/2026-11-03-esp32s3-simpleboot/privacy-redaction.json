@@ -1,0 +1,199 @@
+{
+  "schema": "nxrs-public-evidence-redaction-v1",
+  "board_pseudonym": "esp32s3-bench-01",
+  "serial_device_placeholder": "<serial-device>",
+  "scope": "Public copies replace hardware and host serial identifiers only. Numeric measurements, qualification outcomes, source/build identities and firmware digests are unchanged. Cohort evidence digests and the checksum index now identify these public copies. Git history is unchanged.",
+  "original_checksum_index_sha256": "d51f99ec3f9170c7471bedc84ca90fb3bd363c4aaafd09d41b266cfec4178009",
+  "files": [
+    {
+      "path": "README.md",
+      "original_git_blob": "ddab132da358e394b1c0f81ddc4f5055880faec4",
+      "original_sha256": "65470c1937ff507c26859ba1ec9c0d7fc2e2ef18a4e3a05cc521609c3537e44c",
+      "public_sha256": "20d0b445b67caccbb37044c5e49dcccc28beea41738a6101896f49841b2c4a8e",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "public_copy_documentation"
+      ]
+    },
+    {
+      "path": "backup-verify.log",
+      "original_git_blob": "969a5d6b30989be837b06b7aa740c30535c91811",
+      "original_sha256": "496567b159b1d575357ead58fc7588e0f755fbe50f69fe336990dd4685e59f25",
+      "public_sha256": "fa6858754053b54a6afdc7a44116ce4088a281c3f24d843845e111b3f8a8181a",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "fresh-original-restore-flash.log",
+      "original_git_blob": "b5b0c6c753e669d3dc35b1c9de114c38449b5207",
+      "original_sha256": "bc38e3033bfb81be823340bed37d4f1183d665087d9cbb4d555ca9ddab5a5fa1",
+      "public_sha256": "878c6209d70bac67954964db7c70f59506249b6d126af82816c56dac4dbb355b",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "fresh-original-restore-verify.log",
+      "original_git_blob": "969a5d6b30989be837b06b7aa740c30535c91811",
+      "original_sha256": "496567b159b1d575357ead58fc7588e0f755fbe50f69fe336990dd4685e59f25",
+      "public_sha256": "fa6858754053b54a6afdc7a44116ce4088a281c3f24d843845e111b3f8a8181a",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "latency-flash.log",
+      "original_git_blob": "c22a6fd3beaa5eb95c10be6a6abbae5ebc483811",
+      "original_sha256": "c358449188ad66c7044acbc7be31efab50adafee359edea482e060f4b67f22cb",
+      "public_sha256": "8cc1f60284db39cecde38589b21ea080409a32839459498ac39bebc3a3b03404",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "latency-rom-digest-flash.log",
+      "original_git_blob": "8a60aad4d1d69b5aa90676a922ad304747c638d0",
+      "original_sha256": "abcff1c44f01f37d74a3aa01b4ff6ce667d424d3f616d66e45f00a0a7b35e973",
+      "public_sha256": "927760860bec996aac2473b43a8461387655240b0f79f69a493481f7623920f3",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "latency-rom-digest-verify.log",
+      "original_git_blob": "9ca1aefec051270f2a7521766ac9998a90c90f99",
+      "original_sha256": "287928174e6cb4f801aa4b9fb549cd0ce6d20c0a3e2a5b1a757aa55568f36f5a",
+      "public_sha256": "304ed86cc6119104a0656ea8b706cd8012685615c82b1d52679adb9419d36dcc",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "latency-verify.log",
+      "original_git_blob": "631ea580b117f7c26406e790175d46ee1f8931bd",
+      "original_sha256": "ad83bc7123febc61369e0d0a5e693f244804fd661d2e7fbb76bc01172c7c12bb",
+      "public_sha256": "7e0730389cfd3111773425d5eb9bfe7520bdc621a993d9bf3fdf936a4f1d54da",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "run-physical.py",
+      "original_git_blob": "864f53004d184e722bf7bc6c4d5b78eefac338a7",
+      "original_sha256": "6cfac225bdd71e5c08723918afeb6ebecf56f70de43ca9d13fbd90fd235b1dea",
+      "public_sha256": "7353cf920cd290b02e39bc9c27cd0d73d2942153fbb7b96bc24a2a4c77f2ec33",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-seed-1-1/analysis.json",
+      "original_git_blob": "31823c570fb7ac7f672a46dce3616c7183b39e0d",
+      "original_sha256": "c791fe83f219872ca621edbbedccbde3d1d8c2f22a6ec70a7ce8607753f3316c",
+      "public_sha256": "b57e9f1c82a2514924e8efbbd34678bd9d148249ab028bedae8872448ee90ff4",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-seed-1-1/session.json",
+      "original_git_blob": "70ad9bb3963dad307c0db890f10c5fb4918d9292",
+      "original_sha256": "cc95df2e20f6e9262e32ab722ada68d2f5595e9cea9fc8a57a1f1f7c1b1b8f04",
+      "public_sha256": "901c317ecc5418cd8bf03c377453b264eb00d96e34b79e986b1dbca8001b42a5",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-tight-1/analysis.json",
+      "original_git_blob": "e1fd7488ce211fa745f432c16711303e19ea1e83",
+      "original_sha256": "7b38032b565a7b3b5faeaca1cf109495dd75d70e70561ca0a11ede8e77888102",
+      "public_sha256": "1edfff72d6fb601475709a83d63c62c1da3c2460dcae6dbbdf86dc8d7ff81999",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-tight-1/session.json",
+      "original_git_blob": "ddc83078c7dd6656c7666475c4c9f7130822ac51",
+      "original_sha256": "a765fc53ea82d29a928eb1d01537baec3f2dc3a2f83b91ce45421a64eab3f656",
+      "public_sha256": "7bb0961a8faa6f8931808cd353e6ab69ba50ee995e4ceb219cdfe46188c533dc",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-tight-2/analysis.json",
+      "original_git_blob": "18fa6f10d6acbfdcf3064bf09f8c598fec40dadd",
+      "original_sha256": "d3985e569e94d9aef951eecb7fc25d587d01c00c27abf8a1eb01027fd0f23302",
+      "public_sha256": "4c6a6de4578fc97a311e8f82203e7c60f8044b0d990584eaaf585433a95ada11",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-tight-2/session.json",
+      "original_git_blob": "7a8996852187edfbd2c7c66e8963ef6bd7fa74ef",
+      "original_sha256": "20f9a84c1f0ad39184a784bbf4da68cbdcb1b542be2d8d0e164c20c2802913a6",
+      "public_sha256": "7ec776b9887c837222a87ed18bcccc58db79f957d43595f058c5590d0e43d3a9",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-tight-3/analysis.json",
+      "original_git_blob": "88e7d576b1c0131e7afce232020265795d24cf38",
+      "original_sha256": "5167ca4d92cc169645c7a34f32f4bbba574d19944e7739285d213b86ddb972d6",
+      "public_sha256": "ca978b1613dee0b178e62c5e59fb8b8f35ee6dd764e9ea2db2a3856a361bf9e3",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-rom-digest-tight-3/session.json",
+      "original_git_blob": "049fc6b2e38426b9f6bf5808210e367b0168eb39",
+      "original_sha256": "00c6e2059fab6272ca96aea306b4e153939f5f52f865eb32a88b17264924c94a",
+      "public_sha256": "8a4d62f993e34e3ed458d2647a1ba657ec3e65b41d1d9fa87280a9d7a02d1622",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-tight-1/analysis.json",
+      "original_git_blob": "35266af94d7da30e572bf3db799fbc985840b534",
+      "original_sha256": "68977cc0c473997cc2f8ffc828d30759e4fd91f7d58cc15c0fae3896b35e678e",
+      "public_sha256": "cc099fa0deca6d5a434765855375ce786f44e099abe0c2d55600b5a856e0b705",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "runs/latency-tight-1/session.json",
+      "original_git_blob": "ed5e4585be1fdbc4e403aee42aa46538d1959956",
+      "original_sha256": "06699de06b96768adf0154fceb3ab5b602b4b476292195f063205840b5e7a9cc",
+      "public_sha256": "7af28fa9a76c41471fed283a9cd91ef8c0c634aafed573dde3bd8372a9f2c376",
+      "changes": [
+        "hardware_identifier_pseudonym"
+      ]
+    },
+    {
+      "path": "security-info.log",
+      "original_git_blob": "7bc6e592bae314fc05c004093f6d23a7f7b01703",
+      "original_sha256": "96dd269334720abef4e24d755f03fd5db5d2a3ab41f78ddaa201e3a076f10f56",
+      "public_sha256": "9c254a7c91fab7501bac068926e8f4b65737f18c50d07e71d92ed1c91ea1b898",
+      "changes": [
+        "hardware_identifier_pseudonym",
+        "serial_device_path_placeholder"
+      ]
+    }
+  ]
+}

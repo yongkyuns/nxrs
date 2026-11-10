@@ -1,7 +1,8 @@
 # P0: phase sampling and image diagnosis
 
 These changes extend the existing fixture. They are not a new queue, parker or
-production transport, and no new physical timing result is supplied here.
+production transport. The later [WROOM comparison](results/2026-11-03-esp32s3-simpleboot/README.md)
+adds raw corrected tight/seeded captures; absolute timing remains unqualified.
 
 ## Seeded setup-delay profile
 
@@ -74,12 +75,12 @@ layout consumed by the simple boot code and needs its own target qualification.
 
 ## Remaining P0 acceptance
 
-Physical reruns must use the corrected firmware and retain independent calibration,
-actual allocation/stack placement and clean-boot evidence. The new phase profile
-needs physical captures before drawing conclusions about the old tails. The
-forensic diagnosis above is complete for the archived images; a boot-image change
-and clean-board rerun are not. Longer representative load and allocation tests
-remain in the separate architecture-focused workstreams.
+The WROOM comparison now records corrected tight/seeded runs and four clean
+digest-candidate boots, with a legacy control reproducing the warning. Independent
+calibration and actual allocation/stack placement remain open. The seed-1 run is
+setup-delay diversity, not IRQ phase coverage or an explanation of the old tails.
+Longer representative load and allocation tests remain in the separate
+architecture-focused workstreams.
 
 The host CI artifact now includes the exact checked-out superproject source and
 its revision/hash for offline reproduction. It excludes toolchains and submodule

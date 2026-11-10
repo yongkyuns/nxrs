@@ -1,0 +1,29 @@
+{
+  "schema": "std-channel-physical-provenance-v1",
+  "pr": 257,
+  "tested_head": "4a0f47e750e8fcdbc2a42c2195c4a93b02c14952",
+  "ci_checkout_revision": "cbc9dd4327958194de2ec0f93046d0f3605177fe",
+  "workflow_run": 41679548116,
+  "artifact_id": 13254836111,
+  "artifact_sha256": "398301709b37b932e3b3aa0eea97f4f505862e9d2213c0781462dc32235dbec9",
+  "builds": {
+    "latency": {
+      "build_id": "ac61f33ad7d2a85707dd9cdd9a77e19dc4df07babaf74ebbb480d5d9b1ab0ddd",
+      "image_sha256": "e977f4a2b6aed57d7ac6a732c4c0623a325d420de944acb70d28d173c35644ec",
+      "source_input_count": 127,
+      "source_inventory_matches_pr_head": true,
+      "all_artifact_hashes_verified": true
+    },
+    "latency-rom-digest": {
+      "build_id": "01a673e341e87829750f1e46bf41d0f31aa2e126b115260e146e95952f8ef8aa",
+      "image_sha256": "411e6ed9e741c88c0e427750ead9a7b1951b61ff6c8e3675d675aefc84093290",
+      "source_input_count": 127,
+      "source_inventory_matches_pr_head": true,
+      "all_artifact_hashes_verified": true
+    }
+  },
+  "host_capture_sources_sha256": {
+    "capture.py": "af03ac6d2d3eb5185394f3c478a84a8959a9dcfb075a687c80eea444b320c95a",
+    "analyze.py": "6ba89a8413ed6fb569ab3b4a5697dc6423d3704fa71610eb1c5f5809850a3f27"
+  }
+}

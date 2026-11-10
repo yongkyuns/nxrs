@@ -1,0 +1,1331 @@
+{
+  "component": "nuttx",
+  "patches": [
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_ble.c": {
+          "after": "1ee744c8f6149e609da8a2cd6aa16e151f6dbd7e2a0a232696fa0acefac455f7",
+          "before": "fd810396d57e6230c25dd935c1335deaf47bc3f00952e954daf1581e2316ccee"
+        },
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "a2e86c337fb49c6f2f27c31647a41480f6c90d7e05709ed58d9d4c6d13bf189f",
+          "before": "4c629075bac564b6b07db492ac4a3882763c9a9b49e628476b70fb37a1c0a71a"
+        },
+        "wireless/bluetooth/bt_services.c": {
+          "after": "400dd89e91565e1704737465c4fe552ef5afae9b0080d12d78715ee2143f591f",
+          "before": "7fad72e6b27eeb12c33fa4e4b013d5e1366d82174539e36275e49163ccb9b2a2"
+        }
+      },
+      "name": "0001-Fix-ESP32S3-BLE-advertising.patch",
+      "sha256": "942c201f876281e49828fa03a4a3f6fd3c654257df736014ae2279b207c32dd9"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/common/espressif/Kconfig": {
+          "after": "5b8e22d9c3d5d6c0dafa6bf37fd0a6e9546845367d0553f786c50b2e23b29c4e",
+          "before": "a04ba82afae4d27918540ef541045a37bf9e268f8d241ab7bb6223506cd52bea"
+        },
+        "arch/xtensa/src/esp32s3/Make.defs": {
+          "after": "4192b4377341c13c07ce2d3eff418757b1d5687a8a3968c656cc69769bbdcfe7",
+          "before": "507bf59c4a41978ba952986a7063798924633213e34cd5ac8ae6ea8242c7c83a"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_ble.c": {
+          "after": "b2cc4a4ae131eb019a9925369124d5019a1207193a9a68fba85e33c4e4a49cfe",
+          "before": "1ee744c8f6149e609da8a2cd6aa16e151f6dbd7e2a0a232696fa0acefac455f7"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c": {
+          "after": "f8d7c40c95123a1728ab2d779ea1f5e2dd2c3abc6a3a0a0002013d83a6361839",
+          "before": "c8c8af4d49ef3ac72889e9798c159070b0a67053c8b64342b9e88a76fc8cf86b"
+        }
+      },
+      "name": "0002-Add-ESP32S3-NimBLE-HCI-configuration-option.patch",
+      "sha256": "42b8aee1e9b07268f56ae6f1b94db95c4be21a8f8d2af44542b2d7531d8b964f"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "046b0d7ffa386617f43010613763d6c832adb38c75d110d9e00f781ff2f2560d",
+          "before": "48d3f3eb6df5dbcbe6ad3a59a4ee7c819a47f74072124e097bad8637e1e6c4ab"
+        },
+        "arch/xtensa/src/esp32s3/Make.defs": {
+          "after": "99cfeac655fbf1cec858eda7178cd5a79086b7cccd28d81fd16fcb7844d200a7",
+          "before": "4192b4377341c13c07ce2d3eff418757b1d5687a8a3968c656cc69769bbdcfe7"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_camera.c": {
+          "after": "f6200b5a1da2d92de15fad81fbae6ce8ca75a43b467ff5fc76d871b3bc2081db",
+          "before": null
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_camera.h": {
+          "after": "9229e64cedfbe3a26bb5599b0ae1d90b848515e8579ccd62fb19c68a416cf50b",
+          "before": null
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c": {
+          "after": "1903d3d07e387d8e754ff1710c10e8fa73302083b8c54813c008d02c2eb35c18",
+          "before": "f8d7c40c95123a1728ab2d779ea1f5e2dd2c3abc6a3a0a0002013d83a6361839"
+        }
+      },
+      "name": "0003-Add-ESP32-S3-camera-driver-for-OV3660-sensor.patch",
+      "sha256": "025c1e0448e86b3b0271782729f74b95b0fbb0961b5a039773900d9c7e7cd09f"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/hal.mk": {
+          "after": "0621806fed68640c88dc36d30380fe3c033235310882108f09ce981a5024f686",
+          "before": "72173d839962718695bdd4313cb3ae02d062f90143b4bd71837bea36f4eb5d79"
+        }
+      },
+      "name": "0004-Enable-ESP32-S3-Wi-Fi-HAL-helpers-under-NuttX.patch",
+      "sha256": "44682e689e1cf5cee59653c4cf1acef53b41f75e2a1e988ea981cddb34e74344"
+    },
+    {
+      "files": {
+        "net/udp/udp_recvfrom.c": {
+          "after": "9ab5a8944a8d442e04a02cb38e6ebf5fc9605eb863c13830486baee13791b5fd",
+          "before": "9314b836cd0631ed0f657b95e33b9b99f2ae8bcb9b8b006db701b762c02701da"
+        }
+      },
+      "name": "0005-net-udp-return-zero-length-datagrams-from-readahead.patch",
+      "sha256": "54cd2d0902a823ba1de2c9c584309e8e5680a899f8a168d979bd9cc1895d459d"
+    },
+    {
+      "files": {
+        "include/nuttx/tls.h": {
+          "after": "706aa20c9f4718e06ec06574ff26b8e1c69fb66430af0a0ddf0f766c771b6f0b",
+          "before": "673dd9d615ade84e6c226228991dfe66ef0c356a3b8ef33e98f53c907fd061dd"
+        },
+        "libs/libc/pthread/pthread_keycreate.c": {
+          "after": "11b95af9a625ca1282eb3d100f2eafc178e31d0f6a05cfc3d719e6f46f2ca12c",
+          "before": "568d269565e2a607d5650cf35cf2634ba7c17d5aa21da40244a9668123070478"
+        },
+        "libs/libc/pthread/pthread_keydelete.c": {
+          "after": "4fcbbd8bb082cc15e5f26f7e993aaecccb3d57d3fa44b7c2dbb221459eaa367c",
+          "before": "a973944dfb6b5c1ccf7a88ded145944df66f461d182a468286a7f9c7ed6ecd78"
+        },
+        "libs/libc/tls/Kconfig": {
+          "after": "b9697860b3f0d1e31bb9ac71eb47f990a618e2bd6ae269401b4b5a1315437a06",
+          "before": "f4b7f10ee5191a0368863295be865b6d62e98ccdee878b510783fdd48e2eea2c"
+        },
+        "libs/libc/tls/tls_destruct.c": {
+          "after": "d53e6cca6a81932b072e9da36a4f840c7abc81c32dae5c000f6dd9d8cb46318c",
+          "before": "3c9c7c2dd037784dad2fc1196dfbedddbfb03b3ecb66d44cacc86d1a3725c3ab"
+        }
+      },
+      "name": "0006-flat-build-global-pthread-keys.patch",
+      "sha256": "776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_spiram.c": {
+          "after": "ff769b650c42b8cd530397dd71f790261b5b5d7c4d1293b5ab4bc39e33d9a13c",
+          "before": "c6df1eb67aba048f5866cc2ec6caca3cec7af6d1e9baf2fb7dda375d47496664"
+        }
+      },
+      "name": "0007-esp32s3-spiram-size-mismatch-return.patch",
+      "sha256": "db8bb04fa12065079c11e618c8327cdcfcc763974c63785006782210fa63a489"
+    },
+    {
+      "files": {
+        "boards/xtensa/esp32s3/esp32s3-devkit/Kconfig": {
+          "after": "781465cedf9bef4264fceaeb71bd41305f0400cbe4b04f9f5ae692f00547474b",
+          "before": "1762781228a2b4da6fd8dfdbb1df5d9f4e2afba23d1f32172d929cde99f793a9"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs": {
+          "after": "f104c356b2bdd2084c89ebc1b28a4668dfe5b384111e623834f16a26ae6fb90e",
+          "before": "2cc311e1bcdf2d3d208d70e823ba36d5cf7a805d1a7f8b0b3fe6f630bdffb45f"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c": {
+          "after": "d9b41439cc8cba4623e095c0f3d78ccb6bcead48a1b59eca806311e70839c505",
+          "before": "1903d3d07e387d8e754ff1710c10e8fa73302083b8c54813c008d02c2eb35c18"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c": {
+          "after": "67ec489ac0ff28ff211241c1548dd9375ea4a0d52eaebb402cf4a151bf9f62c9",
+          "before": null
+        }
+      },
+      "name": "0008-esp32s3-devkit-freenove-userled.patch",
+      "sha256": "20a1acee516e69e08fb5ad88964ae196ab98bf307ee819de6a39a40af634608a"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_driver.c": {
+          "after": "fd08a1d0f3ebac5d12eb410d03978e0a432590095c81063ce78db89c4fae5531",
+          "before": "170ff6e19c8f5cd0b08e090932b1b61dcd1ada46564be29f3ca23466d7cb71eb"
+        }
+      },
+      "name": "0009-bcmf-accept-disabled-encoding.patch",
+      "sha256": "33ba12b6fe668d4fd4ac2875fb9f5c13c1fefd05a9ff07ae90a0411d52de18e1"
+    },
+    {
+      "files": {
+        "boards/arm/rp23xx/common/src/CMakeLists.txt": {
+          "after": "89070202e02e375abb7ca7e848e0077d8f04a447d502932fd8024eb937506b39",
+          "before": "fb821afb82e8bd5c10f5b42200fdcc59bee29ffa7322f76d0dec10795b496dd0"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/Kconfig": {
+          "after": "70efa1e5309717c0992f8c3b219745d17842fd7a5d94783090725ed282f8940a",
+          "before": "07633542c74d2c61a4b0a811fea7ae1bacbd60b7e68709b5cd23ffd01d9ccbe2"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs": {
+          "after": "2afc531e8c4d9e0a2b0b5df4cf6937a1ea92b4406a1276e7cd13e55b31715fd9",
+          "before": "02e61d36cadb17a5deadbc977e31c2e65116508c5cada6a960e7c7846987f74e"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_boardinitialize.c": {
+          "after": "e6f11a55570ffb44f6a3bfcc20e39cb7c7b7436e3512da410a52fc41c03d2a16",
+          "before": "cd09841cccf337d6465bd648203ef2546c6197d5c954ab42bdfcb74af30eb2fa"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c": {
+          "after": "1cc39155af9ae077d6fe57aefe58991dc543c0194c14670afe2e01e865f72370",
+          "before": "72ecf627236556f5a4fb7375865ceefee72e9c04924c89071e2f6e5e3d94dfa5"
+        }
+      },
+      "name": "0011-pico2w-wifi-board.patch",
+      "sha256": "3b87b7f1804393e5ffc728f99d3310da5b31498f9238cd59898b1134a35233f1"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_cyw43439.c": {
+          "after": "3a6cec9d0b8d237ae637acad7fae964a6b9fa6ee48c876404ab8df159b758d52",
+          "before": "60f8266705f91aef7b966570e860f1dba4c5f72612a43a9fa19f882727c7fbee"
+        }
+      },
+      "name": "0012-rp23xx-cyw43439-backport-compatibility.patch",
+      "sha256": "fe2b2afe3cbfc46229b07afa3f07abbf6411a8188ec1f74ae99c38ff3e12f113"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c": {
+          "after": "8c78c01899fc8be0775fc3e86da7396a7a31a98c279e558055ab98548a3a0063",
+          "before": "34386738f0a205075586f6fdc4b3610883b4350b5aec99bb0bc4f73c61905261"
+        }
+      },
+      "name": "0013-bcmf-gspi-release-receive-frames.patch",
+      "sha256": "40d832c74e245438ec440adaa8d077a81f33b4fe8dee2b13b816ca4940f1b565"
+    },
+    {
+      "files": {
+        "boards/arm/rp23xx/common/src/CMakeLists.txt": {
+          "after": "d8f0a2d3f01f27bc4209452df5c2aeebf115bc8ca7b393e6f63b51390e2e9af5",
+          "before": "89070202e02e375abb7ca7e848e0077d8f04a447d502932fd8024eb937506b39"
+        },
+        "boards/arm/rp23xx/common/src/rp23xx_firmware.c": {
+          "after": "b15fb6c45e68e6d575b2abfc894a404a86fee7ce48d8fa08c9b219a5af1eda56",
+          "before": "be6860570a064a466d50617de0fa355ae9b9fdb0ff7d0c54aea432f259a0a747"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/Kconfig": {
+          "after": "29dd6f7ac6adbbe9a4f8681db84d2ee9f2d6653aca9fcbbad6d8e7a79f4f8401",
+          "before": "70efa1e5309717c0992f8c3b219745d17842fd7a5d94783090725ed282f8940a"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs": {
+          "after": "c114de687b5fdec2f1cc8ec8669f21eeebbd5e98d5b356d334b25174f03fa9b2",
+          "before": "2afc531e8c4d9e0a2b0b5df4cf6937a1ea92b4406a1276e7cd13e55b31715fd9"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c": {
+          "after": "3cc6ebf0df543be42a379bfffc8575b5fcb6ca99ad7e980e59c266ffff4014d5",
+          "before": "1cc39155af9ae077d6fe57aefe58991dc543c0194c14670afe2e01e865f72370"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/CMakeLists.txt": {
+          "after": "6d56c514971d2cd1c796d7d384cdc21f99bd8c5640be3fa1a7432db29ce6035a",
+          "before": "80bdea89647066e71d4826ba5d056a881cd67ee25ccfd9ccadccba74b9d9a647"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/Kconfig": {
+          "after": "fdb9ffdbd627f1d46fd3b4834dd571dc38c2642dee7d3fb4c0f65fb2332bacae",
+          "before": "0ece64cd1c891bd73f0be85f806843e731847b2bdef31f96c90f08540ea498dc"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/Make.defs": {
+          "after": "23ec22daf5bf98e21b600b2cd6e95c839dfbe7e2abbe13f9659d5b9b8be0f037",
+          "before": "24d0c6acb3dd6bbef7ca30b9a8628224362c7a316a8d1f6b3ebef6769a0a8fc6"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_core.c": {
+          "after": "1a2542dae7cf0456e6da6b3279faca4ea9bac22cc4832be12b3101a392f56a53",
+          "before": "83f032c617d3fde8d7efdd2bb4463a7a00f38471fc0e604831c69a65454c99c7"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c": {
+          "after": "2dd9282cd5a656646b2557df683afabea7d3897a8ffe333e17c7214f12573eb4",
+          "before": "bb0257af26f26abf0b1cdd223768a78139f429b2e51be1f23f9f84b5dd38ec1c"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h": {
+          "after": "6943f67d3eec31a6984b6365058cc78f7d41cbe8649a29b2296d424bfefd76d3",
+          "before": "2a42e0ea76008d8cc4b61f5b09291112f33b23f55e1145c071ab1680df3e2ad5"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c": {
+          "after": "6467063835e932fc0ab4f9e6c701b305ec854da3477d91faa7f403a75dee318e",
+          "before": null
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_netdev.c": {
+          "after": "78b77be942e1466e38f1e5d7a972bab6999914c854dec06f5e7adf0bb204418a",
+          "before": "ac3c13be955a47a969a6f73ee00273fa300cd3b513337105485d729747c4afa2"
+        },
+        "include/nuttx/wireless/ieee80211/bcmf_gspi.h": {
+          "after": "7343b58c86590b7f410fef66097f6b5ef4e47a887f0a648cb8b6e68226c55b83",
+          "before": "62676441913d6be1fc4750e43b492a334012d437b0ee2806a0b8e58889d721be"
+        }
+      },
+      "name": "0014-cyw43439-shared-bus-bluetooth.patch",
+      "sha256": "933a8f22efe19c9e7f494a53a174d5ac2113f30460e3b962c276f2145dd25853"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_cyw43439.c": {
+          "after": "4e57098462c4de9d85c43fa15a8afed103a697c736f2d8a9be21c8d94475d224",
+          "before": "3a6cec9d0b8d237ae637acad7fae964a6b9fa6ee48c876404ab8df159b758d52"
+        },
+        "arch/arm/src/rp23xx/rp23xx_cyw43439.h": {
+          "after": "dd42515caec674ab6785660c789cd663763f2638b11ab649d4d41b1a782e9b80",
+          "before": "6249a1953a2faf5a1ad4fd691b564da631925c04c198d169620dbd7bf8957a7a"
+        }
+      },
+      "name": "0015-rp23xx-cyw43439-irq-state.patch",
+      "sha256": "f47fd63a060eb260a4aaefe6aad4af2c9dc9c5c32bc7e4d32d3cfce1d0c82086"
+    },
+    {
+      "files": {
+        "boards/Kconfig": {
+          "after": "16538932690ab6719aa40d9a11933a2f15e9cc8e6be1092b663a33f43182ccea",
+          "before": "992b0d6500d74da8387358449ac91c016dd9415ef66908913feae25836ce315d"
+        },
+        "boards/arm/rp23xx/common/src/CMakeLists.txt": {
+          "after": "6164b0332363cc263ebe9b4ca084b4d038194e4d9532b33e10a223a04017d541",
+          "before": "d8f0a2d3f01f27bc4209452df5c2aeebf115bc8ca7b393e6f63b51390e2e9af5"
+        },
+        "boards/arm/rp23xx/common/src/Make.defs": {
+          "after": "9d49b0df15860b29c71a10cfa559513e4b654c45a17b86c3c0c1b87f3d0b5874",
+          "before": "d4ad75e5068e112c50d9a21e47bb00f28c0b171072a3d61dc567f2c70abd5efc"
+        },
+        "boards/arm/rp23xx/common/src/rp23xx_reset.c": {
+          "after": "2094c59a2b7e8a6563073f6f13beba09a3528a5d3ced1f00ab00fff83c2fb6a2",
+          "before": "a02b0d8a65b40b0f76e3392a90f9eda45ba7f8a82e12213e94f8cec1669bc85c"
+        },
+        "drivers/usbdev/Kconfig": {
+          "after": "3ee4dde846985af401dc9e7eadd65c74869dd18393a017e0a0899e010d56c2ee",
+          "before": "f176ca5d5cf8cddd73563df92f03e52d9c864f2c2749ebd6e0fb253496524c63"
+        },
+        "drivers/usbdev/cdcacm.c": {
+          "after": "5263bc37d519390bd20904240059d230f887fd01dc45f0892a7694ca34d40b6c",
+          "before": "2bfe87a9faa99dd47a4ed26f8379e455c891f8b5d0bbfb79225ae5f7be5563ca"
+        },
+        "include/nuttx/board.h": {
+          "after": "0cf31c58ba29029cf8ed58b6afafea9b74d63b532df7cc053eddafdbfc8342b7",
+          "before": "066ce2deba438aea1617f04660deb799f8f5a291034f7617c35e4a970cda98dc"
+        }
+      },
+      "name": "0016-cdcacm-1200bps-bootloader.patch",
+      "sha256": "1fc5a5ebad561a137c4d145ccd29bc86a3f36911a9b3465a5f0eb403680bda3a"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_buf.c": {
+          "after": "27fb566fff8afa611978161b5a43557df0cc781b5c169049ed6f273950682690",
+          "before": "5cf134e33921c5a160d6649ea6dfaa145c265d9ea1b1ac36964034df410c6eb9"
+        },
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "4b671c3050332fd093a8091236b11fff9f6d2a0899845f55e72093c3c9fff8c3",
+          "before": "a2e86c337fb49c6f2f27c31647a41480f6c90d7e05709ed58d9d4c6d13bf189f"
+        }
+      },
+      "name": "0017-bluetooth-hci-sync-lifetime.patch",
+      "sha256": "922931c93781437d7d3a3c4445a5e57ed9c1f1c3b82cba2d4ae841f15a3a0894"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_ble_adapter.c": {
+          "after": "2928f5b422995fbf13beebb182a9f1727f1c6e257b5f86ae956388985fe9e7bf",
+          "before": "fc82d4069e6bc4cc052ca6b705ccf64fb809e95de1fc83454f24ac08212a4ac5"
+        }
+      },
+      "name": "0018-esp32s3-ble-pair-kernel-allocators.patch",
+      "sha256": "1fd5185e08eaddf6c37f0911116039343aac4cbf36a1b7c7cee24403ce09c22b"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c": {
+          "after": "8a3d6ded617d1d86b760271e2e02d882d0996a12fa6e893a63112c5a1d31b149",
+          "before": "6467063835e932fc0ab4f9e6c701b305ec854da3477d91faa7f403a75dee318e"
+        },
+        "include/nuttx/net/bluetooth.h": {
+          "after": "01a2ffbaee2f8d18823b2b787aed0a26b80aebbaf951265faf3d60e3b2d7d8c4",
+          "before": "ac3e5389e8325fcb683e2f7000e3a674ac4f09e091b848311634c8b7abfbbcbe"
+        },
+        "include/nuttx/wireless/bluetooth/bt_buf.h": {
+          "after": "d91b1d79ee4625d24fc16bd67bb2c95e600a8789cddff3e26592c64963ac2f75",
+          "before": "7e1fa6baa6d2f069a79a434757e6d39aab3b3b09506edaffeae98c5684273fb7"
+        },
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "967a4b1f4ff7d35d41a9498ba5318c5b41b94f1af83c4d247e3100db1b9b0cdc",
+          "before": "4b671c3050332fd093a8091236b11fff9f6d2a0899845f55e72093c3c9fff8c3"
+        },
+        "wireless/bluetooth/bt_netdev.c": {
+          "after": "9a8f3281ab3fc4a74bdda5d3483ea0482c02ef3f881f2d3cab3caff70089a266",
+          "before": "2bdc274e85eb5ac22d9f08a81cc4bfd762a79f005298c483053b67d59d8db917"
+        }
+      },
+      "name": "0019-bluetooth-host-receive-capacity.patch",
+      "sha256": "9e3b0aa3bc33108cc36fb6c46437b2e269e24dadad2d34a935e37cfec0be4fd7"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_att.c": {
+          "after": "d8a9cc463a65d36c6d07cfe9e32540eeeb531baa12a16ed1cb1379e5f29d15b9",
+          "before": "52f1673bd9ddf4320d20f11d963920cf34f7e6aa38dbbdcbc88bb2b25cbd6d82"
+        },
+        "wireless/bluetooth/bt_att.h": {
+          "after": "3258501b8fc4174ae5166e9f536052a38f2c4f8aa4c2d046b262ed51f2cb6db2",
+          "before": "5eb257d9f0b4f00f2416455defe1d2705262a1bf3e83c354f3f22ab1113643b7"
+        },
+        "wireless/bluetooth/bt_gatt.c": {
+          "after": "0201fbfca2c8c3814edc77dc380081ca9102d19153d19f5eca142e72fcbcba78",
+          "before": "dbbf5db2a250e53a6d553b4b0453e90392bc21c485f7d5b0a6701c0bc5e4c465"
+        }
+      },
+      "name": "0020-bluetooth-att-mtu-negotiation.patch",
+      "sha256": "6566996f1f2d8b8e925237bfc692cf21f70a3df977bda9c3aee59f30b42350bb"
+    },
+    {
+      "files": {
+        "boards/arm/rp2040/common/src/rp2040_firmware.c": {
+          "after": "a2d2060132dbd2b0264f5d423a80429529f64e83b7638c40aca6ce70e38ad7a6",
+          "before": "190eb334d91942d33505848efe92601731daaf514e5f85c393e8359d954cb31d"
+        },
+        "boards/arm/rp23xx/common/src/rp23xx_firmware.c": {
+          "after": "ac43d764efffbb1f063924f56fcea21f09dbb81256dccbb81d04ef167ce4a0f6",
+          "before": "b15fb6c45e68e6d575b2abfc894a404a86fee7ce48d8fa08c9b219a5af1eda56"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/Kconfig": {
+          "after": "cd759a878d7ce80abd21e8965198212b4d26c43afbf73462a36f37324766df51",
+          "before": "29dd6f7ac6adbbe9a4f8681db84d2ee9f2d6653aca9fcbbad6d8e7a79f4f8401"
+        }
+      },
+      "name": "0021-rp2xxx-cyw43439-clm-alignment.patch",
+      "sha256": "c81f42f35877d573f86ff180e2df27761ef02a3fb7703726729d04fe8eb260bd"
+    },
+    {
+      "files": {
+        "net/tcp/tcp_netpoll.c": {
+          "after": "729a22e8b1f564302095042a0f4ef26858bf3bb8e0a4f7b62a2affcec50d2198",
+          "before": "fada6c0b65d3528fcd57db1348456871130b3936923c9a7d216d66e9f7968102"
+        }
+      },
+      "name": "0022-net-tcp-poll-connecting-sockets.patch",
+      "sha256": "8c8689f5ffe59af34f78dd43b7340d3994fa95ca58ffbc5feb925aca4845ba06"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "ccab0e920cb108252cb8e5b26c4e8c5e5fad09edd28c58f50c16a227c63b3910",
+          "before": "967a4b1f4ff7d35d41a9498ba5318c5b41b94f1af83c4d247e3100db1b9b0cdc"
+        },
+        "wireless/bluetooth/bt_ioctl.c": {
+          "after": "d909bc9ba49705ae01953d8564986f99b1aad17abc83223932a77304bb74fc86",
+          "before": "ca79dd7af72b2f619f6f96297f3851dffb632a9611e123946e262cd46f66d4ab"
+        }
+      },
+      "name": "0023-bluetooth-advertising-errors.patch",
+      "sha256": "434971feffa79adcb7e513a1d82a01e69388de7f7c813d923f965eb17fcf2f9e"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_conn.c": {
+          "after": "fc96db29f67ae4ac7af431eb14550cae9352e9fcb210ae2c9394781ce8ffbb9e",
+          "before": "d8cfb9a3f16bb07bf1ad48789a95661bb29a392a5834414cc4039dea746aa8af"
+        }
+      },
+      "name": "0026-bluetooth-acl-send-log-level.patch",
+      "sha256": "4207d5c2a007f61550e742b422fbe2b195c909ed010006c5d591fe89b7bd31ff"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_interface.h": {
+          "after": "576c03add6f28e3117318a8ad2e70881835bdaf638782b49d51c7850b891c5e3",
+          "before": "9a35397f722d49751a798fab397c01d22e9bc30a1e91e65b26b67c8a3d9a6172"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_sdpcm.c": {
+          "after": "077b6a1e0015bbb1c157f97b882b4a927904496e2aa35f2b584708836e9b93fc",
+          "before": "de7e30ab7272dc6fdb5a1cdb0bfbdf3e631c8e8baaefa5411c93c13312bf4f53"
+        }
+      },
+      "name": "0027-bcmf-gspi-frame-capacity.patch",
+      "sha256": "7817c9a610fe81e54fee401285988e269db3ddefd5cc57878bd8a12fe7532ef8"
+    },
+    {
+      "files": {
+        "boards/arm/rp23xx/common/src/rp23xx_firmware.c": {
+          "after": "2787a748c3aeedd3afefb4112d7d9eeb8fca268a51487a82eb73e7b10ad445cb",
+          "before": "ac43d764efffbb1f063924f56fcea21f09dbb81256dccbb81d04ef167ce4a0f6"
+        },
+        "boards/arm/rp23xx/raspberrypi-pico-2/include/board.h": {
+          "after": "122e6f144f31c275f19ab0b43d84f8bf24e66073fd9c03139db6ba6122c485a2",
+          "before": "9b4d555484d32dd2f256c68dab92db7084523c411b4707cd40a7ac82c74dddad"
+        }
+      },
+      "name": "0028-rp23xx-cyw43439-board-calibration.patch",
+      "sha256": "c5c2697576fafcd64190f7819e9bdbcb6a56453dd22c1e1aed62d0bddf5f6e12"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c": {
+          "after": "f57877110fa71f4df87d2a3ace42e4138c5ff16d34087158aa624802bd5a401e",
+          "before": "2dd9282cd5a656646b2557df683afabea7d3897a8ffe333e17c7214f12573eb4"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c": {
+          "after": "b93b698445c2e7e69bb4667519a484d889bbf872d160b30d100d6e2f5fb0c56b",
+          "before": "8c78c01899fc8be0775fc3e86da7396a7a31a98c279e558055ab98548a3a0063"
+        }
+      },
+      "name": "0029-bcmf-gspi-tx-backpressure.patch",
+      "sha256": "a95bc145519d24dafcb17b2c5bc7ed34c98c1cf0a0fd5c7169dd6f33c7eb4ae7"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "f653fea3029570ef2ab7bc5520d273c4dea09fa8e9afa884d2b854740b5ce36b",
+          "before": "ccab0e920cb108252cb8e5b26c4e8c5e5fad09edd28c58f50c16a227c63b3910"
+        }
+      },
+      "name": "0030-bt-sync-legacy-advertising-state.patch",
+      "sha256": "db24a1aa1188565c6455521a52b3bb174190f68b34668ec02590014284b310d9"
+    },
+    {
+      "files": {
+        "include/nuttx/wireless/bluetooth/bt_gatt.h": {
+          "after": "c9fdeff8330a03e47093c7db5ffe57ef99c6848a09181cadbae58361cd835ff1",
+          "before": "e18fc394a7dfcb1ad9facf528233af604325e4ad6ac40d11408c6a622af57280"
+        },
+        "wireless/bluetooth/bt_gatt.c": {
+          "after": "fdc1f0597adf418204602e949d2cf9f7ab04993691f00663637e924e0a2a73f8",
+          "before": "0201fbfca2c8c3814edc77dc380081ca9102d19153d19f5eca142e72fcbcba78"
+        }
+      },
+      "name": "0035-bluetooth-gatt-connection-callbacks.patch",
+      "sha256": "b4dcf5cdb6ee527c1b0b49d4938be1eab013fdd3591d829bea6da7d1cbf1a037"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c": {
+          "after": "e5f34a39dead5cba5fdc2759afe17e79a3a9e376a0bb6d1b9eb7b84002e25936",
+          "before": "b93b698445c2e7e69bb4667519a484d889bbf872d160b30d100d6e2f5fb0c56b"
+        }
+      },
+      "name": "0036-bcmf-gspi-validate-receive-frames.patch",
+      "sha256": "ff94261bfc3d7ce66ec52a9c7eb4c0a7bdd16581daeec1664bd88626f3eba750"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c": {
+          "after": "c6cac09c094fe5d77b834023437ba4fd06850f3f099b39e5da46de526cb8fcd0",
+          "before": "f57877110fa71f4df87d2a3ace42e4138c5ff16d34087158aa624802bd5a401e"
+        },
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h": {
+          "after": "4bce1972286edc523188802862d08a4da3192d0b42fc3ef3a17e706009194228",
+          "before": "6943f67d3eec31a6984b6365058cc78f7d41cbe8649a29b2296d424bfefd76d3"
+        }
+      },
+      "name": "0037-bcmf-gspi-stage-byte-transfers.patch",
+      "sha256": "a1eb7af329323e1fb53bd98210815440d51604da963a2e0bf25774cbd22c8720"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c": {
+          "after": "48c19cd22d621b10779dedcdec9324c7042e4f2a82803d7004b3cef224bd0a4c",
+          "before": "c6cac09c094fe5d77b834023437ba4fd06850f3f099b39e5da46de526cb8fcd0"
+        }
+      },
+      "name": "0038-bcmf-gspi-propagate-register-errors.patch",
+      "sha256": "5120ac29ddc32a2b4106236b235310c5ec4c02595b14f675de9701633de79514"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_conn.c": {
+          "after": "0dbe75a7965cb93701744323a2074626122b3e992717d7fd161dc3256a062c58",
+          "before": "fc96db29f67ae4ac7af431eb14550cae9352e9fcb210ae2c9394781ce8ffbb9e"
+        },
+        "wireless/bluetooth/bt_conn.h": {
+          "after": "b269c5df67ec18c22eac1065cee5f20b62f8b024354c192c68d5d161b7e51f52",
+          "before": "565a401d0575939522863ef33eed0defe761c2438af6c38c98ad3a1ad7d5a05e"
+        },
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "81a7fb9b9fdfe86b487df98ebf0dae829a4f22c81fe1e2754aceec5eb38bb1fc",
+          "before": "f653fea3029570ef2ab7bc5520d273c4dea09fa8e9afa884d2b854740b5ce36b"
+        }
+      },
+      "name": "0039-bluetooth-reclaim-connection-credits.patch",
+      "sha256": "4e26bf030e9bb1ba61165623b1b10106b0973be63b1b8c64e775815b36ff0370"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c": {
+          "after": "7149bccb809ca67ba7665ca6482b7db0b96144a9884b290eb833f023261a2e4b",
+          "before": "e5f34a39dead5cba5fdc2759afe17e79a3a9e376a0bb6d1b9eb7b84002e25936"
+        }
+      },
+      "name": "0040-bcmf-gspi-align-f2-transfers.patch",
+      "sha256": "572920d17aa712b1ba5cd66b64be5744fa31cf787dd6461d314f4abdfe258292"
+    },
+    {
+      "files": {
+        "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c": {
+          "after": "50bde87b503bc5ca236e737b8293987cd5676858784c687a62a4873b2d3c2bd6",
+          "before": "48c19cd22d621b10779dedcdec9324c7042e4f2a82803d7004b3cef224bd0a4c"
+        }
+      },
+      "name": "0041-bcmf-gspi-acknowledge-error-interrupts.patch",
+      "sha256": "8e17f2026e5826135d3c43b52cc5d688a254fc724df3d1725c8156a86a85b26a"
+    },
+    {
+      "files": {
+        "net/tcp/tcp_appsend.c": {
+          "after": "6529c9fd65526de54e8478d16461890d345d79b690a93264a9eb1fde62551b41",
+          "before": "2982a0b35ff79445cf329c94aab76c643bbf64d010a4384a1cc9a1e74501198f"
+        },
+        "net/tcp/tcp_send.c": {
+          "after": "d2b5765223e8c404c5128c36f33117de8d51d37e4c0e172a30fa27d5e4742135",
+          "before": "3c5e9a9d0d0509ba97f67b010404a52b26cd9073d308572d6430402e6b5178d9"
+        },
+        "net/tcp/tcp_timer.c": {
+          "after": "a5a360c1e8c60b61bee4a8391f0ae3466297159cac2ed7a658c4ce4a911e0715",
+          "before": "6b17ceb17d934a94c39a6d2b13e3006fde02cb2cf046862edf46fe9e6d8c0a30"
+        }
+      },
+      "name": "0042-tcp-preserve-retransmission-progress.patch",
+      "sha256": "6529adf25c7b675ff8bf154a9764c341cfe32d7dbbe257faac4584033ff8820a"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_cyw43439.c": {
+          "after": "a0c55c365069f5066d0d1f5e226eea717aea3848b83f3310d31451c0c2d44042",
+          "before": "4e57098462c4de9d85c43fa15a8afed103a697c736f2d8a9be21c8d94475d224"
+        }
+      },
+      "name": "0044-rp23xx-cyw43439-pio-rx-count.patch",
+      "sha256": "3c01f1556e2ee9cc82604f8b1cc6b68e7a1a863286a3a85bddf000b3b3327455"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_dmac.c": {
+          "after": "7caf2e795b33faee138434924c39a3090b3c1787a06ce68292a504814ba08460",
+          "before": "f9baffbe602712272ef108bbf21837ff537c91053559f06e944342488e2ef668"
+        }
+      },
+      "name": "0045-rp23xx-dma-preserve-pending-interrupts.patch",
+      "sha256": "4be664a5eca510815f50308a50cf7cfa4500bf20922c98a0a15306b39a592b66"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_cyw43439.c": {
+          "after": "fc0a4219501469398fbba491df9654befbcdd846817e7b7d1a56a0beb75c8120",
+          "before": "a0c55c365069f5066d0d1f5e226eea717aea3848b83f3310d31451c0c2d44042"
+        }
+      },
+      "name": "0047-rp23xx-cyw43439-dma-lifetime.patch",
+      "sha256": "03e6d47aa3dd32977d06a5b9ffd608958d03c866dd06b8f8915bde3c79bdca9b"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_cyw43439.c": {
+          "after": "dfa28025fa831f2b344e3b411f640ae931f171b283bf11f5d10a17b5123f1cf9",
+          "before": "fc0a4219501469398fbba491df9654befbcdd846817e7b7d1a56a0beb75c8120"
+        }
+      },
+      "name": "0048-rp23xx-cyw43439-pio-rx-fifo.patch",
+      "sha256": "23812bcbf31516c4efc33f56f18663148983539bafa9f9f25f2281b2ed8b60b7"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/rp23xx_pio.h": {
+          "after": "946fa27db677b10c6299d654a8d92718c13a230db12172c2026c259900090da3",
+          "before": "b17b636787ddb3f392e81ca9a07bd8533782b1c9cd58f49dc146ab42280fe4bb"
+        }
+      },
+      "name": "0049-rp23xx-pio-dreq-index.patch",
+      "sha256": "24f00065cc2fcf319555459a8455e03c9f060fd293d65a399a69dcef6e00a1bf"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_conn.h": {
+          "after": "53ca494e0ff60e5e9d2bcec77786c4e0f8e4d7194431d0127bcd050c0942361f",
+          "before": "b269c5df67ec18c22eac1065cee5f20b62f8b024354c192c68d5d161b7e51f52"
+        },
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "e1bb721c350c94945a3c5241b47117b9958a4f08192013a36388f7bdf5c1c004",
+          "before": "81a7fb9b9fdfe86b487df98ebf0dae829a4f22c81fe1e2754aceec5eb38bb1fc"
+        }
+      },
+      "name": "0051-bluetooth-retain-disconnect-reason.patch",
+      "sha256": "0167f5ef6205a10af34385581a3234eec02ae447f74db41b1f1e00920100cd74"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_ble_adapter.c": {
+          "after": "756b8e2d481b04a6eaa7da29b8525e96d765590126a357a928785a5d3caa2d46",
+          "before": "2928f5b422995fbf13beebb182a9f1727f1c6e257b5f86ae956388985fe9e7bf"
+        }
+      },
+      "name": "0052-esp32s3-ble-wrap-kernel-deallocator.patch",
+      "sha256": "8e34158209a7043a83dd116554ca93b8b1bb0f86c9506cfa6dea9177e89a2824"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_att.c": {
+          "after": "e5933fb9a85555299dfb3924dfb59301bde129e726fb5f6edc90add9d4ec8a08",
+          "before": "d8a9cc463a65d36c6d07cfe9e32540eeeb531baa12a16ed1cb1379e5f29d15b9"
+        }
+      },
+      "name": "0059-bluetooth-complete-pending-att-on-disconnect.patch",
+      "sha256": "76f12386cc3fff2398bbefcfead4220bc83f58dad743389af79e876facd20943"
+    },
+    {
+      "files": {
+        "include/nuttx/wireless/bluetooth/bt_gatt.h": {
+          "after": "8f57d6e4f61237dc936f49cb52d6003252bb63000e14b3c455411ef3a3d95ff8",
+          "before": "c9fdeff8330a03e47093c7db5ffe57ef99c6848a09181cadbae58361cd835ff1"
+        },
+        "wireless/bluetooth/bt_gatt.c": {
+          "after": "7b6e5646d9a69b704faf184e87acf55fc1d0bbf41c5ebd2f7e789fb1e7eb7183",
+          "before": "fdc1f0597adf418204602e949d2cf9f7ab04993691f00663637e924e0a2a73f8"
+        }
+      },
+      "name": "0060-bluetooth-service-discovery-bounds.patch",
+      "sha256": "7de0f9971a62386feb430def8e6701ce56c2335ec648b92f63dd1e176dc623df"
+    },
+    {
+      "files": {
+        "include/nuttx/wireless/bluetooth/bt_gatt.h": {
+          "after": "2a22fa86759049b6532fa41edb94f25c6c17db93ea61592f6e6dbba426feed2f",
+          "before": "8f57d6e4f61237dc936f49cb52d6003252bb63000e14b3c455411ef3a3d95ff8"
+        },
+        "wireless/bluetooth/bt_att.c": {
+          "after": "92fce451b4df891480a7e096b0ddf861a1234b6400b0cbc0b97c757997840a63",
+          "before": "e5933fb9a85555299dfb3924dfb59301bde129e726fb5f6edc90add9d4ec8a08"
+        },
+        "wireless/bluetooth/bt_att.h": {
+          "after": "84cb3f6fba14e49e871bc7ac654dc0dc3bbfc9893db855935883e30297fdd796",
+          "before": "3258501b8fc4174ae5166e9f536052a38f2c4f8aa4c2d046b262ed51f2cb6db2"
+        },
+        "wireless/bluetooth/bt_gatt.c": {
+          "after": "4adb245a06c01212a6298517a7258abceb7aeb8dc68b89bc392940ee7e921e00",
+          "before": "7b6e5646d9a69b704faf184e87acf55fc1d0bbf41c5ebd2f7e789fb1e7eb7183"
+        }
+      },
+      "name": "0061-bluetooth-negotiated-gatt-mtu.patch",
+      "sha256": "c2481a035b7625dd5d6f6b77d354ee62b7061caa011c0a41d4648cfe2c0e8a3b"
+    },
+    {
+      "files": {
+        "include/nuttx/wireless/bluetooth/bt_gatt.h": {
+          "after": "328653f0cef2f26b7488d85e54123046df0c3d0d5cc0b5adf1121857c2c8a8c8",
+          "before": "2a22fa86759049b6532fa41edb94f25c6c17db93ea61592f6e6dbba426feed2f"
+        },
+        "wireless/bluetooth/bt_gatt.c": {
+          "after": "7753a59d32d1715f72672c447ade823170e568e5586c78d1b0d60dc52bf14e5f",
+          "before": "4adb245a06c01212a6298517a7258abceb7aeb8dc68b89bc392940ee7e921e00"
+        }
+      },
+      "name": "0062-bluetooth-discovery-completion-status.patch",
+      "sha256": "1958f571b982b67503458726b30ee987a3e310b5b309570cdbdd21085e79adee"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_uuid.c": {
+          "after": "f3cc6c967f9abbedcc01c666052137ab8cd8ef56d974b967838b407a41de925d",
+          "before": "2f8ce8e57d0d6d44aa27c2df0839b45d91216317bd883474b9a916bd348e5e32"
+        }
+      },
+      "name": "0063-bluetooth-expand-short-uuid-correctly.patch",
+      "sha256": "0722ec39b9e7568cb9a91d9bfb51b8c9e03f8708ce39ea30ced2fc7366a8a86e"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/Kconfig": {
+          "after": "99503c2c95fdea0faef7c24c2a5d3c651ee274413edeb3c6cdc8a37e208e4f62",
+          "before": "363700a3a10feceae1719c362ecefc5d29c51913812f25c7138bda8b3152afd6"
+        },
+        "boards/arm/rp23xx/common/src/rp23xx_reset.c": {
+          "after": "1eadffca377db7ef470ea148d7d818c6b60319dec14aad8b37b9631999dafccc",
+          "before": "2094c59a2b7e8a6563073f6f13beba09a3528a5d3ced1f00ab00fff83c2fb6a2"
+        }
+      },
+      "name": "0064-rp23xx-picoboot-only-usb-recovery.patch",
+      "sha256": "1d3f10b911ecfb05167611c566eec1a7d793bd2776241b1a8a75c4583928c727"
+    },
+    {
+      "files": {
+        "wireless/bluetooth/bt_hcicore.c": {
+          "after": "9043103569ce027041848522b8a08be470555f153119ddc57c6744c8eb307f15",
+          "before": "e1bb721c350c94945a3c5241b47117b9958a4f08192013a36388f7bdf5c1c004"
+        },
+        "wireless/bluetooth/bt_ioctl.c": {
+          "after": "dcd08ca50899f6edfb5e04d180db5cd2d9263a8073d5a9be119bebce1000c192",
+          "before": "d909bc9ba49705ae01953d8564986f99b1aad17abc83223932a77304bb74fc86"
+        }
+      },
+      "name": "0065-bluetooth-scan-failure-recovery.patch",
+      "sha256": "4535e21b4659250e4920c1c2d506aaa7619297bb7c0ffac95575052443a2d011"
+    },
+    {
+      "files": {
+        "drivers/video/CMakeLists.txt": {
+          "after": "49c89e7bd69620b8cc1684f526955b6eee8a508b87ad111a078c55339ee78554",
+          "before": "ed8aa5e44c5c564cc2cfb851d6544f3e81c7dd7cf8df30989aaa946025c36e12"
+        },
+        "drivers/video/Kconfig": {
+          "after": "9ef1bd08090035fed192e6bbd97381a414de884f9f82c9eba9e591540e8cad3c",
+          "before": "cec16673a89e225f84f57f02f42bdf4043a5e5419f65a71c3264bc50528e9cf6"
+        },
+        "drivers/video/Make.defs": {
+          "after": "d607647bd2356524ecefcbe7b32c713012cf586b290186e1e17662fc2efa5d97",
+          "before": "ad74848144dfe698f631ad6c84a633afc508688097b5e849b395d478d2cf0d17"
+        },
+        "drivers/video/ov3660.c": {
+          "after": "03b54886c206aefc2b35c69537da24c1cc81437af0e55ca9398dbf222e0924a3",
+          "before": null
+        },
+        "include/nuttx/video/ov3660.h": {
+          "after": "2dda3cf7857b6099fab810f5cbed4abec2f2fee37e56308f7a248afe99d31034",
+          "before": null
+        }
+      },
+      "name": "0067-ov3660-image-sensor.patch",
+      "sha256": "cc50b6fadb3c1dee712dc6f8d3285dbf95cf9ba736ab186cd08a3fe210bbb610"
+    },
+    {
+      "files": {
+        "boards/xtensa/esp32s3/esp32s3-devkit/Kconfig": {
+          "after": "e36f10cc76e3dd724bcc2ddecd17494c385230ec71c72dd39c839825a1bdc37d",
+          "before": "781465cedf9bef4264fceaeb71bd41305f0400cbe4b04f9f5ae692f00547474b"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs": {
+          "after": "7ea76d5eb30023ae12120d42af4744539f98955a94e241a7e9034ba5790c0761",
+          "before": "f104c356b2bdd2084c89ebc1b28a4668dfe5b384111e623834f16a26ae6fb90e"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3-devkit.h": {
+          "after": "bc11e33e7e4ca9c80b00b4ea74bcec788371311356adc5d995210d751592b264",
+          "before": "afb29d316892d3ecb9531d57dda17427a4c75dc34d7d43d04d34fa70a7bceafc"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c": {
+          "after": "91f95248c82213b8bdec1fc83bf638e63236a659321f12e88356c788f2eb2d55",
+          "before": "d9b41439cc8cba4623e095c0f3d78ccb6bcead48a1b59eca806311e70839c505"
+        },
+        "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_camera.c": {
+          "after": "d8dd7e24a339dcbe605b236b794a0d4070516effb43721eb0fbdd1208fb6855b",
+          "before": null
+        }
+      },
+      "name": "0068-esp32s3-freenove-video-capture.patch",
+      "sha256": "be4636884236c908a11f6ab582485bff3ce9392a9f4f717aa800eb829478b88c"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "d673227085f2a4d533a89c9c2cab26f35fa72afb47ef1314b8eeda5ebfeb7b29",
+          "before": "046b0d7ffa386617f43010613763d6c832adb38c75d110d9e00f781ff2f2560d"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "300842458d00ad44e1ffba339b593fcbbdaa07198d070073701de5c36db7728c",
+          "before": "b8544c3e487c6a40edb428268f417d81ba9d0ed00635c58dba5736beda290b94"
+        }
+      },
+      "name": "0069-esp32s3-camera-clock-and-dma-length.patch",
+      "sha256": "79bd3b6b3084ffb94d5ef282a26ec000a91dae6d8abdefb47fbf87e785b4c563"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "c9b85f25f9025c0d4b2c94eea3a2c23696c08e97cc9f5dfb9b7613ae87f5c4ec",
+          "before": "300842458d00ad44e1ffba339b593fcbbdaa07198d070073701de5c36db7728c"
+        }
+      },
+      "name": "0070-esp32s3-camera-dma-cache-ownership.patch",
+      "sha256": "e536c40e34d7474861e9c163dcb47431a5420b0847937e1b8460da71e32cee9b"
+    },
+    {
+      "files": {
+        "drivers/video/v4l2_cap.c": {
+          "after": "c6efb7a2210b78c9411e10715b83ed4f2603da6524a44ec40e5ab6550ecf1d7d",
+          "before": "3fb20c80e4214540edb31ace576006fc1d1174b23b7ffeab06164406e3c7e79b"
+        }
+      },
+      "name": "0071-video-capture-lifecycle-errors.patch",
+      "sha256": "d277752306b6babb0be662480d3e8efa46cc15c2a60a3deee3161a08267e3825"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/common/espressif/esp_irq.c": {
+          "after": "2c9a8e73f5147cc45e25b7665b50b9fbe9655974909cfe144a52aeba64bbc1e9",
+          "before": "b2c327df1245ef89111ba06664c160d74727821b271a2d6fba0360c4eefb7e81"
+        }
+      },
+      "name": "0072-xtensa-espressif-irq-adapter-lifetime.patch",
+      "sha256": "437f085fcfa50535bca42d1750d570b7bdb4889e224394e523357781470109d7"
+    },
+    {
+      "files": {
+        "drivers/video/v4l2_cap.c": {
+          "after": "af5bc8a16b38c6b603a5bcd62a32ee89ff4440a6b6ffc642529da66776bf3446",
+          "before": "c6efb7a2210b78c9411e10715b83ed4f2603da6524a44ec40e5ab6550ecf1d7d"
+        }
+      },
+      "name": "0073-video-propagate-capture-start-errors.patch",
+      "sha256": "eed8d1aba184a2ec543b617684456a4a48723f0afae9041ef9f563df16fb6867"
+    },
+    {
+      "files": {
+        "drivers/video/ov3660.c": {
+          "after": "7e51f23d7d3fe303890ee29290b1d6aac2629c028669357efd688cbce0c9fa24",
+          "before": "03b54886c206aefc2b35c69537da24c1cc81437af0e55ca9398dbf222e0924a3"
+        }
+      },
+      "name": "0074-ov3660-jpeg-capture.patch",
+      "sha256": "fa1af889a5fd0566ad4da3b761b13761c3a63c8429feabd95cac3b6650aaa019"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "d75241618a02379df6645d022cb0c220d8dd5f3a1d8aac6923cbd4d3b0eb8b53",
+          "before": "c9b85f25f9025c0d4b2c94eea3a2c23696c08e97cc9f5dfb9b7613ae87f5c4ec"
+        }
+      },
+      "name": "0075-esp32s3-camera-jpeg-frame-boundaries.patch",
+      "sha256": "e13b98f6e93083f0955a4ed22b2769f5ff9cd2c31113c2ccbc7774e2aa69d022"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_start.c": {
+          "after": "95861c81eac6abe55220c8f2ed7cc4448adda6dfdf4df978131db135496faf30",
+          "before": "c014516159b04a641e43bc813b994c4c718f89af9881a0f66bb4590ff6eb6985"
+        }
+      },
+      "name": "0076-esp32s3-initialize-performance-counter-frequency.patch",
+      "sha256": "c19766c68c91484e656f4dd8cf5fd5a20ffb217ac475b68de0b285f45565ce5d"
+    },
+    {
+      "files": {
+        "net/devif/devif_poll.c": {
+          "after": "ef7d20e74d26feba2e76c02d4bacd2893113845f340b2d096ee36a5abd9d24d7",
+          "before": "792b6216d57d3f6d35cd0b10bcc4b91747cd2aa00d838162e99dd17184795997"
+        }
+      },
+      "name": "0077-net-skip-packets-consumed-by-link-layer.patch",
+      "sha256": "2c69a90ffee168bb9dbb804d7f2086359be7c1fecd50fa38783cf7d9f86eb28e"
+    },
+    {
+      "files": {
+        "net/tcp/tcp_input.c": {
+          "after": "d1cb846016ca5c9a52afd820b7ccccbe3e2f7d7b301a00662bf509b2c3fadc33",
+          "before": "b937801a0d8c16503f972e3641adfa0e642555ab9fe68f64fc2a00170fc117b4"
+        }
+      },
+      "name": "0078-tcp-validate-sequence-before-ack-progress.patch",
+      "sha256": "d6c98c2e5de18d4c24fa02202ba9fa7a396e6b98f6fbbf94326722c9c32220b9"
+    },
+    {
+      "files": {
+        "drivers/video/v4l2_cap.c": {
+          "after": "5c5db71eb3e95b0c8173f49128da34d92d24079405d46ad2c1a19b569b721431",
+          "before": "af5bc8a16b38c6b603a5bcd62a32ee89ff4440a6b6ffc642529da66776bf3446"
+        },
+        "drivers/video/video_framebuff.c": {
+          "after": "40d0382f504ebb564fda2907c4542b12105b865d2c2a0f3daa365f8fc6554052",
+          "before": "7d22bcd9b6b1490e5e4df5f567f7e017cf84600e22fcb1a2fa072b9ed609f2b4"
+        },
+        "drivers/video/video_framebuff.h": {
+          "after": "a53bdbfeb0d0d2afe03a2c40fcd15043ae82a4d66fb9de0e7a21520d108a85e4",
+          "before": "3d629a75d06cf7f15258289c41f028ed86aac6de26a9553cb4b5d084826c69fd"
+        }
+      },
+      "name": "0079-video-rollback-failed-qbuf.patch",
+      "sha256": "15f8f23ee3c5104c3993684b9c2f829ce8152fc29c85598868e5bcee729d1d84"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "fee9280d15b2c06864a4eaea3ac61e9d6892fa93d7306666354ec349824785f5",
+          "before": "d75241618a02379df6645d022cb0c220d8dd5f3a1d8aac6923cbd4d3b0eb8b53"
+        }
+      },
+      "name": "0080-esp32s3-camera-continuous-frame-boundaries.patch",
+      "sha256": "d6a2d4e2ac1689039ede80c9484dd1f031999b98b07ba3543b5b5900993dd7e7"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "1a8a125f5a4e0b61b64405c06a8a62f1ad26135f17ecb77cc3bc8afb9edfd47b",
+          "before": "d673227085f2a4d533a89c9c2cab26f35fa72afb47ef1314b8eeda5ebfeb7b29"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "c6f96b867bc337a82efbf445e3e85491587f8d548da0273585268c0247d202a4",
+          "before": "fee9280d15b2c06864a4eaea3ac61e9d6892fa93d7306666354ec349824785f5"
+        },
+        "drivers/video/ov3660.c": {
+          "after": "847460c5dce1c60c7fbe9df71b316d1b862d153edf35a4a049151a89b0997b47",
+          "before": "7e51f23d7d3fe303890ee29290b1d6aac2629c028669357efd688cbce0c9fa24"
+        }
+      },
+      "name": "0081-esp32s3-camera-vga-jpeg-capacity.patch",
+      "sha256": "b4af6372f7b9602ee8b65cc33c71e101de1db44cad91f8e4cefc51bb22db1c93"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "835f62c9efcbb6d6650527770242c486453b6e05eee00b12e28523ddae926bc1",
+          "before": "c6f96b867bc337a82efbf445e3e85491587f8d548da0273585268c0247d202a4"
+        }
+      },
+      "name": "0082-esp32s3-camera-bounded-dma-cache-work.patch",
+      "sha256": "255632e86160044d9d1b0f9dc3436d9079786e015bb7dcc7efed0905ee859554"
+    },
+    {
+      "files": {
+        "drivers/video/ov3660.c": {
+          "after": "2b56139a0b2c8ae1ab5a77830fb61b0cf3ac48a3b93c9206a5355b3642928cb0",
+          "before": "847460c5dce1c60c7fbe9df71b316d1b862d153edf35a4a049151a89b0997b47"
+        }
+      },
+      "name": "0083-ov3660-jpeg-quality-control.patch",
+      "sha256": "39e53f6fd9a4156c93c0bb397a59c1317ec3676192eafd90675c44d1fccbecf1"
+    },
+    {
+      "files": {
+        "drivers/video/v4l2_cap.c": {
+          "after": "4f5ff950159fc8e7376c6b02eba098eab85b6a568982017729c0cd31d1d698bb",
+          "before": "5c5db71eb3e95b0c8173f49128da34d92d24079405d46ad2c1a19b569b721431"
+        }
+      },
+      "name": "0084-video-initialize-scalar-control-wrappers.patch",
+      "sha256": "c614d7adbc06da4e97b8dd2efd26a649132bd6914b434972cb91145a5c800ef1"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "7c58bb80f812659e29da854b77c77729a683d95a0b64e01949b92a4996bd879c",
+          "before": "835f62c9efcbb6d6650527770242c486453b6e05eee00b12e28523ddae926bc1"
+        }
+      },
+      "name": "0085-esp32s3-camera-reset-synchronization.patch",
+      "sha256": "d8aeb65174e33820cb84cccff2cdb56a113f36b50711efa9946557c5ec4c2e97"
+    },
+    {
+      "files": {
+        "net/tcp/tcp_input.c": {
+          "after": "17dff81010c756a02b98fe01687170e00d9dc4d93d8527b65d93d31576c0f24b",
+          "before": "d1cb846016ca5c9a52afd820b7ccccbe3e2f7d7b301a00662bf509b2c3fadc33"
+        }
+      },
+      "name": "0086-tcp-accept-progress-after-partial-retransmission.patch",
+      "sha256": "22b08a1ff09afdeab91605ef8d41f05648bca8f53dea21fa197de4c8f9b9d690"
+    },
+    {
+      "files": {
+        "Documentation/reference/os/newreno.rst": {
+          "after": "94715616bf3c2418ef384f398438d26edd27bdfe0bb4445624abb2ffa56483f4",
+          "before": "4d435d590731e3d5e3e35175a9be084ab0a318edbd12190a148f7d58aa21f6d2"
+        },
+        "net/tcp/tcp.h": {
+          "after": "70346d4767ae779f55a938720d40842523fff569a58fb672c2557e905de42350",
+          "before": "e15c3f63c58b74f13f1f6afd6108b88cf4abe69351df4c8d4f9da6781b583494"
+        },
+        "net/tcp/tcp_cc.c": {
+          "after": "0b20926e44ff117d704562a46b3917eef3ac1b47fda332908d4bec0e8886bd33",
+          "before": "54c4c1fcb163edf502e3b3c3e03345490346b1796cc881cfff57432ed1f99b53"
+        },
+        "net/tcp/tcp_timer.c": {
+          "after": "b8d3c008697c9b4ee9a70d9a7b6d8c9a98dcb3dbd02b4be6dfba363498738209",
+          "before": "a5a360c1e8c60b61bee4a8391f0ae3466297159cac2ed7a658c4ce4a911e0715"
+        }
+      },
+      "name": "0087-tcp-allow-congestion-window-recovery.patch",
+      "sha256": "d603f7aca5e8c0ec59f777d63b72f3e87ce5432495ad99d9988baf66d1686ec4"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "1210f7f02e45fa80b8f55bf88a4a57822b91a0ec36b2255e016845b49c455002",
+          "before": "1a8a125f5a4e0b61b64405c06a8a62f1ad26135f17ecb77cc3bc8afb9edfd47b"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "c2b6749bb3995f3beb3d0b91cb3cf4d55c683a7602b848ddf8d7c8923be2c14a",
+          "before": "7c58bb80f812659e29da854b77c77729a683d95a0b64e01949b92a4996bd879c"
+        }
+      },
+      "name": "0088-esp32s3-camera-prefer-fixed-pll-clock.patch",
+      "sha256": "49cd6293d4da1cda819d772e0f3a7b7d3933c2276b9e6ddfdac1b643591c7503"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "cdde0f21b45bceeb4b428a78ea5ea9ebb5d4c40e3067c5c0a4285f6d5cd576dd",
+          "before": "1210f7f02e45fa80b8f55bf88a4a57822b91a0ec36b2255e016845b49c455002"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "30ad188988842a7800a139d4b7d79a58bd9f3a10e63d5196a49b76a8c4ce5d82",
+          "before": "c2b6749bb3995f3beb3d0b91cb3cf4d55c683a7602b848ddf8d7c8923be2c14a"
+        }
+      },
+      "name": "0089-esp32s3-camera-configurable-clock-drive.patch",
+      "sha256": "113caa7514f7510fa30590c657e2609d7e8a3f3a657936f752c7539c16136ea6"
+    },
+    {
+      "files": {
+        "arch/arm/src/rp23xx/Kconfig": {
+          "after": "3464d790de03f2168fa9086f11d1955fcf153951e7ba33f2154efa23fdb915ec",
+          "before": "99503c2c95fdea0faef7c24c2a5d3c651ee274413edeb3c6cdc8a37e208e4f62"
+        },
+        "arch/arm/src/rp23xx/rp23xx_rng.c": {
+          "after": "e37d859f8993da2545c4072e72914529c79c3d4eaba318b06473457913c50b66",
+          "before": "7abab16b0ecee39c3d0642c8320788cb25262ae13e664e4de5fa27737a6b0117"
+        }
+      },
+      "name": "0090-rp23xx-rng-bounded-failure.patch",
+      "sha256": "2f0ccf4330de2a4ccd9036ab76ef928008dbc6f4dba4d2a3a1997f439a3a875c"
+    },
+    {
+      "files": {
+        "libs/libc/stdlib/lib_arc4random.c": {
+          "after": "45a2c9be877002997b80b11055ca3aff7b033426f3e64786a8376ce5e8ee3131",
+          "before": "117117ae5b99c6a949a9e02f93fd20d2e5490e5f575db1aee27c2c49acc64ced"
+        }
+      },
+      "name": "0091-arc4random-fail-closed.patch",
+      "sha256": "b96b03b8aa8f30064dc58c3477fc276b3f79903650e6e053f611778efbc41017"
+    },
+    {
+      "files": {
+        "arch/sim/Kconfig": {
+          "after": "01ecb190d78a11cea98f6ecb2d6d7ae87e3aad87aa7e101b8e487f9a9c2723fd",
+          "before": "aeebf0c5991bf3073d23d39f2831ecd0d0b9d863025ccdb6cba72918bb897bbc"
+        },
+        "arch/sim/src/Makefile": {
+          "after": "751ab2513ce5a380129ef35b402021030f71cd5579f97e7fb7510027762139fb",
+          "before": "0481bb8e521867e200bf8efa1ccd5b8e2201e7b8576514effe69d0c36747fd84"
+        },
+        "arch/sim/src/nuttx-names.in": {
+          "after": "7b1710c2a7041e42e9837429de12504644dee6f5efdde4d7fdc07d253d9d972d",
+          "before": "2a47f7b93baaab3657a9bd6eac7fbeb39a0ce53b32a21ebe4f15fc3b1651faa5"
+        },
+        "arch/sim/src/sim/CMakeLists.txt": {
+          "after": "34813f66a4f147bca609052e7a271a456e318e0514e4bb40b6505f21eaa1af7f",
+          "before": "48790d2e2ab2a2c01aa4832dc655bba8a24b936752edcd032122b6d4444b1665"
+        },
+        "arch/sim/src/sim/posix/sim_hostrandom.c": {
+          "after": "718095c57f38a3f2d4897736fbe5dfe60a6a8d7f97b315beac151c2c6d3e9ed3",
+          "before": null
+        },
+        "arch/sim/src/sim/sim_internal.h": {
+          "after": "d8c5adda190babe4d335dbbd346f9011936e902b1f393e487f99a432e477a5ec",
+          "before": "f78010f52dc636bf9a1b9de2dc93475f3c9a7b7687c5f2a563e91b9f2139cd22"
+        },
+        "arch/sim/src/sim/sim_random.c": {
+          "after": "00e8e423ff4fb8cb0ef3ad4e85abab80e1213533a491c0f7b8dfae7eb1269c7b",
+          "before": null
+        }
+      },
+      "name": "0092-sim-host-random.patch",
+      "sha256": "3142e2f1a08e7cdf3c92b0c47bf0c11d90ddbb5f26ea6a06a5c7eeb8623cf497"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_rng.c": {
+          "after": "88f7c83f2dc897795bbd0ecfe1becbd521d450290da924bccda75a32e72d8483",
+          "before": "1a1fc4444a43ff5a51e51ceac77830be540cbdc7e34b945d74c982081d1b190a"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_wifi_adapter.c": {
+          "after": "1032998151321178f988b5b99f268e96e2ac605e79db0690ebd357acd9acddd2",
+          "before": "aed5f7d2b7901b673067f84fd65060a6a03619fe66df793ff8deecc009af4dc3"
+        }
+      },
+      "name": "0093-esp32s3-guard-rf-entropy.patch",
+      "sha256": "fd4ae04de5c2988a9c436b8f6928e39e92d341e7770c2bf90214ea8fa1040339"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_wdt.c": {
+          "after": "a46970f3749c361a884bada31b2e71fca11a800d1158987f39ad095764ce5f40",
+          "before": "01413744a8e9d534a02bd8d7780e8b8dad5cb0282dad5308a8fbe623f4e479a4"
+        }
+      },
+      "name": "0094-esp32s3-boot-watchdog-handoff.patch",
+      "sha256": "049915456ceef426b400e32a9f283524966f2ec6b33ae335e17dc291d0d6f318"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "f0eda9b171b1ea724ba4de66868de6aa5e05d4808f3f245f7242c36246923ab3",
+          "before": "cdde0f21b45bceeb4b428a78ea5ea9ebb5d4c40e3067c5c0a4285f6d5cd576dd"
+        }
+      },
+      "name": "0095-esp32s3-encrypted-ota-partition-config.patch",
+      "sha256": "35943a7a0966ab45605acda6ad6fdbc1cb4e2f83d7c64666bf7a618035dde35e"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c": {
+          "after": "390d66c8308485bb7678512231fd563beadfd1e835cc8d263f0e1be27f5d3a6d",
+          "before": "6b7eba9f8b62dfaa63dd2c7d3ffe31c2a12f1b8b406fd764abbe05546333daeb"
+        }
+      },
+      "name": "0096-esp32s3-propagate-encrypted-write-errors.patch",
+      "sha256": "21d5c2b8fd7f2096558c70d3f3f461229685d0951fb1fb31ddfdb8ef4c7e7d3c"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c": {
+          "after": "d5efad34d4f6b54279c6e76b75b581a40eac7427a06fc233b25229cc623f57b5",
+          "before": "390d66c8308485bb7678512231fd563beadfd1e835cc8d263f0e1be27f5d3a6d"
+        }
+      },
+      "name": "0097-esp32s3-encrypted-flash-contract.patch",
+      "sha256": "46b0af10608efea8e016ed03f0958cf4ca8787cc2f426fc5b7cae5cd0c113593"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/common/espressif/Kconfig": {
+          "after": "9a02a2705637d98502a54fcd50c880c786b266f4cbe5cd60c34fff2ba12ed7b2",
+          "before": "5b8e22d9c3d5d6c0dafa6bf37fd0a6e9546845367d0553f786c50b2e23b29c4e"
+        },
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "226d8d3b2401384b09eaf3fe68d029d849865606ef96b1b339413e2b865796b8",
+          "before": "f0eda9b171b1ea724ba4de66868de6aa5e05d4808f3f245f7242c36246923ab3"
+        },
+        "arch/xtensa/src/esp32s3/Make.defs": {
+          "after": "f5e56656a26a63bd38a3190f880ffe7ebce9d6e487213e7ada00a1ed85ddb46b",
+          "before": "99cfeac655fbf1cec858eda7178cd5a79086b7cccd28d81fd16fcb7844d200a7"
+        },
+        "boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c": {
+          "after": "c4dd53482a7ce3309af9d9f7310c15653a82b1b26eff956463695570b18db922",
+          "before": "9343a73428756562ce18783b9e04552f068dadaa8d0829ba8e8452ef38d586ab"
+        }
+      },
+      "name": "0098-esp32s3-select-encrypted-flash-driver.patch",
+      "sha256": "0a2562acfe8858f5736fedc91b77737d8fa0d6e1e4d586e32cfe034abe52840b"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_spiflash_mtd.c": {
+          "after": "12649fa71f7ebf2d3fc881e2fa394380c453bcf043c3bfaa0a397aaa2820969a",
+          "before": "d5efad34d4f6b54279c6e76b75b581a40eac7427a06fc233b25229cc623f57b5"
+        }
+      },
+      "name": "0099-esp32s3-encrypted-write-alignment.patch",
+      "sha256": "b2cf1088f8a0a96ada0899ce7601a7a4b5369bd3e57ab15446e3b217c90b12ac"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/Kconfig": {
+          "after": "2b4cc53dba1acdffce18610e2befc5553226ea91b36adc6896793577c03c5bb0",
+          "before": "226d8d3b2401384b09eaf3fe68d029d849865606ef96b1b339413e2b865796b8"
+        },
+        "arch/xtensa/src/esp32s3/esp32s3_wdt.c": {
+          "after": "5a0897b7e894f6d969a5f941b57179924daf0cd90c3627b4bb62539f2d6244d5",
+          "before": "a46970f3749c361a884bada31b2e71fca11a800d1158987f39ad095764ce5f40"
+        }
+      },
+      "name": "0100-esp32s3-inherit-boot-watchdog.patch",
+      "sha256": "52a328b7a6ff17c1f11674be86fcb17ff73f5ac1d4fbbedc271a719b5ffdf20e"
+    },
+    {
+      "files": {
+        "drivers/net/netdev_upperhalf.c": {
+          "after": "0c067c21a45788d1fdcf00fac592f10b14771660b8f7cbed1cdfc2674a8de23d",
+          "before": "0ffb4bf9be5ba5ce1c2586b2af88302eace9661c3559c8420d392a7f7bc1908e"
+        },
+        "include/nuttx/net/net.h": {
+          "after": "56baf194806db87c187c77cad08ac90b2d70adb3227e149d07359c66b9a5ec8f",
+          "before": "1619dda448acd8f687809cbfad0544ce62a68697cec485fc6c5b5ca64a851c8b"
+        },
+        "net/utils/utils.h": {
+          "after": "8cb317f1451a10dcd27efc3f3822750d591ea535f8b426e9eaa28750dd389ff9",
+          "before": "6faee4ae8aaf5f4458d30556bfd0fffd5ed19044e2cad12a15a2ec89fca7cc80"
+        }
+      },
+      "name": "0101-netdev-poll-thread-lifetime.patch",
+      "sha256": "00414c6d253ba03df472b0aaee563b0870792d597a04c8ac4d192770f9096fdc"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/esp32s3/esp32s3_cam.c": {
+          "after": "308466f68bd6f6309483d9a20bd16e7aa8787bdee471a9a85879436a2b484a58",
+          "before": "30ad188988842a7800a139d4b7d79a58bd9f3a10e63d5196a49b76a8c4ce5d82"
+        },
+        "drivers/video/v4l2_cap.c": {
+          "after": "e715c7006fdabf78e374cebc4c997a3054c479f111a3d73a74ea5e9f0ed74cce",
+          "before": "4f5ff950159fc8e7376c6b02eba098eab85b6a568982017729c0cd31d1d698bb"
+        }
+      },
+      "name": "0102-camera-stop-acknowledgement.patch",
+      "sha256": "5c1198bdfcf7c7d36180e8cbd7ff514ab1ff54bdf502a1b9b068e30863fdcbe8"
+    },
+    {
+      "files": {
+        "boards/xtensa/esp32s3/common/src/esp32s3_board_spiflash.c": {
+          "after": "106735af9b58ac6180e6ebd7077d8b9c5643d61147c3e54400b428e94f620826",
+          "before": "c4dd53482a7ce3309af9d9f7310c15653a82b1b26eff956463695570b18db922"
+        }
+      },
+      "name": "0103-esp32s3-config-partition.patch",
+      "sha256": "52d4bc543da2c80c3f255c4f9796ad8f0db0fbacbc28969553667f2bdd2e6e98"
+    },
+    {
+      "files": {
+        "boards/Kconfig": {
+          "after": "29861e415afbe09ea4f6cd50bfbef2845e233df8a34d9c57d8e515200d116b05",
+          "before": "16538932690ab6719aa40d9a11933a2f15e9cc8e6be1092b663a33f43182ccea"
+        },
+        "boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig": {
+          "after": "a1d34fa08fdee2b70a0802a33b6bc870016495dafcb2c788c596b9e613de2411",
+          "before": null
+        },
+        "boards/xtensa/esp32s3/esp32s3-m5-cores3/configs/nsh/defconfig": {
+          "after": "2a82debf63aa6649712e90a02f9cb0dbd25b36abd517b783955ab9a6d591f5e5",
+          "before": null
+        },
+        "boards/xtensa/esp32s3/esp32s3-m5-cores3/include/board.h": {
+          "after": "1f50840bd82798c00f3f8c985f8dc9d5aede4732c374ba3d0b606ad607a54a8b",
+          "before": null
+        },
+        "boards/xtensa/esp32s3/esp32s3-m5-cores3/scripts/Make.defs": {
+          "after": "68bbd4e8b4e0852b4160ee7fe99bb254abdd0349892f9eaf32d69dac4d93b5a8",
+          "before": null
+        },
+        "boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs": {
+          "after": "dcf99ecfde01e352d2a13de5ab68e6765ef7ab038ceb1fb39414abaff0053358",
+          "before": null
+        },
+        "boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c": {
+          "after": "f8071da7d450e22754da4560216d24e3aeff8ddd7ddb58576fbdcf253c88820d",
+          "before": null
+        }
+      },
+      "name": "0104-esp32s3-m5-cores3-raw-resources.patch",
+      "sha256": "820f6d56a7a66bab97dff20c9b11f923b4511d864a1e5825729778115df4fe45"
+    },
+    {
+      "files": {
+        "sched/sched/sched_setpriority.c": {
+          "after": "798a89e33454069f7d45e50f4e8ff80fec2dcc5ef71e91d05d9d12bf66a1d5d9",
+          "before": "3e465033a385daf96b7a2f8d780c84175f78a8203c4ad38a2cc4ab20b3c8a7b8"
+        }
+      },
+      "name": "0105-sched-migrate-affinity-with-empty-ready-queue.patch",
+      "sha256": "db97e23657a8ea3614847c3e54b400d786274a9b7b301e0728044f8735eb5c6f"
+    },
+    {
+      "files": {
+        "arch/arm/src/armv8-m/arm_systick.c": {
+          "after": "71456323430c367e46ec20d60edb6f828ccfc47bfea8fa66462d3cde90306e26",
+          "before": "d7f7c5222254241d05fc5c46c5abb02dc2c93012f85a0978f5904255db05f2a4"
+        }
+      },
+      "name": "0106-armv8m-systick-coherent-snapshot.patch",
+      "sha256": "d6780827ef8cfc715c05bff6580df6d733bf9eb2861f68c12bcb5f3137fc6aa3"
+    },
+    {
+      "files": {
+        "arch/xtensa/src/common/espressif/esp_loader.c": {
+          "after": "a35533da7d7b800cbac6a6e6de2a307cff727284c0ced2db54269290691c00a9",
+          "before": "7ac941445818043cdb5ce0f1444cb53c954a8d920139d3181c81ad20d0563ddb"
+        }
+      },
+      "name": "0107-xtensa-simpleboot-hash-offset.patch",
+      "sha256": "84950899e0a15cf88c6e649b193f9c6f1800da0357c4db217d829c7ba8872a1c"
+    }
+  ],
+  "schema": 1,
+  "upstream_revision": "2b5c0de5e933281c209f954a63b99cf10c132346"
+}
