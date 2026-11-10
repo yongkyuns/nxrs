@@ -1,31 +1,33 @@
-# Status and limitations
+# Current status
 
-NXRS is an experimental development environment, not a finished SDK or an independently qualified RTOS. NuttX supplies the operating system. This repository explores the Rust integration, component boundaries, configuration and application patterns built above it.
+NXRS has working applications and basic validation of its Rust/NuttX integration and event-driven firmware components.
 
-## What is present
+## Available components
 
-The repository contains ordinary Rust application entry points, reusable services, hardware capability interfaces, platform profiles, maintained Rust/NuttX integration, and tests at several levels. The [navigation example](examples.md#navigation-and-service-composition) is a small way to exercise the owner/event model. The [camera workflow](examples.md#experimental-iot-camera) exercises a larger application with capture, detection, transport and client-facing state.
+The repository includes ordinary Rust application entry points, reusable services, hardware capability interfaces, platform profiles, peripheral wrappers and the Rust standard-library integration for NuttX.
 
-Existence of an implementation, a passing host test, a linked firmware image and a successful physical-device run are different claims. The reference documents state which evidence is available for their configurations.
+The [navigation example](examples.md#navigation-and-service-composition) connects sensor, fusion and health services. The [IoT camera](examples.md#iot-camera) combines capture, detection, transport, gateway delivery and client-facing state.
 
-## What is not implied
+## Completed validation
 
-- **General board or peripheral support.** A NuttX-supported board is not automatically an NXRS-qualified product. Rust toolchain, ABI, selected providers, drivers and resource budgets still need validation.
-- **Stable packaging or universal standard-library support.** The integration currently includes maintained patches. Available OS facilities depend on the selected target and configuration. Library portability must be checked, not inferred from use of `std` alone.
-- **Negligible cost or a production guarantee.** Thread stacks, allocations, queues, code size, recovery, timing and security need application-specific measurements and review.
+| Area | Tests and evaluations |
+| --- | --- |
+| Portable components | Host tests for application behavior, service lifecycle, ownership and failure handling |
+| NuttX integration | Target build and ABI checks, plus firmware execution in the NuttX simulator and ESP32-S3 QEMU |
+| Event-driven runtime | Channel, wake-up and delivery measurements, including on-board results |
+| Memory use | Code-size analysis, queue storage, thread stacks and heap measurements |
+| Camera application | On-device streaming and detection tests, recovery tests and model evaluations |
 
-NXRS is independent of the NuttX and Rust projects. It does not claim their endorsement or replace their release and support policies.
+The [test index](../../tests/README.md) contains the test commands. The [Rust std integration reference](../../docs/nuttx-std.md), [event-path measurements](../../docs/std-channel-performance.md) and [footprint analysis](../../docs/rust-std-footprint.md) document configurations and results.
 
-## Reading the evidence
+Camera results are recorded in the [delivery guide](../../docs/camera-detection-delivery.md) and [model evaluation report](../../docs/camera-detection-qualification.md), which also links to subsequent detector work.
 
-Use [Testing and debugging](testing.md) to distinguish pure/host tests, platform integration, emulation and physical measurements. Use [Performance and memory](performance.md) to understand what a number includes and excludes.
+## Target and configuration requirements
 
-The [Rust std integration reference](../../docs/nuttx-std.md), [event-path measurements](../../docs/std-channel-performance.md), [footprint analysis](../../docs/rust-std-footprint.md) and [RTOS comparisons](../../docs/rtos-comparison.md) describe specific configurations. A microbenchmark using a native RTOS adapter does not measure the complete `std`-based application path.
+Available APIs and peripherals depend on the selected Rust toolchain, NuttX configuration and platform profile. NXRS maintains integration patches for those configurations. Adding a board or peripheral requires its bindings, drivers and tests.
 
-For the camera example, consult both [delivery and ownership](../../docs/camera-detection-delivery.md) and the model-specific [qualification report](../../docs/camera-detection-qualification.md). Historical detector results do not establish dependable intrusion detection, field reliability or production security. [Security design and release requirements](../../docs/security.md) records separate obligations.
+Application budgets include thread stacks, allocations, queues, code size and timing. The [performance guide](performance.md) describes how to measure these. Camera deployment requirements are documented in the [security guide](../../docs/security.md); detector accuracy and supported resolutions are recorded with each model's results.
 
-## Work that remains
+## Ongoing work
 
-The ongoing questions are whether the components stay reusable as products differ, whether their costs remain acceptable on constrained targets, and whether the toolchain and platform integration remain maintainable. Additional examples, on-board measurements and regression tests are part of answering those questions.
-
-The [repository issues](https://github.com/yongkyuns/nxrs/issues) contain the active work. This page deliberately does not turn a historical test report into a release checklist marked complete.
+Development continues on reusable subsystems, additional hardware and applications, toolchain integration, and performance and memory evaluations. The [repository issues](https://github.com/yongkyuns/nxrs/issues) track individual tasks.

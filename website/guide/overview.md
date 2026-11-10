@@ -1,35 +1,37 @@
 # Architecture overview
 
-NXRS is an experimental Rust-based firmware development environment on top of NuttX. It is not a new RTOS. The experiment is to use ordinary Rust `std` code for application behavior while keeping hardware integration and product configuration separate.
+NXRS uses ordinary Rust `std` code for application behavior, with hardware integration and product configuration kept separate. NuttX provides the RTOS and board support.
 
-For the reasoning behind those choices, read [Why NXRS?](motivation.md). For an execution path through a real application, start with [Getting started](getting-started.md).
+Read [Why NXRS?](motivation.md) for the reasoning behind these choices, or [Getting started](getting-started.md) to run an application.
 
 ## NuttX supplies the operating system
 
-NuttX's C/POSIX environment supplies scheduling, board support, controller drivers and hardware resource registration. NXRS does not replace those responsibilities with a Rust scheduler or a second BSP.
+NuttX's C/POSIX environment supplies scheduling, board support, controller drivers and hardware resource registration.
 
-A Rust standard library compiled for the selected NuttX target provides the familiar thread, synchronization, time, file and socket interfaces where supported. Maintained patches and target configuration are part of that integration; [Rust std on NuttX](../../docs/nuttx-std.md) records the scope.
+A Rust standard library compiled for the selected NuttX target provides thread, synchronization, time, file and socket interfaces. The [Rust std integration reference](../../docs/nuttx-std.md) describes the maintained patches, target configuration and supported APIs.
 
 ## Rust components supply firmware behavior
 
-Peripheral wrappers connect Rust code to resources that NuttX exposes. Chip drivers implement device protocols. Capability HALs present interfaces such as IMU or GNSS acquisition without making applications name a particular chip. Services add reusable behavior, and the application composes the parts.
+Peripheral wrappers connect Rust code to resources exposed by NuttX. Chip drivers implement device protocols. Capability HALs provide interfaces such as IMU or GNSS acquisition. Services add reusable behavior, and the application composes the components.
 
-These are responsibility boundaries, not a rule that every operation needs to pass through every layer. Ordinary file or socket operations can use `std` directly. An application can own a capability directly when that is the natural fit.
+Ordinary file or socket operations use `std` directly. An application can also own a capability directly rather than introducing a service for it.
 
-The [architecture reference](../../docs/architecture.md), [HAL ownership reference](../../docs/hal-platform-architecture.md) and [peripheral composition reference](../../docs/peripheral-composition.md) describe the current implementation and remaining work.
+The [architecture reference](../../docs/architecture.md), [HAL ownership reference](../../docs/hal-platform-architecture.md) and [peripheral composition reference](../../docs/peripheral-composition.md) describe these interfaces and their implementation.
 
 ## Profiles describe the product
 
-Platform profiles and overlays select implementations, devices, resource bindings and logical roles at build time. This is device-tree-like configuration, not a runtime devicetree interpreter. NuttX still owns MCU pin configuration, controller initialization and device registration.
+Platform profiles and overlays select implementations, devices, resource bindings and logical roles at build time. NuttX owns MCU pin configuration, controller initialization and device registration.
 
-The application can select a portable device name, such as `devices::primary_imu()`, rather than construct a particular chip driver. The profile supplies that construction. Read [Profiles and overlays](profiles.md) before changing a binding; a declared role does not establish that arbitrary combinations of devices are implemented or physically tested.
+An application selects a portable device name, such as `devices::primary_imu()`, and the profile supplies its concrete construction. [Profiles and overlays](profiles.md) explains device selection and the supported bindings.
 
 ## Concurrency uses ordinary Rust
 
-Applications use handwritten `main()` functions. Active owners use ordinary threads, blocking waits and synchronization, rather than requiring an async executor. Typed events cross ownership boundaries; handlers use synchronous calls within an owner. Queue capacity, overload handling, stop requests and joined cleanup remain explicit.
+Applications use handwritten `main()` functions. Active modules use ordinary threads, blocking waits and synchronization. Typed events cross ownership boundaries; handlers use synchronous calls within an owner. Queue capacity, overload handling, stop requests and joined cleanup are explicit.
 
-The [services guide](services.md) explains this model. It is a set of conventions for reusable firmware, not a claim that all application code is framework-free or that threads have no cost.
+The [services guide](services.md) explains the component interfaces and lifecycle.
 
-## Boundaries need evidence
+## Tests and evaluations
 
-Host tests, emulated firmware and physical hardware answer different questions. Monitor stacks, queues, heap, image size and event-path latency as components and applications grow. See [Testing and debugging](testing.md), [Performance and memory](performance.md) and [Status and limitations](status.md).
+Host tests cover application and service behavior. Simulator and QEMU runs test firmware execution, while on-board tests measure device behavior and performance. Existing evaluations include thread stacks, queues, heap use, image size and event-delivery latency.
+
+See [Testing and debugging](testing.md), [Performance and memory](performance.md) and [Current status](status.md) for commands and results.

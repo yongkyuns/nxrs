@@ -1,12 +1,12 @@
 {
   "name": "NXRS",
-  "description": "An experimental Rust-based firmware development environment on NuttX.",
+  "description": "A Rust-based firmware development environment on NuttX.",
   "url": "https://yongkyuns.github.io/nxrs/",
   "repository": "https://github.com/yongkyuns/nxrs",
   "guides": [
     ["motivation", "Why NXRS?", "Context, choices and tradeoffs"],
     ["overview", "Architecture overview", "What belongs to each layer"],
-    ["status", "Status and limitations", "What remains experimental"],
+    ["status", "Current status", "Implementation, validation and ongoing work"],
     ["start-here", "Guide index", "Choose a reading path"],
     ["getting-started", "Getting started", "Run the host example"],
     ["first-application", "Your first application", "Read a real main function"],
@@ -15,7 +15,7 @@
     ["profiles", "Profiles and overlays", "Select devices and resources"],
     ["firmware", "Building for NuttX", "Prepare and build a target"],
     ["examples", "NXRS examples", "Navigation and camera applications"],
-    ["testing", "Testing and debugging", "Separate kinds of evidence"],
+    ["testing", "Testing and debugging", "Host, firmware and on-board tests"],
     ["performance", "Performance and memory", "Measure resource costs"],
     ["troubleshooting", "Troubleshooting", "Find the next check"]
   ],
