@@ -36,14 +36,15 @@ def segment(data, offset):
     return address, size, end
 
 
-def inspect_image(data, transcript):
-    """Reproduce the ROM's printed values from bytes, never infer a clean boot."""
+def parse_image(data):
+    """Check supported SIMPLE_BOOT layouts without claiming device execution."""
     require(24 <= len(data) <= MAX_IMAGE_BYTES, 'invalid image length')
     require(data[0] == 0xe9 and struct.unpack_from('<H', data, 12)[0] == 9,
             'not an ESP32-S3 image at offset zero')
     count = data[1]
     require(1 <= count <= 16, 'invalid visible segment count')
-    require(data[23] == 0, 'not a digest-omitting simple-boot image')
+    require(data[23] in (0, 1), 'invalid appended digest flag')
+    has_digest = data[23] == 1
     offset, checksum, visible = 24, 0xef, []
     for _ in range(count):
         address, size, end = segment(data, offset)
@@ -64,10 +65,12 @@ def inspect_image(data, transcript):
     calculated = digest(data[:checksum_end])
     following = data[checksum_end:checksum_end + 32].hex()
 
-    # In ram-only-header mode the next bytes belong to a padding segment,
-    # not a stored digest. Validate the following mapped-segment layout too.
+    # A declared digest precedes the hidden segment chain. The legacy layout
+    # places its first padding header directly at checksum_end.
     hidden = []
-    offset = checksum_end
+    if has_digest:
+        require(following == calculated, 'declared RAM-prefix digest mismatch')
+    offset = checksum_end + (32 if has_digest else 0)
     while offset < len(data):
         if data[offset] == 0xff:
             require(all(value == 0xff for value in data[offset:]),
@@ -95,6 +98,26 @@ def inspect_image(data, transcript):
                 for i, item in enumerate(hidden)) and len(hidden) % 2 == 0,
             'unexpected simple-boot hidden segment sequence')
 
+    return {
+        'schema': 'std-channel-esp-image-diagnostic-v1',
+        'image_sha256': digest(data), 'image_bytes': len(data), 'chip_id': 9,
+        'visible_segment_count': count, 'digest_appended_flag': has_digest,
+        'visible_segments': visible, 'checksum_byte_verified': True,
+        'ram_checksum_end_offset': checksum_end,
+        'calculated_ram_prefix_sha256': calculated,
+        'bytes_at_rom_expected_digest_offset': following,
+        'hidden_segments': hidden,
+        'ram_prefix_digest_verified': has_digest,
+        'boot_warning_resolved': False, 'physical_timing_qualified': False,
+        'limitations': 'Offline byte attribution only; no clean-boot, secure-boot or hardware qualification',
+    }
+
+
+def inspect_image(data, transcript):
+    """Reproduce ROM values while retaining the original strict log contract."""
+    report = parse_image(data)
+    calculated = report['calculated_ram_prefix_sha256']
+    following = report['bytes_at_rom_expected_digest_offset']
     occurrences = transcript.count('SHA-256 comparison failed:')
     matches = WARNING.findall(transcript)
     require(occurrences <= 1 and len(matches) == occurrences,
@@ -104,23 +127,14 @@ def inspect_image(data, transcript):
         observed, expected = (value.lower() for value in matches[0])
         require(observed == calculated, 'ROM calculated digest differs from supplied image')
         require(expected == following, 'ROM expected bytes differ from supplied image')
-    return {
-        'schema': 'std-channel-esp-image-diagnostic-v1',
-        'image_sha256': digest(data), 'image_bytes': len(data), 'chip_id': 9,
-        'visible_segment_count': count, 'digest_appended_flag': False,
-        'visible_segments': visible, 'checksum_byte_verified': True,
-        'ram_checksum_end_offset': checksum_end,
-        'calculated_ram_prefix_sha256': calculated,
-        'bytes_at_rom_expected_digest_offset': following,
-        'hidden_segments': hidden,
-        'rom_warning_observed': bool(matches),
-        'rom_warning_matches_image_layout': bool(matches),
-        'diagnosis': ('ROM printed hash of RAM-visible prefix and interpreted hidden padding '
-                      'header/payload as expected digest; image declares no appended hash'
-                      if matches else 'simple-boot layout identified; no warning supplied'),
-        'boot_warning_resolved': False, 'physical_timing_qualified': False,
-        'limitations': 'Offline byte attribution only; no clean-boot, secure-boot or hardware qualification',
-    }
+    report.update(
+        rom_warning_observed=bool(matches),
+        rom_warning_matches_image_layout=bool(matches),
+        diagnosis=('ROM compared RAM prefix with hidden padding, not a stored digest'
+                   if matches and not report['digest_appended_flag']
+                   else 'layout inspected; physical boot is not certified'),
+    )
+    return report
 
 
 def diagnose(build_directory, transcript):

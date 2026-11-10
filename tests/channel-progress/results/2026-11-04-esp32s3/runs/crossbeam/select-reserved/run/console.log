@@ -1,0 +1,43 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x42018a4a
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fc91bb0,len:0x301c
+load:0x40374000,len:0x8ff0
+load:0x50000000,len:0x24
+SHA-256 comparison failed:
+Calculated: eda6a70a8946e1b34160538ee9259d6d2ae27ff8d85c51a5a04f89bde45bbf1e
+Expected: 00000000803f0000000000000000000000000000000000000000000000000000
+Attempting to boot anyway...
+entry 0x403750e8
+*** Booting NuttX ***
+I (70) boot: chip revision: v0.2
+I (71) boot: efuse block revision: v1.3
+I (71) boot.esp32s3: Boot SPI Speed : 40MHz
+I (71) boot.esp32s3: SPI Mode       : DIO
+I (71) boot.esp32s3: SPI Flash Size : 16MB
+I (71) boot: Enabling RNG early entropy source...
+dram: lma 0x00000020 vma 0x3fc91bb0 len 0x301c   (12316)
+iram: lma 0x00003044 vma 0x40374000 len 0x8ff0   (36848)
+rtc: lma 0x0000c03c vma 0x50000000 len 0x24     (36)
+padd: lma 0x0000c078 vma 0x00000000 len 0x3f80   (16256)
+imap: lma 0x00010000 vma 0x42010000 len 0x5e1cc  (385484)
+padd: lma 0x0006e1d4 vma 0x00000000 len 0x1e24   (7716)
+dmap: lma 0x00070000 vma 0x3c080000 len 0x11138  (69944)
+total segments stored 7
+I (832) cpu_start: Pro cpu start user code
+I (832) cpu_start: cpu freq: 240000000 Hz
+I (832) app_init: Application information:
+I (832) app_init: Compile time:     Nov  4 2026 01:03:03
+I (832) app_init: ELF file SHA256:  000000000...
+I (832) app_init: ESP-IDF:          
+I (833) spi_flash: detected chip: generic
+I (833) spi_flash: flash io: dio
+I (833) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (833) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+nsh> [Kchannel_progress select-reserved
+CHANNEL_PROGRESS {"schema":"channel-progress-v1","record":"metadata","run_id":"4-240000000","build_id":"5a1e3ed022968efb6321df835cdf969e1dfe5d549b5f0a7e1c9c1b198b9bfe6c","mode":"select-reserved","hook_stage":1,"runtime":"nuttx","transport":"crossbeam-channel","transport_version":"0.5.17","capacity":8,"payload_bytes":16,"arm_count":3,"provider_count":1,"selection_bias":"stop-important-ordinary","witness_api":"select_biased","single_core_tcb_witness":true,"sender_policy":1,"sender_priority":120,"receiver_policy":1,"receiver_priority":180,"observer_policy":1,"observer_priority":220,"watchdog_policy":1,"watchdog_priority":240,"waker_policy":1,"waker_priority":160}
+CHANNEL_PROGRESS {"schema":"channel-progress-v1","record":"result","run_id":"4-240000000","success":true,"outcome":"stall-observed","threads_joined":true,"watchdog_joined":true,"deadline_hit":false,"hook_hit_count":1,"hook_returned_before_recovery":false,"hook_error":false,"consumer_entered":true,"producer_entered":true,"consumer_done_before_recovery":false,"producer_done_before_recovery":false,"waker_done_before_recovery":false,"consumer_state_at_deadline":"ready","producer_state_at_deadline":"ready","waker_state_at_deadline":"ready","consumer_priority_at_deadline":180,"producer_priority_at_deadline":120,"waker_priority_at_deadline":160,"hook_timestamp_ns":290000000,"operation_enter_timestamp_ns":290000000,"observer_timestamp_ns":400000000,"observation_ns":110000000,"initial_gate_waits_verified":true,"initial_select_wait_verified":true,"selection_registered_arms":3,"independent_wake_consumed":true,"selected_target_arm":"important","recovery_applied":true,"delivered":true,"messages_sent":1,"messages_received":1,"reservation_stall_observed":true,"completed_without_repair":false,"progress_contract_satisfied":false,"priority_progress_qualified":false,"timing_qualified":false}
+nsh> 

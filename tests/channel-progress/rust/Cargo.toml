@@ -1,0 +1,19 @@
+[package]
+name = "nxrs-channel-progress"
+version.workspace = true
+edition.workspace = true
+publish = false
+build = "build.rs"
+
+[package.metadata.nxrs.firmware]
+bin = "channel-progress"
+command = "channel_progress"
+priority = 100
+stack-size = 65536
+
+[[bin]]
+name = "channel-progress"
+path = "src/main.rs"
+
+[dependencies]
+crossbeam-channel = "=0.5.17"

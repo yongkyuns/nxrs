@@ -1,0 +1,51 @@
+{
+  "plan": [
+    [
+      "select-reserved",
+      [
+        "select-reserved"
+      ],
+      "crossbeam"
+    ],
+    [
+      "select-published",
+      [
+        "select-published"
+      ],
+      "crossbeam"
+    ],
+    [
+      "std-mutex-suite",
+      [
+        "mutex-admit-held",
+        "mutex-admit-released",
+        "mutex-take-held",
+        "mutex-take-released",
+        "condvar-wait-publish",
+        "condvar-publish-before-wait",
+        "condvar-close-wait"
+      ],
+      "std"
+    ],
+    [
+      "fifo-channel-suite",
+      [
+        "fifo-try-recv-reserved",
+        "fifo-try-recv-published",
+        "fifo-select-reserved",
+        "fifo-select-published",
+        "fifo-try-send-reserved",
+        "fifo-try-send-reclaimed"
+      ],
+      "fifo"
+    ]
+  ],
+  "fresh_boot_per_command": true,
+  "unavailable_esp_cases": [
+    "direct-reserved",
+    "direct-published",
+    "send-reserved",
+    "send-reclaimed"
+  ],
+  "complete_19_case_replay_claimed": false
+}

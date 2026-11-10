@@ -1,0 +1,18 @@
+{
+  "schema": "channel-progress-capture-v1",
+  "capture_complete": true,
+  "runtime_kind": "physical",
+  "mode": "select-published",
+  "command": "channel_progress select-published",
+  "build_id": "8817b6d0e3f02a5b1fb79bf1ad548fe60d48cf700691732d601f787f4aa9bfd7",
+  "image_sha256": "180062de54c10f24dfbcd57ada791a0342443c7bccdfc4c94cb8aa0a7a7c7ac2",
+  "one_command_per_boot": true,
+  "physical_timing_qualified": false,
+  "priority_progress_qualified": false,
+  "failure_stage": null,
+  "error": null,
+  "fresh_boot_observed": true,
+  "boot_rom_digest_warning_observed": true,
+  "outcome": "completed-without-repair",
+  "progress_contract_satisfied": true
+}

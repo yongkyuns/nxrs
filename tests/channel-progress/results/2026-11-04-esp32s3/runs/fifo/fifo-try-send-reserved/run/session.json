@@ -1,0 +1,11 @@
+{
+  "schema": "channel-progress-session-v1",
+  "runtime_kind": "physical",
+  "measurement_session": "pr255-20261104-fifo-try-send-reserved",
+  "board": "ESP32-S3 N16R8 QFN56 rev v0.2; single-core configured 240 MHz; 16 MiB flash and 8 MiB octal PSRAM",
+  "board_serial": "esp32s3-bench-01",
+  "active_cores": 1,
+  "build_id": "133d1de73dd00976231646546c70ecdcff21e150cfa6686d1247ac10ae9b4f6d",
+  "image_sha256": "f70d8b0a95061c4a28b0262b5f810716e3331b839ef98f9c637f3cc03e0e3d28",
+  "flash_verification": "fifo-channel-suite-flash.log and fifo-channel-suite-verify.log: complete 16 MiB image written unchanged and esptool digest verification passed; exclusive test ownership; fresh USB reset for this sole command."
+}
