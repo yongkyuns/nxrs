@@ -24,11 +24,21 @@ Platform profiles and overlays select implementations, devices, resource binding
 
 An application selects a portable device name, such as `devices::primary_imu()`, and the profile supplies its concrete construction. [Profiles and overlays](profiles.md) explains device selection and the supported bindings.
 
-## Concurrency uses ordinary Rust
+<a id="concurrency-uses-ordinary-rust"></a>
 
-Applications use handwritten `main()` functions. Active modules use ordinary threads, blocking waits and synchronization. Typed events cross ownership boundaries; handlers use synchronous calls within an owner. Queue capacity, overload handling, stop requests and joined cleanup are explicit.
+## Event-driven communication
 
-The [services guide](services.md) explains the component interfaces and lifecycle.
+The application composes its services in `main()`. A service that needs independent execution owns its mutable state and waits at one logical point. It handles one event to completion before taking the next. Within that handler, ordinary Rust methods can work directly on the owner's state.
+
+<figure class="architecture-art">
+  <img class="theme-light" src="../../docs/assets/nxrs-event-communication.svg" alt="IMU, GNSS and application control feed one 16-slot Fusion inbox. The owner waits in recv(), handles one event to completion with its private state, then returns to the same wait." width="680" height="644" loading="lazy">
+  <img class="theme-dark" src="../../docs/assets/nxrs-event-communication-dark.svg" alt="IMU, GNSS and application control feed one 16-slot Fusion inbox. The owner waits in recv(), handles one event to completion with its private state, then returns to the same wait." width="680" height="644" loading="lazy">
+  <figcaption>Fusion handles one event at a time and exits on shutdown. The single wait point follows the model in <a href="https://www.state-machine.com/doc/Cummings1006.pdf#page=12">Cummings, p. 12</a>.</figcaption>
+</figure>
+
+The usual inbox wraps a positive-capacity `std::sync::mpsc::sync_channel`. Its fixed ring is allocated when the inbox is created, and message transfers reuse those slots. The same Rust API works on NuttX, Linux and macOS. Their implementations differ in how they store blocked waiters and what can allocate on first use.
+
+The [services guide](services.md) covers memory sizing, overload, blocking and safe shutdown. The [event communication reference](../../docs/concurrency-event-communication.md) covers owners that need independent capacity for different event classes.
 
 ## Tests and evaluations
 
