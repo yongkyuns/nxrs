@@ -3,8 +3,11 @@ import hashlib
 import importlib.util
 import json
 import os
+from collections import Counter
 from pathlib import Path
+import re
 import secrets
+import shlex
 import struct
 import subprocess
 import sys
@@ -18,7 +21,7 @@ from rtos_harness.zephyr import ZEPHYR_SHA, check_checkout, resolved_config
 
 BOARDS = tomllib.loads((HERE / 'boards.toml').read_text())
 BUILD_SCHEMA = 'mpsc-comparison-build-v3'
-IDENTITY_FIELDS = ('schema', 'board', 'runtime', 'backend', 'source_sha256', 'board_contract', 'nonce')
+IDENTITY_FIELDS = ('schema', 'board', 'runtime', 'backend', 'source_sha256', 'board_contract', 'native_build_inputs', 'nonce')
 NATIVE_QUEUE_ROOTS = ('mp_queue_create', 'mp_queue_send', 'mp_queue_receive', 'mp_queue_destroy', 'mp_queue_waiting')
 
 
@@ -35,6 +38,46 @@ def digest(path):
 
 def canonical(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def configure_native_inputs(env, out):
+    """Make compiled timestamps/assertion paths repeatable before compilation.
+
+    These are real allocated bytes. Do not erase them from the kernel identity.
+    Keep inherited compiler flags intact and use the normal frontend's recorded
+    EXTRAFLAGS/SOURCE_DATE_EPOCH inputs. Only the owned output path is remapped.
+    """
+    owned = str(out.resolve())
+    if not re.fullmatch(r'/[A-Za-z0-9_./-]+', owned):
+        raise ValueError('MPSC output path must not contain whitespace or shell/Make metacharacters')
+    inherited = env.get('EXTRAFLAGS', '')
+    if any(c in inherited for c in '\x00\r\n$`;|&<>'):
+        raise ValueError('EXTRAFLAGS contains unsupported shell/Make syntax; flags were not overwritten')
+    try:
+        words = shlex.split(inherited)
+        if words != shlex.split(inherited, comments=True):
+            raise ValueError('unquoted comment')
+    except ValueError as error:
+        raise ValueError('EXTRAFLAGS is not a complete compiler argument list; flags were not overwritten') from error
+    revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', ':external/nuttx'], text=True).strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('missing pinned NuttX gitlink revision')
+    epoch = subprocess.check_output(['git', '-C', str(ROOT / 'external/nuttx'),
+                                     'show', '-s', '--format=%ct', revision], text=True).strip()
+    if not epoch.isdigit():
+        raise ValueError('invalid pinned NuttX commit timestamp')
+    if env.get('SOURCE_DATE_EPOCH', epoch) != epoch:
+        raise ValueError('SOURCE_DATE_EPOCH conflicts with the pinned NuttX commit timestamp; value was not overwritten')
+    mapped = '/nxrs-mpsc-build'
+    flag = f'-fmacro-prefix-map={owned}={mapped}'
+    combined = inherited + (' ' if inherited else '') + flag
+    if shlex.split(combined, comments=True) != words + [flag]:
+        raise ValueError('cannot safely append the owned-path map to EXTRAFLAGS')
+    env.update(EXTRAFLAGS=combined, SOURCE_DATE_EPOCH=epoch)
+    return dict(schema='mpsc-native-build-inputs-v1', source_date_epoch=int(epoch),
+                source_date_epoch_origin=dict(component='nuttx', revision=revision, field='committer timestamp'),
+                macro_prefix_map=dict(source='owned output directory', replacement=mapped),
+                inherited_extraflags_sha256=hashlib.sha256(inherited.encode()).hexdigest())
 
 
 def transport_selection(elf, prefix, backend, destination):
@@ -69,12 +112,22 @@ def archive_members(path, prefix):
         subprocess.run([prefix + 'objcopy', '--strip-debug', str(path), str(normalized)],
                        check=True, capture_output=True)
         names = subprocess.check_output([prefix + 'ar', 't', str(normalized)], text=True).splitlines()
-        if len(names) != len(set(names)) or any(Path(n).name != n or n in ('.', '..') for n in names):
-            raise ValueError('ambiguous/unsafe kernel archive members')
+        if any(Path(n).name != n or n in ('.', '..') for n in names):
+            raise ValueError('unsafe kernel archive member path')
         members = root / 'members'
         members.mkdir()
         subprocess.run([prefix + 'ar', 'x', str(normalized)], cwd=members, check=True, capture_output=True)
-        return [dict(name=name, sha256=digest(members / name)) for name in names]
+        counts, seen, result = Counter(names), Counter(), []
+        for name in names:
+            seen[name] += 1
+            if counts[name] > 1:
+                # Espressif's libarch legitimately contains duplicate basenames.
+                # Default extraction overwrites them; xN selects each occurrence
+                # without collapsing linker order or ignoring an earlier member.
+                subprocess.run([prefix + 'ar', 'xN', str(seen[name]), str(normalized), name],
+                               cwd=members, check=True, capture_output=True)
+            result.append(dict(name=name, occurrence=seen[name], sha256=digest(members / name)))
+        return result
 
 
 def kernel_identity(out, prefix, config):
@@ -126,6 +179,7 @@ def read_kernel_identity(root, record):
     for archive, value in identity['archives'].items():
         path = value.get('file')
         if (Path(archive).name != archive or archive == 'libapps.a'
+                or path != 'firmware/nuttx/staging/' + archive
                 or path not in record['artifacts_sha256']
                 or record['artifacts_sha256'][path] != value.get('raw_sha256')
                 or canonical(value.get('members')) != value.get('link_sha256')):
@@ -154,6 +208,8 @@ def validate_nuttx_control(std, native):
             or (native.get('runtime'), native.get('backend')) != ('nuttx', 'native')):
         raise ValueError('expected NuttX std/native control images')
     validate_cohort(std, native)
+    if std.get('native_build_inputs') is None or std['native_build_inputs'] != native.get('native_build_inputs'):
+        raise ValueError('unmatched deterministic NuttX compiler inputs')
     first, second = std.get('kernel_identity'), native.get('kernel_identity')
     if first is None or second is None or comparable_kernel(first) != comparable_kernel(second):
         raise ValueError('unmatched NuttX configuration, patches or kernel link inputs')
@@ -281,6 +337,7 @@ def build(args):
     inputs = inventory()
     record = dict(schema=BUILD_SCHEMA, board=args.board, runtime=args.runtime, backend=backend,
                   source_sha256=inputs, board_contract=board, nonce=secrets.token_hex(16),
+                  native_build_inputs=configure_native_inputs(env, out) if args.runtime == 'nuttx' else None,
                   status='failed', failure='incomplete build', physical_timing_qualified=False)
     record['build_id'] = canonical({k: record[k] for k in IDENTITY_FIELDS})
     env['MPSC_BUILD_ID'] = record['build_id']

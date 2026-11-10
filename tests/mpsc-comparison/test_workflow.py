@@ -2,7 +2,9 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import shlex
 import struct
 import subprocess
 import tempfile
@@ -104,7 +106,7 @@ class WorkflowTests(unittest.TestCase):
             (root / 'transport-selection.json').write_text(json.dumps(selection))
             record = dict(schema=build.BUILD_SCHEMA, board='pico2w', runtime='zephyr', backend='native',
                           source_sha256=inventory, board_contract=build.BOARDS['pico2w'],
-                          nonce='test', status='complete', failure=None,
+                          native_build_inputs=None, nonce='test', status='complete', failure=None,
                           transport_selection_file='transport-selection.json',
                           artifacts_sha256={name: build.digest(root / name) for name in ('elf', 'image', 'config', 'transport-selection.json')},
                           **{name + '_file': name for name in ('elf', 'image', 'config')})
@@ -157,7 +159,8 @@ class WorkflowTests(unittest.TestCase):
                       archives={'libkernel.a': {'raw_sha256': 'raw-a', 'link_sha256': 'code'}})
         n = dict(runtime='nuttx', backend='std', board='pico2w', board_contract={}, source_sha256={},
                  rust_compiler='rust', rust_compiler_sha256='rust-hash',
-                 c_compiler='gcc', c_compiler_sha256='gcc-hash', kernel_identity=kernel)
+                 c_compiler='gcc', c_compiler_sha256='gcc-hash', kernel_identity=kernel,
+                 native_build_inputs={'source_date_epoch': 123})
         native = copy.deepcopy(n)
         native['backend'] = 'native'
         native['kernel_identity']['archives']['libkernel.a']['raw_sha256'] = 'raw-b'
@@ -182,6 +185,7 @@ class WorkflowTests(unittest.TestCase):
             lambda r: r.update(backend='std'),
             lambda r: r.update(c_compiler_sha256='different'),
             lambda r: r.update(board='esp32s3'),
+            lambda r: r['native_build_inputs'].update(source_date_epoch=456),
             lambda r: r['kernel_identity'].update(resolved_config_sha256='changed'),
             lambda r: r['kernel_identity']['patch_receipts'].update(kernel='changed'),
             lambda r: r['kernel_identity']['archives']['libkernel.a'].update(link_sha256='changed'),
@@ -279,6 +283,79 @@ class WorkflowTests(unittest.TestCase):
                         build.transport_selection(elf, '', backend, destination)
                     self.assertFalse(json.loads(destination.read_text())['passed'])
 
+    def test_duplicate_archive_members_preserve_order_and_each_occurrence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            objects = []
+            for label, value in [('first', 7), ('second', 8), ('changed', 9)]:
+                output = root / label
+                output.mkdir()
+                source, obj = output / 'same.c', output / 'same.o'
+                source.write_text(f'int shared(void) {{ return {value}; }}\n')
+                subprocess.run(['cc', '-g', '-c', str(source), '-o', str(obj)], check=True, capture_output=True)
+                objects.append(obj)
+            versions = []
+            for label, order in [('original', [0, 1]), ('swapped', [1, 0]), ('changed', [0, 2])]:
+                archive = root / f'{label}.a'
+                subprocess.run(['ar', 'qcD', str(archive), *[str(objects[i]) for i in order]],
+                               check=True, capture_output=True)
+                versions.append(build.archive_members(archive, ''))
+            first, swapped, changed = versions
+            self.assertEqual([m['occurrence'] for m in first], [1, 2])
+            self.assertEqual([m['name'] for m in first], ['same.o', 'same.o'])
+            self.assertEqual(first[0]['sha256'], swapped[1]['sha256'])
+            self.assertEqual(first[1]['sha256'], swapped[0]['sha256'])
+            self.assertNotEqual(build.canonical(first), build.canonical(swapped))
+            self.assertEqual(first[0], changed[0])
+            self.assertNotEqual(first[1], changed[1])
+
+    def test_compiled_timestamp_and_path_are_repeatable_without_erasing_runtime_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fingerprints, policies = [], []
+            for label, value, repeatable in [('first', 7, True), ('second', 7, True),
+                                             ('changed', 8, True), ('uncontrolled', 7, False)]:
+                output = root / label
+                output.mkdir()
+                source, obj, archive = output / 'source.c', output / 'source.o', output / 'libkernel.a'
+                source.write_text('const char *stamp(void) { return __DATE__ " " __TIME__; }\n'
+                                  'const char *source(void) { return __FILE__; }\n'
+                                  f'int runtime(void) {{ return KEEP_ME + {value}; }}\n')
+                env = {k: v for k, v in os.environ.items() if k not in ('SOURCE_DATE_EPOCH', 'EXTRAFLAGS')}
+                inherited = '-DKEEP_ME=11 '
+                env['EXTRAFLAGS'] = inherited
+                if repeatable:
+                    policies.append(build.configure_native_inputs(env, output))
+                    self.assertTrue(env['EXTRAFLAGS'].startswith(inherited))
+                    self.assertEqual(int(env['SOURCE_DATE_EPOCH']), policies[-1]['source_date_epoch'])
+                else:
+                    env['SOURCE_DATE_EPOCH'] = '1'
+                subprocess.run(['cc', '-g', *shlex.split(env['EXTRAFLAGS']), '-c', str(source), '-o', str(obj)],
+                               env=env, check=True, capture_output=True)
+                subprocess.run(['ar', 'rcsD', str(archive), str(obj)], check=True, capture_output=True)
+                fingerprints.append(build.archive_members(archive, ''))
+            self.assertEqual(policies[0], policies[1])
+            self.assertEqual(fingerprints[0], fingerprints[1])
+            self.assertNotEqual(fingerprints[0], fingerprints[2])
+            self.assertNotEqual(fingerprints[0], fingerprints[3])
+
+    def test_native_build_inputs_do_not_overwrite_unsupported_inherited_flags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for flags in ['-DOPEN="', '-DX=1 # comment', '$(OTHER_FLAGS)', '-DX=1\n-DY=2', '-DX=1; false']:
+                env = {'EXTRAFLAGS': flags}
+                with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, 'EXTRAFLAGS'):
+                    build.configure_native_inputs(env, root)
+                self.assertEqual(env, {'EXTRAFLAGS': flags})
+            env = {'EXTRAFLAGS': '-DKEEP=1'}
+            with self.assertRaisesRegex(ValueError, 'output path'):
+                build.configure_native_inputs(env, root / 'space path')
+            self.assertEqual(env, {'EXTRAFLAGS': '-DKEEP=1'})
+            env = {'EXTRAFLAGS': '-DKEEP=1', 'SOURCE_DATE_EPOCH': 'not-the-pin'}
+            with self.assertRaisesRegex(ValueError, 'SOURCE_DATE_EPOCH'):
+                build.configure_native_inputs(env, root)
+            self.assertEqual(env, {'EXTRAFLAGS': '-DKEEP=1', 'SOURCE_DATE_EPOCH': 'not-the-pin'})
+
     def test_kernel_receipt_binds_config_patches_and_archive_census(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -301,6 +378,16 @@ class WorkflowTests(unittest.TestCase):
                                             for p in [identity, config, *evidence]})
             original = build.read_kernel_identity(root, record)
             self.assertEqual(set(original['archives']), {'libkernel.a'})
+            alias = firmware / 'bound-but-wrong-archive.a'
+            alias.write_bytes(archive.read_bytes())
+            alias_name = str(alias.relative_to(root))
+            record['artifacts_sha256'][alias_name] = build.digest(alias)
+            wrong = copy.deepcopy(original)
+            wrong['archives']['libkernel.a']['file'] = alias_name
+            identity.write_text(json.dumps(wrong))
+            with self.assertRaisesRegex(ValueError, 'archive identity'):
+                build.read_kernel_identity(root, record)
+            identity.write_text(json.dumps(original))
             (firmware / 'std-patch.json').write_text('{"revision":"changed"}')
             with self.assertRaisesRegex(ValueError, 'patch'):
                 build.read_kernel_identity(root, record)

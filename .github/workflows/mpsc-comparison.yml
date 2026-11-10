@@ -79,7 +79,7 @@ jobs:
       - name: Install common build tools
         run: |
           rustup toolchain install 1.90.0 --profile minimal
-          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs xxd cmake ninja-build libncurses-dev zlib1g-dev
           python3 -m venv target/mpsc-venv
           target/mpsc-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 pyelftools==0.32
           echo "$GITHUB_WORKSPACE/target/mpsc-venv/bin" >> "$GITHUB_PATH"

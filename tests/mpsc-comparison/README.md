@@ -68,9 +68,14 @@ python tests/mpsc-comparison/bench.py check-control \
 This checks the resolved configuration, compiler identities, patch receipts and
 every non-application kernel archive. Raw archive hashes are retained. A separate
 per-member fingerprint strips debug sections only, preserving symbols,
-relocations, code, data and member order, so differing debug paths do not imply
-a different kernel implementation. Runtime-byte or section-placement differences
-still fail the control. Application archives and final image addresses differ
+relocations, code, data and member order, including every occurrence of duplicate
+member names. The NuttX builds use the pinned NuttX commit time for
+`SOURCE_DATE_EPOCH` and map their owned build directories to a common prefix
+before compilation. Timestamp and assertion-path bytes therefore stay in the
+objects with reproducible values; the comparison does not remove them.
+Differing debug paths do not imply a different kernel implementation, but
+runtime-byte or section-attribute differences still fail the control.
+Application archives and final image addresses differ
 by design; a successful check does not establish matched final hot-path placement.
 
 Both kernels use one core, FIFO workers of equal effective priority, a 100 Hz

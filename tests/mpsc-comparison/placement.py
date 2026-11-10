@@ -98,6 +98,9 @@ def inspect_disassembly(out,board,backend=None):
  fns={};current=None
  instruction=re.compile(r'^\s*([0-9a-f]+):\s+((?:(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{2})\s+)+)([.a-zA-Z][\w.]*)\s*(.*)$')
  arm_direct=re.compile(r'^(?:blx?|b(?:eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le)?|cbnz|cbz)(?:\.[wn])?$')
+ # BREAK's numeric operands are trap codes, not branch destinations. Match
+ # actual branch mnemonics rather than treating every b-prefixed opcode alike.
+ xtensa_direct=re.compile(r'^(?:call(?:0|4|8|12)|j|b(?:all|any|bc|bci|bs|bsi|eq|eqi|eqz|ge|gei|geu|geui|gez|lt|lti|ltu|ltui|ltz|ne|nei|nez|nall|none|f|t)(?:\.n)?)$')
  for line in out.splitlines():
   m=re.match(r'^([0-9a-f]+) <(.+)>:$',line)
   if m:
@@ -112,7 +115,7 @@ def inspect_disassembly(out,board,backend=None):
   if 'veneer' in f['name'] and op=='.word':
    target=re.search(r'0x([0-9a-f]+)',operands)
    if target:f['edges'].add(int(target[1],16)&~1)
-  direct=bool(arm_direct.fullmatch(op)) if board=='pico2w' else bool(re.fullmatch(r'call(?:0|4|8|12)|j|b\w*(?:\.n)?',op))
+  direct=bool((arm_direct if board=='pico2w' else xtensa_direct).fullmatch(op))
   indirect=(board=='esp32s3' and bool(re.fullmatch(r'callx(?:0|4|8|12)|jx',op))) or (
       board=='pico2w' and op in ('blx','bx')
       and re.fullmatch(r'r\d+|ip|sp|pc|lr',operands.strip())

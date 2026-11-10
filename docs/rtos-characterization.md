@@ -36,8 +36,8 @@ Report two views:
 
 1. **Controlled attribution:** hold hardware, required behavior, topology and
    relevant configuration equal, changing one implementation choice at a time.
-   Keep NuttX revision, resolved patch set, configuration and built kernel
-   archive identical when isolating an NXRS library or HAL layer.
+   Keep NuttX revision, resolved patch set, configuration and link-relevant
+   kernel contents identical when isolating an NXRS library or HAL layer.
 2. **Practical deployment:** let each implementation organize the application
    sensibly while meeting the same externally observable requirements. Record
    its actual configuration, resource cost and integration work.

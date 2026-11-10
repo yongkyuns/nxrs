@@ -80,6 +80,28 @@ class LinkedPlacementTests(unittest.TestCase):
         self.assertEqual(result['missing_roots'], ['mp_queue_send', 'mp_queue_receive'])
         self.assertFalse(result['direct_paths_in_sram'])
 
+    def test_xtensa_break_codes_are_not_call_targets(self):
+        # These BREAK encodings occur in the actual ESP32-S3 std-channel ELF.
+        # Preserve real narrow conditional branches and calls around the trap.
+        assembly = """
+40370100 <mpsc_comparison::engine::worker>:
+40370100: 001005  call8 40370200 <std::sync::mpmc::array::RecvSlot<T>::read>
+40370103: f03d    retw.n
+40370200 <std::sync::mpmc::array::RecvSlot<T>::read>:
+40370200: 111816  beqz a8, 40370208 <std::sync::mpmc::array::RecvSlot<T>::read+0x8>
+40370203: 0041f0  break 1, 15
+40370206: f02d    break.n 0
+40370208: 1b8c    beqz.n a11, 42001000 <native_boundary>
+4037020a: 0008e0  callx8 a8
+42001000 <native_boundary>:
+42001000: f03d    retw.n
+"""
+        result = placement.inspect_disassembly(assembly, 'esp32s3', 'std')
+        self.assertEqual(result['unresolved_direct_targets'], [])
+        self.assertEqual(result['flash_boundaries'][0]['name'], 'native_boundary')
+        self.assertEqual(result['indirect_calls'][0]['instruction'], 'callx8 a8')
+        self.assertFalse(result['matched_placement_qualified'])
+
     def test_native_mutex_dependency_cannot_be_excluded_as_std_warmup(self):
         assembly = """
 20000100 <mpsc_comparison::engine::worker>:
