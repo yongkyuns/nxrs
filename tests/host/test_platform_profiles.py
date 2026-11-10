@@ -159,6 +159,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-devkit-imu-sensor-reference": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-protected-sensor-reference": {"imu": "nuttx"},
                             "esp32s3-service-footprint": {},
+                            "esp32s3-ram-footprint": {},
                             "esp32s3-sync-iram": {},
                             "esp32s3-mpsc": {},
                             "pico2w-mpsc": {},

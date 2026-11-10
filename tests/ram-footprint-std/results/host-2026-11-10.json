@@ -5,7 +5,7 @@
   "physical_hardware_qualified": false,
   "target_compile_qualified_by_this_evidence": false,
   "source_identity": "uncommitted content identified by exact source_sha256; base_commit is not the tested source identity",
-  "base_commit": "1c6e92b477afa802d27921a9a1c7f98fcc4a9409",
+  "base_commit": "12d261ba8ea37b4f48f57d5e4ebdfeff5c568da8",
   "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)\nbinary: rustc\ncommit-hash: 1159e78c4747b02ef996e55082b704c09b970588\ncommit-date: 2025-09-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.90.0\nLLVM version: 20.1.8\n",
   "cargo": "cargo 1.90.0 (840b83a10 2025-07-30)",
   "host_architecture": "x86_64-unknown-linux-gnu",
@@ -34,8 +34,8 @@
     "shared/messaging/src/channel.rs": "74037ceee387b161d747b82b94dbd8adb34d2e5114d325f8ea92702f3effbd92",
     "shared/messaging/src/lib.rs": "9bb274d6115fbd7ebfb32a8fe44bd01cda1624910a9b5de77b7fdc46efdb8002",
     "tests/allocation-probe/Cargo.toml": "e6073b06a638af69d1b0ebcb5cff47f131f3c90d999e5f649352f86c3eb32b9c",
-    "tests/allocation-probe/src/lib.rs": "32688b83393f79fab61a23ef2fd050ae1b30aff353c4b505807dc4a2b1fc5bbe",
-    "tests/allocation-probe/src/tests.rs": "34945eb53547e9e68b458e28ac6dd0b8c401edfbbd27fb3b093281a77a47580f",
+    "tests/allocation-probe/src/lib.rs": "98072f780a3ec949d4d13c899a5c1d8580e3913825a64fd02b650083e1687799",
+    "tests/allocation-probe/src/tests.rs": "ca0dadbddfd885b67d55e9322ef5ff2c8fd42fdb883035fbb94ef0117f1a4658",
     "tests/ram-footprint-std/Cargo.lock": "48fe5842269dcb0baf73b6d1466e62550c53ae89dcc5b516de17c69a03ddf035",
     "tests/ram-footprint-std/Cargo.toml": "67a6f5bfa2530e37921177ec1abe0da018fddd0ad3dae3a2118ed27e146a9390",
     "tests/ram-footprint-std/ffi/observe.c": "281b983cbf5f8bdbc89be7538b7dc99c830850a9f55834136074d13cd85e11bc",
@@ -51,10 +51,10 @@
     "tests/ram-footprint-std/test_report.py": "0a95b8028dd4231b01fe6eb127b879fd24a724fbd61e5a82fe052def0779f12a"
   },
   "executable_sha256": {
-    "ram-baseline": "7181e5ce46c50cad06ef9f4f7a215e5a0d0d61c375941d1b380bfeb188422803",
-    "ram-crossbeam-select": "9fd48ab41cbb74a95cefbd60db0aa2641d48f82b06f946a33fec616144885c20",
-    "ram-threads": "be5fa9c9ceb167550dd136351afefdf9aa15601bb16b5d9bccd125da10649e17",
-    "ram-std-inbox": "dada4b99154661dda654629d7894019ee19bd6f983b06631a78b6fc4f9da1c78"
+    "ram-threads": "683c4839505e41364b5ca6ffdd76f76e3769e43f4457f935d824b566328a376c",
+    "ram-std-inbox": "57e390180d1af29f3091b016755d81f5f3757c992e3d25c017f268cb2f82d48f",
+    "ram-baseline": "7addcb6873071941e690335e3410267c0e378a0d4c8cee5c8dff1e5d98634b96",
+    "ram-crossbeam-select": "532103c3bb9ccd3ef0b7e4fb069010fba7b028067b39ddaa4b70ae979342be3a"
   },
   "invocations": [
     {

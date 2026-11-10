@@ -49,6 +49,37 @@ struct mallinfo test_mallinfo(void);
 """,
 }
 
+# Parse the real declarations before redirecting calls. In particular, glibc's
+# fortified mq_open/poll inline functions use assembler aliases that can bypass
+# a command-line -D rename and accidentally reach the host kernel instead.
+MOCK_REDIRECT = r"""
+#define _POSIX_C_SOURCE 200809L
+#include <mqueue.h>
+#include <poll.h>
+#include <pthread.h>
+int test_pthread_create(pthread_t *, const pthread_attr_t *,
+                        void *(*)(void *), void *);
+int test_pthread_join(pthread_t, void **);
+int test_pthread_attr_setstacksize(pthread_attr_t *, size_t);
+mqd_t test_mq_open(const char *, int, ...);
+int test_mq_close(mqd_t);
+int test_mq_unlink(const char *);
+int test_mq_send(mqd_t, const char *, size_t, unsigned);
+ssize_t test_mq_receive(mqd_t, char *, size_t, unsigned *);
+int test_mq_getattr(mqd_t, struct mq_attr *);
+int test_poll(struct pollfd *, nfds_t, int);
+#define pthread_create test_pthread_create
+#define pthread_join test_pthread_join
+#define pthread_attr_setstacksize test_pthread_attr_setstacksize
+#define mq_open test_mq_open
+#define mq_close test_mq_close
+#define mq_unlink test_mq_unlink
+#define mq_send test_mq_send
+#define mq_receive test_mq_receive
+#define mq_getattr test_mq_getattr
+#define poll test_poll
+"""
+
 HARNESS = r"""
 #define _POSIX_C_SOURCE 200809L
 #include "runtime.h"
@@ -355,14 +386,15 @@ class NativeRamControls(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
         (cls.root / "harness.c").write_text(HARNESS)
+        (cls.root / "mock_redirect.h").write_text(MOCK_REDIRECT)
         cls.binaries = {}
 
     @classmethod
     def tearDownClass(cls):
         cls.temporary.cleanup()
 
-    def executable(self, layout=0, watermark=1, stack=4096, coloration=1):
-        key = (layout, watermark, stack, coloration)
+    def executable(self, layout=0, watermark=1, stack=4096, coloration=1, fortify=0):
+        key = (layout, watermark, stack, coloration, fortify)
         if key in self.binaries:
             return self.binaries[key]
         name = "-".join(map(str, key))
@@ -372,10 +404,9 @@ class NativeRamControls(unittest.TestCase):
                  f"-DES_STACK_BYTES={stack}", "-I", str(self.root), "-I", str(HERE)]
         if not coloration:
             flags.append("-DMOCK_NO_COLORATION=1")
-        replacements = ["pthread_create", "pthread_join", "pthread_attr_setstacksize",
-                        "mq_open", "mq_close", "mq_unlink", "mq_send", "mq_receive",
-                        "mq_getattr", "poll"]
-        subprocess.run([*flags, "-D__NuttX__", *[f"-D{x}=test_{x}" for x in replacements],
+        if fortify:
+            flags.extend(["-U_FORTIFY_SOURCE", f"-D_FORTIFY_SOURCE={fortify}"])
+        subprocess.run([*flags, "-D__NuttX__", "-include", str(self.root / "mock_redirect.h"),
                         "-c", str(HERE / "platform_nuttx.c"), "-o", str(obj)],
                        check=True, capture_output=True, text=True)
         subprocess.run([*flags, str(self.root / "harness.c"), str(obj),
@@ -455,6 +486,16 @@ class NativeRamControls(unittest.TestCase):
         results = records(result.stdout, "ES_ALLOC_RESULT")
         self.assertNotEqual(results[0]["errors"], "0")
         self.assertEqual(results[1]["errors"], "0")
+
+    def test_fortified_system_headers_cannot_bypass_mock_queues_or_poll(self):
+        for layout, queues in ((0, 60), (1, 20)):
+            with self.subTest(layout=layout):
+                result = self.run_case("alloc-queues", "saturation", layout=layout, fortify=3)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                summary = self.assert_clean(result)
+                self.assertEqual(summary["queue_opens"], str(2 * queues))
+                self.assertEqual(summary["captures"], "20")
+                self.assertEqual(records(result.stdout, "ES_SAT_RESULT")[0]["errors"], "0")
 
     def test_partial_queue_failure_closes_only_owned_queues_and_can_retry(self):
         result = self.run_case("alloc-queues", "alloc-queues", fault={"FAIL_QUEUE_AT": "3"})
