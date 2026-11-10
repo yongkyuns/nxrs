@@ -333,6 +333,7 @@ dependencies = [
 name = "nxrs-acquisition"
 version = "0.1.0"
 dependencies = [
+ "embedded-hal",
  "nxrs-build-support",
  "nxrs-messaging",
 ]
@@ -604,6 +605,7 @@ name = "nxrs-imu-devices"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
+ "nxrs-acquisition",
  "nxrs-bmi270",
  "nxrs-build-support",
  "nxrs-i2c",

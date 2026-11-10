@@ -1,6 +1,6 @@
 //! Diagnostics for the selected physical device, enabled by the `probe` feature.
 use crate::selected as platform;
-pub use imu::probe::Timing;
+pub use acquisition::probe::Timing;
 use imu::{AppliedConfig, Config, DeviceError, Event, Session};
 use std::boxed::Box;
 

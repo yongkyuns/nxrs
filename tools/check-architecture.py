@@ -42,9 +42,9 @@ PORTABLE_EXTERNAL: set[str] = set()
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    # Embedded bus traits for the IMU's driver adaptation and timing observer.
+    # Embedded bus traits for shared acquisition timing observers.
     # Bus access and chip protocols belong to independent driver packages.
-    'nxrs-imu': {'embedded-hal'},
+    'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-imu-devices': {'embedded-hal'},
     # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.

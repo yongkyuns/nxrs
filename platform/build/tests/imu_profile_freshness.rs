@@ -51,7 +51,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         root.join("Cargo.toml"),
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
-             [features]\nprobe = []\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
+             [features]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\nnxrs-messaging = {{ path = {:?} }}\n\
              nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
@@ -99,8 +99,6 @@ pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 #[cfg(not(unix))] pub trait Device {}
 // Every host checks generated bindings below. Unix hosts additionally compile
 // the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
-#[cfg(unix)]
-#[path = @PROBE@] pub mod probe;
 #[cfg(unix)]
 mod ffi {
     pub fn transfer(_: i32, _: u8, _: u32, _: &[u8], _: &mut [u8]) -> std::io::Result<()> {
@@ -171,10 +169,6 @@ fn main() {
         .replace("@SESSION@", &format!("{:?}", source.join("hal/imu/src/session.rs")))
         .replace("@DEVICE_STATE@", &format!("{:?}", source.join("hal/imu/src/device_state.rs")))
         .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
-        .replace(
-            "@PROBE@",
-            &format!("{:?}", source.join("hal/imu/src/probe.rs")),
-        )
         .replace(
             "@RESOURCE@",
             &format!("{:?}", source.join("driver/i2c/tests/support/mod.rs")),

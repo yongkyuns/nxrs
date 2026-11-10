@@ -4,7 +4,6 @@ mod api;
 #[allow(dead_code, reason = "Unbound profiles do not acquire devices.")]
 mod device_state;
 mod platform;
-pub mod probe;
 mod session;
 pub use api::{AppliedConfig, Config, Device, DeviceError, Event, ImuSample, Session};
 pub use messaging::{DeliveryError, Rejected};

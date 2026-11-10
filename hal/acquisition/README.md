@@ -35,3 +35,10 @@ a second production backend. This extraction adds no worker or queue.
 terminal device failure remains observable. Interrupted wake writes retry. If a
 still-running worker cannot be woken, joining returns an error and retains the
 handle for retry; that error does not establish quiescence or release resources.
+
+`acquisition::probe` owns optional wake/drain timing and embedded-hal I²C/SPI
+transaction observers. Enable `probe` and attach an observer with `Trace::new`;
+callbacks run in task context and must not block. Without that feature, `Trace`
+is zero-sized, buses remain unwrapped and observer creation returns `None`.
+Callers choose observation points and map unavailable diagnostics to their own
+errors; sensor-specific diagnostic configuration stays in the device catalogue.

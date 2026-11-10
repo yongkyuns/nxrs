@@ -1,7 +1,8 @@
 //! Resource opening, acquisition and lifetime of a normalized IMU.
 use super::device_state::{DeviceState, DeviceUseGuard};
-use super::{gpio_resource, signal::Signal, trace::Trace};
+use super::{gpio_resource, signal::Signal};
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
+use acquisition::probe::Trace;
 use core::sync::atomic::{AtomicBool, Ordering};
 use peripheral::imu::{Buffering, Error, Imu};
 use std::{

@@ -1,6 +1,7 @@
 //! Concrete driver/resource wiring from the validated profile.
 use super::{resource, spi_resource};
-use imu::construction::{Instance, Observed, Trace};
+use acquisition::probe::{Observed, Trace};
+use imu::construction::Instance;
 use imu::{AppliedConfig, Config, DeviceError, Event, Session};
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
 mod resources;
@@ -40,13 +41,13 @@ include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 pub(crate) fn open_probed(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
-    observe: impl Fn(imu::probe::Timing) + Send + Sync + 'static,
+    observe: impl Fn(acquisition::probe::Timing) + Send + Sync + 'static,
     sensor_reference: bool,
 ) -> Result<(std::boxed::Box<dyn Session + Send>, AppliedConfig), DeviceError> {
     primary_instance()
         .start(
             config,
-            Trace::new(observe)?,
+            Trace::new(observe).ok_or(DeviceError::Unsupported)?,
             |sensor| {
                 if sensor_reference {
                     sensor.enable_sensor_reference().map_err(Into::into)

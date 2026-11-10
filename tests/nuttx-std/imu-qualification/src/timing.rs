@@ -1,5 +1,5 @@
 //! Fixed-size, task-context timing summaries printed after acquisition joins.
-use imu::probe::Timing;
+use imu_devices::probe::Timing;
 use std::{
     sync::{
         atomic::{AtomicU32, Ordering},

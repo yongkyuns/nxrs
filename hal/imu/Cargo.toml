@@ -12,10 +12,9 @@ kind = "hal-capability"
 platforms = ["mock", "nuttx", "simulation"]
 
 [features]
-probe = ["dep:embedded-hal"]
+probe = ["nxrs-acquisition/probe"]
 
 [dependencies]
-embedded-hal = { version = "=1.0.0", optional = true }
 nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 nxrs-acquisition = { path = "../acquisition" }

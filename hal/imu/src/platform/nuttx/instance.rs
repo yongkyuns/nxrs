@@ -1,8 +1,8 @@
 //! Canonical storage remains in the device; a worker borrows it until retirement.
 use super::device_state::DeviceState;
-use super::{device, events, trace::Trace};
+use super::{device, events};
 use crate::{api::Sealed, AppliedConfig, Config, Device, DeviceError, Event, Session};
-use acquisition::{readiness, Worker};
+use acquisition::{probe::Trace, readiness, Worker};
 use peripheral::imu::{Error, Imu};
 use std::sync::Mutex;
 

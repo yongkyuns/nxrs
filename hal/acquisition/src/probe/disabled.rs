@@ -1,5 +1,5 @@
 //! Ordinary acquisition carries no diagnostic state or observer checks.
-use crate::{probe::Timing, DeviceError};
+use super::Timing;
 use std::time::Instant;
 
 #[derive(Clone, Default)]
@@ -11,15 +11,16 @@ impl Trace {
     pub fn observe<T>(self, inner: T) -> T {
         inner
     }
-    pub fn new(_: impl Fn(Timing) + Send + Sync + 'static) -> Result<Self, DeviceError> {
-        Err(DeviceError::Unsupported)
+    /// Returns `None` when instrumentation was not compiled with `probe`.
+    pub fn new(_: impl Fn(Timing) + Send + Sync + 'static) -> Option<Self> {
+        None
     }
 
     #[inline]
-    pub(crate) fn wake(&self, _: Option<Instant>) {}
+    pub fn wake(&self, _: Option<Instant>) {}
 
     #[inline]
-    pub(crate) fn drain(&self, _: bool) {}
+    pub fn drain(&self, _: bool) {}
 }
 
 #[cfg(test)]
@@ -36,9 +37,6 @@ mod tests {
         let address = &*resource as *const i32;
         let direct: std::boxed::Box<i32> = trace.observe(resource);
         assert_eq!(&*direct as *const i32, address);
-        assert_eq!(
-            Trace::new(|_| panic!("disabled observer called")).err(),
-            Some(DeviceError::Unsupported)
-        );
+        assert!(Trace::new(|_| panic!("disabled observer called")).is_none());
     }
 }

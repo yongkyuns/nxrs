@@ -199,7 +199,8 @@ pub(super) mod spi_ffi {
     }
 }
 
-use super::{device, signal, trace};
+use super::{device, signal};
+use acquisition::probe as trace;
 use acquisition::readiness;
 #[allow(dead_code, reason = "The fixture uses contextual GPIO cleanup.")]
 #[path = "../../../../driver/gpio/tests/support/mod.rs"]
@@ -211,8 +212,8 @@ mod resource;
 mod resources;
 #[path = "../../../../driver/spi/tests/support/mod.rs"]
 mod spi_resource;
-use super::{Observed, Trace};
 use crate::DeviceError;
+use acquisition::probe::{Observed, Trace};
 use peripheral::imu::Imu as ImuDevice;
 
 type Bmi270Sensor = nxrs_bmi270::Bmi270<resources::Bus, resources::Delay>;
@@ -739,7 +740,7 @@ mod diagnostics {
 
     #[test]
     fn timing_marks_worker_io_between_setup_and_cleanup() {
-        use crate::probe::Timing;
+        use acquisition::probe::Timing;
         use std::sync::Arc;
 
         let _serial = SERIAL.lock().unwrap();
