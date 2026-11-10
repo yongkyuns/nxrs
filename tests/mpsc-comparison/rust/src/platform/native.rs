@@ -15,6 +15,7 @@ unsafe extern "C" {
     fn mp_set_schedule(policy: i32, priority: i32) -> i32;
     fn mp_tid() -> usize;
     fn mp_waiting(tid: usize) -> i32;
+    fn mp_queue_waiting(tid: usize, sending: i32) -> i32;
     fn mp_gate_init(index: usize) -> i32;
     fn mp_gate_post(index: usize) -> i32;
     fn mp_gate_wait(index: usize) -> i32;
@@ -93,6 +94,9 @@ pub fn policy() -> u32 {
 }
 pub fn waiting(tid: usize) -> bool {
     unsafe { mp_waiting(tid) == 1 }
+}
+pub fn queue_waiting(tid: usize, sending: bool) -> bool {
+    unsafe { mp_queue_waiting(tid, i32::from(sending)) == 1 }
 }
 pub fn gate_init(i: usize) {
     check(unsafe { mp_gate_init(i) } == 0, "gate-init");

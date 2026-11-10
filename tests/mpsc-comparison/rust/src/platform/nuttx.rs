@@ -75,9 +75,7 @@ pub fn initialize_console() {
         fatal();
     }
 }
-pub fn execute(words: &[&str]) {
-    crate::execute_std(words);
-}
+include!(concat!(env!("OUT_DIR"), "/backend.rs"));
 pub fn read() -> Option<u8> {
     let mut b = [0];
     let result = CONSOLE.get().unwrap().lock().unwrap().read(&mut b);

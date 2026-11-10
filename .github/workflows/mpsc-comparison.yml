@@ -1,0 +1,158 @@
+name: MPSC comparison controls
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/mpsc-comparison.yml'
+      - '.github/scripts/install-ubuntu-packages.sh'
+      - 'tests/mpsc-comparison/**'
+      - 'tests/rtos_harness/zephyr.py'
+      - 'tests/nuttx-std/channels/mpsc-fixture-iram.ld'
+      - 'tests/event-services-comparison/image_package.py'
+      - 'platform/nuttx/platforms/*-mpsc.toml'
+      - 'platform/nuttx/linker/esp32s3-mpsc.ld'
+      - 'platform/nuttx/std-app/**'
+      - 'platform/build/**'
+      - 'platform/build-support/**'
+      - 'upstream/rust-std/**'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'upstream/esp-hal-3rdparty/**'
+      - 'upstream/build-patches.json'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'tools/install-qemu-tools.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/config.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpsc-comparison-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  RUSTUP_TOOLCHAIN: '1.90.0'
+  NUTTX_STD_COMPAT_FIXES: '1'
+
+jobs:
+  host:
+    name: Host work accounting and control rejection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ env.SOURCE_SHA }}
+          submodules: true
+      - name: Install pinned host tools
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          python3 -m pip install --break-system-packages pyelftools==0.32
+      - name: Check actual host engine and native adapter controls
+        run: |
+          cargo fmt --manifest-path tests/mpsc-comparison/rust/Cargo.toml --check
+          python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
+
+  nuttx-pair:
+    name: NuttX std and POSIX queue builds (${{ matrix.board }})
+    needs: host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [esp32s3, pico2w]
+    env:
+      MPSC_BOARD: ${{ matrix.board }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ env.SOURCE_SHA }}
+          submodules: true
+      - name: Install common build tools
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev
+          python3 -m venv target/mpsc-venv
+          target/mpsc-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 pyelftools==0.32
+          echo "$GITHUB_WORKSPACE/target/mpsc-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: matrix.board == 'esp32s3'
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Install pinned Xtensa tools
+        if: matrix.board == 'esp32s3'
+        run: |
+          bash .github/scripts/install-ubuntu-packages.sh libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          bash tools/install-qemu-tools.sh
+      - name: Install pinned ARM Rust and cross compiler
+        if: matrix.board == 'pico2w'
+        run: |
+          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Resolve private tool paths
+        shell: bash
+        run: |
+          if test "$MPSC_BOARD" = esp32s3; then
+            source target/qemu-tools/environment.sh
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          root = Path.cwd()
+          board = os.environ['MPSC_BOARD']
+          tools = {'python': str(root / 'target/mpsc-venv/bin/python')}
+          if board == 'esp32s3':
+              tools['nuttx-tools'] = str(root / 'target/qemu-tools')
+              tools['rustc'] = str(root / 'target/qemu-tools/rust-installed/bin/rustc')
+              compiler = shutil.which('xtensa-esp32s3-elf-gcc')
+          else:
+              tools['rustc'] = subprocess.check_output(
+                  ['rustup', 'which', '--toolchain', 'nightly-2025-09-15', 'rustc'], text=True).strip()
+              compiler = shutil.which('arm-none-eabi-gcc')
+          if compiler is None:
+              raise SystemExit('missing native cross compiler')
+          tools['cross-prefix'] = compiler[:-3]
+          path = root / 'target/mpsc-tools.toml'
+          path.write_text(f'[{board}]\n' + ''.join(f'{key} = {json.dumps(value)}\n' for key, value in tools.items()))
+          PY
+      - name: Build both transports with the shared NuttX profile
+        run: |
+          python3 tests/mpsc-comparison/bench.py build --board "$MPSC_BOARD" \
+            --runtime nuttx --backend std --tools target/mpsc-tools.toml \
+            --out "target/mpsc-pair/$MPSC_BOARD/std"
+          python3 tests/mpsc-comparison/bench.py build --board "$MPSC_BOARD" \
+            --runtime nuttx --backend native --tools target/mpsc-tools.toml \
+            --out "target/mpsc-pair/$MPSC_BOARD/native"
+      - name: Verify transport selection and shared kernel implementation
+        run: |
+          python3 tests/mpsc-comparison/bench.py check-control \
+            --nuttx-build "target/mpsc-pair/$MPSC_BOARD/std" \
+            --nuttx-native-build "target/mpsc-pair/$MPSC_BOARD/native" \
+            > "target/mpsc-pair/$MPSC_BOARD/control.json"
+      - name: Retain build and inspection evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mpsc-nuttx-pair-${{ matrix.board }}
+          path: |
+            target/mpsc-pair/**/*.json
+            target/mpsc-pair/**/*.log
+            target/mpsc-pair/**/resolved.config
+            target/mpsc-pair/**/symbols.txt
+            target/mpsc-pair/**/nuttx/nuttx
+            target/mpsc-pair/**/nuttx/nuttx.bin
+            target/mpsc-pair/**/firmware.bin
+          if-no-files-found: warn
+          retention-days: 14

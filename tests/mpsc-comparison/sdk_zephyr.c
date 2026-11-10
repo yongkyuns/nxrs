@@ -33,6 +33,9 @@ int mp_get_schedule(int *v) {v[0]=0;v[1]=k_thread_priority_get(k_current_get());
 int mp_set_schedule(int policy,int priority) {(void)policy;k_thread_priority_set(k_current_get(),priority);return 0;}
 uintptr_t mp_tid(void) {return (uintptr_t)k_current_get();}
 int mp_waiting(uintptr_t tid) {struct k_thread *t=(struct k_thread *)tid;return k_thread_priority_get(t)==20&&(t->base.thread_state&_THREAD_PENDING)&&t->base.pended_on==&queue.wait_q;}
+/* Zephyr uses one wait queue for blocked producers and the unique receiver.
+ * The Rust phase proves the direction; this witness proves object identity. */
+int mp_queue_waiting(uintptr_t tid,int sending) {(void)sending;return mp_waiting(tid);}
 int mp_gate_init(size_t i) {return k_sem_init(&gates[i],0,UINT32_MAX);}
 int mp_gate_post(size_t i) {k_sem_give(&gates[i]);return 0;}
 int mp_gate_wait(size_t i) {return k_sem_take(&gates[i],K_SECONDS(60));}

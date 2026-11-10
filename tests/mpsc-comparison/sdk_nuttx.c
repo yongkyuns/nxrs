@@ -19,10 +19,9 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <assert.h>
+#include "sdk_nuttx_queue.h"
 
 static sem_t gates[20];
-static int sender=-1,receiver=-1,nonblocking=-1;
-static size_t message_bytes;
 static struct wdog_s watchdog;
 static struct wdog_s pulse;
 static void (*pulse_callback)(void);
@@ -38,28 +37,18 @@ int mp_sleep_ns(uint64_t ns) {struct timespec t={ns/1000000000u,ns%1000000000u};
 int mp_get_schedule(int *v) {struct sched_param p;if(sched_getparam(0,&p)<0)return errno;v[0]=sched_getscheduler(0);v[1]=p.sched_priority;return v[0]<0?errno:0;}
 int mp_set_schedule(int policy,int priority) {struct sched_param p={.sched_priority=priority};return sched_setscheduler(0,policy,&p)<0?errno:0;}
 uintptr_t mp_tid(void) {return gettid();}
-int mp_waiting(uintptr_t tid) {struct tcb_s *t=nxsched_get_tcb(tid);return t&&t->sched_priority==180&&(t->task_state==TSTATE_WAIT_SEM||t->task_state==TSTATE_WAIT_MQNOTFULL||t->task_state==TSTATE_WAIT_MQNOTEMPTY);}
+int mp_waiting(uintptr_t tid) {
+  irqstate_t flags=enter_critical_section();
+  struct tcb_s *t=nxsched_get_tcb(tid);
+  int waiting=t&&t->sched_priority==180&&t->task_state==TSTATE_WAIT_SEM;
+  leave_critical_section(flags);
+  return waiting;
+}
 int mp_gate_init(size_t i) {int r=nxsem_init(&gates[i],0,0);return r<0?r:nxsem_set_protocol(&gates[i],SEM_PRIO_NONE);}
 int mp_gate_post(size_t i) {return nxsem_post(&gates[i]);}
 /* Match Zephyr K_SECONDS(60): relative native ticks, retaining the same bound. */
 int mp_gate_wait(size_t i) {return nxsem_tickwait(&gates[i],SEC2TICK(60));}
 int mp_gate_destroy(size_t i) {return nxsem_destroy(&gates[i]);}
-int mp_queue_create(size_t capacity,size_t bytes) {
-  struct mq_attr a={.mq_maxmsg=capacity,.mq_msgsize=bytes};message_bytes=bytes;
-  sender=nxmq_open("mpsc_perf",O_CREAT|O_EXCL|O_WRONLY,0600,&a);
-  if(sender<0)return sender;
-  receiver=nxmq_open("mpsc_perf",O_RDONLY);
-  if(receiver<0)return receiver;
-  nonblocking=nxmq_open("mpsc_perf",O_WRONLY|O_NONBLOCK);
-  return nonblocking<0?nonblocking:0;
-}
-int mp_queue_send(const uint8_t *data,int blocking) {
-  /* Each call uses an immutable descriptor: no shared flag mutation. */
-  int r=nxmq_send(blocking?sender:nonblocking,(const char *)data,message_bytes,0);
-  return r==-EAGAIN?1:r;
-}
-int mp_queue_receive(uint8_t *data) {ssize_t n=nxmq_receive(receiver,(char *)data,message_bytes,NULL);return n==(ssize_t)message_bytes?0:n<0?(int)n:-EIO;}
-int mp_queue_destroy(void) {int a=nxmq_close(receiver),b=nxmq_close(sender),c=nxmq_close(nonblocking),d=nxmq_unlink("mpsc_perf");return a?a:b?b:c?c:d;}
 uint64_t mp_runtime(uintptr_t tid) {
 #if defined(CONFIG_SCHED_CRITMONITOR) && CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD >= 0
   irqstate_t flags=enter_critical_section();struct tcb_s *t=nxsched_get_tcb(tid);

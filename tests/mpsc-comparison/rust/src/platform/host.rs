@@ -43,6 +43,9 @@ pub fn tid() -> usize {
 pub fn waiting(_: usize) -> bool {
     true
 } // No native scheduling claim on a host.
+pub fn queue_waiting(_: usize, _: bool) -> bool {
+    false
+} // A native queue is unavailable on the host.
 struct Gate {
     count: Mutex<u32>,
     changed: Condvar,

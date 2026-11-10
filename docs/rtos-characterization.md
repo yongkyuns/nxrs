@@ -133,8 +133,12 @@ does not produce an equivalent smaller application.
 Reuse [the maintained MPSC fixture](../tests/mpsc-comparison/README.md) for the
 single-inbox path. It already runs a shared Rust workload using NuttX std
 `sync_channel` and Zephyr `k_msgq` on ESP32-S3 and Pico 2 W. Comparisons remain
-within one board. It does not run Rust std on Zephyr; a matched native NuttX
-control is still needed to attribute kernel versus std-backend costs.
+within one board. It does not run Rust std on Zephyr. A separately selected
+public POSIX `mq_*` NuttX control now retains the same Rust workload and std
+threads; build receipts check the common kernel configuration, patches and
+link-relevant archive contents. This isolates a queue-path substitution, not
+the complete NXRS/native-C difference. Physical capture and final hot-path
+placement qualification still remain before attributing a measured timing gap.
 
 For independent stop/important/ordinary capacity, reuse the
 [existing three-class Wi-Fi owner](../tests/nuttx-std/wifi/src/owner.rs) and
@@ -217,6 +221,7 @@ implementation references.
 | [Modern std channel campaign](std-channel-performance.md) | The selected NuttX bounded std path has physical delivery, overload and throughput observations. | One bounded channel is not selected multi-queue service progress or complete device-to-output qualification. Each full timing/counter matrix had one pass; only a focal case had additional repeats. |
 | [Native C/Rust service qualification](../tests/service-qualification/README.md) | Scoped pressure, same-boot restart, failure/recovery and resource-reclamation cases passed. | It shares native adapters, excludes production std/Crossbeam paths, and does not qualify input IRQ latency or arbitrary failure recovery. |
 | [New ordinary Rust RAM controls](../tests/ram-footprint-std/README.md) | Actual std/inbox/Crossbeam paths have host accounting/lifecycle checks and target build controls. | Host behavior and target linking do not supply physical target heap, stack or timing measurements. |
+| [Native NuttX queue control](../tests/mpsc-comparison/README.md) | The maintained workload can select std or public POSIX queues under the same NuttX/std-thread model; receipts check kernel inputs and the selected linked API. | A new build/capture cohort is required. It does not measure the complete NXRS layer, unequal-priority progress, or qualified final placement by itself. |
 | [Architecture and capability contracts](concurrency-event-communication.md) | Ownership, independent admission, failure retention and shutdown requirements are explicit. | A requirement is not an executed witness; each chosen provider/runtime still needs qualification. |
 
 The old lean RAM figures put native-adapter NuttX Rust at 221,108 B and Zephyr C

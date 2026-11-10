@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, capture and replay the same MPSC workload on NuttX/std and Zephyr/k_msgq."""
+"""Build, capture and replay the shared workload with std and native transports."""
 import argparse
 import json
 from pathlib import Path
@@ -14,6 +14,7 @@ def main():
     p = commands.add_parser('build')
     p.add_argument('--board', choices=build.BOARDS, required=True)
     p.add_argument('--runtime', choices=['nuttx', 'zephyr'], required=True)
+    p.add_argument('--backend', choices=['std', 'native'], help='default: std on NuttX, native on Zephyr')
     p.add_argument('--tools', type=Path, required=True, help='private tool paths; see toolchains.example.toml')
     p.add_argument('--out', type=Path, required=True)
     p = commands.add_parser('run', help='capture only; does not flash or reset a device')
@@ -27,24 +28,29 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p = commands.add_parser('compare')
     p.add_argument('--nuttx-build', type=Path, required=True)
-    p.add_argument('--zephyr-build', type=Path, required=True)
+    p.add_argument('--nuttx-native-build', type=Path)
+    p.add_argument('--zephyr-build', type=Path)
     p.add_argument('captures', type=Path, nargs='+')
+    p = commands.add_parser('check-control', help='validate the NuttX substrate without physical captures')
+    p.add_argument('--nuttx-build', type=Path, required=True)
+    p.add_argument('--nuttx-native-build', type=Path, required=True)
     p = commands.add_parser('plan', help='16 cases per runtime, alternating runtime order each pass')
     p.add_argument('--passes', type=int, choices=range(1, 11), default=3)
+    p.add_argument('--include-native-control', action='store_true', help='include the separate NuttX/native image')
     args = parser.parse_args()
     if args.operation == 'build':
         result = build.build(args)
-        result = {k: result[k] for k in ('board', 'runtime', 'build_id', 'image_file', 'elf_file')}
+        result = {k: result[k] for k in ('board', 'runtime', 'backend', 'build_id', 'image_file', 'elf_file')}
     elif args.operation == 'run':
         result = capture.capture(args)
     elif args.operation == 'replay':
         result = capture.replay(args.output, args.build_directory)
     elif args.operation == 'compare':
         result = capture.compare(args)
+    elif args.operation == 'check-control':
+        result = build.validate_nuttx_control(build.receipt(args.nuttx_build), build.receipt(args.nuttx_native_build))
     else:
-        result = [dict(pass_number=i, runtime=runtime, case=case, **values)
-                  for i in range(1, args.passes + 1) for case, values in capture.cases().items()
-                  for runtime in (['nuttx', 'zephyr'] if i % 2 else ['zephyr', 'nuttx'])]
+        result = capture.plan(args.passes, args.include_native_control)
     print(json.dumps(result, indent=2))
 
 

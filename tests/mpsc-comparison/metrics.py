@@ -30,8 +30,9 @@ def analyze(raw,expected=None):
     def group(kind):return [r for r in rows if r['record']==kind]
     require(len(group('metadata'))==len(group('result'))==1,'missing/duplicate metadata/result')
     m=group('metadata')[0];result=group('result')[0]
-    require(m['schema']=='mpsc-comparison-v2' and m['runtime'] in {'host','nuttx','zephyr'},'scope')
+    require(m['schema']=='mpsc-comparison-v3' and m['runtime'] in {'host','nuttx','zephyr'},'scope')
     require(m['mode'] in {'sustained','stream','paced','burst','overload','backpressure'} and m['backend'] in {'std','native'},'case')
+    require((m['runtime'],m['backend']) in {('host','std'),('nuttx','std'),('nuttx','native'),('zephyr','native')},'runtime/backend')
     require(m['native'] is (m['runtime']!='host'),'native label')
     require(m['clock_hz'] in (1000000,240000000) and m['warmup']==128,'clock/warmup')
     n=integer(m['producers'],1,4);require(n in (1,4),'producers')
@@ -53,6 +54,8 @@ def analyze(raw,expected=None):
         require(p['start_policy']==p['end_policy']==(1 if m['runtime']=='nuttx' else 0),'participant policy')
         if m['native']:require(p['internal']==1 and 0<p['stack_used']<=p['stack_bytes'],'stack placement/usage')
         integer(p['cpu_ns'],0,MAX_U64)
+    observer='host-phase-only' if m['runtime']=='host' else 'queue-object' if m['backend']=='native' else 'semaphore-state-and-phase'
+    require(m.get('wait_observer')==observer,'blocked-wait observer')
     accounting=all(p['cpu_ns']!=MAX_U64 for p in roles)
     require(accounting or all(p['cpu_ns']==MAX_U64 for p in roles),'partial CPU observations')
     if expected and 'accounting' in expected:require(accounting==expected['accounting'],'CPU image mismatch')
@@ -98,7 +101,7 @@ def analyze(raw,expected=None):
         require(h['used']<=h['peak_since_boot'] and h['largest_free']<=h['free'],'heap bounds')
     reads=group('counter-pair');require(len(reads)==64,'counter control')
     cpu=sum(p['cpu_ns'] for p in roles) if accounting else None
-    output=dict(schema='mpsc-comparison-summary-v2',**{k:m[k] for k in ('clock_hz','build_id','runtime','backend','mode','producers','payload_bytes','capacity','samples','native','sample_storage_bytes')},offered=count,admitted=delivered_count,rejected=count-delivered_count,delivered=delivered_count,
+    output=dict(schema='mpsc-comparison-summary-v3',**{k:m[k] for k in ('clock_hz','build_id','runtime','backend','wait_observer','mode','producers','payload_bytes','capacity','samples','native','sample_storage_bytes')},offered=count,admitted=delivered_count,rejected=count-delivered_count,delivered=delivered_count,
         admitted_identity_sha256=hashlib.sha256(json.dumps(list(range(128,128+count)) if sustained else [s['id'] for s in handled]).encode()).hexdigest(),
         delivered_per_nominal_second=delivered_count*m['clock_hz']/traffic_ticks,traffic_ticks=traffic_ticks,protocol_ticks=ticks,
         delivery_ticks=stats([delta(s['received'],s['offered']) for s in handled]),release_to_receive_ticks=stats([delta(s['received'],s['planned']) for s in handled]),

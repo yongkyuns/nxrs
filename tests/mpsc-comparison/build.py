@@ -8,6 +8,7 @@ import secrets
 import struct
 import subprocess
 import sys
+import tempfile
 import tomllib
 
 HERE = Path(__file__).resolve().parent
@@ -16,6 +17,16 @@ sys.path.insert(0, str(HERE.parent))
 from rtos_harness.zephyr import ZEPHYR_SHA, check_checkout, resolved_config
 
 BOARDS = tomllib.loads((HERE / 'boards.toml').read_text())
+BUILD_SCHEMA = 'mpsc-comparison-build-v3'
+IDENTITY_FIELDS = ('schema', 'board', 'runtime', 'backend', 'source_sha256', 'board_contract', 'nonce')
+NATIVE_QUEUE_ROOTS = ('mp_queue_create', 'mp_queue_send', 'mp_queue_receive', 'mp_queue_destroy', 'mp_queue_waiting')
+
+
+def selected_backend(runtime, backend=None):
+    backend = backend or ('std' if runtime == 'nuttx' else 'native')
+    if (runtime, backend) not in {('nuttx', 'std'), ('nuttx', 'native'), ('zephyr', 'native')}:
+        raise ValueError('unsupported runtime/backend')
+    return backend
 
 
 def digest(path):
@@ -24,6 +35,135 @@ def digest(path):
 
 def canonical(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def transport_selection(elf, prefix, backend, destination):
+    """Check final-link API reachability, not the complete implementation graph."""
+    if backend not in ('std', 'native'):
+        raise ValueError('unsupported transport selection')
+    output = subprocess.check_output([prefix + 'nm', '--defined-only', '--format=posix', str(elf)], text=True)
+    defined = {parts[0] for line in output.splitlines()
+               if len(parts := line.split()) >= 2 and parts[1] in ('T', 't', 'W', 'w')}
+    retained = [name for name in NATIVE_QUEUE_ROOTS if name in defined]
+    passed = len(retained) == len(NATIVE_QUEUE_ROOTS) if backend == 'native' else not retained
+    record = dict(schema='mpsc-transport-selection-v1', elf_sha256=digest(elf), backend=backend,
+                  scope='final linked native queue API roots; not full algorithm or indirect-call qualification',
+                  native_queue_roots=list(NATIVE_QUEUE_ROOTS), retained_native_queue_roots=retained,
+                  native_queue_roots_required=backend == 'native', passed=passed)
+    destination.write_text(json.dumps(record, indent=2) + '\n')
+    if not passed:
+        raise ValueError('wrong or mixed linked transport selection; inspect transport-selection.json')
+    return record
+
+
+def archive_members(path, prefix):
+    """Fingerprint link inputs without debug paths or archive timestamps.
+
+    objcopy removes debug sections only. Symbols, relocations, executable and
+    data sections remain in each member. Preserve order; never ignore runtime
+    string/data differences or normalize an implementation mismatch away.
+    """
+    with tempfile.TemporaryDirectory(prefix='mpsc-kernel-identity-') as directory:
+        root = Path(directory)
+        normalized = root / 'normalized.a'
+        subprocess.run([prefix + 'objcopy', '--strip-debug', str(path), str(normalized)],
+                       check=True, capture_output=True)
+        names = subprocess.check_output([prefix + 'ar', 't', str(normalized)], text=True).splitlines()
+        if len(names) != len(set(names)) or any(Path(n).name != n or n in ('.', '..') for n in names):
+            raise ValueError('ambiguous/unsafe kernel archive members')
+        members = root / 'members'
+        members.mkdir()
+        subprocess.run([prefix + 'ar', 'x', str(normalized)], cwd=members, check=True, capture_output=True)
+        return [dict(name=name, sha256=digest(members / name)) for name in names]
+
+
+def kernel_identity(out, prefix, config):
+    """Retain raw archives as well as reproducible non-application identities."""
+    firmware = out / 'firmware'
+    archives = sorted((firmware / 'nuttx/staging').glob('*.a'))
+    archives = [path for path in archives if path.name != 'libapps.a']
+    if not archives:
+        raise ValueError('missing non-application kernel archives')
+    patch_files = sorted(firmware.glob('*-patches.json')) + [firmware / 'std-patch.json']
+    if not {'nuttx-patches.json', 'nuttx-apps-patches.json', 'std-patch.json'} <= {p.name for p in patch_files}:
+        raise ValueError('missing kernel/SDK patch receipts')
+    record = dict(schema='mpsc-nuttx-kernel-v1',
+                  scope='non-application staging archive members; debug stripped; member order retained',
+                  resolved_config_sha256=digest(config),
+                  patch_receipts={p.name: canonical(json.loads(p.read_text())) for p in patch_files},
+                  archives={})
+    for path in archives:
+        if not path.resolve().is_relative_to(out):
+            raise ValueError('kernel archive escapes owned build')
+        members = archive_members(path, prefix)
+        record['archives'][path.name] = dict(file=str(path.relative_to(out)),
+                                             raw_sha256=digest(path), members=members,
+                                             link_sha256=canonical(members))
+    destination = out / 'kernel-identity.json'
+    destination.write_text(json.dumps(record, indent=2) + '\n')
+    return destination, [*archives, *patch_files]
+
+
+def read_kernel_identity(root, record):
+    name = record.get('kernel_identity_file')
+    if name not in record['artifacts_sha256']:
+        raise ValueError('unbound kernel identity')
+    identity = json.loads((root / name).read_text())
+    if (identity.get('schema') != 'mpsc-nuttx-kernel-v1'
+            or identity.get('resolved_config_sha256') != digest(root / record['config_file'])
+            or not identity.get('archives')):
+        raise ValueError('kernel configuration/identity mismatch')
+    present = {p.name for p in (root / 'firmware/nuttx/staging').glob('*.a') if p.name != 'libapps.a'}
+    if set(identity['archives']) != present:
+        raise ValueError('kernel archive census changed')
+    for filename, expected in identity.get('patch_receipts', {}).items():
+        path = 'firmware/' + filename
+        if (Path(filename).name != filename or path not in record['artifacts_sha256']
+                or canonical(json.loads((root / path).read_text())) != expected):
+            raise ValueError('unbound kernel patch receipt')
+    if not {'nuttx-patches.json', 'nuttx-apps-patches.json', 'std-patch.json'} <= identity.get('patch_receipts', {}).keys():
+        raise ValueError('missing kernel/SDK patch identities')
+    for archive, value in identity['archives'].items():
+        path = value.get('file')
+        if (Path(archive).name != archive or archive == 'libapps.a'
+                or path not in record['artifacts_sha256']
+                or record['artifacts_sha256'][path] != value.get('raw_sha256')
+                or canonical(value.get('members')) != value.get('link_sha256')):
+            raise ValueError('unbound kernel archive identity')
+    return identity
+
+
+def comparable_kernel(identity):
+    """Exact resolved inputs and link-relevant bytes; final placement is separate."""
+    return dict(schema=identity['schema'], scope=identity['scope'],
+                resolved_config_sha256=identity['resolved_config_sha256'],
+                patch_receipts=identity['patch_receipts'],
+                archives={name: value['link_sha256'] for name, value in identity['archives'].items()})
+
+
+def validate_cohort(left, right):
+    fields = ('board', 'board_contract', 'source_sha256', 'rust_compiler', 'rust_compiler_sha256',
+              'c_compiler', 'c_compiler_sha256')
+    if any(left.get(key) is None or left[key] != right.get(key) for key in fields):
+        raise ValueError('unmatched build cohort')
+
+
+def validate_nuttx_control(std, native):
+    """Validate the queue substitution even when no physical captures exist."""
+    if ((std.get('runtime'), std.get('backend')) != ('nuttx', 'std')
+            or (native.get('runtime'), native.get('backend')) != ('nuttx', 'native')):
+        raise ValueError('expected NuttX std/native control images')
+    validate_cohort(std, native)
+    first, second = std.get('kernel_identity'), native.get('kernel_identity')
+    if first is None or second is None or comparable_kernel(first) != comparable_kernel(second):
+        raise ValueError('unmatched NuttX configuration, patches or kernel link inputs')
+    raw_differences = [name for name, archive in first['archives'].items()
+                       if archive['raw_sha256'] != second['archives'][name]['raw_sha256']]
+    return dict(resolved_config_and_patches_equal=True, non_application_link_inputs_equal=True,
+                raw_archives_identical=not raw_differences, raw_archive_differences=raw_differences,
+                scope=first['scope'], final_image_layout_equal=False,
+                thread_model='std::thread on both NuttX arms',
+                matched_placement_qualified=False, physical_timing_qualified=False)
 
 
 def inventory():
@@ -118,6 +258,7 @@ def validate_config(text, board, runtime):
 
 def build(args):
     board = BOARDS[args.board]
+    backend = selected_backend(args.runtime, getattr(args, 'backend', None))
     tools = tomllib.loads(args.tools.read_text())[args.board]
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -131,16 +272,17 @@ def build(args):
     env['PATH'] = os.pathsep.join([str(Path(prefix).parent), str(Path(tools['python']).parent),
                                   *tools.get('path', []), env['PATH']])
     env.update(RUSTC=tools['rustc'], RUSTC_BOOTSTRAP='1', MPSC_CLOCK_HZ=str(board['clock-hz']),
+               MPSC_BACKEND=backend,
                CARGO_PROFILE_RELEASE_OPT_LEVEL=board['opt-level'],
                CARGO_PROFILE_RELEASE_LTO=board['lto'], CARGO_PROFILE_RELEASE_CODEGEN_UNITS='1',
                CARGO_PROFILE_RELEASE_PANIC='abort', CARGO_PROFILE_RELEASE_DEBUG='false',
                CARGO_PROFILE_RELEASE_STRIP='none', NXRS_NUTTX_NATIVE_TOOLS='1',
                NXRS_ESP32S3_NATIVE_TOOLS='1', NXRS_NUTTX_BUILD_JOBS='4')
     inputs = inventory()
-    record = dict(schema='mpsc-comparison-build-v2', board=args.board, runtime=args.runtime,
+    record = dict(schema=BUILD_SCHEMA, board=args.board, runtime=args.runtime, backend=backend,
                   source_sha256=inputs, board_contract=board, nonce=secrets.token_hex(16),
                   status='failed', failure='incomplete build', physical_timing_qualified=False)
-    record['build_id'] = canonical({k: record[k] for k in ('schema', 'board', 'runtime', 'source_sha256', 'board_contract', 'nonce')})
+    record['build_id'] = canonical({k: record[k] for k in IDENTITY_FIELDS})
     env['MPSC_BUILD_ID'] = record['build_id']
     board_dir = HERE / 'boards' / args.board
     wrapper = out / 'sdk.c'
@@ -160,9 +302,10 @@ def build(args):
             if selected['selected_source_matches'] is not True:
                 raise ValueError('wrong std source selected')
             record['rust_compiler'] = subprocess.check_output([selected['rustc'], '-vV'], text=True)
+            record['rust_compiler_sha256'] = digest(selected['rustc'])
             if args.board == 'pico2w':
                 import placement
-                placement.prepare(out, prefix, env)
+                placement.prepare(out, prefix, env, backend=backend)
             elf, config = firmware / 'nuttx/nuttx', firmware / 'resolved.config'
             image = firmware / 'nuttx/nuttx.bin'
             evidence = [firmware / name for name in ('std-source.json', 'std-patch.json', 'nuttx-patches.json', 'abi-report.json', 'provenance.txt')]
@@ -182,6 +325,7 @@ def build(args):
                 modules.append(str(path))
             env.update(RUSTC=tools['rustc'], ZEPHYR_BASE=str(zephyr))
             record['rust_compiler'] = subprocess.check_output([tools['rustc'], '-vV'], text=True)
+            record['rust_compiler_sha256'] = digest(tools['rustc'])
             target = board['zephyr-target']
             command = ['cargo', 'rustc', '--manifest-path', HERE / 'rust/Cargo.toml', '--locked',
                        '--release', '--lib', '--target', target, '--target-dir', out / 'rust',
@@ -216,6 +360,17 @@ def build(args):
                 placement.prepare(out, prefix, env, zephyr=True)
             elf, config, image = (firmware / 'zephyr' / name for name in ('zephyr.elf', '.config', 'zephyr.bin'))
         validate_config(config.read_text(), args.board, args.runtime)
+        selection = out / 'transport-selection.json'
+        transport_selection(elf, prefix, backend, selection)
+        record['transport_selection_file'] = str(selection.relative_to(out))
+        evidence.append(selection)
+        if args.board == 'esp32s3':
+            import placement
+            placement.audit(elf, prefix, out / 'hot-audit.json', board=args.board, backend=backend)
+        if args.runtime == 'nuttx':
+            identity, kernel_evidence = kernel_identity(out, prefix, config)
+            record['kernel_identity_file'] = str(identity.relative_to(out))
+            evidence += [identity, *kernel_evidence]
         if args.board == 'esp32s3':
             packed = out / 'firmware.bin'
             packed.write_bytes(pack_image(image.read_bytes()))
@@ -240,9 +395,10 @@ def build(args):
 def receipt(root):
     root = Path(root).resolve()
     record = json.loads((root / 'build.json').read_text())
-    if record.get('schema') != 'mpsc-comparison-build-v2' or record.get('status') != 'complete' or record.get('failure') is not None:
+    if record.get('schema') != BUILD_SCHEMA or record.get('status') != 'complete' or record.get('failure') is not None:
         raise ValueError('incomplete build')
-    identity = canonical({k: record[k] for k in ('schema', 'board', 'runtime', 'source_sha256', 'board_contract', 'nonce')})
+    selected_backend(record['runtime'], record['backend'])
+    identity = canonical({k: record[k] for k in IDENTITY_FIELDS})
     if record['build_id'] != identity or record['source_sha256'] != inventory():
         raise ValueError('build identity/source drift')
     for name, sha in record['artifacts_sha256'].items():
@@ -252,5 +408,19 @@ def receipt(root):
     for key in ('image', 'elf', 'config'):
         if record[key + '_file'] not in record['artifacts_sha256']:
             raise ValueError('unbound ' + key)
+    name = record.get('transport_selection_file')
+    if name not in record['artifacts_sha256']:
+        raise ValueError('unbound transport selection')
+    selection = json.loads((root / name).read_text())
+    expected_roots = list(NATIVE_QUEUE_ROOTS) if record['backend'] == 'native' else []
+    if (selection.get('schema') != 'mpsc-transport-selection-v1' or selection.get('passed') is not True
+            or selection.get('elf_sha256') != record['artifacts_sha256'][record['elf_file']]
+            or selection.get('backend') != record['backend']
+            or selection.get('native_queue_roots') != list(NATIVE_QUEUE_ROOTS)
+            or selection.get('retained_native_queue_roots') != expected_roots
+            or selection.get('native_queue_roots_required') is not (record['backend'] == 'native')):
+        raise ValueError('transport selection does not match build/ELF')
     validate_config((root / record['config_file']).read_text(), record['board'], record['runtime'])
+    if record['runtime'] == 'nuttx':
+        record['kernel_identity'] = read_kernel_identity(root, record)
     return record

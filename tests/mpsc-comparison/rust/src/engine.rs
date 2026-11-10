@@ -123,13 +123,13 @@ fn enter(role: usize) {
     SHARED.roles[role].start_priority.store(priority, Release);
     SHARED.roles[role].start_policy.store(p::policy(), Release);
 }
-fn prove_senders(producers: usize) {
+fn prove_senders<C: Channel<W>, const W: usize>(producers: usize) {
     for _ in 0..producers {
         p::gate_wait(PROBE);
     }
     let guard = p::monotonic_ns();
     loop {
-        if (2..=producers + 1).all(|role| p::waiting(SHARED.roles[role].tid.load(Acquire))) {
+        if (2..=producers + 1).all(|role| C::waiting(SHARED.roles[role].tid.load(Acquire), true)) {
             return;
         }
         check(
@@ -139,9 +139,10 @@ fn prove_senders(producers: usize) {
         p::sleep_ns(1_000_000);
     }
 }
-fn prove_receiver() {
+fn prove_receiver<C: Channel<W>, const W: usize>() {
     let guard = p::monotonic_ns();
-    while !(SHARED.receiving.load(Acquire) && p::waiting(SHARED.roles[1].tid.load(Acquire))) {
+    while !(SHARED.receiving.load(Acquire) && C::waiting(SHARED.roles[1].tid.load(Acquire), false))
+    {
         check(
             p::monotonic_ns() - guard < 1_000_000_000,
             "empty-receiver-proof",
@@ -335,14 +336,14 @@ pub fn run<C: Channel<W>, const W: usize>(
     for role in 2..=producers + 1 {
         p::gate_post(role - 1);
     }
-    prove_senders(producers);
+    prove_senders::<C, W>(producers);
     p::gate_post(0);
     for _ in 0..producers {
         p::gate_wait(PRODUCED);
     }
     p::gate_wait(WARMED);
     p::gate_post(RECEIVE);
-    prove_receiver();
+    prove_receiver::<C, W>();
     let idle_begin = p::clock();
     let owner_idle_before = p::runtime(SHARED.roles[1].tid.load(Acquire));
     p::sleep_ns(100_000_000);
@@ -388,7 +389,7 @@ pub fn run<C: Channel<W>, const W: usize>(
     let mut blocked = 0;
     let mut recovery = begin;
     if mode == Mode::Backpressure {
-        prove_senders(producers);
+        prove_senders::<C, W>(producers);
         blocked = producers;
         recovery = p::clock();
         p::gate_post(RECEIVE);
@@ -441,10 +442,11 @@ pub fn run<C: Channel<W>, const W: usize>(
     p::watchdog_stop();
     p::restore(original);
     line(format_args!(
-        "MPSC {{\"record\":\"metadata\",\"schema\":\"mpsc-comparison-v2\",\"build_id\":\"{}\",\"runtime\":\"{}\",\"backend\":\"{}\",\"mode\":\"{}\",\"producers\":{},\"payload_bytes\":{},\"capacity\":{},\"samples\":{},\"warmup\":128,\"warm_blocked_senders\":{},\"prefix\":{},\"clock_hz\":{},\"begin\":{},\"end\":{},\"last_received\":{},\"wall_ns\":{},\"blocked_senders\":{},\"recovery_begin\":{},\"joined_ticks\":{},\"idle_ticks\":{},\"idle_owner_ns\":{},\"source_groups\":{},\"sample_storage_bytes\":{},\"native\":{}}}",
+        "MPSC {{\"record\":\"metadata\",\"schema\":\"mpsc-comparison-v3\",\"build_id\":\"{}\",\"runtime\":\"{}\",\"backend\":\"{}\",\"wait_observer\":\"{}\",\"mode\":\"{}\",\"producers\":{},\"payload_bytes\":{},\"capacity\":{},\"samples\":{},\"warmup\":128,\"warm_blocked_senders\":{},\"prefix\":{},\"clock_hz\":{},\"begin\":{},\"end\":{},\"last_received\":{},\"wall_ns\":{},\"blocked_senders\":{},\"recovery_begin\":{},\"joined_ticks\":{},\"idle_ticks\":{},\"idle_owner_ns\":{},\"source_groups\":{},\"sample_storage_bytes\":{},\"native\":{}}}",
         env!("MPSC_BUILD_ID"),
         p::NAME,
         backend,
+        C::WAIT_OBSERVER,
         mode.label(),
         producers,
         W * 4,
