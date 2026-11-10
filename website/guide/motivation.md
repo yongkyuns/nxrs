@@ -18,9 +18,9 @@ An RTOS is more than a scheduler. Its drivers, configuration system, subsystems,
 
 [Zephyr](https://docs.zephyrproject.org/latest/introduction/index.html) is a useful example: its integrated device model, configuration and modular subsystems give projects a substantial starting point. NXRS borrows ideas about separating reusable behavior from device and product configuration. That is an architectural influence, not an attempt to reproduce Zephyr's ecosystem or a claim to match its supported hardware.
 
-There is no adoption ranking here. The important question is which constraints and programming model fit a particular project, rather than which RTOS is universally preferable.
-
 ## Why NuttX is an interesting foundation
+
+NuttX is already used as a foundation in projects such as [PX4](https://docs.px4.io/v1.16/en/concept/architecture), [openvela](https://github.com/open-vela/docs), and [Sony's Spresense SDK](https://developer.sony.com/spresense/development-guides/introduction_en.html). The particular attraction for NXRS is its standards-oriented application interface.
 
 [NuttX emphasizes POSIX and ANSI interfaces](https://nuttx.apache.org/docs/latest/index.html). Files, sockets, threads and synchronization can be expressed through familiar interfaces rather than a separate application API for each operation. This offers a useful common boundary between embedded and host development.
 
@@ -48,7 +48,7 @@ Drivers, capability HALs, services and applications address different concerns. 
 
 Platform profiles provide device-tree-like configuration: selecting implementations, binding resources and naming logical roles outside reusable application code. They do not replace NuttX's board support, pin configuration or peripheral initialization. The [profiles guide](profiles.md) and [peripheral composition reference](../../docs/peripheral-composition.md) explain the current boundary and remaining work.
 
-The expectation is that this separation will make host tests and component reuse practical. That expectation has to be checked against real applications; an elegant diagram is not enough.
+The expectation is that this separation will make host tests and component reuse practical. Real applications provide a way to test whether those boundaries hold up as more devices and requirements are added.
 
 ## What needs measuring
 
