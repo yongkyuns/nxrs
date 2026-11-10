@@ -1,64 +1,86 @@
 # Your first application
 
-Start with `app/event-demo`. Its entry point is an ordinary Rust `main()`. The app connects services and selects a logical device name; the profile supplies the board-specific implementation.
+An NXRS application starts with a normal Rust package and `main()` function. Application code selects its components; a platform profile supplies the target configuration.
 
-## Read the composition
-
-This excerpt shows the startup sequence from the [application source](../../app/event-demo/src/main.rs):
+The [basic-firmware example](../examples/basic-firmware/) is a small, self-contained starting point. Its entry point is:
 
 ```rust
-let (fusion, inputs) = FusionService::new();
-let imu = ImuService::new(inputs.imu);
-let gnss = GnssService::new(inputs.gnss);
-
-let fusion = fusion.start()?;
-let imu = imu.start_on(devices::primary_imu())?;
-let gnss = gnss.start()?;
+fn main() {
+    println!("Hello from NXRS");
+}
 ```
 
-The fusion constructor supplies typed input endpoints. Sensor services receive those endpoints before execution starts. The application selects a logical IMU through the portable device catalogue; the profile supplies its concrete construction. Starting the services establishes their execution and acquisition lifetimes. The full app then sends control commands, observes output and checks the completed run.
+## Copy the example
 
-Cargo dependencies describe the components, and ordinary Rust code describes how the application connects and runs them.
+From the NXRS repository root, copy `website/examples/basic-firmware` into a sibling directory named `my-firmware`.
 
-## Follow the lifecycle
-
-Read the rest of `run()` in order. It constructs the graph, starts the owners, pauses and resumes GNSS processing, receives fusion output, stops sensor producers, drains already delivered output and explicitly stops fusion.
-
-The ordering matters. A component waiting for a producer to close cannot finish if another owner still holds a sending endpoint. Dropping an owner handle may request cancellation; explicit stop joins cleanup. Include the error and teardown paths when adapting the example.
-
-## Make a small first change
-
-First change only the duration, without editing code:
+POSIX shell:
 
 ```sh
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo -- --duration-ms 5000
+cp -R website/examples/basic-firmware ../my-firmware
 ```
 
-Then inspect `app/event-demo/src/orchestration.rs` and the service tests before changing control policy. A behavior change belongs in orchestration or a service; physical device selection belongs in a profile, and bus reads and acquisition stay in the driver and HAL code.
+PowerShell:
 
-## Create a separate in-repository app
+```powershell
+Copy-Item -Recurse website/examples/basic-firmware ../my-firmware
+```
 
-Copy the small `app/event-demo` directory to a sibling such as `app/my-firmware`. Give the package and binary unique names, add the new path to the root workspace members, and keep its relative navigation-service and device-catalogue dependencies valid. Preserve the original demo as a regression example.
+Run the copied application:
 
-The original manifest's firmware metadata is:
+```sh
+cargo run --locked --manifest-path ../my-firmware/Cargo.toml --bin hello
+```
+
+The copy has its own Cargo workspace and lockfile. There is no need to add it to the NXRS workspace or copy any board code.
+
+## Understand the manifest
 
 ```toml
-[package.metadata.nxrs]
-required-capabilities = ["imu", "gnss"]
+[package]
+name = "nxrs-basic-firmware"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[[bin]]
+name = "hello"
+path = "src/main.rs"
 
 [package.metadata.nxrs.firmware]
-bin = "event-demo"
-command = "event_demo"
+bin = "hello"
+command = "hello"
 priority = 100
 stack-size = 65536
 ```
 
-Change `bin` together with `[[bin]].name`, and choose a distinct NuttX command name. Set the priority and stack size for your workload and target. Capability metadata provides admission checks; Cargo dependencies select the components.
+The package and binary are ordinary Cargo definitions. The empty `[workspace]` table makes this directory an independent workspace even while the example lives inside the NXRS checkout.
 
-After editing the manifest and workspace, use `cargo nxrs apps` to confirm discovery. Run your new package with the host profile before attempting a target build. Regenerate and review the lockfile when dependencies change, then use `--locked` for validation.
+The firmware metadata tells the NXRS build frontend which binary to build, the command to register with NuttX, and the entry task's priority and stack allocation. The values above match the example configuration; adjust the stack and priority for your target and workload. Host Cargo execution does not use those NuttX settings.
 
-## Keep application code portable
+## Build against an NXRS profile
 
-Keep board `cfg` branches, `/dev` paths, toolchain logic and native imports in platform integration code rather than reusable applications or services. Use ordinary Rust APIs directly where they express the operation.
+Keep working from the NXRS repository root when using its `cargo nxrs` alias:
 
-External applications can use their own workspace and handwritten main. Follow [the external-application section of the build reference](../../docs/build-system.md#external-applications-and-package-boundaries) for package dependencies and build preparation.
+```sh
+cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qemu-mock --dry-run
+```
+
+This prints the build plan. After preparing the target tools described in [Building for NuttX](firmware.md), remove `--dry-run` to build the image. The SDK root supplies NuttX, the toolchain integration, and the selected profile; the application remains in its own workspace.
+
+The [build reference](../../docs/build-system.md#external-applications-and-package-boundaries) describes external workspaces, path resolution, and direct Cargo use with `NXRS_SDK_ROOT`.
+
+## Add functionality in ordinary Rust
+
+Add modules and dependencies through Cargo. Use `std` directly for threads, synchronization, time, files, and sockets. Introduce a hardware interface when the application needs a peripheral or subsystem that `std` does not describe.
+
+The copied example also contains a small `worker` example:
+
+```sh
+cargo run --locked --manifest-path ../my-firmware/Cargo.toml --example worker
+```
+
+It prints `Processed total: 6`. [Services and concurrency](services.md) walks through its typed events, bounded queue, and shutdown.
+
+As the application grows, move reusable behavior into library crates and pass dependencies through constructors. Keep board pins, device paths, and implementation selection in platform configuration and hardware integration code. [Drivers and HALs](hardware.md) and [Profiles and overlays](profiles.md) explain those responsibilities.

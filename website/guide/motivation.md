@@ -1,59 +1,45 @@
 # Why NXRS?
 
-NXRS uses ordinary Rust and its standard library to build reusable firmware, with NuttX providing the operating system and board support. The motivation is to carry familiar software development and testing practices into embedded work while accounting for the hardware's memory, timing and peripheral requirements.
+NXRS started from a practical goal: use familiar Rust programming tools and reusable software components for firmware, while keeping hardware configuration separate from application behavior.
 
-The [architecture overview](overview.md) describes the implementation. [Current status](status.md) covers the available components, completed validation and ongoing work.
+## Reuse in embedded development
 
-## The work around the application
+Embedded work adds constraints to otherwise familiar software problems. Memory, timing, power, peripherals, and recovery need attention, and hardware families come with different tools and interfaces. At the same time, many products need similar software: device access, processing, communication, storage, and control.
 
-Embedded development often requires adapting otherwise familiar software practices. Memory, timing, power, peripherals and failure recovery need careful attention. Hardware families, vendor tooling and software ecosystems also differ substantially, making it difficult to reuse the surrounding firmware even when the application logic is similar.
+Getting those parts to work reliably together takes time. Choosing clear module interfaces and test boundaries early can save substantial work over a product's life, especially when a team maintains several products or hardware revisions. The software stack is therefore an important design decision, not just a toolchain selection.
 
-Many projects need the same basic operations: acquire data, process it, communicate a result, retain state, and recover from failures. Bringing a new product up reliably means integrating these operations with shutdown, network recovery, storage, updates and testing.
+## An RTOS brings an ecosystem
 
-Early decisions about modularity and portability can save substantial work over a product's life, especially for teams maintaining several products. Clear subsystem interfaces make it easier to reuse components, test them independently and change hardware without rewriting application behavior. This is the starting point for NXRS.
+An RTOS provides more than scheduling. Its drivers, configuration system, subsystems, and development conventions shape the firmware built around it.
 
-## Choosing an RTOS also chooses a way of working
-
-An RTOS ecosystem includes drivers, configuration, subsystems, build tools and conventions. Adopting that foundation gives a team a common way to organize its firmware and reduces the amount of integration work it has to maintain itself.
-
-[Zephyr](https://docs.zephyrproject.org/latest/introduction/index.html) provides an integrated device model, configuration system and modular subsystems. NXRS borrows ideas from this approach, particularly the separation of reusable behavior from device and product configuration.
+[Zephyr](https://docs.zephyrproject.org/latest/introduction/index.html) combines these facilities into an integrated development environment. Its device configuration and reusable subsystems are useful influences for NXRS. NXRS adopts similar separation between reusable behavior and product configuration, while using NuttX as its operating-system foundation.
 
 ## Why NuttX
 
-NuttX is used by projects such as [PX4](https://docs.px4.io/v1.16/en/concept/architecture), [openvela](https://github.com/open-vela/docs), and [Sony's Spresense SDK](https://developer.sony.com/spresense/development-guides/introduction_en.html). Its particular attraction for NXRS is its standards-oriented application interface.
+[NuttX emphasizes POSIX and ANSI interfaces](https://nuttx.apache.org/docs/latest/). Applications can use familiar file, socket, thread, and synchronization interfaces. This makes it a useful foundation for code shared between host and embedded environments.
 
-[NuttX emphasizes POSIX and ANSI interfaces](https://nuttx.apache.org/docs/latest/index.html). Files, sockets, threads and synchronization use familiar APIs. This gives host and embedded applications a common set of interfaces, with platform-specific hardware access kept underneath them. Available facilities still depend on the board and NuttX configuration.
+NuttX is also used by projects such as [PX4](https://docs.px4.io/main/en/concept/architecture), [openvela](https://doc.openvela.com/document?id=198&language=en&version=trunk), and [Sony's Spresense SDK](https://developer.sony.com/spresense/development-guides/introduction_en.html). Those projects apply the operating system to their own requirements; NXRS focuses on a general Rust firmware environment above it.
 
-Those interfaces also provide a basis for compiling Rust's standard library for NuttX. Applications can use ordinary Rust thread, socket and file APIs while NuttX handles scheduling, operating-system services and board support.
+The standards-oriented interface makes Rust's standard library a natural application boundary. NXRS compiles and integrates `std` for its NuttX targets, so applications can use ordinary Rust threads, synchronization, files, and sockets. NuttX remains responsible for scheduling, board support, and native resources. The [integration reference](../../docs/nuttx-std.md) records the maintained patches and target configuration.
 
-NXRS maintains the integration patches and target-specific build support needed for its supported configurations. The [Rust std integration reference](../../docs/nuttx-std.md) documents those patches, available APIs and tests.
+## Ordinary Rust concurrency
 
-## Why ordinary threads
+Async frameworks such as [Embassy](https://embassy.dev/book/) are useful for embedded workloads with many concurrent I/O waits and tight memory budgets. Async execution also affects driver interfaces, cancellation, and which operations may block an executor.
 
-Async Rust is well suited to many embedded workloads. [Embassy](https://embassy.dev/book/) provides an executor and embedded libraries around that model. Tasks can suspend while waiting for I/O without reserving a separate thread stack for every task, which is useful for concurrent I/O on devices with limited RAM.
+NXRS takes a different approach: ordinary Rust threads and synchronous functions, with event-driven components where independent execution is needed. Applications do not need an async runtime or async-specific interfaces throughout the stack. Thread stacks, synchronization, and queue storage are included in the performance and memory evaluations.
 
-Async also changes how drivers, libraries and application code interact. They must cooperate with the executor and handle cancellation, task lifetimes and operations that must not block it. Threaded code has a different set of concerns, including stack allocation, synchronization and scheduling.
+The choice is about the programming model and reuse of standard APIs. Applications still need deliberate ownership, scheduling, error handling, and resource budgets.
 
-NXRS uses ordinary Rust threads, blocking waits and synchronous functions. The intention is to retain familiar standard-library interfaces without requiring an application-wide async I/O model. Queue capacities, thread stacks and shutdown behavior are part of the design and are included in testing and measurement.
+## Reusable components and configuration
 
-Zephyr also supports threads and POSIX-compatible APIs, and NuttX has its own configuration and driver conventions. The emphasis in NXRS is on using standard Rust APIs directly for ordinary OS operations, with additional structure for hardware integration and reusable firmware components.
+Drivers implement device protocols, HALs expose hardware capabilities, services provide reusable behavior, and applications compose the system in a handwritten `main()`. Standard OS operations use `std` directly.
 
-## Reusable components and product configuration
+Platform profiles supply device-tree-like composition: device instances, resources, implementations, and logical names are selected outside reusable application code. NuttX's BSP and native configuration continue to own pin setup and controller initialization.
 
-An application composes components in an ordinary Rust `main()`. Active modules own their state and resources, receive typed events through bounded delivery paths, and handle each event synchronously. Startup, overload handling and joined shutdown are explicit parts of the component interfaces.
+For example, an IoT controller can keep its command processing, record format, and connection policy while changing the physical device bindings for a new board revision. The application determines those behaviors; NXRS supplies the integration and component structure.
 
-A chip driver handles the device protocol. A capability HAL provides an interface such as IMU acquisition. A service adds reusable behavior, and the application connects these components. Ordinary file and socket operations use `std` directly; a component needs a worker thread only when it has concurrent work to perform.
+## Validation and continued development
 
-Platform profiles provide device-tree-like configuration by selecting implementations, binding resources and naming logical devices outside reusable application code. NuttX retains responsibility for board support, pin configuration and peripheral initialization. The [profiles guide](profiles.md) and [peripheral composition reference](../../docs/peripheral-composition.md) describe the implementation.
+Basic validation already includes host tests, target integration checks, simulator/QEMU runs, and on-board evaluations. Existing studies measure event delivery, memory use, and application workloads, including comparisons with reference RTOS implementations.
 
-This organization supports host testing and reuse across applications. The navigation and camera applications use it for service composition, acquisition, processing and communication.
-
-## Tests and evaluations
-
-NXRS has basic validation in place: host tests, NuttX simulator and QEMU execution, and physical-device measurements. Existing evaluations cover event delivery, channel storage, thread stacks, memory footprint and the camera application. The [testing guide](testing.md) and [performance guide](performance.md) link to the commands and results.
-
-Using `std` on a microcontroller requires attention to code size, static data, thread stacks, queue storage and heap use. These costs continue to be measured as applications grow. Comparisons with Zephyr use recorded hardware, compiler options, workloads and scheduling settings so the results can be reproduced.
-
-## Applications and ongoing work
-
-The [application examples](examples.md) include navigation services and an IoT camera with detection and gateway integration. Further work adds devices and applications, improves reusable subsystems, and extends performance and memory evaluations.
+The remaining work is practical: expand supported configurations, improve components and tooling, and continue measuring their costs as applications grow. [Current status](status.md), [Testing and debugging](testing.md), and [Performance and memory](performance.md) link the implementation and results.

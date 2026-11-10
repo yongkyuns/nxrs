@@ -1,33 +1,35 @@
 # Current status
 
-NXRS has working applications and basic validation of its Rust/NuttX integration and event-driven firmware components.
+NXRS combines Rust standard-library integration for NuttX, reusable firmware components, platform profiles, and application build tooling.
 
 ## Available components
 
-The repository includes ordinary Rust application entry points, reusable services, hardware capability interfaces, platform profiles, peripheral wrappers and the Rust standard-library integration for NuttX.
+The repository includes Rust resource adapters and drivers, capability HALs, reusable services, and ordinary Cargo applications. The build frontend selects the application and profile, prepares the target integration, and records the resulting configuration and image.
 
-The [navigation example](examples.md#navigation-and-service-composition) connects sensor, fusion and health services. The [IoT camera](examples.md#iot-camera) combines capture, detection, transport, gateway delivery and client-facing state.
+Applications can use standard-library facilities directly. [Standard-library APIs](standard-library.md), [Drivers and HALs](hardware.md), and [Profiles and overlays](profiles.md) describe the main interfaces and responsibilities.
 
 ## Completed validation
 
-| Area | Tests and evaluations |
+Existing validation includes host unit and integration tests, target build and ABI checks, firmware execution in the NuttX simulator and QEMU, and on-board evaluations. Measurements cover channel/event delivery, stacks, heap use, image size, and application workloads.
+
+| Area | Tests and results |
 | --- | --- |
-| Portable components | Host tests for application behavior, service lifecycle, ownership and failure handling |
-| NuttX integration | Target build and ABI checks, plus firmware execution in the NuttX simulator and ESP32-S3 QEMU |
-| Event-driven runtime | Channel, wake-up and delivery measurements, including on-board results |
-| Memory use | Code-size analysis, queue storage, thread stacks and heap measurements |
-| Camera application | On-device streaming and detection tests, recovery tests and model evaluations |
+| Rust/NuttX integration | [Standard-library integration](../../docs/nuttx-std.md) |
+| Application and component behavior | [Repository test index](../../tests/README.md) |
+| Simulator execution | [NuttX simulator](../../docs/nuttx-sim.md) |
+| Emulated target execution | [NuttX QEMU](../../docs/nuttx-qemu.md) |
+| Event delivery | [Channel performance](../../docs/std-channel-performance.md) |
+| Resource use | [Rust std footprint](../../docs/rust-std-footprint.md) |
+| Reference comparisons | [RTOS comparisons](../../docs/rtos-comparison.md) |
 
-The [test index](../../tests/README.md) contains the test commands. The [Rust std integration reference](../../docs/nuttx-std.md), [event-path measurements](../../docs/std-channel-performance.md) and [footprint analysis](../../docs/rust-std-footprint.md) document configurations and results.
+Each report records its tested configuration. Application-specific results are linked from [Examples](examples.md).
 
-Camera results are recorded in the [delivery guide](../../docs/camera-detection-delivery.md) and [model evaluation report](../../docs/camera-detection-qualification.md), which also links to subsequent detector work.
+## Target configuration
 
-## Target and configuration requirements
+Rust `std` integration uses maintained patches and target-specific build support. Select the board, OS configuration, device bindings, and resource budgets through the build frontend and profiles.
 
-Available APIs and peripherals depend on the selected Rust toolchain, NuttX configuration and platform profile. NXRS maintains integration patches for those configurations. Adding a board or peripheral requires its bindings, drivers and tests.
-
-Application budgets include thread stacks, allocations, queues, code size and timing. The [performance guide](performance.md) describes how to measure these. Camera deployment requirements are documented in the [security guide](../../docs/security.md); detector accuracy and supported resolutions are recorded with each model's results.
+`cargo nxrs platforms` lists the platform families. The [build reference](../../docs/build-system.md) and board guides describe their setup. A host program using only `std` does not need hardware bindings.
 
 ## Ongoing work
 
-Development continues on reusable subsystems, additional hardware and applications, toolchain integration, and performance and memory evaluations. The [repository issues](https://github.com/yongkyuns/nxrs/issues) track individual tasks.
+Development continues on device support, component reuse, build integration, and performance and memory evaluation. The [repository issues](https://github.com/yongkyuns/nxrs/issues) track the active work.

@@ -1,60 +1,68 @@
 # Profiles and overlays
 
-A platform profile describes a product's hardware and build configuration. Profiles provide device-tree-like composition while keeping board selection out of reusable application code.
+A platform profile describes the configuration used for a host or firmware build. It selects hardware resources, device instances, implementations, and target settings outside reusable application code.
 
-## Select a profile
+## Application and platform are separate inputs
 
-For direct host Cargo builds, use `NXRS_PLATFORM`:
-
-```sh
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo -- --duration-ms 2000
-```
-
-For firmware builds, use the frontend's profile option:
+An application is a Cargo package. A profile describes where it runs. For example:
 
 ```sh
-cargo nxrs build --app event-demo --profile esp32s3-qemu-mock --dry-run
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
 ```
 
-Keep the selections consistent when using these entry points. Without a profile, HAL crates expose portable interfaces with no mock providers selected.
+The same application can be built with a different profile without adding board branches to its `main()` function.
 
-## Platform families and product profiles
+`cargo nxrs platforms` lists platform families. `--platform` uses a family's default profile; `--profile` selects a specific configuration. When both are supplied, the profile must belong to that family. Use an explicit profile when reproducing a build.
 
-`cargo nxrs platforms` lists the platform families. A family such as `cores3` describes an environment and has a default product profile. `--profile` selects a particular product or test configuration. When combined with `--platform`, the profile must belong to that family.
+## Direct Cargo builds
 
-Examples include `host-demo` for synthetic host sensors, `esp32s3-qemu-mock` for the ESP32-S3 emulated application, `mps2-an521-mock` for the Cortex-M33 QEMU model and `pico2-mock` for the Pico 2 build configuration.
+For host code using profile-selected HALs, `NXRS_PLATFORM` selects the profile. For example, check the storage package with the Linux host integration:
 
-Inspect the [host profiles](../../platform/profiles) and [NuttX product profiles](../../platform/nuttx/platforms). The command help describes the current options:
+```sh
+NXRS_PLATFORM=linux cargo check --locked -p nxrs-storage
+```
+
+On Windows, PowerShell uses an environment assignment before the command and removes it afterward:
+
+```powershell
+$env:NXRS_PLATFORM = "windows"
+cargo check --locked -p nxrs-storage
+Remove-Item Env:NXRS_PLATFORM
+```
+
+Use the profile matching the host and package, with the prerequisites in the owning HAL's documentation. Standard-library-only programs, including the first examples, do not need a profile. Without one, HAL crates expose portable contracts and leave hardware implementations unbound.
+
+## Configuration responsibilities
+
+| Input | Owns |
+| --- | --- |
+| Cargo manifest | Packages, dependencies, and optional features |
+| Application firmware metadata | Binary, NuttX command, entry priority, and stack |
+| Platform profile | OS, board, devices, resources, and implementation bindings |
+| Overlay | An ordered change to a base profile |
+| NuttX BSP and Kconfig | Native pin/controller configuration and device registration |
+
+A reusable driver implements a device protocol. The profile selects its physical instance and resource bindings. A service receives the resulting capability, while the application chooses how that service participates in the firmware.
+
+## Inspect a profile before changing it
 
 ```sh
 cargo nxrs profile --help
 cargo nxrs build --help
 ```
 
-## What a profile configures
+Use the current command help and checked-in profiles as the schema reference. Host profiles are under [platform/profiles](../../platform/profiles/); NuttX configurations are under [platform/nuttx/platforms](../../platform/nuttx/platforms/).
 
-Profiles describe resources, devices, logical aliases, provider selection and target/build settings. NuttX profiles also select the BSP and supported native configuration. Package declarations describe implementations and resource constraints; Cargo resolves the dependencies.
+The resolver validates device/resource bindings and records the resolved configuration with the build. Checked BSP mappings under `platform/nuttx/resources/` connect admitted native settings to Rust endpoints.
 
-Application metadata defines the binary, NuttX command name, entry priority and stack size. Keep OS imports, device paths and concrete chip selection in the platform integration rather than reusable applications and services.
+## Apply an overlay
 
-## BSP wiring
+An overlay changes a base composition, such as a device instance, resource binding, or application execution budget. The frontend accepts repeated `--overlay` arguments; they are applied in order. Keep product overlays in version control and review the resolved configuration after changing them.
 
-Mappings under `platform/nuttx/resources/` connect supported BSP resources to NuttX configuration and Rust endpoints. Pin settings use the binding's native Kconfig symbols. The build checks the effective configuration after NuttX resolves it.
+For example, two revisions of an IoT device may use different supported peripheral parts while keeping the same application-level capability. Their profiles describe that difference. The application should not need to inspect a board name to choose its behavior.
 
-Keep endpoint paths and fixed configuration in these mappings. Use the BSP's pin numbering and reject conflicting settings, unsupported registrations or unavailable endpoints.
+## Device instances
 
-## Apply overlays
+Driver availability and physical instances are separate. Several instances can use the same driver, but each physical endpoint needs its own configured identity and ownership. The available acquisition API depends on the capability.
 
-An overlay changes a base product configuration. Order matters. The build/profile commands accept repeated `--overlay` arguments; use the command help and a checked-in overlay as a starting point.
-
-Keep overlays in version control. Review the resolved devices, resource bindings, native configuration and build record, and check them against the board wiring.
-
-Changing a sensor can leave services unchanged when the new driver provides the same capability interface. Test its resource operations and device behavior on the selected hardware.
-
-## Multiple device instances
-
-The IMU interface supports named device instances. GNSS uses its default-session API. The dual-IMU example selects primary and secondary device references through `ImuService::start_on`.
-
-A second physical IMU requires its own device binding and the `imu_secondary` alias used by that example. Synthetic profiles test instance ownership; hardware profiles provide the actual device configuration for on-board tests.
-
-See [peripheral composition](../../docs/peripheral-composition.md), [the static-device decision](../../docs/static-device-composition.md) and [the implementation plan](../../docs/peripheral-composition-plan.md) for implementation details and ongoing work.
+The [peripheral composition reference](../../docs/peripheral-composition.md) contains the schema and concrete device examples. The [static-device design](../../docs/static-device-composition.md) describes named devices and ownership. Keep those implementation details separate from the basic application/build workflow.

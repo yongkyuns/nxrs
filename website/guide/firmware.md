@@ -1,6 +1,8 @@
 # Building for NuttX
 
-A firmware build uses the selected NuttX source, board configuration, compiler and Rust target integration. The `cargo nxrs` frontend prepares these inputs, builds the application and runs the target ABI checks.
+A firmware build combines the Rust application, its dependencies, a NuttX configuration, and the target toolchain. The `cargo nxrs` frontend prepares these inputs and produces the image and build records.
+
+Use the general-purpose `std-demo` application for the first target build. Its standard-library recipes do not require application-specific sensors or services.
 
 ## Inspect the build configuration
 
@@ -9,69 +11,71 @@ From the repository root:
 ```sh
 cargo nxrs apps
 cargo nxrs platforms
-cargo nxrs build --app event-demo --profile esp32s3-qemu-mock --dry-run
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
 ```
 
-`--dry-run` prints the build plan without compiling or running the firmware.
+`--app` names an application in the checkout. `--profile` selects a target configuration. `--dry-run` prints the plan without compiling the image.
 
-## Prepare the target environment
+For your own package, use `--manifest-path`, as shown in [Your first application](first-application.md).
 
-These examples use a POSIX shell and the ESP32-S3 QEMU setup. Install the prerequisites in the [build reference](../../docs/build-system.md) and [QEMU guide](../../docs/nuttx-qemu.md), including the target compiler.
+## Prepare the tools
+
+The commands in this page use a POSIX shell. Install the native dependencies listed in the [build reference](../../docs/build-system.md) and the [NuttX QEMU guide](../../docs/nuttx-qemu.md). The host Rust installation and the MCU compiler are separate toolchains.
+
+For the existing ESP32-S3 setup:
 
 ```sh
 git submodule update --init
 bash tools/install-qemu-tools.sh
 ```
 
-The script installs the pinned target tools. Initialize the source submodules before building; Cargo build scripts use the existing checkout.
+The build frontend uses the selected SDK and a private patched copy for Rust/NuttX integration. It leaves the globally installed SDK unchanged. The [Rust std integration reference](../../docs/nuttx-std.md) describes the source pins and target checks.
 
-The Rust/NuttX integration uses private SDK copies with maintained patches. Keep these separate from the globally installed compiler. Target checks use the headers, libc and standard library selected for the firmware image.
-
-## Build the event demo
+## Build the standard-library application
 
 ```sh
-cargo nxrs build --app event-demo --profile esp32s3-qemu-mock
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock
 ```
 
-Build outputs are placed under:
+The default output directory is:
 
 ```text
-target/build/event-demo/esp32s3-qemu-mock/
+target/build/std-demo/esp32s3-qemu-mock/
 ```
 
-The ESP32-S3 test runner uses this merged image:
+It contains the image and records for the selected configuration. On ESP32-S3, the merged image is under `nuttx/nuttx.merged.bin`.
+
+Follow the target's launch instructions in the [QEMU guide](../../docs/nuttx-qemu.md) to boot the image. At the NuttX shell, the application's registered command is:
 
 ```text
-target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
+nsh> std_demo --case channels
 ```
 
-Check that the build completed successfully before running its output. The directory also contains build logs and records of the selected inputs.
+The application prints its channel checks and ends with `STD_DEMO PASS cases=1`. Run `std_demo` without arguments for all recipes.
 
-## Run the emulated image
+## ARM QEMU test runner
+
+The repository also has an automated runner for the Cortex-M33 `mps2-an521` configuration. Prepare the ARM tools and emulator described in the [standard-application workflow](../../.github/workflows/std-apps-self-hosted.yml), then build and run:
 
 ```sh
-source target/qemu-tools/environment.sh
-python3 tests/host/test-event-demo-nuttx.py "$(command -v qemu-system-xtensa)" \
-  --machine esp32s3 \
-  --image target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
-  --log target/build/event-demo/esp32s3-qemu-mock/console.log
+cargo nxrs build --app std-demo --profile mps2-an521-mock
+python3 tests/host/run-std-apps-nuttx.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --app std-demo \
+  --image target/build/std-demo/mps2-an521-mock/nuttx/nuttx \
+  --log target/build/std-demo/mps2-an521-mock/console.log
 ```
 
-The runner tests the application with synthetic sensor providers in QEMU. Results and the console transcript are saved with the build.
+This runner is specific to MPS2 ARM QEMU; it does not accept the ESP32-S3 merged image. It runs the application repeatedly, checks output and cleanup, and saves the console log. The workflow records the required QEMU UART support and compiler versions.
 
-## Other target profiles
+## Build for a physical board
 
-```sh
-cargo nxrs build --app event-demo --profile mps2-an521-mock
-cargo nxrs build --app event-demo --profile pico2-mock
-```
+Choose a board and profile from `cargo nxrs platforms` and the checked-in configuration. For example, `pico2-mock` builds a Pico 2 image; it is separate from the MPS2 emulator configuration.
 
-The MPS2 configuration runs on a Cortex-M33 QEMU model; it does not emulate the RP2350. The Pico 2 profile builds and checks the actual board image. On-board execution uses the corresponding device test procedure.
+Check the board guide for wiring, image layout, and flashing commands. [CoreS3 setup](../../docs/m5stack-cores3.md) is one hardware-specific reference. Flashing, key provisioning, and eFuse programming are separate steps from building.
 
-For CoreS3, follow the [CoreS3 guide](../../docs/m5stack-cores3.md). Confirm the board profile, wiring, image layout and flashing procedure before writing to the device.
+## Rebuilds and cleanup
 
-## Incremental builds and cleanup
+Normal builds reuse compatible Cargo, NuttX, and SDK output. Use `--clean` when a fresh build is needed. Keep the app, profile, toolchain, and logs together when investigating a failure.
 
-The frontend reuses compatible Cargo, NuttX and prepared SDK state while checking the selected inputs. Use `--clean` for a fresh build.
-
-Building and packaging do not modify a device. Flashing, key provisioning and eFuse changes use separate board-specific procedures. See the [build-system reference](../../docs/build-system.md) and [Rust std integration report](../../docs/nuttx-std.md).
+Continue with [Profiles and overlays](profiles.md) for configuration and [Testing and debugging](testing.md) for test procedures.
