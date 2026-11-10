@@ -31,15 +31,86 @@ fn process(inbox: std::sync::mpsc::Receiver<Event>) -> u64 {
 }
 ```
 
-Run the complete example from the NXRS checkout:
+The owner handles one event at a time. Calls within a handler remain synchronous. Cloning a sender allows several producers to submit commands to the same inbox.
 
-```sh
-cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --example worker
+## Run the worker in your application
+
+Replace `../my-firmware/src/main.rs` from [Your first application](first-application.md) with this complete program:
+
+<!-- tutorial:worker-source -->
+```rust
+use std::error::Error;
+use std::io;
+use std::sync::mpsc;
+use std::thread;
+
+#[derive(Debug)]
+enum Event {
+    Add(u32),
+    Stop,
+}
+
+fn process(inbox: std::sync::mpsc::Receiver<Event>) -> u64 {
+    let mut total = 0;
+    for event in inbox {
+        match event {
+            Event::Add(value) => total += u64::from(value),
+            Event::Stop => break,
+        }
+    }
+    total
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let (sender, inbox) = mpsc::sync_channel(4);
+    let worker = thread::Builder::new()
+        .name("counter".into())
+        .stack_size(32 * 1024)
+        .spawn(move || process(inbox))?;
+
+    let delivery = (|| -> Result<(), mpsc::SendError<Event>> {
+        for value in [1, 2, 3] {
+            sender.send(Event::Add(value))?;
+        }
+        sender.send(Event::Stop)
+    })();
+
+    // Also let the worker finish if sending a command failed.
+    drop(sender);
+    let total = worker
+        .join()
+        .map_err(|_| io::Error::other("counter worker panicked"))?;
+    delivery?;
+    println!("Processed total: {total}");
+    Ok(())
+}
 ```
 
-It sends three values, requests stop, joins the worker, and prints `Processed total: 6`. The source also handles delivery failure by closing the sender before joining. The tutorial uses a requested 32 KiB worker stack; stack measurements guide the allocation for a deployed application.
+Keep your manifest unchanged. From the NXRS checkout, run the same host and firmware builds:
 
-The same structure can accept commands from several producers through cloned senders. The owner still waits at one inbox and handles one event at a time. Calls within a handler remain synchronous.
+```sh
+cargo run --locked --manifest-path ../my-firmware/Cargo.toml --bin hello
+cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qemu-mock
+```
+
+Start QEMU with the command in [Building for NuttX](firmware.md#boot-qemu). The binary and shell command remain `hello`, but now execute the worker:
+
+```text
+nsh> hello
+Processed total: 6
+nsh> echo $?
+0
+```
+
+The program sends three values, requests stop, and joins the worker before printing the result. It closes the sender even if delivery fails. The requested worker stack is 32 KiB; measure the stack use before selecting an allocation for a deployed application.
+
+The checked-in source has tests for stop and disconnect behavior:
+
+```sh
+cargo test --locked --manifest-path website/examples/basic-firmware/Cargo.toml --all-targets
+```
+
+The documentation checks ensure this program matches that source. Target CI also compiles it as your application's `src/main.rs` and runs it in NuttX/QEMU.
 
 ## Choose delivery behavior
 
