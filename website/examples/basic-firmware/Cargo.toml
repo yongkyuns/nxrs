@@ -1,0 +1,16 @@
+[package]
+name = "nxrs-basic-firmware"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[[bin]]
+name = "hello"
+path = "src/main.rs"
+
+[package.metadata.nxrs.firmware]
+bin = "hello"
+command = "hello"
+priority = 100
+stack-size = 65536

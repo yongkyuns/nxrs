@@ -1,49 +1,49 @@
 # Troubleshooting
 
-Begin with the exact command, app, profile, revision and complete error output. Fix the boundary that failed instead of adding a fallback that changes what the application is testing.
+Start with the command that failed, the selected application and profile, and the complete error output.
 
 ## `cargo nxrs` is not recognized
 
-Run it from the repository root and confirm that the checkout includes `.cargo/config.toml`. It is a repository alias backed by the build controller, not necessarily a globally installed Cargo subcommand. Use the [build reference](../../docs/build-system.md) for detached consumers.
+Run it from the NXRS repository root and check that `.cargo/config.toml` is present. It is a repository Cargo alias. For external applications, keep the application in its own workspace and pass its manifest to the frontend from the NXRS checkout.
 
-## The HAL is unavailable
+## A host example requests a board or device
 
-Check the selected profile. A no-profile build intentionally exposes contracts without silently enabling mocks. Use `host-demo` for the first synthetic navigation demo. A profile can select only implemented/admitted bindings; a platform name does not imply every sensor or radio exists.
+The introductory `hello`, `worker`, and `std-demo` examples do not need a hardware profile. Check that you are running the command from [Getting started](getting-started.md), rather than a device-specific application.
 
-Do not add concrete device dependencies to app/service source to bypass profile selection. Review [profiles and overlays](profiles.md) and the selected HAL’s ownership contract.
+Remove an old `NXRS_PLATFORM` assignment when returning to standard-library-only tests. When using a HAL, select the intended host or hardware profile explicitly.
 
-## Rust target or linker errors appear
+## A HAL is unavailable
 
-Separate the host toolchain from the target toolchain. The checkout’s host Rust pin is not an Xtensa SDK. Install the selected target’s prerequisites, check the frontend’s discovered compiler/SDK, and retain the complete build output.
+Check the selected profile and its capability bindings. Without a profile, the HAL exposes its portable contract and leaves hardware implementations unbound. Confirm that the required OS implementation and resources are included in the selected configuration.
 
-An unsupported std API or target ABI mismatch is not solved by replacing the pinned target with an unrelated newer compiler. Use the [Rust std integration reference](../../docs/nuttx-std.md) and qualify a deliberate toolchain change separately.
+See [Profiles and overlays](profiles.md) and the HAL's module documentation.
 
-## The lockfile needs updating
+## A Rust target, compiler, or linker is missing
 
-`--locked` deliberately rejects a dependency resolution change. Confirm that you are building a consistent checkout. When intentionally adding or renaming a package, regenerate the lockfile through the normal Cargo workflow, review the change and restore locked validation. Do not quietly allow lockfile drift in CI.
+Install the target's prerequisites, then check the toolchain selected by the build frontend. The host Rust compiler is separate from an MCU SDK. Use the versions recorded in the [Rust/NuttX integration guide](../../docs/nuttx-std.md).
 
-## QEMU or a generated image cannot be found
+## Cargo reports a lockfile change
 
-After installing the tools, source `target/qemu-tools/environment.sh` in the shell that runs the emulator. Use the output path for the actual app/profile you built, not an older fixture’s directory. Confirm that the build completed before running its output.
+`--locked` rejects dependency-resolution changes. When deliberately changing a manifest, regenerate its lockfile with Cargo, review it, and restore locked builds. The introductory example has its own lockfile, separate from the NXRS workspace.
 
-The [firmware guide](firmware.md) contains the matching build and execution commands for the first ESP32-S3 demo.
+## The image or emulator cannot be found
 
-## A physical sensor produces no data
+Check that the build completed and use the output directory for the application and profile you built. When using the installed ESP32-S3 tools, source `target/qemu-tools/environment.sh` in the shell that runs the emulator.
 
-Verify the board wiring, supported BSP registration, effective NuttX configuration, resolved resource/alias bindings and detected chip identity. Then examine readiness and acquisition errors before changing service behavior.
+ARM MPS2 and ESP32-S3 use different emulator binaries and image formats. Follow the matching commands in [Building for NuttX](firmware.md).
 
-Service processing pause does not stop acquisition. An unwired timer path and a configured interrupt path are distinct configurations. Do not silently turn a broken IRQ setup into polling.
+## A peripheral does not respond
 
-## Shutdown hangs or resources remain busy
+Check board wiring, BSP initialization, device registration, the resolved resource bindings, and the device's expected identity. Inspect the owning HAL's I/O and readiness errors before changing service behavior.
 
-Check every producer and cloned endpoint, blocked wait, callback registration and joined worker. Review whether stop drains admitted work or cancels it. A dropped handle may request cancellation without waiting for cleanup.
+## Shutdown hangs
 
-Keep resource quarantine and terminal cleanup failures visible. Resetting counters or discarding the error does not establish safe resource release. See [service lifecycle](services.md).
+Check which component still owns a sender, blocking I/O operation, callback, or worker. A shutdown path must wake waits and join producers before releasing the resources they use. [Services and concurrency](services.md) describes the ownership pattern.
 
-## Performance differs from a published result
+## Performance differs from a report
 
-Compare exact image/source identity, workload, schedule, compiler, cache/clock settings and memory placement. Confirm that you are measuring the same boundary. Re-running a historical script on a different image does not reproduce its original qualification.
+Compare the hardware, image, compiler settings, clocks, memory placement, workload, and measurement method. Use the test commands attached to the relevant report.
 
-## Report an actionable problem
+## Report a problem
 
-Include the failing command, revision, profile/overlays, toolchain identities, host/board model, full relevant logs and the smallest reproducer. Exclude credentials, private device backups and secrets. Use [GitHub issues](https://github.com/yongkyuns/nxrs/issues) for ordinary bugs and [SECURITY.md](../../SECURITY.md) for vulnerability reporting.
+Include a small reproducer and the setup information listed above. Use [GitHub issues](https://github.com/yongkyuns/nxrs/issues) for bugs and the repository's [security policy](../../SECURITY.md) for vulnerability reports. Remove credentials and private device data from logs before sharing them.

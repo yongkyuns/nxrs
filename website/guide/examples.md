@@ -1,27 +1,49 @@
 # NXRS examples
 
-NXRS includes a navigation application for learning the service model and an IoT camera application that combines capture, detection, communication and client integration.
+Use the small examples to learn a particular API or pattern. Larger applications show how several components fit together and are optional reading.
 
-## Navigation and service composition
+## Basic firmware
 
-The [event-demo application](../../app/event-demo/src/main.rs) connects IMU and GNSS services to a fusion service and observes the resulting state. It demonstrates typed messages, control commands, bounded waits and explicit shutdown.
+The [basic-firmware package](../examples/basic-firmware/) has a normal Rust entry point, an independent Cargo workspace, and NuttX firmware metadata. It is the starting point for [Your first application](first-application.md).
 
-The [getting-started guide](getting-started.md) runs it with the `host-demo` profile and synthetic inputs. The app selects a logical IMU through `devices::primary_imu()`; the selected profile supplies its implementation.
+```sh
+cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --bin hello
+cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --example worker
+```
 
-Read [Your first application](first-application.md) alongside the source. The [event-driven reference](../../docs/event-driven-demo.md) describes the execution model and test results.
+`hello` prints a greeting. `worker` sends typed commands to a bounded inbox and joins the worker after shutdown. It uses no hardware-specific service or driver.
+
+## Standard-library recipes
+
+[app/std-demo](../../app/std-demo/) contains collections, ownership, channels, synchronization, and deadline examples:
+
+```sh
+cargo run --locked -p nxrs-std-demo -- --list
+cargo run --locked -p nxrs-std-demo -- --case channels
+```
+
+Use [Standard-library APIs](standard-library.md) for an overview and [Building for NuttX](firmware.md) to build this application for a target.
+
+## IoT application structure
+
+A connected logger or controller commonly needs device access, processing, persistent records, and a connection manager. Those responsibilities can be separate components with explicit resource ownership and typed events.
+
+[Networking and storage](io.md#design-example-a-connected-data-logger) uses a logger as a design example. The application chooses record formats, retention policy, and behavior while disconnected. These are use cases for the framework rather than a required NXRS application model.
 
 <span id="experimental-iot-camera"></span>
 
 ## IoT camera
 
-The camera application combines frame acquisition, detection, recording/streaming, gateway delivery and client-visible state. It uses bounded buffering, explicit resource ownership, failure recovery and stale-data handling.
+The existing [home-cam application](../../app/home-cam/) combines capture, detection, streaming, and gateway/client integration. Its [delivery reference](../../docs/camera-detection-delivery.md) describes the end-to-end protocol and ownership. Model-specific [evaluation results](../../docs/camera-detection-qualification.md) include streaming, accuracy, memory, and recovery tests.
 
-The [camera detection delivery reference](../../docs/camera-detection-delivery.md) follows observations from the camera through the gateway to the iOS view. It describes authenticated publication and viewing, bounded message formats, expiration and cancellation. Detection state and video progress are tracked separately so stale observations are cleared even while a video view remains open.
+Read this material when working on a camera application. It is not required for learning the build system, service model, or hardware interfaces.
 
-The [VWW baseline evaluation](../../docs/camera-detection-qualification.md) records streaming performance, detection accuracy, memory use and recovery tests for the tested model and board. It also links to subsequent detector work. The baseline has documented missed detections; use the model-specific results when selecting a configuration. Remote alert delivery and deployment requirements are described in the application guides and [security documentation](../../docs/security.md).
+## Other repository applications
 
-## Tests and evaluations
+<span id="navigation-and-service-composition"></span>
 
-The applications are tested on the host, in emulation and on supported hardware. Separate benchmarks measure channel performance, event delivery and memory use.
+The repository also contains [event-demo](../../app/event-demo/) and [dual-imu-demo](../../app/dual-imu-demo/), which exercise sensor-specific service composition and named devices. Their [application notes](../../docs/event-driven-demo.md) remain available as implementation examples rather than the default introduction to NXRS.
 
-See [Testing and debugging](testing.md), the [repository test index](../../tests/README.md), and [Performance and memory](performance.md) for the test procedures and results. Additional examples are documented as they are added.
+## Tests and benchmarks
+
+Stress workloads and focused measurement fixtures live alongside the application examples and under `tests/`. Use the [test index](../../tests/README.md) and [Performance and memory](performance.md) when working on those tests; they are separate from the introductory programs.

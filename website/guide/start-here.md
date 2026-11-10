@@ -1,33 +1,40 @@
 # Guide index
 
-Start with the section that matches what you want to do.
+The main guide covers general firmware development: build a Rust application, organize its components, select a target, and test it. Application-specific material is under [Examples](examples.md).
 
-## Understand the project
+## Get started
 
-[Why NXRS?](motivation.md) explains the motivation and the NuttX and Rust choices. The [architecture overview](overview.md) describes the components, and [Current status](status.md) summarizes the implementation, tests and ongoing work.
+Follow these pages in order for the first build:
 
-## Run and change a host application
+1. [Getting started](getting-started.md) — install the host tools and run a small program.
+2. [Your first application](first-application.md) — copy a self-contained Cargo package and understand its firmware metadata.
+3. [Building for NuttX](firmware.md) — prepare a target toolchain, select a profile, and build an image.
 
-Start with [Getting started](getting-started.md) to run the navigation example with synthetic inputs on your computer.
+The first programs need no sensors or application-specific libraries.
 
-[Your first application](first-application.md) walks through the entry point. [Services and concurrency](services.md) explains event ownership, bounded delivery, overload handling and shutdown.
+## Develop firmware
 
-## Connect hardware and build firmware
+| Topic | Read when you need to |
+| --- | --- |
+| [Architecture overview](overview.md) | Understand NuttX, Rust, and component responsibilities |
+| [Standard-library APIs](standard-library.md) | Use threads, time, collections, files, and sockets |
+| [Services and concurrency](services.md) | Organize event processing and worker lifetimes |
+| [Drivers and HALs](hardware.md) | Add a peripheral or reuse a hardware capability |
+| [Networking and storage](io.md) | Structure communication and persistent data |
+| [Profiles and overlays](profiles.md) | Select devices, resources, and target configuration |
 
-[Drivers and HALs](hardware.md) explains where device-specific code belongs. [Profiles and overlays](profiles.md) covers device and resource selection. [Building for NuttX](firmware.md) describes toolchain setup and firmware builds.
+## Test and evaluate
 
-Use the selected board's configuration and driver documentation to check which peripherals are available.
+Use [Testing and debugging](testing.md) for commands and procedures, [Performance and memory](performance.md) for resource measurements, and [Troubleshooting](troubleshooting.md) for common setup and runtime errors.
 
-## Look at applications
+## Read background or examples
 
-The [NXRS examples](examples.md) cover navigation services and the camera/detection/gateway application, with links to their source code, configuration and test results.
+[Why NXRS?](motivation.md) explains the project's motivation and design choices. [Current status](status.md) summarizes the implementation and completed validation.
 
-## Test behavior and measure costs
+[Examples](examples.md) collects the small learning programs, standard-library recipes, and application-specific code. IoT use cases illustrate composition without becoming prerequisites for the guide.
 
-[Testing and debugging](testing.md) covers host tests, target builds, emulation and on-board tests. [Performance and memory](performance.md) describes the benchmarks and resource measurements. Use [Troubleshooting](troubleshooting.md) to diagnose build or runtime failures.
+## Find a reference
 
-## Look up a design decision
+The [engineering reference index](../../docs/README.md) links detailed design documents and evaluation reports. The website also provides a Reference index in the main navigation.
 
-The [repository documentation index](../../docs/README.md) links to the engineering documentation. The website's Reference section contains design notes, implementation details and evaluation reports.
-
-Search is available from the header with `/` or `Ctrl+K` / `Command+K`. On a narrow screen, use **Documentation navigation** to show the grouped sidebar. Reading pages and following navigation links works without JavaScript.
+Search is available from the header with `/`, `Ctrl+K`, or `Command+K`. On a narrow screen, **Documentation navigation** opens the sidebar. Pages and navigation links remain usable without JavaScript.
