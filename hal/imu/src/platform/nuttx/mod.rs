@@ -5,7 +5,6 @@ use crate::device_state;
 #[cfg(test)]
 use test_support::{ffi as events, gpio_resource};
 mod device;
-mod factory;
 mod instance;
 mod signal;
 mod trace;

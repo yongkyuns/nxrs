@@ -480,9 +480,9 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             runtime = re.sub(r'\s+', '', instance.read_text()) if instance.is_file() else ''
             if ('state:DeviceState' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
                     or 'Worker::start_guarded("imu-acquire",self.stack_bytes,' not in runtime
-                    or 'factory::acquire(config,self.irq_path,trace,&self.state,' not in runtime):
+                    or 'device::Device::open(config,self.irq_path,trace,&self.state,' not in runtime):
                 errors.append(f'{relative(instance)}: retain per-device storage and ownership through guarded worker retirement')
-            for path in (nuttx, instance, instance.parent / 'device.rs', instance.parent / 'factory.rs'):
+            for path in (nuttx, instance, instance.parent / 'device.rs'):
                 if path.is_file() and re.search(r'\bstatic\s+OWNED\b', path.read_text()):
                     errors.append(f'{relative(path)}: global device ownership must not replace canonical instance state')
             hal_manifest = hal / 'Cargo.toml'

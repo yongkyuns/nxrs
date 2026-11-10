@@ -1,6 +1,6 @@
 //! Canonical storage remains in the device; a worker borrows it until retirement.
 use super::device_state::DeviceState;
-use super::{device, events, factory, trace::Trace};
+use super::{device, events, trace::Trace};
 use crate::{api::Sealed, AppliedConfig, Config, Device, DeviceError, Event, Session};
 use acquisition::{readiness, Worker};
 use peripheral::imu::{Error, Imu};
@@ -45,7 +45,7 @@ impl<S: Imu + Send + 'static, R: 'static> Instance<S, R> {
         sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
         let observed = trace.clone();
-        let device = factory::acquire(
+        let device = device::Device::open(
             config,
             self.irq_path,
             trace,

@@ -31,7 +31,9 @@ contains the device state and a mutex-protected acquisition slot, including the
 concrete driver while active. Platform wiring supplies resource-opening and
 sensor-initialization functions; the HAL controls their order. A missing bus can
 release the device normally, while uncertain sensor initialization leaves it
-faulted. The construction API is reserved for platform catalogues and qualification;
+faulted. One private `Device::open` operation validates, reserves and initializes
+the acquisition owner before worker startup, without a separate factory module.
+The construction API is reserved for platform catalogues and qualification;
 architecture checks reject its use in apps and services.
 
 A device stays Busy through final delivery, sink destruction and resource cleanup.
