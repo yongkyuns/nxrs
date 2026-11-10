@@ -36,6 +36,11 @@ provider ownership, bounded delivery and the owner's wait loop.
 walks through the performance and memory evidence for that model, from channel
 storage and thread stacks to physical handoff measurements and their scope.
 
+[Characterizing Zephyr, NuttX and NXRS](rtos-characterization.md) defines the
+broader comparison: deployment resources, responsiveness, bounded progress,
+recovery, portability and integration. It maps existing evidence to five useful
+experiments and separates OS costs from the ordinary NXRS application layer.
+
 The [security design and release requirements](security.md) records the trust
 boundaries, explicit non-FIPS deployment decision and evidence needed for
 authenticated transport, firmware integrity, key lifecycle and protected storage.

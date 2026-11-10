@@ -1,5 +1,10 @@
 # Event-driven services on NuttX, Zephyr and Embassy
 
+For the broader comparison of OS behavior, the ordinary NXRS application model,
+resource costs, progress, recovery and portability, see
+[Characterizing Zephyr, NuttX and NXRS](rtos-characterization.md). This page
+retains the historical native-adapter experiments and their measurement scope.
+
 Twenty services and sixty bounded queues run correctly on all four tested
 implementations. Native Rust on NuttX adds little over matched C. Embassy saves
 execution RAM, but synchronous work blocks its single cooperative executor.
