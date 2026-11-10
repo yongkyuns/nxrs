@@ -10,6 +10,13 @@ __pycache__/
 .venv/
 venv/
 
+# Machine-local environment and provisioning output
+.env
+.env.*
+!.env.example
+!.env.template
+/.local/
+
 # macOS metadata
 .DS_Store
 
