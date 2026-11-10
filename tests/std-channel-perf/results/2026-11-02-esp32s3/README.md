@@ -27,3 +27,16 @@ The original 16 MiB flash was restored and verified. The private flash backup,
 firmware binaries and SDKs are excluded; full executable verification requires
 the CI artifact. `SHA256SUMS` covers every retained file except itself and
 preserves the raw serial line endings.
+
+## Privacy of this public copy
+
+The physical board MAC/USB serial is represented by the stable pseudonym
+`esp32s3-bench-01`; the host serial-device path is `<serial-device>`. These labels
+preserve the relationship between this board's runs without publishing its
+hardware identifier. They are not connection settings for a new measurement.
+
+`privacy-redaction.json` records the original and public-copy file digests.
+`SHA256SUMS` and cohort evidence references describe the sanitized files.
+Firmware/build/source identities, console measurements, numeric results and
+qualification outcomes are unchanged. This is a publication edit, not a new
+hardware run or a rewrite of Git history.
