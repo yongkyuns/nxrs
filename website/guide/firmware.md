@@ -1,8 +1,8 @@
 # Building for NuttX
 
-A host pass is the first step. An MCU image additionally needs the selected NuttX source, board configuration, compiler, Rust target integration and ABI checks. Use the repository frontend rather than manually assembling a different target command for every application.
+A firmware build uses the selected NuttX source, board configuration, compiler and Rust target integration. The `cargo nxrs` frontend prepares these inputs, builds the application and runs the target ABI checks.
 
-## Discover and inspect before building
+## Inspect the build configuration
 
 From the repository root:
 
@@ -12,20 +12,20 @@ cargo nxrs platforms
 cargo nxrs build --app event-demo --profile esp32s3-qemu-mock --dry-run
 ```
 
-A dry run describes a build plan. It does not qualify the compiler, SDK, dependency resolution, target ABI or physical resources. Keep the actual build evidence separate.
+`--dry-run` prints the build plan without compiling or running the firmware.
 
 ## Prepare the target environment
 
-The examples here use a POSIX shell and the repository’s existing ESP32-S3 QEMU setup. Install the host/native prerequisites described by the [build reference](../../docs/build-system.md) and [QEMU guide](../../docs/nuttx-qemu.md). Do not assume the host-only Rust toolchain includes an Xtensa compiler.
+These examples use a POSIX shell and the ESP32-S3 QEMU setup. Install the prerequisites in the [build reference](../../docs/build-system.md) and [QEMU guide](../../docs/nuttx-qemu.md), including the target compiler.
 
 ```sh
 git submodule update --init
 bash tools/install-qemu-tools.sh
 ```
 
-The installation script obtains the pinned target tools. Review its output and preserve the selected versions. Cargo build scripts do not fetch missing native source trees on your behalf.
+The script installs the pinned target tools. Initialize the source submodules before building; Cargo build scripts use the existing checkout.
 
-NuttX std integration uses checked private SDK copies and maintained patches. Do not patch the globally installed compiler as a substitute. The target checks bind the actual headers, libc and std used for that image.
+The Rust/NuttX integration uses private SDK copies with maintained patches. Keep these separate from the globally installed compiler. Target checks use the headers, libc and standard library selected for the firmware image.
 
 ## Build the event demo
 
@@ -33,21 +33,21 @@ NuttX std integration uses checked private SDK copies and maintained patches. Do
 cargo nxrs build --app event-demo --profile esp32s3-qemu-mock
 ```
 
-The default output directory is:
+Build outputs are placed under:
 
 ```text
 target/build/event-demo/esp32s3-qemu-mock/
 ```
 
-The ESP32-S3 merged image used by the existing test runner is:
+The ESP32-S3 test runner uses this merged image:
 
 ```text
 target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
 ```
 
-Inspect the build logs and receipts as well as the binary. A filename left by an earlier attempt is not evidence that the latest attempt succeeded.
+Check that the build completed successfully before running its output. The directory also contains build logs and records of the selected inputs.
 
-## Execute the emulated image
+## Run the emulated image
 
 ```sh
 source target/qemu-tools/environment.sh
@@ -57,21 +57,21 @@ python3 tests/host/test-event-demo-nuttx.py "$(command -v qemu-system-xtensa)" \
   --log target/build/event-demo/esp32s3-qemu-mock/console.log
 ```
 
-This runs the demo qualification path with synthetic sensor providers. Read the runner result and saved console log. QEMU execution does not establish physical sensor support or absolute hardware timing.
+The runner tests the application with synthetic sensor providers in QEMU. Results and the console transcript are saved with the build.
 
-## Other qualification profiles
+## Other target profiles
 
 ```sh
 cargo nxrs build --app event-demo --profile mps2-an521-mock
 cargo nxrs build --app event-demo --profile pico2-mock
 ```
 
-The MPS2 configuration is a Cortex-M33 execution proxy, **not RP2350 emulation**. The Pico 2 profile separately builds and checks the actual board image. A build/link/ABI result alone is not a physical-board execution result.
+The MPS2 configuration runs on a Cortex-M33 QEMU model; it does not emulate the RP2350. The Pico 2 profile builds and checks the actual board image. On-board execution uses the corresponding device test procedure.
 
-For a real CoreS3 product, begin with the [CoreS3 guide](../../docs/m5stack-cores3.md). Choose the exact board/profile and verify the wiring and device evidence before flashing. This guide intentionally does not supply a generic flashing command: erase ranges, image layout and board ownership are target-specific.
+For CoreS3, follow the [CoreS3 guide](../../docs/m5stack-cores3.md). Confirm the board profile, wiring, image layout and flashing procedure before writing to the device.
 
 ## Incremental builds and cleanup
 
-The frontend retains compatible Cargo, NuttX and prepared SDK state. It still checks the selected inputs and regenerates success evidence. `--clean` is available for an intentional fresh build; use the owning command rather than deleting arbitrary shared tool directories.
+The frontend reuses compatible Cargo, NuttX and prepared SDK state while checking the selected inputs. Use `--clean` for a fresh build.
 
-Builds and packaging are not permission to flash, provision keys or change eFuses. Those are separate operations with board-specific procedures. See the [build-system reference](../../docs/build-system.md) and [Rust std integration report](../../docs/nuttx-std.md).
+Building and packaging do not modify a device. Flashing, key provisioning and eFuse changes use separate board-specific procedures. See the [build-system reference](../../docs/build-system.md) and [Rust std integration report](../../docs/nuttx-std.md).

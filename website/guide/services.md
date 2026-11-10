@@ -1,43 +1,43 @@
 # Services and concurrency
 
-The event-driven model is about explicit ownership, not replacing Rust with an actor language. Ordinary functions remain useful. An active owner is introduced when a component needs independent execution or a wait boundary.
+Services use ordinary Rust functions and explicit resource ownership. A component gets a worker thread when it needs independent execution or a blocking wait.
 
 ## One owner, one wait point
 
-Keep mutable state and owned resources together. Producers submit typed messages to a bounded inbox. The owner waits, dispatches one event, completes its handler and waits again. Different event sources can feed the same owner rather than forcing it to poll several queues in a busy loop.
+Keep mutable state and resources with their owner. Producers submit typed messages to a bounded inbox. The owner waits for an event, runs its handler to completion and waits again. Multiple event sources can feed the same inbox.
 
-Use Rust threads and blocking synchronization. An async executor is not required. `HealthService` in the navigation demo remains synchronous; not every reusable component needs its own thread.
+Concurrency uses Rust threads and blocking synchronization. Synchronous components such as `HealthService` in the navigation example run without their own thread.
 
 ## Separate acquisition from processing
 
-An IMU HAL owns readiness, FIFO draining, decoding and device cleanup. A GNSS HAL owns UART reads, framing and parsing. Services receive normalized events and own processing policy. The app composes the services.
+An IMU HAL owns readiness, FIFO draining, decoding and device cleanup. A GNSS HAL owns UART reads, framing and parsing. Services receive normalized events and implement processing policy. The application connects the services.
 
-In the navigation example, pause/resume controls processing. HAL acquisition continues draining, and suppressed measurements are counted as drops. Pausing processing does not reconfigure the sensor’s output rate.
+In the navigation example, pause/resume controls processing. HAL acquisition continues, and suppressed measurements are counted as drops. Sensor output rates are configured separately.
 
-A configured interrupt failure must remain a failure. Do not silently replace it with periodic polling. Explicit mock or unwired-device timer paths have their own documented scope.
+Report a configured interrupt failure rather than silently switching to polling. Timer-based acquisition and mock providers are selected explicitly.
 
-## Design bounded delivery
+## Configure bounded delivery
 
-Choose capacities from the expected burst and consumer behavior, then measure them. Decide what a full queue means before adding producers. Possible policies include rejecting the new value, retaining a pending value, or coalescing a state update, but they are not interchangeable.
+Choose queue capacities for the expected bursts and consumer behavior, then measure them under load. Define how each queue handles overload: reject a new value, retain a pending value, or coalesce a state update.
 
-Account separately for attempted, admitted, rejected, handled and discarded messages. Keep sequence gaps visible. Do not allow a slow consumer to turn a bounded design into an unbounded retry list elsewhere.
+Track attempted, admitted, rejected, handled and discarded messages. Keep sequence gaps visible and bound any retry storage used by producers.
 
-A terminal acquisition fault must not disappear because the ordinary data queue is full. The existing sensor implementation retains fault state and exposes cleanup outcomes; follow the owning contract rather than inventing a generic success fallback.
+Retain terminal acquisition faults separately from the ordinary data queue so they remain available when the queue is full. Report cleanup errors through the owning component's interface.
 
 ## Keep interrupt work small
 
-An ISR or interrupt-context callback is not a service thread. It must not invoke service handlers, allocate, wait for queue capacity or call ordinary std/Crossbeam channels. Use the qualified bounded native notification path and defer parsing and I/O to task context.
+ISRs and interrupt-context callbacks use the bounded native notification path. Parsing and I/O run in task context. Do not invoke service handlers, allocate, wait for queue capacity or call ordinary std/Crossbeam channels from interrupt context.
 
-The exact context and lifetime of a native callback must be documented. A callback registration cannot outlive the Rust state it references.
+Document the execution context and lifetime of each native callback. Keep its Rust state alive until the callback has been unregistered and any in-flight work has completed.
 
-## Stop, cancel and join deliberately
+## Stop, cancel and join
 
-Create inboxes before producers start. On shutdown, stop new production, wake blocked waits, complete or cancel admitted work according to policy, join acquisition and verify resource cleanup. Retain cleanup failures rather than reporting resources as released prematurely.
+Create inboxes before starting producers. During shutdown, stop new production, wake blocked waits, drain or cancel pending work according to policy, join acquisition and release resources after cleanup completes.
 
-Explicit stop may drain admitted work; dropping a handle can request cancellation without joining. Read the actual service contract. A shutdown timeout alone does not prove that a worker stopped accessing memory or a device.
+Explicit stop may drain admitted work; dropping a handle can request cancellation without joining. Follow the component's shutdown contract and retain cleanup failures. After a timeout, resources must remain owned until the worker has stopped using them.
 
-## Review scheduling separately
+## Review scheduling
 
-A bounded queue is a memory bound, not automatically a method-time bound. A function named `try_recv` does not prove that every internal path is safe under fixed-priority preemption. Producer/consumer priority, queue reservations, lock ownership, IRQ load and all endpoint holders matter.
+Queue capacity limits storage. Execution time also depends on producer and consumer priorities, queue reservations, locking, interrupt load and endpoint lifetimes. Review internal progress behavior before using a transport under fixed-priority scheduling, including nonblocking methods such as `try_recv`.
 
-Do not adopt a scheduler policy from a benchmark without its participant and lifecycle restrictions. Read the [communication reference](../../docs/concurrency-event-communication.md), [navigation demo](../../docs/event-driven-demo.md) and [channel performance analysis](../../docs/std-channel-performance.md) together.
+The [communication reference](../../docs/concurrency-event-communication.md), [navigation example](../../docs/event-driven-demo.md) and [channel performance analysis](../../docs/std-channel-performance.md) describe the scheduling requirements and measurements.
