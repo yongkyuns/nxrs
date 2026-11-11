@@ -1,9 +1,8 @@
 //! Application descriptors are platform-free; this host controller supplies build wiring.
 use crate::{
     deployment,
-    profile::{manifest, Profile},
+    profile::{manifest, platform_defaults, Profile},
     run,
-    target::Target,
     write_json, Result,
 };
 use serde_json::{json, Value};
@@ -226,28 +225,38 @@ impl Options {
 }
 pub fn selection(
     root: &Path,
-    platform: Target,
+    platform: &str,
     name: Option<&str>,
     overlays: &[PathBuf],
 ) -> Result<Profile> {
-    let p =
-        Profile::resolve_with_overlays(root, name.unwrap_or(platform.default_profile()), overlays)?;
-    let board = p.data["board"].as_str().unwrap_or("");
-    let matches = match platform {
-        Target::Wroom => {
-            board.starts_with("esp32s3-devkit:") || board.starts_with("esp32s3-devkit")
+    let defaults = platform_defaults(root)?;
+    let default = defaults
+        .get(platform)
+        .ok_or_else(|| format!("unknown platform {platform}; run cargo nxrs platforms"))?;
+    let name = name.unwrap_or(default);
+    let selected = Profile::resolve_with_overlays(root, name, overlays)?;
+    if name != default {
+        fn bsp(profile: &Profile) -> Option<&str> {
+            profile.data["board"].as_str()?.split(':').next()
         }
-        Target::CoreS3 => board.starts_with("esp32s3-m5-cores3:"),
-        Target::Pico2W => board.starts_with("raspberrypi-pico-2:"),
-        Target::Linux | Target::Macos | Target::Windows => {
-            p.validate_target(platform.name()).is_ok()
+        let base = Profile::resolve(root, default)?;
+        let compatible = if let Some(board) = bsp(&base) {
+            bsp(&selected) == Some(board) && selected.data["target"] == base.data["target"]
+        } else {
+            let os = base.data["target-os"]
+                .as_array()
+                .and_then(|list| match list.as_slice() {
+                    [os] => os.as_str(),
+                    _ => None,
+                })
+                .ok_or("platform default must identify one target OS")?;
+            bsp(&selected).is_none() && selected.validate_target(os).is_ok()
+        };
+        if !compatible {
+            return Err("profile belongs to another platform family".into());
         }
-        Target::Web => p.validate_target("emscripten").is_ok(),
-    };
-    if !matches || (platform == Target::Wroom && p.name().starts_with("m5stack-cores3")) {
-        return Err("profile belongs to another platform family".into());
     }
-    Ok(p)
+    Ok(selected)
 }
 pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
     let absolute = if out.is_absolute() {

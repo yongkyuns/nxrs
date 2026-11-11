@@ -8,7 +8,8 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
+    fs,
     path::{Path, PathBuf},
 };
 pub const CAPABILITIES: &[&str] = &[
@@ -111,19 +112,72 @@ pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
     }
     Ok(stack)
 }
+const PROFILE_DIRS: [&str; 2] = ["platform/profiles", "platform/nuttx/platforms"];
+
 pub fn profile_path(root: &Path, name: &str) -> Result<PathBuf> {
+    find_profile_path(root, name)?.ok_or_else(|| format!("unknown or ambiguous platform: {name}"))
+}
+
+fn find_profile_path(root: &Path, name: &str) -> Result<Option<PathBuf>> {
     if matches!(name, "std" | "native") || !matches(name, r"^[a-z0-9][a-z0-9-]*$") {
         return Err(format!("unknown or ambiguous platform: {name}"));
     }
-    let paths: Vec<_> = ["platform/profiles", "platform/nuttx/platforms"]
+    let mut paths = PROFILE_DIRS
         .into_iter()
         .map(|p| root.join(p).join(format!("{name}.toml")))
-        .filter(|p| p.is_file())
-        .collect();
-    if paths.len() != 1 {
+        .filter(|p| p.is_file());
+    let Some(path) = paths.next() else {
+        return Ok(None);
+    };
+    if paths.next().is_some() {
         return Err(format!("unknown or ambiguous platform: {name}"));
     }
-    paths[0].canonicalize().map_err(|e| e.to_string())
+    path.canonicalize().map(Some).map_err(|e| e.to_string())
+}
+
+/// Discover platform aliases declared by the default profile files.
+pub fn platform_defaults(root: &Path) -> Result<BTreeMap<String, String>> {
+    let mut defaults = BTreeMap::new();
+    for directory in PROFILE_DIRS.map(|directory| root.join(directory)) {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{}: {error}", directory.display())),
+        };
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if !path.is_file() || !path.extension().is_some_and(|extension| extension == "toml") {
+                continue;
+            }
+            let data = manifest(&path)?;
+            let Some(alias) = data.get("default-for") else {
+                continue;
+            };
+            let alias = alias
+                .as_str()
+                .filter(|alias| {
+                    !matches!(*alias, "std" | "native") && matches(alias, r"^[a-z0-9][a-z0-9-]*$")
+                })
+                .ok_or_else(|| format!("{}: default-for must be a platform name", path.display()))?;
+            let name = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| format!("invalid profile filename {}", path.display()))?;
+            profile_path(root, name)?;
+            if let Some(other) = defaults.insert(alias.to_owned(), name.to_owned()) {
+                return Err(format!("multiple defaults for platform {alias}: {other} and {name}"));
+            }
+        }
+    }
+    Ok(defaults)
+}
+
+/// Profile inspection accepts existing profile names and platform aliases.
+pub fn profile_or_default(root: &Path, name: &str) -> Result<String> {
+    if find_profile_path(root, name)?.is_some() {
+        return Ok(name.into());
+    }
+    Ok(platform_defaults(root)?.remove(name).unwrap_or_else(|| name.into()))
 }
 impl Profile {
     /// Construct a profile from existing data for inspection and host fixtures.
@@ -264,6 +318,7 @@ impl Profile {
         }
         let path = profile_path(root, name)?;
         let (mut child, input) = read_input(path.clone(), InputKind::Profile)?;
+        child.as_object_mut().unwrap().remove("default-for");
         if child.get("hal-features").is_some() {
             return Err("retired hal-features; platform must own [hal] bindings".into());
         }

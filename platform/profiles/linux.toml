@@ -1,4 +1,5 @@
 # OS selection; portable file/socket/model code is shared within each HAL.
+default-for = "linux"
 target-os = ["linux"]
 
 [hal]

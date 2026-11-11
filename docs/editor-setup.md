@@ -3,7 +3,9 @@
 In Zed, run **task: spawn** and search for **Nxrs editor**. Choose **Host**
 for the current desktop OS or choose the board you are editing for. The task
 updates this checkout's local Zed settings and Zed reloads rust-analyzer.
-The terminal equivalent for the host is `cargo nxrs editor host`.
+The terminal equivalent for the host is `cargo nxrs editor host`. Run
+**Nxrs editor: Show active profile** (or `cargo nxrs editor status`) to see the
+exact profile name and, for NuttX, the target used by rust-analyzer.
 
 NuttX needs a prepared build. Run your usual `cargo nxrs build` with
 `--out target/editor/wroom`, `target/editor/cores3`, or `target/editor/pico2w`

@@ -1,19 +1,30 @@
 //! Configure Zed from the native host profile or a prepared NuttX build.
-use nxrs_build::{output, profile::Profile, read_json, write_json, Result, TempDir};
+use nxrs_build::{build, output, read_json, write_json, Result, TempDir};
 use serde_json::{json, Value};
 use std::{env, fs, path::Path, process::Command};
 
 const DEFAULT_SETTINGS: &str = include_str!("../../../.zed/settings.default.json");
 
 pub fn select(root: &Path, args: &[String]) -> Result<()> {
-    let (name, cargo, check_on_save) = match args {
+    let directory = root.join(".zed");
+    let path = directory.join("settings.json");
+    let (cargo, check_on_save) = match args {
+        [command] if command == "status" => {
+            let settings = if path.try_exists().map_err(|e| e.to_string())? {
+                read_json(&path)?
+            } else {
+                Value::Null
+            };
+            show_profile(&settings);
+            return Ok(());
+        }
         [host] if host == "host" => {
             let os = env::consts::OS;
-            Profile::resolve(root, os)?.validate_target(os)?;
+            let profile = build::selection(root, os, None, &[])?;
+            profile.validate_target(os)?;
             (
-                os.to_owned(),
                 json!({
-                    "extraEnv": {"NXRS_PLATFORM": os, "CARGO_TARGET_DIR": "target/rust-analyzer"},
+                    "extraEnv": {"NXRS_PLATFORM": profile.name(), "CARGO_TARGET_DIR": "target/rust-analyzer"},
                     "buildScripts": {
                         "enable": true,
                         "overrideCommand": ["cargo", "check", "--locked", "--lib", "--message-format=json"]
@@ -24,19 +35,17 @@ pub fn select(root: &Path, args: &[String]) -> Result<()> {
         }
         [flag, path] if flag == "--build-dir" => {
             let directory = root.join(path);
-            let (name, cargo) = nuttx_settings(root, &directory).map_err(|error| {
+            let cargo = nuttx_settings(root, &directory).map_err(|error| {
                 format!(
                     "{}: {error}. Use a configured Nxrs NuttX build directory",
                     directory.display()
                 )
             })?;
-            (name, cargo, false)
+            (cargo, false)
         }
-        _ => return Err("usage: cargo nxrs editor <host | --build-dir path>".into()),
+        _ => return Err("usage: cargo nxrs editor <host | --build-dir path | status>".into()),
     };
-    let directory = root.join(".zed");
     fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let path = directory.join("settings.json");
     let mut settings = if path.try_exists().map_err(|e| e.to_string())? {
         read_json(&path).map_err(|error| {
             format!("{error}. Convert the project settings to JSON before switching")
@@ -69,11 +78,35 @@ pub fn select(root: &Path, args: &[String]) -> Result<()> {
     if fs::read(&path).ok() != fs::read(&candidate).ok() {
         fs::rename(&candidate, &path).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    println!("Zed Rust profile: {name}");
+    show_profile(&settings);
     Ok(())
 }
 
-fn nuttx_settings(root: &Path, directory: &Path) -> Result<(String, Value)> {
+fn show_profile(settings: &Value) {
+    let cargo = &settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"];
+    match cargo["extraEnv"]["NXRS_PLATFORM"].as_str() {
+        Some(name) => {
+            let target = cargo["target"].as_str().map(|target| {
+                if target.ends_with(".json") {
+                    Path::new(target)
+                        .file_stem()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(target)
+                } else {
+                    target
+                }
+            });
+            if let Some(target) = target {
+                println!("Zed Rust profile: {name} ({target})");
+            } else {
+                println!("Zed Rust profile: {name}");
+            }
+        }
+        None => println!("No Nxrs editor profile selected"),
+    }
+}
+
+fn nuttx_settings(root: &Path, directory: &Path) -> Result<Value> {
     let directory = directory.canonicalize().map_err(|e| e.to_string())?;
     let receipt = directory.join("resolved-profile.json");
     let identity = read_json(&receipt)?;
@@ -205,15 +238,12 @@ fn nuttx_settings(root: &Path, directory: &Path) -> Result<(String, Value)> {
             extra_env[name] = path.clone();
         }
     }
-    Ok((
-        profile.name().into(),
-        json!({
-            "target": target,
-            "sysroot": sysroot,
-            "features": metadata_features,
-            "noDefaultFeatures": no_defaults,
-            "extraEnv": extra_env,
-            "buildScripts": {"enable": true, "overrideCommand": command}
-        }),
-    ))
+    Ok(json!({
+        "target": target,
+        "sysroot": sysroot,
+        "features": metadata_features,
+        "noDefaultFeatures": no_defaults,
+        "extraEnv": extra_env,
+        "buildScripts": {"enable": true, "overrideCommand": command}
+    }))
 }
