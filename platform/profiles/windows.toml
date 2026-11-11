@@ -1,9 +1,6 @@
-# OS selection; portable file/socket/model code is shared within each HAL.
+# Windows detector admission.
 default-for = "windows"
 target-os = ["windows"]
 
 [hal]
-camera = "windows"
-storage = "windows"
-transport = "windows"
 detector = "windows"
