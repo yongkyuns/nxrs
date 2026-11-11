@@ -38,7 +38,8 @@ python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
 cd "$ROOT"
 # The distributed core uses the kernel code model, not small/PIC. Scope the
 # unstable rebuild opt-in to this pinned compiler invocation.
-NXRS_PLATFORM=nuttx-core RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
+env -u NXRS_PLATFORM -u NXRS_RESOLVED_PROFILE \
+  RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
   cargo build --locked --profile nuttx-sim --lib -p nxrs-nuttx-app \
   --target x86_64-unknown-none -Zbuild-std=core
 LIB="$ROOT/target/x86_64-unknown-none/nuttx-sim/libnxrs_nuttx_app.a"

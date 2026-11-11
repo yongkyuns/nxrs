@@ -75,7 +75,7 @@ sha256sum hal/led/Cargo.toml hal/led/build.rs hal/led/src/lib.rs hal/led/src/api
   platform/build-support/Cargo.toml platform/build-support/src/lib.rs \
   platform/build-support/src/profile.rs platform/build-support/src/native.rs \
   platform/build-support/src/native_nuttx.rs platform/nuttx/std-app/Makefile \
-  platform/nuttx/platforms/esp32s3-userled.toml platform/nuttx/platforms/esp32s3-qemu-mock.toml \
+  tests/profiles/esp32s3-userled.toml tests/profiles/esp32s3-qemu-mock.toml \
   tests/nuttx-std/userled/src/main.rs tests/nuttx-std/userled/nuttx/fixture.c \
   tests/nuttx-std/userled/Cargo.toml tests/nuttx-std/userled/build.sh > "$OUT/userled-sources.sha256"
 echo 'USERLED final image ready; runtime qualification is a separate required step.'

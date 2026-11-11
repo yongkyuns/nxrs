@@ -36,7 +36,7 @@ def inventory():
                      and (p.suffix in ('.rs', '.py', '.toml', '.lock', '.c', '.h', '.conf', '.overlay', '.patch', '.ld')
                           or p.name == 'CMakeLists.txt'))
     files.extend(p for p in (ROOT / 'platform/nuttx/std-app').rglob('*') if p.is_file())
-    files.extend((ROOT / 'platform/nuttx/platforms' / f'{b}-mpsc.toml') for b in BOARDS)
+    files.extend((ROOT / 'tests/profiles' / f'{b}-mpsc.toml') for b in BOARDS)
     files.extend([ROOT / 'upstream/build-patches.json', ROOT / 'Cargo.toml', ROOT / 'Cargo.lock', ROOT / '.cargo/config.toml',
                   ROOT / 'platform/nuttx/linker/esp32s3-mpsc.ld',
                   HERE.parent / 'nuttx-std/channels/mpsc-fixture-iram.ld',

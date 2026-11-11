@@ -144,8 +144,9 @@ require a wildcard or let backend exports implicitly define the crate's public
 API. Keep constructors and unavailable stubs in those selected modules, not
 inline in the selector. Prefer ordinary named modules and conditional
 `as selected` exports; source-path redirection is not required for selection.
-Group each implementation's declaration and alias in one `cfg_if` branch rather
-than repeating its selection condition. A branch may select a shared crate
+Group a declaration and its alias in one `cfg_if` branch. An item-level
+`#[cfg]` with a path can select the module directly as `selected` and lets
+rust-analyzer mark inactive declarations. A branch may select a shared crate
 module directly; do not add OS wrappers that only re-export it.
 Identical Rust implementations remain ordinary shared modules outside
 `platform/`; selecting acquisition does not duplicate them per OS. Native source
@@ -211,19 +212,19 @@ configuration. Rust `std` is available on production targets; it is not a
 platform or a selectable HAL implementation. Application/service manifests do not choose HAL providers.
 There are no per-capability Cargo provider features.
 
-For example, `platform/nuttx/platforms/pico2w-wifi.toml` binds Wi-Fi to the
+For example, `tests/profiles/pico2w-wifi.toml` binds Wi-Fi to the
 NuttX implementation and configures the CYW43439 driver. The ESP32-S3 profile
 uses the same Rust implementation and different native driver configuration.
 Do not duplicate Rust adapters merely because the boards differ.
 
 For desktop/test builds, select one profile for the entire Cargo invocation.
-`mock` is an explicit portable fixture profile, `host-demo` selects mock demo
-sensors, and `simulation` selects the coordinated seeded IMU/GNSS source.
+`mock` supplies scripted providers for portable tests and the navigation demo.
+`simulation` selects the coordinated seeded IMU/GNSS source.
 
 ~~~sh
 NXRS_PLATFORM=linux cargo test --locked -p nxrs-native-integration
 NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
+NXRS_PLATFORM=mock cargo run --locked -p nxrs-event-demo
 ~~~
 
 Explicit platform builds use the shared Rust profile resolver.
@@ -240,8 +241,8 @@ factory, which returns `Unsupported` when that acquisition is unbound. Explicit
 `MockStorage` and `MockTransport` fixture constructors remain separate from real
 file/socket operations.
 
-`NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT as well as the
-explicit shared file/socket operations. Both reuse their capability's controller
+`NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT. The radio
+providers reuse their capability's controller
 and worker. CoreWLAN calls are synchronous; CoreBluetooth callbacks stay on a
 serial SDK queue and the scan worker drains bounded reports. No additional
 service or Rust runtime is introduced.
@@ -452,12 +453,12 @@ identifiers and environment variables retain their external namespacing.
 
 ## Platform variants and validation
 
-Profiles live in `platform/nuttx/platforms` (firmware) and
-`platform/profiles` (desktop and legacy fixtures). Names are unique across both
-locations. A product variant may extend an actual OS or board profile and override
+Platform defaults live in `platform/profiles`. Test profiles live in
+`tests/profiles`. Names are unique across both locations. A product variant may
+extend an actual OS or board profile and override
 selected `[hal]` bindings. `simulation` runs coordinated IMU and GNSS.
-`host-demo` and `host-imu` remain independent scripted fixtures. Core-only compilation
-checks are legacy contract tests, not a bare-metal product platform.
+`host-imu` exercises scripted IMU acquisition with GNSS unbound. Core-only
+contract checks use the unbound Cargo configuration.
 
 An optional NuttX profile `cpus = 1` or `2` derives the SMP enablement, CPU count
 and checked requirements; it does not introduce CPU identity into shared code.

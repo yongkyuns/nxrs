@@ -90,12 +90,11 @@ pub fn write_simulation_config(profile: &profile::Profile, out: &Path) -> Result
 }
 
 /// Resolve product profiles and pinned SDK inputs explicitly for external users.
-/// In-tree builds may discover the checkout by its declared profile directories.
+/// In-tree builds may discover the checkout by its platform profiles.
 pub fn sdk_root(manifest: &Path) -> Result<std::path::PathBuf> {
     fn valid(root: &Path) -> bool {
         root.join("Cargo.toml").is_file()
             && root.join("platform/profiles").is_dir()
-            && root.join("platform/nuttx/platforms").is_dir()
             && root.join("hal").is_dir()
     }
     println!("cargo:rerun-if-env-changed=NXRS_SDK_ROOT");

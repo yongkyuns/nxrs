@@ -1,2 +1,0 @@
-extends = "esp32s3-camera-stream"
-hal = { tls = "nuttx" }

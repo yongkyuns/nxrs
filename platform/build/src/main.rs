@@ -4,8 +4,7 @@ mod editor;
 
 use nxrs_build::{
     build::{self, App, Options},
-    profile::Profile,
-    target::Target,
+    profile::{platform_defaults, profile_or_default, Profile},
     Result,
 };
 use std::{
@@ -35,10 +34,10 @@ fn usage() -> &'static str {
   cargo nxrs platforms
   cargo nxrs apps
   cargo nxrs profile --platform <profile> [--target-os <os>]
-  cargo nxrs editor <host | --build-dir path>
+  cargo nxrs editor <host | --build-dir path | status>
   cargo nxrs fetch <tls|detector>
 
-Platforms: wroom, cores3, pico2w, linux, macos, windows, web.
+Run cargo nxrs platforms to list platform defaults.
 Use --workspace-root <path> before a command to select an Nxrs checkout.
 Run cargo nxrs build --help for build options.
 NuttX signed profiles require the existing signing-key, verification-root, version and counter inputs."
@@ -230,8 +229,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         app.stack = n;
     }
     let profile = if let Some(platform) = platform {
-        let target = Target::parse(&platform)?;
-        build::selection(root, target, profile.as_deref(), &overlays)?
+        build::selection(root, &platform, profile.as_deref(), &overlays)?
     } else {
         Profile::resolve_with_overlays(
             root,
@@ -297,11 +295,8 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             _ => return Err(format!("unknown profile argument {arg}")),
         }
     }
-    let profile = Profile::resolve_with_overlays(
-        root,
-        name.ok_or("profile requires --platform")?,
-        &overlays,
-    )?;
+    let name = profile_or_default(root, name.ok_or("profile requires --platform")?)?;
+    let profile = Profile::resolve_with_overlays(root, &name, &overlays)?;
     if let Some(os) = os {
         profile.validate_target(os)?;
     }
@@ -369,8 +364,8 @@ fn run() -> Result<ExitCode> {
     };
     match command {
         "platforms" | "--list-platforms" => {
-            for target in Target::ALL {
-                println!("{}", target.name());
+            for name in platform_defaults(&root)?.keys() {
+                println!("{name}");
             }
         }
         "apps" | "--list-apps" => applications(&root)?,

@@ -16,8 +16,8 @@ fn fixture() -> TempDir {
     fs::write(
         root.0.join("platform/profiles/host.toml"),
         format!(
-            "target-os = [\"{}\"]\nexecution = \"std\"\n[hal]\n",
-            env::consts::OS
+            "default-for = \"{os}\"\ntarget-os = [\"{os}\"]\nexecution = \"std\"\n[hal]\n",
+            os = env::consts::OS
         ),
     )
     .unwrap();
@@ -61,11 +61,6 @@ path = "src/main.rs"
 #[test]
 fn editor_switch_preserves_project_settings_on_invalid_build() {
     let root = fixture();
-    fs::copy(
-        root.0.join("platform/profiles/host.toml"),
-        root.0.join(format!("platform/profiles/{}.toml", env::consts::OS)),
-    )
-    .unwrap();
     let editor = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_nxrs-build"))
             .current_dir(&root.0)
@@ -74,16 +69,21 @@ fn editor_switch_preserves_project_settings_on_invalid_build() {
             .output()
             .unwrap()
     };
-    assert!(editor(&["host"]).status.success());
+    assert_eq!(
+        success(editor(&["status"])).trim(),
+        "No Nxrs editor profile selected"
+    );
+    assert_eq!(success(editor(&["host"])).trim(), "Zed Rust profile: host");
     let path = root.0.join(".zed/settings.json");
     let before = fs::read(&path).unwrap();
     let settings: Value = serde_json::from_slice(&before).unwrap();
     assert!(settings["lsp"]["clangd"].is_object());
     assert_eq!(
         settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"]["extraEnv"]["NXRS_PLATFORM"],
-        env::consts::OS
+        "host"
     );
     assert!(!editor(&["--build-dir", "missing"]).status.success());
+    assert_eq!(success(editor(&["status"])).trim(), "Zed Rust profile: host");
     assert_eq!(fs::read(path).unwrap(), before);
 }
 
@@ -169,6 +169,54 @@ fn failure(output: Output) -> String {
         String::from_utf8_lossy(&output.stdout)
     );
     String::from_utf8(output.stderr).unwrap()
+}
+
+#[test]
+fn platform_defaults_are_declared_by_profiles() {
+    let root = fixture();
+    let platform = env::consts::OS;
+    let run = |args: &[&str]| frontend(&root.0, &root.0, args);
+    let fixtures = root.0.join("tests/profiles");
+    fs::create_dir_all(&fixtures).unwrap();
+    let variant = fixtures.join("variant.toml");
+    let duplicate = format!("extends = \"host\"\ndefault-for = \"{platform}\"\n");
+    fs::write(&variant, &duplicate).unwrap();
+    assert_eq!(success(run(&["platforms"])).trim(), platform);
+    let profile: Value =
+        serde_json::from_str(&success(run(&["profile", "--platform", platform]))).unwrap();
+    assert_eq!(profile["name"], "host");
+    assert!(profile.get("default-for").is_none());
+    for (explicit, expected) in [(None, "host"), (Some("variant"), "variant")] {
+        let mut args = vec![
+            "build",
+            "--app",
+            "probe",
+            "--platform",
+            platform,
+            "--dry-run",
+        ];
+        if let Some(explicit) = explicit {
+            args.extend(["--profile", explicit]);
+        }
+        let build: Value = serde_json::from_str(&success(run(&args))).unwrap();
+        assert_eq!(build["deployment"]["platform"], expected);
+    }
+    assert!(failure(run(&[
+        "build",
+        "--app",
+        "probe",
+        "--platform",
+        platform,
+        "--profile",
+        "browser",
+        "--dry-run",
+    ]))
+    .contains("another platform family"));
+    let platform_variant = root.0.join("platform/profiles/variant.toml");
+    fs::rename(&variant, &platform_variant).unwrap();
+    assert!(failure(run(&["platforms"])).contains("multiple defaults"));
+    fs::write(platform_variant, "invalid = [").unwrap();
+    success(run(&["profile", "--platform", "host"]));
 }
 
 #[test]

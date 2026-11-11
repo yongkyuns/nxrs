@@ -51,13 +51,13 @@ cargo nxrs profile --help
 cargo nxrs build --help
 ```
 
-Use the current command help and checked-in profiles as the schema reference. Host profiles are under [platform/profiles](../../platform/profiles/); NuttX configurations are under [platform/nuttx/platforms](../../platform/nuttx/platforms/).
+The seven default configurations are under [platform/profiles](../../platform/profiles/). Use [tests/profiles](../../tests/profiles/) to find a specific test or qualification input.
 
 The resolver validates device/resource bindings and records the resolved configuration with the build. Checked BSP mappings under `platform/nuttx/resources/` connect admitted native settings to Rust endpoints.
 
 ## Apply an overlay
 
-An overlay changes a base composition, such as a device instance, resource binding, or application execution budget. The frontend accepts repeated `--overlay` arguments; they are applied in order. Keep product overlays in version control and review the resolved configuration after changing them.
+An overlay changes devices, resources, or aliases in a base composition. The frontend applies repeated `--overlay` arguments in order. Keep product overlays in version control and review the resolved configuration after changing them.
 
 For example, two revisions of an IoT device may use different supported peripheral parts while keeping the same application-level capability. Their profiles describe that difference. The application should not need to inspect a board name to choose its behavior.
 

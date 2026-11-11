@@ -3,7 +3,9 @@
 In Zed, run **task: spawn** and search for **Nxrs editor**. Choose **Host**
 for the current desktop OS or choose the board you are editing for. The task
 updates this checkout's local Zed settings and Zed reloads rust-analyzer.
-The terminal equivalent for the host is `cargo nxrs editor host`.
+The terminal equivalent for the host is `cargo nxrs editor host`. Run
+**Nxrs editor: Show active profile** (or `cargo nxrs editor status`) to see the
+exact profile name and, for NuttX, the target used by rust-analyzer.
 
 NuttX needs a prepared build. Run your usual `cargo nxrs build` with
 `--out target/editor/wroom`, `target/editor/cores3`, or `target/editor/pico2w`
@@ -18,6 +20,14 @@ rust-analyzer configuration.
 To verify the selection, use Go to Definition on `selected` in a HAL's
 `src/platform/mod.rs`. Zed can dim code that rust-analyzer reports as
 inactive. Some branches inside `cfg_if!` still use ordinary syntax highlighting.
+
+The WROOM camera profiles leave IMU unbound. For the NuttX IMU provider, choose
+**WROOM IMU (DevKit qualification)** after preparing its editor build:
+
+```sh
+cargo nxrs build --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml \
+  --profile esp32s3-devkit-imu-qualification --out target/editor/wroom-imu
+```
 
 ## C and Objective-C
 

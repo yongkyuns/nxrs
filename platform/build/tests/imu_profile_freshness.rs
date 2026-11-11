@@ -13,7 +13,6 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     let root = &temporary.0;
     let sdk = root.join("sdk");
     fs::create_dir_all(sdk.join("platform/profiles")).unwrap();
-    fs::create_dir_all(sdk.join("platform/nuttx/platforms")).unwrap();
     fs::create_dir_all(sdk.join("platform/nuttx/resources")).unwrap();
     // This isolated host fixture also models a SPI endpoint. The real CoreS3
     // BSP does not register one and is independently required to reject it.
@@ -44,8 +43,8 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         }
     }
     fs::copy(
-        source.join("platform/nuttx/platforms/m5stack-cores3-gnss.toml"),
-        sdk.join("platform/nuttx/platforms/m5stack-cores3-gnss.toml"),
+        source.join("platform/profiles/m5stack-cores3-gnss.toml"),
+        sdk.join("platform/profiles/m5stack-cores3-gnss.toml"),
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();

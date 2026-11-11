@@ -1,4 +1,5 @@
 # Shared CYW43439 Wi-Fi/BLE qualification, with validated controller firmware.
+default-for = "pico2w"
 radio-firmware = "cyw43439-bluetooth"
 board = "raspberrypi-pico-2:usbnsh"
 target = "thumbv8m.main-nuttx-eabi"

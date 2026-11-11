@@ -5,7 +5,7 @@ service APIs. Product profiles select HAL implementations; app and service code
 contain no OS, board, device-path or native-driver knowledge.
 
 ```sh
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
+NXRS_PLATFORM=mock cargo run --locked -p nxrs-event-demo
 NXRS_PLATFORM=host-imu cargo run --locked -p nxrs-dual-imu-demo
 ```
 

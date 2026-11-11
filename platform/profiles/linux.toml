@@ -1,10 +1,8 @@
-# OS selection; portable file/socket/model code is shared within each HAL.
+# Native Linux providers.
+default-for = "linux"
 target-os = ["linux"]
 
 [hal]
-camera = "linux"
-storage = "linux"
-transport = "linux"
 detector = "linux"
 wifi = "linux"
 ble = "linux"

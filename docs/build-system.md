@@ -27,14 +27,28 @@ The seven platform families are:
 | `windows` | Native Windows | `windows` |
 | `web` | Browser, `wasm32-unknown-emscripten` | `web` |
 
-`--profile` selects an explicit product or qualification configuration. With
-`--platform`, it must belong to that family. Qualification profiles such as
-`pico2-mock` and `mps2-an521-mock` are configurations, not additional public
-platform families. Native builds target the current host OS.
+`--platform` uses the profile file that declares `default-for` for that family.
+`cargo nxrs profile --platform wroom` shows the resolved WROOM default.
+`--profile` selects an explicit product or qualification configuration, which
+can inherit settings using `extends`. When you supply both options, the explicit
+profile must belong to the same board and target family. Native builds target
+the current host OS.
+
+Start with the platform default for ordinary builds. The seven defaults live
+in `platform/profiles/`, with shared WROOM settings in its `wroom/` subdirectory.
+The configurations in `tests/profiles/` are explicit test inputs, such as
+`pico2-mock` for a sensor-free Pico 2 build. They do not add platform defaults.
+On a desktop, use `mock` for scripted providers and the navigation demo, or
+`simulation` for coordinated IMU/GNSS data. A build without a profile checks
+portable HAL contracts with hardware acquisition unbound.
+
+Use `--overlay` to adjust devices, resources, or aliases on a profile with
+[peripheral composition](peripheral-composition.md#bindings-and-overlays).
 
 Platform admission does not imply every HAL is implemented or physically
-qualified. CoreS3 sensor wiring still needs physical qualification. Windows has
-file-camera, storage, IP transport and detector bindings. Web currently builds
+qualified. CoreS3 sensor wiring still needs physical qualification. Desktop
+camera replay, recording, and UDP use portable Cargo features. The Windows
+profile admits detector acquisition. Web currently builds
 the Emscripten thread qualification; hardware HALs are unbound. Stock
 `wasm32-unknown-unknown` does not provide these std threads.
 
@@ -131,8 +145,7 @@ manifests stay platform-free. Application-entry metadata under
 `qualification-only` fixture marker. Build planning and deployment preflight both
 validate this parent table and reject unknown fields, so misspelled metadata cannot
 silently select firmware defaults or skip capability admission. Other tools' metadata stays
-independent. Declarative profiles under `platform/profiles` and
-`platform/nuttx/platforms` select hardware
+independent. Declarative profiles under `platform/profiles` select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 
