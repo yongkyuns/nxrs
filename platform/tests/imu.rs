@@ -1,9 +1,10 @@
+#![cfg(feature = "imu")]
 //! Exercise the public API with the unbound, mock and simulation profiles.
 use imu::{Config, Device, DeviceError, Session};
 
 #[test]
 fn device_methods_validate_before_acquisition_and_release_after_join() {
-    let device = imu_devices::primary_imu();
+    let device = composition::imu::primary_imu();
     let config = match device.default_config() {
         Ok(config) => config,
         Err(DeviceError::Unsupported) => {

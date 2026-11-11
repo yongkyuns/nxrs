@@ -533,7 +533,7 @@ impl Profile {
                 "resolver": "peripheral-profile-v1-declarative-inputs",
                 "inputs": self.inputs,
                 "binding-inputs": self.catalogs.report(),
-                "catalogue-workspace": self.catalogs.workspace_manifest,
+                "catalogue-discovery": self.catalogs.discovery_inputs,
             })
             .to_string()
             .as_bytes(),
@@ -1148,15 +1148,14 @@ mod tests {
     fn explicit_sdk_catalogs_track_catalog_bytes_without_scanning_other_hals() {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
         let workspace = temp.0.canonicalize().unwrap().join("Cargo.toml");
-        let declarations =
-            "[workspace.metadata.nxrs.device-catalogues]\nimu='wiring/sensor'\ngnss='absent'\n";
+        let declarations = "[workspace.metadata.nxrs]\ndevice-catalogue='wiring/sensor'\n";
         fs::write(&workspace, declarations).unwrap();
         let directory = temp.0.join("wiring/sensor");
         fs::create_dir_all(&directory).unwrap();
         fs::write(
             directory.join("Cargo.toml"),
-            "[package]\nname='nxrs-imu-devices'\nversion='0.1.0'\n\
-             [package.metadata.nxrs]\nkind='device-catalogue'\nbindings=['bindings.toml']\n",
+            "[package]\nname='nxrs-composition'\nversion='0.1.0'\n\
+             [features]\nimu=[]\ngnss=[]\n[package.metadata.nxrs.device-bindings]\nimu=['bindings.toml']\ngnss=['absent.toml']\n",
         )
         .unwrap();
         let catalog = "version=2\n[[binding]]\ncompatible='vendor,sensor'\nbus='i2c'\nimplementation='Sensor'\n";
@@ -1168,9 +1167,16 @@ mod tests {
             Profile::from_data(json!({"hal":{"imu":"none"}}), vec![profile_path.clone()]);
         assert!(profile.catalogs().package("imu").is_none());
         profile.load_catalogs(&temp.0).unwrap();
-        assert_eq!(profile.catalogs().source_paths().count(), 3);
+        assert_eq!(
+            profile
+                .catalogs()
+                .source_paths()
+                .collect::<BTreeSet<_>>()
+                .len(),
+            3
+        );
         assert!(profile.catalogs().package("gnss").is_none());
-        assert_eq!(profile.source_paths().count(), 4);
+        assert_eq!(profile.source_paths().collect::<BTreeSet<_>>().len(), 4);
         assert!(profile.source_paths().any(|path| path == &workspace));
         assert!(profile
             .source_paths()
@@ -1223,8 +1229,6 @@ mod tests {
         )
         .unwrap();
         let error = profile.load_catalogs(&temp.0).unwrap_err();
-        assert!(
-            error.contains("device-catalogues.imu") && error.contains("contained relative path")
-        );
+        assert!(error.contains("contained relative path"));
     }
 }

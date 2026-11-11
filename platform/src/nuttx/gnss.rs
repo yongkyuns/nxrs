@@ -1,5 +1,5 @@
 //! Concrete UART receiver selection from validated product bindings.
-use gnss::{
+use ::gnss::{
     construction::{Instance, Serial},
     Device,
 };

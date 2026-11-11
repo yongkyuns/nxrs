@@ -1184,14 +1184,12 @@ mod tests {
     fn fixture_catalogs() -> Catalogs {
         let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut catalogs = Catalogs::default();
-        for (capability, directory) in [
-            ("imu", "platform/devices/imu"),
-            ("gnss", "platform/devices/gnss"),
-        ] {
+        for capability in ["imu", "gnss"] {
             catalogs
                 .insert(
                     capability,
-                    crate::bindings::Package::load(&sdk.join(directory)).unwrap(),
+                    crate::bindings::Package::load_capability(&sdk.join("platform"), capability)
+                        .unwrap(),
                 )
                 .unwrap();
         }
@@ -1777,7 +1775,7 @@ mod tests {
         catalogs
             .insert(
                 "gnss",
-                crate::bindings::Package::load(&sdk.join("platform/devices/gnss")).unwrap(),
+                crate::bindings::Package::load_capability(&sdk.join("platform"), "gnss").unwrap(),
             )
             .unwrap();
         assert!(catalogs.package("imu").is_none());
@@ -1823,7 +1821,7 @@ mod tests {
         catalogs
             .insert(
                 "gnss",
-                crate::bindings::Package::load(&sdk.join("platform/devices/gnss")).unwrap(),
+                crate::bindings::Package::load_capability(&sdk.join("platform"), "gnss").unwrap(),
             )
             .unwrap();
         let error = super::resolve_with_providers_and_origins(
@@ -1839,7 +1837,7 @@ mod tests {
         catalogs
             .insert(
                 "imu",
-                crate::bindings::Package::load(&sdk.join("platform/devices/imu")).unwrap(),
+                crate::bindings::Package::load_capability(&sdk.join("platform"), "imu").unwrap(),
             )
             .unwrap();
         assert!(super::resolve_with_providers_and_origins(

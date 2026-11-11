@@ -51,7 +51,7 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertEqual(self.errors(), [])
 
     def write_declarative_imu(self):
-        self.write('platform/devices/imu/src/nuttx/mod.rs', '''
+        self.write('platform/src/nuttx/imu.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
             mod implementations {
                 type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
@@ -70,19 +70,21 @@ class HalBoundariesTests(unittest.TestCase):
             storage: Mutex<Option<device::Device<S>>>,
             Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
         """)
-        self.write('tools/build-support/cargo/hal.rs', '''
+        self.write('tools/build-support/cargo/composition.rs', '''
             fn main() {
-                nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}"));
+                nxrs_build_support::configure_composition().unwrap_or_else(|error| panic!("{error}"));
             }
         ''')
-        self.write('platform/devices/imu/Cargo.toml', '''
+        self.write('platform/Cargo.toml', '''
             [package]
-            name = "nxrs-imu"
-            build = "../../../tools/build-support/cargo/hal.rs"
-            [package.metadata.nxrs]
-            bindings = ["bindings.toml"]
+            name = "nxrs-composition"
+            build = "../tools/build-support/cargo/composition.rs"
+            [features]
+            imu = []
+            [package.metadata.nxrs.device-bindings]
+            imu = ["bindings.toml"]
         ''')
-        self.write('platform/devices/imu/bindings.toml', '''
+        self.write('platform/bindings.toml', '''
             version = 2
             [[binding]]
             compatible = "bosch,bmi270"
@@ -93,13 +95,13 @@ class HalBoundariesTests(unittest.TestCase):
     def test_sensor_generation_uses_declarative_package_inputs(self):
         self.write_declarative_imu()
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
-        build = self.root / 'tools/build-support/cargo/hal.rs'
+        build = self.root / 'tools/build-support/cargo/composition.rs'
         generic = build.read_text()
-        build.write_text(generic.replace('configure_hal()', 'configure_hal_with(emit)'))
+        build.write_text(generic.replace('configure_composition()', 'configure_composition_with(emit)'))
         self.assertTrue(any('generic shared-preparation' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         build.write_text(generic)
-        emitter = self.write('platform/devices/imu/build/emit.rs', 'fn emit() {}')
+        emitter = self.write('platform/build/emit.rs', 'fn emit() {}')
         self.assertTrue(any('host generation belongs' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         emitter.unlink()
@@ -107,19 +109,19 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_generated_sensor_include_matches_its_resource_contract(self):
         self.write_declarative_imu()
-        provider = self.root / 'platform/devices/imu/src/nuttx/mod.rs'
+        provider = self.root / 'platform/src/nuttx/imu.rs'
         provider.write_text(provider.read_text().replace('imu_config.rs', 'other.rs'))
         self.assertTrue(any('declared generated output' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         provider.write_text(provider.read_text().replace('other.rs', 'imu_config.rs'))
-        manifest = self.root / 'platform/devices/imu/Cargo.toml'
+        manifest = self.root / 'platform/Cargo.toml'
         manifest.write_text(manifest.read_text().replace('bindings.toml', '../outside.toml'))
         self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_generated_imu_keeps_the_current_checked_in_constructor_boundary(self):
         self.write_declarative_imu()
-        nuttx = self.root / 'platform/devices/imu/src/nuttx/mod.rs'
+        nuttx = self.root / 'platform/src/nuttx/imu.rs'
         nuttx.write_text(nuttx.read_text().replace('type Bmi270 =', 'type Unknown ='))
         self.assertTrue(any('checked-in typed constructor' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
@@ -148,7 +150,7 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_sensor_bindings_can_belong_to_a_declared_driver(self):
         self.write_declarative_imu()
-        catalog = self.root / 'platform/devices/imu/bindings.toml'
+        catalog = self.root / 'platform/bindings.toml'
         self.write('driver/bmi270/bindings.toml', catalog.read_text())
         catalog.unlink()
         driver = self.write('driver/bmi270/Cargo.toml', '''
@@ -157,14 +159,16 @@ class HalBoundariesTests(unittest.TestCase):
             [package.metadata.nxrs]
             bindings = ["bindings.toml"]
         ''')
-        manifest = self.write('platform/devices/imu/Cargo.toml', '''
+        manifest = self.write('platform/Cargo.toml', '''
             [package]
-            name = "nxrs-imu"
-            build = "../../../tools/build-support/cargo/hal.rs"
-            [package.metadata.nxrs]
-            bindings = [{ dependency = "sensor" }]
+            name = "nxrs-composition"
+            build = "../tools/build-support/cargo/composition.rs"
+            [features]
+            imu = []
+            [package.metadata.nxrs.device-bindings]
+            imu = [{ dependency = "sensor" }]
             [target.'cfg(target_os = "nuttx")'.dependencies]
-            sensor = { package = "nxrs-bmi270", path = "../../../driver/bmi270" }
+            sensor = { package = "nxrs-bmi270", path = "../driver/bmi270" }
         ''')
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
         original = manifest.read_text()
@@ -178,8 +182,8 @@ class HalBoundariesTests(unittest.TestCase):
 
 
     def test_gnss_uses_driver_declarations_and_retains_canonical_ownership(self):
-        for relative in ("platform/devices/gnss/Cargo.toml", "tools/build-support/cargo/hal.rs",
-                         "platform/devices/gnss/src/nuttx/mod.rs", "driver/ubx/Cargo.toml",
+        for relative in ("platform/Cargo.toml", "tools/build-support/cargo/composition.rs",
+                         "platform/src/nuttx/gnss.rs", "driver/ubx/Cargo.toml",
                          "driver/ubx/bindings.toml", "hal/gnss/Cargo.toml",
                          "hal/gnss/src/platform/nuttx/mod.rs"):
             self.write(relative, (ROOT / relative).read_text())

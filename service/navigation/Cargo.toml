@@ -12,6 +12,5 @@ nxrs-imu = { path = "../../hal/imu" }
 nxrs-gnss = { path = "../../hal/gnss" }
 
 [dev-dependencies]
-nxrs-gnss-devices = { path = "../../platform/devices/gnss" }
-nxrs-imu-devices = { path = "../../platform/devices/imu" }
+nxrs-composition = { path = "../../platform", features = ["imu", "gnss"] }
 nxrs-simulation = { path = "../../shared/simulation" }

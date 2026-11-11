@@ -1,9 +1,12 @@
 //! Concrete driver/resource wiring from the validated profile.
 use super::{resource, spi_resource};
+use ::imu::construction::Instance;
+#[cfg(feature = "probe")]
+use ::imu::{AppliedConfig, Config, Event, Session};
+use ::imu::{Device, DeviceError};
 use acquisition::probe::{Observed, Trace};
-use imu::construction::Instance;
-use imu::{AppliedConfig, Config, Device, DeviceError, Event, Session};
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
+#[path = "imu_resources.rs"]
 mod resources;
 use resources::{Bus, Delay, Spi};
 
@@ -43,6 +46,7 @@ macro_rules! declare_device {
 }
 include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
 
+#[cfg(feature = "probe")]
 pub(crate) fn open_probed(
     config: Config,
     sink: impl FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,

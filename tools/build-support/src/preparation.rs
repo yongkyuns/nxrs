@@ -1,8 +1,13 @@
 //! Package-owned declarative configuration, independent of Cargo's environment.
-use crate::{bindings::Package, configuration, hash_bytes, profile::Profile, Result, TempDir};
+use crate::{
+    bindings::{device_bindings, Package},
+    configuration, hash_bytes,
+    profile::Profile,
+    Result, TempDir,
+};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -17,15 +22,16 @@ pub const ENVIRONMENT: &str = "NXRS_PREPARED_CONFIGURATION";
 /// native helpers, or select dependencies.
 pub fn prepare_package(
     directory: &Path,
+    capability: &str,
     profile: &Profile,
     os: &str,
     out: &Path,
 ) -> Result<Vec<PathBuf>> {
-    let package = Package::load(directory)?;
-    let generated = render(&package, profile, os)?;
+    let package = Package::load_capability(directory, capability)?;
+    let generated = render(&package, capability, profile, os)?;
     publish(
         out,
-        &package.name,
+        &format!("{}-{capability}", package.name),
         generated
             .as_ref()
             .map(|(file, source)| (file.as_str(), source.as_str())),
@@ -36,27 +42,21 @@ pub fn prepare_package(
 fn inputs(package: &Package, profile: &Profile) -> Vec<PathBuf> {
     let mut inputs: Vec<_> = package.inputs().map(|input| input.path.clone()).collect();
     inputs.extend(profile.source_paths().cloned());
-    inputs.extend(profile.catalogs().source_paths().cloned());
     inputs.sort();
     inputs.dedup();
     inputs
 }
 
-fn render(package: &Package, profile: &Profile, os: &str) -> Result<Option<(String, String)>> {
+fn render(
+    package: &Package,
+    capability: &str,
+    profile: &Profile,
+    os: &str,
+) -> Result<Option<(String, String)>> {
     profile.validate_target(os)?;
     let name = &package.name;
-    let capability = name
-        .strip_prefix("nxrs-")
-        .map(|name| name.strip_suffix("-devices").unwrap_or(name))
-        .filter(|name| {
-            !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
-        })
-        .ok_or("configuration package must have an nxrs- capability name")?;
     let provider = profile.binding(capability);
-    if provider != os || package.catalogs.is_empty() {
+    if os != "nuttx" || provider != os {
         return Ok(None);
     }
     let expected = profile
@@ -95,6 +95,7 @@ struct Generated {
 fn identity(
     directory: &Path,
     package: &Package,
+    capability: &str,
     profile: &Profile,
     target: &str,
     os: &str,
@@ -117,14 +118,22 @@ fn identity(
         .map(|input| (&input.path, &input.sha256))
         .collect();
     Ok(hash_bytes(
-        &serde_json::to_vec(&(directory, sources, profile.json()?, target, os, generator))
-            .map_err(|error| error.to_string())?,
+        &serde_json::to_vec(&(
+            directory,
+            capability,
+            sources,
+            profile.json()?,
+            target,
+            os,
+            generator,
+        ))
+        .map_err(|error| error.to_string())?,
     ))
 }
 
 /// Render consumed path catalogues before Cargo and publish an immutable handoff.
 pub fn prepare_consumers<'a>(
-    directories: impl IntoIterator<Item = &'a Path>,
+    consumers: impl IntoIterator<Item = (&'a Path, &'a BTreeSet<String>)>,
     profile: &Profile,
     target: &str,
     os: &str,
@@ -133,32 +142,38 @@ pub fn prepare_consumers<'a>(
     let out = std::path::absolute(out).map_err(|error| error.to_string())?;
     reject_symlink(&out)?;
     let mut selected = BTreeMap::new();
-    for directory in directories {
+    for (directory, features) in consumers {
         let manifest = crate::profile::manifest(&directory.join("Cargo.toml"))?;
-        if manifest["package"]["metadata"]["nxrs"]["kind"] != "device-catalogue" {
+        let Some(declarations) = device_bindings(&manifest)? else {
             continue;
-        }
+        };
         let directory = directory
             .canonicalize()
             .map_err(|error| error.to_string())?;
-        let package = Package::load(&directory)?;
-        let identity = identity(&directory, &package, profile, target, os)?;
-        let generated = render(&package, profile, os)?;
-        let output = if let Some((name, source)) = generated {
-            let bucket = out.join(&identity);
-            reject_symlink(&bucket)?;
-            let path = bucket.join(&name);
-            reject_symlink(&path)?;
-            fs::create_dir_all(&bucket).map_err(|error| error.to_string())?;
-            write_if_changed(&path, &source)?;
-            Some(Generated {
-                file: name,
-                sha256: hash_bytes(source.as_bytes()),
-            })
-        } else {
-            None
-        };
-        selected.insert(directory, Prepared { identity, output });
+        let mut capabilities = BTreeMap::new();
+        for capability in declarations.keys().filter(|name| features.contains(*name)) {
+            let package = Package::load_capability(&directory, capability)?;
+            let identity = identity(&directory, &package, capability, profile, target, os)?;
+            let generated = render(&package, capability, profile, os)?;
+            let output = if let Some((name, source)) = generated {
+                let bucket = out.join(&identity);
+                reject_symlink(&bucket)?;
+                let path = bucket.join(&name);
+                reject_symlink(&path)?;
+                fs::create_dir_all(&bucket).map_err(|error| error.to_string())?;
+                write_if_changed(&path, &source)?;
+                Some(Generated {
+                    file: name,
+                    sha256: hash_bytes(source.as_bytes()),
+                })
+            } else {
+                None
+            };
+            capabilities.insert(capability.clone(), Prepared { identity, output });
+        }
+        if !capabilities.is_empty() {
+            selected.insert(directory, capabilities);
+        }
     }
     if selected.is_empty() {
         return Ok(None);
@@ -175,6 +190,7 @@ pub fn prepare_consumers<'a>(
 pub fn consume(
     path: &Path,
     directory: &Path,
+    capability: &str,
     profile: &Profile,
     target: &str,
     os: &str,
@@ -193,13 +209,16 @@ pub fn consume(
     {
         return Err("prepared configuration handoff changed; rerun cargo nxrs build".into());
     }
-    let mut selected: BTreeMap<PathBuf, Prepared> =
+    let mut selected: BTreeMap<PathBuf, BTreeMap<String, Prepared>> =
         serde_json::from_str(&text).map_err(|error| error.to_string())?;
-    let Some(prepared) = selected.remove(&directory) else {
+    let Some(prepared) = selected
+        .get_mut(&directory)
+        .and_then(|caps| caps.remove(capability))
+    else {
         return Ok(None);
     };
-    let package = Package::load(&directory)?;
-    if prepared.identity != identity(&directory, &package, profile, target, os)? {
+    let package = Package::load_capability(&directory, capability)?;
+    if prepared.identity != identity(&directory, &package, capability, profile, target, os)? {
         return Err("stale prepared configuration; rerun cargo nxrs build".into());
     }
     let mut inputs = inputs(&package, profile);
@@ -226,7 +245,7 @@ pub fn consume(
     };
     publish(
         out,
-        &package.name,
+        &format!("{}-{capability}", package.name),
         generated
             .as_ref()
             .map(|(name, source)| (*name, source.as_str())),
@@ -248,6 +267,7 @@ fn reject_symlink(path: &Path) -> Result<()> {
 /// build data must still match the inputs against which the profile was resolved.
 fn same_declarations(actual: &Package, expected: &Package) -> bool {
     actual.name == expected.name
+        && actual.consumer_feature == expected.consumer_feature
         && actual.driver_features == expected.driver_features
         && actual
             .catalogs
@@ -337,25 +357,25 @@ mod tests {
             .join("../..")
             .canonicalize()
             .unwrap();
-        let directory = root.join("platform/devices/imu");
-        let gnss = root.join("platform/devices/gnss");
+        let directory = root.join("platform");
+        let features = BTreeSet::from(["imu".into()]);
         let profile = Profile::resolve(&root, "m5stack-cores3-gnss").unwrap();
         let temp = TempDir::new(&std::env::temp_dir()).unwrap();
         let cache = temp.0.join("configuration");
         let out = temp.0.join("cargo");
         let target = "xtensa-esp32s3-nuttx";
         let try_prepare = |profile: &Profile| {
-            prepare_consumers([directory.as_path()], profile, target, "nuttx", &cache)
+            prepare_consumers([(directory.as_path(), &features)], profile, target, "nuttx", &cache)
         };
         let prepare = |profile: &Profile| try_prepare(profile).unwrap().unwrap();
         let apply = |path: &Path, profile: &Profile| {
-            consume(path, &directory, profile, target, "nuttx", &out)
+            consume(path, &directory, "imu", profile, target, "nuttx", &out)
         };
         let handoff = prepare(&profile);
         let stamp = fs::metadata(&handoff).unwrap().modified().unwrap();
         assert_eq!(prepare(&profile), handoff);
         assert_eq!(fs::metadata(&handoff).unwrap().modified().unwrap(), stamp);
-        assert!(consume(&handoff, &gnss, &profile, target, "nuttx", &out)
+        assert!(consume(&handoff, &directory, "gnss", &profile, target, "nuttx", &out)
             .unwrap()
             .is_none());
         let inputs = apply(&handoff, &profile).unwrap().unwrap();
@@ -368,7 +388,7 @@ mod tests {
             .unwrap();
         let expected = fs::read(out.join("imu_config.rs")).unwrap();
         assert_eq!(expected, fs::read(generated).unwrap());
-        assert!(consume(&handoff, &directory, &profile, "wrong-nuttx", "nuttx", &out).is_err());
+        assert!(consume(&handoff, &directory, "imu", &profile, "wrong-nuttx", "nuttx", &out).is_err());
         fs::write(generated, "corrupt generated output").unwrap();
         assert!(apply(&handoff, &profile)
             .unwrap_err()

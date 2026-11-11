@@ -93,7 +93,7 @@ mod tests {
         let profile = Profile::resolve(&source, "m5stack-cores3-gnss").unwrap();
         let graph = profile.composition().unwrap().unwrap();
         let mut package =
-            crate::bindings::Package::load(&source.join("platform/devices/imu")).unwrap();
+            crate::bindings::Package::load_capability(&source.join("platform"), "imu").unwrap();
         for input in &mut package.catalogs {
             input.contents = input.contents.replace("Bmi270", "AnotherSensor");
             input.sha256 = crate::hash_bytes(input.contents.as_bytes());

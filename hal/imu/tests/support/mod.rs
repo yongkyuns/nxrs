@@ -208,7 +208,7 @@ pub(super) mod gpio_resource;
 #[path = "../../../../driver/i2c/tests/support/mod.rs"]
 mod resource;
 #[allow(dead_code)]
-#[path = "../../../../platform/devices/imu/src/nuttx/resources.rs"]
+#[path = "../../../../platform/src/nuttx/imu_resources.rs"]
 mod resources;
 #[path = "../../../../driver/spi/tests/support/mod.rs"]
 mod spi_resource;

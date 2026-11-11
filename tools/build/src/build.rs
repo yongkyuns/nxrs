@@ -340,8 +340,13 @@ pub(crate) fn configure_preparation(
 ) -> Result<Option<PathBuf>> {
     use nxrs_build_support::preparation;
     let prepared = preparation::prepare_consumers(
-        selection.path_packages().map(|(_, directory, _)| directory),
-        profile, target, os, &out.join("configuration"),
+        selection
+            .path_packages()
+            .map(|(_, directory, features)| (directory, features)),
+        profile,
+        target,
+        os,
+        &out.join("configuration"),
     )?;
     match &prepared {
         Some(path) => command.env(preparation::ENVIRONMENT, path),
