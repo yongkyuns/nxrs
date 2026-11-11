@@ -1,8 +1,12 @@
 [package]
+build = "../../tools/build-support/cargo/resource.rs"
 name = "nxrs-acquisition"
 version.workspace = true
 edition.workspace = true
 publish = false
+
+[package.metadata.nxrs]
+kind = "native-resource"
 
 [lib]
 name = "acquisition"
@@ -15,4 +19,4 @@ embedded-hal = { version = "=1.0.0", optional = true }
 nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }

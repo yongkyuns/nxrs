@@ -1,7 +1,11 @@
 [package]
+build = "../../tools/build-support/cargo/resource.rs"
 name = "nxrs-i2c"
 version.workspace = true
 edition.workspace = true
+
+[package.metadata.nxrs]
+kind = "native-resource"
 
 [lib]
 name = "i2c"
@@ -10,4 +14,4 @@ name = "i2c"
 embedded-hal = "=1.0.0"
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }

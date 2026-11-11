@@ -1,6 +1,6 @@
 # Build and platform selection
 
-`cargo nxrs` is the host-only Rust build controller in `platform/build`. It owns
+`cargo nxrs` is the host-only Rust build controller in `tools/build`. It owns
 profile resolution, SDK preparation, Cargo invocation, NuttX configuration and
 linking, artifact checks, signing and offline factory packaging. Its dependencies
 are build dependencies; they do not enter firmware.
@@ -103,11 +103,16 @@ The renderer emits typed I²C, SPI, or UART bindings and one static instance per
 configured endpoint. Named accessors and aliases borrow that instance. The HAL
 owns acquisition and releases the instance only after delivery and cleanup retire.
 
-`nxrs-build-support::preparation::prepare_package` accepts the consuming package
-directory, resolved profile, target OS and owned output directory. The sensor
-renderers use shared binding validation. The `build.rs` adapters call the
-common `configure_hal()` adapter, which preserves per-package provider flags,
-simulation configuration and native compilation/linking.
+After Cargo resolves the production graph, the build controller renders the
+consumed path catalogues through shared binding validation. It publishes
+immutable configuration files and a handoff keyed by profile, compiler target,
+package inputs and generator revision. `provider-selection.json` records the
+handoff path. The common `configure_hal()` adapter verifies those inputs and
+output hashes before copying the files into its package's `OUT_DIR`.
+
+Standalone Cargo and other dependency sources use the same renderer through
+`nxrs-build-support::preparation::prepare_package`. Provider flags, simulation
+configuration and SDK preparation continue through their package adapters.
 
 Profile resolution loads package declarations for explicit `[hal]` keys,
 including a provider of `"none"` when its unselected physical devices must be
@@ -148,11 +153,10 @@ resolved graph and repeat `--overlay` on profile inspection or build commands
 to apply command-line overlays. Named profiles may also declare ordered
 overlays. The build frontend and direct Cargo consumers both use the versioned resolver.
 
-Currently, each HAL owns its local `build.rs`; it depends on `platform/build-support`,
-which contains profile validation and native build utilities. The CLI depends on
-the same support package. A HAL never builds or depends on the deployment CLI.
-The detector's shared host SDK adapter is an ordinary detector-owned build-support
-package. The CLI and HAL build scripts share one Rust profile resolver. Model dependency
+Firmware manifests point to Cargo adapters under `tools/build-support/cargo`
+or `tools/detector-build-support` through declared build dependencies. Tooling
+owns profile validation, code generation, native compilation and SDK preparation.
+The CLI uses the same host support packages. Model dependency
 features follow the profile automatically. There is no shell environment-file
 interpreter or Python platform resolver. Existing qualification entry scripts
 are compatibility adapters; numerical reference/oracle tests remain independent.
@@ -285,7 +289,7 @@ again. A failed rebuild leaves no current success bundle. Web recreates `site/`
 and chooses its JS/WASM pair from the selected binary's Cargo artifact, so old
 outputs from another binary cannot become the new site.
 
-`platform/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
+`tools/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
 C compiler to check unchanged freshness, same-path header/source changes and
 exclusion of an unconsumed helper. `native_header_freshness.rs` retains the TLS
 and detector checks, including changed symlinked architecture headers. These are
@@ -295,11 +299,19 @@ separate qualification gates.
 ## Native helper ownership
 
 The NuttX controller configures Make and generates target headers before invoking
-Cargo. A target in the ordinary application Makefile exports its selected C
-compiler, archiver and flags into `native-context.json`, including the target and
-configured-header digest. Each consumed HAL's local build script then compiles
-only that package's private ABI sources into its own archive. The native build
-continues to own OS drivers, registration and final image startup.
+Cargo. A Make target exports its C compiler, archiver and flags into
+`native-context.json`, with the target and configured-header digest.
+The controller precompiles the consumed NuttX resource and HAL ABI archives.
+HAL helpers follow the resolved profile binding and the required features
+selected by Cargo. Package adapters validate and link the archives listed for
+the build. Standalone Cargo, non-path dependencies and builds with Cargo-only
+compiler environment overrides compile shims through their package adapters.
+SDK preparation keeps its own build path. NuttX owns OS drivers and registration.
+
+The controller checks current compiler dependencies before reusing an archive,
+including headers that newly take precedence in the include search path.
+`provider-selection.json` records the prepared archive paths and hashes.
+Concurrent NuttX builds use separate output directories.
 
 Helpers for optional functionality follow the owning package's Cargo feature
 through `package.metadata.nxrs.platform.<os>.required-features`; the detector's

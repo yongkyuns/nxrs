@@ -24,11 +24,11 @@ class ArchitectureTests(unittest.TestCase):
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
                                ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
-                               ('driver', 'driver/demo'), ('platform', 'platform/build'),
+                               ('driver', 'driver/demo'), ('platform', 'tools/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
                                ('devices', 'platform/devices/imu'),
-                               ('build-support', 'platform/build-support'),
-                               ('camera-build', 'hal/camera/build-support'),
+                               ('build-support', 'tools/build-support'),
+                               ('camera-build', 'tools/camera-build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
             self.package(name, location)
         self.metadata = {'packages': list(self.packages.values()),
@@ -185,13 +185,17 @@ class ArchitectureTests(unittest.TestCase):
                     self.assertTrue(self.violations())
                     self.packages[source]['dependencies'].pop()
 
-    def test_build_scripts_cannot_escape_their_package(self):
+    def test_firmware_build_scripts_use_declared_tooling_dependencies(self):
         manifest = self.root / 'hal/camera/Cargo.toml'
         original = manifest.read_text()
         manifest.write_text(original + 'build="build.rs"\n')
+        self.assertTrue(any('declared tooling build dependencies' in error for error in self.violations()))
+        manifest.write_text(original + 'build="../../tools/build-support/build.rs"\n')
+        self.assertTrue(any('declared tooling build dependencies' in error for error in self.violations()))
+        self.add('camera', 'build-support', kind='build')
         self.assertEqual(self.violations(), [])
-        manifest.write_text(original + 'build="../../platform/build-support/build.rs"\n')
-        self.assertTrue(any('build scripts must belong' in error for error in self.violations()))
+        (manifest.parent / 'build.rs').write_text('fn main() {}')
+        self.assertTrue(any('build helpers belong under tools' in error for error in self.violations()))
 
     def test_rust_sources_use_cargo_edges_instead_of_cross_package_includes(self):
         for name in ('camera', 'driver', 'build-support', 'platform'):
@@ -206,7 +210,7 @@ class ArchitectureTests(unittest.TestCase):
                     self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
             path.write_text(original)
         path = self.root / 'hal/camera/src/lib.rs'
-        path.write_text(path.read_text() + '#[path="../build-support/src/lib.rs"] mod nested;')
+        path.write_text(path.read_text() + '#[path="../../../tools/camera-build-support/src/lib.rs"] mod nested;')
         self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
 
     def test_local_sources_and_generated_outputs_remain_ordinary_rust(self):

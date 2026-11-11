@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/dropbear-ssh.yml'
-      - 'platform/build/**'
-      - 'platform/build-support/**'
+      - 'tools/build/**'
+      - 'tools/build-support/**'
       - 'tests/profiles/esp32s3-wifi.toml'
       - 'tests/nuttx-std/ssh/**'
       - 'tests/nuttx-std/wifi/**'
