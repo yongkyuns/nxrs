@@ -18,6 +18,12 @@
     "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
+    "label": "Nxrs editor: WROOM IMU (DevKit qualification)",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "--build-dir", "target/editor/wroom-imu"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
     "label": "Nxrs editor: CoreS3 (NuttX)",
     "command": "cargo",
     "args": ["nxrs", "editor", "--build-dir", "target/editor/cores3"],

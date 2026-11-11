@@ -21,6 +21,14 @@ To verify the selection, use Go to Definition on `selected` in a HAL's
 `src/platform/mod.rs`. Zed can dim code that rust-analyzer reports as
 inactive. Some branches inside `cfg_if!` still use ordinary syntax highlighting.
 
+The WROOM camera profiles leave IMU unbound. For the NuttX IMU provider, choose
+**WROOM IMU (DevKit qualification)** after preparing its editor build:
+
+```sh
+cargo nxrs build --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml \
+  --profile esp32s3-devkit-imu-qualification --out target/editor/wroom-imu
+```
+
 ## C and Objective-C
 
 Select an editor profile once to install the project clangd settings.

@@ -1,9 +1,9 @@
 //! Generic NuttX IMU acquisition over `peripheral::imu::Imu`.
-#[cfg(not(test))]
-use super::{events, gpio_resource};
 use crate::device_state;
 #[cfg(test)]
 use test_support::{ffi as events, gpio_resource};
+#[cfg(not(test))]
+use {::gpio as gpio_resource, acquisition::nuttx as events};
 mod device;
 mod instance;
 mod signal;
