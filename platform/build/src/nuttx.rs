@@ -601,6 +601,14 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     }
     let iram_layout = iram_layout_source(root, p)?;
     let out = build::prepare_output(root, out)?;
+    let output_lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(out.join(".nxrs-build.json"))
+        .map_err(|error| error.to_string())?;
+    output_lock.try_lock().map_err(|error| {
+        format!("NuttX build output {}: {error}", out.display())
+    })?;
     for input in std::iter::once(&app.manifest)
         .chain(sources.iter())
         .chain(iram_layout.iter())
@@ -990,6 +998,24 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         cargo.arg("--config").arg(config);
     }
     let selection = crate::cargo_graph::resolve(&mut cargo, p)?;
+    let native_resources = out.join("native-resources");
+    use nxrs_build_support::prepared_resource;
+    let resources = if env::var_os("NXRS_CARGO_CONFIG").is_some()
+        || prepared_resource::cargo_compiler_environment(root)?
+    {
+        Vec::new()
+    } else {
+        prepare_native_resources(
+            &selection.packages, target, &native_config, &native_resources, &tools.path,
+        )?
+    };
+    let prepared = prepared_resource::ENVIRONMENT;
+    if resources.is_empty() {
+        cargo.env_remove(prepared);
+    } else {
+        cargo.env(prepared, &native_resources);
+    }
+    deployment["native-resources"] = json!(resources);
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["driver_features"] = json!(selection.driver_features);
@@ -1300,6 +1326,28 @@ fn cache_paths(out: &Path, directories: &[&str]) -> Result<Vec<String>> {
     Ok(paths)
 }
 
+fn prepare_native_resources(
+    packages: &[String],
+    target: &str,
+    context: &Path,
+    out: &Path,
+    compiler_path: &std::ffi::OsStr,
+) -> Result<Vec<Value>> {
+    use nxrs_build_support::prepared_resource;
+    let mut prepared = Vec::new();
+    for package in packages {
+        let Some((_, source)) = package.split_once(" (") else { continue };
+        let Some(source) = source.strip_suffix(')') else { continue };
+        let directory = Path::new(source);
+        if !directory.is_absolute() || !prepared_resource::declared(directory)? {
+            continue;
+        }
+        let archive = prepared_resource::prepare(directory, target, context, out, compiler_path)?;
+        prepared.push(json!({"package": package, "sha256": hash(&archive)?, "archive": archive}));
+    }
+    Ok(prepared)
+}
+
 /// Capture Make's selected ABI rather than maintain a second set of C flags.
 fn native_context(
     tools: &Tools,
@@ -1458,7 +1506,7 @@ fn clear_success_evidence(out: &Path) -> Result<()> {
 }
 
 fn reset_output(out: &Path) -> Result<()> {
-    for name in ["nuttx", "apps", "cargo", "toolchain", ".nxrs-link-cache"] {
+    for name in ["nuttx", "apps", "cargo", "toolchain", "native-resources", ".nxrs-link-cache"] {
         crate::remove_dir(&out.join(name))?;
     }
     for entry in fs::read_dir(out).map_err(|e| e.to_string())? {

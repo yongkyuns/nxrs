@@ -3,6 +3,9 @@ name = "nxrs-gpio"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.nxrs]
+kind = "native-resource"
+
 [lib]
 name = "gpio"
 

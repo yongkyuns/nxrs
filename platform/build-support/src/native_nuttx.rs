@@ -3,12 +3,12 @@ use crate::{hash, output, read_json, Result};
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    env, fs,
+    env, ffi::OsStr, fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
-fn words(value: &Value, key: &str) -> Result<Vec<String>> {
+pub(crate) fn words(value: &Value, key: &str) -> Result<Vec<String>> {
     value[key]
         .as_array()
         .ok_or_else(|| format!("native context requires {key}"))?
@@ -22,13 +22,16 @@ fn words(value: &Value, key: &str) -> Result<Vec<String>> {
         .collect()
 }
 
-fn command(words: &[String]) -> Result<Command> {
+fn command(words: &[String], path: Option<&OsStr>) -> Result<Command> {
     let (program, args) = words.split_first().ok_or("empty native command")?;
     if program.is_empty() {
         return Err("empty native compiler/archive command".into());
     }
     let mut command = Command::new(program);
     command.args(args);
+    if let Some(path) = path {
+        command.env("PATH", path).env("LC_ALL", "C");
+    }
     Ok(command)
 }
 
@@ -116,7 +119,7 @@ pub fn build(
         target,
         out,
         sources,
-        &context,
+        (&context, None),
         directives,
     )
 }
@@ -140,20 +143,12 @@ pub fn build_sources(
         target,
         out,
         sources,
-        &context,
+        (&context, None),
         vec!["cargo:rerun-if-env-changed=NXRS_NUTTX_NATIVE_CONFIG".into()],
     )
 }
 
-fn compile(
-    source_directory: &Path,
-    suffix: &str,
-    target: &str,
-    out: &Path,
-    sources: &[&PathBuf],
-    context: &Path,
-    mut directives: Vec<String>,
-) -> Result<Vec<String>> {
+pub(crate) fn read_context(context: &Path, target: &str) -> Result<Value> {
     let data = read_json(context)?;
     if data["schema"] != 1 || data["target"] != target || !target.contains("nuttx") {
         return Err("native context does not match the selected NuttX target".into());
@@ -173,15 +168,83 @@ fn compile(
     {
         return Err("configured NuttX headers changed; rerun the build frontend".into());
     }
+    Ok(data)
+}
+
+pub(crate) struct Preparation<'a> {
+    pub compiler_path: &'a OsStr,
+    pub dependencies: &'a [BTreeSet<PathBuf>],
+}
+
+fn dependency_paths(text: &str, directory: &Path) -> Result<BTreeSet<PathBuf>> {
+    Ok(dependencies(text)?
+        .into_iter()
+        .map(|path| if path.is_absolute() { path } else { directory.join(path) })
+        .collect())
+}
+
+fn compiler(
+    cc: &[String],
+    flags: &[String],
+    directory: &Path,
+    source_directory: &Path,
+    path: Option<&OsStr>,
+) -> Result<Command> {
+    let mut compiler = command(cc, path)?;
+    compiler
+        .current_dir(directory)
+        .args(flags)
+        .arg("-I")
+        .arg(source_directory);
+    Ok(compiler)
+}
+
+pub(crate) fn scan_dependencies(
+    source_directory: &Path,
+    sources: &[&PathBuf],
+    data: &Value,
+    path: &OsStr,
+) -> Result<Vec<BTreeSet<PathBuf>>> {
+    let directory = Path::new(data["directory"].as_str().unwrap());
+    let cc = words(data, "cc")?;
+    let flags = words(data, "cflags")?;
+    sources
+        .iter()
+        .map(|source| {
+            let depfile = output(
+                compiler(&cc, &flags, directory, source_directory, Some(path))?
+                    .arg(source)
+                    .args(["-M", "-MT", "nxrs_native", "-MF", "-"]),
+            )?;
+            dependency_paths(&depfile, directory)
+        })
+        .collect()
+}
+
+pub(crate) fn compile(
+    source_directory: &Path,
+    suffix: &str,
+    target: &str,
+    out: &Path,
+    sources: &[&PathBuf],
+    (context, preparation): (&Path, Option<Preparation<'_>>),
+    mut directives: Vec<String>,
+) -> Result<Vec<String>> {
+    let data = read_context(context, target)?;
+    let directory = Path::new(data["directory"].as_str().unwrap());
+    let include = Path::new(data["include"].as_str().unwrap());
     let cc = words(&data, "cc")?;
     let ar = words(&data, "ar")?;
     let flags = words(&data, "cflags")?;
+    let compiler_path = preparation.as_ref().map(|prep| prep.compiler_path);
     directives.push(format!("cargo:rerun-if-changed={}", context.display()));
     // Make creates and removes config.h.tmp even when config.h is unchanged.
     // Watch files, not generated directories. The frontend's context includes
     // the configured header inventory, so additions still invalidate Cargo.
-    headers(&include, &mut BTreeSet::new(), &mut directives)?;
-    headers(source_directory, &mut BTreeSet::new(), &mut directives)?;
+    if compiler_path.is_none() {
+        headers(include, &mut BTreeSet::new(), &mut directives)?;
+        headers(source_directory, &mut BTreeSet::new(), &mut directives)?;
+    }
     fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let fresh = crate::TempDir::new(out)?;
     let mut objects = Vec::new();
@@ -189,11 +252,7 @@ fn compile(
         let object = fresh.0.join(format!("helper_{index}.o"));
         let dependency_file = fresh.0.join(format!("helper_{index}.d"));
         output(
-            command(&cc)?
-                .current_dir(&directory)
-                .args(&flags)
-                .arg("-I")
-                .arg(source_directory)
+            compiler(&cc, &flags, directory, source_directory, compiler_path)?
                 .arg("-c")
                 .arg(source)
                 .arg("-o")
@@ -201,22 +260,23 @@ fn compile(
                 .args(["-MD", "-MT", "nxrs_native", "-MF"])
                 .arg(&dependency_file),
         )?;
-        for dependency in dependencies(&crate::read(&dependency_file)?)? {
-            let path = if dependency.is_absolute() {
-                dependency
-            } else {
-                directory.join(dependency)
-            };
-            // The architecture's private context headers can live outside include/.
-            input(&path, &mut directives)?;
+        let actual = dependency_paths(&crate::read(&dependency_file)?, directory)?;
+        if let Some(prepared) = &preparation {
+            if actual != prepared.dependencies[index] {
+                return Err("native resource dependencies changed during compilation".into());
+            }
+        } else {
+            for path in actual {
+                input(&path, &mut directives)?;
+            }
         }
         objects.push(object);
     }
     let name = format!("lib{suffix}_native.a");
     let archive = fresh.0.join(&name);
     output(
-        command(&ar)?
-            .current_dir(&directory)
+        command(&ar, compiler_path)?
+            .current_dir(directory)
             .arg(&archive)
             .args(&objects),
     )?;
@@ -265,7 +325,7 @@ mod tests {
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
+            (&context, None),
             vec![],
         )
         .unwrap();
@@ -299,7 +359,7 @@ mod tests {
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
+            (&context, None),
             vec![]
         )
         .is_err());
@@ -312,7 +372,7 @@ mod tests {
             "fixture-nuttx",
             &out,
             &[&helper],
-            &context,
+            (&context, None),
             vec![],
         )
         .unwrap();

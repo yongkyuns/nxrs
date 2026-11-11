@@ -11,6 +11,7 @@ mod native_nuttx;
 pub mod nuttx_resources;
 mod overlay;
 pub mod preparation;
+pub mod prepared_resource;
 pub mod profile;
 pub mod resolved;
 pub mod source;
@@ -162,15 +163,23 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     profile.detector()
 }
 
-/// Compile ABI glue for an explicitly acquired OS resource. Resource crates do
-/// not select logical roles or invent an additional profile/provider identity.
+/// Link ABI glue for an explicitly acquired OS resource. Standalone Cargo
+/// builds can compile it using the configured native context.
 pub fn configure_resource() -> Result<()> {
     use std::{env, path::PathBuf};
     let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing manifest")?);
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
     let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
     let target = env::var("TARGET").map_err(|e| e.to_string())?;
-    for line in native::build(&directory, &os, &target, &out)? {
+    let prepared = prepared_resource::ENVIRONMENT;
+    println!("cargo:rerun-if-env-changed={prepared}");
+    let directives = match env::var_os(prepared) {
+        Some(path) if os == "nuttx" && prepared_resource::declared(&directory)? => {
+            prepared_resource::consume(&directory, &target, &PathBuf::from(path))?
+        }
+        _ => native::build(&directory, &os, &target, &out)?,
+    };
+    for line in directives {
         println!("{line}");
     }
     Ok(())

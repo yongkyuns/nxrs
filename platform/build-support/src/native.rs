@@ -93,7 +93,7 @@ fn flags(text: &str, kind: &str) -> Result<(Vec<String>, Vec<String>)> {
     }
     Ok((compile, link))
 }
-fn tree(dir: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
+pub(crate) fn tree(dir: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -106,6 +106,23 @@ fn tree(dir: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+pub(crate) fn sources<'a>(directory: &Path, paths: &'a [PathBuf]) -> Vec<&'a PathBuf> {
+    paths
+        .iter()
+        .filter(|path| {
+            path.parent() == Some(directory)
+                && path.is_file()
+                && path.extension().is_some_and(|extension| extension == "c" || extension == "m")
+        })
+        .collect()
+}
+pub(crate) fn suffix(package: &str) -> Result<String> {
+    let suffix = package.strip_prefix("nxrs-").unwrap_or(package).replace('-', "_");
+    if !simple(&suffix, false) {
+        return Err("unsafe native archive name".into());
+    }
+    Ok(suffix)
 }
 pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Vec<String>> {
     let source_dir = capability.join("src/platform").join(os).join("ffi");
@@ -123,14 +140,7 @@ pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Ve
     let mut paths = vec![];
     tree(&source_dir, &mut paths)?;
     paths.sort();
-    let sources: Vec<_> = paths
-        .iter()
-        .filter(|p| {
-            p.parent() == Some(&source_dir)
-                && p.is_file()
-                && p.extension().is_some_and(|e| e == "c" || e == "m")
-        })
-        .collect();
+    let sources = sources(&source_dir, &paths);
     if sources.is_empty() {
         return Ok(inputs);
     }
@@ -140,13 +150,7 @@ pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Ve
         .ok_or("missing package name")?;
     // Cargo sources may live in renamed or versioned directories. The archive
     // belongs to the package, independently of its checkout location.
-    let suffix = package
-        .strip_prefix("nxrs-")
-        .unwrap_or(package)
-        .replace('-', "_");
-    if !simple(&suffix, false) {
-        return Err("unsafe native archive name".into());
-    }
+    let suffix = suffix(package)?;
     let native = m
         .pointer(&format!("/package/metadata/nxrs/platform/{os}"))
         .unwrap_or(&Value::Null);

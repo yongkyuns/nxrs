@@ -3,6 +3,9 @@ name = "nxrs-i2c"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.nxrs]
+kind = "native-resource"
+
 [lib]
 name = "i2c"
 
