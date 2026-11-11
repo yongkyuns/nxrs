@@ -1,20 +1,18 @@
 //! Select one implementation from the validated profile binding.
-cfg_if::cfg_if! {
-    if #[cfg(platform = "nuttx")] {
-        #[cfg(not(test))]
-        use {::gpio as gpio_resource, acquisition::nuttx as events};
-        pub mod nuttx;
-        pub use nuttx as selected;
-    } else if #[cfg(platform = "mock")] {
-        pub mod mock;
-        pub use mock as selected;
-    } else if #[cfg(platform = "simulation")] {
-        pub mod simulation;
-        pub use simulation as selected;
-    } else {
-        pub mod unbound;
-        pub use unbound as selected;
-    }
-}
+#[cfg(platform = "nuttx")]
+#[path = "nuttx/mod.rs"]
+pub mod selected;
+
+#[cfg(platform = "mock")]
+#[path = "mock.rs"]
+pub mod selected;
+
+#[cfg(platform = "simulation")]
+#[path = "simulation.rs"]
+pub mod selected;
+
+#[cfg(not(any(platform = "nuttx", platform = "mock", platform = "simulation")))]
+#[path = "unbound.rs"]
+pub mod selected;
 
 pub use selected as construction;

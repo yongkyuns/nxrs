@@ -595,7 +595,6 @@ dependencies = [
 name = "nxrs-imu"
 version = "0.1.0"
 dependencies = [
- "cfg-if",
  "embedded-hal",
  "nxrs-acquisition",
  "nxrs-bmi270",

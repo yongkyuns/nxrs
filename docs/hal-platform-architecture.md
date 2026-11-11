@@ -143,8 +143,9 @@ require a wildcard or let backend exports implicitly define the crate's public
 API. Keep constructors and unavailable stubs in those selected modules, not
 inline in the selector. Prefer ordinary named modules and conditional
 `as selected` exports; source-path redirection is not required for selection.
-Group each implementation's declaration and alias in one `cfg_if` branch rather
-than repeating its selection condition. A branch may select a shared crate
+Group a declaration and its alias in one `cfg_if` branch. An item-level
+`#[cfg]` with a path can select the module directly as `selected` and lets
+rust-analyzer mark inactive declarations. A branch may select a shared crate
 module directly; do not add OS wrappers that only re-export it.
 Identical Rust implementations remain ordinary shared modules outside
 `platform/`; selecting acquisition does not duplicate them per OS. Native source
