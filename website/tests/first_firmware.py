@@ -38,7 +38,9 @@ def validate_response(text: str, sent: str, expected: str) -> None:
     if not lines or lines[-1] != 'nsh>':
         raise ValueError('missing shell prompt after command')
     lines.pop()
-    if lines and lines[0] == sent:
+    # NSH readline prefixes its command echo with VT100 clear-to-end-of-line.
+    # Accept only that exact echo; keep application output and raw logs intact.
+    if lines and lines[0] in (sent, '\x1b[K' + sent):
         lines.pop(0)
     if lines != [expected]:
         raise ValueError(f'{sent!r}: expected one {expected!r} output line, got {lines!r}')

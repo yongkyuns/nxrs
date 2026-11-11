@@ -86,6 +86,50 @@ class ConsoleTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 validate_response(text, 'echo $?', '0')
 
+    def test_readline_clear_to_eol_prefix_is_command_echo(self):
+        # NSH's exact response shape from tutorial run 42939498260.
+        for expected in ('Hello from NXRS', 'Hello again from NXRS', 'Processed total: 6'):
+            with self.subTest(expected=expected):
+                validate_response(f' \x1b[Khello\r\r\n{expected}\r\r\nnsh>', 'hello', expected)
+        validate_response(' \x1b[Kecho $?\r\r\n0\r\r\nnsh>', 'echo $?', '0')
+
+    def test_readline_echo_does_not_relax_output_checks(self):
+        for text in ('\x1b[Khello\nnsh>',
+                     '\x1b[Khello\nHello from NXRS',
+                     '\x1b[Khello\nHello from NXRS\nHello from NXRS\nnsh>',
+                     '\x1b[Khello\nHello again from NXRS\nnsh>',
+                     '\x1b[Khello\nHello from NXRS\npanic\nnsh>',
+                     '\x1b[Khello\n\x1b[KHello from NXRS\nnsh>',
+                     '\x1b[Khello\nHello\x1b[K from NXRS\nnsh>',
+                     '\x1b[Khello\n\x1b[K\nHello from NXRS\nnsh>',
+                     '\x1b[2Khello\nHello from NXRS\nnsh>',
+                     '\x1b[K\x1b[Khello\nHello from NXRS\nnsh>',
+                     '\x1b[Khello\nhello\nHello from NXRS\nnsh>'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_response(text, 'hello', 'Hello from NXRS')
+        for text in ('\x1b[Kecho $?\nnsh>', '\x1b[Kecho $?\n1\nnsh>',
+                     '\x1b[Kecho $?\n0\n0\nnsh>', '\x1b[Kecho $?\n\x1b[K0\nnsh>'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_response(text, 'echo $?', '0')
+
+    def test_fragmented_readline_echo_keeps_raw_transcript(self):
+        chunks = [b' ', b'\x1b', b'[', b'Khello', b'\r\r\n',
+                  b'Hello from NXRS', b'\r\r\n', b'ns', b'h>']
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / 'readline.log'
+            console = Console([sys.executable, '-u', '-c',
+                               'import time; time.sleep(60)'], log)
+            try:
+                with patch('first_firmware.select.select', return_value=([console.fd], [], [])), \
+                     patch('first_firmware.os.read', side_effect=chunks) as read:
+                    response = console.until('nsh>', 5)
+                    self.assertEqual(read.call_count, len(chunks))
+                validate_response(response, 'hello', 'Hello from NXRS')
+            finally:
+                console.close()
+            self.assertEqual(log.read_bytes(), b''.join(chunks))
+            self.assertIsNotNone(console.process.poll())
+
     def test_timeout_closes_owned_child_and_keeps_transcript(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / 'timeout.log'
