@@ -29,9 +29,9 @@ def main():
         wrapper.chmod(0o700)
         env = dict(os.environ, CXX=str(wrapper))
         output = work / 'sdk'
-        subprocess.run([sys.executable, str(ROOT / 'hal/detector/src/compute/esp_dl/ffi/build.py'),
+        subprocess.run(['cargo', 'nxrs', 'detector-sdk',
                         '--sdk', str(args.sdk.resolve()), '--out', str(output), '--target', target],
-                       env=env, check=True)
+                       cwd=ROOT, env=env, check=True)
         binary = work / 'check'
         subprocess.run([compiler, '-std=c++17', '-fsanitize=address', '-fno-omit-frame-pointer',
                         str(ROOT / 'tests/detection/pico_asan.cpp'), str(output / 'libpico.a'),

@@ -2,7 +2,7 @@
 name = "nxrs-detector"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../tools/detector-build-support/cargo.rs"
 
 [lib]
 name = "detector"
@@ -38,5 +38,5 @@ platforms = ["linux", "macos", "windows", "nuttx"]
 required-features = ["pico-model"]
 
 [build-dependencies]
-nxrs-detector-build-support = { path = "build-support" }
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-detector-build-support = { path = "../../tools/detector-build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }

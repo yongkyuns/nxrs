@@ -1,6 +1,6 @@
 # Build and platform selection
 
-`cargo nxrs` is the host-only Rust build controller in `platform/build`. It owns
+`cargo nxrs` is the host-only Rust build controller in `tools/build`. It owns
 profile resolution, SDK preparation, Cargo invocation, NuttX configuration and
 linking, artifact checks, signing and offline factory packaging. Its dependencies
 are build dependencies; they do not enter firmware.
@@ -153,11 +153,10 @@ resolved graph and repeat `--overlay` on profile inspection or build commands
 to apply command-line overlays. Named profiles may also declare ordered
 overlays. The build frontend and direct Cargo consumers both use the versioned resolver.
 
-Currently, each HAL owns its local `build.rs`; it depends on `platform/build-support`,
-which contains profile validation and native build utilities. The CLI depends on
-the same support package. A HAL never builds or depends on the deployment CLI.
-The detector's shared host SDK adapter is an ordinary detector-owned build-support
-package. The CLI and HAL build scripts share one Rust profile resolver. Model dependency
+Firmware manifests point to Cargo adapters under `tools/build-support/cargo`
+or `tools/detector-build-support` through declared build dependencies. Tooling
+owns profile validation, code generation, native compilation and SDK preparation.
+The CLI uses the same host support packages. Model dependency
 features follow the profile automatically. There is no shell environment-file
 interpreter or Python platform resolver. Existing qualification entry scripts
 are compatibility adapters; numerical reference/oracle tests remain independent.
@@ -271,7 +270,7 @@ again. A failed rebuild leaves no current success bundle. Web recreates `site/`
 and chooses its JS/WASM pair from the selected binary's Cargo artifact, so old
 outputs from another binary cannot become the new site.
 
-`platform/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
+`tools/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
 C compiler to check unchanged freshness, same-path header/source changes and
 exclusion of an unconsumed helper. `native_header_freshness.rs` retains the TLS
 and detector checks, including changed symlinked architecture headers. These are

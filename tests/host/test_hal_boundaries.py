@@ -70,7 +70,7 @@ class HalBoundariesTests(unittest.TestCase):
             storage: Mutex<Option<device::Device<S>>>,
             Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
         """)
-        self.write('platform/devices/imu/build.rs', '''
+        self.write('tools/build-support/cargo/hal.rs', '''
             fn main() {
                 nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}"));
             }
@@ -78,6 +78,7 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('platform/devices/imu/Cargo.toml', '''
             [package]
             name = "nxrs-imu"
+            build = "../../../tools/build-support/cargo/hal.rs"
             [package.metadata.nxrs]
             bindings = ["bindings.toml"]
         ''')
@@ -92,7 +93,7 @@ class HalBoundariesTests(unittest.TestCase):
     def test_sensor_generation_uses_declarative_package_inputs(self):
         self.write_declarative_imu()
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
-        build = self.root / 'platform/devices/imu/build.rs'
+        build = self.root / 'tools/build-support/cargo/hal.rs'
         generic = build.read_text()
         build.write_text(generic.replace('configure_hal()', 'configure_hal_with(emit)'))
         self.assertTrue(any('generic shared-preparation' in error
@@ -159,6 +160,7 @@ class HalBoundariesTests(unittest.TestCase):
         manifest = self.write('platform/devices/imu/Cargo.toml', '''
             [package]
             name = "nxrs-imu"
+            build = "../../../tools/build-support/cargo/hal.rs"
             [package.metadata.nxrs]
             bindings = [{ dependency = "sensor" }]
             [target.'cfg(target_os = "nuttx")'.dependencies]
@@ -176,7 +178,7 @@ class HalBoundariesTests(unittest.TestCase):
 
 
     def test_gnss_uses_driver_declarations_and_retains_canonical_ownership(self):
-        for relative in ("platform/devices/gnss/Cargo.toml", "platform/devices/gnss/build.rs",
+        for relative in ("platform/devices/gnss/Cargo.toml", "tools/build-support/cargo/hal.rs",
                          "platform/devices/gnss/src/nuttx/mod.rs", "driver/ubx/Cargo.toml",
                          "driver/ubx/bindings.toml", "hal/gnss/Cargo.toml",
                          "hal/gnss/src/platform/nuttx/mod.rs"):
@@ -247,7 +249,7 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_driver_and_sdk_build_packages_retain_native_inventory_and_behavior_checks(self):
         for name in ('driver/linux/gio/src/platform/linux/ffi/gio.c',
-                     'hal/detector/build-support/src/ffi/compat.hpp'):
+                     'tools/detector-build-support/src/ffi/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.assertTrue(any('documented ABI boundary' in error for error in self.errors()))
@@ -260,7 +262,7 @@ class HalBoundariesTests(unittest.TestCase):
                 self.write('hal/ffi-boundaries.toml', '')
 
     def test_driver_and_sdk_glue_cannot_move_outside_the_owning_source_module(self):
-        for name in ('driver/linux/gio/ffi/gio.c', 'hal/detector/build-support/compat.hpp'):
+        for name in ('driver/linux/gio/ffi/gio.c', 'tools/detector-build-support/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')

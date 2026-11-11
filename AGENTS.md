@@ -14,6 +14,10 @@ checks with the new invariants in the implementation PR while preserving
 portability, dependency, native-boundary and lifecycle coverage. The OS/provider
 `selected` module convention below is separate from additive chip modules.
 
+- Keep host build tooling and Cargo adapter source under `tools/`. Firmware
+  manifests may reference adapters through declared build dependencies.
+  Platform directories hold declarative profiles, BSP inputs and device
+  construction. Drivers and HALs retain their runtime and native ABI sources.
 - For peripheral composition work, also read `docs/peripheral-composition.md`
   and `docs/peripheral-composition-plan.md`. Composition version 1, ordered
   overlays, resolved-profile build wiring, and the migrated IMU/GNSS bindings

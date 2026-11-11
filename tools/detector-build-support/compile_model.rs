@@ -5,7 +5,6 @@ pub fn main() {
     let model = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .join("models/person_detect.tflite");
     println!("cargo:rerun-if-changed={}", model.display());
-    println!("cargo:rerun-if-changed=build.rs");
     let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("network.rs");
     std::fs::write(
         output,

@@ -1,5 +1,5 @@
 //! Verify missing/corrupt archives are rejected before invoking any SDK tool or creating output.
-#[path = "../../../hal/tls/build_sdk.rs"]
+#[path = "../../../tools/build-support/cargo/build_sdk.rs"]
 mod sdk;
 #[test]
 fn verified_source_precedes_sdk_work() {

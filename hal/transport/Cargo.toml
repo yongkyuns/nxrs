@@ -2,7 +2,7 @@
 name = "nxrs-transport"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../tools/build-support/cargo/hal.rs"
 
 [lib]
 name = "transport"
@@ -32,7 +32,7 @@ kind = "hal-capability"
 platforms = ["mock", "linux", "macos", "windows", "nuttx"]
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }
 
 [dependencies]
 cfg-if = "=1.0.5"

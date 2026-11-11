@@ -2,7 +2,7 @@
 name = "nxrs-led"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../tools/build-support/cargo/hal.rs"
 
 [lib]
 name = "led"
@@ -12,7 +12,7 @@ kind = "hal-capability"
 platforms = ["mock", "nuttx"]
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }
 
 [dependencies]
 cfg-if = "=1.0.5"
