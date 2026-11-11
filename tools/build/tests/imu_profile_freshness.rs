@@ -28,19 +28,18 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     .unwrap();
     fs::write(
         sdk.join("Cargo.toml"),
-        "[workspace.metadata.nxrs.device-catalogues]\nimu='wiring/sensors/imu'\ngnss='wiring/sensors/gnss'\n",
+        "[workspace.metadata.nxrs]\ndevice-catalogue='wiring'\n",
     )
     .unwrap();
     for (relative, files) in [
         ("hal/imu", &["Cargo.toml"][..]),
-        ("platform/devices/imu", &["Cargo.toml"][..]),
+        ("platform", &["Cargo.toml"][..]),
         ("hal/gnss", &["Cargo.toml"][..]),
-        ("platform/devices/gnss", &["Cargo.toml"][..]),
         ("driver/ubx", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
     ] {
-        let package = sdk.join(relative.replace("platform/devices/", "wiring/sensors/"));
+        let package = sdk.join(if relative == "platform" { "wiring" } else { relative });
         fs::create_dir_all(&package).unwrap();
         for file in files {
             fs::copy(source.join(relative).join(file), package.join(file)).unwrap();
@@ -81,12 +80,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed={}", preparation::ENVIRONMENT);
     if let Some(path) = &handoff { println!("cargo:rerun-if-changed={}", path.display()); }
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for (capability, directory) in [("imu", "wiring/sensors/imu"), ("gnss", "wiring/sensors/gnss")] {
+    for capability in ["imu", "gnss"] {
         let package_output = output.join(capability);
         std::fs::create_dir_all(&package_output).unwrap();
         let inputs = match &handoff {
-            Some(path) => preparation::consume(path, &root.join(directory), &profile, "xtensa-esp32s3-nuttx", "nuttx", &package_output).unwrap().unwrap(),
-            None => preparation::prepare_package(&root.join(directory), &profile, "nuttx", &package_output).unwrap(),
+            Some(path) => preparation::consume(path, &root.join("wiring"), capability, &profile, "xtensa-esp32s3-nuttx", "nuttx", &package_output).unwrap().unwrap(),
+            None => preparation::prepare_package(&root.join("wiring"), capability, &profile, "nuttx", &package_output).unwrap(),
         };
         for path in inputs {
             println!("cargo:rerun-if-changed={}", path.display());
@@ -191,7 +190,7 @@ fn main() {
         .replace("@HAL_FACTORY@", &format!("{:?}", source.join("hal/imu/src/platform/nuttx/mod.rs")))
         .replace(
             "@FACTORY@",
-            &format!("{:?}", source.join("platform/devices/imu/src/nuttx/mod.rs")),
+            &format!("{:?}", source.join("platform/src/nuttx/imu.rs")),
         ),
     )
     .unwrap();
@@ -222,9 +221,10 @@ fn verify_named() {
     let receipt = root.join("resolved-profile.json");
     let prepare = |profile: &Profile| {
         resolved::write(&receipt, &sdk, profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
-        let directories = [sdk.join("wiring/sensors/imu"), sdk.join("wiring/sensors/gnss")];
+        let directory = sdk.join("wiring");
+        let features = ["imu".into(), "gnss".into()].into_iter().collect();
         preparation::prepare_consumers(
-            directories.iter().map(|path| path.as_path()), profile, "xtensa-esp32s3-nuttx", "nuttx",
+            [(directory.as_path(), &features)], profile, "xtensa-esp32s3-nuttx", "nuttx",
             &root.join("configuration"),
         ).unwrap().unwrap()
     };
@@ -418,7 +418,7 @@ fn verify_named() {
         "driver/bmi270/bindings.toml",
         "driver/lsm6dso/bindings.toml",
         "driver/bmi270/Cargo.toml",
-        "wiring/sensors/imu/Cargo.toml",
+        "wiring/Cargo.toml",
         "Cargo.toml",
         "driver/ubx/bindings.toml",
     ] {

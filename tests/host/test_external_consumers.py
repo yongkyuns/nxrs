@@ -41,7 +41,12 @@ def copy_dependency_closure(directory, pending):
             continue
         copied.add(source)
         destination = directory / "deps" / source.relative_to(ROOT)
-        shutil.copytree(source, destination, ignore=shutil.ignore_patterns("target", ".git"))
+        ignore = shutil.ignore_patterns("target", ".git")
+        if source == ROOT / "platform":
+            # Copy the target crate without SDK profiles or board inputs.
+            shutil.copytree(source / "src", destination / "src", ignore=ignore)
+        else:
+            shutil.copytree(source, destination, ignore=ignore)
         text = without_dev_dependencies((source / "Cargo.toml").read_text())
         (destination / "Cargo.toml").write_text(text)
         pending.extend(source / dependency["path"] for dependency in dependencies(tomllib.loads(text))
@@ -125,7 +130,7 @@ class ExternalConsumerTests(unittest.TestCase):
                     'fn main() { assert!(std::mem::size_of::<capability::DeviceError>() > 0); }\n')
                 copied = copy_dependency_closure(directory, [ROOT / "hal" / capability])
                 if capability == "imu":
-                    for concrete in ("platform/devices/imu", "driver/bmi270", "driver/lsm6dso",
+                    for concrete in ("platform", "driver/bmi270", "driver/lsm6dso",
                                      "driver/i2c", "driver/spi"):
                         self.assertNotIn((ROOT / concrete).resolve(), copied)
                 for other in {"imu", "gnss", "camera"} - {capability}:
@@ -154,7 +159,7 @@ class ExternalConsumerTests(unittest.TestCase):
                                     if item.get("reason") == "compiler-artifact"}
                         self.assertIn(capability, compiled)
                         if capability == "imu":
-                            self.assertTrue(compiled.isdisjoint({"imu_devices", "nxrs_bmi270",
+                            self.assertTrue(compiled.isdisjoint({"composition", "nxrs_bmi270",
                                                                "nxrs_lsm6dso", "i2c", "spi"}))
                         for other in {"imu", "gnss", "camera"} - {capability}:
                             self.assertNotIn(other, compiled)

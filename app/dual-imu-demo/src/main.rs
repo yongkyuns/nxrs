@@ -69,8 +69,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let fusion_a = fusion_a.start()?;
     let fusion_b = fusion_b.start()?;
-    let imu_a = imu_a.start_on(devices::primary_imu())?;
-    let imu_b = imu_b.start_on(devices::secondary())?;
+    let imu_a = imu_a.start_on(composition::imu::primary_imu())?;
+    let imu_b = imu_b.start_on(composition::imu::secondary())?;
 
     println!("DUAL_IMU topology:");
     println!("  app owns two independent FusionService instances");

@@ -9,8 +9,7 @@ members = [
     "app/home-cam",
     "tools/build",
     "tools/build-support",
-    "platform/devices/imu",
-    "platform/devices/gnss",
+    "platform",
     "tools/detector-build-support",
     "driver/bmi270",
     "driver/i2c",
@@ -71,8 +70,7 @@ members = [
     "tests/rtos-bench/rust",
 ]
 default-members = [
-    "platform/devices/imu",
-    "platform/devices/gnss",
+    "platform",
     "app/std-demo",
     "app/ao-stress",
     "app/home-cam",
@@ -97,9 +95,8 @@ default-members = [
     "hal/detector",
 ]
 
-[workspace.metadata.nxrs.device-catalogues]
-imu = "platform/devices/imu"
-gnss = "platform/devices/gnss"
+[workspace.metadata.nxrs]
+device-catalogue = "platform"
 
 [workspace.package]
 edition = "2021"

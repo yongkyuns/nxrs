@@ -43,6 +43,16 @@ struct Package {
     features: BTreeSet<String>,
     depth: usize,
 }
+impl Package {
+    fn consumes(&self, catalogue: &nxrs_build_support::bindings::Package) -> bool {
+        self.name == catalogue.name
+            && catalogue
+                .consumer_feature
+                .as_ref()
+                .is_none_or(|feature| self.features.contains(feature))
+    }
+}
+
 type Graph = BTreeMap<String, Package>;
 
 /// Resolve a fully configured production `cargo build` invocation, then append
@@ -78,7 +88,7 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
             for wanted in required {
                 let packages: Vec<_> = graph
                     .iter()
-                    .filter(|(_, p)| p.name == catalogue.name)
+                    .filter(|(_, p)| p.consumes(catalogue))
                     .collect();
                 if packages.is_empty() {
                     continue;
@@ -125,10 +135,7 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
         if required.is_empty() {
             continue;
         }
-        let consumed: Vec<_> = graph
-            .values()
-            .filter(|p| p.name == catalogue.name)
-            .collect();
+        let consumed: Vec<_> = graph.values().filter(|p| p.consumes(catalogue)).collect();
         if consumed.len() > 1
             || consumed
                 .first()

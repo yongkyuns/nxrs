@@ -106,7 +106,7 @@ ImuService.start_on(devices::primary_imu())
     -> HAL IMU acquisition
     -> owner thread owns IMU for its lifetime
 
-GnssService.start_on(gnss_devices::primary_gnss())
+GnssService.start_on(composition::gnss::primary_gnss())
     -> HAL GNSS acquisition
     -> owner thread owns GNSS for its lifetime
 ~~~
@@ -495,7 +495,7 @@ app-to-app production dependencies.
 
 The dual-IMU app proves that a capability may supply more than one resource
 instance when its selected provider supports that operation. The app passes
-`devices::primary_imu()` and `devices::secondary()` from `nxrs-imu-devices`
+`composition::imu::primary_imu()` and `composition::imu::secondary()`
 to `ImuService::start_on`;
 each service owns an exclusive session for its selected device. Starting two
 services on the same device returns Busy. Pausing one does not affect the other.

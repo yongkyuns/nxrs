@@ -26,7 +26,7 @@ class ArchitectureTests(unittest.TestCase):
                                ('messaging', 'shared/messaging'),
                                ('driver', 'driver/demo'), ('platform', 'tools/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
-                               ('devices', 'platform/devices/imu'),
+                               ('devices', 'platform'),
                                ('build-support', 'tools/build-support'),
                                ('camera-build', 'tools/camera-build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:

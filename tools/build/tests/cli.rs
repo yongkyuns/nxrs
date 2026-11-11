@@ -99,7 +99,7 @@ fn write_imu_fixture(root: &Path) {
             .append(true)
             .open(root.join("Cargo.toml"))
             .unwrap(),
-        "\n[workspace.metadata.nxrs.device-catalogues]\nimu = 'platform/devices/imu'"
+        "\n[workspace.metadata.nxrs]\ndevice-catalogue = 'platform'"
     )
     .unwrap();
     let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -111,7 +111,7 @@ fn write_imu_fixture(root: &Path) {
     .unwrap();
     for package in [
         "hal/imu",
-        "platform/devices/imu",
+        "platform",
         "driver/bmi270",
         "driver/lsm6dso",
     ] {

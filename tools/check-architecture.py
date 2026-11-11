@@ -48,7 +48,7 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     # Bus access and chip protocols belong to independent driver packages.
     'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
-    'nxrs-imu-devices': {'embedded-hal'},
+    'nxrs-composition': {'embedded-hal'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.
@@ -63,7 +63,7 @@ def layer(path: Path) -> str:
         raise ValueError('a package cannot live at the virtual workspace root')
     if parts[0] == 'tools':
         return 'build' if parts == ('tools', 'build') else 'build-support'
-    if len(parts) == 3 and parts[:2] == ('platform', 'devices'):
+    if parts == ('platform',):
         return 'devices'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
@@ -287,7 +287,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 if not path.is_file() or 'target' in path.relative_to(directory).parts:
                     continue
                 text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
-                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|CARGO_CFG_PLATFORM|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b'
+                identity = (r'\b(?:target_(?:os|arch|env|family|vendor)|device_binding|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|CARGO_CFG_PLATFORM|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b'
                             r'|(?:std|core)::(?:os|arch)::|std::env::consts::(?:OS|ARCH|FAMILY)|\blibc::'
                             r'|(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^\];{}]*\b(?:unix|windows|platform)\b'
                             r'|["\']/(?:dev|proc)/|["\'](?:nuttx|linux|macos|windows)["\']')
@@ -381,13 +381,17 @@ def inspect_dependency_capsule(root: Path) -> list[str]:
         return ['microflow: missing or malformed source provenance ledger']
 
 
-def declared_binding_catalogs(package: Path, stack=()) -> list[Path]:
+def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[Path]:
     """Follow only declared catalogs and named normal Cargo path dependencies."""
     package = package.resolve()
     if package in stack or len(stack) >= 64:
         raise ValueError('binding dependency cycle or depth limit')
     manifest = tomllib.loads((package / 'Cargo.toml').read_text())
-    declarations = manifest.get('package', {}).get('metadata', {}).get('nxrs', {}).get('bindings', [])
+    metadata = manifest.get('package', {}).get('metadata', {}).get('nxrs', {})
+    declarations = (metadata.get('bindings', []) if capability is None
+                    else metadata.get('device-bindings', {}).get(capability, []))
+    if capability is not None and capability not in manifest.get('features', {}):
+        raise ValueError('device binding requires a matching Cargo feature')
     if not isinstance(declarations, list) or not declarations:
         raise ValueError('declare the package binding catalog inputs')
     result = []
@@ -432,8 +436,8 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     relative = lambda path: path.relative_to(root).as_posix()
     for capability in ('imu', 'gnss'):
         hal = root / 'hal' / capability
-        owner = root / 'platform/devices' / capability
-        nuttx = owner / 'src/nuttx/mod.rs'
+        owner = root / 'platform'
+        nuttx = owner / 'src/nuttx' / f'{capability}.rs'
         if not nuttx.is_file():
             continue
         manifest = owner / 'Cargo.toml'
@@ -442,17 +446,17 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             continue
         data = tomllib.loads(manifest.read_text())
         build = (owner / data.get('package', {}).get('build', 'build.rs')).resolve()
-        if build != (root / 'tools/build-support/cargo/hal.rs').resolve() or not build.is_file():
+        if build != (root / 'tools/build-support/cargo/composition.rs').resolve() or not build.is_file():
             errors.append(f'{relative(manifest)}: use the generic shared-preparation tooling adapter')
             continue
         build_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', build.read_text(), flags=re.S)
         calls = re.findall(r'\b([A-Za-z_]\w*(?:::\w+)*)\s*\(', build_source)
         macros = re.findall(r'\b(\w+)!\s*[\(\{\[]', build_source)
-        if ('nxrs_build_support::configure_hal' not in calls
-                or any(call not in {'main', 'nxrs_build_support::configure_hal',
+        if ('nxrs_build_support::configure_composition' not in calls
+                or any(call not in {'main', 'nxrs_build_support::configure_composition',
                                     'unwrap', 'unwrap_or_else', 'expect'} for call in calls)
                 or any(macro != 'panic' for macro in macros)
-                or re.search(r'\b(?:mod|include|format|configure_hal_with)\b', build_source)):
+                or re.search(r'\b(?:mod|include|format|configure_composition_with)\b', build_source)):
             errors.append(f'{relative(build)}: sensor build scripts must be generic shared-preparation adapters')
         if any((owner / 'build').rglob('*.rs')):
             errors.append(f'hal/{capability}/build: host generation belongs in shared build support')
@@ -462,7 +466,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             if 'configuration' in metadata:
                 raise ValueError('use resource bindings, not a Rust projection schema')
             implementations = set()
-            for catalog_path in declared_binding_catalogs(owner):
+            for catalog_path in declared_binding_catalogs(owner, capability=capability):
                 catalog = tomllib.loads(catalog_path.read_text())
                 if catalog.get('version') != 2 or not catalog.get('binding'):
                     raise ValueError('declare version 2 resource bindings')

@@ -62,7 +62,7 @@ object, and acquisition creates a separate exclusive session. Common HAL
 machinery must enforce uniqueness and quiescent release. Different devices can
 run independently, including two of the same model; aliases cannot create new
 ownership guards. IMU implements this through `imu::Device` references returned by
-`imu_devices::primary_imu()` and profile-defined `imu_devices::<name>()`; acquisition uses
+`composition::imu::primary_imu()` and profile-defined `composition::imu::<name>()`; acquisition uses
 `Device::open` or `Device::open_default`. Its worker retains storage and ownership through final
 delivery, sink destruction and resource cleanup. GNSS uses the same named-device
 pattern through `gnss_devices`, with per-receiver UART restoration and quarantine.
@@ -180,7 +180,7 @@ Inventory checks support review; they cannot prove that C code is mechanical.
 Applications own their ordinary `main()` and workflows. App and service source,
 manifests and build scripts contain no OS/board cfgs, native imports, device
 paths or platform inspection. Apps may select named devices through portable
-catalogues under `platform/devices/<capability>`; services receive HAL references.
+composition modules in `nxrs-composition`; services receive HAL references.
 All other app/service dependencies on platform code remain forbidden. Catalogue
 construction depends on HAL runtime and concrete drivers, never the reverse.
 `imu::construction` is reserved for catalogue wiring and qualification, with

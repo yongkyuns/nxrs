@@ -419,7 +419,7 @@ physical S8 results and unrelated radio/camera work separately scoped.
 
 Record current build duties and lifetime behavior before moving them. Shared
 preparation now loads package-owned catalogs and generates direct implementation
-selection with typed resource bindings. Both catalogues supply named references
+selection with typed resource bindings. The composition crate supplies named references
 to apps and use additive optional chip dependencies. Services receive normalized
 device references. IMU and GNSS have permanent `Device` references and static
 per-device acquisition storage; uncertain cleanup quarantines only that device.
@@ -500,7 +500,7 @@ derive features through direct catalogue dependencies before compiling; graph
 witnesses cover either IMU driver alone and both. I2C/SPI resource adapters remain
 common dependencies. Full pre-Cargo native preparation remains D1 work.
 
-Change `platform/devices/imu/Cargo.toml`, catalogue module admission, binding metadata
+Change `platform/Cargo.toml`, catalogue module admission, binding metadata
 and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named
 implementation module. Keep direct implementation selection when extending generation to multiple
 instances; the global `MODEL` match has already been removed. No redundant `source` metadata,

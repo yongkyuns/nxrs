@@ -1,6 +1,6 @@
 # GNSS capability
 
-`gnss_devices::primary_gnss().open(sink)` returns a `gnss::Session`: stop, join, completion and drop accounting for
+`composition::gnss::primary_gnss().open(sink)` returns a `gnss::Session`: stop, join, completion and drop accounting for
 active acquisition. Receiver protocol operations remain in the UBX driver.
 
 `nxrs-gnss` owns acquisition, resource lifetime and the hardware-independent
@@ -12,7 +12,7 @@ into local north/east coordinates.
 
 The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
 resource and an M9 receiver. The [driver binding](../../driver/ubx/bindings.toml)
-declares supported receiver/resource combinations. `platform/devices/gnss`
+declares supported receiver/resource combinations. The composition crate in `platform/`
 constructs the concrete receiver and exports named `&'static impl gnss::Device`
 accessors. The HAL has no production UBX dependency. Each configured receiver
 has its own static storage and ownership/fault state; aliases share that object.
