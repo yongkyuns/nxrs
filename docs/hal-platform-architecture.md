@@ -217,13 +217,13 @@ uses the same Rust implementation and different native driver configuration.
 Do not duplicate Rust adapters merely because the boards differ.
 
 For desktop/test builds, select one profile for the entire Cargo invocation.
-`mock` is an explicit portable fixture profile, `host-demo` selects mock demo
-sensors, and `simulation` selects the coordinated seeded IMU/GNSS source.
+`mock` supplies scripted providers for portable tests and the navigation demo.
+`simulation` selects the coordinated seeded IMU/GNSS source.
 
 ~~~sh
 NXRS_PLATFORM=linux cargo test --locked -p nxrs-native-integration
 NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
+NXRS_PLATFORM=mock cargo run --locked -p nxrs-event-demo
 ~~~
 
 Explicit platform builds use the shared Rust profile resolver.
@@ -240,8 +240,8 @@ factory, which returns `Unsupported` when that acquisition is unbound. Explicit
 `MockStorage` and `MockTransport` fixture constructors remain separate from real
 file/socket operations.
 
-`NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT as well as the
-explicit shared file/socket operations. Both reuse their capability's controller
+`NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT. The radio
+providers reuse their capability's controller
 and worker. CoreWLAN calls are synchronous; CoreBluetooth callbacks stay on a
 serial SDK queue and the scan worker drains bounded reports. No additional
 service or Rust runtime is introduced.
@@ -456,8 +456,8 @@ Profiles live in `platform/nuttx/platforms` (firmware) and
 `platform/profiles` (desktop and legacy fixtures). Names are unique across both
 locations. A product variant may extend an actual OS or board profile and override
 selected `[hal]` bindings. `simulation` runs coordinated IMU and GNSS.
-`host-demo` and `host-imu` remain independent scripted fixtures. Core-only compilation
-checks are legacy contract tests, not a bare-metal product platform.
+`host-imu` exercises scripted IMU acquisition with GNSS unbound. Core-only
+contract checks use the unbound Cargo configuration.
 
 An optional NuttX profile `cpus = 1` or `2` derives the SMP enablement, CPU count
 and checked requirements; it does not introduce CPU identity into shared code.

@@ -351,8 +351,8 @@ app/home-cam -> camera            # package nxrs-camera
 ~~~
 
 One `NXRS_PLATFORM` value selects the build's provider bindings. For example,
-`linux`, `macos` and `windows` select their OS implementations and reuse the
-same Rust camera replay, file and socket code. `host-demo` selects mock IMU and
+`linux`, `macos` and `windows` select their OS providers. File replay,
+recording and UDP use shared Rust code enabled by Cargo features. `mock` selects mock IMU and
 GNSS; `host-imu` selects only a mock IMU. `std` is an environment, not a platform. The NuttX
 profiles bind only capabilities with an implemented NuttX provider. There is
 no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
@@ -461,7 +461,7 @@ nxrs-imu / nxrs-gnss
 build-selected capability providers
 ~~~
 
-With `NXRS_PLATFORM=host-demo`, ImuService and GnssService acquire synthetic
+With `NXRS_PLATFORM=mock`, ImuService and GnssService acquire synthetic
 providers internally. The app source and manifest do not know that.
 
 Service tests also execute through the mock IMU/GNSS provider selection rather than injecting
@@ -501,7 +501,7 @@ each service owns an exclusive session for its selected device. Starting two
 services on the same device returns Busy. Pausing one does not affect the other.
 
 The `host-imu` profile selects the scripted two-device mock IMU fixture; GNSS stays
-unbound. The event demo uses `host-demo`, which binds mock IMU and GNSS. Starting
+unbound. The event demo uses `mock`, which binds mock IMU and GNSS. Starting
 the dual app without an IMU binding is required to fail Unsupported, so no
 implicit mock fallback hides an unsupported image.
 

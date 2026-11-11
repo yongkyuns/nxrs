@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 test "$#" -le 1 || { echo "usage: $0 [threads|resources|pico2|armv8m-qemu|esp32s3|integration-esp32s3|udp]" >&2; exit 1; }
 PROFILE="${1:-threads}"
-unset NXRS_PLATFORM
+unset NXRS_PLATFORM NXRS_RESOLVED_PROFILE
 TARGET=riscv32imac-unknown-nuttx-elf
 CROSSDEV=riscv64-unknown-elf-
 BOARD=rv-virt:nsh
@@ -66,7 +66,6 @@ case "$PROFILE" in
     CARGO_ARGS=(-p "$BIN")
     PROBE_SOURCE=tests/nuttx-std/udp/src/main.rs
     ENTRY=rust_std_main
-    NXRS_PLATFORM=nuttx-std
     ;;
   resources)
     OUT="$ROOT/target/nuttx-resources"

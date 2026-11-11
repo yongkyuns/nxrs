@@ -1,6 +1,0 @@
-# Host demonstration with explicit synthetic sensors.
-
-[hal]
-imu = "mock"
-gnss = "mock"
-led = "mock"

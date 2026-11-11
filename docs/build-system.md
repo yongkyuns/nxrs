@@ -31,15 +31,22 @@ The seven platform families are:
 `cargo nxrs profile --platform wroom` shows the resolved WROOM default.
 `--profile` selects an explicit product or qualification configuration, which
 can inherit settings using `extends`. When you supply both options, the explicit
-profile must belong to the same board and target family. Qualification profiles such as
-`pico2-mock` and `mps2-an521-mock` are configurations, not additional public
-platform families. Native builds target the current host OS.
+profile must belong to the same board and target family. Native builds target
+the current host OS.
+
+Start with the platform default for ordinary builds. Use an explicit profile for
+a specific qualification, such as `pico2-mock` for a sensor-free Pico 2 build.
+On a desktop, use `mock` for scripted providers and the navigation demo, or
+`simulation` for coordinated IMU/GNSS data. A build without a profile checks
+portable HAL contracts with hardware acquisition unbound.
+
 Use `--overlay` to adjust devices, resources, or aliases on a profile with
 [peripheral composition](peripheral-composition.md#bindings-and-overlays).
 
 Platform admission does not imply every HAL is implemented or physically
-qualified. CoreS3 sensor wiring still needs physical qualification. Windows has
-file-camera, storage, IP transport and detector bindings. Web currently builds
+qualified. CoreS3 sensor wiring still needs physical qualification. Desktop
+camera replay, recording, and UDP use portable Cargo features. The Windows
+profile admits detector acquisition. Web currently builds
 the Emscripten thread qualification; hardware HALs are unbound. Stock
 `wasm32-unknown-unknown` does not provide these std threads.
 
