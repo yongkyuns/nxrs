@@ -1,0 +1,5 @@
+# These snapshots retain the pinned upstream bytes, including whitespace.
+aes.h -text
+crypto.h -text
+README -text
+COPYING -text

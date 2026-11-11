@@ -1,6 +1,7 @@
 """Exercise the registered ESP mbedTLS allocator patch with native stubs."""
 
 from pathlib import Path
+import hashlib
 import re
 import shutil
 import subprocess
@@ -15,6 +16,11 @@ APPLICATOR = ROOT / "tools/apply-nuttx-patches.py"
 SOURCE = "components/mbedtls/port/esp_mem.c"
 INTR_SOURCE = "components/esp_hw_support/intr_alloc.c"
 INTR_PATCH = ROOT / "upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch"
+WPA_FIXTURE = ROOT / "tests/host/fixtures/esp-wpa-aes"
+WPA_PREIMAGES = {
+    "aes.h": "078b9b925089a7bc8ce08408f60b2017acd5fa82f5241eedae133ef4a85c5261",
+    "crypto.h": "6c04fc7a367ee88cbbc72587bbf14b7d37c523b5e86de0e3bacfc3e105437a0b",
+}
 
 STUBS = {
     "esp_attr.h": "",
@@ -192,6 +198,15 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             patch = ROOT / "upstream/esp-hal-3rdparty/patches" / name
             path.write_text(source_preimage(patch.read_text(), relative, expected_lines=None))
+            originals.append(path)
+        # The real applicator applies the complete registered series. Preserve
+        # the exact pinned WPA headers needed by the AES namespace backport.
+        for name, expected_hash in WPA_PREIMAGES.items():
+            contents = (WPA_FIXTURE / name).read_bytes()
+            self.assertEqual(hashlib.sha256(contents).hexdigest(), expected_hash)
+            path = self.source_root / "components/wpa_supplicant/src/crypto" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
             originals.append(path)
         self.original_sources = {path: path.read_bytes() for path in originals}
         for name, contents in STUBS.items():
