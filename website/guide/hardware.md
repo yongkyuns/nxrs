@@ -41,6 +41,14 @@ For example, a data logger can separate input acquisition from formatting, recor
 
 ## Add a peripheral
 
+First check what NuttX needs to expose. For a chip driven by NXRS over a
+raw bus, NuttX initializes the controller and registers the bus endpoint.
+The Rust driver owns the chip protocol. If the HAL uses a native NuttX
+device driver, enable that driver and register the device in board bring-up,
+then check that its file operations or ioctls match the HAL provider. If
+the device uses a wired interrupt, qualify the pin, trigger and readiness
+path on the board as well. See [Prepare the NuttX BSP](profiles.md#prepare-the-nuttx-bsp).
+
 With a supported driver and bus, add a device to the profile or overlay. If
 the bus is new to the profile, add a resource that selects its registered BSP
 binding and supplies bus and pin settings. The device names that resource,
