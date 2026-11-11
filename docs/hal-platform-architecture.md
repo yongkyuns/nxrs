@@ -811,3 +811,5 @@ NuttX profiles explicitly supply `[camera].device`, `[watchdog].device` and
 `[wifi].interface`, alongside existing console and LED configuration. These are
 registered OS resources, not new sensor drivers or pin descriptions. The build
 validates their form and emits private constants; NuttX still owns registration.
+A derived profile that switches away from a NuttX provider drops its inherited
+endpoint settings.

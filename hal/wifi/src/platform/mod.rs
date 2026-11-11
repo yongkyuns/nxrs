@@ -1,4 +1,5 @@
 //! Select one implementation from the validated profile binding.
+#[cfg(not(platform = "nuttx"))]
 mod unbound;
 cfg_if::cfg_if! {
     if #[cfg(platform = "linux")] {

@@ -571,14 +571,18 @@ pub(crate) fn resolve_with_providers_and_origins(
     validate_ids(&resources, &devices, &aliases, origins)?;
     validate_aliases(&aliases).map_err(|e| diagnostic(origins, "aliases", &e))?;
     for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
-        let alias = aliases.contains_key(capability)
-            || (capability == "imu" && aliases.keys().any(|alias| alias.starts_with("imu_")));
-        if alias && provider != "nuttx" {
-            return Err(diagnostic(
-                origins,
-                &format!("aliases.{capability}"),
-                &format!("physical {capability} composition requires the nuttx provider"),
-            ));
+        if provider != "nuttx" {
+            let prefix = format!("{capability}_");
+            if let Some(alias) = aliases
+                .keys()
+                .find(|alias| alias.as_str() == capability || alias.starts_with(&prefix))
+            {
+                return Err(diagnostic(
+                    origins,
+                    &format!("aliases.{alias}"),
+                    &format!("physical {capability} composition requires the nuttx provider"),
+                ));
+            }
         }
         if provider == "nuttx" && !aliases.contains_key(capability) {
             let mut candidates = devices.iter().filter(|(_, device)| {
@@ -1266,6 +1270,13 @@ mod tests {
         let mut conflict = data.clone();
         conflict["aliases"]["gnss_backup"] = json!("navigation");
         assert!(resolve(&conflict).is_err());
+        let mut unbound = data.clone();
+        unbound["aliases"] = json!({"gnss_spare": "backup"});
+        let error =
+            resolve_with_providers_and_origins(&unbound, "none", "none", &BTreeMap::new(), &catalogs)
+                .unwrap_err();
+        assert!(error.contains("aliases.gnss_spare"), "{error}");
+        assert!(error.contains("physical gnss composition requires the nuttx provider"));
         data["resources"]["backup_uart"]["device"] = json!("/dev/ttyS1");
         assert!(resolve(&data).is_err());
     }

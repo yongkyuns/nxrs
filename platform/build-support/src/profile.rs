@@ -30,6 +30,7 @@ pub const CAPABILITIES: &[&str] = &[
     "watchdog",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
+const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi"];
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub data: Value,
@@ -380,6 +381,12 @@ impl Profile {
             .unwrap_or(json!({}));
         let bindings = bindings.as_object().ok_or("[hal] must be a table")?;
         for (k, v) in bindings {
+            if NUTTX_ENDPOINTS.contains(&k.as_str())
+                && resolved.data["hal"][k] == "nuttx"
+                && v != "nuttx"
+            {
+                resolved.data.as_object_mut().unwrap().remove(k);
+            }
             resolved.data["hal"][k] = v.clone();
         }
         overlay::merge(
@@ -683,7 +690,7 @@ impl Profile {
             }
         }
         self.network_initialization()?;
-        for capability in ["camera", "watchdog", "wifi"] {
+        for &capability in NUTTX_ENDPOINTS {
             let field = if capability == "wifi" {
                 "interface"
             } else {
@@ -930,6 +937,34 @@ mod tests {
                 assert!(profile.validate_resources().is_err());
             }
         }
+    }
+
+    #[test]
+    fn disabling_a_nuttx_provider_drops_its_inherited_endpoint() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = &temp.0;
+        let profiles = root.join(PLATFORM_PROFILES);
+        let wifi = root.join("hal/wifi");
+        fs::create_dir_all(&profiles).unwrap();
+        fs::create_dir_all(&wifi).unwrap();
+        fs::write(
+            wifi.join("Cargo.toml"),
+            "[package]\nname='nxrs-wifi'\n[package.metadata.nxrs]\nplatforms=['nuttx']\n",
+        )
+        .unwrap();
+        fs::write(
+            profiles.join("base.toml"),
+            "[hal]\nwifi='nuttx'\n[wifi]\ninterface='wlan0'\n",
+        )
+        .unwrap();
+        let child = profiles.join("offline.toml");
+        let base = "extends='base'\n[hal]\nwifi='none'\n";
+        fs::write(&child, base).unwrap();
+        let offline = Profile::resolve(root, "offline").unwrap();
+        assert_eq!(offline.binding("wifi"), "none");
+        assert!(offline.data.get("wifi").is_none());
+        fs::write(child, format!("{base}[wifi]\ninterface='wlan1'\n")).unwrap();
+        assert!(Profile::resolve(root, "offline").is_err());
     }
 
     #[test]

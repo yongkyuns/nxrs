@@ -106,7 +106,7 @@ ImuService.start_on(devices::primary_imu())
     -> HAL IMU acquisition
     -> owner thread owns IMU for its lifetime
 
-GnssService.start()
+GnssService.start_on(gnss_devices::primary_gnss())
     -> HAL GNSS acquisition
     -> owner thread owns GNSS for its lifetime
 ~~~
