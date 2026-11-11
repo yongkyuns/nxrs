@@ -1,6 +1,6 @@
 //! Package-owned declarative configuration, independent of Cargo's environment.
 use crate::{
-    bindings::{device_bindings, Package},
+    bindings::{device_capabilities, Package},
     configuration, hash_bytes,
     profile::Profile,
     Result, TempDir,
@@ -144,14 +144,17 @@ pub fn prepare_consumers<'a>(
     let mut selected = BTreeMap::new();
     for (directory, features) in consumers {
         let manifest = crate::profile::manifest(&directory.join("Cargo.toml"))?;
-        let Some(declarations) = device_bindings(&manifest)? else {
+        let Some(declarations) = device_capabilities(&manifest)? else {
             continue;
         };
         let directory = directory
             .canonicalize()
             .map_err(|error| error.to_string())?;
         let mut capabilities = BTreeMap::new();
-        for capability in declarations.keys().filter(|name| features.contains(*name)) {
+        for capability in declarations
+            .into_iter()
+            .filter(|name| features.contains(*name))
+        {
             let package = Package::load_capability(&directory, capability)?;
             let identity = identity(&directory, &package, capability, profile, target, os)?;
             let generated = render(&package, capability, profile, os)?;
@@ -169,7 +172,7 @@ pub fn prepare_consumers<'a>(
             } else {
                 None
             };
-            capabilities.insert(capability.clone(), Prepared { identity, output });
+            capabilities.insert(capability.to_owned(), Prepared { identity, output });
         }
         if !capabilities.is_empty() {
             selected.insert(directory, capabilities);
@@ -268,7 +271,7 @@ fn reject_symlink(path: &Path) -> Result<()> {
 fn same_declarations(actual: &Package, expected: &Package) -> bool {
     actual.name == expected.name
         && actual.consumer_feature == expected.consumer_feature
-        && actual.driver_features == expected.driver_features
+        && actual.drivers == expected.drivers
         && actual
             .catalogs
             .iter()

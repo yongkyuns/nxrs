@@ -8,24 +8,6 @@ use acquisition::probe::{Observed, Trace};
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
 #[path = "imu_resources.rs"]
 mod resources;
-use resources::{Bus, Delay, Spi};
-
-#[allow(dead_code, reason = "Profiles select concrete implementations.")]
-mod implementations {
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "bmi270")] {
-            pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
-            pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::Spi, super::Delay>;
-        }
-    }
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "lsm6dso")] {
-            pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
-            pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::Spi>;
-        }
-    }
-}
-
 // Resource opening and sensor initialization are separate callbacks so the HAL
 // can distinguish a missing endpoint from an uncertain sensor configuration.
 macro_rules! declare_device {
@@ -39,7 +21,7 @@ macro_rules! declare_device {
                 let interface = bus
                     .try_into()
                     .map_err(|_| peripheral::imu::Error::InvalidData)?;
-                <$sensor>::from_interface(interface, Delay, settings).map_err(Into::into)
+                <$sensor>::from_interface(interface, resources::Delay, settings).map_err(Into::into)
             },
         );
     };
@@ -53,17 +35,16 @@ pub(crate) fn open_probed(
     observe: impl Fn(acquisition::probe::Timing) + Send + Sync + 'static,
     sensor_reference: bool,
 ) -> Result<(std::boxed::Box<dyn Session + Send>, AppliedConfig), DeviceError> {
+    let reference = if sensor_reference {
+        Some(SENSOR_REFERENCE.ok_or(DeviceError::Unsupported)?)
+    } else {
+        None
+    };
     PRIMARY_DEVICE
         .start(
             config,
             Trace::new(observe).ok_or(DeviceError::Unsupported)?,
-            |sensor| {
-                if sensor_reference {
-                    sensor.enable_sensor_reference().map_err(Into::into)
-                } else {
-                    Ok(())
-                }
-            },
+            |sensor| reference.map_or(Ok(()), |enable| enable(sensor)),
             sink,
         )
         .map(|(session, applied)| {

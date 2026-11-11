@@ -239,9 +239,9 @@ pub fn configure_composition() -> Result<()> {
     println!("cargo:rerun-if-changed={}", manifest_path.display());
     let manifest = profile::manifest(&manifest_path)?;
     let capabilities =
-        bindings::device_bindings(&manifest)?.ok_or("missing nxrs.device-bindings")?;
+        bindings::device_capabilities(&manifest)?.ok_or("missing nxrs.device-capabilities")?;
     let cfg_values = capabilities
-        .keys()
+        .iter()
         .map(|cap| format!("{:?}", format!("{cap}:nuttx")))
         .collect::<Vec<_>>();
     println!(
@@ -266,7 +266,7 @@ pub fn configure_composition() -> Result<()> {
         ))
         .is_some()
     };
-    for capability in capabilities.keys().filter(|cap| cargo_feature(cap)) {
+    for capability in capabilities.into_iter().filter(|cap| cargo_feature(cap)) {
         let physical = os == "nuttx" && profile.binding(capability) == os;
         if physical {
             for feature in profile.driver_features(capability)? {

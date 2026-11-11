@@ -9,3 +9,6 @@ kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"
 
 [package.metadata.nxrs]
 bindings = ["bindings.toml"]
+
+[package.metadata.nxrs.device]
+capability = "gnss"

@@ -114,6 +114,7 @@ fn write_imu_fixture(root: &Path) {
         "platform",
         "driver/bmi270",
         "driver/lsm6dso",
+        "driver/ubx",
     ] {
         let directory = root.join(package);
         fs::create_dir_all(&directory).unwrap();

@@ -309,8 +309,8 @@ impl Profile {
             (self.composition()?, self.catalogs.package(capability))
         {
             for device in graph.devices.values() {
-                if let Some(feature) = package.driver_features.get(&device.compatible) {
-                    features.insert(feature.clone());
+                if let Some(feature) = package.drivers.get(&device.compatible) {
+                    features.insert(feature.dependency.clone());
                 }
             }
         }
@@ -1152,14 +1152,29 @@ mod tests {
         fs::write(&workspace, declarations).unwrap();
         let directory = temp.0.join("wiring/sensor");
         fs::create_dir_all(&directory).unwrap();
+        let driver = temp.0.join("driver");
+        let unrelated = temp.0.join("other");
+        fs::create_dir(&driver).unwrap();
+        fs::create_dir(&unrelated).unwrap();
+        fs::write(
+            unrelated.join("Cargo.toml"),
+            "[package]\nname='other-driver'\n[package.metadata.nxrs.device]\ncapability='gnss'\nstores-delay='invalid'\n",
+        ).unwrap();
         fs::write(
             directory.join("Cargo.toml"),
             "[package]\nname='nxrs-composition'\nversion='0.1.0'\n\
-             [features]\nimu=[]\ngnss=[]\n[package.metadata.nxrs.device-bindings]\nimu=['bindings.toml']\ngnss=['absent.toml']\n",
+             [features]\nimu=[]\ngnss=[]\n[package.metadata.nxrs]\ndevice-capabilities=['imu','gnss']\n\
+             [target.'cfg(target_os = \"nuttx\")'.dependencies]\nfixture={package='fixture-driver',path='../../driver',optional=true}\nother={package='other-driver',path='../../other',optional=true}\n",
+        )
+        .unwrap();
+        fs::write(
+            driver.join("Cargo.toml"),
+            "[package]\nname='fixture-driver'\n[package.metadata.nxrs]\nbindings=['bindings.toml']\n\
+             [package.metadata.nxrs.device]\ncapability='imu'\n",
         )
         .unwrap();
         let catalog = "version=2\n[[binding]]\ncompatible='vendor,sensor'\nbus='i2c'\nimplementation='Sensor'\n";
-        fs::write(directory.join("bindings.toml"), catalog).unwrap();
+        fs::write(driver.join("bindings.toml"), catalog).unwrap();
         let profile_path = temp.0.join("profile.toml");
         let profile_contents = "[hal]\nimu='none'\n";
         fs::write(&profile_path, profile_contents).unwrap();
@@ -1173,10 +1188,10 @@ mod tests {
                 .source_paths()
                 .collect::<BTreeSet<_>>()
                 .len(),
-            3
+            5
         );
         assert!(profile.catalogs().package("gnss").is_none());
-        assert_eq!(profile.source_paths().collect::<BTreeSet<_>>().len(), 4);
+        assert_eq!(profile.source_paths().collect::<BTreeSet<_>>().len(), 6);
         assert!(profile.source_paths().any(|path| path == &workspace));
         assert!(profile
             .source_paths()
@@ -1192,7 +1207,7 @@ mod tests {
         let initial = profile.input_fingerprint().unwrap();
 
         fs::write(
-            directory.join("bindings.toml"),
+            driver.join("bindings.toml"),
             format!("{catalog}# first edit\n"),
         )
         .unwrap();
@@ -1205,7 +1220,7 @@ mod tests {
         );
         let first_fingerprint = changed.input_fingerprint().unwrap();
         fs::write(
-            directory.join("bindings.toml"),
+            driver.join("bindings.toml"),
             format!("{catalog}# catalog edit\n"),
         )
         .unwrap();
@@ -1222,7 +1237,10 @@ mod tests {
         assert_eq!(changed.json().unwrap()["sources"], json!([profile_path]));
 
         changed.data["hal"]["gnss"] = json!("none");
-        assert!(changed.load_catalogs(&temp.0).is_err());
+        assert!(changed
+            .load_catalogs(&temp.0)
+            .unwrap_err()
+            .contains("driver other"));
         fs::write(
             &workspace,
             declarations.replace("wiring/sensor", "../sensor"),

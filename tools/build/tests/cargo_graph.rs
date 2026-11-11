@@ -313,7 +313,22 @@ fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
         "sdk/Cargo.toml",
         "[workspace]\nmembers=[\"devices\",\"bmi270\",\"lsm6dso\",\"ubx-driver\",\"hal/detector\"]\nresolver=\"2\"\n",
     );
-    fixture.write("sdk/devices/Cargo.toml", "[package]\nname=\"nxrs-composition\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[features]\nimu=[]\ngnss=[]\nubx=[\"dep:nxrs-ubx-driver\"]\nbmi270=[\"dep:nxrs-bmi270\"]\nlsm6dso=[\"dep:nxrs-lsm6dso\"]\n[dependencies]\nnxrs-ubx-driver={path=\"../ubx-driver\",optional=true}\nnxrs-bmi270={path=\"../bmi270\",optional=true}\nnxrs-lsm6dso={path=\"../lsm6dso\",optional=true}\n");
+    fixture.write(
+        "sdk/devices/Cargo.toml",
+        r#"
+[package]
+name = "nxrs-composition"
+version = "0.1.0"
+edition = "2021"
+[features]
+imu = []
+gnss = []
+[dependencies]
+ubx = { package = "nxrs-ubx-driver", path = "../ubx-driver", optional = true }
+bmi270 = { package = "nxrs-bmi270", path = "../bmi270", optional = true }
+lsm6dso = { package = "nxrs-lsm6dso", path = "../lsm6dso", optional = true }
+"#,
+    );
     fixture.write("sdk/devices/src/lib.rs", "");
     for chip in ["bmi270", "lsm6dso", "ubx-driver"] {
         fixture.write(
@@ -403,7 +418,11 @@ fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
     let catalogue = fs::read_to_string(fixture.0.join("sdk/devices/Cargo.toml")).unwrap();
     fixture.write(
         "sdk/devices/Cargo.toml",
-        &catalogue.replace("lsm6dso=[\"dep:nxrs-lsm6dso\"]", ""),
+        &catalogue
+            .lines()
+            .filter(|line| !line.starts_with("lsm6dso = "))
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
     fixture.lock();
     let mut build = fixture.build();

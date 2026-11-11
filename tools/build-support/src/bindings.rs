@@ -25,7 +25,25 @@ pub struct Package {
     pub manifest: Input,
     pub catalogs: Vec<Input>,
     pub dependencies: Vec<Input>,
-    pub driver_features: BTreeMap<String, String>,
+    pub(crate) drivers: BTreeMap<String, Driver>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Driver {
+    pub(crate) dependency: String,
+    pub(crate) stores_delay: bool,
+    pub(crate) sensor_reference: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct DeviceMetadata {
+    #[serde(rename = "capability")]
+    _capability: String,
+    #[serde(default)]
+    stores_delay: bool,
+    #[serde(default)]
+    sensor_reference: bool,
 }
 
 impl Package {
@@ -69,32 +87,104 @@ impl Package {
             .to_owned();
         let mut catalogs = Vec::new();
         let mut dependencies = Vec::new();
-        let mut driver_features = BTreeMap::new();
-        let scope = match capability {
-            Some(capability) => {
-                if !identifier(capability) || !data["features"][capability].is_array() {
+        let mut drivers = BTreeMap::new();
+        if let Some(capability) = capability {
+            if !device_capabilities(&data)?
+                .is_some_and(|capabilities| capabilities.contains(&capability))
+            {
+                return Err(format!("{name}: missing device capability {capability}"));
+            }
+            let candidates = data["target"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(target, _)| nuttx_target(target))
+                .flat_map(|(_, table)| table["dependencies"].as_object().into_iter().flatten())
+                .collect::<Vec<_>>();
+            for &(alias, declaration) in &candidates {
+                // Renamed optional path dependencies opt into driver discovery.
+                if declaration["optional"] != true
+                    || declaration.get("package").is_none()
+                    || declaration.get("path").is_none()
+                {
+                    continue;
+                }
+                let (directory, expected_name) = dependency(&root, &data, alias)?;
+                let source = input(&directory, "Cargo.toml")?;
+                let driver = parse(&source)?;
+                dependencies.push(source);
+                let Some(device) = driver
+                    .pointer("/package/metadata/nxrs/device")
+                    .filter(|device| device["capability"] == capability)
+                else {
+                    continue;
+                };
+                let metadata: DeviceMetadata = serde_json::from_value(device.clone())
+                    .map_err(|error| format!("driver {alias}: {error}"))?;
+                let crate_name = alias.replace('-', "_");
+                if !identifier(&crate_name)
+                    || matches!(
+                        crate_name.as_str(),
+                        "crate" | "self" | "Self" | "super" | "_" | "default"
+                    )
+                    || alias == &expected_name
+                    || data["features"].get(alias).is_some()
+                    || data["features"].as_object().is_some_and(|features| {
+                        let explicit = format!("dep:{alias}");
+                        features
+                            .values()
+                            .filter_map(Value::as_array)
+                            .flatten()
+                            .any(|value| value == &explicit)
+                    })
+                {
+                    return Err(format!("driver {alias} must expose an implicit Cargo feature and a Rust dependency alias"));
+                }
+                let collides = |name: &String| {
+                    name != alias && name.replace('-', "_").eq_ignore_ascii_case(&crate_name)
+                };
+                if candidates.iter().any(|(name, _)| collides(name))
+                    || ["dependencies", "features"].iter().any(|table| {
+                        data[*table]
+                            .as_object()
+                            .is_some_and(|entries| entries.keys().any(collides))
+                    })
+                {
                     return Err(format!(
-                        "{name}: device binding requires a matching Cargo feature {capability}"
+                        "driver alias {alias} collides after Cargo feature normalization"
                     ));
                 }
-                Some(
-                    device_bindings(&data)?
-                        .and_then(|scopes| scopes.get(capability))
-                        .ok_or_else(|| {
-                            format!("{name}: missing device bindings for {capability}")
-                        })?,
-                )
+                let imported = Self::load_with_dependencies(&directory, None, stack)?;
+                if imported.name != expected_name || imported.catalogs.is_empty() {
+                    return Err(format!("binding dependency {alias} must name {expected_name} with declared catalogs"));
+                }
+                let registration = Driver {
+                    dependency: alias.clone(),
+                    stores_delay: metadata.stores_delay,
+                    sensor_reference: metadata.sensor_reference,
+                };
+                for input in &imported.catalogs {
+                    for binding in catalog(input)?.binding {
+                        let compatible = selector(&binding, "compatible", input)?;
+                        if drivers
+                            .insert(compatible.to_owned(), registration.clone())
+                            .is_some_and(|previous| previous != registration)
+                        {
+                            return Err(format!("conflicting drivers for {compatible}"));
+                        }
+                    }
+                }
+                dependencies.extend(imported.dependencies);
+                catalogs.extend(imported.catalogs);
             }
-            None => data.pointer("/package/metadata/nxrs/bindings"),
-        };
-        if let Some(metadata) = data.pointer("/package/metadata/nxrs") {
+        } else if let Some(metadata) = data.pointer("/package/metadata/nxrs") {
             let metadata = metadata.as_object().ok_or_else(|| {
                 format!(
                     "{}: package.metadata.nxrs must be a table",
                     manifest.path.display()
                 )
             })?;
-            if let Some(paths) = scope {
+            if let Some(paths) = metadata.get("bindings") {
                 let paths = paths
                     .as_array()
                     .filter(|paths| paths.len() <= 64)
@@ -113,10 +203,7 @@ impl Package {
                     } else {
                         let entry = path
                             .as_object()
-                            .filter(|v| {
-                                v.keys()
-                                    .all(|key| ["dependency", "feature"].contains(&key.as_str()))
-                            })
+                            .filter(|v| v.len() == 1)
                             .ok_or("nxrs.bindings entries must be paths or dependency imports")?;
                         let alias = entry
                             .get("dependency")
@@ -126,25 +213,6 @@ impl Package {
                         let imported = Self::load_with_dependencies(&directory, None, stack)?;
                         if imported.name != expected_name || imported.catalogs.is_empty() {
                             return Err(format!("binding dependency {alias} must name {expected_name} with declared catalogs"));
-                        }
-                        if let Some(feature) = entry.get("feature") {
-                            let feature = feature
-                                .as_str()
-                                .filter(|f| !f.is_empty() && data["features"][*f].is_array())
-                                .ok_or("binding feature must name a declared Cargo feature")?;
-                            for input in &imported.catalogs {
-                                for binding in catalog(input)?.binding {
-                                    let compatible = selector(&binding, "compatible", input)?;
-                                    if driver_features
-                                        .insert(compatible.to_owned(), feature.to_owned())
-                                        .is_some_and(|old| old != feature)
-                                    {
-                                        return Err(
-                                            "conflicting driver features for a compatible".into()
-                                        );
-                                    }
-                                }
-                            }
                         }
                         dependencies.push(imported.manifest);
                         dependencies.extend(imported.dependencies);
@@ -172,7 +240,7 @@ impl Package {
             manifest,
             catalogs,
             dependencies,
-            driver_features,
+            drivers,
         })
     }
 
@@ -182,6 +250,16 @@ impl Package {
             .chain(self.dependencies.iter())
             .chain(self.catalogs.iter())
     }
+}
+
+fn nuttx_target(selector: &str) -> bool {
+    selector
+        .trim()
+        .strip_prefix("cfg")
+        .and_then(|selector| selector.trim_start().strip_prefix('('))
+        .and_then(|selector| selector.strip_suffix(')'))
+        .and_then(|predicate| predicate.split_once('='))
+        .is_some_and(|(name, value)| name.trim() == "target_os" && value.trim() == "\"nuttx\"")
 }
 
 /// Imports name existing normal Cargo path dependencies, including target tables.
@@ -213,15 +291,25 @@ fn dependency(root: &Path, manifest: &Value, alias: &str) -> Result<(PathBuf, St
     Ok(selected.into_iter().next().unwrap())
 }
 
-pub(crate) fn device_bindings(manifest: &Value) -> Result<Option<&serde_json::Map<String, Value>>> {
-    manifest
-        .pointer("/package/metadata/nxrs/device-bindings")
-        .map(|value| {
-            value.as_object().ok_or_else(|| {
-                "nxrs.device-bindings must be a table keyed by Cargo capability features".into()
-            })
-        })
-        .transpose()
+pub(crate) fn device_capabilities(manifest: &Value) -> Result<Option<Vec<&str>>> {
+    let Some(value) = manifest.pointer("/package/metadata/nxrs/device-capabilities") else {
+        return Ok(None);
+    };
+    let declared = value
+        .as_array()
+        .ok_or("nxrs.device-capabilities must be a list of Cargo features")?;
+    let mut names = Vec::new();
+    for capability in declared {
+        let name = capability
+            .as_str()
+            .filter(|name| identifier(name) && manifest["features"][name].is_array())
+            .ok_or("device capability must name a declared Cargo feature")?;
+        if names.contains(&name) {
+            return Err(format!("duplicate device capability {name}"));
+        }
+        names.push(name);
+    }
+    Ok(Some(names))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -252,15 +340,21 @@ impl Catalogs {
                 let directory = root.join(relative);
                 let mut source = input(&contained_path(root, relative)?, "Cargo.toml")?;
                 let manifest = parse(&source)?;
-                let scopes = device_bindings(&manifest)?.ok_or_else(|| {
+                let scopes = device_capabilities(&manifest)?.ok_or_else(|| {
                     format!(
-                        "{}: missing package.metadata.nxrs.device-bindings",
+                        "{}: missing package.metadata.nxrs.device-capabilities",
                         directory.display()
                     )
                 })?;
                 source.path = directory.join("Cargo.toml");
                 catalogs.discovery_inputs.push(source);
-                Ok::<_, String>((directory, scopes.keys().cloned().collect::<BTreeSet<_>>()))
+                Ok::<_, String>((
+                    directory,
+                    scopes
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect::<BTreeSet<_>>(),
+                ))
             })
             .transpose()?;
         for capability in capabilities {
