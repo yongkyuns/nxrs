@@ -1530,6 +1530,25 @@ fn reset_output(out: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn has_symbol(symbols: &str, name: &str, kinds: &str) -> bool {
+    symbols.lines().any(|line| {
+        let words: Vec<_> = line.split_whitespace().collect();
+        words.len() >= 2
+            && words[words.len() - 1] == name
+            && words[words.len() - 2].len() == 1
+            && kinds.contains(words[words.len() - 2])
+    })
+}
+
+fn runtime_symbol_requirements(symbols: &str) -> Vec<(&'static str, &'static str)> {
+    ["pthread_create", "pthread_join", "clock_gettime"]
+        .into_iter()
+        .filter(|name| has_symbol(symbols, name, "U"))
+        // A weak undefined symbol (lowercase w) is not a resolved function.
+        .map(|name| (name, "TtW"))
+        .collect()
+}
+
 fn require_symbols(symbols: &str, required: &[(&str, &str)]) -> Result<()> {
     for (name, kinds) in required {
         if !has_symbol(symbols, name, kinds) {
