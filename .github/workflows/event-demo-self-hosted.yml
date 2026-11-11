@@ -31,7 +31,7 @@ on:
       - '.cargo/config.toml'
       - 'platform/build-support/**'
       - 'platform/profiles/**'
-      - 'platform/nuttx/platforms/**'
+      - 'tests/profiles/**'
       - 'tools/platform_config.py'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'

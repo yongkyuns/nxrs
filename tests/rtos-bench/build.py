@@ -109,7 +109,7 @@ def archive_submodule(name, destination):
     return expected
 
 def c_firmware(args, out):
-    profile = tomllib.loads((ROOT / f'platform/nuttx/platforms/{args.platform}.toml').read_text())
+    profile = tomllib.loads((ROOT / f'tests/profiles/{args.platform}.toml').read_text())
     if profile['target'] != 'thumbv8m.main-nuttx-eabi':
         raise ValueError('initial standalone C firmware qualification supports the two ARM profiles only')
     revisions = {name: archive_submodule(name, out / directory)
@@ -252,7 +252,7 @@ def main():
              '--app-package', 'nxrs-rt-bench', '--bin', rust_bin, '--command', rust_command,
              '--priority', '100', '--stack-size', '65536', '--platform', args.platform, '--out', out,
              '--abi-profile', abi_profile], env=env)
-        profile = tomllib.loads((ROOT / f'platform/nuttx/platforms/{args.platform}.toml').read_text())
+        profile = tomllib.loads((ROOT / f'tests/profiles/{args.platform}.toml').read_text())
         image = out / 'nuttx/nuttx'
         write_image_size(profile['crossdev'], image, out / 'image-size.json')
     print('BENCH_ARTIFACT_DIRECTORY=' + str(out))

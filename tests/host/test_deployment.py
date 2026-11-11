@@ -104,7 +104,7 @@ class DeploymentTests(unittest.TestCase):
                 PLATFORM.resolve(name, self.root)
 
     def test_ambiguous_name_is_rejected(self):
-        other = self.root / 'platform/nuttx/platforms'
+        other = self.root / 'tests/profiles'
         other.mkdir(parents=True)
         (other / 'mock.toml').write_text('[hal]\n')
         with self.assertRaisesRegex(ValueError, 'ambiguous'):
@@ -136,13 +136,14 @@ class DeploymentTests(unittest.TestCase):
         for name in ('linux', 'macos', 'windows'):
             profile = PLATFORM.resolve(name)
             for capability in ('camera', 'storage', 'transport', 'detector'):
-                self.assertEqual(profile['hal'][capability], name)
+                binding = name if capability == 'detector' else None
+                self.assertEqual(profile['hal'].get(capability), binding)
                 cfgs = [line for line in PLATFORM.cargo_output(profile, capability, name)
                         if line.startswith('cargo:rustc-cfg=')]
-                self.assertEqual(cfgs, [f'cargo:rustc-cfg=platform="{name}"'])
-                for wrong in ('none', 'unknown', 'nuttx'):
-                    with self.assertRaises(ValueError):
-                        PLATFORM.validate_target(profile, wrong)
+                self.assertEqual(cfgs, [f'cargo:rustc-cfg=platform="{binding}"'] if binding else [])
+            for wrong in ('none', 'unknown', 'nuttx'):
+                with self.assertRaises(ValueError):
+                    PLATFORM.validate_target(profile, wrong)
 
     def test_real_os_bindings_cannot_target_bare_metal(self):
         self.profile('device', '[hal]\ncamera="nuttx"\nstorage="nuttx"\n')

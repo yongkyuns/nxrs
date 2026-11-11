@@ -15,7 +15,7 @@ on:
       - 'platform/build-support/**'
       - 'hal/console/**'
       - 'hal/execution/**'
-      - 'platform/nuttx/platforms/esp32s3-camera-stream*.toml'
+      - 'tests/profiles/esp32s3-camera*.toml'
       - 'tools/build-nuttx-std-app.sh'
       - 'vendor/microflow/**'
       - 'upstream/microflow/**'

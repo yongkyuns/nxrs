@@ -295,7 +295,7 @@ mod tests {
             .unwrap()
     }
     fn raw() -> Value {
-        manifest(&root().join("platform/nuttx/platforms/esp32s3-devkit-imu-qualification.toml"))
+        manifest(&root().join("tests/profiles/esp32s3-devkit-imu-qualification.toml"))
             .unwrap()
     }
     fn resolve_devkit(value: &mut Value) -> Result<()> {
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn uart_numbering_and_baud_follow_the_same_bsp_contract() {
         let mut data =
-            manifest(&root().join("platform/nuttx/platforms/m5stack-cores3-gnss.toml")).unwrap();
+            manifest(&root().join("platform/profiles/m5stack-cores3-gnss.toml")).unwrap();
         data["resources"]["receiver_uart"]["baud"] = json!(115200);
         resolve(
             &mut data,

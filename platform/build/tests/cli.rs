@@ -176,8 +176,11 @@ fn platform_defaults_are_declared_by_profiles() {
     let root = fixture();
     let platform = env::consts::OS;
     let run = |args: &[&str]| frontend(&root.0, &root.0, args);
-    let variant = root.0.join("platform/profiles/variant.toml");
-    fs::write(&variant, "extends = \"host\"\n").unwrap();
+    let fixtures = root.0.join("tests/profiles");
+    fs::create_dir_all(&fixtures).unwrap();
+    let variant = fixtures.join("variant.toml");
+    let duplicate = format!("extends = \"host\"\ndefault-for = \"{platform}\"\n");
+    fs::write(&variant, &duplicate).unwrap();
     assert_eq!(success(run(&["platforms"])).trim(), platform);
     let profile: Value =
         serde_json::from_str(&success(run(&["profile", "--platform", platform]))).unwrap();
@@ -209,9 +212,10 @@ fn platform_defaults_are_declared_by_profiles() {
         "--dry-run",
     ]))
     .contains("another platform family"));
-    fs::write(&variant, format!("extends = \"host\"\ndefault-for = \"{platform}\"\n")).unwrap();
+    let platform_variant = root.0.join("platform/profiles/variant.toml");
+    fs::rename(&variant, &platform_variant).unwrap();
     assert!(failure(run(&["platforms"])).contains("multiple defaults"));
-    fs::write(variant, "invalid = [").unwrap();
+    fs::write(platform_variant, "invalid = [").unwrap();
     success(run(&["profile", "--platform", "host"]));
 }
 

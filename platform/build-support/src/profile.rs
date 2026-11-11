@@ -112,7 +112,12 @@ pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
     }
     Ok(stack)
 }
-const PROFILE_DIRS: [&str; 2] = ["platform/profiles", "platform/nuttx/platforms"];
+const PLATFORM_PROFILES: &str = "platform/profiles";
+const PROFILE_DIRS: [&str; 3] = [
+    PLATFORM_PROFILES,
+    "platform/profiles/wroom",
+    "tests/profiles",
+];
 
 pub fn profile_path(root: &Path, name: &str) -> Result<PathBuf> {
     find_profile_path(root, name)?.ok_or_else(|| format!("unknown or ambiguous platform: {name}"))
@@ -138,35 +143,40 @@ fn find_profile_path(root: &Path, name: &str) -> Result<Option<PathBuf>> {
 /// Discover platform aliases declared by the default profile files.
 pub fn platform_defaults(root: &Path) -> Result<BTreeMap<String, String>> {
     let mut defaults = BTreeMap::new();
-    for directory in PROFILE_DIRS.map(|directory| root.join(directory)) {
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{}: {error}", directory.display())),
+    let directory = root.join(PLATFORM_PROFILES);
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(defaults),
+        Err(error) => return Err(format!("{}: {error}", directory.display())),
+    };
+    for entry in entries {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if !path.is_file()
+            || !path
+                .extension()
+                .is_some_and(|extension| extension == "toml")
+        {
+            continue;
+        }
+        let data = manifest(&path)?;
+        let Some(alias) = data.get("default-for") else {
+            continue;
         };
-        for entry in entries {
-            let path = entry.map_err(|e| e.to_string())?.path();
-            if !path.is_file() || !path.extension().is_some_and(|extension| extension == "toml") {
-                continue;
-            }
-            let data = manifest(&path)?;
-            let Some(alias) = data.get("default-for") else {
-                continue;
-            };
-            let alias = alias
-                .as_str()
-                .filter(|alias| {
-                    !matches!(*alias, "std" | "native") && matches(alias, r"^[a-z0-9][a-z0-9-]*$")
-                })
-                .ok_or_else(|| format!("{}: default-for must be a platform name", path.display()))?;
-            let name = path
-                .file_stem()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| format!("invalid profile filename {}", path.display()))?;
-            profile_path(root, name)?;
-            if let Some(other) = defaults.insert(alias.to_owned(), name.to_owned()) {
-                return Err(format!("multiple defaults for platform {alias}: {other} and {name}"));
-            }
+        let alias = alias
+            .as_str()
+            .filter(|alias| {
+                !matches!(*alias, "std" | "native") && matches(alias, r"^[a-z0-9][a-z0-9-]*$")
+            })
+            .ok_or_else(|| format!("{}: default-for must be a platform name", path.display()))?;
+        let name = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("invalid profile filename {}", path.display()))?;
+        profile_path(root, name)?;
+        if let Some(other) = defaults.insert(alias.to_owned(), name.to_owned()) {
+            return Err(format!(
+                "multiple defaults for platform {alias}: {other} and {name}"
+            ));
         }
     }
     Ok(defaults)
@@ -914,13 +924,20 @@ mod tests {
     #[test]
     fn every_tracked_profile_resolves() {
         let root = root();
-        for dir in ["platform/profiles", "platform/nuttx/platforms"] {
+        for dir in PROFILE_DIRS {
             for file in fs::read_dir(root.join(dir)).unwrap() {
                 let p = file.unwrap().path();
                 if p.extension().is_some_and(|s| s == "toml") {
                     Profile::resolve(&root, p.file_stem().unwrap().to_str().unwrap()).unwrap();
                 }
             }
+        }
+        for name in platform_defaults(&root).unwrap().values() {
+            let default = Profile::resolve(&root, name).unwrap();
+            assert!(default
+                .sources
+                .iter()
+                .all(|path| path.starts_with(root.join(PLATFORM_PROFILES))));
         }
     }
 

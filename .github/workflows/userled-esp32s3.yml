@@ -7,6 +7,8 @@ on:
       - 'hal/common/**'
       - 'platform/build-support/**'
       - 'platform/profiles/**'
+      - 'tests/profiles/esp32s3-userled.toml'
+      - 'tests/profiles/esp32s3-qemu-mock.toml'
       - 'platform/nuttx/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'

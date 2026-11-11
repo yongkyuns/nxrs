@@ -211,7 +211,7 @@ configuration. Rust `std` is available on production targets; it is not a
 platform or a selectable HAL implementation. Application/service manifests do not choose HAL providers.
 There are no per-capability Cargo provider features.
 
-For example, `platform/nuttx/platforms/pico2w-wifi.toml` binds Wi-Fi to the
+For example, `tests/profiles/pico2w-wifi.toml` binds Wi-Fi to the
 NuttX implementation and configures the CYW43439 driver. The ESP32-S3 profile
 uses the same Rust implementation and different native driver configuration.
 Do not duplicate Rust adapters merely because the boards differ.
@@ -452,9 +452,9 @@ identifiers and environment variables retain their external namespacing.
 
 ## Platform variants and validation
 
-Profiles live in `platform/nuttx/platforms` (firmware) and
-`platform/profiles` (desktop and legacy fixtures). Names are unique across both
-locations. A product variant may extend an actual OS or board profile and override
+Platform defaults live in `platform/profiles`. Test profiles live in
+`tests/profiles`. Names are unique across both locations. A product variant may
+extend an actual OS or board profile and override
 selected `[hal]` bindings. `simulation` runs coordinated IMU and GNSS.
 `host-imu` exercises scripted IMU acquisition with GNSS unbound. Core-only
 contract checks use the unbound Cargo configuration.
