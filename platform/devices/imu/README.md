@@ -36,9 +36,8 @@ construction namespace under the architecture rules.
 
 Driver-owned binding files are imported through normal Cargo dependencies.
 Shared build support loads this catalogue for IMU profile composition and emits
-its checked literal values and instance declarations. Both supported sensor
-packages remain declared NuttX dependencies; optional driver pruning is separate
-work. HAL production dependencies contain neither sensor nor bus implementation.
+its checked literal values and instance declarations. The catalogue declares
+optional NuttX sensor dependencies and selects the concrete bus adapters.
 
 Physical diagnostics live in `imu_devices::probe`; enable its `probe` feature.
 It forwards the HAL's tracing feature and selects the device and optional

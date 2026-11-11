@@ -54,16 +54,17 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
             trial.env_remove(key);
         }
     }
-    let mut enabled = Vec::new();
-    if profile.composition()?.is_some() {
+    let composed = profile.composition()?.is_some();
+    // A successful feature trial is the graph for the updated command.
+    let mut graph = Query::from_build(&trial)?.graph(&trial, None)?;
+    let mut driver_features = Vec::new();
+    if composed {
         for (capability, catalogue) in profile.catalogs().packages() {
             if profile.binding(capability) != "nuttx" {
                 continue;
             }
             let required = profile.driver_features(capability)?;
             for wanted in required {
-                let query = Query::from_build(&trial)?;
-                let graph = query.graph(&trial, None)?;
                 let packages: Vec<_> = graph
                     .iter()
                     .filter(|(_, p)| p.name == catalogue.name)
@@ -81,6 +82,7 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
                 if package.features.contains(&wanted) {
                     continue;
                 }
+                let query = Query::from_build(&trial)?;
                 let candidates = query.feature_candidates(&trial, package, &wanted)?;
                 let mut selected = None;
                 for candidate in candidates {
@@ -89,11 +91,11 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
                         .get(identity)
                         .is_some_and(|p| p.features.contains(&wanted))
                     {
-                        selected = Some(candidate);
+                        selected = Some((candidate, resolved));
                         break;
                     }
                 }
-                let feature = selected.ok_or_else(|| {
+                let (feature, resolved) = selected.ok_or_else(|| {
                     format!(
                         "{} requires {wanted}; declare {} as a direct catalogue dependency",
                         profile.name(),
@@ -101,12 +103,12 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
                     )
                 })?;
                 trial.args(["--features", &feature]);
-                enabled.push(feature);
+                graph = resolved;
+                driver_features.push(feature);
             }
         }
     }
-    let mut selection = resolve_model(&mut trial, profile)?;
-    let graph = Query::from_build(&trial)?.graph(&trial, None)?;
+    let model_features = resolve_model(&mut trial, profile, &mut graph)?;
     for (capability, catalogue) in profile.catalogs().packages() {
         let required = profile.driver_features(capability)?;
         if required.is_empty() {
@@ -127,23 +129,24 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
             ));
         }
     }
-    selection.driver_features = enabled;
     build.args(trial.get_args().skip(build.get_args().count()));
-    Ok(selection)
+    Ok(Selection {
+        packages: graph.into_keys().collect(),
+        model_features,
+        driver_features,
+    })
 }
 
-fn resolve_model(build: &mut Command, profile: &Profile) -> Result<Selection> {
-    let query = Query::from_build(build)?;
-    let graph = query.graph(build, None)?;
+fn resolve_model(build: &mut Command, profile: &Profile, graph: &mut Graph) -> Result<Vec<String>> {
     let Some(detector) = profile.detector()? else {
-        return Ok(selection(graph, vec![]));
+        return Ok(vec![]);
     };
     let selected: Vec<_> = graph
         .iter()
         .filter(|(_, package)| package.name == "nxrs-detector")
         .collect();
     if selected.is_empty() {
-        return Ok(selection(graph, vec![]));
+        return Ok(vec![]);
     }
     if selected.len() != 1 {
         return Err("the selected app graph contains multiple nxrs-detector packages".into());
@@ -166,13 +169,14 @@ fn resolve_model(build: &mut Command, profile: &Profile) -> Result<Selection> {
         ));
     }
     if package.features.contains(wanted) {
-        return Ok(selection(graph, vec![]));
+        return Ok(vec![]);
     }
 
     // Cargo can select features of direct dependencies, including renamed and
     // workspace-inherited dependencies. It cannot address an arbitrary transitive
     // dependency's feature from an external consumer. Keep that composition edge
     // explicit instead of synthesizing manifests or service feature forwarding.
+    let query = Query::from_build(build)?;
     let candidates = query.feature_candidates(build, package, wanted)?;
     for feature in candidates {
         let resolved = query.graph(build, Some(&feature))?;
@@ -180,21 +184,14 @@ fn resolve_model(build: &mut Command, profile: &Profile) -> Result<Selection> {
             package.features.contains(wanted) && !package.features.contains(conflicting)
         }) {
             build.args(["--features", &feature]);
-            return Ok(selection(resolved, vec![feature]));
+            *graph = resolved;
+            return Ok(vec![feature]);
         }
     }
     Err(format!(
         "profile {} selects {wanted} for {identity}, but Cargo cannot enable that model through this app's dependencies; declare nxrs-detector as an enabled direct application dependency (renaming and workspace inheritance are supported), without selecting a model in the manifest",
         profile.name()
     ))
-}
-
-fn selection(graph: Graph, model_features: Vec<String>) -> Selection {
-    Selection {
-        packages: graph.into_keys().collect(),
-        model_features,
-        driver_features: vec![],
-    }
 }
 
 /// Projection of our build invocation onto Cargo's graph queries. Unknown build

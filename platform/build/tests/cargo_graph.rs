@@ -306,11 +306,12 @@ fn an_unknown_frontend_option_cannot_silently_change_the_resolved_graph() {
 #[test]
 fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
     let fixture = Fixture::new(
-        "[dependencies]\ndevices={package=\"nxrs-imu-devices\",path=\"../../sdk/devices\"}\n",
+        "[dependencies]\ndevices={package=\"nxrs-imu-devices\",path=\"../../sdk/devices\"}\n\
+         model={package=\"nxrs-detector\",path=\"../../sdk/hal/detector\"}\n",
     );
     fixture.write(
         "sdk/Cargo.toml",
-        "[workspace]\nmembers=[\"devices\",\"bmi270\",\"lsm6dso\"]\nresolver=\"2\"\n",
+        "[workspace]\nmembers=[\"devices\",\"bmi270\",\"lsm6dso\",\"hal/detector\"]\nresolver=\"2\"\n",
     );
     fixture.write("sdk/devices/Cargo.toml", "[package]\nname=\"nxrs-imu-devices\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[features]\nbmi270=[\"dep:nxrs-bmi270\"]\nlsm6dso=[\"dep:nxrs-lsm6dso\"]\n[dependencies]\nnxrs-bmi270={path=\"../bmi270\",optional=true}\nnxrs-lsm6dso={path=\"../lsm6dso\",optional=true}\n");
     fixture.write("sdk/devices/src/lib.rs", "");
@@ -324,6 +325,8 @@ fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
     fixture.lock();
     let sdk = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+    profile.data["hal"]["detector"] = json!("nuttx");
+    profile.data["detector"] = json!({"model":"pico", "stack-bytes":16384, "sample-ms":100});
     for chips in [vec!["bmi270"], vec!["lsm6dso"], vec!["bmi270", "lsm6dso"]] {
         // Keep the real driver declarations, replacing only physical graph values.
         let mut data = profile.data.clone();
@@ -342,6 +345,7 @@ fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
         profile = Profile::from_data_with_catalogs(data, vec![], profile.catalogs().clone());
         let mut build = fixture.build();
         let selection = cargo_graph::resolve(&mut build, &profile).unwrap();
+        assert_eq!(selection.model_features, ["model/pico-model"]);
         for chip in ["bmi270", "lsm6dso"] {
             assert_eq!(
                 selection

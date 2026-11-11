@@ -311,9 +311,10 @@ overlay preserves direct device names and never creates another device owner.
 Applications import `imu::Device` and call `device.open(config, sink)` or
 `device.open_default(sink)`. References do not acquire hardware. Different devices
 may acquire independently; aliases share Busy/fault state until the prior worker,
-terminal delivery, sink and resource cleanup retire. GNSS retains its existing
-default-session API. The OS/resource
-adapter retains transaction serialization for a shared bus. See the
+terminal delivery, sink and resource cleanup retire. GNSS follows the same
+ownership pattern through `gnss_devices::primary_gnss()` and
+`gnss_<name>` aliases. The OS/resource adapter retains transaction serialization
+for a shared bus. See the
 [static-device contract](static-device-composition.md#permanent-device-objects-and-temporary-sessions)
 for lifecycle, opacity and storage requirements.
 

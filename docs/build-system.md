@@ -55,13 +55,10 @@ the Emscripten thread qualification; hardware HALs are unbound. Stock
 ## Accepted follow-up and current behavior
 
 The [declarative build/static-device decision](static-device-composition.md)
-moves HAL-local host work into shared build preparation. It is accepted design,
-with implementation tracked in [issue #246](https://github.com/yongkyuns/nxrs/issues/246).
-The first implementation slice moves IMU/GNSS configuration generation into
-shared preparation and discovers its inputs through package metadata. Identical
-small Cargo adapters remain in those HALs while the full pre-Cargo handoff is
-qualified. Sensor dependencies and runtime factories still follow the current v1
-selection described below.
+moves HAL-local host work into shared build preparation. IMU and GNSS now use
+driver-owned catalogs, additive Cargo features, and canonical device instances.
+The full pre-Cargo configuration and native-helper handoff is tracked in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246).
 
 Extend the existing pre-Cargo preparation path. Package-owned catalogs declare supported implementations and resource
 constraints. Rust defines the configuration and constructor types. Shared resource
@@ -91,29 +88,26 @@ existing native-header, helper-exclusion and incremental-evidence gates remain.
 
 ## Shared declarative sensor preparation
 
-IMU and GNSS each declare one package-relative catalog:
+Each sensor catalogue imports its drivers' package-relative binding declarations.
+For example, the GNSS catalogue declares:
 
 ```toml
 [package.metadata.nxrs]
-bindings = ["bindings.toml"]
+bindings = [{ dependency = "nxrs-ubx-driver", feature = "ubx" }]
 ```
 
 Catalog version 2 declares compatible devices, bus constraints and a single
-`implementation` identifier naming a checked-in type in the provider's
+`implementation` identifier naming a checked-in type in the catalogue's
 `implementations` module. Composition profiles/overlays remain version 1.
-The renderer uses fixed I²C/UART resource contracts and imports the selected
-type as `Implementation`; Rust checks the configuration and constructor types.
-The default role and output filename follow the capability name. Stack defaults
-and limits have one shared validator. There are no per-field Rust type, lifetime,
-source-path or enum mappings in TOML. Retired `nxrs.configuration` metadata fails
-with migration guidance.
+The renderer emits typed I²C, SPI, or UART bindings and one static instance per
+configured endpoint. Named accessors and aliases borrow that instance. The HAL
+owns acquisition and releases the instance only after delivery and cleanup retire.
 
 `nxrs-build-support::preparation::prepare_package` accepts the consuming package
-directory, resolved profile, target OS and owned output directory. It uses the
-same renderer for both sensors. The remaining `build.rs` files only call the
+directory, resolved profile, target OS and owned output directory. The sensor
+renderers use shared binding validation. The `build.rs` adapters call the
 common `configure_hal()` adapter, which preserves per-package provider flags,
-simulation configuration and native compilation/linking. The custom IMU emitter
-and the generation callback API have been removed.
+simulation configuration and native compilation/linking.
 
 Profile resolution loads package declarations for explicit `[hal]` keys,
 including a provider of `"none"` when its unselected physical devices must be
@@ -130,10 +124,6 @@ A copied consumer package must declare matching catalog contents; its
 packaging-only manifest differences are permitted and its actual manifest is
 also tracked. Generated files retain their timestamps when content is unchanged.
 An output ownership record removes an obsolete generated Rust file when configuration is removed, while preserving unrelated outputs and native archives.
-
-This extends the D1a migration step. Per-instance construction, additive driver feature
-activation and removal of the generic HAL Cargo adapters remain follow-up work.
-The existing singular runtime factories and lifecycle behavior are unchanged.
 
 ## Configuration and ownership
 
@@ -230,17 +220,19 @@ external transitive-only detector cannot be given a feature by Cargo and fails
 with a direct-dependency diagnostic.
 
 Dry runs reject backend-incompatible switches before any build starts. Their
-`dependency_resolution` is explicitly `pending` and `model_features` is null;
-resolving a NuttX custom target waits for its actual compiler and target spec.
-Completed builds record the Cargo-selected packages and verified model features.
+`dependency_resolution` is `pending`, with null `model_features` and `driver_features`.
+Resolving a NuttX custom target waits for its actual compiler and target spec.
+Completed builds record the Cargo-selected packages and the model and driver
+feature requests added by the frontend.
 Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 
-Currently, IMU's BMI270/LSM6DSO dependencies and GNSS's UBX dependencies are normal
-target dependencies only on NuttX. Host driver unit tests use dev-dependencies. Thus
-portable contract and host/WASM mock **library** builds omit those driver graphs;
-unit tests intentionally compile them. NuttX consumers include those ordinary
-NuttX driver dependencies even when a profile selects a mock. Profile admission
-is Rust module wiring, not an extra Cargo dependency resolver or provider feature.
+The IMU catalogue's `bmi270` and `lsm6dso` features and the GNSS catalogue's
+`ubx` feature enable optional NuttX drivers. `cargo nxrs build` requests the
+features for the configured devices in each consumed catalogue. For example,
+`cargo nxrs build --app event-demo --platform cores3` selects BMI270 and UBX.
+For a direct Cargo build with a physical profile, enable its catalogue features
+explicitly. Mixed IMU profiles can select both drivers, and host driver tests
+compile the implementations through dev-dependencies.
 
 The isolation audit uses full Cargo package metadata and observed compiler
 artifacts. It checks target packages separately from host build tools, retains
@@ -318,9 +310,3 @@ recording and UDP, mock sensor joins, and joint Linux radio linking. It also
 rejects profile use without an explicit SDK root in that detached location.
 This establishes external application/package composition, not a crates.io
 publication contract or new device qualification.
-
-The current IMU lease is global. The accepted [static-device follow-up](static-device-composition.md)
-adds canonical per-device objects and ownership while preserving cleanup and
-quarantine. It uses the existing composition model and shared build preparation;
-it does not introduce a general resource manager. This work does not change the
-parallel channel/progress qualification in #252.
