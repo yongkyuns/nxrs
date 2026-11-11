@@ -21,9 +21,9 @@ on:
       - 'upstream/mbedtls/**'
       - 'tests/profiles/pico2-tls.toml'
       - 'tests/profiles/pico2w-mpsc.toml'
-      - 'platform/build-support/**'
+      - 'tools/build-support/**'
       - 'tools/build-nuttx-std-app.sh'
-      - 'platform/build/**'
+      - 'tools/build/**'
       - 'tools/platform_config.py'
   workflow_dispatch:
 permissions:

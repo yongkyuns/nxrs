@@ -1,6 +1,6 @@
 //! Run the real GIO adapter with a validated receipt and no profile-name variable.
 use nxrs_build_support::{profile::Profile, resolved, shell_quote, TempDir};
-use std::{fs, path::Path, process::Command};
+use std::{path::Path, process::Command};
 
 #[test]
 fn gio_validates_receipt_only_selection_before_requesting_native_tools() {
@@ -19,6 +19,7 @@ fn gio_validates_receipt_only_selection_before_requesting_native_tools() {
             "nxrs-linux-gio",
             "--features",
             "wifi",
+            "--message-format=json",
             "--target-dir",
         ])
         .arg(&temp.0)
@@ -31,25 +32,16 @@ fn gio_validates_receipt_only_selection_before_requesting_native_tools() {
         "{}",
         String::from_utf8_lossy(&build.stderr)
     );
-    let executable = fs::read_dir(temp.0.join("debug/build"))
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("nxrs-linux-gio-")
+    let script = String::from_utf8_lossy(&build.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|record| {
+            record["reason"] == "compiler-artifact"
+                && record["target"]["kind"][0] == "custom-build"
+                && record["package_id"].as_str().unwrap().contains("nxrs-linux-gio")
         })
-        .map(|p| {
-            p.join(if cfg!(windows) {
-                "build-script-build.exe"
-            } else {
-                "build-script-build"
-            })
-        })
-        .find(|p| p.is_file())
         .unwrap();
+    let executable = script["filenames"][0].as_str().unwrap();
     let receipt = temp.0.join("profile.json");
     let profile = Profile::resolve(&sdk, "linux").unwrap();
     let arch = std::env::consts::ARCH;

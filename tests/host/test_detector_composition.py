@@ -39,7 +39,7 @@ fn main() {
     resolved::write(Path::new(&args[3]), root, &profile, &args[4], "nuttx").unwrap();
 }
 ''')
-        for name, path in [('hal', ROOT / 'hal/detector/build.rs'),
+        for name, path in [('hal', ROOT / 'tools/detector-build-support/cargo.rs'),
                            ('stream', ROOT / 'tests/nuttx-std/stream/build.rs'),
                            ('receipt', receipt_writer)]:
             executable = cls.directory / (name + ('.exe' if os.name == 'nt' else ''))

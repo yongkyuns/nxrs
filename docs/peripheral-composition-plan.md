@@ -46,8 +46,8 @@ hardware evidence and continue independent host work when devices are absent.
 
 Read `hal/imu/src/{api,bmi270,cadence}.rs`,
 `hal/imu/src/platform/nuttx/{mod,irq,signal}.rs`, `hal/imu/src/test_support.rs`,
-`hal/acquisition/src/`, `platform/build-support/src/profile.rs`,
-`platform/build/src/{deployment,cargo_graph}.rs` and
+`hal/acquisition/src/`, `tools/build-support/src/profile.rs`,
+`tools/build/src/{deployment,cargo_graph}.rs` and
 `platform/profiles/m5stack-cores3-gnss.toml`.
 
 1. Trace profile values through `configure_hal` to resource acquisition. Record
@@ -137,7 +137,7 @@ and the supported combinations are documented with exact error behavior.
 
 ## S4 — Add typed composition resolution
 
-Depends on S3. Primary paths are `platform/build-support/src/profile.rs`, a new
+Depends on S3. Primary paths are `tools/build-support/src/profile.rs`, a new
 focused `composition.rs`, `hal/imu/bindings/`, and host resolver tests.
 
 1. Implement composition version 1, resources, devices, wake choices and aliases as
@@ -162,8 +162,8 @@ conflicting claims, incompatible aliases and simulation in hardware mode.
 
 ## S5 — Implement explicit overlay composition
 
-Depends on S4. Change the shared resolver, `platform/build/src/main.rs`, build
-options and `platform/build/tests/cli.rs`. Reuse the profile inspection command.
+Depends on S4. Change the shared resolver, `tools/build/src/main.rs`, build
+options and `tools/build/tests/cli.rs`. Reuse the profile inspection command.
 
 1. Implement the documented ordering, field replacement, whole-record replacement
    on compatible/kind changes, whole wake-table replacement and explicit removals.
@@ -186,8 +186,8 @@ the changed input/ordering appears in provenance and build identity.
 
 ## S6 — Connect resolution to normal builds and factories
 
-Depends on S5. Change `platform/build-support/src/lib.rs`,
-`platform/build/src/{build,reuse,cargo_graph}.rs`, `hal/imu/build.rs`,
+Depends on S5. Change `tools/build-support/src/lib.rs`,
+`tools/build/src/{build,reuse,cargo_graph}.rs`, `tools/build-support/cargo/hal.rs`,
 `hal/imu/src/platform/` and detached-consumer tests.
 
 1. Emit a versioned resolved-profile file atomically per build and implement
@@ -456,8 +456,8 @@ Keep those gates open and preserve the current runtime until their replacement
 is independently qualified.
 
 
-Start in `platform/build-support/src/{composition,profile,resolved,lib}.rs`,
-`platform/build/src/{build,cargo_graph}.rs` and existing native build support.
+Start in `tools/build-support/src/{composition,profile,resolved,lib}.rs`,
+`tools/build/src/{build,cargo_graph}.rs` and existing native build support.
 Extend the controller's pre-Cargo `configure_profile` path. Preserve package-relative catalog discovery and typed resource generation while
 moving their outputs into the pre-Cargo handoff.
 
@@ -577,7 +577,7 @@ emitter and model match. Retain checks for trusted
 construction, escaped data, dependency direction, private ABI glue, named exports
 and platform-free app/service code.
 
-Verify the adapted `platform/build/tests/imu_profile_freshness.rs` exercises the
+Verify the adapted `tools/build/tests/imu_profile_freshness.rs` exercises the
 real common preparation path. Confirm `nuttx_helper_ownership.rs` and
 `native_header_freshness.rs` retained their behavior as compilation moved. Exercise one output
 directory through endpoint/model/instance-count/catalog changes and back to the

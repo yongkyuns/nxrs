@@ -83,7 +83,7 @@ class ExternalConsumerTests(unittest.TestCase):
         return result
 
     def test_detached_consumer_with_own_lock_and_renamed_dependencies(self):
-        self.assertFalse((self.directory / "deps/platform/build").exists())
+        self.assertFalse((self.directory / "deps/tools/build").exists())
         self.assertFalse((self.directory / "deps/platform/profiles").exists())
         self.assertFalse((self.directory / "deps/driver/acquisition").exists())
         self.assertTrue((self.directory / "deps/hal/acquisition/Cargo.toml").is_file())
@@ -132,7 +132,7 @@ class ExternalConsumerTests(unittest.TestCase):
                     self.assertNotIn((ROOT / "hal" / other).resolve(), copied)
                     self.assertFalse((directory / "deps/hal" / other).exists())
                 self.assertFalse((directory / "deps/platform/profiles").exists())
-                self.assertFalse((directory / "deps/platform/build").exists())
+                self.assertFalse((directory / "deps/tools/build").exists())
 
                 env = {**self.environment, "CARGO_TARGET_DIR": str(self.directory / "isolated-target")}
                 lock = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=directory,

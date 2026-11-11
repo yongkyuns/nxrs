@@ -446,6 +446,6 @@ and test-image provenance details.
 [entry-patch]: ../tests/nuttx-std/channels/mpsc-fixture-entry.patch
 [profile]: ../tests/profiles/esp32s3-sync-iram.toml
 [controls]: ../tests/nuttx-std/channels/README.md
-[sdk]: ../platform/build/src/sdk.rs
+[sdk]: ../tools/build/src/sdk.rs
 [pins]: ../tests/event-services-comparison/setup-pins.json
 [fixture-iram]: ../tests/nuttx-std/channels/mpsc-fixture-iram.ld

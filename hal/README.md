@@ -96,10 +96,11 @@ are built; profiles select physical resource bindings and NuttX configuration.
 
 ## Build and qualification ownership
 
-Each HAL owns a local `build.rs`. Host helpers live in `platform/build-support`,
-and detector SDK compilation has its own `hal/detector/build-support` package.
+Cargo adapters and host helpers live in `tools/build-support`,
+and detector SDK compilation lives in `tools/detector-build-support`.
+HAL manifests point directly to those tooling-owned adapters.
 Only build dependencies connect a HAL to these packages. The application build
-controller in `platform/build` does not enter the HAL dependency graph.
+controller in `tools/build` does not enter the HAL dependency graph.
 Native ABI compilation belongs to the consumed Cargo package; an unused profile
 binding does not compile another capability's helpers.
 

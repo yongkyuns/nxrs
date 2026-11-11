@@ -101,8 +101,8 @@ hal/gnss/                              UART acquisition, stream metadata and sim
 shared/simulation/                     seeded scenario and logical clock
 platform/profiles/                     platform defaults and shared WROOM settings
 tests/profiles/                        mock, simulation and qualification inputs
-platform/build-support/                shared resolution and generic typed generation
-platform/build/                        build CLI and Cargo orchestration
+tools/build-support/                shared resolution and generic typed generation
+tools/build/                        build CLI and Cargo orchestration
 ~~~
 
 OS adapters stay under the actual OS. Boards using the same sensor share the

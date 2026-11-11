@@ -2,7 +2,7 @@
 name = "nxrs-imu"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../tools/build-support/cargo/hal.rs"
 
 [lib]
 name = "imu"
@@ -34,4 +34,4 @@ nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 embedded-hal = "=1.0.0"
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }

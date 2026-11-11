@@ -14,14 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from platform_config import resolve
 
-SPEC = importlib.util.spec_from_file_location("nuttx_mcuboot", ROOT / "platform/nuttx/mcuboot.py")
+SPEC = importlib.util.spec_from_file_location("nuttx_mcuboot", ROOT / "tools/build/nuttx/mcuboot.py")
 BOOT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOT)
 
 
 class BootWiringTests(unittest.TestCase):
     def test_direct_startup_requires_coherent_boot_and_bounded_native_args(self):
-        configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
+        configure = runpy.run_path(str(ROOT / "tools/build/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
         config = configure(profile, "home_cam", 100, 32768)
         self.assertEqual(config["NETINIT_THREAD"], "n")
@@ -63,7 +63,7 @@ class BootWiringTests(unittest.TestCase):
                 configure(bare_profile, command, priority, stack)
 
     def test_actual_nuttx_header_preserves_direct_entry_and_argument_boundaries(self):
-        configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
+        configure = runpy.run_path(str(ROOT / "tools/build/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
         args = ["space test", "a,b", ""]
         profile["init"]["args"] = args

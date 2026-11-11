@@ -2,7 +2,7 @@
 name = "nxrs-gnss"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../tools/build-support/cargo/hal.rs"
 
 [lib]
 name = "gnss"
@@ -30,4 +30,4 @@ nxrs-peripheral = { path = "../../driver/peripheral" }
 nxrs-ubx-driver = { path = "../../driver/ubx" }
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }

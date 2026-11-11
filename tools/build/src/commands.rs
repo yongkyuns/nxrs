@@ -380,7 +380,7 @@ mod tests {
         for (index, template) in [
             "tests/nuttx-std/nuttx/Makefile",
             "tests/nuttx-std/resources/nuttx/Makefile",
-            "platform/nuttx/qualification/Makefile",
+            "tools/build/nuttx/qualification/Makefile",
         ]
         .iter()
         .enumerate()

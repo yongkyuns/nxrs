@@ -369,10 +369,11 @@ code; only reviewed native adapter modules permit it. Unselected provider
 modules are excluded by conditional compilation. Host-injected unit tests
 may compile native source against fakes; that is not hardware qualification.
 
-At the current baseline, each HAL owns its local `build.rs` and uses the host-only
-`nxrs-build-support` package to validate the selected profile against Rust's target. The detector
-also uses its own `nxrs-detector-build-support` package for the shared SDK adapter.
-The deployment CLI reuses these packages, while HAL build scripts never depend
+Host build implementation and Cargo adapters live under `tools/`. Firmware
+manifests select those adapters through declared build dependencies. Generic
+profile/native support lives in `tools/build-support`; numerical SDK tooling
+lives in `tools/detector-build-support`. The deployment CLI reuses these packages,
+while firmware packages never depend
 on the CLI. Only build-dependency edges may enter these host support packages;
 runtime HAL edges to platform code remain forbidden. Apps may use only the portable
 device catalogue, and services receive devices from their caller.
