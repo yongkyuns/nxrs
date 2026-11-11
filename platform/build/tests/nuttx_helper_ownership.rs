@@ -2,8 +2,13 @@
 //! The host C ABI is intentional here; firmware ABI remains a target-build gate.
 #![cfg(unix)]
 use nxrs_build::{find_program, hash, json::json, read_json, shell_quote, write_json, TempDir};
-use nxrs_build_support::prepared_resource;
-use std::{env, fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+use nxrs_build_support::{prepared_resource, profile::Profile};
+use std::{
+    collections::BTreeSet, env, fs, os::unix::fs::PermissionsExt, path::Path, process::Command,
+};
+
+const TARGET: &str = "xtensa-esp32s3-nuttx";
+const SDK: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 fn build(root: &Path, extra: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO"));
@@ -20,6 +25,9 @@ fn build(root: &Path, extra: &[&str]) -> std::process::Output {
         .args(extra)
         .env("CARGO_TARGET_DIR", root.join("target"))
         .env("NXRS_NUTTX_NATIVE_CONFIG", root.join("native.json"))
+        .env("NXRS_PLATFORM", "m5stack-cores3-gnss")
+        .env("NXRS_SDK_ROOT", SDK)
+        .env_remove("NXRS_RESOLVED_PROFILE")
         .env_remove("CARGO_BUILD_TARGET")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
@@ -45,16 +53,13 @@ fn runs(root: &Path, output: &std::process::Output) -> usize {
         .iter()
         .find(|m| {
             m["reason"] == "build-script-executed"
-                && m["package_id"]
-                    .as_str()
-                    .unwrap()
-                    .contains("selected-helper")
+                && m["package_id"].as_str().unwrap().contains("nxrs-gnss")
         })
         .unwrap();
     assert!(script["linked_libs"]
         .as_array()
         .unwrap()
-        .contains(&json!("static=selected_helper_native")));
+        .contains(&json!("static=gnss_native")));
     assert!(!messages
         .iter()
         .any(|m| m["reason"] == "build-script-executed"
@@ -77,23 +82,27 @@ fn only_consumed_helpers_compile_and_cargo_revisits_changed_native_inputs() {
         "[workspace]\nmembers=[\"consumer\",\"selected\",\"unused\"]\nresolver=\"2\"\n",
     )
     .unwrap();
-    for (directory, package) in [("selected", "selected-helper"), ("unused", "unused-helper")] {
+    for (directory, package) in [("selected", "nxrs-gnss"), ("unused", "unused-helper")] {
         let path = root.join(directory);
         fs::create_dir_all(path.join("src/platform/nuttx/ffi")).unwrap();
         let metadata = if directory == "selected" {
-            "[package.metadata.nxrs]\nkind=\"native-resource\"\n"
+            "[features]\nhelper=[]\n[package.metadata.nxrs]\nkind=\"hal-capability\"\n[package.metadata.nxrs.platform.nuttx]\nrequired-features=[\"helper\"]\n"
         } else {
             ""
         };
         fs::write(path.join("Cargo.toml"),format!("[package]\nname={package:?}\nversion=\"0.0.0\"\nedition=\"2021\"\n{metadata}[build-dependencies]\nnxrs-build-support={{path={support:?}}}\n")).unwrap();
-        fs::write(path.join("src/lib.rs"),"extern \"C\" { fn device_value() -> i32; }\npub fn value() -> i32 { unsafe { device_value() } }\n").unwrap();
+        fs::write(path.join("src/lib.rs"),"#[cfg(feature=\"helper\")] extern \"C\" { fn device_value() -> i32; }\npub fn value() -> i32 { #[cfg(feature=\"helper\")] { unsafe { device_value() } } #[cfg(not(feature=\"helper\"))] { 1 } }\n").unwrap();
         fs::write(path.join("build.rs"),r#"
 use std::{env,io::Write,path::PathBuf};
 fn main() {
     let out=PathBuf::from(env::var_os("OUT_DIR").unwrap());
     env::set_var("CARGO_CFG_TARGET_OS", "nuttx");
-    env::set_var("TARGET", "fixture-nuttx");
-    nxrs_build_support::configure_resource().unwrap();
+    env::set_var("TARGET", "xtensa-esp32s3-nuttx");
+    if env::var("CARGO_PKG_NAME").unwrap() == "nxrs-gnss" {
+        nxrs_build_support::configure_hal().unwrap();
+    } else {
+        nxrs_build_support::configure_resource().unwrap();
+    }
     writeln!(std::fs::OpenOptions::new().create(true).append(true).open(out.join("runs")).unwrap(),"run").unwrap();
 }
 "#).unwrap();
@@ -108,7 +117,7 @@ fn main() {
         .unwrap();
     }
     fs::create_dir_all(root.join("consumer/src")).unwrap();
-    fs::write(root.join("consumer/Cargo.toml"),"[package]\nname=\"consumer\"\nversion=\"0.0.0\"\nedition=\"2021\"\n[dependencies]\nselected-helper={path=\"../selected\"}\nunused-helper={path=\"../unused\",optional=true}\n").unwrap();
+    fs::write(root.join("consumer/Cargo.toml"),"[package]\nname=\"consumer\"\nversion=\"0.0.0\"\nedition=\"2021\"\n[features]\ndefault=[\"helper\"]\nhelper=[\"selected-helper/helper\"]\n[dependencies]\nselected-helper={package=\"nxrs-gnss\",path=\"../selected\"}\nunused-helper={path=\"../unused\",optional=true}\n").unwrap();
     fs::write(
         root.join("consumer/src/main.rs"),
         "fn main() { let value = selected_helper::value(); if let Some(expected) = std::env::args().nth(1) { assert_eq!(value, expected.parse::<i32>().unwrap()); } else { assert!(value > 0); } }\n",
@@ -147,7 +156,7 @@ fn main() {
     let context = root.join("native.json");
     write_json(
         &context,
-        &json!({"schema":1,"target":"fixture-nuttx","directory":root,
+        &json!({"schema":1,"target":TARGET,"directory":root,
         "include":include,"config_sha256":hash(&header).unwrap(),"cc":[compiler],"ar":[find_program("ar").unwrap(),"rcs"],
         "cflags":["-I",include.to_str().unwrap(),"-I",higher_priority.to_str().unwrap(),"-I",private.to_str().unwrap()]}),
     )
@@ -188,17 +197,19 @@ fn main() {
     )
     .unwrap();
     assert_eq!(runs(root, &build(root, &[])), 5);
-    let included = build(root, &["--features", "unused-helper"]);
-    assert!(!included.status.success());
-    assert!(String::from_utf8_lossy(&included.stderr)
-        .contains("unconsumed private helper must not compile"));
-
+    let owner = root.join("selected").canonicalize().unwrap();
+    let cores3 = Profile::resolve(Path::new(SDK), "m5stack-cores3-gnss").unwrap();
+    let wroom = Profile::resolve(Path::new(SDK), "esp32s3-camera-stream-mcuboot").unwrap();
+    let enabled = BTreeSet::from(["helper".to_owned()]);
+    assert!(prepared_resource::selected(&owner, &cores3, &enabled).unwrap());
+    assert!(!prepared_resource::selected(&owner, &cores3, &BTreeSet::new()).unwrap());
+    assert!(!prepared_resource::selected(&owner, &wroom, &enabled).unwrap());
     let cache = root.join("prepared");
     let compile_count = || fs::read_to_string(&calls).unwrap().lines().count();
     let prepare = || {
         prepared_resource::prepare(
-            &root.join("selected"),
-            "fixture-nuttx",
+            &owner,
+            TARGET,
             &context,
             &cache,
             &env::var_os("PATH").unwrap(),
@@ -207,10 +218,28 @@ fn main() {
     let before = compile_count();
     let archive = prepare().unwrap();
     assert_eq!(compile_count(), before + 2);
+    write_json(
+        &cache.join(prepared_resource::PACKAGE_LIST),
+        &json!([owner]),
+    )
+    .unwrap();
     assert_eq!(prepare().unwrap(), archive);
     assert_eq!(runs(root, &build(root, &[])), 6);
     assert_eq!(runs(root, &build(root, &[])), 6);
     assert_eq!(compile_count(), before + 3);
+    let disabled = build(root, &["--no-default-features"]);
+    assert!(
+        disabled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&disabled.stderr)
+    );
+    assert_eq!(compile_count(), before + 3);
+    assert!(Command::new(root.join("target/debug/consumer"))
+        .arg("1")
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(runs(root, &build(root, &[])), 6);
     fs::write(&header, "#define DEVICE_ABI 19\n").unwrap();
     data["config_sha256"] = json!(hash(&header).unwrap());
     write_json(&context, &data).unwrap();
@@ -255,11 +284,17 @@ fn main() {
         .unwrap()
         .success());
     fs::remove_file(shadowing_header).unwrap();
-    fs::write(mutate, "").unwrap();
+    fs::write(&mutate, "").unwrap();
     fs::write(private.join("context.h"), "#define CONTEXT_ABI 5\n").unwrap();
     assert!(prepare()
         .unwrap_err()
         .contains("changed during compilation"));
+    fs::remove_file(mutate).unwrap();
+    prepare().unwrap();
+    let included = build(root, &["--features", "unused-helper"]);
+    assert!(!included.status.success());
+    assert!(String::from_utf8_lossy(&included.stderr)
+        .contains("unconsumed private helper must not compile"));
     fs::create_dir(root.join(".cargo")).unwrap();
     fs::write(
         root.join(".cargo/config.toml"),

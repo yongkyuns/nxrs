@@ -1006,7 +1006,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         Vec::new()
     } else {
         prepare_native_resources(
-            &selection.packages, target, &native_config, &native_resources, &tools.path,
+            &selection, p, target, &native_config, &native_resources, &tools.path,
         )?
     };
     let prepared = prepared_resource::ENVIRONMENT;
@@ -1327,7 +1327,8 @@ fn cache_paths(out: &Path, directories: &[&str]) -> Result<Vec<String>> {
 }
 
 fn prepare_native_resources(
-    packages: &[String],
+    selection: &crate::cargo_graph::Selection,
+    profile: &Profile,
     target: &str,
     context: &Path,
     out: &Path,
@@ -1335,15 +1336,24 @@ fn prepare_native_resources(
 ) -> Result<Vec<Value>> {
     use nxrs_build_support::prepared_resource;
     let mut prepared = Vec::new();
-    for package in packages {
-        let Some((_, source)) = package.split_once(" (") else { continue };
-        let Some(source) = source.strip_suffix(')') else { continue };
-        let directory = Path::new(source);
-        if !directory.is_absolute() || !prepared_resource::declared(directory)? {
+    let mut directories = std::collections::BTreeSet::new();
+    for (package, directory, features) in selection.path_packages() {
+        if !prepared_resource::selected(directory, profile, features)? {
             continue;
         }
         let archive = prepared_resource::prepare(directory, target, context, out, compiler_path)?;
+        directories.insert(directory.canonicalize().map_err(|error| error.to_string())?);
         prepared.push(json!({"package": package, "sha256": hash(&archive)?, "archive": archive}));
+    }
+    if !directories.is_empty() {
+        let path = out.join(prepared_resource::PACKAGE_LIST);
+        let bytes = serde_json::to_vec(&directories).map_err(|error| error.to_string())?;
+        if path.is_symlink() || fs::read(&path).ok().as_deref() != Some(bytes.as_slice()) {
+            let temporary = crate::TempDir::new(out)?;
+            let candidate = temporary.0.join(prepared_resource::PACKAGE_LIST);
+            fs::write(&candidate, bytes).map_err(|error| error.to_string())?;
+            fs::rename(candidate, path).map_err(|error| error.to_string())?;
+        }
     }
     Ok(prepared)
 }

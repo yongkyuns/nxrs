@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -16,6 +16,7 @@ use std::{
 pub struct Selection {
     /// Cargo's package descriptions include version and source, not just a name.
     pub packages: Vec<String>,
+    features: BTreeMap<String, BTreeSet<String>>,
     /// Profile features that were verified by Cargo and appended to the build.
     pub model_features: Vec<String>,
     pub driver_features: Vec<String>,
@@ -23,6 +24,16 @@ pub struct Selection {
 impl Selection {
     pub fn json(&self) -> Value {
         json!({"status":"resolved","packages":self.packages,"model_features":self.model_features,"driver_features":self.driver_features})
+    }
+
+    pub fn path_packages(&self) -> impl Iterator<Item = (&str, &Path, &BTreeSet<String>)> {
+        self.features.iter().filter_map(|(identity, features)| {
+            let (_, source) = identity.split_once(" (")?;
+            let directory = Path::new(source.strip_suffix(')')?);
+            directory
+                .is_absolute()
+                .then_some((identity.as_str(), directory, features))
+        })
     }
 }
 
@@ -131,7 +142,11 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
     }
     build.args(trial.get_args().skip(build.get_args().count()));
     Ok(Selection {
-        packages: graph.into_keys().collect(),
+        packages: graph.keys().cloned().collect(),
+        features: graph
+            .into_iter()
+            .map(|(identity, package)| (identity, package.features))
+            .collect(),
         model_features,
         driver_features,
     })

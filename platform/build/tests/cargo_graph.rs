@@ -346,6 +346,11 @@ fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
         let mut build = fixture.build();
         let selection = cargo_graph::resolve(&mut build, &profile).unwrap();
         assert_eq!(selection.model_features, ["model/pico-model"]);
+        let (_, _, features) = selection.path_packages()
+            .find(|(identity, _, _)| identity.starts_with("nxrs-detector v"))
+            .unwrap();
+        assert!(features.contains("pico-model"));
+        assert!(!features.contains("person-model"));
         for chip in ["bmi270", "lsm6dso"] {
             assert_eq!(
                 selection

@@ -1,10 +1,10 @@
-//! Prepared native archives for packages using the NuttX resource adapter.
+//! Prepared native archives for NuttX resource and HAL adapters.
 use crate::{
     hash, hash_bytes, native, native_nuttx, profile::manifest, read_json, Result, TempDir,
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env,
     ffi::OsStr,
     fs,
@@ -12,6 +12,7 @@ use std::{
 };
 
 pub const ENVIRONMENT: &str = "NXRS_NUTTX_PREPARED_RESOURCES";
+pub const PACKAGE_LIST: &str = "packages.json";
 const COMPILER_ENV: &[&str] = &[
     "CPATH",
     "C_INCLUDE_PATH",
@@ -24,11 +25,30 @@ const COMPILER_ENV: &[&str] = &[
     "SDKROOT",
 ];
 
-pub fn declared(directory: &Path) -> Result<bool> {
-    Ok(
-        manifest(&directory.join("Cargo.toml"))?["package"]["metadata"]["nxrs"]["kind"]
-            == "native-resource",
-    )
+pub fn selected(
+    directory: &Path,
+    profile: &crate::profile::Profile,
+    features: &BTreeSet<String>,
+) -> Result<bool> {
+    let manifest = manifest(&directory.join("Cargo.toml"))?;
+    let package = &manifest["package"];
+    match package["metadata"]["nxrs"]["kind"].as_str() {
+        Some("native-resource") => {}
+        Some("hal-capability") => {
+            let name = package["name"].as_str().ok_or("missing HAL package name")?;
+            if profile.binding(crate::capability_name(name)?) != "nuttx" {
+                return Ok(false);
+            }
+        }
+        _ => return Ok(false),
+    }
+    let source = directory.join("src/platform/nuttx/ffi");
+    let mut paths = Vec::new();
+    native::tree(&source, &mut paths)?;
+    Ok(!native::sources(&source, &paths).is_empty()
+        && native::required_features(&manifest, "nuttx")?
+            .iter()
+            .all(|feature| features.contains(feature)))
 }
 
 /// Cargo-only compiler environment overrides keep their ordinary adapter build.
@@ -124,12 +144,6 @@ impl Resource {
                 .as_str()
                 .ok_or("missing resource package name")?,
         )?;
-        let settings = package.pointer("/package/metadata/nxrs/platform/nuttx/required-features");
-        if settings
-            .is_some_and(|value| value.as_array().is_none_or(|features| !features.is_empty()))
-        {
-            return Err("prepared NuttX resources require unconditional native helpers".into());
-        }
         let environment: BTreeMap<_, _> = COMPILER_ENV
             .iter()
             .filter_map(|name| {

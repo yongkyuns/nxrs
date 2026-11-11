@@ -124,6 +124,21 @@ pub(crate) fn suffix(package: &str) -> Result<String> {
     }
     Ok(suffix)
 }
+
+pub(crate) fn required_features(manifest: &Value, os: &str) -> Result<Vec<String>> {
+    let native = &manifest["package"]["metadata"]["nxrs"]["platform"][os];
+    if !native.is_null() && !native.is_object() {
+        return Err("native metadata must be a table".into());
+    }
+    let features = strings(native.get("required-features"), true)?;
+    for feature in &features {
+        if manifest["features"].get(feature).is_none() {
+            return Err(format!("native helper requires undeclared Cargo feature {feature}"));
+        }
+    }
+    Ok(features)
+}
+
 pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Vec<String>> {
     let source_dir = capability.join("src/platform").join(os).join("ffi");
     let mut watch = source_dir.clone();
@@ -151,19 +166,9 @@ pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Ve
     // Cargo sources may live in renamed or versioned directories. The archive
     // belongs to the package, independently of its checkout location.
     let suffix = suffix(package)?;
-    let native = m
-        .pointer(&format!("/package/metadata/nxrs/platform/{os}"))
-        .unwrap_or(&Value::Null);
-    if !native.is_null() && !native.is_object() {
-        return Err("native metadata must be a table".into());
-    }
+    let native = &m["package"]["metadata"]["nxrs"]["platform"][os];
     let mut enabled = true;
-    for feature in strings(native.get("required-features"), true)? {
-        if m["features"].get(&feature).is_none() {
-            return Err(format!(
-                "native helper requires undeclared Cargo feature {feature}"
-            ));
-        }
+    for feature in required_features(&m, os)? {
         let variable = format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
         inputs.push(format!("cargo:rerun-if-env-changed={variable}"));
         enabled &= env::var_os(variable).is_some();
@@ -172,6 +177,20 @@ pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Ve
         return Ok(inputs);
     }
     if os == "nuttx" {
+        let prepared = crate::prepared_resource::ENVIRONMENT;
+        inputs.push(format!("cargo:rerun-if-env-changed={prepared}"));
+        if let Some(path) = env::var_os(prepared) {
+            let cache = PathBuf::from(path);
+            let packages = cache.join(crate::prepared_resource::PACKAGE_LIST);
+            inputs.push(format!("cargo:rerun-if-changed={}", packages.display()));
+            let selected: std::collections::BTreeSet<PathBuf> =
+                serde_json::from_value(crate::read_json(&packages)?)
+                    .map_err(|error| format!("invalid prepared native package list: {error}"))?;
+            if selected.contains(&capability.canonicalize().map_err(|error| error.to_string())?) {
+                inputs.extend(crate::prepared_resource::consume(capability, target, &cache)?);
+                return Ok(inputs);
+            }
+        }
         return crate::native_nuttx::build(capability, &suffix, target, out, &sources, inputs);
     }
     if !["linux", "macos"].contains(&os) {
