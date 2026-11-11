@@ -44,6 +44,54 @@ NuttX firmware and qualification builds use `cargo nxrs build`; their Cargo adap
 
 A reusable driver implements a device protocol. The profile selects its physical instance and resource bindings. A service receives the resulting capability, while the application chooses how that service participates in the firmware.
 
+## Add a NuttX board
+
+1. Start with a board configuration in the pinned NuttX BSP. Verify that its
+   defconfig boots and that board bring-up registers the controllers or device
+   nodes your application needs. Use a pinned BSP revision with the needed
+   initialization, or add a [NuttX patch](../../upstream/nuttx/patches/) and
+   register it in [upstream/build-patches.json](../../upstream/build-patches.json).
+2. Create `platform/<family>/profile.toml`. Give it a unique `name`, select
+   `board = "<board>:<defconfig>"`, and set `target`, `crossdev`, `machine`,
+   and `image`. Set the capability bindings in `hal` and the NuttX settings in
+   `[kconfig]`. Use a checked-in profile for the same supported target as a
+   reference. A new target or OS needs build support and the providers for the
+   capabilities you intend to use.
+3. For composed peripherals, add or extend
+   `platform/nuttx/resources/<board>.toml`, using the board ID before the colon.
+   Map the BSP's registered endpoints to their required Kconfig and native pin
+   settings. Select those mappings and supply the actual wiring in the profile.
+4. Inspect the resolved profile with `cargo nxrs profile --platform <family>`.
+   Run `cargo nxrs build --app <app> --platform <family> --dry-run`, then build
+   without `--dry-run`. Boot the image and verify the endpoints and acquisition
+   on the board.
+
+For a variant within an existing family, add a named file under
+`platform/<family>/profiles/` and set `extends` to the base profile's name.
+Use an overlay for a wiring or device change you want to apply to an existing
+profile. See the [CoreS3 profile](../../platform/cores3/profile.toml),
+[its BSP mapping](../../platform/nuttx/resources/esp32s3-m5-cores3.toml), and the
+[worked sensor example](examples.md#add-a-second-sensor-on-cores3).
+
+## Required and optional devices
+
+Cargo enables the capability APIs the app uses. The profile determines which
+implementations are available on the target. A missing optional binding leaves
+the HAL unbound. Handle `Unsupported` when opening the device and continue
+with the features the platform can provide. A device declared in the profile
+can still fail to open if it is missing or fails to initialize.
+
+For hardware the app requires, list the capability in its manifest.
+
+```toml
+[package.metadata.nxrs]
+required-capabilities = ["camera"]
+```
+
+`cargo nxrs build` rejects a profile with a missing required binding before
+compilation. A mock binding in a qualification profile can satisfy this
+check. Opening a physical device verifies that acquisition can start.
+
 ## Inspect a profile before changing it
 
 ```sh
@@ -51,7 +99,7 @@ cargo nxrs profile --help
 cargo nxrs build --help
 ```
 
-The seven default configurations are under [the platform directories](../../platform/). Use [tests/profiles](../../tests/profiles/) to find a specific test or qualification input.
+The default configurations are under [the platform directories](../../platform/). Use [tests/profiles](../../tests/profiles/) to find a specific test or qualification input.
 
 The resolver validates device/resource bindings and records the resolved configuration with the build. Checked BSP mappings under `platform/nuttx/resources/` connect admitted native settings to Rust endpoints.
 

@@ -41,7 +41,19 @@ For example, a data logger can separate input acquisition from formatting, recor
 
 ## Add a peripheral
 
-Check the BSP registration, implement or reuse the resource adapter, then test the device protocol and capability lifecycle. Add its supported device and resource bindings to the profile configuration. Verify startup, I/O, failure handling, and shutdown on the target.
+With a supported driver and bus, add a device to the profile or overlay. If
+the bus is new to the profile, add a resource that selects its registered BSP
+binding and supplies bus and pin settings. The device names that resource,
+its driver-compatible string, and settings such as an address. An alias gives
+the app a stable device name.
+The [CoreS3 example](examples.md#add-a-second-sensor-on-cores3) shows the files
+and commands.
+
+For a new driver on a supported bus, implement the peripheral contract and
+declare the supported combinations in the driver's `bindings.toml`. Register
+one optional Cargo dependency in the composition crate. Build support enables
+it and generates the typed wiring for the selected device. See the
+[driver registration example](../../platform/README.md).
 
 DMA buffers, callbacks, file descriptors, and device leases must remain valid until the associated work has stopped. Include those lifetimes in tests when changing an implementation.
 
