@@ -64,6 +64,7 @@ members = [
     "tests/nuttx-std/userled",
     "tests/nuttx-std/tls-identity",
     "tests/nuttx-std/wifi",
+    "tests/nuttx-std/ssh",
     "tests/nuttx-std/ble",
     "tests/nuttx-std/radio",
     "tests/nuttx-std/camera",

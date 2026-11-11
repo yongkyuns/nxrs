@@ -1,0 +1,16 @@
+[package]
+name = "nxrs-std-ssh"
+version.workspace = true
+edition.workspace = true
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-std-wifi = { path = "../wifi" }
+nxrs-wifi = { path = "../../../hal/wifi" }
+
+[package.metadata.nxrs]
+required-capabilities = ["wifi"]
+qualification-only = true
+
+[[bin]]
+name = "nxrs-std-ssh"
+path = "src/main.rs"

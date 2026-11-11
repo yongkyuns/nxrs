@@ -807,6 +807,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-ssh"
+version = "0.1.0"
+dependencies = [
+ "nxrs-std-wifi",
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-std-stream"
 version = "0.1.0"
 dependencies = [

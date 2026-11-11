@@ -10,6 +10,10 @@ A connection-handling component can own its socket, receive commands through a b
 
 Protocol choice remains with the application. Using sockets does not require a project-wide broker, broadcast bus, or a specific cloud service.
 
+### Optional remote shell
+
+The native NuttX Dropbear utility can provide optional password-authenticated SSH access to an NSH terminal. It stays disabled by default and does not add an SSH runtime to Rust applications. See [Dropbear SSH integration](../../docs/dropbear-ssh.md) for ownership, provisioning, configured limits and the hardware qualification still required, and the [executable qualification procedure](../../tests/nuttx-std/ssh/README.md) for the ESP32-S3 Wi-Fi fixture.
+
 ## Files and storage
 
 Use `std::fs` and `std::io` when the selected target supplies the required filesystem and device. Mount and configure the storage through NuttX and the platform integration before opening application files.
