@@ -30,7 +30,10 @@ def main() -> None:
                 text += (f'[detector]\nmodel="{config["model"]}"\n'
                          f'stack-bytes={config["stack-bytes"]}\nsample-ms={config["sample-ms"]}\n')
             else:
-                text += 'detector={}\n[hal]\ndetector="none"\n'
+                text += 'detector={}\n'
+            text += '[hal]\ncamera="mock"\n'
+            if not config:
+                text += 'detector="none"\n'
             profile.write_text(text)
             product = resolve(profile.stem)
             validate_target(product, host)
