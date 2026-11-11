@@ -98,19 +98,22 @@ pub fn wait_for_interrupt(token: &str) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     let result = (|| {
-        println!("NXRS_SSH_WAIT token={token}");
-        io::stdout().flush()?;
+        let mut output = io::stdout();
+        writeln!(output, "NXRS_SSH_WAIT token={token}")?;
+        output.flush()?;
         let deadline = Instant::now() + Duration::from_secs(60);
         // SIGINT only records a flag. All I/O and exit run on this Rust task.
         while unsafe { nxrs_ssh_test_interrupt_seen() } == 0 {
             if Instant::now() >= deadline {
-                println!("NXRS_SSH_WAIT_EXPIRED token={token}");
+                writeln!(output, "NXRS_SSH_WAIT_EXPIRED token={token}")?;
                 return Err(io::ErrorKind::TimedOut.into());
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        println!("NXRS_SSH_INTERRUPTED token={token}");
-        Ok(())
+        // Stop can close the PTY while the interrupted child is returning.
+        // Keep the write fallible so a hangup still reaches signal cleanup.
+        writeln!(output, "NXRS_SSH_INTERRUPTED token={token}")?;
+        output.flush()
     })();
     // SAFETY: restore and free the one saved disposition exactly once.
     let restore = unsafe { nxrs_ssh_test_interrupt_end(state) };

@@ -29,6 +29,10 @@ interactive NSH PTY. The listener is withdrawn while the active transport owns
 the service and reopens only after cleanup. Readiness means `listening`, not
 merely that task creation returned a PID.
 
+The pinned kernel patches share terminal dimensions across the PTY master and
+slave and honor `SO_REUSEADDR` when reopening the listener after a server-side
+close. A competing listener still blocks the bind.
+
 | Included | Deferred or disabled |
 | --- | --- |
 | Interactive NSH with `ssh -tt` | SSH `exec` requests and scripts using `ssh host command` |

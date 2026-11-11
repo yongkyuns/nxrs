@@ -315,10 +315,11 @@ def assert_resource_stability(before, after, task_budget=0, fd_budget=0):
 
 
 class Suite:
-    def __init__(self, client, out, console=None, evidence_class="device"):
+    def __init__(self, client, out, console=None, evidence_class="device", selected_case=None):
         self.client, self.out, self.console = client, out, console
         self.results = []
         self.evidence_class = evidence_class
+        self.selected_case = selected_case
 
     def case(self, name, operation):
         started = time.monotonic()
@@ -340,7 +341,9 @@ class Suite:
             "schema": 1, "evidence_class": self.evidence_class,
             "transport": "real_openssh_controlling_pty" if self.evidence_class == "device" else "host_control",
             "target": {"host": self.client.host, "port": self.client.port},
+            "selected_case": self.selected_case,
             "overall": "failed" if any(case["status"] == "failed" for case in self.results)
+                       else "selected_case_passed_full_suite_pending" if self.results and self.selected_case
                        else "checks_passed_full_qualification_pending" if self.results else "not_run",
             "cases": self.results,
             "pending": [
@@ -367,6 +370,7 @@ class Suite:
             time.sleep(0.3)
 
     def shell(self):
+        self.wait_listening()
         with tempfile.TemporaryDirectory(prefix="nxrs-ssh-") as directory:
             control = Path(directory) / "master"
             process = self.client.login(control=control, master=True)
@@ -391,7 +395,10 @@ class Suite:
                 process.resize(37, 113)
                 time.sleep(0.2)
                 command(process, f"ssh_probe tty {token}")
-                process.expect(re.escape(marker("TTY", token)) + rb" rows=37 columns=113\b")
+                _, observed = process.expect(
+                    re.escape(marker("TTY", token)) + rb" rows=([0-9]+) columns=([0-9]+)\b")
+                if observed != (b"37", b"113"):
+                    raise CheckFailure("remote_terminal_size_mismatch")
                 process.expect(PROMPT)
                 command(process, f"ssh_probe wait {token}")
                 process.expect(re.escape(marker("WAIT", token)))
@@ -505,23 +512,34 @@ class Suite:
 
     def authentication_deadline(self, timeout):
         self.wait_listening()
+        if not self.console:
+            raise CheckFailure("auth_deadline_requires_independent_control")
+        connected = time.monotonic()
         process = self.client.process()
         try:
             process.expect(rb"(?i)password: ?$", 20)
+            self.console.require_state("session")
             started = time.monotonic()
             # OpenSSH may block reading /dev/tty even after the peer disconnects.
-            # Keep the terminal quiet, then submit a disposable wrong response;
-            # this alone cannot prove the server's deadline. Use the independent
-            # maintenance state to observe transport reclamation.
-            if not self.console:
-                raise CheckFailure("auth_deadline_requires_independent_control")
+            # Keep the terminal quiet and observe reclamation independently.
             while time.monotonic() - started < timeout + 5:
                 if self.console.state() == "listening":
-                    return {"observed_reclamation_seconds": round(time.monotonic() - started, 3)}
+                    reclaimed = time.monotonic()
+                    if reclaimed - connected < timeout - 2:
+                        raise CheckFailure("unauthenticated_session_ended_before_deadline")
+                    break
                 time.sleep(0.2)
-            raise CheckFailure("authentication_deadline_not_observed")
+            else:
+                raise CheckFailure("authentication_deadline_not_observed")
         finally:
             process.close(abrupt=True)
+        process = self.client.login()
+        try:
+            logout(process)
+        finally:
+            process.close()
+        self.wait_listening()
+        return {"observed_reclamation_seconds": round(reclaimed - started, 3), "fresh_login": True}
 
     def reconnect(self, count):
         before = self.console.snapshot("before-reconnect") if self.console else None
@@ -571,6 +589,8 @@ def main():
     parser.add_argument("--build-evidence", type=Path, help="ssh-build-evidence.json for the image the operator flashed")
     parser.add_argument("--reconnects", type=int, default=100)
     parser.add_argument("--auth-timeout", type=int, default=30)
+    parser.add_argument("--case", choices=("pty", "auth-deadline", "active-stop"),
+                        help="run one focused device case with normal startup and shutdown checks")
     parser.add_argument("--serial-port", help="independent local maintenance console; requires pyserial")
     parser.add_argument("--ssid")
     parser.add_argument("--wifi-password-file", type=Path)
@@ -580,6 +600,10 @@ def main():
     ipaddress.IPv4Address(args.host)
     if not 1 <= args.port <= 65535 or not 1 <= args.reconnects <= 10000:
         parser.error("invalid port or reconnect count")
+    if args.auth_timeout <= 0:
+        parser.error("authentication timeout must be positive")
+    if args.case and not args.serial_port:
+        parser.error("focused device cases require an independent serial console")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", args.user):
         parser.error("invalid username")
     trusted = verify_known_hosts(args.known_hosts, args.host, args.port, args.expected_fingerprint)
@@ -603,7 +627,7 @@ def main():
         (out / "ssh-build-evidence.json").write_text(json.dumps(build, indent=2) + "\n")
     console = None
     client = OpenSsh(args.host, args.port, args.user, trusted, password)
-    suite = Suite(client, out)
+    suite = Suite(client, out, selected_case=args.case)
     try:
         if args.serial_port:
             from console import SerialLab
@@ -619,20 +643,27 @@ def main():
             "reconnects_requested": args.reconnects,
             "credential_capture": "none",
         }, indent=2) + "\n")
-        # Failure controls deliberately exercise the real peer/host-key verifier.
-        suite.case("changed_host_key_rejected", suite.changed_key)
-        suite.case("wrong_password_rejected", suite.rejected_login)
-        suite.case("unknown_user_rejected", lambda: suite.rejected_login(True))
-        suite.wait_listening()
-        suite.case("pty_rust_stdio_threads_resize_interrupt_rekey_channel_limits", suite.shell)
-        for kind in ("exec", "scp", "sftp", "remote_forward", "direct_tcp"):
-            suite.case(kind + "_refused", lambda kind=kind: suite.denied_request(kind))
-        suite.case("abrupt_client_death_and_reconnect", suite.abrupt_disconnect)
-        if console:
-            suite.case("authentication_deadline", lambda: suite.authentication_deadline(args.auth_timeout))
-        suite.case("same_boot_reconnect_campaign", lambda: suite.reconnect(args.reconnects))
-        if console:
-            suite.case("active_stop_and_restart", lambda: console.active_stop(client))
+        focused = {
+            "pty": ("pty_rust_stdio_threads_resize_interrupt_rekey_channel_limits", suite.shell),
+            "auth-deadline": ("authentication_deadline", lambda: suite.authentication_deadline(args.auth_timeout)),
+            "active-stop": ("active_stop_and_restart", lambda: console.active_stop(client)),
+        }
+        if args.case:
+            suite.case(*focused[args.case])
+        else:
+            # Failure controls exercise the real peer and host-key verifier.
+            suite.case("changed_host_key_rejected", suite.changed_key)
+            suite.case("wrong_password_rejected", suite.rejected_login)
+            suite.case("unknown_user_rejected", lambda: suite.rejected_login(True))
+            suite.case(*focused["pty"])
+            for kind in ("exec", "scp", "sftp", "remote_forward", "direct_tcp"):
+                suite.case(kind + "_refused", lambda kind=kind: suite.denied_request(kind))
+            suite.case("abrupt_client_death_and_reconnect", suite.abrupt_disconnect)
+            if console:
+                suite.case(*focused["auth-deadline"])
+            suite.case("same_boot_reconnect_campaign", lambda: suite.reconnect(args.reconnects))
+            if console:
+                suite.case(*focused["active-stop"])
     finally:
         if console:
             suite.case("complete_local_shutdown", console.finish)

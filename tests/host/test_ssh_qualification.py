@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 DIRECTORY = ROOT / "tests/nuttx-std/ssh"
@@ -146,9 +146,36 @@ class SshQualificationTests(unittest.TestCase):
         console.starts, console.server_exits = 1, 0
         console.send = Mock()
         console.require_state = Mock()
-        console.read_until = Mock(return_value=(b"", ()))
+        console.read_until = Mock(side_effect=[(b"", (b"0",)), (b"", ())])
         with self.assertRaisesRegex(SSH.CheckFailure, "native_child_was_not_reaped"):
             console.stop()
+
+    def test_maintenance_commands_match_echo_before_prompt_and_expose_failed_stop(self):
+        console = CONSOLE.SerialLab.__new__(CONSOLE.SerialLab)
+        console.api, console.guard = SSH, SSH.SecretGuard(())
+        console.pending = bytearray(b"\r\nnsh> \r\nnsh> ")
+        console.event_line = bytearray()
+        console.connection = Mock()
+        console.connection.read.side_effect = [
+            b"\x1b[Kifup wlan0\r\nup\r\nnsh> ",
+            b"\x1b[Kecho $?\r\n0\r\nnsh> ",
+            b"NXRS_SSH_LAB_CONTROL action=stop result=1\r\n",
+        ]
+        console.send = Mock()
+        self.assertEqual(console.shell_status("ifup wlan0"), 0)
+        with self.assertRaisesRegex(SSH.CheckFailure, "native_stop_failed:1"):
+            console.stop()
+
+    def test_secret_frame_fits_usb_receive_buffer(self):
+        console = CONSOLE.SerialLab.__new__(CONSOLE.SerialLab)
+        console.send = Mock()
+        frame = bytes(range(180))
+        with patch.object(CONSOLE.time, "sleep") as pause:
+            console.send_secret_frame(frame)
+        writes = [call.args[0] for call in console.send.call_args_list]
+        self.assertEqual(b"".join(writes), frame)
+        self.assertLess(max(map(len, writes)), 64)
+        self.assertEqual(pause.call_count, len(writes) - 1)
 
     def test_real_procfs_descriptor_rows_and_incomplete_snapshot(self):
         # Formatting from pinned fs_procfsproc.c: %-3d %-7d %-4x %-9ld %-14s.

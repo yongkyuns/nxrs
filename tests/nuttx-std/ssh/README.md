@@ -144,6 +144,12 @@ and console/history. A failed new provision attempts to remove its partial files
 and reports cleanup failures. This is a lab provisioner, not a power-fail-safe
 manufacturing process.
 
+The host paces binary credentials in writes small enough for the ESP32-S3 USB
+serial receive ring and waits for each NSH command echo before reading its status.
+For focused device runs, add `--case auth-deadline`, `--case active-stop` or
+`--case pty` to the same command. The summary identifies the selected case.
+Omit `--case` for the complete campaign in its standard order.
+
 The local `ssh_probe lab` command reuses the existing Wi-Fi credential protocol,
 station/DHCP owner, explicit disconnect and worker join. It retains the addressed
 Wi-Fi connection throughout the SSH experiment. A mechanical test-only
@@ -195,7 +201,7 @@ unverified. A client reconnect loop alone is not leak evidence.
 | Large output and rekey | 8,192 ordered lines survive a one-second client-read pause, and OpenSSH reports an additional received NEWKEYS. This alone does not quantify target backpressure or peak memory. |
 | Excluded requests | Remote exec, legacy SCP exec, SFTP subsystem, remote forwarding and direct TCP forwarding are explicitly refused. |
 | Reconnects | By default 100 successful sessions, interleaved wrong-password logins, within the same local-owner lifetime. No reboot masks accumulated state. |
-| Local control | Native readiness/state, authentication-deadline reclamation, progress during output, task/FD snapshots, active stop of a cooperative Rust builtin, restart, final child reap and Wi-Fi join. |
+| Local control | Native readiness/state, authentication-deadline reclamation followed by a fresh login, progress during output, task/FD snapshots, active stop of a cooperative Rust builtin, restart, final child reap and Wi-Fi join. |
 
 The automated rekey case is initiated by the client. The deferred-reply bound
 protects a different condition: server-initiated rekey while an authenticated

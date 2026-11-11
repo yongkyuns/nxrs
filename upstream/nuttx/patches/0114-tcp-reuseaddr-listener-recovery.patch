@@ -1,0 +1,161 @@
+From: Marco Casaroli <marco.casaroli@gmail.com>
+Subject: [PATCH] net/tcp: honor SO_REUSEADDR when reopening a listener
+
+Adapt the explicit-bind fix from https://github.com/apache/nuttx/pull/21667
+(commit 21e6571e5964e473790d820a67b71b9012bce6f0). Inherit only
+SO_REUSEADDR on accepted sockets. Existing listeners and connections
+without the option still block conflicting binds. Preserve ephemeral
+port selection and NAT reservation checks.
+
+Signed-off-by: Marco Casaroli <marco.casaroli@gmail.com>
+
+diff --git a/net/tcp/tcp_conn.c b/net/tcp/tcp_conn.c
+--- a/net/tcp/tcp_conn.c
++++ b/net/tcp/tcp_conn.c
+@@ -71,6 +71,7 @@
+ #include "icmpv6/icmpv6.h"
+ #include "nat/nat.h"
+ #include "netdev/netdev.h"
++#include "socket/socket.h"
+ #include "utils/utils.h"
+ 
+ /****************************************************************************
+@@ -109,11 +110,14 @@
+  *   Primary uses: (1) to determine if a port number is available, (2) to
+  *   To identify the socket that will accept new connections on a local port.
+  *
+- ****************************************************************************/
+-
+-static FAR struct tcp_conn_s *
+-  tcp_listener(uint8_t domain, FAR const union ip_addr_u *ipaddr,
+-               uint16_t portno)
++ *   reuse: the new socket has SO_REUSEADDR.  A connection that has it too
++ *   does not count, a listener always does (as Linux).
++ *
++ ****************************************************************************/
++
++static FAR struct tcp_conn_s *tcp_listener(uint8_t domain,
++                                           FAR const union ip_addr_u *ipaddr,
++                                           uint16_t portno, bool reuse)
+ {
+   FAR struct tcp_conn_s *conn = NULL;
+ 
+@@ -121,6 +125,13 @@
+ 
+   while ((conn = tcp_nextconn(conn)) != NULL)
+     {
++#ifdef CONFIG_NET_SOCKOPTS
++      if (reuse && _SO_GETOPT(conn->sconn.s_options, SO_REUSEADDR))
++        {
++          continue;
++        }
++#endif
++
+       /* Check if this connection is open and the local port assignment
+        * matches the requested port number.
+        */
+@@ -148,6 +159,42 @@
+ #else
+   return tcp_findlistener((FAR union ip_binding_u *)ipaddr, portno);
+ #endif
++}
++
++/****************************************************************************
++ * Name: tcp_bindport
++ *
++ * Description:
++ *   Verify or select the local port of bind().  If both sockets have
++ *   SO_REUSEADDR, a connection on the port (for example in TIME_WAIT)
++ *   does not conflict.  Otherwise as tcp_selectport().
++ *
++ ****************************************************************************/
++
++static int tcp_bindport(FAR struct tcp_conn_s *conn, uint8_t domain,
++                        FAR const union ip_addr_u *ipaddr, uint16_t portno)
++{
++#ifdef CONFIG_NET_SOCKOPTS
++  int ret = portno;
++
++  if (portno != 0 && _SO_GETOPT(conn->sconn.s_options, SO_REUSEADDR))
++    {
++      tcp_conn_list_lock();
++      if (tcp_listener(domain, ipaddr, portno, true)
++#  ifdef CONFIG_NET_NAT
++          || nat_port_inuse(domain, IP_PROTO_TCP, ipaddr, portno)
++#  endif
++         )
++        {
++          ret = -EADDRINUSE;
++        }
++
++      tcp_conn_list_unlock();
++      return ret;
++    }
++#endif
++
++  return tcp_selectport(domain, ipaddr, portno);
+ }
+ 
+ /****************************************************************************
+@@ -341,12 +388,12 @@
+ 
+   /* Verify or select a local port (network byte order) */
+ 
+-  port = tcp_selectport(PF_INET,
+-                       (FAR const union ip_addr_u *)&addr->sin_addr.s_addr,
+-                       addr->sin_port);
++  port = tcp_bindport(conn, PF_INET,
++                      (FAR const union ip_addr_u *)&addr->sin_addr.s_addr,
++                      addr->sin_port);
+   if (port < 0)
+     {
+-      nerr("ERROR: tcp_selectport failed: %d\n", port);
++      nerr("ERROR: tcp_bindport failed: %d\n", port);
+       return port;
+     }
+ 
+@@ -437,12 +484,12 @@
+ 
+   /* The port number must be unique for this address binding */
+ 
+-  port = tcp_selectport(PF_INET6,
++  port = tcp_bindport(conn, PF_INET6,
+                 (FAR const union ip_addr_u *)addr->sin6_addr.in6_u.u6_addr16,
+                 addr->sin6_port);
+   if (port < 0)
+     {
+-      nerr("ERROR: tcp_selectport failed: %d\n", port);
++      nerr("ERROR: tcp_bindport failed: %d\n", port);
+       return port;
+     }
+ 
+@@ -539,7 +586,7 @@
+               return -EADDRINUSE;
+             }
+         }
+-      while (tcp_listener(domain, ipaddr, portno)
++      while (tcp_listener(domain, ipaddr, portno, false)
+ #ifdef CONFIG_NET_NAT
+              || nat_port_inuse(domain, IP_PROTO_TCP, ipaddr, portno)
+ #endif
+@@ -551,7 +598,7 @@
+        * connection is using this local port.
+        */
+ 
+-      if (tcp_listener(domain, ipaddr, portno)
++      if (tcp_listener(domain, ipaddr, portno, false)
+ #ifdef CONFIG_NET_NAT
+           || nat_port_inuse(domain, IP_PROTO_TCP, ipaddr, portno)
+ #endif
+@@ -1116,6 +1163,11 @@
+        */
+ 
+ #ifdef CONFIG_NET_SOCKOPTS
++      if (_SO_GETOPT(listener->sconn.s_options, SO_REUSEADDR))
++        {
++          _SO_SETOPT(conn->sconn.s_options, SO_REUSEADDR);
++        }
++
+       conn->sconn.s_rcvtimeo = listener->sconn.s_rcvtimeo;
+       conn->sconn.s_sndtimeo = listener->sconn.s_sndtimeo;
+ #  ifdef CONFIG_NET_BINDTODEVICE

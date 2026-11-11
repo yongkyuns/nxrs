@@ -101,7 +101,7 @@ fn probe() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     if let Err(error) = probe() {
-        eprintln!("NXRS_SSH_PROBE_FAIL error={error}");
+        let _ = writeln!(io::stderr(), "NXRS_SSH_PROBE_FAIL error={error}");
         std::process::exit(1);
     }
 }

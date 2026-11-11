@@ -43,6 +43,14 @@ class SerialLab:
             raise self.api.CheckFailure("serial_short_write")
         self.connection.flush()
 
+    def send_secret_frame(self, data):
+        # The ESP32-S3 USB serial receive ring is 64 bytes. Give the target
+        # time to drain it between writes, including when it is servicing Wi-Fi.
+        for offset in range(0, len(data), 24):
+            if offset:
+                time.sleep(0.03)
+            self.send(data[offset:offset + 24])
+
     def read_until(self, pattern, timeout=15):
         regex = re.compile(pattern, re.M)
         deadline = time.monotonic() + timeout
@@ -67,7 +75,10 @@ class SerialLab:
                 raise self.api.CheckFailure("bounded_maintenance_output_exceeded")
 
     def shell_command(self, value):
-        self.send(value.encode("ascii") + b"\n")
+        command = value.encode("ascii")
+        self.send(command + b"\n")
+        # Discard any queued wake-up prompts before this command's echo.
+        self.read_until(re.escape(command) + rb"\r?\n")
         return self.read_until(self.api.PROMPT)[0]
 
     def shell_status(self, value):
@@ -96,7 +107,7 @@ class SerialLab:
             raise self.api.CheckFailure("wifi_interface_up_failed")
         self.send(b"ssh_probe lab\n")
         self.read_until(rb"NXRS_WIFI_CREDENTIALS_READY\r?\n")
-        self.send(bytes((len(self.ssid), len(self.wifi_password))) + self.ssid + self.wifi_password)
+        self.send_secret_frame(bytes((len(self.ssid), len(self.wifi_password))) + self.ssid + self.wifi_password)
         self.read_until(rb"NXRS_WIFI_ASSOCIATED_DHCP\r?\n", 40)
         self.read_until(rb"NXRS_SSH_LAB_READY[^\r\n]*[\r\n]")
         self.entered = True
@@ -105,10 +116,12 @@ class SerialLab:
             self.read_until(rb"NXRS_SSH_PROVISION_READY\r?\n")
             user = self.args.user.encode("ascii")
             frame = struct.pack("!IBH", len(self.key), len(user), len(self.password)) + self.key + user + self.password
-            self.send(frame)
-            output, _ = self.read_until(rb"NXRS_SSH_PROVISION_DONE[^\r\n]*[\r\n]", 40)
+            self.send_secret_frame(frame)
+            output, fields = self.read_until(rb"NXRS_SSH_PROVISION_(DONE|FAIL)[^\r\n]*[\r\n]", 40)
             if b"NXRS_SSH_PROVISION_CONSOLE_RESTORE_FAIL" in output:
                 raise self.api.CheckFailure("provision_console_restore_failed")
+            if fields[0] == b"FAIL":
+                raise self.api.CheckFailure("native_provision_failed")
         self.initial = self.snapshot("before-start")
         self.start_server()
         return {"wifi": "existing_station_owner", "storage": "disposable_tmpfs" if self.args.tmpfs else "operator_mounted",
@@ -122,11 +135,22 @@ class SerialLab:
 
     def state(self):
         self.send(b"status\n")
-        output, _ = self.read_until(rb"NXRS_SSH_LAB_CONTROL action=status result=0\r?\n")
-        states = re.findall(rb"dropbear: state=([a-z]+) pid=-?[0-9]+ result=-?[0-9]+", output)
+        output = self.control_result(b"status")
+        states = re.findall(rb"dropbear: state=([a-z]+) pid=-?[0-9]+ result=(-?[0-9]+)", output)
         if len(states) != 1:
             raise self.api.CheckFailure("native_status_missing_or_ambiguous")
-        return states[0].decode("ascii")
+        state, result = states[0]
+        if state == b"failed":
+            raise self.api.CheckFailure(f"native_server_failed:{int(result)}")
+        return state.decode("ascii")
+
+    def control_result(self, action, timeout=15):
+        output, fields = self.read_until(
+            rb"NXRS_SSH_LAB_CONTROL action=" + action + rb" result=(-?[0-9]+)\r?\n", timeout)
+        result = int(fields[0])
+        if result != 0:
+            raise self.api.CheckFailure(f"native_{action.decode('ascii')}_failed:{result}")
+        return output
 
     def require_state(self, expected):
         if self.state() != expected:
@@ -138,14 +162,14 @@ class SerialLab:
             state = self.state()
             if state == "listening":
                 return
-            if state in ("failed", "stopped"):
+            if state == "stopped":
                 raise self.api.CheckFailure("native_server_failed_before_listening")
             time.sleep(0.1)
         raise self.api.CheckFailure("native_listener_readiness_timeout")
 
     def stop(self):
         self.send(b"stop\n")
-        self.read_until(rb"NXRS_SSH_LAB_CONTROL action=stop result=0\r?\n", 20)
+        self.control_result(b"stop", 20)
         self.require_state("stopped")
         if self.server_exits < self.starts:
             # Reaping belongs to the Rust owner, separate from the daemon's
