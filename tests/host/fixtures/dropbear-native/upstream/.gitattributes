@@ -1,0 +1,2 @@
+# Hashed upstream snapshots preserve original bytes, including trailing spaces.
+src/*.c -text whitespace=-blank-at-eol,-blank-at-eof

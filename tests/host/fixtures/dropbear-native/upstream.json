@@ -1,0 +1,34 @@
+{
+  "repository": "mkj/dropbear",
+  "revision": "54ef47adf8c99b422be6a8f694f2866e62f88b9e",
+  "files": {
+    "src/dbrandom.c": {
+      "sha256": "a09cfe2cdcdfe642529e9385969e048834886e97ab4a28530fce699b4a7dfa04"
+    },
+    "src/common-channel.c": {
+      "sha256": "bd9f962f969672f947456faf4e3a3dff0584035206d1d01226cad479b0f91b87"
+    },
+    "src/common-session.c": {
+      "sha256": "dc19e059cb085b661aa3c25d6d2936bfd885d3b67807a1fbd4facc27124f56f6"
+    },
+    "src/dbmalloc.c": {
+      "sha256": "61a41bbfe46705d4c18d664e1f1e679afedcab31627d8652df51b48b834bc51d"
+    },
+    "src/svr-authpasswd.c": {
+      "sha256": "4c8e5a7add68b9424df41a9a3adef43bc1318e8a0abd270c6a156c7357b55257"
+    }
+  },
+  "nuttx_apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+  "apps_preimages": {
+    "nshlib/nsh_builtin.c": "91024ea1486c284975161098f004797edb567f71132f2155e12ae1e5bb6c053b",
+    "netutils/dropbear/dropbear_nshsession.c": "2bf3d801dc4a9c4ca34976bc546e36da22686c9d205e1be2ba997fae1388f6be",
+    "netutils/dropbear/CMakeLists.txt": "2d4ae2fc82582afba637b1484946e6cb443fd6aecf66c09c7dff1a5168a63c7a",
+    "netutils/dropbear/dropbear_main.c": "ae721415f3630621e2a332feed898e2522f45d31357a9f771da997f0bf419431",
+    "netutils/dropbear/Kconfig": "35ed00850c3de6051cb82fee83a81b0903bc12f6b5d5d400e0ec4d09c1541660",
+    "netutils/dropbear/Makefile": "4aacdd14a4bc43b84ef1ee1531944dd1d4abfa2bb693aad6d6d80a570333e158",
+    "netutils/dropbear/port/localoptions.h": "d9e2cffdf95664737ab56167f077274c9aa581bdeab7f8b522d19b1a62ae82c3",
+    "netutils/dropbear/port/nuttx_auth.c": "bf80ad81244d769c98a3888742d4c8d829fc475593573f262e505db1477a3936",
+    "netutils/dropbear/port/dropbear_ltc_hmac_sha256.c": "7c0909b9df77232e38356615df245d4f819207810a9cc03cddc856efb9fe987c",
+    "netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch": "47f56660a9a2ef7fe1c1d218079e952c73d0ddd520ad6fc8eb1d49238bb93c47"
+  }
+}

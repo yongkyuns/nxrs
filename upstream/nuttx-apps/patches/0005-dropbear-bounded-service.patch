@@ -1,0 +1,3815 @@
+From: nxrs contributors
+Subject: [PATCH] dropbear: bound native service ownership and qualify entropy
+
+Keep the daemon foreground, single-owner and single-channel. Expose independent
+status/stop controls, retain cleanup barriers, use the qualified fallible native
+entropy device and require provisioned host identity by default.
+
+diff --git a/netutils/dropbear/CMakeLists.txt b/netutils/dropbear/CMakeLists.txt
+--- a/netutils/dropbear/CMakeLists.txt
++++ b/netutils/dropbear/CMakeLists.txt
+@@ -1,256 +1,267 @@
+ # ##############################################################################
+ # apps/netutils/dropbear/CMakeLists.txt
+ #
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ # Licensed to the Apache Software Foundation (ASF) under one or more contributor
+ # license agreements.  See the NOTICE file distributed with this work for
+ # additional information regarding copyright ownership.  The ASF licenses this
+ # file to you under the Apache License, Version 2.0 (the "License"); you may not
+ # use this file except in compliance with the License.  You may obtain a copy of
+ # the License at
+ #
+ # http://www.apache.org/licenses/LICENSE-2.0
+ #
+ # Unless required by applicable law or agreed to in writing, software
+ # distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ # License for the specific language governing permissions and limitations under
+ # the License.
+ #
+ # ##############################################################################
+ 
+ if(CONFIG_NETUTILS_DROPBEAR)
+ 
+   set(DROPBEAR_COMMIT "${CONFIG_NETUTILS_DROPBEAR_COMMIT}")
+   string(REPLACE "\"" "" DROPBEAR_COMMIT "${DROPBEAR_COMMIT}")
+ 
+   set(DROPBEAR_ZIP "${DROPBEAR_COMMIT}.zip")
+   set(DROPBEAR_URL "https://github.com/mkj/dropbear/archive")
+   set(DROPBEAR_UNPACKNAME "dropbear")
+ 
+   if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_UNPACKNAME}")
+     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_ZIP}")
+       message(STATUS "Downloading Dropbear: ${DROPBEAR_URL}/${DROPBEAR_ZIP}")
+       file(DOWNLOAD "${DROPBEAR_URL}/${DROPBEAR_ZIP}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_ZIP}")
+     endif()
+     message(STATUS "Unpacking Dropbear: ${DROPBEAR_ZIP}")
+     execute_process(
+       COMMAND unzip -q -o "${DROPBEAR_ZIP}"
+       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+       RESULT_VARIABLE result)
+     if(result EQUAL 0)
+       file(RENAME "${CMAKE_CURRENT_SOURCE_DIR}/dropbear-${DROPBEAR_COMMIT}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_UNPACKNAME}")
+       execute_process(
+         COMMAND
+           patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
+           "${CMAKE_CURRENT_SOURCE_DIR}/patch/0001-guard-platform-declarations.patch"
+         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+       execute_process(
+         COMMAND
+           patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
+           "${CMAKE_CURRENT_SOURCE_DIR}/patch/0002-use-nuttx-passwd-auth.patch"
+         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+       execute_process(
+         COMMAND
+           patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
+           "${CMAKE_CURRENT_SOURCE_DIR}/patch/0003-allow-localoptions-to-override-tracking-malloc.patch"
+         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+       execute_process(
+         COMMAND
+           patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
+           "${CMAKE_CURRENT_SOURCE_DIR}/patch/0004-use-nuttx-unused-macro.patch"
+         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
++      execute_process(
++        COMMAND
++          patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
++          "${CMAKE_CURRENT_SOURCE_DIR}/patch/0005-nuttx-bounded-service.patch"
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear bounded service patch failed")
++      endif()
+       message(STATUS "Generating default_options_guard.h")
+       execute_process(
+         COMMAND
+           sh
+           "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_UNPACKNAME}/src/ifndef_wrapper.sh"
+         INPUT_FILE
+           "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_UNPACKNAME}/src/default_options.h"
+         OUTPUT_FILE
+           "${CMAKE_CURRENT_SOURCE_DIR}/${DROPBEAR_UNPACKNAME}/src/default_options_guard.h"
+         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+     endif()
+   endif()
+ 
+   set(PROGNAME "${CONFIG_NETUTILS_DROPBEAR_PROGNAME}")
+   string(REPLACE "\"" "" PROGNAME "${PROGNAME}")
+ 
+   set(DROPBEAR_SRCS
+       dropbear_nshsession.c
+       port/nuttx_auth.c
++      port/dropbear_control.c
++      port/dropbear_entropy.c
+       port/dropbear_utils.c
+       dropbear/src/dbutil.c
+       dropbear/src/buffer.c
+       dropbear/src/dbhelpers.c
+       dropbear/src/bignum.c
+       dropbear/src/signkey.c
+       dropbear/src/dbrandom.c
+       dropbear/src/queue.c
+       dropbear/src/atomicio.c
+       dropbear/src/compat.c
+       dropbear/src/fake-rfc2553.c
+       dropbear/src/curve25519.c
+       dropbear/src/chachapoly.c
+       dropbear/src/ltc_prng.c
+       dropbear/src/ecc.c
+       dropbear/src/ecdsa.c
+       dropbear/src/crypto_desc.c
+       dropbear/src/dbmalloc.c
+       dropbear/src/gensignkey.c
+       dropbear/src/common-session.c
+       dropbear/src/packet.c
+       dropbear/src/common-algo.c
+       dropbear/src/common-kex.c
+       dropbear/src/common-channel.c
+       dropbear/src/common-chansession.c
+       dropbear/src/termcodes.c
+       dropbear/src/tcp-accept.c
+       dropbear/src/listener.c
+       dropbear/src/process-packet.c
+       dropbear/src/common-runopts.c
+       dropbear/src/circbuffer.c
+       dropbear/src/list.c
+       dropbear/src/netio.c
+       dropbear/src/gcm.c
+       dropbear/src/kex-x25519.c
+       dropbear/src/svr-kex.c
+       dropbear/src/svr-auth.c
+       dropbear/src/svr-authpasswd.c
+       dropbear/src/svr-session.c
+       dropbear/src/svr-service.c
+       dropbear/src/svr-runopts.c
+       dropbear/src/svr-tcpfwd.c
+       dropbear/src/svr-forward.c
+       dropbear/src/svr-streamfwd.c
+       dropbear/src/svr-authpam.c)
+ 
+   file(GLOB LIBTOMMATH_SRCS CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/dropbear/libtommath/*.c")
+   list(APPEND DROPBEAR_SRCS ${LIBTOMMATH_SRCS})
+ 
+   file(GLOB_RECURSE LIBTOMCRYPT_SRCS CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/dropbear/libtomcrypt/src/*.c")
+   list(FILTER LIBTOMCRYPT_SRCS EXCLUDE REGEX ".*/prngs/sober128tab\\.c$")
+ 
+   # Drop the bundled libtomcrypt HMAC modules replaced by the NuttX adapter.
+   list(FILTER LIBTOMCRYPT_SRCS EXCLUDE REGEX ".*/mac/hmac/hmac_init\\.c$")
+   list(FILTER LIBTOMCRYPT_SRCS EXCLUDE REGEX ".*/mac/hmac/hmac_process\\.c$")
+   list(FILTER LIBTOMCRYPT_SRCS EXCLUDE REGEX ".*/mac/hmac/hmac_done\\.c$")
+   list(APPEND DROPBEAR_SRCS port/dropbear_ltc_hmac_sha256.c)
+ 
+   # Replace the bundled chacha20-poly1305 with the /dev/crypto adapter.
+   list(REMOVE_ITEM DROPBEAR_SRCS dropbear/src/chachapoly.c)
+   list(APPEND DROPBEAR_SRCS port/dropbear_chachapoly.c)
+ 
+   list(APPEND DROPBEAR_SRCS ${LIBTOMCRYPT_SRCS})
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_SCP)
+     list(APPEND DROPBEAR_SRCS dropbear/src/scpmisc.c port/nuttx_scp.c)
+   endif()
+ 
+   nuttx_add_application(
+     NAME
+     ${PROGNAME}
+     SRCS
+     ${DROPBEAR_SRCS}
+     dropbear_main.c
+     STACKSIZE
+     ${CONFIG_NETUTILS_DROPBEAR_STACKSIZE}
+     PRIORITY
+     ${CONFIG_NETUTILS_DROPBEAR_PRIORITY}
+     DEPENDS
+     ${DROPBEAR_UNPACKNAME})
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_SCP)
+     nuttx_add_application(
+       NAME
+       scp
+       SRCS
+       dropbear/src/scp.c
+       STACKSIZE
+       ${CONFIG_NETUTILS_DROPBEAR_SCP_STACKSIZE}
+       PRIORITY
+       ${CONFIG_NETUTILS_DROPBEAR_SCP_PRIORITY}
+       DEPENDS
+       ${DROPBEAR_UNPACKNAME})
+   endif()
+ 
+   target_include_directories(
+     ${PROGNAME}
+     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+             ${CMAKE_CURRENT_SOURCE_DIR}/port
+             ${CMAKE_CURRENT_SOURCE_DIR}/dropbear
+             ${CMAKE_CURRENT_SOURCE_DIR}/dropbear/src
+             ${CMAKE_CURRENT_SOURCE_DIR}/dropbear/libtomcrypt/src/headers
+             ${CMAKE_CURRENT_SOURCE_DIR}/dropbear/libtommath
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../nshlib)
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_SCP)
+     target_include_directories(
+       scp
+       PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/port
+               ${CMAKE_CURRENT_SOURCE_DIR}/dropbear
+               ${CMAKE_CURRENT_SOURCE_DIR}/dropbear/src)
+   endif()
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_COMPRESSION)
+     target_include_directories(
+       ${PROGNAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../system/zlib/zlib)
+   endif()
+ 
+   target_compile_definitions(
+     ${PROGNAME}
+     PRIVATE LOCALOPTIONS_H_EXISTS=1
+             DROPBEAR_NUTTX=1
+             DROPBEAR_NUTTX_PASSWD=1
+             base64_encode=dropbear_ltc_base64_encode
+             base64_decode=dropbear_ltc_base64_decode
+             ecc_make_key=dropbear_ltc_ecc_make_key)
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_SCP)
+     target_compile_definitions(
+       scp PRIVATE LOCALOPTIONS_H_EXISTS=1 DROPBEAR_NUTTX=1
+                   DROPBEAR_NUTTX_PASSWD=1)
+   endif()
+ 
+   set_source_files_properties(
+     dropbear_nshsession.c
+     PROPERTIES COMPILE_DEFINITIONS
+                "Channel=dropbear_channel;ChanType=dropbear_chantype")
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_SCP)
+     set_source_files_properties(
+       dropbear/src/scp.c
+       PROPERTIES
+         COMPILE_DEFINITIONS
+         "xmalloc=dropbear_scp_xmalloc;xrealloc=dropbear_scp_xrealloc;xfree=dropbear_scp_xfree;execvp=dropbear_scp_execvp"
+     )
+     set_source_files_properties(
+       dropbear/src/scpmisc.c
+       PROPERTIES
+         COMPILE_DEFINITIONS
+         "xmalloc=dropbear_scp_xmalloc;xrealloc=dropbear_scp_xrealloc;xfree=dropbear_scp_xfree"
+     )
+   endif()
+ 
+   # LTC_SOURCE must be set only for libtomcrypt sources.
+   set_source_files_properties(${LIBTOMCRYPT_SRCS} PROPERTIES COMPILE_DEFINITIONS
+                                                              LTC_SOURCE=1)
+ 
+   target_compile_options(${PROGNAME} PRIVATE -Wno-pointer-sign -Wno-format)
+ 
+   if(CONFIG_NETUTILS_DROPBEAR_SCP)
+     target_compile_options(
+       scp
+       PRIVATE -Wno-pointer-sign -Wno-format -include
+               ${CMAKE_CURRENT_SOURCE_DIR}/port/nuttx_scp.h
+               -Wno-strict-prototypes)
+   endif()
+ 
+   target_sources(apps PRIVATE ${DROPBEAR_SRCS})
+ 
+ endif()
+diff --git a/netutils/dropbear/Kconfig b/netutils/dropbear/Kconfig
+--- a/netutils/dropbear/Kconfig
++++ b/netutils/dropbear/Kconfig
+@@ -1,157 +1,191 @@
+ #
+ # For a description of the syntax of this configuration file,
+ # see the file kconfig-language.txt in the NuttX tools repository.
+ #
+ 
+ menuconfig NETUTILS_DROPBEAR
+ 	tristate "Dropbear SSH server"
+ 	default n
+-	depends on NET && NET_TCP
++	depends on BUILD_FLAT && !SMP
++	depends on NET && NET_TCP && NET_IPv4
+ 	depends on !DISABLE_PSEUDOFS_OPERATIONS
+ 	depends on !DISABLE_PTHREAD
++	depends on !DISABLE_ALL_SIGNALS
+ 	depends on SCHED_WAITPID
+ 	depends on SCHED_HAVE_PARENT
+ 	depends on SCHED_CHILD_STATUS
+ 	depends on NSH_LIBRARY
+ 	depends on FSUTILS_PASSWD
+ 	depends on PSEUDOTERM
+ 	depends on SERIAL
+-	depends on DEV_URANDOM
++	depends on DEV_RANDOM
+ 	depends on LIBC_NETDB
+ 	depends on LIBC_GAISTRERROR
+ 	depends on CRYPTO
+-	depends on CRYPTO_RANDOM_POOL
+ 	depends on ALLOW_BSD_COMPONENTS
+ 	depends on CRYPTO_CRYPTODEV
+ 	depends on CRYPTO_CRYPTODEV_SOFTWARE_CRYPTO
+ 	---help---
+ 		Enable a minimal Dropbear SSH server port for NuttX.  This initial
+ 		port is based on the ESP-IDF MCU test port and provides a single
+ 		foreground SSH server process with SSH sessions backed by NSH.
+ 
+ 		The port computes the hmac-sha2-256 packet MAC through the NuttX
+ 		crypto device (/dev/crypto, CRYPTO_SHA2_256_HMAC) instead of the
+ 		bundled libtomcrypt implementation, which is dropped from the
+ 		build.  The SHA-256 hash descriptor itself stays in the
+ 		application: Dropbear's key derivation clones partially-updated
+ 		hash states (hashkeys() in common-kex.c), which cannot be
+ 		represented by a kernel crypto session.
+ 
+ 		The port also implements the chacha20-poly1305@openssh.com cipher
+ 		through the NuttX crypto device (/dev/crypto), using the
+ 		CRYPTO_CHACHA20_DJB and CRYPTO_POLY1305 algorithms instead of
+ 		the bundled libtomcrypt implementation, which is dropped from
+ 		the build.
+ 
+ if NETUTILS_DROPBEAR
+ 
+ config NETUTILS_DROPBEAR_STACKSIZE
+ 	int "Dropbear main stack size"
+ 	default 65536
+ 	---help---
+ 		Stack size for the Dropbear server built-in.
+ 		This is architecture-specific, so adjust it according to your setup.
+ 
+ config NETUTILS_DROPBEAR_PRIORITY
+ 	int "Dropbear main priority"
+ 	default 100
+ 
+ config NETUTILS_DROPBEAR_SHELL_PRIORITY
+ 	int "Dropbear NSH session priority"
+ 	default 100
+ 
+ config NETUTILS_DROPBEAR_PROGNAME
+ 	string "Dropbear program name"
+ 	default "dropbear"
+ 	---help---
+ 		This is the name of the program that will be used when the NSH ELF
+ 		program is installed.
+ 
+ config NETUTILS_DROPBEAR_LISTEN_RETRIES
+ 	int "Dropbear listen retries"
+-	default 0
++	default 3
++	range 0 10
+ 	---help---
+-		Number of times to retry listen setup when no listen socket could
+-		be opened.  Zero means to retry forever.
++		Number of retries after the initial IPv4 listen attempt.  Zero
++		means no retries.  Stop interrupts the bounded backoff.
+ 
+ config NETUTILS_DROPBEAR_LISTEN_RETRY_MAX
+ 	int "Dropbear maximum listen retry interval"
+-	default 120
+-	range 1 3600
++	default 4
++	range 1 60
+ 	---help---
+ 		Maximum number of seconds to wait between listen setup retries.
+ 		The retry delay starts at one second and doubles until it reaches
+ 		this value.
++
++config NETUTILS_DROPBEAR_BIND_ADDRESS
++	string "Numeric IPv4 listen address"
++	default "0.0.0.0"
++	---help---
++		One numeric IPv4 address, without a port.  Names and IPv6 are
++		rejected.  Only one transport and one shell channel are admitted.
++
++config NETUTILS_DROPBEAR_AUTH_TIMEOUT
++	int "Authentication timeout (seconds)"
++	default 30
++	range 1 300
++
++config NETUTILS_DROPBEAR_IDLE_TIMEOUT
++	int "Session idle timeout (seconds)"
++	default 300
++	range 1 3600
++
++config NETUTILS_DROPBEAR_MAX_AUTH_TRIES
++	int "Maximum authentication failures"
++	default 3
++	range 1 10
++
++config NETUTILS_DROPBEAR_STOP_TIMEOUT
++	int "Stop acknowledgement timeout (seconds)"
++	default 10
++	range 1 60
++	---help---
++		Bound the monotonic control wait, not unsafe task deletion.  If
++		cleanup has not finished, ownership stays in stopping state and
++		another start is rejected.  The foreground owner cleans up.
+ 
+ config NETUTILS_DROPBEAR_SHELL_STACKSIZE
+ 	int "Dropbear NSH session task stack size"
+ 	default 8192
+ 
+ config NETUTILS_DROPBEAR_SCP
+ 	bool "Enable scp remote copy helper"
+-	default y
++	default n
+ 	depends on PIPES
+ 	---help---
+ 		Build Dropbear's scp program and allow SSH exec requests so a host
+ 		scp client can copy files to and from NuttX using the legacy scp
+ 		protocol.  This does not build a full SSH client for initiating scp
+ 		transfers from the target.
+ 
+ config NETUTILS_DROPBEAR_SCP_STACKSIZE
+ 	int "Dropbear scp stack size"
+ 	default 32768
+ 	depends on NETUTILS_DROPBEAR_SCP
+ 
+ config NETUTILS_DROPBEAR_SCP_PRIORITY
+ 	int "Dropbear scp priority"
+ 	default 100
+ 	depends on NETUTILS_DROPBEAR_SCP
+ 
+ config NETUTILS_DROPBEAR_PORT
+ 	int "Dropbear listen port"
+ 	default 2222
++	range 1 65535
+ 
+ config NETUTILS_DROPBEAR_HOSTKEY_PATH
+ 	string "Dropbear ECDSA P-256 host key path"
+ 	default "/etc/dropbear/dropbear_ecdsa_host_key"
+ 	---help---
+ 		Path to the persistent ECDSA P-256 host key used by the Dropbear
+ 		server.  The file is stored in Dropbear's native host key format.
+ 
+ config NETUTILS_DROPBEAR_GENERATE_HOSTKEY
+ 	bool "Generate host key if missing"
+-	default y
++	default n
+ 	---help---
+-		Pass -R so Dropbear generates an ECDSA P-256 host key on demand and
+-		persists it at NETUTILS_DROPBEAR_HOSTKEY_PATH when it does not exist.
+-		Product builds can disable this and provision the host key
+-		externally (loaded with -r).
++		Generate an ECDSA P-256 host key at startup only when the path is
++		missing.  Its persistent parent directory must already exist and
++		be writable.  Existing keys are loaded with -r and never replaced.
++		The default requires an externally provisioned native Dropbear key.
+ 
+ config NETUTILS_DROPBEAR_COMPRESSION
+ 	bool "Enable SSH compression (zlib)"
+ 	default n
+ 	depends on LIB_ZLIB
+ 	---help---
+ 		Enable zlib compression for SSH sessions.  Requires the zlib
+ 		library (LIB_ZLIB).  When disabled, Dropbear is built with
+ 		DISABLE_ZLIB and negotiates no compression.
+ 
+ 		WARNING: each session allocates a zlib deflate state of about
+ 		256 KiB (DROPBEAR_ZLIB_WINDOW_BITS=15, DROPBEAR_ZLIB_MEM_LEVEL=8),
+ 		and the state is allocated even for the delayed zlib@openssh.com
+ 		method, right after key exchange.
+ 
+ config NETUTILS_DROPBEAR_SYSLOG
+ 	bool "Log via syslog"
+ 	default n
+ 	---help---
+ 		Route Dropbear log messages through syslog().  When disabled,
+ 		Dropbear is built with DISABLE_SYSLOG.
+ 
+ config NETUTILS_DROPBEAR_COMMIT
+ 	string "Dropbear upstream commit"
+ 	default "54ef47adf8c99b422be6a8f694f2866e62f88b9e"
+ 	---help---
+ 		Upstream Dropbear (mkj/dropbear) commit to download and build.
+ 
+ endif
+diff --git a/netutils/dropbear/Makefile b/netutils/dropbear/Makefile
+--- a/netutils/dropbear/Makefile
++++ b/netutils/dropbear/Makefile
+@@ -1,205 +1,207 @@
+ ############################################################################
+ # apps/netutils/dropbear/Makefile
+ #
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ # Licensed to the Apache Software Foundation (ASF) under one or more
+ # contributor license agreements.  See the NOTICE file distributed with
+ # this work for additional information regarding copyright ownership.  The
+ # ASF licenses this file to you under the Apache License, Version 2.0 (the
+ # "License"); you may not use this file except in compliance with the
+ # License.  You may obtain a copy of the License at
+ #
+ #   http://www.apache.org/licenses/LICENSE-2.0
+ #
+ # Unless required by applicable law or agreed to in writing, software
+ # distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ # License for the specific language governing permissions and limitations
+ # under the License.
+ #
+ ############################################################################
+ 
+ include $(APPDIR)/Make.defs
+ 
+ ifneq ($(CONFIG_NETUTILS_DROPBEAR),)
+ 
+ DROPBEAR_COMMIT = $(patsubst "%",%,$(strip $(CONFIG_NETUTILS_DROPBEAR_COMMIT)))
+ DROPBEAR_ZIP = $(DROPBEAR_COMMIT).zip
+ DROPBEAR_UNPACKNAME = dropbear
+ DROPBEAR_URL = https://github.com/mkj/dropbear/archive
+ UNPACK ?= unzip -q -o
+ ifeq ($(CONFIG_HOST_MACOS),y)
+ PATCH ?= gpatch
+ else
+ PATCH ?= patch
+ endif
+ 
+ MODULE = $(CONFIG_NETUTILS_DROPBEAR)
+ PROGNAME = $(CONFIG_NETUTILS_DROPBEAR_PROGNAME)
+ PRIORITY = $(CONFIG_NETUTILS_DROPBEAR_PRIORITY)
+ STACKSIZE = $(CONFIG_NETUTILS_DROPBEAR_STACKSIZE)
+ 
+ ifneq ($(CONFIG_NETUTILS_DROPBEAR_SCP),)
+ PROGNAME += scp
+ PRIORITY += $(CONFIG_NETUTILS_DROPBEAR_SCP_PRIORITY)
+ STACKSIZE += $(CONFIG_NETUTILS_DROPBEAR_SCP_STACKSIZE)
+ endif
+ 
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)netutils$(DELIM)dropbear"
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)port"
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)dropbear"
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)dropbear$(DELIM)src"
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)dropbear$(DELIM)libtomcrypt$(DELIM)src$(DELIM)headers"
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)dropbear$(DELIM)libtommath"
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)nshlib"
+ 
+ ifneq ($(CONFIG_NETUTILS_DROPBEAR_COMPRESSION),)
+ CFLAGS += ${INCDIR_PREFIX}"$(APPDIR)$(DELIM)system$(DELIM)zlib$(DELIM)zlib"
+ endif
+ 
+ CFLAGS += ${DEFINE_PREFIX}LOCALOPTIONS_H_EXISTS=1
+ CFLAGS += ${DEFINE_PREFIX}DROPBEAR_NUTTX=1
+ CFLAGS += ${DEFINE_PREFIX}DROPBEAR_NUTTX_PASSWD=1
+ CFLAGS += -Wno-pointer-sign -Wno-format
+ 
+ dropbear_nshsession.c_CFLAGS += ${DEFINE_PREFIX}Channel=dropbear_channel
+ dropbear_nshsession.c_CFLAGS += ${DEFINE_PREFIX}ChanType=dropbear_chantype
+ 
+ CSRCS = dropbear_nshsession.c
+ CSRCS += port/nuttx_auth.c
++CSRCS += port/dropbear_control.c port/dropbear_entropy.c
+ CSRCS += port/dropbear_utils.c
+ 
+ CSRCS += \
+ 	dropbear/src/dbutil.c \
+ 	dropbear/src/buffer.c \
+ 	dropbear/src/dbhelpers.c \
+ 	dropbear/src/bignum.c \
+ 	dropbear/src/signkey.c \
+ 	dropbear/src/dbrandom.c \
+ 	dropbear/src/queue.c \
+ 	dropbear/src/atomicio.c \
+ 	dropbear/src/compat.c \
+ 	dropbear/src/fake-rfc2553.c \
+ 	dropbear/src/curve25519.c \
+ 	dropbear/src/chachapoly.c \
+ 	dropbear/src/ltc_prng.c \
+ 	dropbear/src/ecc.c \
+ 	dropbear/src/ecdsa.c \
+ 	dropbear/src/crypto_desc.c \
+ 	dropbear/src/dbmalloc.c \
+ 	dropbear/src/gensignkey.c \
+ 	dropbear/src/common-session.c \
+ 	dropbear/src/packet.c \
+ 	dropbear/src/common-algo.c \
+ 	dropbear/src/common-kex.c \
+ 	dropbear/src/common-channel.c \
+ 	dropbear/src/common-chansession.c \
+ 	dropbear/src/termcodes.c \
+ 	dropbear/src/tcp-accept.c \
+ 	dropbear/src/listener.c \
+ 	dropbear/src/process-packet.c \
+ 	dropbear/src/common-runopts.c \
+ 	dropbear/src/circbuffer.c \
+ 	dropbear/src/list.c \
+ 	dropbear/src/netio.c \
+ 	dropbear/src/gcm.c \
+ 	dropbear/src/kex-x25519.c \
+ 	dropbear/src/svr-kex.c \
+ 	dropbear/src/svr-auth.c \
+ 	dropbear/src/svr-authpasswd.c \
+ 	dropbear/src/svr-session.c \
+ 	dropbear/src/svr-service.c \
+ 	dropbear/src/svr-runopts.c \
+ 	dropbear/src/svr-tcpfwd.c \
+ 	dropbear/src/svr-forward.c \
+ 	dropbear/src/svr-streamfwd.c \
+ 	dropbear/src/svr-authpam.c
+ 
+ TOMMATH_SRCS = $(shell if [ -d "$(DROPBEAR_UNPACKNAME)/libtommath" ]; then find "$(DROPBEAR_UNPACKNAME)/libtommath" -name "*.c"; fi)
+ TOMCRYPT_SRCS = $(shell if [ -d "$(DROPBEAR_UNPACKNAME)/libtomcrypt/src" ]; then find "$(DROPBEAR_UNPACKNAME)/libtomcrypt/src" -name "*.c" ! -name "sober128tab.c"; fi)
+ 
+ # Drop the bundled libtomcrypt HMAC modules replaced by the NuttX adapter.
+ 
+ TOMCRYPT_SRCS := $(filter-out \
+ 	%/mac/hmac/hmac_init.c \
+ 	%/mac/hmac/hmac_process.c \
+ 	%/mac/hmac/hmac_done.c, \
+ 	$(TOMCRYPT_SRCS))
+ 
+ CSRCS += port/dropbear_ltc_hmac_sha256.c
+ 
+ # Replace the bundled chacha20-poly1305 with the /dev/crypto adapter.
+ 
+ CSRCS := $(filter-out dropbear/src/chachapoly.c,$(CSRCS))
+ CSRCS += port/dropbear_chachapoly.c
+ 
+ CSRCS += $(TOMMATH_SRCS)
+ CSRCS += $(TOMCRYPT_SRCS)
+ 
+ ifneq ($(CONFIG_NETUTILS_DROPBEAR_SCP),)
+ CSRCS += dropbear/src/scpmisc.c
+ CSRCS += port/nuttx_scp.c
+ endif
+ 
+ # Match the ESP-IDF port behavior: LTC_SOURCE is only for libtomcrypt sources.
+ $(foreach src,$(TOMCRYPT_SRCS),$(eval $(src)_CFLAGS += ${DEFINE_PREFIX}LTC_SOURCE=1))
+ 
+ # Avoid duplicate symbols when NuttX/apps also provide these APIs.
+ # Apply to all dropbear sources so libtomcrypt definitions and dropbear
+ # callers (e.g. signkey.c) use the same renamed symbols.
+ CFLAGS += ${DEFINE_PREFIX}base64_encode=dropbear_ltc_base64_encode
+ CFLAGS += ${DEFINE_PREFIX}base64_decode=dropbear_ltc_base64_decode
+ CFLAGS += ${DEFINE_PREFIX}ecc_make_key=dropbear_ltc_ecc_make_key
+ 
+ MAINSRC = dropbear_main.c
+ 
+ ifneq ($(CONFIG_NETUTILS_DROPBEAR_SCP),)
+ MAINSRC += dropbear/src/scp.c
+ 
+ dropbear/src/scp.c_CFLAGS += ${DEFINE_PREFIX}xmalloc=dropbear_scp_xmalloc
+ dropbear/src/scp.c_CFLAGS += ${DEFINE_PREFIX}xrealloc=dropbear_scp_xrealloc
+ dropbear/src/scp.c_CFLAGS += ${DEFINE_PREFIX}xfree=dropbear_scp_xfree
+ dropbear/src/scp.c_CFLAGS += ${DEFINE_PREFIX}execvp=dropbear_scp_execvp
+ dropbear/src/scp.c_CFLAGS += -include port/nuttx_scp.h
+ dropbear/src/scp.c_CFLAGS += -Wno-strict-prototypes
+ 
+ dropbear/src/scpmisc.c_CFLAGS += ${DEFINE_PREFIX}xmalloc=dropbear_scp_xmalloc
+ dropbear/src/scpmisc.c_CFLAGS += ${DEFINE_PREFIX}xrealloc=dropbear_scp_xrealloc
+ dropbear/src/scpmisc.c_CFLAGS += ${DEFINE_PREFIX}xfree=dropbear_scp_xfree
+ endif
+ 
+ $(DROPBEAR_ZIP):
+ 	@echo "Downloading: $(DROPBEAR_ZIP)"
+ 	$(Q) curl -L -o $(DROPBEAR_ZIP) $(DROPBEAR_URL)/$(DROPBEAR_ZIP)
+ 
+ $(DROPBEAR_UNPACKNAME): $(DROPBEAR_ZIP)
+ 	@echo "Unpacking: $(DROPBEAR_ZIP) -> $(DROPBEAR_UNPACKNAME)"
+ 	$(Q) $(UNPACK) $(DROPBEAR_ZIP)
+ 	$(Q) rm -rf $(DROPBEAR_UNPACKNAME)
+ 	$(Q) mv dropbear-$(DROPBEAR_COMMIT) $(DROPBEAR_UNPACKNAME)
+ 	@echo "Patching $(DROPBEAR_UNPACKNAME)"
+ 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0001-guard-platform-declarations.patch; true
+ 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0002-use-nuttx-passwd-auth.patch; true
+ 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0003-allow-localoptions-to-override-tracking-malloc.patch; true
+ 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0004-use-nuttx-unused-macro.patch; true
++	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0005-nuttx-bounded-service.patch
+ 	@echo "Generating default_options_guard.h"
+ 	$(Q) sh $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)ifndef_wrapper.sh \
+ 		< $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)default_options.h \
+ 		> $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)default_options_guard.h
+ 	$(Q) touch $(DROPBEAR_UNPACKNAME)
+ 
+ ifeq ($(wildcard $(DROPBEAR_UNPACKNAME)/.git),)
+ context:: $(DROPBEAR_UNPACKNAME)
+ 
+ clean::
+ 	$(call DELFILE, port$(DELIM)*.o)
+ 
+ distclean::
+ 	$(call DELDIR, $(DROPBEAR_UNPACKNAME))
+ 	$(call DELFILE, $(DROPBEAR_ZIP))
+ endif
+ 
+ endif
+ 
+ include $(APPDIR)/Application.mk
+diff --git a/netutils/dropbear/dropbear_main.c b/netutils/dropbear/dropbear_main.c
+--- a/netutils/dropbear/dropbear_main.c
++++ b/netutils/dropbear/dropbear_main.c
+@@ -1,329 +1,435 @@
+ /****************************************************************************
+  * apps/netutils/dropbear/dropbear_main.c
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  ****************************************************************************/
+ 
+-/****************************************************************************
+- * Included Files
+- ****************************************************************************/
+-
+ #include <nuttx/config.h>
+ 
+-#include <sys/socket.h>
++#include <arpa/inet.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <poll.h>
+ #include <setjmp.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
+ #include <unistd.h>
+ 
+ #include "includes.h"
+ #include "algo.h"
+ #include "crypto_desc.h"
+ #define dropbear_main dropbear_multi_entry
+ #include "dbutil.h"
+ #undef dropbear_main
+ #include "dbrandom.h"
+-#include "netio.h"
+ #include "runopts.h"
+ #include "session.h"
+ #include "signkey.h"
+ #include "gensignkey.h"
+-#include "ssh.h"
+-
+-/****************************************************************************
+- * Pre-processor Definitions
+- ****************************************************************************/
+-
+-#define DROPBEAR_PORT_STRING_HELPER(n) #n
+-#define DROPBEAR_PORT_STRING(n) DROPBEAR_PORT_STRING_HELPER(n)
+-
+-/****************************************************************************
+- * Private Types
+- ****************************************************************************/
+-
+-typedef void (*dropbear_exit_handler_t)(int exitcode, FAR const char *format,
+-                                        va_list param) ATTRIB_NORETURN;
+-
+-/****************************************************************************
+- * Private Data
+- ****************************************************************************/
+-
+-static jmp_buf g_session_exit_jmp;
+-static int g_session_exitcode;
+-
+-/****************************************************************************
+- * Private Functions
+- ****************************************************************************/
+-
+-static void dropbear_session_exit(int exitcode, FAR const char *format,
+-                                  va_list param) noreturn_function;
+-static void dropbear_session_exit(int exitcode, FAR const char *format,
+-                                  va_list param)
+-{
+-  char exitmsg[150];
+-  char fullmsg[300];
+-  char fromaddr[60];
+-  int signal_pipe[2];
+-
+-  vsnprintf(exitmsg, sizeof(exitmsg), format, param);
+-
+-  fromaddr[0] = '\0';
+-
+-  if (svr_ses.addrstring != NULL)
+-    {
+-      snprintf(fromaddr, sizeof(fromaddr), " from <%s>", svr_ses.addrstring);
+-    }
+-
+-  if (!ses.init_done)
+-    {
+-      snprintf(fullmsg, sizeof(fullmsg), "Early exit%s: %s", fromaddr,
+-               exitmsg);
+-    }
+-  else if (ses.authstate.authdone)
+-    {
+-      snprintf(fullmsg, sizeof(fullmsg), "Exit (%s)%s: %s",
+-               ses.authstate.pw_name, fromaddr, exitmsg);
+-    }
+-  else if (ses.authstate.pw_name != NULL)
+-    {
+-      snprintf(fullmsg, sizeof(fullmsg),
+-               "Exit before auth%s: (user '%s', %u fails): %s",
+-               fromaddr, ses.authstate.pw_name, ses.authstate.failcount,
+-               exitmsg);
+-    }
+-  else
+-    {
+-      snprintf(fullmsg, sizeof(fullmsg), "Exit before auth%s: %s", fromaddr,
+-               exitmsg);
+-    }
+-
+-  dropbear_log(LOG_INFO, "%s", fullmsg);
+-
+-  signal_pipe[0] = ses.signal_pipe[0];
+-  signal_pipe[1] = ses.signal_pipe[1];
++#include "dropbear_control.h"
++
++#define STRINGIFY_VALUE(n) #n
++#define STRINGIFY(n) STRINGIFY_VALUE(n)
++
++static jmp_buf g_server_exit;
++static jmp_buf g_session_exit;
++static int g_server_result;
++
++static void dropbear_server_exit(int code, const char *format, va_list args)
++  noreturn_function;
++static void dropbear_session_exit(int code, const char *format, va_list args)
++  noreturn_function;
++
++static void dropbear_server_exit(int code, const char *format, va_list args)
++{
++  char message[160];
++
++  vsnprintf(message, sizeof(message), format, args);
++  dropbear_log(LOG_ERR, "%s", message);
++  if (g_server_result == 0)
++    {
++      g_server_result = code == EXIT_SUCCESS ? 0 : -EIO;
++    }
++
++  longjmp(g_server_exit, 1);
++}
++
++static void dropbear_session_exit(int code, const char *format, va_list args)
++{
++  char message[160];
++  int pipe_read = ses.signal_pipe[0];
++  int pipe_write = ses.signal_pipe[1];
++
++  (void)code;
++  vsnprintf(message, sizeof(message), format, args);
++  dropbear_log(LOG_INFO, "%s", message);
++
++  /* This joins the NSH waiter before any session allocation is reclaimed.
++   * It also closes channel descriptors.  The network descriptor may already
++   * have been closed by svr_remoteclosed(), which sets it to -1.
++   */
++
+   session_cleanup();
+-
+-  if (signal_pipe[0] > STDERR_FILENO)
+-    {
+-      m_close(signal_pipe[0]);
+-    }
+-
+-  if (signal_pipe[1] > STDERR_FILENO && signal_pipe[1] != signal_pipe[0])
+-    {
+-      m_close(signal_pipe[1]);
++  if (ses.sock_in >= 0)
++    {
++      close(ses.sock_in);
++    }
++
++  if (ses.sock_out >= 0 && ses.sock_out != ses.sock_in)
++    {
++      close(ses.sock_out);
++    }
++
++  if (pipe_read >= 0)
++    {
++      close(pipe_read);
++    }
++
++  if (pipe_write >= 0 && pipe_write != pipe_read)
++    {
++      close(pipe_write);
+     }
+ 
+   memset(&ses, 0, sizeof(ses));
+   memset(&svr_ses, 0, sizeof(svr_ses));
+-
+-  g_session_exitcode = exitcode;
+-  longjmp(g_session_exit_jmp, 1);
+-
+-  while (1)
+-    {
+-    }
+-}
+-
+-static void dropbear_setup(FAR const char *port)
+-{
+-  /* Load the host key with -r so it lives in the persistent (epoch 0)
+-   * allocation rather than being created lazily inside a per-session malloc
+-   * epoch (-R), which would free it when the first session ends and leave a
+-   * dangling svr_opts.hostkey for the next connection.
+-   */
+-
+-  FAR char *argv[] =
++  longjmp(g_session_exit, 1);
++}
++
++static int dropbear_prepare_hostkey(void)
++{
++  struct stat st;
++
++  if (stat(CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH, &st) == 0)
++    {
++      /* Load, rather than regenerate, an existing identity.  A malformed key
++       * fails in load_all_hostkeys(); it is never silently replaced.
++       */
++
++      return S_ISREG(st.st_mode) && st.st_size > 0 ? 0 : -EINVAL;
++    }
++
++  if (errno != ENOENT)
++    {
++      return -errno;
++    }
++
++#ifdef CONFIG_NETUTILS_DROPBEAR_GENERATE_HOSTKEY
++  /* The caller must provision a writable persistent parent directory. */
++
++  if (signkey_generate(DROPBEAR_SIGNKEY_ECDSA_NISTP256, 0,
++                       CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH, 1)
++      != DROPBEAR_SUCCESS)
++    {
++      return -EIO;
++    }
++
++  return 0;
++#else
++  return -ENOENT;
++#endif
++}
++
++static void dropbear_setup(void)
++{
++  algo_type *algorithm;
++  char *argv[] =
+   {
+-    "dropbear",
+-    "-F",
+-    "-p",
+-    (FAR char *)port,
+-    "-r",
+-    CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH,
+-    NULL
++    "dropbear", "-F", "-r", CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH,
++    "-I", STRINGIFY(CONFIG_NETUTILS_DROPBEAR_IDLE_TIMEOUT),
++    "-T", STRINGIFY(CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES), NULL
+   };
+ 
+-  _dropbear_exit = svr_dropbear_exit;
++  /* Host keys live in epoch 0 for the entire daemon lifetime. */
++
++  _dropbear_exit = dropbear_server_exit;
+   _dropbear_log = svr_dropbear_log;
+-
+-  disallow_core();
+-  svr_getopts(6, argv);
++  svr_getopts(8, argv);
+   seedrandom();
+   crypto_init();
+-
+-#ifdef CONFIG_NETUTILS_DROPBEAR_GENERATE_HOSTKEY
+-  /* Generate the ECDSA host key now if it is missing.  signkey_generate()
+-   * with skip_exist=1 silently succeeds when the file already exists.
++  /* A previous failed key load may have disabled the compiled host algorithm.
++   * Restore only the admitted ECDSA P-256 signature before loading this run.
+    */
+ 
+-  if (signkey_generate(DROPBEAR_SIGNKEY_ECDSA_NISTP256, 0,
+-                       CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH, 1)
+-      == DROPBEAR_FAILURE)
+-    {
+-      dropbear_exit("failed to generate host key");
+-    }
+-#endif
++  for (algorithm = sigalgs; algorithm->name != NULL; algorithm++)
++    {
++      if (algorithm->val == DROPBEAR_SIGNATURE_ECDSA_NISTP256)
++        {
++          algorithm->usable = 1;
++        }
++    }
++
++  g_server_result = dropbear_prepare_hostkey();
++  if (g_server_result < 0)
++    {
++      dropbear_exit("host key unavailable: %s", strerror(-g_server_result));
++    }
+ 
+   load_all_hostkeys();
+-
+-  if (dropbear_auth_initialize() < 0)
+-    {
+-      dropbear_exit("failed to initialize password auth");
+-    }
+-}
+-
+-static void dropbear_run_session(int childsock)
+-{
+-  dropbear_exit_handler_t saved_exit;
+-
+-  saved_exit = _dropbear_exit;
++  g_server_result = dropbear_auth_initialize();
++  if (g_server_result < 0)
++    {
++      dropbear_exit("password store unavailable");
++    }
++}
++
++static void dropbear_run_session(int fd)
++{
++  memset(&ses, 0, sizeof(ses));
++  memset(&svr_ses, 0, sizeof(svr_ses));
++  ses.sock_in = fd;
++  ses.sock_out = fd;
++  ses.signal_pipe[0] = -1;
++  ses.signal_pipe[1] = -1;
+   _dropbear_exit = dropbear_session_exit;
+-
+   m_malloc_set_epoch(1);
+ 
+-  if (setjmp(g_session_exit_jmp) == 0)
+-    {
+-      svr_session(childsock, -1);
++  if (setjmp(g_session_exit) == 0)
++    {
++      /* Failed fresh entropy ends this connection before any protocol runs. */
++
++      seedrandom();
++      svr_session(fd, -1);
+     }
+ 
+   m_malloc_free_epoch(1, 1);
+   m_malloc_set_epoch(0);
+-
+-  _dropbear_exit = saved_exit;
+-
+-  if (g_session_exitcode != EXIT_SUCCESS)
+-    {
+-      dropbear_log(LOG_WARNING, "session exited with status %d",
+-                   g_session_exitcode);
+-    }
+-}
+-
+-static size_t dropbear_listen_sockets(FAR int *socks, size_t sockcount,
+-                                      FAR int *maxfd)
+-{
+-  FAR char *errstring = NULL;
+-  size_t sockpos = 0;
+-  unsigned int i;
+-
+-  for (i = 0; i < svr_opts.portcount; i++)
+-    {
+-      int nsock;
+-      unsigned int n;
+-
+-      nsock = dropbear_listen(svr_opts.addresses[i], svr_opts.ports[i],
+-                              &socks[sockpos], sockcount - sockpos,
+-                              &errstring, maxfd, svr_opts.interface);
+-
+-      if (nsock < 0)
+-        {
+-          dropbear_log(LOG_WARNING, "failed listening on '%s': %s",
+-                       svr_opts.ports[i],
+-                       errstring != NULL ? errstring : "unknown error");
+-          m_free(errstring);
+-          errstring = NULL;
+-          continue;
+-        }
+-
+-      for (n = 0; n < (unsigned int)nsock; n++)
+-        {
+-          set_sock_priority(socks[sockpos + n], DROPBEAR_PRIO_LOWDELAY);
+-        }
+-
+-      sockpos += (size_t)nsock;
+-    }
+-
+-  return sockpos;
+-}
+-
+-static size_t dropbear_wait_listen_sockets(FAR int *socks, size_t sockcount,
+-                                           FAR int *maxfd)
+-{
+-  int retries = 0;
+-  int retry_delay = 1;
+-
+-  while (1)
+-    {
+-      size_t count;
+-
+-      *maxfd = -1;
+-      count = dropbear_listen_sockets(socks, sockcount, maxfd);
+-
+-      if (count > 0)
+-        {
+-          return count;
+-        }
+-
+-#if CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRIES > 0
+-      if (retries++ >= CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRIES)
+-        {
+-          dropbear_exit("no listening ports available");
+-        }
+-#else
+-      retries++;
+-#endif
+-
+-      dropbear_log(LOG_WARNING, "Retry %d in %d seconds...", retries,
+-                   retry_delay);
+-      sleep(retry_delay);
+-
+-      retry_delay *= 2;
+-
+-      if (retry_delay > CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRY_MAX)
+-        {
+-          retry_delay = CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRY_MAX;
+-        }
+-    }
+-}
+-
+-/****************************************************************************
+- * Public Functions
+- ****************************************************************************/
+-
+-int main(int argc, FAR char *argv[])
+-{
+-  FAR const char *port = DROPBEAR_PORT_STRING(CONFIG_NETUTILS_DROPBEAR_PORT);
+-  int listensocks[MAX_LISTEN_ADDR];
+-  int maxfd = -1;
+-
+-  if (argc > 1)
+-    {
+-      port = argv[1];
+-    }
+-
+-  dropbear_setup(port);
+-
+-  dropbear_wait_listen_sockets(listensocks, MAX_LISTEN_ADDR, &maxfd);
+-
+-  printf("dropbear: listening on port %s\n", port);
+-
+-  while (1)
+-    {
+-      struct sockaddr_storage remoteaddr;
+-      socklen_t remoteaddrlen = sizeof(remoteaddr);
+-      FAR char *remote_host = NULL;
+-      FAR char *remote_port = NULL;
+-      int childsock;
+-
+-      childsock = accept(listensocks[0], (FAR struct sockaddr *)&remoteaddr,
+-                         &remoteaddrlen);
+-
+-      if (childsock < 0)
+-        {
+-          continue;
+-        }
+-
+-      getaddrstring(&remoteaddr, &remote_host, &remote_port, 0);
+-      dropbear_log(LOG_INFO, "connection from %s:%s",
+-                   remote_host != NULL ? remote_host : "?",
+-                   remote_port != NULL ? remote_port : "?");
+-      m_free(remote_host);
+-      m_free(remote_port);
+-
+-      seedrandom();
+-      dropbear_run_session(childsock);
+-      close(childsock);
+-    }
+-
+-  return EXIT_SUCCESS;
+-}
++  _dropbear_exit = dropbear_server_exit;
++}
++
++static int dropbear_open_listener(void)
++{
++  struct sockaddr_in address;
++  int flags;
++  int fd;
++  int result;
++  int reuse = 1;
++
++  memset(&address, 0, sizeof(address));
++  address.sin_family = AF_INET;
++  address.sin_port = htons(CONFIG_NETUTILS_DROPBEAR_PORT);
++  if (inet_pton(AF_INET, CONFIG_NETUTILS_DROPBEAR_BIND_ADDRESS,
++                &address.sin_addr) != 1)
++    {
++      return -EINVAL;
++    }
++
++  fd = socket(AF_INET, SOCK_STREAM, 0);
++  if (fd < 0)
++    {
++      return -errno;
++    }
++
++  /* One explicitly IPv4 socket avoids the upstream wrapper's first-address
++   * accept bug.  The owner keeps it nonblocking for cancellation and for a
++   * readiness notification that loses a race with a disconnected peer.
++   */
++
++  if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0 ||
++      (flags = fcntl(fd, F_GETFL)) < 0 ||
++      fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0 ||
++      bind(fd, (struct sockaddr *)&address, sizeof(address)) < 0 ||
++      listen(fd, 1) < 0)
++    {
++      result = -errno;
++      close(fd);
++      return result;
++    }
++
++  return fd;
++}
++
++static int dropbear_wait_listener(void)
++{
++  int attempt;
++  int delay = 1;
++  int result = -ECANCELED;
++
++  for (attempt = 0; attempt <= CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRIES;
++       attempt++)
++    {
++      int slice;
++
++      if (dropbear_service_stopping())
++        {
++          return -ECANCELED;
++        }
++
++      result = dropbear_open_listener();
++      if (result >= 0 || result == -EINVAL ||
++          attempt == CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRIES)
++        {
++          return result;
++        }
++
++      dropbear_log(LOG_WARNING, "listen failed: %s; retry %d in %d seconds",
++                   strerror(-result), attempt + 1, delay);
++      for (slice = 0; slice < delay * 10; slice++)
++        {
++          if (dropbear_service_stopping())
++            {
++              return -ECANCELED;
++            }
++
++          poll(NULL, 0, 100);
++        }
++
++      if (delay < CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRY_MAX)
++        {
++          delay *= 2;
++          if (delay > CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRY_MAX)
++            {
++              delay = CONFIG_NETUTILS_DROPBEAR_LISTEN_RETRY_MAX;
++            }
++        }
++    }
++
++  return result;
++}
++
++int main(int argc, char *argv[])
++{
++  unsigned int generation;
++  volatile int listener = -1;
++  int result;
++
++  if (argc == 2 && strcmp(argv[1], "status") == 0)
++    {
++      dropbear_service_status();
++      return EXIT_SUCCESS;
++    }
++
++  if (argc == 2 && strcmp(argv[1], "stop") == 0)
++    {
++      result = dropbear_service_stop();
++      if (result < 0)
++        {
++          fprintf(stderr, "dropbear: stop failed: %s\n", strerror(-result));
++        }
++
++      return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
++    }
++
++  if (argc > 2 || (argc == 2 && strcmp(argv[1], "start") != 0))
++    {
++      fprintf(stderr, "Usage: dropbear [start|status|stop]\n");
++      return EXIT_FAILURE;
++    }
++
++  result = dropbear_service_begin(&generation);
++  if (result < 0)
++    {
++      fprintf(stderr, "dropbear: already active\n");
++      return EXIT_FAILURE;
++    }
++
++  g_server_result = 0;
++  m_malloc_set_epoch(0);
++  if (setjmp(g_server_exit) == 0)
++    {
++      struct pollfd ready;
++
++      dropbear_setup();
++      listener = dropbear_wait_listener();
++      if (listener < 0)
++        {
++          g_server_result = listener == -ECANCELED ? 0 : listener;
++          goto cleanup;
++        }
++
++      dropbear_service_phase(generation, DROPBEAR_LISTENING);
++      printf("dropbear: listening on %s:%d\n",
++             CONFIG_NETUTILS_DROPBEAR_BIND_ADDRESS,
++             CONFIG_NETUTILS_DROPBEAR_PORT);
++      ready.fd = listener;
++      ready.events = POLLIN;
++      while (!dropbear_service_stopping())
++        {
++          int fd;
++          int count;
++
++          ready.revents = 0;
++          count = poll(&ready, 1, 100);
++          if (count < 0 && errno == EINTR)
++            {
++              continue;
++            }
++
++          if (count < 0 || (ready.revents & (POLLERR | POLLHUP | POLLNVAL)))
++            {
++              g_server_result = count < 0 ? -errno : -EIO;
++              break;
++            }
++
++          if (count == 0 || dropbear_service_stopping())
++            {
++              continue;
++            }
++
++          fd = accept(listener, NULL, NULL);
++          if (fd < 0)
++            {
++              if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
++                {
++                  continue;
++                }
++
++              g_server_result = -errno;
++              break;
++            }
++
++          if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
++            {
++              g_server_result = -errno;
++              close(fd);
++              break;
++            }
++
++          /* Do not retain queued transports while the sole protocol owner
++           * is occupied.  Reopen only after the prior session has joined.
++           */
++
++          close(listener);
++          listener = -1;
++          dropbear_service_phase(generation, DROPBEAR_SESSION);
++          dropbear_run_session(fd);
++          if (dropbear_service_stopping())
++            {
++              break;
++            }
++
++          listener = dropbear_wait_listener();
++          if (listener < 0)
++            {
++              g_server_result = listener == -ECANCELED ? 0 : listener;
++              break;
++            }
++
++          ready.fd = listener;
++          dropbear_service_phase(generation, DROPBEAR_LISTENING);
++        }
++    }
++
++cleanup:
++  if (listener >= 0)
++    {
++      close(listener);
++    }
++
++  if (svr_opts.hostkey != NULL)
++    {
++      sign_key_free(svr_opts.hostkey);
++    }
++
++  dropbear_random_cleanup();
++  m_malloc_free_epoch(0, 1);
++  memset(&svr_opts, 0, sizeof(svr_opts));
++  memset(&opts, 0, sizeof(opts));
++  memset(&ses, 0, sizeof(ses));
++  memset(&svr_ses, 0, sizeof(svr_ses));
++  result = g_server_result;
++  dropbear_service_finish(generation, result);
++  return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
++}
+diff --git a/netutils/dropbear/dropbear_nshsession.c b/netutils/dropbear/dropbear_nshsession.c
+--- a/netutils/dropbear/dropbear_nshsession.c
++++ b/netutils/dropbear/dropbear_nshsession.c
+@@ -1,829 +1,1002 @@
+ /****************************************************************************
+  * apps/netutils/dropbear/dropbear_nshsession.c
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  ****************************************************************************/
+ 
+ /****************************************************************************
+  * Included Files
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
+ 
+ #include "includes.h"
+ #include "channel.h"
+ #include "chansession.h"
+ #include "dbutil.h"
+ #include "session.h"
++#include "ssh.h"
++#include "packet.h"
++#include "dropbear_control.h"
+ 
+ #include "nsh.h"
+ #include "nsh_console.h"
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <pty.h>
++#include <poll.h>
++#include <nuttx/sched.h>
+ #include <pthread.h>
+ #include <sched.h>
+ #include <signal.h>
+ #include <spawn.h>
+ #include <stdbool.h>
++#include <stdatomic.h>
+ #include <string.h>
+ #include <sys/ioctl.h>
+ #include <sys/param.h>
+ #include <sys/wait.h>
+ #include <termios.h>
+ #include <unistd.h>
+ 
+ struct dropbear_nshsession_s
+ {
+   int pty_readfd;
+   int pty_writefd;
+-  pid_t nsh_pid;
+-  volatile bool done;
++  atomic_int nsh_pid;
++  atomic_bool done;
++  atomic_bool reaped;
++  int wait_status;
++  bool status_sent;
+   pthread_t waiter;
+   bool waiter_started;
+   bool have_winsize;
+   bool has_pty;
+   struct winsize win;
+ };
+ 
+ /****************************************************************************
+  * Private Functions
+  ****************************************************************************/
+ 
++static int dropbear_signal_nsh(struct dropbear_nshsession_s *sess,
++                               int signo);
++
++static void dropbear_nsh_interrupt(int signo)
++{
++  /* Interrupt sleep/read without doing allocation or cleanup in a handler. */
++
++  (void)signo;
++}
++
+ static int dropbear_nsh_main(int argc, FAR char *argv[])
+ {
+   FAR struct console_stdio_s *pstate;
++  struct sigaction action;
+   int ret;
++
++  memset(&action, 0, sizeof(action));
++  action.sa_handler = dropbear_nsh_interrupt;
++  sigemptyset(&action.sa_mask);
++  if (sigaction(SIGTERM, &action, NULL) < 0)
++    {
++      return -errno;
++    }
++
++  /* task_spawn holds SIGTERM until this task installed its own wake action. */
++
++  sigemptyset(&action.sa_mask);
++  sigaddset(&action.sa_mask, SIGTERM);
++  if (sigprocmask(SIG_UNBLOCK, &action.sa_mask, NULL) < 0)
++    {
++      return -errno;
++    }
+ 
+   pstate = nsh_newconsole(true);
+   if (pstate == NULL)
+     {
+       dropbear_log(LOG_WARNING, "failed to create NSH console");
+       return -ENOMEM;
+     }
+ 
+   ret = nsh_session(pstate, NSH_LOGIN_NONE, argc, argv);
+   dropbear_log(LOG_INFO, "NSH session exited: %d", ret);
+ 
+   nsh_exit(&pstate->cn_vtbl, ret);
+   return ret;
+ }
+ 
+ static FAR void *dropbear_nsh_waiter(FAR void *arg)
+ {
+   FAR struct dropbear_nshsession_s *sess = arg;
+   unsigned char ch = 0;
+   int status;
+   int ret;
+ 
+-  ret = waitpid(sess->nsh_pid, &status, 0);
+-  if (ret < 0)
+-    {
+-      dropbear_log(LOG_WARNING, "NSH session wait failed: %s",
+-                   strerror(errno));
+-    }
+-
++  /* NuttX restores the caller's scheduler lock after blocking waitpid.
++   * Keep successful reaping and PID retirement indivisible against an owner
++   * which might otherwise signal a newly reused PID.
++   */
++
++  sched_lock();
++  for (;;)
++    {
++      ret = waitpid(sess->nsh_pid, &status, 0);
++      if (ret >= 0)
++        {
++          break;
++        }
++
++      if (errno != EINTR)
++        {
++          dropbear_log(LOG_WARNING, "NSH session wait failed: %s",
++                       strerror(errno));
++          dropbear_service_cancel();
++          poll(NULL, 0, 100);
++        }
++    }
++
++  sess->wait_status = status;
++  sess->reaped = true;
+   sess->nsh_pid = -1;
++  dropbear_service_shell(-1);
+   sess->done = true;
++  sched_unlock();
+ 
+   /* Match Dropbear's SIGCHLD wakeup path.  The session loop checks channel
+    * close conditions when this pipe becomes readable.
+    */
+ 
+   if (ses.signal_pipe[1] >= 0)
+     {
+       write(ses.signal_pipe[1], &ch, sizeof(ch));
+     }
+ 
+   return NULL;
+ }
+ 
+ static int dropbear_newchansess(FAR struct dropbear_channel *channel)
+ {
+   FAR struct dropbear_nshsession_s *sess;
+ 
+   sess = m_malloc(sizeof(*sess));
+   memset(sess, 0, sizeof(*sess));
+   sess->pty_readfd = -1;
+   sess->pty_writefd = -1;
+-  sess->nsh_pid = -1;
++  atomic_init(&sess->nsh_pid, -1);
++  atomic_init(&sess->done, false);
++  atomic_init(&sess->reaped, false);
+ 
+   channel->typedata = sess;
+   channel->prio = DROPBEAR_PRIO_LOWDELAY;
+   return 0;
+ }
+ 
+ static int dropbear_sesscheckclose(FAR struct dropbear_channel *channel)
+ {
+   FAR struct dropbear_nshsession_s *sess = channel->typedata;
+ 
+   return sess != NULL && sess->done;
+ }
+ 
+ static int dropbear_setup_spawn_attrs(FAR posix_spawnattr_t *attr,
+                                       FAR const char **errmsg)
+ {
+   struct sched_param param;
++  sigset_t mask;
+   int rc;
+ 
+   param.sched_priority = CONFIG_NETUTILS_DROPBEAR_SHELL_PRIORITY;
+   *errmsg = "spawn priority setup";
+   rc = posix_spawnattr_setschedparam(attr, &param);
+   if (rc != 0)
+     {
+       return rc;
+     }
+ 
+   *errmsg = "spawn stack setup";
+   rc = posix_spawnattr_setstacksize(
+          attr, CONFIG_NETUTILS_DROPBEAR_SHELL_STACKSIZE);
+   if (rc != 0)
+     {
+       return rc;
+     }
+ 
++  *errmsg = "spawn signal mask setup";
++  if (sigprocmask(SIG_SETMASK, NULL, &mask) < 0)
++    {
++      return errno;
++    }
++
++  sigaddset(&mask, SIGTERM);
++  rc = posix_spawnattr_setsigmask(attr, &mask);
++  if (rc != 0)
++    {
++      return rc;
++    }
++
+   *errmsg = "spawn flags setup";
+-  return posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSCHEDPARAM);
++  return posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSCHEDPARAM |
++                                      POSIX_SPAWN_SETSIGMASK);
+ }
+ 
+ static int
+ dropbear_setup_spawn_stdio(FAR posix_spawn_file_actions_t *actions,
+                            int slavefd)
+ {
+   static const int stdio_fds[] =
+   {
+     STDIN_FILENO,
+     STDOUT_FILENO,
+     STDERR_FILENO
+   };
+ 
+-  int i;
++  unsigned int i;
+   int rc;
+ 
+   for (i = 0; i < nitems(stdio_fds); i++)
+     {
+       rc = posix_spawn_file_actions_adddup2(actions, slavefd, stdio_fds[i]);
+       if (rc != 0)
+         {
+           return rc;
+         }
+     }
+ 
+   return 0;
+ }
+ 
+ #ifdef CONFIG_NETUTILS_DROPBEAR_SCP
+ static int
+ dropbear_setup_spawn_stdio3(FAR posix_spawn_file_actions_t *actions,
+                             int stdinfd, int stdoutfd, int stderrfd)
+ {
+   int rc;
+ 
+   rc = posix_spawn_file_actions_adddup2(actions, stdinfd, STDIN_FILENO);
+   if (rc != 0)
+     {
+       return rc;
+     }
+ 
+   rc = posix_spawn_file_actions_adddup2(actions, stdoutfd, STDOUT_FILENO);
+   if (rc != 0)
+     {
+       return rc;
+     }
+ 
+   return posix_spawn_file_actions_adddup2(actions, stderrfd, STDERR_FILENO);
+ }
+ #endif /* CONFIG_NETUTILS_DROPBEAR_SCP */
+ 
+ static int
+ dropbear_setup_spawn_close(FAR posix_spawn_file_actions_t *actions,
+                            int fd)
+ {
+   if (fd <= STDERR_FILENO)
+     {
+       return 0;
+     }
+ 
+   return posix_spawn_file_actions_addclose(actions, fd);
+ }
+ 
++#ifdef CONFIG_NETUTILS_DROPBEAR_SCP
+ static void dropbear_close_fd(FAR int *fd)
+ {
+   if (*fd >= 0)
+     {
+       close(*fd);
+       *fd = -1;
+     }
+ }
++
++#endif
+ 
+ static int dropbear_start_nsh(FAR struct dropbear_channel *channel,
+                               FAR struct dropbear_nshsession_s *sess)
+ {
+   posix_spawn_file_actions_t actions;
+   posix_spawnattr_t attr;
+   FAR const char *errmsg;
+   int masterfd;
+   int slavefd;
+   int writefd;
+   int rc;
+ 
+-  if (sess->nsh_pid >= 0)
++  /* A reaped shell still owns its waiter and PTY until channel cleanup.
++   * Never replace those resources with a second shell on the same channel.
++   */
++
++  if (sess->waiter_started || sess->done || sess->nsh_pid >= 0)
+     {
+       dropbear_log(LOG_WARNING, "NSH session already running");
+       return DROPBEAR_FAILURE;
+     }
+ 
+   rc = openpty(&masterfd, &slavefd, NULL, NULL,
+                sess->have_winsize ? &sess->win : NULL);
+   if (rc < 0)
+     {
+       dropbear_log(LOG_WARNING, "openpty failed: %s", strerror(errno));
+       return DROPBEAR_FAILURE;
+     }
+ 
+   writefd = dup(masterfd);
+   if (writefd < 0)
+     {
+       dropbear_log(LOG_WARNING, "pty dup failed: %s", strerror(errno));
+       close(masterfd);
+       close(slavefd);
+       return DROPBEAR_FAILURE;
+     }
+ 
+   rc = posix_spawn_file_actions_init(&actions);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn actions init failed: %s",
+                    strerror(rc));
+       close(masterfd);
+       close(writefd);
+       close(slavefd);
+       return DROPBEAR_FAILURE;
+     }
+ 
+   rc = posix_spawnattr_init(&attr);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn attr init failed: %s", strerror(rc));
+       goto err_with_actions;
+     }
+ 
+   rc = dropbear_setup_spawn_attrs(&attr, &errmsg);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "%s failed: %s", errmsg, strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_stdio(&actions, slavefd);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stdio setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, masterfd);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn master close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, writefd);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn write close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, slavefd);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn slave close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
++  int inherited[] = {ses.sock_in, ses.signal_pipe[0], ses.signal_pipe[1]};
++  for (unsigned int index = 0; index < nitems(inherited); index++)
++    {
++      rc = dropbear_setup_spawn_close(&actions, inherited[index]);
++      if (rc != 0)
++        {
++          goto err_with_attr;
++        }
++    }
++
+   sess->nsh_pid = task_spawn("dropbear nsh", dropbear_nsh_main, &actions,
+                              &attr, NULL, NULL);
+   if (sess->nsh_pid < 0)
+     {
+       dropbear_log(LOG_WARNING, "failed to create NSH task: %s",
+                    strerror(-sess->nsh_pid));
+       goto err_with_attr;
+     }
+ 
++  dropbear_service_shell(sess->nsh_pid);
+   close(slavefd);
+   slavefd = -1;
+ 
+   rc = pthread_create(&sess->waiter, NULL, dropbear_nsh_waiter, sess);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "failed to create NSH waiter: %s",
+                    strerror(rc));
+       close(masterfd);
+       close(writefd);
+       masterfd = -1;
+       writefd = -1;
+-      kill(sess->nsh_pid, SIGTERM);
+-      waitpid(sess->nsh_pid, NULL, 0);
++      sched_lock();
++      dropbear_signal_nsh(sess, SIGTERM);
++      while (waitpid(sess->nsh_pid, NULL, 0) < 0)
++        {
++          if (errno != EINTR)
++            {
++              dropbear_service_cancel();
++              poll(NULL, 0, 100);
++            }
++        }
++
+       sess->nsh_pid = -1;
++      sched_unlock();
++      dropbear_service_shell(-1);
+       goto err_with_attr;
+     }
+ 
+   sess->waiter_started = true;
+   sess->has_pty = true;
+   sess->pty_readfd = masterfd;
+   sess->pty_writefd = writefd;
+ 
+   channel->readfd = masterfd;
+   channel->writefd = writefd;
+   channel->bidir_fd = 0;
+ 
+   setnonblocking(channel->readfd);
+   setnonblocking(channel->writefd);
+   ses.maxfd = MAX(ses.maxfd, channel->readfd);
+   ses.maxfd = MAX(ses.maxfd, channel->writefd);
+ 
+   posix_spawnattr_destroy(&attr);
+   posix_spawn_file_actions_destroy(&actions);
+ 
+   dropbear_log(LOG_INFO, "NSH PTY session started");
+   return DROPBEAR_SUCCESS;
+ 
+ err_with_attr:
+   posix_spawnattr_destroy(&attr);
+ 
+ err_with_actions:
+   posix_spawn_file_actions_destroy(&actions);
+ 
+   if (masterfd >= 0)
+     {
+       close(masterfd);
+     }
+ 
+   if (writefd >= 0)
+     {
+       close(writefd);
+     }
+ 
+   if (slavefd >= 0)
+     {
+       close(slavefd);
+     }
+ 
+   sess->nsh_pid = -1;
+   return DROPBEAR_FAILURE;
+ }
+ 
+ #ifdef CONFIG_NETUTILS_DROPBEAR_SCP
+ static int dropbear_start_exec(FAR struct dropbear_channel *channel,
+                                FAR struct dropbear_nshsession_s *sess,
+                                FAR char *cmd)
+ {
+   posix_spawn_file_actions_t actions;
+   posix_spawnattr_t attr;
+   FAR const char *errmsg;
+   FAR char * const argv[] =
+   {
+     "-c",
+     cmd,
+     NULL
+   };
+ 
+   int inpipe[2] =
+   {
+     -1,
+     -1
+   };
+ 
+   int outpipe[2] =
+   {
+     -1,
+     -1
+   };
+ 
+   int errpipe[2] =
+   {
+     -1,
+     -1
+   };
+ 
+   int rc;
+ 
+-  if (sess->nsh_pid >= 0)
++  if (sess->waiter_started || sess->done || sess->nsh_pid >= 0)
+     {
+       dropbear_log(LOG_WARNING, "NSH exec already running");
+       return DROPBEAR_FAILURE;
+     }
+ 
+   if (pipe(inpipe) < 0 || pipe(outpipe) < 0 || pipe(errpipe) < 0)
+     {
+       dropbear_log(LOG_WARNING, "exec pipe setup failed: %s",
+                    strerror(errno));
+       goto err_with_pipes;
+     }
+ 
+   rc = posix_spawn_file_actions_init(&actions);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn actions init failed: %s",
+                    strerror(rc));
+       goto err_with_pipes;
+     }
+ 
+   rc = posix_spawnattr_init(&attr);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn attr init failed: %s", strerror(rc));
+       goto err_with_actions;
+     }
+ 
+   rc = dropbear_setup_spawn_attrs(&attr, &errmsg);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "%s failed: %s", errmsg, strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_stdio3(&actions, inpipe[0], outpipe[1],
+                                    errpipe[1]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stdio setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, inpipe[0]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stdin close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, inpipe[1]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stdin writer close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, outpipe[0]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stdout reader close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, outpipe[1]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stdout close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, errpipe[0]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stderr reader close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   rc = dropbear_setup_spawn_close(&actions, errpipe[1]);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "spawn stderr close setup failed: %s",
+                    strerror(rc));
+       goto err_with_attr;
+     }
+ 
+   sess->nsh_pid = task_spawn("dropbear exec", dropbear_nsh_main, &actions,
+                              &attr, argv, NULL);
+   if (sess->nsh_pid < 0)
+     {
+       dropbear_log(LOG_WARNING, "failed to create NSH exec task: %s",
+                    strerror(-sess->nsh_pid));
+       goto err_with_attr;
+     }
+ 
+   dropbear_close_fd(&inpipe[0]);
+   dropbear_close_fd(&outpipe[1]);
+   dropbear_close_fd(&errpipe[1]);
+ 
+   rc = pthread_create(&sess->waiter, NULL, dropbear_nsh_waiter, sess);
+   if (rc != 0)
+     {
+       dropbear_log(LOG_WARNING, "failed to create NSH exec waiter: %s",
+                    strerror(rc));
+       dropbear_close_fd(&inpipe[1]);
+       dropbear_close_fd(&outpipe[0]);
+       dropbear_close_fd(&errpipe[0]);
+-      kill(sess->nsh_pid, SIGTERM);
+-      waitpid(sess->nsh_pid, NULL, 0);
++      sched_lock();
++      dropbear_signal_nsh(sess, SIGTERM);
++      while (waitpid(sess->nsh_pid, NULL, 0) < 0)
++        {
++          if (errno != EINTR)
++            {
++              dropbear_service_cancel();
++              poll(NULL, 0, 100);
++            }
++        }
++
+       sess->nsh_pid = -1;
++      sched_unlock();
+       goto err_with_attr;
+     }
+ 
+   sess->waiter_started = true;
+   sess->has_pty = false;
+   sess->pty_readfd = -1;
+   sess->pty_writefd = -1;
+ 
+   channel->readfd = outpipe[0];
+   channel->writefd = inpipe[1];
+   channel->errfd = errpipe[0];
+   channel->bidir_fd = 0;
+ 
+   setnonblocking(channel->readfd);
+   setnonblocking(channel->writefd);
+   setnonblocking(channel->errfd);
+   ses.maxfd = MAX(ses.maxfd, channel->readfd);
+   ses.maxfd = MAX(ses.maxfd, channel->writefd);
+   ses.maxfd = MAX(ses.maxfd, channel->errfd);
+ 
+   posix_spawnattr_destroy(&attr);
+   posix_spawn_file_actions_destroy(&actions);
+ 
+   dropbear_log(LOG_INFO, "NSH exec started: %s", cmd);
+   return DROPBEAR_SUCCESS;
+ 
+ err_with_attr:
+   posix_spawnattr_destroy(&attr);
+ 
+ err_with_actions:
+   posix_spawn_file_actions_destroy(&actions);
+ 
+ err_with_pipes:
+   dropbear_close_fd(&inpipe[0]);
+   dropbear_close_fd(&inpipe[1]);
+   dropbear_close_fd(&outpipe[0]);
+   dropbear_close_fd(&outpipe[1]);
+   dropbear_close_fd(&errpipe[0]);
+   dropbear_close_fd(&errpipe[1]);
+   sess->nsh_pid = -1;
+   return DROPBEAR_FAILURE;
+ }
+ #endif /* CONFIG_NETUTILS_DROPBEAR_SCP */
+ 
+ static void dropbear_parse_winsize(FAR struct dropbear_nshsession_s *sess)
+ {
+   unsigned int cols = buf_getint(ses.payload);
+   unsigned int rows = buf_getint(ses.payload);
+   unsigned int width = buf_getint(ses.payload);
+   unsigned int height = buf_getint(ses.payload);
+ 
+   sess->win.ws_col = cols;
+   sess->win.ws_row = rows;
+   sess->win.ws_xpixel = width;
+   sess->win.ws_ypixel = height;
+   sess->have_winsize = true;
+ 
+   if (sess->pty_readfd >= 0)
+     {
+       ioctl(sess->pty_readfd, TIOCSWINSZ, (unsigned long)&sess->win);
+     }
+ }
+ 
+ static int dropbear_handle_pty_req(FAR struct dropbear_nshsession_s *sess)
+ {
+   unsigned int len;
+   FAR char *term;
+   FAR char *modes;
+ 
+   term = buf_getstring(ses.payload, &len);
+   dropbear_parse_winsize(sess);
+   modes = buf_getstring(ses.payload, &len);
+ 
+   m_free(term);
+   m_free(modes);
+   return DROPBEAR_SUCCESS;
+ }
+ 
++static int dropbear_signal_nsh(struct dropbear_nshsession_s *sess,
++                               int signo)
++{
++  struct tcb_s *child;
++  pid_t pid;
++  int result = -ESRCH;
++
++  sched_lock();
++  pid = sess->nsh_pid;
++  child = pid > 0 ? nxsched_get_tcb(pid) : NULL;
++  if (child != NULL && child->group != NULL &&
++      child->group->tg_pid == pid && child->group->tg_ppid == getpid())
++    {
++      result = kill(pid, signo) < 0 ? -errno : 0;
++    }
++  sched_unlock();
++  return result;
++}
++
+ static int dropbear_signal_from_name(FAR const char *name)
+ {
+   int i;
+ 
+   for (i = 0; signames[i].name != NULL; i++)
+     {
+       if (strcmp(name, signames[i].name) == 0)
+         {
+           return signames[i].signal;
+         }
+     }
+ 
+   return -EINVAL;
+ }
+ 
+ static int dropbear_write_terminal_signal(
+                             FAR struct dropbear_nshsession_s *sess,
+                             int signo)
+ {
+ #ifdef CONFIG_TTY_SIGINT
+   unsigned char ch;
+   ssize_t nwritten;
+ 
+   if (signo == SIGINT && sess->has_pty && sess->pty_writefd >= 0)
+     {
+       ch = CONFIG_TTY_SIGINT_CHAR;
+       nwritten = write(sess->pty_writefd, &ch, sizeof(ch));
+       if (nwritten == sizeof(ch))
+         {
+           return DROPBEAR_SUCCESS;
+         }
+ 
+       dropbear_log(LOG_WARNING, "SSH terminal INT failed: %s",
+                    strerror(errno));
+       return DROPBEAR_FAILURE;
+     }
+ #endif
+ 
+   return DROPBEAR_FAILURE;
+ }
+ 
+ static int dropbear_handle_signal(FAR struct dropbear_nshsession_s *sess)
+ {
+   unsigned int len;
+   FAR char *name;
+   int signo;
+   int ret;
+ 
+   name = buf_getstring(ses.payload, &len);
+   signo = dropbear_signal_from_name(name);
+   if (signo < 0)
+     {
+       dropbear_log(LOG_WARNING, "unsupported SSH signal '%s'", name);
+       m_free(name);
+       return DROPBEAR_FAILURE;
+     }
+ 
+   ret = dropbear_write_terminal_signal(sess, signo);
+   if (ret == DROPBEAR_SUCCESS)
+     {
+       dropbear_log(LOG_INFO, "SSH signal '%s' sent to PTY", name);
+       m_free(name);
+       return DROPBEAR_SUCCESS;
+     }
+ 
+   if (sess->nsh_pid <= 0)
+     {
+       dropbear_log(LOG_WARNING, "SSH signal '%s' has no NSH session", name);
+       m_free(name);
+       return DROPBEAR_FAILURE;
+     }
+ 
+-  ret = kill(sess->nsh_pid, signo);
++  ret = dropbear_signal_nsh(sess, signo);
+   if (ret < 0)
+     {
+       dropbear_log(LOG_WARNING, "SSH signal '%s' failed: %s",
+-                   name, strerror(errno));
++                   name, strerror(-ret));
+       m_free(name);
+       return DROPBEAR_FAILURE;
+     }
+ 
+   dropbear_log(LOG_INFO, "SSH signal '%s' sent to NSH session", name);
+   m_free(name);
+   return DROPBEAR_SUCCESS;
+ }
+ 
+ static void dropbear_chansessionrequest(FAR struct dropbear_channel *channel)
+ {
+   unsigned int typelen;
+   FAR char *type = buf_getstring(ses.payload, &typelen);
+   unsigned char wantreply = buf_getbool(ses.payload);
+   FAR struct dropbear_nshsession_s *sess = channel->typedata;
+   int ret = DROPBEAR_FAILURE;
+ 
+   TRACE(("dropbear_chansessionrequest: type='%s'", type))
+ 
+   if (strcmp(type, "pty-req") == 0)
+     {
+       ret = dropbear_handle_pty_req(sess);
+     }
+   else if (strcmp(type, "shell") == 0)
+     {
+       ret = dropbear_start_nsh(channel, sess);
+     }
+   else if (strcmp(type, "exec") == 0)
+     {
+ #ifdef CONFIG_NETUTILS_DROPBEAR_SCP
+       unsigned int cmdlen;
+       FAR char *cmd;
+ 
+       cmd = buf_getstring(ses.payload, &cmdlen);
+       ret = dropbear_start_exec(channel, sess, cmd);
+       m_free(cmd);
+ #else
+       dropbear_log(LOG_WARNING, "SSH exec requests are not supported");
+ #endif
+     }
+   else if (strcmp(type, "window-change") == 0)
+     {
+       dropbear_parse_winsize(sess);
+       ret = DROPBEAR_SUCCESS;
+     }
+   else if (strcmp(type, "signal") == 0)
+     {
+       ret = dropbear_handle_signal(sess);
+     }
+   else if (strcmp(type, "break") == 0)
+     {
+       ret = DROPBEAR_SUCCESS;
+     }
+   else
+     {
+       TRACE(("dropbear_chansessionrequest: unhandled type '%s'", type))
+     }
+ 
+   if (wantreply)
+     {
+       if (ret == DROPBEAR_SUCCESS)
+         {
+           send_msg_channel_success(channel);
+         }
+       else
+         {
+           send_msg_channel_failure(channel);
+         }
+     }
+ 
+   m_free(type);
+ }
+ 
++void dropbear_nuttx_channel_cancel(FAR const struct dropbear_channel *channel)
++{
++  FAR struct dropbear_nshsession_s *sess = channel->typedata;
++
++#ifdef CONFIG_TTY_SIGINT
++  /* EOF may have closed the duplicate writer already.  Both PTY masters are
++   * opened O_RDWR, so the surviving reader can still deliver an interrupt.
++   */
++
++  int fd = channel->writefd >= 0 ? channel->writefd : channel->readfd;
++  if (sess != NULL && fd >= 0 && sess->has_pty)
++    {
++      unsigned char interrupt = CONFIG_TTY_SIGINT_CHAR;
++      write(fd, &interrupt, sizeof(interrupt));
++    }
++#else
++  (void)sess;
++#endif
++}
++
+ static void
+ dropbear_closechansess(FAR const struct dropbear_channel *channel)
+ {
+   FAR struct dropbear_nshsession_s *sess = channel->typedata;
+ 
+   if (sess != NULL)
+     {
++      /* This callback is invoked by normal channel-close construction.  The
++       * forced-cleanup cancellation hook above never sends protocol packets.
++       */
++
++      if (sess->reaped && !sess->status_sent && WIFEXITED(sess->wait_status))
++        {
++          CHECKCLEARTOWRITE();
++          sess->status_sent = true;
++          buf_putbyte(ses.writepayload, SSH_MSG_CHANNEL_REQUEST);
++          buf_putint(ses.writepayload, channel->remotechan);
++          buf_putstring(ses.writepayload, "exit-status", 11);
++          buf_putbyte(ses.writepayload, 0);
++          buf_putint(ses.writepayload, WEXITSTATUS(sess->wait_status));
++          encrypt_packet();
++        }
++
+       sess->done = true;
+     }
+ }
+ 
+ static void
+ dropbear_cleanupchansess(FAR const struct dropbear_channel *channel)
+ {
+   FAR struct dropbear_nshsession_s *sess = channel->typedata;
+ 
+   if (sess == NULL)
+     {
+       return;
+     }
+ 
+   sess->done = true;
+ 
+-  if (sess->nsh_pid > 0)
+-    {
+-      kill(sess->nsh_pid, SIGTERM);
+-    }
++  dropbear_signal_nsh(sess, SIGTERM);
+ 
+   if (sess->waiter_started)
+     {
+-      pthread_join(sess->waiter, NULL);
++      int joined;
++      while ((joined = pthread_join(sess->waiter, NULL)) != 0)
++        {
++          dropbear_log(LOG_WARNING, "NSH waiter join failed: %s",
++                       strerror(joined));
++          dropbear_service_cancel();
++          poll(NULL, 0, 100);
++        }
++
+       sess->waiter_started = false;
+     }
+ 
+   m_free(sess);
+ }
+ 
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+ 
+ /* Chansession lifecycle hooks invoked from svr-session.c.  Upstream
+  * svr-chansession.c uses these to set up and reap the global childpids[] /
+  * SIGCHLD machinery; the NSH bridge tracks each session's child through its
+  * own waiter thread (dropbear_nsh_waiter), so both are no-ops here.
+  */
+ 
+ void svr_chansessinitialise(void)
+ {
+ }
+ 
+ void svr_chansess_checksignal(void)
+ {
+ }
+ 
+ /****************************************************************************
+  * Public Data
+  ****************************************************************************/
+ 
+ const struct dropbear_chantype svrchansess =
+ {
+   "session",
+   dropbear_newchansess,
+   dropbear_sesscheckclose,
+   dropbear_chansessionrequest,
+   dropbear_closechansess,
+   dropbear_cleanupchansess,
+ };
+diff --git a/netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch b/netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch
+--- a/netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch
++++ b/netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch
+@@ -1,87 +1,88 @@
+ --- a/src/svr-authpasswd.c
+ +++ b/src/svr-authpasswd.c
+-@@ -33,6 +33,77 @@
++@@ -33,6 +33,78 @@
+  
+  #if DROPBEAR_SVR_PASSWORD_AUTH
+  
+ +#if DROPBEAR_NUTTX_PASSWD
+ +
+ +/* Process a password auth request, sending success or failure messages as
+ + * appropriate */
+ +void svr_auth_password(int valid_user) {
+ +
+ +	char * password = NULL;
+ +	unsigned int passwordlen;
+ +	unsigned int changepw;
+-+	int auth_ok = 0;
+++	int auth_ok = DROPBEAR_FAILURE;
+ +
+ +	/* check if client wants to change password */
+ +	changepw = buf_getbool(ses.payload);
+ +	if (changepw) {
+ +		/* not implemented by this server */
+ +		send_msg_userauth_failure(0, 1);
+ +		return;
+ +	}
+ +
+ +	password = buf_getstring(ses.payload, &passwordlen);
+-+	if (valid_user && passwordlen <= DROPBEAR_MAX_PASSWORD_LEN &&
+++	if (valid_user && passwordlen > 0 &&
+++			passwordlen <= DROPBEAR_MAX_PASSWORD_LEN &&
+ +			strlen(password) == passwordlen) {
+ +		auth_ok = dropbear_verify_password(ses.authstate.pw_name, password);
+ +	}
+ +	m_burn(password, passwordlen);
+ +	m_free(password);
+ +
+ +	/* After we have got the payload contents we can exit if the username
+ +	is invalid. Invalid users have already been logged. */
+ +	if (!valid_user) {
+ +		send_msg_userauth_failure(0, 1);
+ +		return;
+ +	}
+ +
+ +	if (passwordlen > DROPBEAR_MAX_PASSWORD_LEN) {
+ +		dropbear_log(LOG_WARNING,
+ +				"Too-long password attempt for '%s' from %s",
+ +				ses.authstate.pw_name,
+ +				svr_ses.addrstring);
+ +		send_msg_userauth_failure(0, 1);
+ +		return;
+ +	}
+ +
+ +	if (auth_ok == DROPBEAR_SUCCESS) {
+ +		if (svr_opts.multiauthmethod && (ses.authstate.authtypes & ~AUTH_TYPE_PASSWORD)) {
+ +			/* successful password authentication, but extra auth required */
+ +			dropbear_log(LOG_NOTICE,
+ +					"Password auth succeeded for '%s' from %s, extra auth required",
+ +					ses.authstate.pw_name,
+ +					svr_ses.addrstring);
+ +			ses.authstate.authtypes &= ~AUTH_TYPE_PASSWORD; /* password auth ok, delete the method flag */
+ +			send_msg_userauth_failure(1, 0);  /* Send partial success */
+ +		} else {
+ +			/* successful authentication */
+ +			dropbear_log(LOG_NOTICE,
+ +					"Password auth succeeded for '%s' from %s",
+ +					ses.authstate.pw_name,
+ +					svr_ses.addrstring);
+ +			send_msg_userauth_success();
+ +		}
+ +	} else {
+ +		dropbear_log(LOG_WARNING,
+ +				"Bad password attempt for '%s' from %s",
+ +				ses.authstate.pw_name,
+ +				svr_ses.addrstring);
+ +		send_msg_userauth_failure(0, 1);
+ +	}
+ +}
+ +
+ +#else
+ +
+  /* not constant time when strings are differing lengths. 
+   string content isn't leaked, and crypt hashes are predictable length. */
+  static int constant_time_strcmp(const char* a, const char* b) {
+-@@ -131,4 +202,6 @@
++@@ -131,4 +203,6 @@
+  	}
+  }
+  
+ +#endif /* DROPBEAR_NUTTX_PASSWD */
+ +
+  #endif
+diff --git a/netutils/dropbear/patch/0005-nuttx-bounded-service.patch b/netutils/dropbear/patch/0005-nuttx-bounded-service.patch
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/patch/0005-nuttx-bounded-service.patch
+@@ -0,0 +1,106 @@
++diff --git a/src/common-session.c b/src/common-session.c
++--- a/src/common-session.c
+++++ b/src/common-session.c
++@@ -37,0 +38,3 @@
+++#if DROPBEAR_NUTTX
+++#include "dropbear_control.h"
+++#endif
++@@ -97,0 +101,6 @@
+++#if DROPBEAR_NUTTX
+++	if (fcntl(ses.signal_pipe[0], F_SETFD, FD_CLOEXEC) < 0 ||
+++		fcntl(ses.signal_pipe[1], F_SETFD, FD_CLOEXEC) < 0) {
+++		dropbear_exit("Signal pipe descriptor flags failed");
+++	}
+++#endif
++@@ -545,0 +555,5 @@
+++#if DROPBEAR_NUTTX
+++	if (dropbear_service_stopping()) {
+++		dropbear_close("Service stopped");
+++	}
+++#endif
++@@ -643,0 +658,3 @@
+++#if DROPBEAR_NUTTX
+++	timeout = MIN(timeout, 1);
+++#endif
++diff --git a/src/common-channel.c b/src/common-channel.c
++--- a/src/common-channel.c
+++++ b/src/common-channel.c
++@@ -34,0 +35,3 @@
+++#if DROPBEAR_NUTTX
+++#include "dropbear_control.h"
+++#endif
++@@ -113,0 +117,6 @@
+++#if DROPBEAR_NUTTX
+++	/* Bound resources before allocating a channel buffer or NSH task. */
+++	if (ses.chancount >= 1) {
+++		return NULL;
+++	}
+++#endif
++@@ -618,0 +628,6 @@
+++#if DROPBEAR_NUTTX
+++	/* A transport owns exactly one channel.  A client close must retire its
+++	 * NSH task even if the task is still waiting for input or a builtin.
+++	 * Session cleanup cancels, closes the PTY and joins before reuse. */
+++	dropbear_close("Channel closed");
+++#else
++@@ -619,0 +635 @@
+++#endif
++@@ -625,0 +642,3 @@
+++#if DROPBEAR_NUTTX
+++	dropbear_nuttx_channel_cancel(channel);
+++#endif
++diff --git a/src/dbrandom.c b/src/dbrandom.c
++--- a/src/dbrandom.c
+++++ b/src/dbrandom.c
++@@ -30,0 +31,3 @@
+++#if DROPBEAR_NUTTX
+++#include "dropbear_control.h"
+++#endif
++@@ -51,0 +55 @@
+++#if !DROPBEAR_NUTTX
++@@ -111,0 +116,2 @@
+++#endif
+++
++@@ -131,0 +138 @@
+++#if !DROPBEAR_NUTTX
++@@ -150,0 +158,2 @@
+++
+++#endif
++@@ -165 +174 @@
++-#ifdef HAVE_GETRANDOM
+++#if defined(HAVE_GETRANDOM) && !DROPBEAR_NUTTX
++@@ -223,0 +233,17 @@
+++#if DROPBEAR_NUTTX
+++	unsigned char seed[INIT_SEED_SIZE];
+++	hash_state hs;
+++	int result = dropbear_entropy_read(seed, sizeof(seed));
+++	if (result < 0) {
+++		m_burn(seed, sizeof(seed));
+++		dropbear_exit("Qualified entropy unavailable: %s", strerror(-result));
+++	}
+++	sha256_init(&hs);
+++	sha256_process(&hs, hashpool, sizeof(hashpool));
+++	sha256_process(&hs, seed, sizeof(seed));
+++	sha256_done(&hs, hashpool);
+++	m_burn(seed, sizeof(seed));
+++	counter = 0;
+++	donerandinit = 1;
+++#else
+++
++@@ -310 +336,10 @@
++-}
+++#endif
+++}
+++
+++#if DROPBEAR_NUTTX
+++void dropbear_random_cleanup(void) {
+++	m_burn(hashpool, sizeof(hashpool));
+++	counter = 0;
+++	donerandinit = 0;
+++}
+++#endif
++diff --git a/src/dbmalloc.c b/src/dbmalloc.c
++--- a/src/dbmalloc.c
+++++ b/src/dbmalloc.c
++@@ -163,0 +164 @@
+++        put_alloc(header);
+diff --git a/netutils/dropbear/port/dropbear_control.c b/netutils/dropbear/port/dropbear_control.c
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/port/dropbear_control.c
+@@ -0,0 +1,201 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++
++#include <nuttx/config.h>
++#include <errno.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <time.h>
++#include <unistd.h>
++
++#include "dropbear_control.h"
++
++/* Built-in tasks share this state in a flat build.  Only the successful
++ * claimant accesses Dropbear's global protocol and allocation state.  Control
++ * commands never operate on descriptors belonging to another task group.
++ * A generation and state share one atomic word so a completed stop cannot
++ * accidentally wait for a subsequently started instance.
++ */
++
++#if ATOMIC_INT_LOCK_FREE != 2
++#  error "Dropbear control requires lock-free native unsigned atomics"
++#endif
++
++#define STATE_BITS 3u
++#define STATE_MASK ((1u << STATE_BITS) - 1u)
++#define GENERATION_STEP (1u << STATE_BITS)
++
++static atomic_uint g_control;
++static atomic_int g_owner;
++static atomic_int g_shell;
++static atomic_int g_result;
++
++static bool dropbear_active(unsigned int control)
++{
++  unsigned int state = control & STATE_MASK;
++  return state != DROPBEAR_STOPPED && state != DROPBEAR_FAILED;
++}
++
++int dropbear_service_begin(unsigned int *generation)
++{
++  unsigned int old = atomic_load(&g_control);
++  unsigned int next;
++
++  do
++    {
++      if (dropbear_active(old))
++        {
++          return -EBUSY;
++        }
++
++      next = ((old & ~STATE_MASK) + GENERATION_STEP) | DROPBEAR_STARTING;
++    }
++  while (!atomic_compare_exchange_weak(&g_control, &old, next));
++
++  *generation = next & ~STATE_MASK;
++  atomic_store(&g_owner, getpid());
++  atomic_store(&g_shell, -1);
++  atomic_store(&g_result, 0);
++  return 0;
++}
++
++void dropbear_service_phase(unsigned int generation,
++                            enum dropbear_service_state state)
++{
++  unsigned int old = atomic_load(&g_control);
++
++  while ((old & ~STATE_MASK) == generation && dropbear_active(old) &&
++         (old & STATE_MASK) != DROPBEAR_STOPPING)
++    {
++      if (atomic_compare_exchange_weak(&g_control, &old, generation | state))
++        {
++          return;
++        }
++    }
++}
++
++void dropbear_service_finish(unsigned int generation, int result)
++{
++  /* Publish completion only after descriptors, children, waiters and both
++   * allocation epochs have been retired by the owner.
++   */
++
++  atomic_store(&g_shell, -1);
++  atomic_store(&g_owner, 0);
++  atomic_store(&g_result, result);
++  atomic_store(&g_control, generation |
++               (result < 0 ? DROPBEAR_FAILED : DROPBEAR_STOPPED));
++}
++
++bool dropbear_service_stopping(void)
++{
++  return (atomic_load(&g_control) & STATE_MASK) == DROPBEAR_STOPPING;
++}
++
++void dropbear_service_cancel(void)
++{
++  unsigned int old = atomic_load(&g_control);
++  while (dropbear_active(old))
++    {
++      if (atomic_compare_exchange_weak(&g_control, &old,
++                                       (old & ~STATE_MASK) | DROPBEAR_STOPPING))
++        {
++          return;
++        }
++    }
++}
++
++void dropbear_service_shell(pid_t pid)
++{
++  atomic_store(&g_shell, pid);
++}
++
++int dropbear_service_stop(void)
++{
++  unsigned int old = atomic_load(&g_control);
++  unsigned int generation;
++  struct timespec start;
++  struct timespec now;
++  const struct timespec pause = {0, 10000000};
++  pid_t shell = atomic_load(&g_shell);
++  pid_t caller = getpid();
++
++  if (!dropbear_active(old))
++    {
++      return 0;
++    }
++
++  /* An NSH command can run in the shell or as its synchronous builtin child.
++   * Waiting here would prevent that same shell's waiter from joining.
++   */
++
++  if (caller == atomic_load(&g_owner) ||
++      (shell > 0 && (caller == shell || getppid() == shell)))
++    {
++      return -EDEADLK;
++    }
++
++  if (clock_gettime(CLOCK_MONOTONIC, &start) < 0)
++    {
++      return -errno;
++    }
++
++  generation = old & ~STATE_MASK;
++  while (dropbear_active(old) && (old & ~STATE_MASK) == generation)
++    {
++      if (atomic_compare_exchange_weak(&g_control, &old,
++                                       generation | DROPBEAR_STOPPING))
++        {
++          break;
++        }
++    }
++
++  for (;;)
++    {
++      old = atomic_load(&g_control);
++      if (!dropbear_active(old) || (old & ~STATE_MASK) != generation)
++        {
++          return 0;
++        }
++
++      if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
++        {
++          return -errno;
++        }
++
++      if (now.tv_sec - start.tv_sec > CONFIG_NETUTILS_DROPBEAR_STOP_TIMEOUT ||
++          (now.tv_sec - start.tv_sec == CONFIG_NETUTILS_DROPBEAR_STOP_TIMEOUT &&
++           now.tv_nsec >= start.tv_nsec))
++        {
++          /* Keep STOPPING and exclusive ownership.  Never free live state or
++           * admit another instance merely because the control wait expired.
++           */
++
++          return -ETIMEDOUT;
++        }
++
++      nanosleep(&pause, NULL);
++    }
++}
++
++void dropbear_service_status(void)
++{
++  static const char * const names[] =
++  {
++    "stopped", "starting", "listening", "session", "stopping", "failed"
++  };
++  unsigned int control;
++  int owner;
++  int result;
++
++  do
++    {
++      control = atomic_load(&g_control);
++      owner = atomic_load(&g_owner);
++      result = atomic_load(&g_result);
++    }
++  while (control != atomic_load(&g_control));
++
++  printf("dropbear: state=%s pid=%d result=%d\n",
++         names[control & STATE_MASK], owner, result);
++}
+diff --git a/netutils/dropbear/port/dropbear_control.h b/netutils/dropbear/port/dropbear_control.h
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/port/dropbear_control.h
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#ifndef DROPBEAR_NUTTX_CONTROL_H
++#define DROPBEAR_NUTTX_CONTROL_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <sys/types.h>
++
++enum dropbear_service_state
++{
++  DROPBEAR_STOPPED,
++  DROPBEAR_STARTING,
++  DROPBEAR_LISTENING,
++  DROPBEAR_SESSION,
++  DROPBEAR_STOPPING,
++  DROPBEAR_FAILED
++};
++
++int dropbear_service_begin(unsigned int *generation);
++void dropbear_service_phase(unsigned int generation,
++                            enum dropbear_service_state state);
++void dropbear_service_finish(unsigned int generation, int result);
++bool dropbear_service_stopping(void);
++void dropbear_service_cancel(void);
++void dropbear_service_shell(pid_t pid);
++int dropbear_service_stop(void);
++void dropbear_service_status(void);
++struct Channel;
++void dropbear_nuttx_channel_cancel(const struct Channel *channel);
++void dropbear_random_cleanup(void);
++int dropbear_entropy_read(void *buffer, size_t length);
++
++#endif
+diff --git a/netutils/dropbear/port/dropbear_entropy.c b/netutils/dropbear/port/dropbear_entropy.c
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/port/dropbear_entropy.c
+@@ -0,0 +1,107 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++
++#include <nuttx/config.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "dropbear_control.h"
++
++/* Match the qualified native entropy sources, including the simulator's
++ * explicit host CSPRNG driver.  A configured software pool is not proof of
++ * readiness.  The hardware drivers retain their own health/failure policy.
++ */
++
++static bool dropbear_entropy_admitted(void)
++{
++#if defined(CONFIG_BUILD_FLAT) && defined(CONFIG_DEV_RANDOM) && \
++    defined(CONFIG_ARCH_SIM) && defined(CONFIG_SIM_RANDOM)
++  return true;
++#elif defined(CONFIG_BUILD_FLAT) && defined(CONFIG_ARCH_CHIP_RP23XX) && \
++      defined(CONFIG_RP23XX_RNG) && defined(CONFIG_DEV_RANDOM) && \
++      defined(CONFIG_DEV_URANDOM_ARCH) && !defined(CONFIG_SMP) && \
++      !defined(CONFIG_DEV_URANDOM_XORSHIFT128) && \
++      !defined(CONFIG_DEV_URANDOM_CONGRUENTIAL) && \
++      !defined(CONFIG_DEV_URANDOM_RANDOM_POOL) && \
++      CONFIG_RP23XX_RNG_POLL_TIMEOUT >= 1000 && \
++      CONFIG_RP23XX_RNG_POLL_TIMEOUT <= 1000000
++  return true;
++#elif defined(CONFIG_BUILD_FLAT) && defined(CONFIG_ARCH_CHIP_ESP32S3) && \
++      defined(CONFIG_ESP32S3_RNG) && defined(CONFIG_DEV_RANDOM) && \
++      defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_SMP) && \
++      !defined(CONFIG_PM) && !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && \
++      !defined(CONFIG_ESP32S3_AUTO_SLEEP)
++  return true;
++#else
++  return false;
++#endif
++}
++
++int dropbear_entropy_read(void *buffer, size_t length)
++{
++  unsigned char *bytes = buffer;
++  size_t done = 0;
++  unsigned int interrupted = 0;
++  int result = -ENOTSUP;
++  int fd;
++
++  if (length == 0)
++    {
++      return 0;
++    }
++
++  if (!dropbear_entropy_admitted())
++    {
++      goto failed;
++    }
++
++  fd = open("/dev/random", O_RDONLY | O_NONBLOCK);
++  if (fd < 0)
++    {
++      result = -errno;
++      goto failed;
++    }
++
++  while (done < length)
++    {
++      ssize_t count;
++      size_t request = length - done;
++
++      if (dropbear_service_stopping())
++        {
++          result = -ECANCELED;
++          goto close_failed;
++        }
++
++      if (request > 32)
++        {
++          request = 32;
++        }
++
++      count = read(fd, bytes + done, request);
++      if (count > 0 && (size_t)count <= request)
++        {
++          done += count;
++          interrupted = 0;
++        }
++      else if (count < 0 && errno == EINTR && interrupted++ < 7)
++        {
++          continue;
++        }
++      else
++        {
++          result = count < 0 ? -errno : -EIO;
++          goto close_failed;
++        }
++    }
++
++  close(fd);
++  return 0;
++
++close_failed:
++  close(fd);
++failed:
++  explicit_bzero(buffer, length);
++  return result;
++}
+diff --git a/netutils/dropbear/port/dropbear_ltc_hmac_sha256.c b/netutils/dropbear/port/dropbear_ltc_hmac_sha256.c
+--- a/netutils/dropbear/port/dropbear_ltc_hmac_sha256.c
++++ b/netutils/dropbear/port/dropbear_ltc_hmac_sha256.c
+@@ -1,255 +1,274 @@
+ /****************************************************************************
+  * apps/netutils/dropbear/port/dropbear_ltc_hmac_sha256.c
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  *
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements.  See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.  The
+  * ASF licenses this file to you under the Apache License, Version 2.0 (the
+  * "License"); you may not use this file except in compliance with the
+  * License.  You may obtain a copy of the License at
+  *
+  *   http://www.apache.org/licenses/LICENSE-2.0
+  *
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+  * License for the specific language governing permissions and limitations
+  * under the License.
+  *
+  ****************************************************************************/
+ 
+ /* LibTomCrypt-compatible incremental HMAC API backed by a
+  * CRYPTO_SHA2_256_HMAC /dev/crypto session (hmac-sha2-256, the only MAC the
+  * NuttX Dropbear configuration enables): init opens the session, process
+  * feeds data with COP_FLAG_UPDATE, done reads the tag and frees the session.
+  */
+ 
+ /****************************************************************************
+  * Included Files
+  ****************************************************************************/
+ 
+ #include "includes.h"
+ 
+ #include <sys/ioctl.h>
+ #include <fcntl.h>
+ #include <limits.h>
+ #include <stdint.h>
+ #include <string.h>
+ #include <unistd.h>
+ 
+ #include <crypto/cryptodev.h>
+ 
+ /****************************************************************************
+  * Pre-processor Definitions
+  ****************************************************************************/
+ 
+ #define DROPBEAR_HMAC_SHA256_DIGESTLEN 32
+ #define DROPBEAR_HMAC_SHA256_BLOCKLEN  64
+ 
+ /* Stash the process-local /dev/crypto descriptor and session id in the
+  * unused md hash-state buffer so the upstream hmac_state needs no patch.
+  */
+ 
+ static_assert(sizeof(int) + sizeof(uint32_t) <= sizeof(hash_state),
+               "cryptodev state does not fit in hmac_state.md");
+ 
+ /****************************************************************************
+  * Private Functions
+  ****************************************************************************/
+ 
++static void dropbear_hmac_reset(hmac_state *hmac)
++{
++  int invalid = -1;
++
++  zeromem(hmac, sizeof(*hmac));
++  memcpy(&hmac->md, &invalid, sizeof(invalid));
++}
++
++static void dropbear_hmac_release(hmac_state *hmac)
++{
++  uint32_t session;
++  int fd;
++
++  memcpy(&fd, &hmac->md, sizeof(fd));
++  memcpy(&session, (FAR uint8_t *)&hmac->md + sizeof(fd), sizeof(session));
++  dropbear_hmac_reset(hmac);
++  if (fd >= 0)
++    {
++      ioctl(fd, CIOCFSESSION, &session);
++      close(fd);
++    }
++}
++
+ static int dropbear_hmac_cryptodev_open(void)
+ {
+   int fd;
+   int cfd;
+ 
+   fd = open("/dev/crypto", O_RDWR);
+   if (fd < 0)
+     {
+       return -1;
+     }
+ 
+   if (ioctl(fd, CRIOGET, &cfd) < 0)
+     {
+       close(fd);
+       return -1;
+     }
+ 
+   close(fd);
+ 
+   if (fcntl(cfd, F_SETFD, FD_CLOEXEC) < 0)
+     {
+       close(cfd);
+       return -1;
+     }
+ 
+   return cfd;
+ }
+ 
+ static int dropbear_hmac_hash_is_sha256(int hash)
+ {
+   int ret;
+ 
+   ret = hash_is_valid(hash);
+   if (ret != CRYPT_OK)
+     {
+       return ret;
+     }
+ 
+   if (hash_descriptor[hash].hashsize != DROPBEAR_HMAC_SHA256_DIGESTLEN ||
+       hash_descriptor[hash].blocksize != DROPBEAR_HMAC_SHA256_BLOCKLEN)
+     {
+       return CRYPT_INVALID_HASH;
+     }
+ 
+   return CRYPT_OK;
+ }
+ 
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+ 
+ int hmac_init(hmac_state *hmac, int hash, const unsigned char *key,
+               unsigned long keylen)
+ {
+   struct session_op session;
+   int cfd;
+   int ret;
+ 
+   LTC_ARGCHK(hmac != NULL);
++  dropbear_hmac_reset(hmac);
+   LTC_ARGCHK(key != NULL);
+ 
+   if (keylen == 0 || keylen > INT_MAX)
+     {
+       return CRYPT_INVALID_KEYSIZE;
+     }
+ 
+   ret = dropbear_hmac_hash_is_sha256(hash);
+   if (ret != CRYPT_OK)
+     {
+       return ret;
+     }
+ 
+-  zeromem(hmac, sizeof(*hmac));
+   cfd = dropbear_hmac_cryptodev_open();
+   if (cfd < 0)
+     {
+       return CRYPT_ERROR;
+     }
+ 
+   memset(&session, 0, sizeof(session));
+   session.mac = CRYPTO_SHA2_256_HMAC;
+   session.mackey = (caddr_t)key;
+   session.mackeylen = (int)keylen;
+   if (ioctl(cfd, CIOCGSESSION, &session) < 0)
+     {
+       close(cfd);
+-      zeromem(hmac, sizeof(*hmac));
+       return CRYPT_ERROR;
+     }
+ 
+   memcpy(&hmac->md, &cfd, sizeof(cfd));
+   memcpy((FAR uint8_t *)&hmac->md + sizeof(cfd),
+          &session.ses, sizeof(session.ses));
+   hmac->hash = hash;
+   return CRYPT_OK;
+ }
+ 
+ int hmac_process(hmac_state *hmac, const unsigned char *in,
+                  unsigned long inlen)
+ {
+   struct crypt_op cryp;
+   uint32_t ses;
+   int cfd;
+   int ret;
+ 
+   LTC_ARGCHK(hmac != NULL);
+   LTC_ARGCHK(in != NULL || inlen == 0);
+ 
+   ret = dropbear_hmac_hash_is_sha256(hmac->hash);
+   if (ret != CRYPT_OK)
+     {
++      dropbear_hmac_release(hmac);
+       return ret;
+     }
+ 
+   if (inlen > UINT_MAX)
+     {
++      dropbear_hmac_release(hmac);
+       return CRYPT_OVERFLOW;
+     }
+ 
+   memcpy(&cfd, &hmac->md, sizeof(cfd));
+   memcpy(&ses, (FAR uint8_t *)&hmac->md + sizeof(cfd), sizeof(ses));
+   if (cfd < 0)
+     {
+       return CRYPT_ERROR;
+     }
+ 
+   memset(&cryp, 0, sizeof(cryp));
+   cryp.ses = ses;
+   cryp.op = COP_ENCRYPT;
+   cryp.flags = COP_FLAG_UPDATE;
+   cryp.len = (unsigned int)inlen;
+   cryp.src = (caddr_t)in;
+   if (ioctl(cfd, CIOCCRYPT, &cryp) < 0)
+     {
++      dropbear_hmac_release(hmac);
+       return CRYPT_ERROR;
+     }
+ 
+   return CRYPT_OK;
+ }
+ 
+ int hmac_done(hmac_state *hmac, unsigned char *out, unsigned long *outlen)
+ {
+   unsigned char digest[DROPBEAR_HMAC_SHA256_DIGESTLEN];
+   struct crypt_op cryp;
+   unsigned long copylen;
+   uint32_t ses;
+   int cfd;
+   int ret = CRYPT_ERROR;
+ 
+   LTC_ARGCHK(hmac != NULL);
+   LTC_ARGCHK(out != NULL);
+   LTC_ARGCHK(outlen != NULL);
+ 
+   memcpy(&cfd, &hmac->md, sizeof(cfd));
+   memcpy(&ses, (FAR uint8_t *)&hmac->md + sizeof(cfd), sizeof(ses));
+   if (cfd < 0)
+     {
+       goto out;
+     }
+ 
+   ret = dropbear_hmac_hash_is_sha256(hmac->hash);
+   if (ret != CRYPT_OK)
+     {
+       goto out;
+     }
+ 
+   memset(&cryp, 0, sizeof(cryp));
+   cryp.ses = ses;
+   cryp.op = COP_ENCRYPT;
+   cryp.len = 0;
+   cryp.src = (caddr_t)digest;
+   cryp.mac = (caddr_t)digest;
+   if (ioctl(cfd, CIOCCRYPT, &cryp) < 0)
+     {
+       ret = CRYPT_ERROR;
+       goto out;
+     }
+ 
+   copylen = MIN(*outlen, DROPBEAR_HMAC_SHA256_DIGESTLEN);
+   memcpy(out, digest, copylen);
+   *outlen = copylen;
+   ret = CRYPT_OK;
+ 
+ out:
+-  if (cfd >= 0)
+-    {
+-      ioctl(cfd, CIOCFSESSION, &ses);
+-      close(cfd);
+-    }
+-
++  dropbear_hmac_release(hmac);
+   zeromem(digest, sizeof(digest));
+-  zeromem(hmac, sizeof(*hmac));
+   return ret;
+ }
+diff --git a/netutils/dropbear/port/localoptions.h b/netutils/dropbear/port/localoptions.h
+--- a/netutils/dropbear/port/localoptions.h
++++ b/netutils/dropbear/port/localoptions.h
+@@ -1,81 +1,84 @@
+ /****************************************************************************
+  * apps/netutils/dropbear/port/localoptions.h
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  ****************************************************************************/
+ 
+ #ifndef __APPS_NETUTILS_DROPBEAR_PORT_LOCALOPTIONS_H
+ #define __APPS_NETUTILS_DROPBEAR_PORT_LOCALOPTIONS_H
+ 
+ /****************************************************************************
+  * Included Files
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
+ 
+ /****************************************************************************
+  * Pre-processor Definitions
+  ****************************************************************************/
+ 
+ #define DROPBEAR_TRACKING_MALLOC 1
++#define AUTH_TIMEOUT CONFIG_NETUTILS_DROPBEAR_AUTH_TIMEOUT
++#define MAX_AUTH_TRIES CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES
++#define DEFAULT_IDLE_TIMEOUT CONFIG_NETUTILS_DROPBEAR_IDLE_TIMEOUT
+ 
+ /* Persist the native Dropbear ECDSA host key at the configured path. */
+ 
+ #define ECDSA_PRIV_FILENAME CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH
+ 
+ #define DROPBEAR_SVR_DROP_PRIVS 0
+ 
+ #ifdef CONFIG_SCHED_USER_IDENTITY
+ #  define DROPBEAR_SVR_MULTIUSER 1
+ #else
+ #  define DROPBEAR_SVR_MULTIUSER 0
+ #endif
+ 
+ #define DROPBEAR_SVR_PASSWORD_AUTH 1
+ #define DROPBEAR_SVR_PUBKEY_AUTH 0
+ #define DROPBEAR_SVR_PUBKEY_OPTIONS 0
+ 
+ #define DROPBEAR_REEXEC 0
+ #define DROPBEAR_SMALL_CODE 1
+ #define DROPBEAR_USER_ALGO_LIST 0
+ 
+ #define DROPBEAR_X11FWD 0
+ #define DROPBEAR_SVR_AGENTFWD 0
+ #define DROPBEAR_SVR_LOCALTCPFWD 0
+ #define DROPBEAR_SVR_REMOTETCPFWD 0
+ #define DROPBEAR_SVR_LOCALSTREAMFWD 0
+ #define DROPBEAR_SVR_REMOTESTREAMFWD 0
+ 
+ #define DROPBEAR_DSS 0
+ #define DROPBEAR_RSA 0
+ #define DROPBEAR_ECDSA 1
+ #define DROPBEAR_ED25519 0
+ #define DROPBEAR_SK_KEYS 0
+ #define DROPBEAR_ECC_256 1
+ #define DROPBEAR_ECC_384 0
+ #define DROPBEAR_ECC_521 0
+ 
+ #define DROPBEAR_AES128 1
+ #define DROPBEAR_AES256 0
+ #define DROPBEAR_CHACHA20POLY1305 1
+ #define DROPBEAR_ENABLE_CBC_MODE 0
+ #define DROPBEAR_ENABLE_GCM_MODE 0
+ 
+ #define DROPBEAR_SHA1_HMAC 0
+ #define DROPBEAR_SHA2_256_HMAC 1
+ #define DROPBEAR_SHA2_512_HMAC 0
+ #define DROPBEAR_SHA1_96_HMAC 0
+ 
+ #define DROPBEAR_CURVE25519 1
+ #define DROPBEAR_DH_GROUP14_SHA1 0
+ #define DROPBEAR_DH_GROUP14_SHA256 0
+ #define DROPBEAR_DH_GROUP16 0
+ #define DROPBEAR_DH_GROUP1 0
+ #define DROPBEAR_ECDH 0
+ #define DROPBEAR_SNTRUP761 0
+ #define DROPBEAR_MLKEM768 0
+ 
+ #define DROPBEAR_DEFAULT_CLI_AUTHKEY "/etc/dropbear/authorized_keys"
+ #define DROPBEAR_SFTPSERVER 0
+ 
+ #endif /* __APPS_NETUTILS_DROPBEAR_PORT_LOCALOPTIONS_H */
+diff --git a/netutils/dropbear/port/nuttx_auth.c b/netutils/dropbear/port/nuttx_auth.c
+--- a/netutils/dropbear/port/nuttx_auth.c
++++ b/netutils/dropbear/port/nuttx_auth.c
+@@ -1,109 +1,128 @@
+ /****************************************************************************
+  * apps/netutils/dropbear/port/nuttx_auth.c
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  ****************************************************************************/
+ 
+ /****************************************************************************
+  * Included Files
+  ****************************************************************************/
+ 
+ #include "config.h"
+ 
+ #include <sys/types.h>
+ #include <errno.h>
++#include <fcntl.h>
++#include <sys/stat.h>
+ #include <pwd.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <unistd.h>
+ 
+ #include "fsutils/passwd.h"
+ 
+ #include "dbutil.h"
+ 
+ /****************************************************************************
+  * Private Data
+  ****************************************************************************/
+ 
+ static struct passwd g_dropbear_pw;
+ static char g_dropbear_name[64];
+ static char g_dropbear_dir[] = "/";
+ static char g_dropbear_shell[] = "/bin/sh";
+ static char g_dropbear_password_marker[] = "x";
+ 
+ /****************************************************************************
+  * Private Functions
+  ****************************************************************************/
+ 
+ static FAR struct passwd *dropbear_fill_pw(FAR const char *name, uid_t uid)
+ {
+   memset(&g_dropbear_pw, 0, sizeof(g_dropbear_pw));
+ 
+   snprintf(g_dropbear_name, sizeof(g_dropbear_name), "%s", name);
+ 
+   g_dropbear_pw.pw_uid = uid;
+   g_dropbear_pw.pw_gid = 0;
+   g_dropbear_pw.pw_name = g_dropbear_name;
+   g_dropbear_pw.pw_passwd = g_dropbear_password_marker;
+   g_dropbear_pw.pw_gecos = g_dropbear_name;
+   g_dropbear_pw.pw_dir = g_dropbear_dir;
+   g_dropbear_pw.pw_shell = g_dropbear_shell;
+ 
+   return &g_dropbear_pw;
+ }
+ 
+ FAR struct passwd *dropbear_getpwuid(uid_t uid)
+ {
+   return dropbear_fill_pw("root", uid);
+ }
+ 
+ FAR struct passwd *dropbear_getpwnam(FAR const char *name)
+ {
+   if (name == NULL || name[0] == '\0')
+     {
+       return NULL;
+     }
+ 
+   return dropbear_fill_pw(name, 0);
+ }
+ 
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+ 
+ uid_t dropbear_getuid(void)
+ {
+   return 0;
+ }
+ 
+ uid_t dropbear_geteuid(void)
+ {
+   return 0;
+ }
+ 
+ int dropbear_auth_initialize(void)
+ {
++  struct stat st;
++  int fd = open(CONFIG_FSUTILS_PASSWD_PATH, O_RDONLY);
++  int result;
++
++  if (fd < 0)
++    {
++      return -errno;
++    }
++
++  result = fstat(fd, &st) < 0 ? -errno :
++           (S_ISREG(st.st_mode) && st.st_size > 0 ? 0 : -EINVAL);
++  close(fd);
++  if (result < 0)
++    {
++      return result;
++    }
++
+   dropbear_log(LOG_INFO, "using NuttX passwd auth at %s",
+                CONFIG_FSUTILS_PASSWD_PATH);
+   return OK;
+ }
+ 
+ int dropbear_verify_password(FAR const char *username,
+                              FAR const char *password)
+ {
+   int ret;
+ 
+   ret = passwd_verify(username, password);
+   if (PASSWORD_VERIFY_MATCH(ret))
+     {
+       return DROPBEAR_SUCCESS;
+     }
+ 
+   if (PASSWORD_VERIFY_ERROR(ret) && ret != -ENOENT)
+     {
+       dropbear_log(LOG_WARNING, "passwd_verify failed for '%s': %d",
+                    username, ret);
+     }
+ 
+   return DROPBEAR_FAILURE;
+ }
+diff --git a/nshlib/nsh_builtin.c b/nshlib/nsh_builtin.c
+--- a/nshlib/nsh_builtin.c
++++ b/nshlib/nsh_builtin.c
+@@ -1,283 +1,290 @@
+ /****************************************************************************
+  * apps/nshlib/nsh_builtin.c
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  *
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements.  See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.  The
+  * ASF licenses this file to you under the Apache License, Version 2.0 (the
+  * "License"); you may not use this file except in compliance with the
+  * License.  You may obtain a copy of the License at
+  *
+  *   http://www.apache.org/licenses/LICENSE-2.0
+  *
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+  * License for the specific language governing permissions and limitations
+  * under the License.
+  *
+  ****************************************************************************/
+ 
+ /****************************************************************************
+  * Included Files
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
+ 
+ #ifdef CONFIG_SCHED_WAITPID
+ #  include <sys/ioctl.h>
+ #  include <sys/wait.h>
+ #endif
+ 
+ #include <stdbool.h>
+ #include <errno.h>
+ #include <sched.h>
+ #include <signal.h>
+ #include <string.h>
+ 
+ #include <nuttx/lib/builtin.h>
+ #include "builtin/builtin.h"
+ 
+ #include "nsh.h"
+ #include "nsh_console.h"
+ 
+ #ifdef CONFIG_NSH_BUILTIN_APPS
+ 
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+ 
+ /****************************************************************************
+  * Name: nsh_builtin
+  *
+  * Description:
+  *    Attempt to execute the application task whose name is 'cmd'
+  *
+  * Returned Value:
+  *   <0          If exec_builtin() fails, then the negated errno value
+  *               is returned.
+  *   -1 (ERROR)  if the application task corresponding to 'cmd' could not
+  *               be started (possibly because it doesn not exist).
+  *    0 (OK)     if the application task corresponding to 'cmd' was
+  *               and successfully started.  If CONFIG_SCHED_WAITPID is
+  *               defined, this return value also indicates that the
+  *               application returned successful status (EXIT_SUCCESS)
+  *    1          If CONFIG_SCHED_WAITPID is defined, then this return value
+  *               indicates that the application task was spawned successfully
+  *               but returned failure exit status.
+  *
+  ****************************************************************************/
+ 
+ int nsh_builtin(FAR struct nsh_vtbl_s *vtbl, FAR const char *cmd,
+                 FAR char **argv,
+                 FAR const struct nsh_param_s *param)
+ {
+ #if !defined(CONFIG_NSH_DISABLEBG) && defined(CONFIG_SCHED_CHILD_STATUS) && \
+     defined(CONFIG_ENABLE_ALL_SIGNALS)
+   struct sigaction act;
+   struct sigaction old;
+ #endif /* !CONFIG_NSH_DISABLEBG && CONFIG_SCHED_CHILD_STATUS &&
+         * CONFIG_ENABLE_ALL_SIGNALS
+         */
+ 
+   int ret = OK;
+ 
+   /* Lock the scheduler in an attempt to prevent the application from
+    * running until waitpid() has been called.
+    */
+ 
+   sched_lock();
+ 
+ #if !defined(CONFIG_NSH_DISABLEBG) && \
+     defined(CONFIG_SCHED_CHILD_STATUS) && defined(CONFIG_ENABLE_ALL_SIGNALS)
+   /* Ignore the child status if run the application on background. */
+ 
+   if (vtbl->np.np_bg == true)
+     {
+       act.sa_handler = SIG_DFL;
+       act.sa_flags = SA_NOCLDWAIT;
+       sigemptyset(&act.sa_mask);
+ 
+       sigaction(SIGCHLD, &act, &old);
+     }
+ 
+ #endif /* !CONFIG_NSH_DISABLEBG && !CONFIG_SCHED_CHILD_STATUS &&
+         * CONFIG_ENABLE_ALL_SIGNALS
+         */
+ 
+   /* Try to find and execute the command within the list of builtin
+    * applications.
+    */
+ 
+   ret = exec_builtin(cmd, argv, param);
+   if (ret >= 0)
+     {
+       /* The application was successfully started with pre-emption disabled.
+        * In the simplest cases, the application will not have run because the
+        * the scheduler is locked.  But in the case where I/O was redirected,
+        * a proxy task ran and broke our lock.  As result, the application may
+        * have aso ran if its priority was higher than than the priority of
+        * this thread.
+        *
+        * If the application did not run to completion and if the application
+        * was not backgrounded, then we need to wait here for the application
+        * to exit.  This only works works with the following options:
+        *
+        * - CONFIG_NSH_DISABLEBG - Do not run commands in background
+        * - CONFIG_SCHED_WAITPID - Required to run external commands in
+        *     foreground
+        */
+ 
+        vtbl->np.np_lastpid = ret;
+ #ifdef CONFIG_SCHED_WAITPID
+ 
+       /* CONFIG_SCHED_WAITPID is selected, so we may run the command in
+        * foreground unless we were specifically requested to run the command
+        * in background (and running commands in background is enabled).
+        */
+ 
+ #  ifndef CONFIG_NSH_DISABLEBG
+       if (vtbl->np.np_bg == false)
+ #  endif /* CONFIG_NSH_DISABLEBG */
+         {
+           int rc = 0;
+           int tc = 0;
+ 
+           if (vtbl->isctty)
+             {
+               /* Setup up to receive SIGINT if control-C entered. */
+ 
+               tc = nsh_ioctl(vtbl, TIOCSCTTY, ret);
+             }
+ 
+           /* Wait for the application to exit.  We did lock the scheduler
+            * above, but that does not guarantee that the application did not
+            * already run to completion in the case where I/O was redirected.
+            * Here the scheduler will be unlocked while waitpid is waiting
+            * and if the application has not yet run, it will now be able to
+            * do so.
+            *
+            * Also, if CONFIG_SCHED_HAVE_PARENT is defined waitpid() might
+            * fail even if task is still active:  If the I/O was re-directed
+            * by a proxy task, then the ask is a child of the proxy, and not
+            * this task. waitpid() fails with ECHILD in either case.
+            *
+            * NOTE: WUNTRACED does nothing in the default case, but in the
+            * case the where CONFIG_SIG_SIGSTOP_ACTION=y, the built-in app
+            * may also be stopped.  In that case WUNTRACED will force
+            * waitpid() to return with ECHILD.
+            */
+ 
+-          ret = waitpid(ret, &rc, WUNTRACED);
++          /* A terminal/stop signal must not orphan the foreground command. */
++
++          pid_t child = ret;
++          do
++            {
++              ret = waitpid(child, &rc, WUNTRACED);
++            }
++          while (ret < 0 && errno == EINTR);
+           if (ret < 0)
+             {
+               /* If the child thread does not exist, waitpid() will return
+                * the error ECHLD.  Since we know that the task was
+                * successfully started, this must be one of the cases
+                * described above; we have to assume that the task already
+                * exit'ed. In this case, we have no idea if the application
+                * ran successfully or not (because NuttX does not retain exit
+                * status of child tasks). Let's assume that is did run
+                * successfully.
+                */
+ 
+               int errcode = errno;
+               if (errcode == ECHILD)
+                 {
+                   ret = OK;
+                 }
+               else
+                 {
+                   nsh_error(vtbl, g_fmtcmdfailed, cmd, "waitpid",
+                             NSH_ERRNO_OF(errcode));
+                 }
+             }
+ 
+           /* Waitpid completed the wait successfully */
+ 
+           else
+             {
+               /* We can't return the exact status (nsh has nowhere to put it)
+                * so just pass back zero/nonzero in a fashion that doesn't
+                * look like an error.
+                */
+ 
+               ret = (rc == 0) ? OK : 1;
+ 
+               /* TODO:  Set the environment variable '?' to a string
+                * corresponding to WEXITSTATUS(rc) so that $? will expand to
+                * the exit status of the most recently executed task.
+                */
+             }
+ 
+           if (vtbl->isctty && tc == 0)
+             {
+               nsh_ioctl(vtbl, TIOCNOTTY, 0);
+             }
+         }
+ #  ifndef CONFIG_NSH_DISABLEBG
+       else
+ #  endif /* CONFIG_NSH_DISABLEBG */
+ #endif /* CONFIG_SCHED_WAITPID */
+ 
+       /* We get here if either:
+        *
+        * - CONFIG_SCHED_WAITPID is not selected meaning that all commands
+        *   have to be run in background, or
+        * - CONFIG_SCHED_WAITPID and CONFIG_NSH_DISABLEBG are both selected,
+        *   but the user requested to run the command in background.
+        *
+        * NOTE that the case of a) CONFIG_SCHED_WAITPID is not selected and
+        * b) CONFIG_NSH_DISABLEBG selected cannot be supported.  In that
+        * event, all commands will have to run in background.  The waitpid()
+        * API must be available to support running the command in foreground.
+        */
+ 
+ #if !defined(CONFIG_SCHED_WAITPID) || !defined(CONFIG_NSH_DISABLEBG)
+         {
+ #if !defined(CONFIG_NSH_DISABLEBG) && defined(CONFIG_SCHED_CHILD_STATUS) && \
+     defined(CONFIG_ENABLE_ALL_SIGNALS)
+ 
+           /* Restore the old actions */
+ 
+ #  ifndef CONFIG_SCHED_WAITPID
+           if (vtbl->np.np_bg == true)
+ #  endif
+             {
+               sigaction(SIGCHLD, &old, NULL);
+             }
+ 
+ #  endif /* !CONFIG_NSH_DISABLEBG && CONFIG_SCHED_CHILD_STATUS && \
+           * CONFIG_ENABLE_ALL_SIGNALS
+           */
+ 
+           struct sched_param sched;
+           sched_getparam(ret, &sched);
+           nsh_output(vtbl, "%s [%d:%d]\n", cmd, ret, sched.sched_priority);
+ 
+           /* Backgrounded commands always 'succeed' as long as we can start
+            * them.
+            */
+ 
+           ret = OK;
+         }
+ #endif /* !CONFIG_SCHED_WAITPID || !CONFIG_NSH_DISABLEBG */
+     }
+ 
+   sched_unlock();
+ 
+   /* If exec_builtin() or waitpid() failed, then return -1 (ERROR) with the
+    * errno value set appropriately.
+    */
+ 
+   if (ret < 0)
+     {
+       return ERROR;
+     }
+ 
+   return ret;
+ }
+ 
+ #endif /* CONFIG_NSH_BUILTIN_APPS */
