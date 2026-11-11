@@ -47,10 +47,26 @@ The repository also contains [event-demo](../../app/event-demo/) and [dual-imu-d
 ## Add a second sensor on CoreS3
 
 The [CoreS3 profile](../../platform/cores3/profile.toml) configures a CoreS3
-with the M135 GNSS module. It selects the BSP's I²C0 resource as `sensor_bus`
-and configures the M135's BMI270 at address `0x68`. If your hardware has a
-second BMI270 on that bus at `0x69` with its interrupt pin unwired, save this
-overlay as `second-bmi270.toml` in the repository root.
+with the M135 GNSS module. The [CoreS3 NuttX patch](../../upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch)
+adds the board and its `nsh` defconfig. Its `board_late_initialize()` calls
+NuttX's shared `board_i2c_init()`. The [resource mapping](../../platform/nuttx/resources/esp32s3-m5-cores3.toml)
+enables I²C0 master mode and the I²C character driver, so that initializer
+registers `/dev/i2c0`. The profile selects that bus as `sensor_bus` and
+configures the M135's BMI270 at `0x68`. Both sensors use the same registered
+bus endpoint. Each sensor address is handled by the Rust driver.
+
+For a standalone NuttX smoke build, configure `esp32s3-m5-cores3:nsh` with
+the patch applied. In `make menuconfig`, enable `ESP32S3_I2C0`,
+`ESP32S3_I2C0_MASTER_MODE`, and `I2C_DRIVER`, and set SDA to GPIO12 and SCL
+to GPIO11. The defconfig already enables late initialization. The NXRS
+build supplies these resource settings from the profile.
+
+Use the CoreS3 K128's onboard BMI270 at `0x69` as the second device.
+Verify the M135 uses `0x68` to avoid an address conflict. Save this overlay
+as `second-bmi270.toml` in the repository root. It selects periodic FIFO
+acquisition without a GPIO interrupt binding.
+[CoreS3 pin and address map](https://docs.m5stack.com/en/core/CoreS3) ·
+[M135 wiring and address](../../docs/m5stack-cores3.md)
 
 ```toml
 [devices.backup_imu]
@@ -74,11 +90,20 @@ The two devices share the bus and have separate acquisition sessions.
 ```sh
 cargo nxrs profile --platform cores3 --overlay second-bmi270.toml
 cargo nxrs build --app dual-imu-demo --platform cores3 --overlay second-bmi270.toml --dry-run
-cargo nxrs build --app dual-imu-demo --platform cores3 --overlay second-bmi270.toml
+cargo nxrs build --app dual-imu-demo --platform cores3 --overlay second-bmi270.toml --out target/cores3-dual-imu
 ```
 
-The resolved profile should list both addresses on `/dev/i2c0`. After booting
-the image with both sensors connected, run `dual_imu_demo`. It reports
+The resolved profile should list both addresses on `/dev/i2c0`. On a CoreS3
+development unit, enter USB download mode and replace `PORT` below with
+the board's serial port. This profile uses ESP32-S3 Simple Boot.
+[CoreS3 download mode](https://docs.m5stack.com/en/core/CoreS3)
+
+```sh
+esptool.py -c esp32s3 -p PORT write_flash -fs detect -fm dio -ff 40m 0x0000 target/cores3-dual-imu/nuttx/nuttx.bin
+```
+
+Reset the board and open NSH over USB serial. With the M135 fitted,
+use `ls /dev` to check for `i2c0`, then run `dual_imu_demo`. It reports
 `DUAL_IMU PASS` after sampling both devices and checking that one keeps
 producing output while the other sensor's service is paused. See the
 [demo source](../../app/dual-imu-demo/src/main.rs).
