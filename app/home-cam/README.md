@@ -40,6 +40,11 @@ cycle during a native call. Stop and Drop join TLS before releasing camera
 storage. Explicit shutdown can wait for an in-progress cryptographic/time call;
 it is not a capture-loop operation. A stopped TLS output cannot restart.
 
+If a camera read returns an I/O error or timeout, the product retires the old
+stream, capture and detector before reopening them on the existing Wi-Fi
+session and listener. After a restart, 32 captured frames rearm recovery. A
+failure to retire the old session stops recovery.
+
 `tests/tls/qualify.py` exercises the product composition with synthetic JPEGs,
 actual SDK peers, rejected clients, reconnect, time failure, blocked-worker
 capture progress and teardown. Its debug/sanitizer host worker uses 256 KiB;
