@@ -199,6 +199,25 @@ standalone controller accepts `--workspace-root <path>` before its subcommand;
 this also applies to `profile`. `--help` and `build --help` need no workspace.
 Application discovery reports malformed app manifests instead of hiding them.
 
+## Native qualification settings
+
+NuttX builds accept repeated `--kconfig-enable SYMBOL`,
+`--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
+symbol names without the `CONFIG_` prefix. Values are literal Kconfig booleans
+or tristates (`y`, `m`, `n`), decimal integers, hexadecimal integers, or quoted
+strings. Preserve the double quotes in a string value by quoting the complete
+assignment for your shell. These inputs are recorded in build evidence, so keep
+credentials and private keys out of them.
+
+Explicit settings override profile defaults, but cannot contradict a profile's
+required/forbidden settings, BSP resource wiring, generated init settings, or
+the builder's required ABI/runtime configuration. Conflicting repeated requests
+are rejected; repeating the same value is allowed. `--dry-run` reports the
+requested values as `kconfig_overrides`. A real build verifies them again after
+`olddefconfig` and retains the effective `resolved.config`; a dry run does not
+establish that the target's Kconfig admits a symbol or value. The requests also
+participate in native cache identity and build provenance.
+
 ## Cargo component selection
 
 Components are ordinary Cargo packages. Additive Cargo features may enable

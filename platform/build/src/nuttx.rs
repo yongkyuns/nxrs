@@ -160,6 +160,119 @@ fn standard(profile: &Profile, protected: bool) -> BTreeMap<String, String> {
     v
 }
 
+fn protected_config() -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("BUILD_PROTECTED".into(), "y".into()),
+        ("ESP32S3_WCL".into(), "y".into()),
+        ("ESP32S3_APP_FORMAT_LEGACY".into(), "y".into()),
+        ("RAW_BINARY".into(), "y".into()),
+        (
+            "ESP32S3_KERNEL_OFFSET".into(),
+            format!("{ESP32S3_KERNEL_OFFSET:#x}"),
+        ),
+        (
+            "ESP32S3_KERNEL_IMAGE_SIZE".into(),
+            format!("{ESP32S3_KERNEL_SIZE:#x}"),
+        ),
+        ("NUTTX_USERSPACE".into(), format!("{ESP32S3_USERSPACE:#x}")),
+        (
+            "PASS1_BUILDIR".into(),
+            "\"boards/xtensa/esp32s3/common/kernel\"".into(),
+        ),
+    ])
+}
+
+/// Reject qualification requests that contradict native wiring or required build settings.
+/// This is also used by dry runs, before preparing an output directory or an SDK.
+pub fn validate_overrides(profile: &Profile, app: &App, options: &Options) -> Result<()> {
+    let requested = options.kconfig()?;
+    if requested.is_empty() {
+        return Ok(());
+    }
+    let check = |key: &str, expected: &str, owner: &str| -> Result<()> {
+        if requested.get(key).is_some_and(|value| value != expected) {
+            return Err(format!(
+                "Kconfig override for {key} conflicts with {owner} requirement {}",
+                line(key, expected)
+            ));
+        }
+        Ok(())
+    };
+    let protected = profile.data.pointer("/build/protected-runtime") == Some(&json!(true));
+    for (key, value) in standard(profile, protected) {
+        check(&key, &value, "builder")?;
+    }
+    check("SIG_DEFAULT", "n", "builder")?;
+    if protected {
+        for (key, value) in protected_config() {
+            check(&key, &value, "protected build")?;
+        }
+        for key in ["BUILD_2PASS", "ARCH_USE_MPU"] {
+            check(key, "y", "protected build")?;
+        }
+        check("TLS_GLOBAL_KEYS", "n", "protected build")?;
+    } else {
+        check("BUILD_FLAT", "y", "builder")?;
+    }
+    for (key, value) in
+        boot::init_config(profile, &app.command, app.priority.into(), app.stack.into())?
+    {
+        check(&key, &value, "application init")?;
+    }
+    if profile.data.get("mcuboot").is_some() {
+        check("ESP32S3_APP_FORMAT_MCUBOOT", "y", "signed build")?;
+        check("ESP32S3_FLASH_16M", "y", "signed build")?;
+        for (key, value) in boot::application_config(profile)? {
+            check(&key, &value, "signed build")?;
+        }
+    }
+    if let Some(settings) = profile
+        .data
+        .pointer("/resolved-nuttx-resources/kconfig")
+        .and_then(Value::as_object)
+    {
+        for (key, value) in settings {
+            check(
+                key,
+                value.as_str().ok_or("invalid BSP setting")?,
+                "BSP resource",
+            )?;
+        }
+    }
+    let config = profile.data.get("kconfig").unwrap_or(&Value::Null);
+    for requirement in array(config, "require")? {
+        let (key, value) = if let Some(key) = requirement
+            .strip_prefix("# CONFIG_")
+            .and_then(|s| s.strip_suffix(" is not set"))
+        {
+            (key, "n")
+        } else {
+            requirement
+                .strip_prefix("CONFIG_")
+                .and_then(|s| s.split_once('='))
+                .ok_or("invalid profile Kconfig requirement")?
+        };
+        check(key, value, "profile")?;
+    }
+    if let Some(forbid) = config.get("forbid-regex") {
+        let forbid = forbid.as_str().ok_or("forbid-regex must be a string")?;
+        if !forbid.is_empty() {
+            let regex = regex::RegexBuilder::new(forbid)
+                .multi_line(true)
+                .build()
+                .map_err(|e| e.to_string())?;
+            for (key, value) in &requested {
+                if regex.is_match(&line(key, value)) {
+                    return Err(format!(
+                        "Kconfig override for {key} is forbidden by the profile"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn protected_images(out: &Path, nuttx: &Path, config: &str) -> Result<Vec<PathBuf>> {
     let flash_mib = [4u64, 8, 16, 32]
         .into_iter()
@@ -436,11 +549,8 @@ impl Tools {
 }
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
     options.validate_for_backend("nuttx")?;
-    nxrs_build_support::nuttx_resources::validate_overrides(
-        &p.data,
-        &options.enable,
-        &options.disable,
-    )?;
+    validate_overrides(p, app, options)?;
+    let requested = options.kconfig()?;
     let mut deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
     let protected = deployment["nuttx-build-mode"] == "protected";
     let target = string(&p.data, "target")?;
@@ -529,36 +639,14 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let init = boot::init_config(p, &app.command, app.priority.into(), app.stack.into())?;
     requirements.extend(init.iter().map(|(k, v)| line(k, v)));
     values.extend(init);
-    for key in &options.enable {
-        values.insert(key.into(), "y".into());
-        requirements.push(line(key, "y"));
-    }
-    for key in &options.disable {
-        values.insert(key.into(), "n".into());
-        requirements.push(line(key, "n"));
+    for (key, value) in &requested {
+        values.insert(key.clone(), value.clone());
+        requirements.push(line(key, value));
     }
     let standard = standard(p, protected);
     requirements.extend(standard.iter().map(|(k, v)| line(k, v)));
     if protected {
-        let mode = BTreeMap::<String, String>::from([
-            ("BUILD_PROTECTED".into(), "y".into()),
-            ("ESP32S3_WCL".into(), "y".into()),
-            ("ESP32S3_APP_FORMAT_LEGACY".into(), "y".into()),
-            ("RAW_BINARY".into(), "y".into()),
-            (
-                "ESP32S3_KERNEL_OFFSET".into(),
-                format!("{ESP32S3_KERNEL_OFFSET:#x}"),
-            ),
-            (
-                "ESP32S3_KERNEL_IMAGE_SIZE".into(),
-                format!("{ESP32S3_KERNEL_SIZE:#x}"),
-            ),
-            ("NUTTX_USERSPACE".into(), format!("{ESP32S3_USERSPACE:#x}")),
-            (
-                "PASS1_BUILDIR".into(),
-                "\"boards/xtensa/esp32s3/common/kernel\"".into(),
-            ),
-        ]);
+        let mode = protected_config();
         requirements.extend(mode.iter().map(|(k, v)| line(k, v)));
         requirements.extend([
             "CONFIG_BUILD_2PASS=y".into(),
@@ -644,6 +732,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let cache_inputs = json!({
         "profile":p.data,"profile_input_fingerprint":p.input_fingerprint(),
         "configuration":values,"application":app.manifest,
+        "kconfig_overrides":requested,
         "iram_layout":iram_layout.as_ref().map(|source| hash(source)).transpose()?,
         "entry":[app.command.clone(),app.priority.to_string(),app.stack.to_string()],
         "features":options.features,"no_default_features":options.no_default_features,
@@ -1186,6 +1275,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             .iter()
             .map(|s| format!("kconfig_disable={s}")),
     );
+    provenance.extend(options.set.iter().map(|s| format!("kconfig_set={s}")));
     for source in &sources {
         provenance.push(format!(
             "target_c_source={}\n{}  {}",
@@ -1662,6 +1752,76 @@ mod tests {
         assert!(required(&config, &[], "^CONFIG_FOO=y$").is_err());
         assert!(required(&config, &["CONFIG_MISSING=y".into()], "").is_err());
     }
+
+    #[test]
+    fn scalar_overrides_roundtrip_and_require_the_resolved_values() {
+        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+        let path = temp.0.join(".config");
+        fs::write(&path, "CONFIG_PORT=22\nCONFIG_KEEP=y\nCONFIG_NET=y\n").unwrap();
+        let options = Options {
+            set: vec![
+                "PORT=2222".into(),
+                "OFFSET=0x20000".into(),
+                r#"PATH="/etc/host keys/\"device\"""#.into(),
+                "NET=n".into(),
+            ],
+            ..Options::default()
+        };
+        let values = options.kconfig().unwrap();
+        configure(&path, &values).unwrap();
+        let config = read(&path).unwrap();
+        let requirements: Vec<_> = values.iter().map(|(key, value)| line(key, value)).collect();
+        required(&config, &requirements, "").unwrap();
+        assert!(config.contains("CONFIG_KEEP=y\n"));
+        assert!(config.contains("# CONFIG_NET is not set\n"));
+        assert!(!config.contains("CONFIG_PORT=22\n"));
+        for changed in [
+            config.replace("CONFIG_PORT=2222\n", "CONFIG_PORT=22\n"),
+            config.replace("CONFIG_OFFSET=0x20000\n", ""),
+        ] {
+            assert!(required(&changed, &requirements, "").is_err());
+        }
+    }
+
+    #[test]
+    fn scalar_overrides_cannot_replace_bsp_or_generated_init_settings() {
+        let app = App {
+            manifest: PathBuf::new(),
+            package: "test".into(),
+            bin: "test".into(),
+            command: "test".into(),
+            priority: 100,
+            stack: 8192,
+        };
+        let profile = Profile::from_data(
+            json!({
+                "init": {},
+                "resolved-nuttx-resources": {"kconfig": {"ESP32S3_I2C0_SDAPIN": "8"}}
+            }),
+            vec![],
+        );
+        for (assignment, diagnostic) in [
+            ("ESP32S3_I2C0_SDAPIN=9", "BSP resource requirement"),
+            ("INIT_STACKSIZE=4096", "application init requirement"),
+            (
+                "INIT_ENTRYPOINT=\"other_main\"",
+                "application init requirement",
+            ),
+        ] {
+            let options = Options {
+                set: vec![assignment.into()],
+                ..Options::default()
+            };
+            let error = validate_overrides(&profile, &app, &options).unwrap_err();
+            assert!(error.contains(diagnostic), "{assignment}: {error}");
+        }
+        let matching = Options {
+            set: vec!["ESP32S3_I2C0_SDAPIN=8".into(), "INIT_STACKSIZE=8192".into()],
+            ..Options::default()
+        };
+        validate_overrides(&profile, &app, &matching).unwrap();
+    }
+
     #[test]
     fn helper_headers_cannot_conflict() {
         let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
