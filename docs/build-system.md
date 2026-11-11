@@ -103,11 +103,16 @@ The renderer emits typed I²C, SPI, or UART bindings and one static instance per
 configured endpoint. Named accessors and aliases borrow that instance. The HAL
 owns acquisition and releases the instance only after delivery and cleanup retire.
 
-`nxrs-build-support::preparation::prepare_package` accepts the consuming package
-directory, resolved profile, target OS and owned output directory. The sensor
-renderers use shared binding validation. The `build.rs` adapters call the
-common `configure_hal()` adapter, which preserves per-package provider flags,
-simulation configuration and native compilation/linking.
+After Cargo resolves the production graph, the build controller renders the
+consumed path catalogues through shared binding validation. It publishes
+immutable configuration files and a handoff keyed by profile, compiler target,
+package inputs and generator revision. `provider-selection.json` records the
+handoff path. The common `configure_hal()` adapter verifies those inputs and
+output hashes before copying the files into its package's `OUT_DIR`.
+
+Standalone Cargo and other dependency sources use the same renderer through
+`nxrs-build-support::preparation::prepare_package`. Provider flags, simulation
+configuration and SDK preparation continue through their package adapters.
 
 Profile resolution loads package declarations for explicit `[hal]` keys,
 including a provider of `"none"` when its unselected physical devices must be

@@ -998,6 +998,9 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         cargo.arg("--config").arg(config);
     }
     let selection = crate::cargo_graph::resolve(&mut cargo, p)?;
+    deployment["configuration"] = json!(
+        build::configure_preparation(&mut cargo, &out, p, &selection, target, "nuttx")?
+    );
     let native_resources = out.join("native-resources");
     use nxrs_build_support::prepared_resource;
     let resources = prepare_native_resources(
@@ -1515,7 +1518,7 @@ fn clear_success_evidence(out: &Path) -> Result<()> {
 }
 
 fn reset_output(out: &Path) -> Result<()> {
-    for name in ["nuttx", "apps", "cargo", "toolchain", "native-resources", ".nxrs-link-cache"] {
+    for name in ["nuttx", "apps", "cargo", "toolchain", "configuration", "native-resources", ".nxrs-link-cache"] {
         crate::remove_dir(&out.join(name))?;
     }
     for entry in fs::read_dir(out).map_err(|e| e.to_string())? {

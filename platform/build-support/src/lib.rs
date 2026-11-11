@@ -233,7 +233,22 @@ pub fn configure_hal() -> Result<String> {
         }
     }
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
-    for path in preparation::prepare_package(&directory, &profile, &os, &out)? {
+    let target = env::var("TARGET").map_err(|error| error.to_string())?;
+    let prepared = preparation::ENVIRONMENT;
+    println!("cargo:rerun-if-env-changed={prepared}");
+    let consumed = match env::var_os(prepared) {
+        Some(path) => {
+            let path = PathBuf::from(path);
+            println!("cargo:rerun-if-changed={}", path.display());
+            preparation::consume(&path, &directory, &profile, &target, &os, &out)?
+        }
+        None => None,
+    };
+    let inputs = match consumed {
+        Some(inputs) => inputs,
+        None => preparation::prepare_package(&directory, &profile, &os, &out)?,
+    };
+    for path in inputs {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     if binding == "simulation" {
