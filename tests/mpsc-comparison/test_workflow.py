@@ -401,11 +401,13 @@ class WorkflowTests(unittest.TestCase):
     def test_native_build_inputs_do_not_overwrite_unsupported_inherited_flags(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for flags in ['-DOPEN="', '-DX=1 # comment', '$(OTHER_FLAGS)', '-DX=1\n-DY=2', '-DX=1; false']:
-                env = {'EXTRAFLAGS': flags}
-                with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, 'EXTRAFLAGS'):
-                    build.configure_native_inputs(env, root)
-                self.assertEqual(env, {'EXTRAFLAGS': flags})
+            for name in ('EXTRAFLAGS', 'NXRS_TARGET_C_FLAGS'):
+                for flags in ['-DOPEN="', '-DX=1 # comment', '$(OTHER_FLAGS)', '-DX=1\n-DY=2', '-DX=1; false']:
+                    env = {'EXTRAFLAGS': '-DKEEP=1', name: flags}
+                    original = env.copy()
+                    with self.subTest(name=name, flags=flags), self.assertRaisesRegex(ValueError, name):
+                        build.configure_native_inputs(env, root, 'irq')
+                    self.assertEqual(env, original)
             env = {'EXTRAFLAGS': '-DKEEP=1'}
             with self.assertRaisesRegex(ValueError, 'output path'):
                 build.configure_native_inputs(env, root / 'space path')
@@ -414,6 +416,48 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'SOURCE_DATE_EPOCH'):
                 build.configure_native_inputs(env, root)
             self.assertEqual(env, {'EXTRAFLAGS': '-DKEEP=1', 'SOURCE_DATE_EPOCH': 'not-the-pin'})
+
+    def test_irq_include_paths_are_confined_to_application_helpers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native = root / 'firmware/nuttx/arch/xtensa/src'
+            sdk = native / 'esp32s3/esp-hal-3rdparty'
+            private, public = native / 'common/espressif', sdk / 'components/efuse/include'
+            private.mkdir(parents=True)
+            public.mkdir(parents=True)
+            # The real SDK and NuttX headers share this name but expose
+            # different APIs. An application include must not win in the SDK.
+            (private / 'esp_efuse.h').write_text('typedef unsigned esp_efuse_blk_num_t;\n')
+            (public / 'esp_efuse.h').write_text('typedef unsigned esp_efuse_block_t;\n')
+            (private / 'esp_irq.h').write_text('enum { IRQ_HEADER = 1 };\n')
+            kernel, helper = root / 'kernel.c', root / 'helper.c'
+            kernel.write_text('#include <esp_efuse.h>\nesp_efuse_block_t block;\n'
+                              '_Static_assert(KERNEL_VALUE == 11, "kernel flags");\n'
+                              '#ifdef APP_VALUE\n#error application flags leaked into kernel\n#endif\n')
+            helper.write_text('#include <esp_irq.h>\n'
+                              '_Static_assert(IRQ_HEADER && KERNEL_VALUE == 11 && APP_VALUE == 17, "helper flags");\n')
+            inherited = {'EXTRAFLAGS': '-DKERNEL_VALUE=11 ', 'NXRS_TARGET_C_FLAGS': '-DAPP_VALUE=17 '}
+            env = inherited.copy()
+            policy = build.configure_native_inputs(env, root, 'irq')
+            self.assertEqual(policy['observer_include_scope'], 'NXRS_TARGET_C_FLAGS')
+            for name, key in [('EXTRAFLAGS', 'inherited_extraflags_sha256'),
+                              ('NXRS_TARGET_C_FLAGS', 'inherited_target_c_flags_sha256')]:
+                self.assertTrue(env[name].startswith(inherited[name]))
+                self.assertEqual(policy[key], hashlib.sha256(inherited[name].encode()).hexdigest())
+            global_flags, helper_flags = (shlex.split(env[name]) for name in ('EXTRAFLAGS', 'NXRS_TARGET_C_FLAGS'))
+            self.assertTrue(policy['observer_include_paths'])
+            for path in policy['observer_include_paths']:
+                flag = '-I' + str(root / path)
+                self.assertNotIn(flag, global_flags)
+                self.assertIn(flag, helper_flags)
+            subprocess.run(['cc', *global_flags, '-I' + str(public), '-fsyntax-only', str(kernel)],
+                           check=True, capture_output=True)
+            subprocess.run(['cc', *global_flags, *helper_flags, '-fsyntax-only', str(helper)],
+                           check=True, capture_output=True)
+            primary = inherited.copy()
+            primary_policy = build.configure_native_inputs(primary, root)
+            self.assertEqual(primary['NXRS_TARGET_C_FLAGS'], inherited['NXRS_TARGET_C_FLAGS'])
+            self.assertEqual(primary_policy['observer_include_paths'], [])
 
     def test_kernel_receipt_binds_config_patches_and_archive_census(self):
         with tempfile.TemporaryDirectory() as directory:

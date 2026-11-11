@@ -56,19 +56,23 @@ def configure_native_inputs(env, out, observer='primary'):
     These are real allocated bytes. Do not erase them from the kernel identity.
     Keep inherited compiler flags intact and use the normal frontend's recorded
     EXTRAFLAGS/SOURCE_DATE_EPOCH inputs. Only the owned output path is remapped.
+    Observer SDK includes belong to NXRS_TARGET_C_FLAGS, which the frontend
+    applies to the application helpers without changing kernel header lookup.
     """
     owned = str(out.resolve())
     if not re.fullmatch(r'/[A-Za-z0-9_./-]+', owned):
         raise ValueError('MPSC output path must not contain whitespace or shell/Make metacharacters')
-    inherited = env.get('EXTRAFLAGS', '')
-    if any(c in inherited for c in '\x00\r\n$`;|&<>'):
-        raise ValueError('EXTRAFLAGS contains unsupported shell/Make syntax; flags were not overwritten')
-    try:
-        words = shlex.split(inherited)
-        if words != shlex.split(inherited, comments=True):
-            raise ValueError('unquoted comment')
-    except ValueError as error:
-        raise ValueError('EXTRAFLAGS is not a complete compiler argument list; flags were not overwritten') from error
+    inherited = {name: env.get(name, '') for name in ('EXTRAFLAGS', 'NXRS_TARGET_C_FLAGS')}
+    words = {}
+    for name, value in inherited.items():
+        if any(c in value for c in '\x00\r\n$`;|&<>'):
+            raise ValueError(f'{name} contains unsupported shell/Make syntax; flags were not overwritten')
+        try:
+            words[name] = shlex.split(value)
+            if words[name] != shlex.split(value, comments=True):
+                raise ValueError('unquoted comment')
+        except ValueError as error:
+            raise ValueError(f'{name} is not a complete compiler argument list; flags were not overwritten') from error
     revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', ':external/nuttx'], text=True).strip()
     if not re.fullmatch(r'[0-9a-f]{40}', revision):
         raise ValueError('missing pinned NuttX gitlink revision')
@@ -88,16 +92,25 @@ def configure_native_inputs(env, out, observer='primary'):
                          *[sdk + '/components/' + path for path in (
                              'esp_hw_support/include', 'esp_common/include',
                              'soc/esp32s3/include', 'soc/esp32s3/register')]]
-    added = [flag, *['-I' + str(out.resolve() / path) for path in include_paths]]
-    combined = inherited + (' ' if inherited else '') + ' '.join(added)
-    if shlex.split(combined, comments=True) != words + added:
-        raise ValueError('cannot safely append the owned-path map to EXTRAFLAGS')
-    env.update(EXTRAFLAGS=combined, SOURCE_DATE_EPOCH=epoch)
+    additions = {'EXTRAFLAGS': [flag]}
+    if include_paths:
+        # common/espressif also contains esp_efuse.h. Exposing that directory
+        # globally shadows the SDK's different efuse API during kernel builds.
+        additions['NXRS_TARGET_C_FLAGS'] = ['-I' + str(out.resolve() / path) for path in include_paths]
+    updates = {'SOURCE_DATE_EPOCH': epoch}
+    for name, added in additions.items():
+        combined = inherited[name] + (' ' if inherited[name] else '') + ' '.join(added)
+        if shlex.split(combined, comments=True) != words[name] + added:
+            raise ValueError(f'cannot safely append owned build flags to {name}')
+        updates[name] = combined
+    env.update(updates)
     return dict(schema='mpsc-native-build-inputs-v1', source_date_epoch=int(epoch),
                 source_date_epoch_origin=dict(component='nuttx', revision=revision, field='committer timestamp'),
                 macro_prefix_map=dict(source='owned output directory', replacement=mapped),
                 observer_include_paths=include_paths,
-                inherited_extraflags_sha256=hashlib.sha256(inherited.encode()).hexdigest())
+                observer_include_scope='NXRS_TARGET_C_FLAGS',
+                inherited_extraflags_sha256=hashlib.sha256(inherited['EXTRAFLAGS'].encode()).hexdigest(),
+                inherited_target_c_flags_sha256=hashlib.sha256(inherited['NXRS_TARGET_C_FLAGS'].encode()).hexdigest())
 
 
 def transport_selection(elf, prefix, backend, destination):
