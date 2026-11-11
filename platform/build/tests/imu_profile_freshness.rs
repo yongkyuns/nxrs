@@ -1,6 +1,6 @@
 //! Compile both production sensor resource bindings in one detached Cargo output.
 use nxrs_build::{profile::Profile, TempDir};
-use nxrs_build_support::resolved;
+use nxrs_build_support::{preparation, resolved};
 use std::{fs, path::Path, process::Command};
 
 #[test]
@@ -73,11 +73,18 @@ fn main() {
     println!("cargo:rerun-if-changed={}", receipt.display());
     // Render the actual NuttX resource bindings on the host without compiling native helpers.
     let profile = resolved::load(&receipt, &root, Some("m5stack-cores3-gnss"), "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+    let handoff = env::var_os(preparation::ENVIRONMENT).map(PathBuf::from);
+    println!("cargo:rerun-if-env-changed={}", preparation::ENVIRONMENT);
+    if let Some(path) = &handoff { println!("cargo:rerun-if-changed={}", path.display()); }
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     for (capability, directory) in [("imu", "platform/devices/imu"), ("gnss", "platform/devices/gnss")] {
         let package_output = output.join(capability);
         std::fs::create_dir_all(&package_output).unwrap();
-        for path in preparation::prepare_package(&root.join(directory), &profile, "nuttx", &package_output).unwrap() {
+        let inputs = match &handoff {
+            Some(path) => preparation::consume(path, &root.join(directory), &profile, "xtensa-esp32s3-nuttx", "nuttx", &package_output).unwrap().unwrap(),
+            None => preparation::prepare_package(&root.join(directory), &profile, "nuttx", &package_output).unwrap(),
+        };
+        for path in inputs {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
@@ -206,14 +213,25 @@ fn verify_named() {
     let inferred = root.join("inferred.toml");
     fs::write(&inferred, "remove-aliases = [\"gnss\"]\n").unwrap();
     let receipt = root.join("resolved-profile.json");
-    let run = || {
-        Command::new(cargo)
+    let prepare = |profile: &Profile| {
+        resolved::write(&receipt, &sdk, profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+        let directories = [sdk.join("platform/devices/imu"), sdk.join("platform/devices/gnss")];
+        preparation::prepare_consumers(
+            directories.iter().map(|path| path.as_path()), profile, "xtensa-esp32s3-nuttx", "nuttx",
+            &root.join("configuration"),
+        ).unwrap().unwrap()
+    };
+    let run = |handoff: Option<&Path>| {
+        let mut command = Command::new(cargo);
+        command
             .current_dir(root)
             .args(["run", "--offline", "--quiet", "--target", target])
             .env("CARGO_TARGET_DIR", root.join("target"))
             .env("NXRS_SDK_ROOT", &sdk)
             .env("NXRS_RESOLVED_PROFILE", &receipt)
-            .output()
+            .env_remove(preparation::ENVIRONMENT);
+        if let Some(path) = handoff { command.env(preparation::ENVIRONMENT, path); }
+        command.output()
             .unwrap()
     };
     let original = [
@@ -269,13 +287,13 @@ fn verify_named() {
     ] {
         let profile =
             Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", overlays).unwrap();
-        resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+        let handoff = prepare(&profile);
         fs::write(
             root.join("src/named.rs"),
             single_device.replace("@DEVICE@", device_name),
         )
         .unwrap();
-        let result = run();
+        let result = run(Some(&handoff));
         assert!(
             result.status.success(),
             "{}",
@@ -325,8 +343,8 @@ fn verify_named() {
 }
 "#).unwrap();
     let profile = Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", &[multiple]).unwrap();
-    resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
-    let result = run();
+    let handoff = prepare(&profile);
+    let result = run(Some(&handoff));
     assert!(
         result.status.success(),
         "{}",
@@ -356,8 +374,8 @@ fn verify_named() {
         &[root.join("multiple.toml"), redirect],
     )
     .unwrap();
-    resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
-    let result = run();
+    let handoff = prepare(&profile);
+    let result = run(Some(&handoff));
     assert!(
         result.status.success(),
         "{}",
@@ -369,8 +387,8 @@ fn verify_named() {
     )
     .unwrap();
     let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
-    resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
-    let result = run();
+    let handoff = prepare(&profile);
+    let result = run(Some(&handoff));
     assert!(
         result.status.success(),
         "{}",
@@ -382,6 +400,9 @@ fn verify_named() {
             .count(),
         2
     );
+    let local = run(None);
+    assert!(local.status.success(), "{}", String::from_utf8_lossy(&local.stderr));
+    assert_eq!(local.stdout, result.stdout);
 
     // Content changes at the same declared path must invalidate both Cargo and
     // the receipt, even when the resolved values are semantically unchanged.
@@ -397,7 +418,7 @@ fn verify_named() {
         let mut content = fs::read_to_string(&path).unwrap();
         content.push_str("\n# same-path freshness witness\n");
         fs::write(&path, content).unwrap();
-        let stale = run();
+        let stale = run(Some(&handoff));
         assert!(!stale.status.success(), "stale {relative} was accepted");
         assert!(
             String::from_utf8_lossy(&stale.stderr).contains("stale"),
@@ -406,7 +427,11 @@ fn verify_named() {
         );
         let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
         resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
-        let refreshed = run();
+        let stale = run(Some(&handoff));
+        assert!(!stale.status.success(), "stale prepared {relative} was accepted");
+        assert!(String::from_utf8_lossy(&stale.stderr).contains("stale prepared configuration"));
+        let handoff = prepare(&profile);
+        let refreshed = run(Some(&handoff));
         assert!(
             refreshed.status.success(),
             "{}",

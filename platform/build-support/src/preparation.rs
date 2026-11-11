@@ -1,15 +1,18 @@
 //! Package-owned declarative configuration, independent of Cargo's environment.
 use crate::{
     bindings::{Catalogs, Package},
-    configuration,
+    configuration, hash_bytes,
     profile::Profile,
     Result, TempDir,
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
+
+pub const ENVIRONMENT: &str = "NXRS_PREPARED_CONFIGURATION";
 
 /// Generate the selected provider's configuration and return every source input.
 ///
@@ -23,9 +26,30 @@ pub fn prepare_package(
     os: &str,
     out: &Path,
 ) -> Result<Vec<PathBuf>> {
-    profile.validate_target(os)?;
     let package = Package::load(directory)?;
-    let name = package.name.clone();
+    let generated = render(&package, profile, os)?;
+    publish(
+        out,
+        &package.name,
+        generated
+            .as_ref()
+            .map(|(file, source)| (file.as_str(), source.as_str())),
+    )?;
+    Ok(inputs(&package, profile))
+}
+
+fn inputs(package: &Package, profile: &Profile) -> Vec<PathBuf> {
+    let mut inputs: Vec<_> = package.inputs().map(|input| input.path.clone()).collect();
+    inputs.extend(profile.source_paths().cloned());
+    inputs.extend(profile.catalogs().source_paths().cloned());
+    inputs.sort();
+    inputs.dedup();
+    inputs
+}
+
+fn render(package: &Package, profile: &Profile, os: &str) -> Result<Option<(String, String)>> {
+    profile.validate_target(os)?;
+    let name = &package.name;
     let capability = name
         .strip_prefix("nxrs-")
         .map(|name| name.strip_suffix("-devices").unwrap_or(name))
@@ -36,22 +60,15 @@ pub fn prepare_package(
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
         })
         .ok_or("configuration package must have an nxrs- capability name")?;
-    let mut inputs: Vec<_> = package.inputs().map(|input| input.path.clone()).collect();
-    inputs.extend(profile.source_paths().cloned());
-    inputs.extend(profile.catalogs().source_paths().cloned());
-    inputs.sort();
-    inputs.dedup();
-
     let provider = profile.binding(capability);
     if provider != os || package.catalogs.is_empty() {
-        publish(out, &name, None)?;
-        return Ok(inputs);
+        return Ok(None);
     }
     let expected = profile
         .catalogs()
         .package(capability)
         .ok_or_else(|| format!("profile has no declared package bindings for {capability}"))?;
-    if !same_declarations(&package, expected) {
+    if !same_declarations(package, expected) {
         return Err(format!(
             "configuration inputs for {name} differ from the resolved profile; use matching package binding catalogs"
         ));
@@ -61,19 +78,180 @@ pub fn prepare_package(
         .composition()?
         .ok_or_else(|| format!("{name}/{provider} configuration requires a composition"))?;
     let mut catalogs = Catalogs::default();
-    catalogs.insert(capability, package)?;
+    catalogs.insert(capability, package.clone())?;
     let stack = crate::profile::sensor_stack(&profile.data[capability])?;
     let source = match capability {
         "imu" => configuration::render_imu_instances(&composition, &catalogs, stack)?,
         "gnss" => configuration::render_gnss_instances(&composition, &catalogs, stack)?,
         _ => return Err(format!("no device renderer for {capability}")),
     };
+    Ok(Some((format!("{capability}_config.rs"), source)))
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Prepared {
+    identity: String,
+    output: Option<Generated>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Generated {
+    file: String,
+    sha256: String,
+}
+
+fn identity(
+    directory: &Path,
+    package: &Package,
+    profile: &Profile,
+    target: &str,
+    os: &str,
+) -> Result<String> {
+    profile.validate_cargo_target(target, os)?;
+    let generator = hash_bytes(
+        concat!(
+            env!("CARGO_PKG_VERSION"),
+            include_str!("preparation.rs"),
+            include_str!("configuration.rs"),
+            include_str!("bindings.rs"),
+            include_str!("composition.rs"),
+            include_str!("profile.rs"),
+            include_str!("nuttx_resources.rs"),
+        )
+        .as_bytes(),
+    );
+    let sources: Vec<_> = package
+        .inputs()
+        .map(|input| (&input.path, &input.sha256))
+        .collect();
+    Ok(hash_bytes(
+        &serde_json::to_vec(&(directory, sources, profile.json()?, target, os, generator))
+            .map_err(|error| error.to_string())?,
+    ))
+}
+
+/// Render consumed path catalogues before Cargo and publish an immutable handoff.
+pub fn prepare_consumers<'a>(
+    directories: impl IntoIterator<Item = &'a Path>,
+    profile: &Profile,
+    target: &str,
+    os: &str,
+    out: &Path,
+) -> Result<Option<PathBuf>> {
+    let out = std::path::absolute(out).map_err(|error| error.to_string())?;
+    reject_symlink(&out)?;
+    let mut selected = BTreeMap::new();
+    for directory in directories {
+        let manifest = crate::profile::manifest(&directory.join("Cargo.toml"))?;
+        if manifest["package"]["metadata"]["nxrs"]["kind"] != "device-catalogue" {
+            continue;
+        }
+        let directory = directory
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let package = Package::load(&directory)?;
+        let identity = identity(&directory, &package, profile, target, os)?;
+        let generated = render(&package, profile, os)?;
+        let output = if let Some((name, source)) = generated {
+            let bucket = out.join(&identity);
+            reject_symlink(&bucket)?;
+            let path = bucket.join(&name);
+            reject_symlink(&path)?;
+            fs::create_dir_all(&bucket).map_err(|error| error.to_string())?;
+            write_if_changed(&path, &source)?;
+            Some(Generated {
+                file: name,
+                sha256: hash_bytes(source.as_bytes()),
+            })
+        } else {
+            None
+        };
+        selected.insert(directory, Prepared { identity, output });
+    }
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let text = serde_json::to_string(&selected).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&out).map_err(|error| error.to_string())?;
+    let path = out.join(format!("{}.json", hash_bytes(text.as_bytes())));
+    reject_symlink(&path)?;
+    write_if_changed(&path, &text)?;
+    Ok(Some(path))
+}
+
+/// Validate the selected catalogue's inputs and copy its output into Cargo's OUT_DIR.
+pub fn consume(
+    path: &Path,
+    directory: &Path,
+    profile: &Profile,
+    target: &str,
+    os: &str,
+    out: &Path,
+) -> Result<Option<Vec<PathBuf>>> {
+    if !path.is_absolute() {
+        return Err("prepared configuration must use an absolute handoff path".into());
+    }
+    reject_symlink(path.parent().ok_or("configuration handoff has no parent")?)?;
+    reject_symlink(path)?;
+    let directory = directory
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let text = crate::read(path)?;
+    if path.file_stem().and_then(|name| name.to_str()) != Some(hash_bytes(text.as_bytes()).as_str())
+    {
+        return Err("prepared configuration handoff changed; rerun cargo nxrs build".into());
+    }
+    let mut selected: BTreeMap<PathBuf, Prepared> =
+        serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let Some(prepared) = selected.remove(&directory) else {
+        return Ok(None);
+    };
+    let package = Package::load(&directory)?;
+    if prepared.identity != identity(&directory, &package, profile, target, os)? {
+        return Err("stale prepared configuration; rerun cargo nxrs build".into());
+    }
+    let mut inputs = inputs(&package, profile);
+    inputs.push(path.to_path_buf());
+    let generated = if let Some(generated) = &prepared.output {
+        if !output_name(&generated.file) {
+            return Err("invalid prepared configuration filename".into());
+        }
+        let source = path
+            .parent()
+            .ok_or("configuration handoff has no parent")?
+            .join(&prepared.identity)
+            .join(&generated.file);
+        reject_symlink(source.parent().unwrap())?;
+        reject_symlink(&source)?;
+        let contents = crate::read(&source)?;
+        if hash_bytes(contents.as_bytes()) != generated.sha256 {
+            return Err("prepared configuration output changed; rerun cargo nxrs build".into());
+        }
+        inputs.push(source);
+        Some((generated.file.as_str(), contents))
+    } else {
+        None
+    };
     publish(
         out,
-        &name,
-        Some((&format!("{capability}_config.rs"), &source)),
+        &package.name,
+        generated
+            .as_ref()
+            .map(|(name, source)| (*name, source.as_str())),
     )?;
-    Ok(inputs)
+    Ok(Some(inputs))
+}
+
+fn reject_symlink(path: &Path) -> Result<()> {
+    if path.is_symlink() {
+        return Err(format!(
+            "prepared configuration path must not be a symlink: {}",
+            path.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Detached packages may adjust packaging/dependency metadata. Their declared
@@ -162,6 +340,77 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepared_handoff_checks_outputs_and_isolates_profile_switches() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let directory = root.join("platform/devices/imu");
+        let gnss = root.join("platform/devices/gnss");
+        let profile = Profile::resolve(&root, "m5stack-cores3-gnss").unwrap();
+        let temp = TempDir::new(&std::env::temp_dir()).unwrap();
+        let cache = temp.0.join("configuration");
+        let out = temp.0.join("cargo");
+        let target = "xtensa-esp32s3-nuttx";
+        let try_prepare = |profile: &Profile| {
+            prepare_consumers([directory.as_path()], profile, target, "nuttx", &cache)
+        };
+        let prepare = |profile: &Profile| try_prepare(profile).unwrap().unwrap();
+        let apply = |path: &Path, profile: &Profile| {
+            consume(path, &directory, profile, target, "nuttx", &out)
+        };
+        let handoff = prepare(&profile);
+        let stamp = fs::metadata(&handoff).unwrap().modified().unwrap();
+        assert_eq!(prepare(&profile), handoff);
+        assert_eq!(fs::metadata(&handoff).unwrap().modified().unwrap(), stamp);
+        assert!(consume(&handoff, &gnss, &profile, target, "nuttx", &out)
+            .unwrap()
+            .is_none());
+        let inputs = apply(&handoff, &profile).unwrap().unwrap();
+        let generated = inputs
+            .iter()
+            .find(|path| {
+                path.starts_with(&cache)
+                    && path.extension().is_some_and(|extension| extension == "rs")
+            })
+            .unwrap();
+        let expected = fs::read(out.join("imu_config.rs")).unwrap();
+        assert_eq!(expected, fs::read(generated).unwrap());
+        assert!(consume(&handoff, &directory, &profile, "wrong-nuttx", "nuttx", &out).is_err());
+        fs::write(generated, "corrupt generated output").unwrap();
+        assert!(apply(&handoff, &profile)
+            .unwrap_err()
+            .contains("output changed"));
+        assert_eq!(fs::read(out.join("imu_config.rs")).unwrap(), expected);
+        assert_eq!(prepare(&profile), handoff);
+        assert_eq!(fs::read(generated).unwrap(), expected);
+        let unbound = Profile::resolve(&root, "esp32s3-camera-stream-mcuboot").unwrap();
+        let disabled = prepare(&unbound);
+        assert_ne!(disabled, handoff);
+        assert!(apply(&handoff, &unbound)
+            .unwrap_err()
+            .contains("stale prepared"));
+        apply(&disabled, &unbound).unwrap();
+        assert!(!out.join("imu_config.rs").exists());
+        apply(&handoff, &profile).unwrap();
+        assert_eq!(fs::read(out.join("imu_config.rs")).unwrap(), expected);
+        #[cfg(unix)]
+        for location in [&cache, generated.parent().unwrap(), &handoff, generated] {
+            let moved = temp.0.join("redirected");
+            fs::rename(location, &moved).unwrap();
+            std::os::unix::fs::symlink(&moved, location).unwrap();
+            assert!(try_prepare(&profile).unwrap_err().contains("symlink"));
+            assert!(apply(&handoff, &profile).unwrap_err().contains("symlink"));
+            fs::remove_file(location).unwrap();
+            fs::rename(moved, location).unwrap();
+        }
+        fs::write(&handoff, "{}").unwrap();
+        assert!(apply(&handoff, &profile)
+            .unwrap_err()
+            .contains("handoff changed"));
+    }
 
     #[test]
     fn output_rename_and_removal_cannot_reuse_stale_configuration() {

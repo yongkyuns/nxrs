@@ -360,6 +360,9 @@ pub fn build(
         command.arg("--config").arg(config);
     }
     let selection = crate::cargo_graph::resolve(&mut command, p)?;
+    deployment["configuration"] = json!(
+        build::configure_preparation(&mut command, &out, p, &selection, TARGET, "emscripten")?
+    );
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["driver_features"] = json!(selection.driver_features);
