@@ -1000,15 +1000,14 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let selection = crate::cargo_graph::resolve(&mut cargo, p)?;
     let native_resources = out.join("native-resources");
     use nxrs_build_support::prepared_resource;
-    let resources = if env::var_os("NXRS_CARGO_CONFIG").is_some()
-        || prepared_resource::cargo_compiler_environment(root)?
-    {
-        Vec::new()
-    } else {
-        prepare_native_resources(
-            &selection, p, target, &native_config, &native_resources, &tools.path,
-        )?
-    };
+    let resources = prepare_native_resources(
+        &selection,
+        p,
+        target,
+        &native_config,
+        &native_resources,
+        &tools.path,
+    )?;
     let prepared = prepared_resource::ENVIRONMENT;
     if resources.is_empty() {
         cargo.env_remove(prepared);

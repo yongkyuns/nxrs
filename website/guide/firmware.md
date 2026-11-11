@@ -1,6 +1,6 @@
 # Building for NuttX
 
-A firmware build combines the Rust application, its dependencies, a NuttX configuration, and the target toolchain. The `cargo nxrs` frontend prepares these inputs and produces the image and build records.
+A firmware build combines the Rust application, its dependencies, a NuttX configuration, and the target toolchain. The supported entry point is `cargo nxrs build`: it prepares these inputs, derives driver features from the profile, and produces the image and build records. You do not need to select chip features manually.
 
 Use the general-purpose `std-demo` application for the first target build. Its standard-library recipes do not require application-specific sensors or services.
 

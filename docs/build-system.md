@@ -230,9 +230,9 @@ The IMU catalogue's `bmi270` and `lsm6dso` features and the GNSS catalogue's
 `ubx` feature enable optional NuttX drivers. `cargo nxrs build` requests the
 features for the configured devices in each consumed catalogue. For example,
 `cargo nxrs build --app event-demo --platform cores3` selects BMI270 and UBX.
-For a direct Cargo build with a physical profile, enable its catalogue features
-explicitly. Mixed IMU profiles can select both drivers, and host driver tests
-compile the implementations through dev-dependencies.
+These are internal dependency switches; use `cargo nxrs build` for NuttX profile
+builds rather than setting chip features manually. Mixed IMU profiles select both
+drivers. Host driver tests compile the implementations through dev-dependencies.
 
 The isolation audit uses full Cargo package metadata and observed compiler
 artifacts. It checks target packages separately from host build tools, retains
@@ -278,12 +278,13 @@ separate qualification gates.
 The NuttX controller configures Make and generates target headers before invoking
 Cargo. A Make target exports its C compiler, archiver and flags into
 `native-context.json`, with the target and configured-header digest.
-The controller precompiles the consumed NuttX resource and HAL ABI archives.
-HAL helpers follow the resolved profile binding and the required features
-selected by Cargo. Package adapters validate and link the archives listed for
-the build. Standalone Cargo, non-path dependencies and builds with Cargo-only
-compiler environment overrides compile shims through their package adapters.
-SDK preparation keeps its own build path. NuttX owns OS drivers and registration.
+The controller precompiles consumed NuttX resource and HAL ABI archives according
+to profile admission and Cargo-selected features. Package adapters validate and
+link them; missing or stale preparation fails with a rebuild diagnostic. Native
+compiler environment variables must be exported before invoking the frontend,
+not set only in Cargo configuration. SDK preparation retains its own build path.
+NuttX owns OS drivers and registration. The low-level kernel ABI harness retains
+its partial HAL fixture without a board selection; it is not a product profile.
 
 The controller checks current compiler dependencies before reusing an archive,
 including headers that newly take precedence in the include search path.
@@ -302,8 +303,10 @@ HAL helpers. Link maps and symbol checks still establish what the image retains.
 
 An external product has its own workspace, lockfile and handwritten `main()`.
 Pass its manifest to the same frontend and select the NXRS profile/SDK root
-explicitly with `--workspace-root`. For direct Cargo builds with a profile,
-`NXRS_SDK_ROOT` supplies that root; in-checkout builds can discover it. The SDK
+explicitly with `--workspace-root`. NuttX builds use this frontend, including
+external products and qualification apps. Portable library tests and explicit host
+fixtures may use Cargo directly; `NXRS_SDK_ROOT` supplies their profile root.
+In-checkout builds can discover it. The SDK
 root provides profiles and pinned native inputs and need not be the application's
 Cargo workspace. No source path outside an ordinary dependency package supplies
 its build script or production Rust modules.

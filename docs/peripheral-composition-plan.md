@@ -191,9 +191,9 @@ Depends on S5. Change `platform/build-support/src/lib.rs`,
 `hal/imu/src/platform/` and detached-consumer tests.
 
 1. Emit a versioned resolved-profile file atomically per build and implement
-   `NXRS_RESOLVED_PROFILE` validation. Direct Cargo consumers resolve named
-   profiles with declared overlays using `NXRS_PLATFORM` and `NXRS_SDK_ROOT`.
-   Both entry points must share the resolver and produce the same graph.
+   `NXRS_RESOLVED_PROFILE` validation. NuttX profile builds use the frontend;
+   Cargo adapters consume its receipt. Explicit host fixtures may resolve named
+   profiles using `NXRS_PLATFORM` and `NXRS_SDK_ROOT` through the same resolver.
 2. Generate typed constants and the selected checked-in factory into OUT_DIR.
    Use parsed enums and allowlisted mappings, escaping strings as Rust literals.
    Never interpolate profile text as Rust paths, shell commands or source code.
@@ -476,9 +476,10 @@ runtime owner and compile only consumed, feature-enabled helpers. Generated
 files stay outside source and have target/configuration/schema/generator identity,
 atomic writes and concurrent-build isolation.
 
-Define and exercise normal frontend builds, plain Cargo build/check/test/doc,
-explicitly prepared profile inputs, no-profile contracts and explicit fixtures.
-Unprepared or stale profile inputs fail clearly. Update affected generation,
+Exercise NuttX builds through `cargo nxrs build`, including detached products
+and qualification apps. Cargo adapters and editor checks consume prepared inputs;
+unprepared or stale firmware inputs fail clearly. Preserve ordinary Cargo for
+no-profile contracts and explicit host fixtures. Update affected generation,
 freshness and native-helper tests in this PR.
 Exit with a working handoff; do not delete HAL scripts while any of their
 responsibilities lacks a replacement.

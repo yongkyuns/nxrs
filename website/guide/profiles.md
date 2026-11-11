@@ -14,7 +14,7 @@ The same application can be built with a different profile without adding board 
 
 `cargo nxrs platforms` lists platform families. `--platform` uses a family's default profile; `--profile` selects a specific configuration. When both are supplied, the profile must belong to that family. Use an explicit profile when reproducing a build.
 
-## Direct Cargo builds
+## Portable development with Cargo
 
 For host code using profile-selected HALs, `NXRS_PLATFORM` selects the profile. For example, check the storage package with the Linux host integration:
 
@@ -30,7 +30,7 @@ cargo check --locked -p nxrs-storage
 Remove-Item Env:NXRS_PLATFORM
 ```
 
-Use the profile matching the host and package, with the prerequisites in the owning HAL's documentation. Standard-library-only programs, including the first examples, do not need a profile. Without one, HAL crates expose portable contracts and leave hardware implementations unbound.
+NuttX firmware and qualification builds use `cargo nxrs build`; their Cargo adapters require its prepared inputs. For host fixtures, use the profile matching the host and package, with the prerequisites in the owning HAL's documentation. Standard-library-only programs, including the first examples, do not need a profile. Without one, HAL crates expose portable contracts and leave hardware implementations unbound.
 
 ## Configuration responsibilities
 

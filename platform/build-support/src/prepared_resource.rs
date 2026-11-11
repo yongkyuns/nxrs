@@ -51,30 +51,6 @@ pub fn selected(
             .all(|feature| features.contains(feature)))
 }
 
-/// Cargo-only compiler environment overrides keep their ordinary adapter build.
-pub fn cargo_compiler_environment(root: &Path) -> Result<bool> {
-    let home = env::var_os("CARGO_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")));
-    let directories = root
-        .ancestors()
-        .map(|path| path.join(".cargo"))
-        .chain(home.map(|path| root.join(path)));
-    for directory in directories {
-        for name in ["config", "config.toml"] {
-            let path = directory.join(name);
-            if path.is_file() {
-                let config = manifest(&path)?;
-                let mut variables = COMPILER_ENV.iter().copied().chain(["PATH"]);
-                if variables.any(|name| config["env"].get(name).is_some()) {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-    Ok(false)
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {

@@ -11,7 +11,9 @@ NuttX needs a prepared build. Run your usual `cargo nxrs build` with
 `--out target/editor/wroom`, `target/editor/cores3`, or `target/editor/pico2w`
 to use the corresponding task. For any other output directory, use
 `cargo nxrs editor --build-dir <path>`. It uses that build's resolved profile,
-target, compiler, and native headers, and checks the selected package. Rebuild
+target, derived driver features, compiler, native headers and prepared resource
+archives, and checks the selected package. Zed invokes Cargo with these validated
+inputs; no manual chip-feature selection is needed. Rebuild
 if the resolved profile is stale or if an older output predates editor support
 and used custom Cargo options. The application must be in the Nxrs workspace.
 The task reads and writes standard JSON project settings. It only changes

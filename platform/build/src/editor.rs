@@ -148,6 +148,13 @@ fn nuttx_settings(root: &Path, directory: &Path) -> Result<Value> {
         target
     };
     let selection = read_json(&directory.join("provider-selection.json"))?;
+    let resources = selection["native-resources"]
+        .as_array()
+        .ok_or("missing native resource preparation; rerun cargo nxrs build")?;
+    let prepared = directory.join("native-resources");
+    if !resources.is_empty() && !prepared.is_dir() {
+        return Err("prepared native resources are missing; rerun cargo nxrs build".into());
+    }
     let manifest = Path::new(
         selection["app_manifest"]
             .as_str()
@@ -233,6 +240,9 @@ fn nuttx_settings(root: &Path, directory: &Path) -> Result<Value> {
         "NXRS_NUTTX_INCLUDE": include,
         "NXRS_NUTTX_NATIVE_CONFIG": native,
     });
+    if !resources.is_empty() {
+        extra_env[nxrs_build_support::prepared_resource::ENVIRONMENT] = json!(prepared);
+    }
     for name in ["NXRS_PICO_SDK", "NXRS_TLS_ARCHIVE"] {
         if let Some(path) = editor["sdk"].get(name) {
             extra_env[name] = path.clone();

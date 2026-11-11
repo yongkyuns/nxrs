@@ -86,4 +86,27 @@ fn gio_validates_receipt_only_selection_before_requesting_native_tools() {
         .contains("resolved profile receipt target does not match this Cargo build"));
     run.env_remove("NXRS_RESOLVED_PROFILE");
     assert!(run.output().unwrap().status.success());
+
+    // Firmware selection cannot bypass frontend preparation with a profile name.
+    // The same adapter still accepts its validated target receipt.
+    let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+    let target = "xtensa-esp32s3-nuttx";
+    run.env("NXRS_PLATFORM", profile.name())
+        .env("CARGO_CFG_TARGET_OS", "nuttx")
+        .env("TARGET", target);
+    let unprepared = run.output().unwrap();
+    assert!(!unprepared.status.success());
+    assert!(String::from_utf8_lossy(&unprepared.stderr).contains("use cargo nxrs build"));
+    resolved::write(&receipt, &sdk, &profile, target, "nuttx").unwrap();
+    run.env("NXRS_RESOLVED_PROFILE", &receipt);
+    let prepared = run.output().unwrap();
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    // The legacy kernel ABI harness selects HALs only, without a board profile.
+    run.env_remove("NXRS_RESOLVED_PROFILE")
+        .env("NXRS_PLATFORM", "nuttx-std");
+    assert!(run.output().unwrap().status.success());
 }
