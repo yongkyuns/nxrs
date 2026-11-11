@@ -1,5 +1,6 @@
 pub use super::native::*;
 pub const NAME: &str = "nuttx";
+pub const HEAP_SCOPE: &str = "nuttx-mallinfo-arena";
 pub fn configure() -> u32 {
     restore([1, 180]);
     let p = priority();

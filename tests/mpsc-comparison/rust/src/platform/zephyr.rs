@@ -1,5 +1,6 @@
 pub use super::native::*;
 pub const NAME: &str = "zephyr";
+pub const HEAP_SCOPE: &str = "unavailable";
 pub fn configure() -> u32 {
     restore([0, 20]);
     let p = priority();

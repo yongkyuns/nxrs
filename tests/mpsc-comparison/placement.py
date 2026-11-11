@@ -92,7 +92,9 @@ def memory_kind(address,board):
  return 'other'
 
 
-def inspect_disassembly(out,board,backend=None):
+IRQ_ROOTS=('mp_irq_probe_isr','mp_irq_probe_now','mp_irq_probe_arm','mpsc_irq_probe_entry')
+
+def inspect_disassembly(out,board,backend=None,irq_probe=False):
  """Inspect observed direct paths; this is not a complete control-flow proof."""
  if board not in ('pico2w','esp32s3'):raise ValueError('unknown placement board')
  fns={};current=None
@@ -134,11 +136,13 @@ def inspect_disassembly(out,board,backend=None):
   i=bisect.bisect_right(starts,address)-1
   if i>=0 and starts[i]<=address<fns[starts[i]]['end']:return starts[i]
   return address if address in fns else None
- roots=[a for a,f in fns.items() if rootpat.search(f['name'])]
+ roots=[a for a,f in fns.items() if (f['name'] in IRQ_ROOTS if irq_probe else rootpat.search(f['name']))]
  missing=[]
- if not any('mpsc_comparison::engine::worker' in fns[a]['name'] for a in roots):
+ if irq_probe:
+  missing=[name for name in IRQ_ROOTS if not any(fns[a]['name']==name for a in roots)]
+ elif not any('mpsc_comparison::engine::worker' in fns[a]['name'] for a in roots):
   missing.append('workload worker')
- if backend=='native':
+ if backend=='native' and not irq_probe:
   for name in ('mp_queue_send','mp_queue_receive'):
    if not any(fns[a]['name']==name for a in roots):missing.append(name)
  todo=list(roots);seen=set();parents={};outside=[];other=[];unresolved=[];indirect=[];excluded=[]
@@ -153,7 +157,7 @@ def inspect_disassembly(out,board,backend=None):
   seen.add(a);f=fns[a]
   # The existing std warmup exclusions do not establish that native queue
   # allocation/mutex dependencies are cold.
-  is_cold=cold(f['name']) and not (backend=='native' and any(
+  is_cold=not irq_probe and cold(f['name']) and not (backend=='native' and any(
       name in f['name'] for name in ('pthread_mutex_lock','pthread_mutex_unlock','pthread_mutex_destroy')))
   if is_cold:
    excluded.append(f['name']);continue
@@ -173,7 +177,7 @@ def inspect_disassembly(out,board,backend=None):
    elif destination not in seen:
     parents.setdefault(destination,a);todo.append(destination)
  direct_ok=bool(roots) and not (missing or outside or other or unresolved)
- return dict(schema='mpsc-hot-placement-v1',board=board,backend=backend,
+ return dict(schema='mpsc-hot-placement-v1',board=board,backend=backend,irq_probe=irq_probe,
              roots=[dict(name=fns[a]['name'],address=hex(a),memory=memory_kind(a,board)) for a in roots],
              missing_roots=missing,visited=len(seen),flash_boundaries=outside,
              other_memory_boundaries=other,unresolved_direct_targets=unresolved,
@@ -183,9 +187,9 @@ def inspect_disassembly(out,board,backend=None):
              scope='observed direct branches up to non-internal or listed cold boundaries; indirect targets and actual executed paths remain unqualified')
 
 
-def audit(elf,prefix,destination,*,board='pico2w',backend=None,strict=False):
+def audit(elf,prefix,destination,*,board='pico2w',backend=None,strict=False,irq_probe=False):
  out=subprocess.check_output([prefix+'objdump','-d','-C',str(elf)],text=True)
- result=inspect_disassembly(out,board,backend)
+ result=inspect_disassembly(out,board,backend,irq_probe)
  result['elf_sha256']=hashlib.sha256(Path(elf).read_bytes()).hexdigest()
  result['strict_gate']=strict
  Path(destination).write_text(json.dumps(result,indent=2)+'\n')

@@ -128,6 +128,15 @@ class AllocationEvidenceTests(unittest.TestCase):
                                       {"worker_stack_bytes": 2048, "queues": 60})
         self.assertIsNone(result["live_heap_delta_from_baseline"]["baseline"])
 
+    def test_static_diagnostics_are_a_constant_subset_not_an_added_allocation(self):
+        original = allocation("alloc-queues")
+        for text in (original.replace("diagnostics=244", "diagnostics=5001"),
+                     original.replace("static_storage=5000", "static_storage=5001", 1),
+                     original.replace("diagnostics=244", "diagnostics=245", 1)):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "static storage"):
+                ram.allocation_output(text, "alloc-queues", "nuttx-c",
+                                      {"worker_stack_bytes": 2048, "queues": 60})
+
 
 if __name__ == "__main__":
     unittest.main()

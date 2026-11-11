@@ -13,6 +13,13 @@ physical results. The historical [RTOS comparison](rtos-comparison.md),
 retain their original scope. The new RAM controls are one component of this
 characterization; they do not establish a platform ranking.
 
+The [finite hardware campaign](../tests/rtos-characterization/README.md) now
+maps the core criteria to build inspection, a fixed run census, and strict
+offline replay. Its current-source owner witnesses and separate S3 CPU/IRQ
+observer images complement the primary messaging and RAM controls. Artifact
+readiness and physical execution are reported separately; real device, energy
+and protection requirements retain their own hardware qualification scope.
+
 ## Separate the OS from the application environment
 
 Zephyr and NuttX provide OS facilities. NXRS builds an ordinary Rust application
@@ -152,7 +159,8 @@ FIFO and three independent eight-slot queues have equal slot capacity but
 different isolation and admission behavior. Include messages held by blocked
 senders, upstream buffers and executing handlers in the whole-system bound.
 Report delivery tails, useful throughput, loss accounting and separately
-measured CPU cost; primary MPSC images currently lack CPU accounting.
+measured CPU cost. Primary MPSC images keep accounting disabled; the separate
+S3 CPU images report participant charges with explicit per-kernel IRQ scope.
 
 ### 3. Device-to-output response under interference
 

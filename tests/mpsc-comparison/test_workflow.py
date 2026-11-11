@@ -104,7 +104,7 @@ class WorkflowTests(unittest.TestCase):
                              retained_native_queue_roots=list(build.NATIVE_QUEUE_ROOTS),
                              native_queue_roots_required=True, passed=True)
             (root / 'transport-selection.json').write_text(json.dumps(selection))
-            record = dict(schema=build.BUILD_SCHEMA, board='pico2w', runtime='zephyr', backend='native',
+            record = dict(schema=build.BUILD_SCHEMA, board='pico2w', runtime='zephyr', backend='native', observer='primary',
                           source_sha256=inventory, board_contract=build.BOARDS['pico2w'],
                           native_build_inputs=None, nonce='test', status='complete', failure=None,
                           transport_selection_file='transport-selection.json',
@@ -157,7 +157,7 @@ class WorkflowTests(unittest.TestCase):
         kernel = dict(schema='mpsc-nuttx-kernel-v1', scope='test archive scope',
                       resolved_config_sha256='config', patch_receipts={'kernel': 'patch'},
                       archives={'libkernel.a': {'raw_sha256': 'raw-a', 'link_sha256': 'code'}})
-        n = dict(runtime='nuttx', backend='std', board='pico2w', board_contract={}, source_sha256={},
+        n = dict(runtime='nuttx', backend='std', observer='primary', board='pico2w', board_contract={}, source_sha256={},
                  rust_compiler='rust', rust_compiler_sha256='rust-hash',
                  c_compiler='gcc', c_compiler_sha256='gcc-hash', kernel_identity=kernel,
                  native_build_inputs={'source_date_epoch': 123})
@@ -185,6 +185,7 @@ class WorkflowTests(unittest.TestCase):
             lambda r: r.update(backend='std'),
             lambda r: r.update(c_compiler_sha256='different'),
             lambda r: r.update(board='esp32s3'),
+            lambda r: r.update(observer='cpu'),
             lambda r: r['native_build_inputs'].update(source_date_epoch=456),
             lambda r: r['kernel_identity'].update(resolved_config_sha256='changed'),
             lambda r: r['kernel_identity']['patch_receipts'].update(kernel='changed'),
@@ -214,13 +215,14 @@ class WorkflowTests(unittest.TestCase):
                     runs[path] = dict(pass_number=number, case='stream-p1-b16-q8', build_id=str(label),
                                       delivered_per_nominal_second=100, delivery_ticks={'p99': 1},
                                       clock_hz=1000000, offered=10, admitted=10, delivered=10, rejected=0,
-                                      normal_loss_gate_passed=True, cpu_ns_per_delivered=None,
+                                      normal_loss_gate_passed=True, cpu_ns_per_delivered=None, cpu_scope='unavailable',
                                       wait_observer='queue-object' if label != Path('n') else 'semaphore-state-and-phase')
                     args.captures.append(path)
             with patch.object(build, 'receipt', side_effect=receipts.__getitem__), \
                     patch.object(capture, 'replay', side_effect=lambda path, _: runs[path]):
                 result = capture.compare(args)
                 self.assertEqual(len(result['comparisons']), 2)
+                self.assertEqual(result['observer'], 'primary')
                 self.assertTrue(all(len(row['arms']) == 3 for row in result['comparisons']))
                 self.assertFalse(result['samples_pooled'])
                 self.assertFalse(result['physical_timing_qualified'])
@@ -238,6 +240,63 @@ class WorkflowTests(unittest.TestCase):
                 args.nuttx_native_build = None
                 with self.assertRaisesRegex(ValueError, 'requires'):
                     capture.compare(args)
+
+    def test_observer_identity_availability_and_campaign_separation(self):
+        self.assertEqual(build.selected_observer('pico2w'), 'primary')
+        for observer in ('cpu', 'irq'):
+            self.assertEqual(build.selected_observer('esp32s3', observer), observer)
+            with self.assertRaisesRegex(ValueError, 'ESP32-S3 only'):
+                build.selected_observer('pico2w', observer)
+        with self.assertRaisesRegex(ValueError, 'unsupported'):
+            build.selected_observer('esp32s3', 'both')
+        std, native, _ = self.control_receipts()
+        native['observer'] = 'cpu'
+        with self.assertRaisesRegex(ValueError, 'unmatched build cohort'):
+            build.validate_cohort(std, native)
+        primary = dict(schema=build.BUILD_SCHEMA, board='esp32s3', runtime='nuttx', backend='std',
+                       observer='primary', source_sha256={}, board_contract=build.BOARDS['esp32s3'],
+                       native_build_inputs={}, nonce='same')
+        cpu = {**primary, 'observer': 'cpu'}
+        self.assertNotEqual(build.canonical({k: primary[k] for k in build.IDENTITY_FIELDS}),
+                            build.canonical({k: cpu[k] for k in build.IDENTITY_FIELDS}))
+        for record in (primary, cpu):
+            record['build_id'] = 'test'
+            expected = capture.expected(record, 'stream-p1-b16-q8')
+            self.assertEqual(expected['accounting'], record['observer'] == 'cpu')
+            self.assertEqual(expected['observer'], record['observer'])
+        self.assertTrue(all(row['observer'] == 'cpu' for row in capture.plan(1, True, 'cpu')))
+
+    def test_primary_and_cpu_configs_are_distinct_checked_observers(self):
+        nuttx = ('CONFIG_USEC_PER_TICK=10000\nCONFIG_PTHREAD_STACK_DEFAULT=4096\n'
+                 'CONFIG_INIT_STACKSIZE=8192\nCONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ=240\n')
+        cpu_nuttx = nuttx + ('CONFIG_ARCH_PERF_EVENTS=y\nCONFIG_PERF_OVERFLOW_CORRECTION=y\n'
+                            'CONFIG_SCHED_CRITMONITOR=y\nCONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD=0\n')
+        for name in ('WQUEUE', 'PREEMPTION', 'CSECTION', 'IRQ', 'WDOG', 'BUSYWAIT'):
+            cpu_nuttx += f'CONFIG_SCHED_CRITMONITOR_MAXTIME_{name}=-1\n'
+        zephyr = ('CONFIG_SYS_CLOCK_TICKS_PER_SEC=100\nCONFIG_MAIN_STACK_SIZE=8192\n'
+                  'CONFIG_MAIN_THREAD_PRIORITY=20\nCONFIG_SIZE_OPTIMIZATIONS=y\n'
+                  'CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=240000000\n')
+        cpu_zephyr = zephyr + ('CONFIG_THREAD_RUNTIME_STATS=y\nCONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS=y\n'
+                              'CONFIG_TIMING_FUNCTIONS=y\nCONFIG_SCHED_THREAD_USAGE=y\n'
+                              'CONFIG_SCHED_THREAD_USAGE_AUTO_ENABLE=y\nCONFIG_XTENSA_CCOUNT_HZ=240000000\n')
+        for runtime, primary, cpu in [('nuttx', nuttx, cpu_nuttx), ('zephyr', zephyr, cpu_zephyr)]:
+            with self.subTest(runtime=runtime):
+                build.validate_config(primary, 'esp32s3', runtime, 'primary')
+                build.validate_config(cpu, 'esp32s3', runtime, 'cpu')
+                with self.assertRaises(ValueError):
+                    build.validate_config(cpu, 'esp32s3', runtime, 'primary')
+                with self.assertRaises(ValueError):
+                    build.validate_config(primary, 'esp32s3', runtime, 'cpu')
+        for changed in (cpu_nuttx.replace('CONFIG_PERF_OVERFLOW_CORRECTION=y', '# CONFIG_PERF_OVERFLOW_CORRECTION is not set'),
+                        cpu_nuttx.replace('MAXTIME_THREAD=0', 'MAXTIME_THREAD=-1'),
+                        cpu_nuttx.replace('MAXTIME_CSECTION=-1', 'MAXTIME_CSECTION=0')):
+            with self.assertRaises(ValueError):
+                build.validate_config(changed, 'esp32s3', 'nuttx', 'cpu')
+        for changed in (cpu_zephyr.replace('CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS=y', '# CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS is not set'),
+                        cpu_zephyr.replace('CONFIG_XTENSA_CCOUNT_HZ=240000000', 'CONFIG_XTENSA_CCOUNT_HZ=160000000'),
+                        cpu_zephyr + 'CONFIG_SCHED_THREAD_USAGE_ALL=y\n'):
+            with self.assertRaises(ValueError):
+                build.validate_config(changed, 'esp32s3', 'zephyr', 'cpu')
 
     def test_archive_identity_ignores_debug_paths_but_retains_code_and_placement(self):
         with tempfile.TemporaryDirectory() as directory:

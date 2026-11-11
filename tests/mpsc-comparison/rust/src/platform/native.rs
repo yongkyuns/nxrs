@@ -26,7 +26,7 @@ unsafe extern "C" {
     fn mp_queue_destroy() -> i32;
     fn mp_runtime(tid: usize) -> u64;
     fn mp_stack(tid: usize, values: *mut u32) -> i32;
-    fn mp_heap(values: *mut u32);
+    fn mp_heap(values: *mut u32) -> i32;
     fn mp_watchdog_start(ms: u32, callback: extern "C" fn()) -> i32;
     fn mp_watchdog_stop() -> i32;
     fn mp_output(data: *const u8, bytes: usize) -> i32;
@@ -138,10 +138,16 @@ pub fn stack(tid: usize) -> [u32; 3] {
     check(unsafe { mp_stack(tid, v.as_mut_ptr()) } == 0, "stack-read");
     v
 }
-pub fn heap() -> [u32; 4] {
+pub fn heap() -> Option<[u32; 4]> {
     let mut v = [0; 4];
-    unsafe { mp_heap(v.as_mut_ptr()) };
-    v
+    match unsafe { mp_heap(v.as_mut_ptr()) } {
+        1 => Some(v),
+        0 => None,
+        _ => {
+            check(false, "heap-read");
+            None
+        }
+    }
 }
 pub fn watchdog_start(ms: u32) {
     check(

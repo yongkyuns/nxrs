@@ -73,12 +73,65 @@ python3 tests/event-services-comparison/setup.py \
 ```
 
 This builds the Zephyr and Embassy case directories with 1 ms timers and
-natural Embassy scheduling. Prepare NuttX through the
-[existing minimal-profile recipe](README.md#minimal-nuttx-configuration), using
-the same common baseline and prepared compiler/sysroot for C and Rust. Add
-`--instrumentation lean --worker-stack-bytes 4096 --stack-watermark` to both
-`build.py` invocations, and place their fresh case directories alongside the
-other two under `target/ram-images-baseline`.
+natural Embassy scheduling. With the [pinned NuttX tools](../../docs/nuttx-std.md)
+loaded, prepare the common C/Rust baseline with the dedicated
+`esp32s3-ram-native-baseline` profile. It sets a **1 ms tick / 10 ms timeslice**
+and a 248-byte maximum native message size. The ordinary std measurement profile
+remains a separate configuration. Use fresh directories throughout:
+
+```sh
+BASE=target/ram-nuttx-prepared
+READELF="$PWD/target/ram-tools/packages/gcc/xtensa-esp-elf/bin/xtensa-esp32s3-elf-readelf"
+ESPTOOL="$PWD/target/ram-tools/venv/bin/esptool"
+cargo nxrs build --manifest-path tests/ram-footprint-std/Cargo.toml \
+  --profile esp32s3-ram-native-baseline --bin ram-threads \
+  --command ramprobe --stack-size 16384 --abi-profile minimal \
+  --target-c-source tests/ram-footprint-std/ffi/observe.c --out "$BASE"
+```
+
+Check the prepared baseline before cloning the minimal tree; a 10 ms tick
+cannot be relabelled as this cohort:
+
+```sh
+python3 - "$BASE/resolved.config" <<'PY'
+from pathlib import Path
+import sys
+values = dict(line.split('=', 1) for line in Path(sys.argv[1]).read_text().splitlines()
+              if line.startswith('CONFIG_') and '=' in line)
+for key, expected in {'CONFIG_USEC_PER_TICK': '1000', 'CONFIG_RR_INTERVAL': '10'}.items():
+    if values.get(key) != expected:
+        raise SystemExit(f'prepared baseline requires {key}={expected}')
+PY
+```
+
+Create the shell-free tree through the
+[existing minimal-profile preparation](README.md#minimal-nuttx-configuration),
+then build both languages against its identical resolved kernel and sysroot:
+
+```sh
+# Canonical preparation applies the selected HAL patches in its private tree.
+# Clone the pinned objects into a new pristine cache; do not reset that tree.
+HAL_SOURCE="$BASE/nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty"
+HAL_CACHE=target/ram-pristine-hal
+git clone --shared "$HAL_SOURCE" "$HAL_CACHE"
+git clone --shared "$HAL_SOURCE/components/mbedtls/mbedtls" \
+  "$HAL_CACHE/components/mbedtls/mbedtls"
+python3 tests/event-services-comparison/nuttx_profile.py \
+  --baseline-config "$BASE/resolved.config" \
+  --hal-cache "$HAL_CACHE" \
+  --target-spec "$BASE/xtensa-esp32s3-nuttx.json" \
+  --out target/ram-minimal-tree
+for language in c rust; do
+  python3 tests/event-services-comparison/build.py \
+    --platform "nuttx-$language" --layout three --timer-ms 1 \
+    --nuttx-profile minimal --matched-baseline "$BASE/resolved.config" \
+    --nuttx-tree target/ram-minimal-tree \
+    --baseline-config target/ram-minimal-tree/baseline.config \
+    --sysroot "$BASE/toolchain" --readelf "$READELF" --esptool "$ESPTOOL" \
+    --instrumentation lean --worker-stack-bytes 4096 --stack-watermark \
+    --out "target/ram-images-baseline/nuttx-$language-three"
+done
+```
 
 Do not reuse a historical `--rust-input-bundle` compiled before these controls:
 it lacks the current firmware sources and observation contract. Any changed
@@ -133,11 +186,24 @@ in the final table. Do not silently subtract a watermark from whole-image RAM.
 Use one controlled single-core ESP32-S3 without PSRAM, and the private verified
 16 MiB original-flash backup described in the existing device recipe. The
 collector validates frozen image/ELF/configuration hashes and restores and
-verifies that backup in `finally`, including after a failed invocation:
+verifies that backup in `finally`, including after a failed invocation. First
+validate the builds without device access:
+
+```sh
+python3 tests/event-services-comparison/ram_matrix.py --preflight \
+  --artifacts target/ram-images-baseline --readelf "$READELF" \
+  --out target/ram-preflight-baseline.json
+```
+
+This preflight opens no port and needs no flash backup. It re-reads sections
+from each actual ELF, checks the resolved native configuration and its identity,
+and emits source/artifact identities for the campaign manifest. Complete the
+build and preflight before scheduling board access. For collection:
 
 ```sh
 python3 tests/event-services-comparison/ram_matrix.py \
   --artifacts target/ram-images-baseline --out target/ram-runs-baseline \
+  --readelf "$READELF" \
   --backup /private/path/device-before.bin --port /dev/ttyACM0 \
   --flasher /path/to/esptool --runs 3
 ```
@@ -151,6 +217,15 @@ earlier work. NuttX `maxused` and the Embassy watermark are cumulative since
 boot, not independently reset per-profile peaks. Use the ordinary std fixture's
 fresh-boot recipe to study first-use behavior separately.
 
+Three independent image boots require **three separate collections**, each
+with `--runs 1` and a fresh output directory (for example,
+`ram-runs-baseline-boot-1`, `-boot-2`, and `-boot-3`). The owner qualification
+campaign schedules this form. Each collection flashes and boots every selected
+image once; its profiles still share state within that boot. The `--runs 3`
+example above is three rotations inside one image boot and must be labelled as
+cumulative/warm evidence, not three fresh-boot repetitions. Replay each separate
+collection with `--runs 1` and retain all three results.
+
 `ram-matrix.json` retains source/artifact identities, raw serial hashes,
 validated phases and stack observations, and a whole-image summary. Raw serial
 and backup identity are private evidence; review and sanitize before publishing.
@@ -159,11 +234,41 @@ It does not add worker-stack requests again. Zephyr/Embassy static buffers,
 stacks and arenas already belong to ELF RAM; heap occupancy and stack watermarks
 are explanatory subsets. Unavailable heap measurements leave the total unknown.
 
+Replay the retained record before accepting or exporting a result. Supply the
+same selected cases and repetition count used for collection; these are checked
+against the record, rather than inferred from whichever invocations survived:
+
+```sh
+python3 tests/event-services-comparison/ram_matrix.py \
+  --replay target/ram-runs-baseline/ram-matrix.json \
+  --artifacts target/ram-images-baseline --readelf "$READELF" --runs 3 \
+  --out target/ram-replayed-baseline.json
+```
+
+Replay performs no device I/O. It requires schema-2 evidence with successful
+restoration, every case and every rotated invocation, exact raw and serial-file
+hashes, and the original frozen build directories. It reparses the measurements
+and recalculates the summary; changed numbers, missing phases, failed command
+status or panic/assert output after a success marker all fail. The replayed JSON
+omits raw transcripts and backup identity. Keep the private directory, including
+each `*-serial.log`, for audit. An interrupted or failed matrix remains failed
+even when backup restoration succeeds; preserve it and start a new collection
+directory after resolving the failure.
+
+The operator must provide the physical board identity, confirmed flash size and
+USB console, exclusive board/port access, pinned tool identities, the selected
+source/build cohort, and a verified private original-flash backup. Record the
+actual flash/verification and reset history with the campaign. File hashes and
+successful parsing alone do not establish that a physical board ran an image.
+Retain unavailable OS-stack/heap observations and the stated coverage limits;
+do not replace them with estimates when selecting a stack candidate.
+
 ## Verification and evidence status
 
 Host tests cover native lifecycle cleanup, capture before TCB destruction,
 effective Zephyr heap sizing, static reservations, missing/contradictory stack
-rows, build/configuration identity and serial failure capture. The Embassy
+rows, real ELF/configuration binding, replay corruption, command-exit failures,
+and retention/restoration after a failed heap capture. The Embassy
 instrumentation has compiled and linked with the pinned Xtensa toolchain at
 4,096 and 8,192 B shared reservations. This validates target code and linker
 wiring, not physical stack safety. The ordinary Rust fixture has separately

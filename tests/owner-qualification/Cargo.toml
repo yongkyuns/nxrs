@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+
+[package]
+name = "nxrs-owner-qualification"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata.nxrs]
+qualification-only = true
+
+[dependencies]
+messaging = { package = "nxrs-messaging", path = "../../shared/messaging" }
+wifi = { package = "nxrs-wifi", path = "../../hal/wifi" }
+wifi_scan_owner = { package = "nxrs-std-wifi", path = "../nuttx-std/wifi" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 2
+lto = false
+panic = "abort"

@@ -18,14 +18,17 @@ class BackendSelectionTests(unittest.TestCase):
         subprocess.run(['rustc', '--edition=2024', str(HERE / 'rust/build.rs'),
                         '-o', str(cls.script)], check=True, timeout=60)
 
-    def select(self, target, backend):
-        out = self.root / f'{target}-{backend}'
+    def select(self, target, backend, observer=None, hz=240000000):
+        out = self.root / f'{target}-{backend}-{observer}-{hz}'
         out.mkdir(exist_ok=True)
         env = {**os.environ, 'OUT_DIR': str(out), 'CARGO_CFG_TARGET_OS': target,
-               'MPSC_CLOCK_HZ': '240000000', 'MPSC_BUILD_ID': 'host'}
+               'MPSC_CLOCK_HZ': str(hz), 'MPSC_BUILD_ID': 'host'}
         env.pop('MPSC_BACKEND', None)
+        env.pop('MPSC_OBSERVER', None)
         if backend is not None:
             env['MPSC_BACKEND'] = backend
+        if observer is not None:
+            env['MPSC_OBSERVER'] = observer
         result = subprocess.run([str(self.script)], env=env, capture_output=True,
                                 text=True, timeout=10)
         return result, out
@@ -56,6 +59,19 @@ class BackendSelectionTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('unsupported MPSC backend for target', result.stderr)
                 self.assertFalse((out / 'backend.rs').exists())
+
+    def test_cpu_observer_is_bound_to_the_native_s3_target_scope(self):
+        for target, scope in [('nuttx', 'nuttx-thread-runtime-includes-attributed-irqs'),
+                              ('none', 'zephyr-thread-runtime-excludes-isr-dispatch')]:
+            result, _ = self.select(target, None, 'cpu')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('cargo:rustc-env=MPSC_OBSERVER=cpu', result.stdout)
+            self.assertIn('cargo:rustc-env=MPSC_CPU_SCOPE=' + scope, result.stdout)
+        for target, observer, hz in [('linux', 'cpu', 240000000), ('nuttx', 'cpu', 1000000),
+                                     ('none', 'cpu', 1000000), ('nuttx', '', 240000000)]:
+            result, _ = self.select(target, None, observer, hz)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('unsupported MPSC observer', result.stderr)
 
 
 if __name__ == '__main__':

@@ -12,6 +12,11 @@ ALLOC_PROFILES = ("alloc-baseline", "alloc-threads-0", "alloc-threads-1",
 TRAFFIC_PROFILES = ("normal", "burst", "work-medium", "work-long", "io-wait", "saturation")
 
 
+def reject_faults(text):
+    if re.search(r"ES_FAIL|\bpanic(?:ked)?\b|\bassertion failed\b|\bassert failed\b|\bGuru Meditation\b|\bFATAL ERROR\b", text, re.I):
+        raise ValueError("capture contains a firmware failure, including after completion")
+
+
 def rows(text, marker):
     found = []
     for line in text.splitlines():
@@ -49,6 +54,7 @@ def stack_rows(text, platform, workers=20, configuration=None, require_observed=
         if identity in seen:
             raise ValueError("duplicate stack observation")
         seen.add(identity)
+        number(row, "requested")
         reserved, used, available = (number(row, key) for key in ("reserved", "used", "available"))
         if available not in (0, 1) or used > reserved:
             raise ValueError("invalid stack capacity or availability")
@@ -102,6 +108,7 @@ def stack_summary(observations):
 
 
 def allocation_output(text, profile, platform, configuration):
+    reject_faults(text)
     if profile not in ALLOC_PROFILES or platform == "embassy":
         raise ValueError("unsupported allocation control")
     if "ES_FAIL" in text or text.splitlines().count("ES_PASS") != 1:
@@ -131,6 +138,10 @@ def allocation_output(text, profile, platform, configuration):
             raise ValueError("allocation storage policy mismatch")
         if row.get("static_scope") != "adapter":
             raise ValueError("static storage must identify its limited adapter scope")
+        if (row["diagnostics"] > row["static_storage"] or
+                row["static_storage"] != phases[0]["static_storage"] or
+                row["diagnostics"] != phases[0]["diagnostics"]):
+            raise ValueError("adapter static storage and its diagnostic subset are contradictory")
         live = workers if row["stage"] == "threads" else 0
         if row["live_workers"] != live or row["requested_workers"] != workers:
             raise ValueError("allocation worker lifecycle mismatch")

@@ -6,10 +6,18 @@ on:
       - '.github/workflows/mpsc-comparison.yml'
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/mpsc-comparison/**'
-      - 'tests/rtos_harness/zephyr.py'
+      - 'tests/owner-qualification/**'
+      - 'tests/rtos-characterization/**'
+      - 'tests/rtos_harness/**'
+      - 'tests/nuttx-std/wifi/**'
+      - 'hal/wifi/**'
+      - 'shared/messaging/**'
       - 'tests/nuttx-std/channels/mpsc-fixture-iram.ld'
       - 'tests/event-services-comparison/image_package.py'
       - 'platform/nuttx/platforms/*-mpsc.toml'
+      - 'platform/nuttx/platforms/esp32s3-ram-footprint.toml'
+      - 'platform/nuttx/platforms/esp32s3-ram-native-baseline.toml'
+      - 'platform/nuttx/platforms/pico2w-std-qualification.toml'
       - 'platform/nuttx/linker/esp32s3-mpsc.ld'
       - 'platform/nuttx/std-app/**'
       - 'platform/build/**'
@@ -24,6 +32,7 @@ on:
       - 'tools/install-qemu-tools.sh'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
       - '.cargo/config.toml'
   workflow_dispatch:
 
@@ -41,9 +50,9 @@ env:
 
 jobs:
   host:
-    name: Host work accounting and control rejection
+    name: Host accounting, owner lifecycle and campaign rejection
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,23 +62,57 @@ jobs:
       - name: Install pinned host tools
         run: |
           rustup toolchain install 1.90.0 --profile minimal --component rustfmt
-          python3 -m pip install --break-system-packages pyelftools==0.32
-      - name: Check actual host engine and native adapter controls
+          python3 -m pip install --break-system-packages pyelftools==0.32 pyserial==3.5
+      - name: Check formatting and evidence admission controls
         run: |
           cargo fmt --manifest-path tests/mpsc-comparison/rust/Cargo.toml --check
+          cargo fmt --manifest-path tests/owner-qualification/Cargo.toml --check
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/rtos-characterization -p 'test_*.py' -v
+      - name: Run and replay all seven current-source owner host cases
+        run: |
+          python3 tests/owner-qualification/workflow.py host --out target/owner-host-ci
+          python3 tests/owner-qualification/workflow.py inspect --build target/owner-host-ci \
+            > target/owner-host-ci/inspect.json
+      - name: Retain host evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: owner-qualification-host-functional
+          path: |
+            target/owner-host-ci/build.json
+            target/owner-host-ci/build.log
+            target/owner-host-ci/inspect.json
+            target/owner-host-ci/retained/**
+            target/owner-host-ci/runs/**
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
 
-  nuttx-pair:
-    name: NuttX std and POSIX queue builds (${{ matrix.board }})
+  targets:
+    name: Three-transport builds (${{ matrix.board }}, ${{ matrix.observer }})
     needs: host
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        board: [esp32s3, pico2w]
+        include:
+          - board: esp32s3
+            observer: primary
+            owner_profile: esp32s3-ram-footprint
+          - board: esp32s3
+            observer: cpu
+          - board: esp32s3
+            observer: irq
+          - board: pico2w
+            observer: primary
+            owner_profile: pico2w-std-qualification
     env:
       MPSC_BOARD: ${{ matrix.board }}
+      MPSC_OBSERVER: ${{ matrix.observer }}
+      OWNER_PROFILE: ${{ matrix.owner_profile }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -79,10 +122,52 @@ jobs:
       - name: Install common build tools
         run: |
           rustup toolchain install 1.90.0 --profile minimal
-          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs xxd cmake ninja-build libncurses-dev zlib1g-dev
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs xxd cmake ninja-build device-tree-compiler libncurses-dev zlib1g-dev
           python3 -m venv target/mpsc-venv
           target/mpsc-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 pyelftools==0.32
           echo "$GITHUB_WORKSPACE/target/mpsc-venv/bin" >> "$GITHUB_PATH"
+      - name: Fetch exact official Zephyr source and board module revisions
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+          import tomllib
+          sys.path.insert(0, str(Path('tests').resolve()))
+          from rtos_harness.zephyr import ZEPHYR_SHA
+          boards = tomllib.loads(Path('tests/mpsc-comparison/boards.toml').read_text())
+          pins = {'zephyr': ZEPHYR_SHA, **boards[os.environ['MPSC_BOARD']]['modules']}
+          official = {'zephyr': 'zephyr', 'hal_espressif': 'hal_espressif',
+                      'hal_xtensa': 'hal_xtensa', 'hal_rpi_pico': 'hal_rpi_pico',
+                      'cmsis_6': 'CMSIS_6'}
+          for name, revision in pins.items():
+              if name not in official or not re.fullmatch('[0-9a-f]{40}', revision):
+                  raise SystemExit('invalid official source pin')
+              path = Path('target/mpsc-zephyr-sources') / name
+              path.mkdir(parents=True, exist_ok=False)
+              subprocess.run(['git', 'init', '-q', str(path)], check=True)
+              subprocess.run(['git', '-C', str(path), 'remote', 'add', 'origin',
+                              'https://github.com/zephyrproject-rtos/' + official[name] + '.git'], check=True)
+              subprocess.run(['git', '-C', str(path), 'fetch', '--depth', '1', 'origin', revision], check=True)
+              subprocess.run(['git', '-C', str(path), 'checkout', '--detach', 'FETCH_HEAD'], check=True)
+              actual = subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
+              if actual != revision:
+                  raise SystemExit('wrong checkout: ' + name)
+          PY
+          target/mpsc-venv/bin/pip install \
+            -r target/mpsc-zephyr-sources/zephyr/scripts/requirements-base.txt \
+            pyelftools==0.32 kconfiglib==14.1.0 esptool==4.8.1
+          target/mpsc-venv/bin/pip freeze > target/mpsc-python-resolved.txt
+      - name: Install the distinct pinned Zephyr ESP image tool
+        if: matrix.board == 'esp32s3'
+        run: |
+          python3 -m venv target/mpsc-zephyr-esptool
+          target/mpsc-zephyr-esptool/bin/pip install esptool==5.1.0
+          target/mpsc-zephyr-esptool/bin/pip freeze > target/mpsc-zephyr-esptool-resolved.txt
+          target/mpsc-venv/bin/esptool.py version
+          target/mpsc-zephyr-esptool/bin/esptool version
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         if: matrix.board == 'esp32s3'
         with:
@@ -110,12 +195,17 @@ jobs:
           from pathlib import Path
           import shutil
           import subprocess
+          import tomllib
           root = Path.cwd()
           board = os.environ['MPSC_BOARD']
-          tools = {'python': str(root / 'target/mpsc-venv/bin/python')}
+          tools = {'python': str(root / 'target/mpsc-venv/bin/python'),
+                   'zephyr': str(root / 'target/mpsc-zephyr-sources/zephyr')}
           if board == 'esp32s3':
               tools['nuttx-tools'] = str(root / 'target/qemu-tools')
               tools['rustc'] = str(root / 'target/qemu-tools/rust-installed/bin/rustc')
+              # build.py puts the NuttX Python bin first: esptool.py remains
+              # 4.8.1, while Zephyr finds the distinct esptool 5.1.0 CLI here.
+              tools['path'] = [str(root / 'target/mpsc-zephyr-esptool/bin')]
               compiler = shutil.which('xtensa-esp32s3-elf-gcc')
           else:
               tools['rustc'] = subprocess.check_output(
@@ -124,35 +214,91 @@ jobs:
           if compiler is None:
               raise SystemExit('missing native cross compiler')
           tools['cross-prefix'] = compiler[:-3]
+          modules = tomllib.loads((root / 'tests/mpsc-comparison/boards.toml').read_text())[board]['modules']
           path = root / 'target/mpsc-tools.toml'
-          path.write_text(f'[{board}]\n' + ''.join(f'{key} = {json.dumps(value)}\n' for key, value in tools.items()))
+          path.write_text(f'[{board}]\n' + ''.join(f'{key} = {json.dumps(value)}\n' for key, value in tools.items())
+                          + f'[{board}.modules]\n' + ''.join(
+                              f'{name} = {json.dumps(str(root / "target/mpsc-zephyr-sources" / name))}\n'
+                              for name in modules))
           PY
-      - name: Build both transports with the shared NuttX profile
+      - name: Build both NuttX transports and the Zephyr native control
         run: |
           python3 tests/mpsc-comparison/bench.py build --board "$MPSC_BOARD" \
-            --runtime nuttx --backend std --tools target/mpsc-tools.toml \
-            --out "target/mpsc-pair/$MPSC_BOARD/std"
+            --runtime nuttx --backend std --observer "$MPSC_OBSERVER" --tools target/mpsc-tools.toml \
+            --out "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/nuttx-std"
           python3 tests/mpsc-comparison/bench.py build --board "$MPSC_BOARD" \
-            --runtime nuttx --backend native --tools target/mpsc-tools.toml \
-            --out "target/mpsc-pair/$MPSC_BOARD/native"
-      - name: Verify transport selection and shared kernel implementation
+            --runtime nuttx --backend native --observer "$MPSC_OBSERVER" --tools target/mpsc-tools.toml \
+            --out "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/nuttx-native"
+          python3 tests/mpsc-comparison/bench.py build --board "$MPSC_BOARD" \
+            --runtime zephyr --backend native --observer "$MPSC_OBSERVER" --tools target/mpsc-tools.toml \
+            --out "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/zephyr-native"
+      - name: Verify all three source/compiler cohorts and the NuttX kernel control
         run: |
-          python3 tests/mpsc-comparison/bench.py check-control \
-            --nuttx-build "target/mpsc-pair/$MPSC_BOARD/std" \
-            --nuttx-native-build "target/mpsc-pair/$MPSC_BOARD/native" \
-            > "target/mpsc-pair/$MPSC_BOARD/control.json"
-      - name: Retain build and inspection evidence
+          python3 tests/mpsc-comparison/bench.py check-cohort \
+            --nuttx-build "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/nuttx-std" \
+            --nuttx-native-build "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/nuttx-native" \
+            --zephyr-build "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/zephyr-native" \
+            > "target/mpsc-target/$MPSC_BOARD/$MPSC_OBSERVER/cohort.json"
+      - name: Build and inspect the current-source owner image
+        if: matrix.observer == 'primary'
+        run: |
+          python3 tests/owner-qualification/workflow.py build --profile "$OWNER_PROFILE" \
+            --out "target/owner-target/$MPSC_BOARD"
+          python3 tests/owner-qualification/workflow.py inspect --build "target/owner-target/$MPSC_BOARD" \
+            > "target/owner-target/$MPSC_BOARD/inspect.json"
+      - name: Select receipts and replayable artifacts without SDK source trees
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          destination = Path('target/mpsc-ci-evidence')
+          destination.mkdir(parents=True, exist_ok=False)
+          root = Path('target/mpsc-target') / os.environ['MPSC_BOARD'] / os.environ['MPSC_OBSERVER']
+          def retain(source, target):
+              if source.is_file():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+          for name in ('cohort.json',):
+              retain(root / name, destination / name)
+          for arm in ('nuttx-std', 'nuttx-native', 'zephyr-native'):
+              build = (root / arm).resolve()
+              target = destination / arm
+              receipt = build / 'build.json'
+              if receipt.is_file():
+                  record = json.loads(receipt.read_text())
+                  retain(receipt, target / 'build.json')
+                  for name in record.get('artifacts_sha256', {}):
+                      if Path(name).is_absolute() or '..' in Path(name).parts:
+                          raise SystemExit('unsafe artifact path')
+                      source = (build / name).resolve()
+                      if not source.is_relative_to(build) or not source.is_file():
+                          raise SystemExit('artifact is missing or escapes build')
+                      retain(source, target / name)
+              for source in build.glob('*.log'):
+                  retain(source, target / source.name)
+              for relative in ('firmware/resolved.config', 'firmware/provenance.txt',
+                               'firmware/native-context.json', 'firmware/nuttx/nuttx.map',
+                               'firmware/nuttx/System.map', 'firmware/zephyr/zephyr.map',
+                               'firmware/zephyr/.config'):
+                  retain(build / relative, target / relative)
+          for name in ('mpsc-tools.toml', 'mpsc-python-resolved.txt',
+                       'mpsc-zephyr-esptool-resolved.txt', 'qemu-tools/downloads.sha256'):
+              retain(Path('target') / name, destination / 'tools' / Path(name).name)
+          owner = Path('target/owner-target') / os.environ['MPSC_BOARD']
+          for name in ('build.json', 'build.log', 'inspect.json'):
+              retain(owner / name, destination / 'owner' / name)
+          if (owner / 'retained').is_dir():
+              shutil.copytree(owner / 'retained', destination / 'owner/retained')
+          PY
+      - name: Retain build-only cohort and owner evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mpsc-nuttx-pair-${{ matrix.board }}
-          path: |
-            target/mpsc-pair/**/*.json
-            target/mpsc-pair/**/*.log
-            target/mpsc-pair/**/resolved.config
-            target/mpsc-pair/**/symbols.txt
-            target/mpsc-pair/**/nuttx/nuttx
-            target/mpsc-pair/**/nuttx/nuttx.bin
-            target/mpsc-pair/**/firmware.bin
+          name: mpsc-cohort-${{ matrix.board }}-${{ matrix.observer }}-build-only
+          path: target/mpsc-ci-evidence/**
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14

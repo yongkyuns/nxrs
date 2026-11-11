@@ -153,5 +153,6 @@ jobs:
             target/ram-footprint-target/${{ matrix.binary }}/nuttx/nuttx.map
             target/ram-footprint-target/${{ matrix.binary }}/nuttx/System.map
             target/ram-footprint-target/${{ matrix.binary }}/nuttx/nuttx.merged.bin
+            target/ram-footprint-target/${{ matrix.binary }}/nuttx/include/nuttx/config.h
           if-no-files-found: warn
           retention-days: 14

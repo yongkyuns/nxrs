@@ -1,4 +1,4 @@
-# Recorded host witness
+# Recorded host witnesses
 
 [`host-2026-11-10.json`](host-2026-11-10.json) contains three repetitions of the
 26 fresh-process controls: **78 completed invocations** on
@@ -8,7 +8,15 @@ returned requested Rust allocation bytes and blocks to its baseline. In both
 service arms, the eight repeated timeout rounds made no allocator calls after
 the first completed blocking timeout.
 
-The file retains source/executable hashes, exact compiler version, capacity and
+[`host-readiness-2026-11-10.json`](host-readiness-2026-11-10.json) is a separate
+78-invocation repetition after the capture replay and target build-binding
+checks were added. It uses the same workload, compiler, stack request and host
+build policy. Every invocation again reclaimed requested bytes/blocks and all
+repeated service waits made zero further allocator calls. Its exact source
+hashes include the new read-only target preflight helper. The earlier evidence
+file is preserved unchanged.
+
+Each file retains source/executable hashes, exact compiler version, capacity and
 fixture reservations, per-phase allocation samples and deltas, and verified
 worker totals. It omits raw output, local paths and machine identifiers. The
 source was uncommitted: `base_commit` is only the ancestor, while `source_sha256`
@@ -17,6 +25,6 @@ run if their hashes differ.
 
 These are **requested Rust allocation bytes on the host**. The native heap and
 stack observations are unavailable (`null`). The host stack request is neither
-measured allocation nor MCU usage. This file provides no target compilation,
+measured allocation nor MCU usage. These files provide no target compilation,
 physical RAM, minimum-stack or timing qualification. No target result is
 inferred from it.

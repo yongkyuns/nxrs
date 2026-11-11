@@ -50,17 +50,30 @@ int mp_gate_post(size_t i) {return nxsem_post(&gates[i]);}
 int mp_gate_wait(size_t i) {return nxsem_tickwait(&gates[i],SEC2TICK(60));}
 int mp_gate_destroy(size_t i) {return nxsem_destroy(&gates[i]);}
 uint64_t mp_runtime(uintptr_t tid) {
-#if defined(CONFIG_SCHED_CRITMONITOR) && CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD >= 0
+#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(CONFIG_ARCH_PERF_EVENTS) && defined(CONFIG_PERF_OVERFLOW_CORRECTION) && \
+    defined(CONFIG_SCHED_CRITMONITOR) && CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD >= 0
   irqstate_t flags=enter_critical_section();struct tcb_s *t=nxsched_get_tcb(tid);
   uint64_t result=UINT64_MAX;
-  if(t) {clock_t value=t->run_time;if(tid==(uintptr_t)gettid())value+=perf_gettime()-t->run_start;result=(uint64_t)value*1000000000u/perf_getfreq();}
+  /* Scheduled intervals include kernel/IRQ time charged to this thread.
+   * Convert the accumulated count without multiplying its entire lifetime. */
+  if(t) {
+    clock_t value=t->run_time;
+    unsigned long hz=perf_getfreq();
+    if(tid==(uintptr_t)gettid())value+=perf_gettime()-t->run_start;
+    if(value>=0 && hz==CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ*1000000u) {
+      uint64_t seconds=(uint64_t)value/hz;
+      uint64_t fraction=((uint64_t)value%hz)*1000000000u/hz;
+      if(seconds<=(UINT64_MAX-fraction)/1000000000u)
+        result=seconds*1000000000u+fraction;
+    }
+  }
   leave_critical_section(flags);return result;
 #else
   (void)tid;return UINT64_MAX;
 #endif
 }
 int mp_stack(uintptr_t tid,uint32_t *v) {struct tcb_s *t=nxsched_get_tcb(tid);if(!t)return ESRCH;uintptr_t base=(uintptr_t)t->stack_base_ptr;v[0]=t->adj_stack_size;v[1]=up_check_tcbstack(t,t->adj_stack_size);v[2]=base>=MP_RAM_BEGIN&&base+v[0]<=MP_RAM_END;return 0;}
-void mp_heap(uint32_t *v) {struct mallinfo m=mallinfo();v[0]=m.uordblks;v[1]=m.usmblks;v[2]=m.fordblks;v[3]=m.mxordblk;}
+int mp_heap(uint32_t *v) {struct mallinfo m=mallinfo();v[0]=m.uordblks;v[1]=m.usmblks;v[2]=m.fordblks;v[3]=m.mxordblk;return 1;}
 int mp_watchdog_start(uint32_t ms,void (*callback)(void)) {deadline_callback=callback;return wd_start(&watchdog,MSEC2TICK(ms),expired,0);}
 int mp_watchdog_stop(void) {return wd_cancel(&watchdog);}
 int mp_output(const uint8_t *p,size_t bytes) {return fwrite(p,1,bytes,stdout)==bytes?0:-1;}

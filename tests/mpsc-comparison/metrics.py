@@ -2,6 +2,12 @@
 import hashlib,json,math,re
 MAX_U64=(1<<64)-1
 
+def cpu_scope(runtime,observer):
+    if observer in ('primary','irq'):return 'unavailable'
+    require(observer=='cpu' and runtime in ('nuttx','zephyr'),'CPU observer scope')
+    return {'nuttx':'nuttx-thread-runtime-includes-attributed-irqs',
+            'zephyr':'zephyr-thread-runtime-excludes-isr-dispatch'}[runtime]
+
 def require(ok,message):
     if not ok:raise ValueError(message)
 def unique(items):
@@ -21,16 +27,19 @@ def records(raw):
     text=raw.decode('utf-8');require(not re.search(r'MPSC_FAILURE|panic|Assertion failed|Guru Meditation|CPU halted|SHA-256 comparison failed',text,re.I),'firmware fault')
     require(text.count('MPSC_DONE')==1,'missing/duplicate completion')
     lines=[line[5:] for line in text.splitlines() if line.startswith('MPSC ')]
-    require(len(lines)<2400 and all(len(s)<1024 for s in lines),'oversized records')
+    require(len(lines)<6144 and all(len(s)<1024 for s in lines),'oversized records')
     return [json.loads(s,object_pairs_hook=unique) for s in lines]
 
 def analyze(raw,expected=None):
     rows=records(raw)
-    require(all(r.get('record') in {'metadata','sample','heap','participant','counter-pair','result','release','producer-final'} for r in rows),'unknown record')
+    require(all(r.get('record') in {'metadata','sample','heap','participant','counter-pair','cpu-control','irq-observer','irq-phase','irq-sample','result','release','producer-final'} for r in rows),'unknown record')
     def group(kind):return [r for r in rows if r['record']==kind]
     require(len(group('metadata'))==len(group('result'))==1,'missing/duplicate metadata/result')
     m=group('metadata')[0];result=group('result')[0]
-    require(m['schema']=='mpsc-comparison-v3' and m['runtime'] in {'host','nuttx','zephyr'},'scope')
+    require(m['schema']=='mpsc-comparison-v4' and m['runtime'] in {'host','nuttx','zephyr'},'scope')
+    require(m.get('observer') in ('primary','cpu','irq'),'measurement observer')
+    require(m.get('cpu_scope')==cpu_scope(m['runtime'],m['observer']),'CPU charge scope')
+    require(m['observer']=='primary' or m['clock_hz']==240000000,'diagnostic observer board clock')
     require(m['mode'] in {'sustained','stream','paced','burst','overload','backpressure'} and m['backend'] in {'std','native'},'case')
     require((m['runtime'],m['backend']) in {('host','std'),('nuttx','std'),('nuttx','native'),('zephyr','native')},'runtime/backend')
     require(m['native'] is (m['runtime']!='host'),'native label')
@@ -44,7 +53,7 @@ def analyze(raw,expected=None):
     require(m['prefix']==prefix and m['blocked_senders']==(n if prefix else 0),'backpressure proof')
     if expected:
         for k,v in expected.items():
-            if k!='accounting':require(m[k]==v,'mismatched '+k)
+            if k not in ('accounting','irq_observer'):require(m[k]==v,'mismatched '+k)
     require(result['success'] is True and result['joined'] is True,'unjoined lifecycle')
     roles=group('participant');require(len(roles)==n+2 and {p['role'] for p in roles}==set(range(n+2)),'participant census')
     require(len({p['tid'] for p in roles})==n+2,'duplicate native task')
@@ -53,16 +62,29 @@ def analyze(raw,expected=None):
         require(p['start_priority']==p['end_priority']==priority,'participant priority')
         require(p['start_policy']==p['end_policy']==(1 if m['runtime']=='nuttx' else 0),'participant policy')
         if m['native']:require(p['internal']==1 and 0<p['stack_used']<=p['stack_bytes'],'stack placement/usage')
-        integer(p['cpu_ns'],0,MAX_U64)
+        if p['cpu_ns'] is not None:integer(p['cpu_ns'],0,MAX_U64-1)
     observer='host-phase-only' if m['runtime']=='host' else 'queue-object' if m['backend']=='native' else 'semaphore-state-and-phase'
     require(m.get('wait_observer')==observer,'blocked-wait observer')
-    accounting=all(p['cpu_ns']!=MAX_U64 for p in roles)
-    require(accounting or all(p['cpu_ns']==MAX_U64 for p in roles),'partial CPU observations')
+    accounting=all(p['cpu_ns'] is not None for p in roles)
+    require(accounting or all(p['cpu_ns'] is None for p in roles),'partial CPU observations')
+    require(accounting is (m['observer']=='cpu'),'CPU observer availability')
     if expected and 'accounting' in expected:require(accounting==expected['accounting'],'CPU image mismatch')
     wall=integer(m['wall_ns'],0,8_000_000_000)
     ticks=delta(m['end'],m['begin']);require(abs(ticks*1000000000/m['clock_hz']-wall)<=30_000_000,'native/precise window mismatch')
-    if accounting:require(sum(p['cpu_ns'] for p in roles)<=wall+30_000_000,'runtime outside observation window')
+    if accounting:require(0<sum(p['cpu_ns'] for p in roles)<=wall+30_000_000,'runtime outside observation window')
     for key in ('begin','end','last_received','recovery_begin','joined_ticks','idle_ticks'):integer(m[key])
+    require((m['idle_owner_ns'] is not None)==accounting,'idle CPU availability')
+    if accounting:
+        integer(m['idle_owner_ns'],0,MAX_U64-1)
+        require(m['idle_owner_ns']<=m['idle_ticks']*1_000_000_000/m['clock_hz']+30_000_000,'idle CPU outside observation window')
+    controls=group('cpu-control')
+    require(len(controls)==(1 if accounting else 0),'CPU counter control count')
+    if controls:
+        control=controls[0]
+        control_ticks=integer(control['wall_ticks'],1,1<<31)
+        control_ns=integer(control['cpu_ns'],1,MAX_U64-1)
+        control_wall=control_ticks*1_000_000_000/m['clock_hz']
+        require(20_000_000<=control_wall<=500_000_000 and control_wall/2<=control_ns<=control_wall*3/2,'CPU counter control units')
     require(m['sample_storage_bytes']==2240*28,'observation storage')
     samples=group('sample');total=128 if sustained else 128+count+prefix
     require(len(samples)==total and {s['id'] for s in samples}==set(range(total)),'missing/duplicate offered work')
@@ -96,12 +118,17 @@ def analyze(raw,expected=None):
     traffic_ticks=delta(m['last_received'],m['begin'])
     require(traffic_ticks>0,'empty traffic interval')
     heaps=group('heap');require(len(heaps)==3 and {h['stage'] for h in heaps}=={'before','live','after'},'heap snapshots')
+    heap_available=m['runtime']=='nuttx'
+    heap_scope='nuttx-mallinfo-arena' if heap_available else 'unavailable'
     for h in heaps:
-        for k in ('used','peak_since_boot','free','largest_free'):integer(h[k],0,16*1024*1024)
-        require(h['used']<=h['peak_since_boot'] and h['largest_free']<=h['free'],'heap bounds')
+        require(h.get('available') is heap_available and h.get('scope')==heap_scope,'heap observer scope')
+        for k in ('used','peak_since_boot','free','largest_free'):
+            if heap_available:integer(h[k],0,16*1024*1024)
+            else:require(h[k] is None,'unavailable heap must be null')
+        if heap_available:require(h['used']<=h['peak_since_boot'] and h['largest_free']<=h['free'],'heap bounds')
     reads=group('counter-pair');require(len(reads)==64,'counter control')
     cpu=sum(p['cpu_ns'] for p in roles) if accounting else None
-    output=dict(schema='mpsc-comparison-summary-v3',**{k:m[k] for k in ('clock_hz','build_id','runtime','backend','wait_observer','mode','producers','payload_bytes','capacity','samples','native','sample_storage_bytes')},offered=count,admitted=delivered_count,rejected=count-delivered_count,delivered=delivered_count,
+    output=dict(schema='mpsc-comparison-summary-v4',**{k:m[k] for k in ('clock_hz','build_id','runtime','backend','observer','cpu_scope','wait_observer','mode','producers','payload_bytes','capacity','samples','native','sample_storage_bytes')},offered=count,admitted=delivered_count,rejected=count-delivered_count,delivered=delivered_count,
         admitted_identity_sha256=hashlib.sha256(json.dumps(list(range(128,128+count)) if sustained else [s['id'] for s in handled]).encode()).hexdigest(),
         delivered_per_nominal_second=delivered_count*m['clock_hz']/traffic_ticks,traffic_ticks=traffic_ticks,protocol_ticks=ticks,
         delivery_ticks=stats([delta(s['received'],s['offered']) for s in handled]),release_to_receive_ticks=stats([delta(s['received'],s['planned']) for s in handled]),
@@ -111,8 +138,10 @@ def analyze(raw,expected=None):
         experimental_threshold_us=None if sustained else {str(us):sum(delta(s['received'],s['planned'])>m['clock_hz']*us/1000000 for s in handled) for us in (100,1000,10000)},product_deadline_us=None,
         blocked_senders=m['blocked_senders'],backpressure_recovery_ticks=delta(m['last_received'],m['recovery_begin']) if prefix else None,
         joined_ticks=m['joined_ticks'],accounting_available=accounting,total_participant_cpu_ns=cpu,cpu_ns_per_offer=cpu/count if cpu is not None else None,cpu_ns_per_delivered=cpu/delivered_count if cpu is not None else None,
-        idle_ticks=m['idle_ticks'],idle_owner_ns=None if m['idle_owner_ns']==MAX_U64 else m['idle_owner_ns'],
-        participants=[{k:(None if k=='cpu_ns' and v==MAX_U64 else v) for k,v in p.items() if k not in {'record','tid'}} for p in roles],
+        idle_ticks=m['idle_ticks'],idle_owner_ns=m['idle_owner_ns'],
+        cpu_counter_control=None if not controls else {k:v for k,v in controls[0].items() if k!='record'},
+        participants=[{k:v for k,v in p.items() if k not in {'record','tid'}} for p in roles],
+        heap_available=heap_available,heap_scope=heap_scope,
         heap=[{k:v for k,v in h.items() if k!='record'} for h in heaps],per_producer=per_producer,counter_read_pair_ticks=stats([integer(s['ticks'],0,1<<31) for s in reads]),
         normal_loss_gate_passed=m['mode']=='overload' or delivered_count==count,latency_sample_count=len(handled),
         samples_pooled=False,production_qualified=False,physical_timing_qualified=False)
@@ -131,4 +160,6 @@ def analyze(raw,expected=None):
     output['source_groups']=groups
     output['source_callback_wall_ticks']=stats([delta(r['end'],r['start']) for r in releases])
     output['source_period_drift_ticks']=stats([delta(r['start'],releases[0]['start'])-i*(m['clock_hz']//100) for i,r in enumerate(releases)]) if releases else None
+    import irq_metrics
+    output['irq_observer']=irq_metrics.analyze(rows,m,None if expected is None else expected.get('irq_observer'))
     return output

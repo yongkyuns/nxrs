@@ -51,7 +51,7 @@ resolved configuration, compiler versions and relevant native build evidence.
 Failed builds remain failed receipts. Capture/replay reject changed inputs or
 artifacts; replay historical captures from their matching source checkout.
 
-Backend selection is fixed at build time and bound into the v3 receipt. The
+Backend and observer selection are fixed at build time and bound into the v4 receipt. The
 final ELF must retain the native queue adapter only in a native-backend image.
 Both NuttX images use the same profile, including enabled POSIX queues and
 support for every tested payload. This is a controlled substitution, not the
@@ -168,7 +168,7 @@ requires the same board, source inventory, contract and Rust/C compilers, pairs
 each case within its pass and never pools distributions. Passing replay alone
 does not establish a product deadline or physical timing qualification.
 
-The v3 wait observer distinguishes the evidence: native transports observe
+The wait observer distinguishes the evidence: native transports observe
 the measured queue object; the NuttX std transport observes semaphore-blocked
 state with the engine's phase protocol; host checks make no native scheduling
 claim. The NuttX native observer also checks the appropriate send/receive wait
@@ -178,6 +178,123 @@ or qualify timed operations and endpoint disconnection. Nonblocking full sends
 return the original payload; interruption and other failures are not hidden as
 full-queue rejection or retried silently. Native message allocation and pools
 remain part of the implementation cost.
+
+## Separate CPU-accounted diagnostic
+
+The default `--observer primary` keeps runtime accounting disabled. On
+ESP32-S3, build separate images with `--observer cpu`, applying that option to
+each selected runtime/backend and using new output directories:
+
+```sh
+python tests/mpsc-comparison/bench.py build --board esp32s3 --runtime nuttx \
+  --backend std --observer cpu --tools /path/to/local-tools.toml \
+  --out target/mpsc/esp32s3/cpu-nuttx-std
+python tests/mpsc-comparison/bench.py plan --passes 3 --include-native-control \
+  --observer cpu > /path/to/private-cpu-plan.json
+```
+
+The same `run`, `replay`, `compare` and `check-control` commands use the observer
+bound to the build. Capture refuses a CPU image without complete CPU observations;
+comparison refuses a mixture of primary, CPU and IRQ observer builds. Keep each
+observer's passes and distributions separate. The CPU observer is unavailable
+on Pico: its performance-counter startup has not been qualified, and the build
+rejects this selection.
+
+The CPU build enables NuttX hardware performance events with overflow correction
+and per-thread runtime accounting, or Zephyr thread runtime statistics using its
+timing counter. A 20 ms busy interval before warmup checks counter availability
+and gross unit errors against the independent wall counter. Its record is
+separate from workload accounting; it is not an external clock calibration.
+The existing empty-receiver interval also records that receiver's CPU charge.
+
+These are **participant thread charges**, including task-context kernel work.
+The NuttX counter includes interrupt work attributed to a scheduled thread.
+Zephyr's Xtensa hooks stop charging before ISR dispatch. Reports retain distinct
+`cpu_scope` values and state whether their charge scopes match. The NuttX
+std/native pair shares one accounting scope; cross-kernel values are not a
+matched measurement of total MCU active time or energy. Accounting changes
+kernel behavior and code placement, so CPU-image latency is diagnostic evidence
+and does not replace the primary timing distribution.
+
+Heap snapshots also have explicit availability and scope. NuttX reports the
+allocator arena visible through `mallinfo`: current usage, peak since boot,
+free space and largest free block. This is not a timed allocation count or a
+channel-only footprint. Zephyr and host heap observation is unimplemented and
+is emitted as `available: false`, `scope: "unavailable"` and null values. All
+unavailable CPU durations are null as well; replay rejects fabricated zeros or
+the former integer sentinel where an unavailable observation is required.
+
+## Separate interrupt-response diagnostic
+
+On ESP32-S3, `--observer irq` builds a separate image for each selected
+runtime/backend. CPU accounting stays disabled. Pico rejects this observer.
+Use the same workload plan with `plan --observer irq`; never pool its timings
+with primary or CPU images. The diagnostic generates one normal, maskable,
+priority-1 interrupt every nominal 100 microseconds. This deliberately adds
+interrupt and sample-recording work to the workload.
+
+The probe owns **SYSTIMER target1 on counter0** only in the pinned single-core
+configuration. OS alarm target0 and ESP timer target2 remain untouched. It
+refuses an active, pending, externally mapped or SDK-claimed target1; NuttX
+also checks its IRQ handle registry. It reads the existing 16 MHz counter
+without resetting it or changing its clock/stall policy. Allocation occurs
+only when acquiring the SDK interrupt handle, before the measured phases.
+The existing wall-clock fixture initializes its counter policy separately.
+Zephyr's board supplies a 4096-byte system-heap minimum even though this fixture
+requests `HEAP_MEM_POOL_SIZE=0`; the IRQ image verifies that minimum is enabled.
+The absence of a Zephyr heap observation does not imply absence of a heap.
+
+The measurement is **programmed hardware alarm deadline to the first probe
+counter read after ISR dispatch**. It includes interrupt masking, pending IRQ
+arbitration, dispatch and the probe's entry/read cost. It is not a measurement
+of critical-section duration alone, an external GPIO edge, or a calibrated
+external clock. The runtime validates CPU0, the actual priority-1 interrupt
+line and the four probe root addresses. The ELF-bound `irq-audit.json` also
+inspects direct dependencies without cold-path exclusions. Flash, other-memory,
+compiler-helper and unresolved indirect boundaries remain explicit; root
+placement alone never qualifies the complete interrupt path. No dependencies
+are automatically promoted.
+
+An idle control covers the existing 100 ms empty-receiver interval, then a
+separate loaded phase covers the workload release through its completion.
+The Rust protocol preserves absolute cadence, skips overdue periods without
+an ISR catch-up loop, and records `missed_periods`. Before inspection or output,
+the adapter disables and acknowledges only its alarm, quiesces delivery on
+the single core, and releases its handle. It restores its saved disabled target
+configuration before releasing ownership and leaves the SDK's disabled matrix
+route. It performs no timer-register writes after freeing the handle. Release
+failure invalidates the run; SDK descriptor caching is not reported as complete
+allocator reclamation.
+
+Each phase retains its **first 256 samples** in fixed storage. All serviced
+events still contribute to the event count and maximum, including events whose
+individual records were dropped. Reports therefore label percentiles as
+`retained_first_sample_lateness_ticks` and the maximum as
+`maximum_serviced_lateness_ticks`. `dropped`, `missed_periods`,
+`trailing_periods` and `pending_at_stop` remain visible. Deadlines that passed
+without an ISR entry before shutdown have no measured latency; a loaded phase
+with no delivered interrupt reports null statistics, not zero. An idle control
+with no delivery fails. The record includes its fixed sample bytes and total
+Rust probe-state bytes; these exclude SDK interrupt-manager overhead. This
+observer does not establish physical timing or matched-path qualification.
+
+## Inspect a prepared cohort without hardware
+
+`inspect` revalidates the build receipt, source/configuration identity and bound
+image/ELF artifacts. `check-cohort` applies the same matching rules used by
+comparison and also checks the exact NuttX std/native kernel substrate:
+
+```sh
+python tests/mpsc-comparison/bench.py inspect --build-directory target/mpsc/esp32s3/nuttx-std
+python tests/mpsc-comparison/bench.py check-cohort \
+  --nuttx-build target/mpsc/esp32s3/nuttx-std \
+  --nuttx-native-build target/mpsc/esp32s3/nuttx-native \
+  --zephyr-build target/mpsc/esp32s3/zephyr-native
+```
+
+All three builds must use the same board, sources, compiler cohort and observer.
+A successful preflight means those compiled controls match. Physical timing,
+matched final operation placement and product qualification remain false.
 
 Keep raw console logs, tool paths, receipts and flash backups local; boot output
 can contain device identifiers. The physical capture workflow uploads nothing. The historical

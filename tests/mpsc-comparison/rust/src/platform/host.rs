@@ -8,6 +8,7 @@ use std::{
 };
 pub const NAME: &str = "host";
 pub const NATIVE: bool = false;
+pub const HEAP_SCOPE: &str = "unavailable";
 pub type Schedule = [i32; 2];
 fn epoch() -> &'static Instant {
     static V: OnceLock<Instant> = OnceLock::new();
@@ -88,8 +89,8 @@ pub fn runtime(_: usize) -> u64 {
 pub fn stack(_: usize) -> [u32; 3] {
     [0; 3]
 }
-pub fn heap() -> [u32; 4] {
-    [0; 4]
+pub fn heap() -> Option<[u32; 4]> {
+    None
 }
 pub fn watchdog_start(_: u32) {}
 pub fn watchdog_stop() {}

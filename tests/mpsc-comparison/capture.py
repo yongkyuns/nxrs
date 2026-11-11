@@ -21,7 +21,8 @@ def cases():
         for mode, payload, capacity in SHAPES for n in (1, 4)}
 
 
-def plan(passes, include_native_control=False):
+def plan(passes, include_native_control=False, observer='primary'):
+    build.selected_observer('esp32s3', observer)
     arms = [('nuttx', 'std'), ('zephyr', 'native')]
     if include_native_control:
         arms.insert(1, ('nuttx', 'native'))
@@ -31,7 +32,7 @@ def plan(passes, include_native_control=False):
         offset = (number - 1) % len(arms)
         order = arms[offset:] + arms[:offset]
         for case, values in cases().items():
-            result.extend(dict(pass_number=number, runtime=runtime, backend=backend,
+            result.extend(dict(pass_number=number, runtime=runtime, backend=backend, observer=observer,
                                case=case, **values) for runtime, backend in order)
     return result
 
@@ -51,7 +52,10 @@ def session(value, receipt, root):
 
 def expected(receipt, case):
     return dict(build_id=receipt['build_id'], runtime=receipt['runtime'], native=True,
-                accounting=False, clock_hz=receipt['board_contract']['clock-hz'],
+                accounting=receipt['observer'] == 'cpu', observer=receipt['observer'],
+                cpu_scope=metrics.cpu_scope(receipt['runtime'], receipt['observer']),
+                irq_observer=receipt.get('irq_observer'),
+                clock_hz=receipt['board_contract']['clock-hz'],
                 backend=receipt['backend'],
                 wait_observer='queue-object' if receipt['backend'] == 'native' else 'semaphore-state-and-phase',
                 **cases()[case])
@@ -60,7 +64,7 @@ def expected(receipt, case):
 def replay(directory, root):
     receipt = build.receipt(root)
     run = read(directory / 'run.json')
-    metrics.require(run.get('schema') == 'mpsc-comparison-capture-v3' and run.get('failure') is None,
+    metrics.require(run.get('schema') == 'mpsc-comparison-capture-v4' and run.get('failure') is None,
                     'failed/incomplete capture')
     raw = (directory / 'console.log').read_bytes()
     attestation = (directory / 'session.json').read_bytes()
@@ -82,7 +86,7 @@ def capture(args):
     args.output.mkdir(parents=True, mode=0o700, exist_ok=False)
     (args.output / 'session.json').write_bytes(attestation)
     exp = expected(receipt, args.case)
-    run = dict(schema='mpsc-comparison-capture-v3', case=args.case, expected=exp,
+    run = dict(schema='mpsc-comparison-capture-v4', case=args.case, expected=exp,
                failure='incomplete', fresh_boot_attested=True,
                session_sha256=hashlib.sha256(attestation).hexdigest())
     raw = bytearray()
@@ -161,10 +165,14 @@ def compare(args):
                              delivered=summary['delivered'], rejected=summary['rejected'],
                              normal_loss_gate=summary['normal_loss_gate_passed'],
                              wait_observer=summary['wait_observer'],
-                             cpu_ns_per_delivered=summary['cpu_ns_per_delivered']))
+                             cpu_scope=summary['cpu_scope'],
+                             cpu_ns_per_delivered=summary['cpu_ns_per_delivered'],
+                             irq_observer=summary.get('irq_observer')))
         result.append(dict(pass_number=pass_number, case=case, arms=arms))
-    return dict(schema='mpsc-comparison-cohort-v3', board=left['board'],
+    return dict(schema='mpsc-comparison-cohort-v4', board=left['board'], observer=left['observer'],
                 samples_pooled=False, physical_timing_qualified=False,
                 matched_placement_qualified=False, product_qualified=False,
                 footprint_scope='complete diagnostic images, not a channel-object or minimum firmware cost',
+                cpu_charge_scopes_equal=None if left['observer']!='cpu' else len({metrics.cpu_scope(r['runtime'], r['observer']) for r in receipts.values()}) == 1,
+                cpu_scope_note='Participant thread charges only; NuttX includes attributed IRQ work, Zephyr Xtensa stops charging before ISR dispatch. Not total MCU active time or energy.',
                 nuttx_kernel_control=kernel_control, comparisons=result)

@@ -20,8 +20,8 @@ sys.path.insert(0, str(HERE.parent))
 from rtos_harness.zephyr import ZEPHYR_SHA, check_checkout, resolved_config
 
 BOARDS = tomllib.loads((HERE / 'boards.toml').read_text())
-BUILD_SCHEMA = 'mpsc-comparison-build-v3'
-IDENTITY_FIELDS = ('schema', 'board', 'runtime', 'backend', 'source_sha256', 'board_contract', 'native_build_inputs', 'nonce')
+BUILD_SCHEMA = 'mpsc-comparison-build-v4'
+IDENTITY_FIELDS = ('schema', 'board', 'runtime', 'backend', 'observer', 'source_sha256', 'board_contract', 'native_build_inputs', 'nonce')
 NATIVE_QUEUE_ROOTS = ('mp_queue_create', 'mp_queue_send', 'mp_queue_receive', 'mp_queue_destroy', 'mp_queue_waiting')
 
 
@@ -32,6 +32,16 @@ def selected_backend(runtime, backend=None):
     return backend
 
 
+def selected_observer(board, observer='primary'):
+    if observer not in ('primary', 'cpu', 'irq'):
+        raise ValueError('unsupported measurement observer')
+    if observer == 'cpu' and board != 'esp32s3':
+        raise ValueError('CPU observer is supported on ESP32-S3 only; Pico performance-counter initialization is unqualified')
+    if observer == 'irq' and board != 'esp32s3':
+        raise ValueError('IRQ observer is supported on ESP32-S3 only')
+    return observer
+
+
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -40,7 +50,7 @@ def canonical(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def configure_native_inputs(env, out):
+def configure_native_inputs(env, out, observer='primary'):
     """Make compiled timestamps/assertion paths repeatable before compilation.
 
     These are real allocated bytes. Do not erase them from the kernel identity.
@@ -70,13 +80,23 @@ def configure_native_inputs(env, out):
         raise ValueError('SOURCE_DATE_EPOCH conflicts with the pinned NuttX commit timestamp; value was not overwritten')
     mapped = '/nxrs-mpsc-build'
     flag = f'-fmacro-prefix-map={owned}={mapped}'
-    combined = inherited + (' ' if inherited else '') + flag
-    if shlex.split(combined, comments=True) != words + [flag]:
+    include_paths = []
+    if observer == 'irq':
+        native = 'firmware/nuttx/arch/xtensa/src'
+        sdk = native + '/esp32s3/esp-hal-3rdparty'
+        include_paths = [native + '/common/espressif', sdk + '/nuttx/esp32s3/include',
+                         *[sdk + '/components/' + path for path in (
+                             'esp_hw_support/include', 'esp_common/include',
+                             'soc/esp32s3/include', 'soc/esp32s3/register')]]
+    added = [flag, *['-I' + str(out.resolve() / path) for path in include_paths]]
+    combined = inherited + (' ' if inherited else '') + ' '.join(added)
+    if shlex.split(combined, comments=True) != words + added:
         raise ValueError('cannot safely append the owned-path map to EXTRAFLAGS')
     env.update(EXTRAFLAGS=combined, SOURCE_DATE_EPOCH=epoch)
     return dict(schema='mpsc-native-build-inputs-v1', source_date_epoch=int(epoch),
                 source_date_epoch_origin=dict(component='nuttx', revision=revision, field='committer timestamp'),
                 macro_prefix_map=dict(source='owned output directory', replacement=mapped),
+                observer_include_paths=include_paths,
                 inherited_extraflags_sha256=hashlib.sha256(inherited.encode()).hexdigest())
 
 
@@ -97,6 +117,24 @@ def transport_selection(elf, prefix, backend, destination):
     if not passed:
         raise ValueError('wrong or mixed linked transport selection; inspect transport-selection.json')
     return record
+
+
+def irq_root_addresses(audit):
+    """Bind observed root addresses, without claiming indirect-path closure."""
+    from irq_metrics import ADDRESS_FIELDS
+    roots = {root['name']: root for root in audit.get('roots', [])}
+    if (audit.get('schema') != 'mpsc-hot-placement-v1' or audit.get('board') != 'esp32s3'
+            or audit.get('irq_probe') is not True or audit.get('missing_roots')
+            or set(roots) != set(ADDRESS_FIELDS)
+            or any(root.get('memory') != 'internal-code' for root in roots.values())
+            or audit.get('indirect_calls_qualified') is not False
+            or audit.get('matched_placement_qualified') is not False
+            or audit.get('physical_timing_qualified') is not False):
+        raise ValueError('IRQ observer roots/qualification do not match the required probe')
+    result = {field: int(roots[name]['address'], 16) for name, field in ADDRESS_FIELDS.items()}
+    if any(not 0x40370000 <= address < 0x403e0000 for address in result.values()):
+        raise ValueError('IRQ observer root is not in internal code memory')
+    return result
 
 
 def archive_members(path, prefix):
@@ -196,7 +234,7 @@ def comparable_kernel(identity):
 
 
 def validate_cohort(left, right):
-    fields = ('board', 'board_contract', 'source_sha256', 'rust_compiler', 'rust_compiler_sha256',
+    fields = ('board', 'board_contract', 'observer', 'source_sha256', 'rust_compiler', 'rust_compiler_sha256',
               'c_compiler', 'c_compiler_sha256')
     if any(left.get(key) is None or left[key] != right.get(key) for key in fields):
         raise ValueError('unmatched build cohort')
@@ -219,6 +257,7 @@ def validate_nuttx_control(std, native):
                 raw_archives_identical=not raw_differences, raw_archive_differences=raw_differences,
                 scope=first['scope'], final_image_layout_equal=False,
                 thread_model='std::thread on both NuttX arms',
+                observer=std['observer'],
                 matched_placement_qualified=False, physical_timing_qualified=False)
 
 
@@ -289,7 +328,8 @@ def zephyr_loader(source):
     return source.replace(old, new)
 
 
-def validate_config(text, board, runtime):
+def validate_config(text, board, runtime, observer='primary'):
+    selected_observer(board, observer)
     c = resolved_config(text)
     required = ({'CONFIG_USEC_PER_TICK': '10000', 'CONFIG_PTHREAD_STACK_DEFAULT': '4096',
                  'CONFIG_INIT_STACKSIZE': '8192'} if runtime == 'nuttx' else
@@ -301,10 +341,31 @@ def validate_config(text, board, runtime):
         required['CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ'] = '240'
     else:
         required['CONFIG_RAM_SIZE'] = '532480'
-    disabled = ('SMP', 'PRIORITY_INHERITANCE', 'SCHED_CRITMONITOR', 'SCHED_INSTRUMENTATION',
+    disabled = ('SMP', 'PRIORITY_INHERITANCE', 'SCHED_INSTRUMENTATION',
                 'ESP32S3_SPIRAM', 'SCHED_TICKLESS') if runtime == 'nuttx' else (
-                'SMP', 'TIMESLICING', 'TICKLESS_KERNEL', 'THREAD_RUNTIME_STATS', 'ESP_SPIRAM',
+                'SMP', 'TIMESLICING', 'TICKLESS_KERNEL', 'ESP_SPIRAM',
                 'NETWORKING', 'WIFI', 'BT', 'PM')
+    if observer != 'cpu':
+        disabled += ('SCHED_CRITMONITOR', 'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION') if runtime == 'nuttx' else ('THREAD_RUNTIME_STATS',)
+    elif runtime == 'nuttx':
+        required.update(CONFIG_ARCH_PERF_EVENTS='y', CONFIG_PERF_OVERFLOW_CORRECTION='y',
+                        CONFIG_SCHED_CRITMONITOR='y', CONFIG_SCHED_CRITMONITOR_MAXTIME_THREAD='0',
+                        CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE='-1',
+                        CONFIG_SCHED_CRITMONITOR_MAXTIME_PREEMPTION='-1',
+                        CONFIG_SCHED_CRITMONITOR_MAXTIME_CSECTION='-1',
+                        CONFIG_SCHED_CRITMONITOR_MAXTIME_IRQ='-1',
+                        CONFIG_SCHED_CRITMONITOR_MAXTIME_WDOG='-1',
+                        CONFIG_SCHED_CRITMONITOR_MAXTIME_BUSYWAIT='-1')
+        disabled += ('SCHED_CPULOAD_CRITMONITOR', 'ARCH_PERF_EVENTS_USER_ACCESS')
+    else:
+        required.update(CONFIG_THREAD_RUNTIME_STATS='y', CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS='y',
+                        CONFIG_TIMING_FUNCTIONS='y', CONFIG_SCHED_THREAD_USAGE='y',
+                        CONFIG_SCHED_THREAD_USAGE_AUTO_ENABLE='y',
+                        CONFIG_XTENSA_CCOUNT_HZ=str(BOARDS[board]['cpu-hz']))
+        disabled += ('SCHED_THREAD_USAGE_ANALYSIS', 'SCHED_THREAD_USAGE_ALL')
+    if observer == 'irq' and runtime == 'zephyr':
+        required['CONFIG_HEAP_MEM_POOL_ADD_SIZE_BOARD'] = '4096'
+        disabled += ('HEAP_MEM_POOL_IGNORE_MIN',)
     if any(c.get('CONFIG_' + name) == 'y' for name in disabled):
         raise ValueError('unmatched scheduling, accounting or resource configuration')
     for key, value in required.items():
@@ -315,6 +376,7 @@ def validate_config(text, board, runtime):
 def build(args):
     board = BOARDS[args.board]
     backend = selected_backend(args.runtime, getattr(args, 'backend', None))
+    observer = selected_observer(args.board, getattr(args, 'observer', 'primary'))
     tools = tomllib.loads(args.tools.read_text())[args.board]
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -328,22 +390,23 @@ def build(args):
     env['PATH'] = os.pathsep.join([str(Path(prefix).parent), str(Path(tools['python']).parent),
                                   *tools.get('path', []), env['PATH']])
     env.update(RUSTC=tools['rustc'], RUSTC_BOOTSTRAP='1', MPSC_CLOCK_HZ=str(board['clock-hz']),
-               MPSC_BACKEND=backend,
+               MPSC_BACKEND=backend, MPSC_OBSERVER=observer,
                CARGO_PROFILE_RELEASE_OPT_LEVEL=board['opt-level'],
                CARGO_PROFILE_RELEASE_LTO=board['lto'], CARGO_PROFILE_RELEASE_CODEGEN_UNITS='1',
                CARGO_PROFILE_RELEASE_PANIC='abort', CARGO_PROFILE_RELEASE_DEBUG='false',
                CARGO_PROFILE_RELEASE_STRIP='none', NXRS_NUTTX_NATIVE_TOOLS='1',
                NXRS_ESP32S3_NATIVE_TOOLS='1', NXRS_NUTTX_BUILD_JOBS='4')
     inputs = inventory()
-    record = dict(schema=BUILD_SCHEMA, board=args.board, runtime=args.runtime, backend=backend,
+    record = dict(schema=BUILD_SCHEMA, board=args.board, runtime=args.runtime, backend=backend, observer=observer,
                   source_sha256=inputs, board_contract=board, nonce=secrets.token_hex(16),
-                  native_build_inputs=configure_native_inputs(env, out) if args.runtime == 'nuttx' else None,
+                  native_build_inputs=configure_native_inputs(env, out, observer) if args.runtime == 'nuttx' else None,
                   status='failed', failure='incomplete build', physical_timing_qualified=False)
     record['build_id'] = canonical({k: record[k] for k in IDENTITY_FIELDS})
     env['MPSC_BUILD_ID'] = record['build_id']
     board_dir = HERE / 'boards' / args.board
     wrapper = out / 'sdk.c'
-    wrapper.write_text(f'#include "{board_dir}/board.h"\n#include "{HERE}/sdk_{args.runtime}.c"\n')
+    wrapper.write_text(f'#include "{board_dir}/board.h"\n#include "{HERE}/sdk_{args.runtime}.c"\n' +
+                       (f'#include "{board_dir}/irq_probe.c"\n' if observer == 'irq' else ''))
     try:
         record['c_compiler_sha256'] = digest(prefix + 'gcc')
         record['c_compiler'] = subprocess.check_output([prefix + 'gcc', '--version'], env=env, text=True)
@@ -352,6 +415,9 @@ def build(args):
             command = ['cargo', 'nxrs', 'build', '--manifest-path', HERE / 'rust/Cargo.toml',
                        '--platform', board['nuttx-platform'], '--profile', args.board + '-mpsc', '--out', firmware,
                        '--abi-profile', 'active']
+            if observer == 'cpu':
+                for symbol in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'SCHED_CRITMONITOR'):
+                    command += ['--kconfig-enable', symbol]
             for source in (wrapper, board_dir / 'clock.c', board_dir / 'console_nuttx.c'):
                 command += ['--target-c-source', source]
             run(command, out / 'build.log', env)
@@ -398,6 +464,16 @@ def build(args):
                        '-DMPSC_RUST_ARCHIVE=' + str(archive), '-DZEPHYR_TOOLCHAIN_VARIANT=cross-compile',
                        '-DCROSS_COMPILE=' + prefix]
             evidence = [archive]
+            if observer == 'cpu':
+                overlay = out / 'observer.conf'
+                overlay.write_text('CONFIG_THREAD_RUNTIME_STATS=y\n'
+                                   'CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS=y\n'
+                                   'CONFIG_SCHED_THREAD_USAGE=y\n'
+                                   'CONFIG_SCHED_THREAD_USAGE_AUTO_ENABLE=y\n'
+                                   'CONFIG_SCHED_THREAD_USAGE_ANALYSIS=n\n'
+                                   'CONFIG_SCHED_THREAD_USAGE_ALL=n\n')
+                command += ['-DEXTRA_CONF_FILE=' + str(overlay)]
+                evidence.append(overlay)
             if args.board == 'esp32s3':
                 loader = out / 'loader.c'
                 loader.write_bytes(zephyr_loader((zephyr / 'soc/espressif/common/loader.c').read_bytes()))
@@ -416,7 +492,7 @@ def build(args):
                 import placement
                 placement.prepare(out, prefix, env, zephyr=True)
             elf, config, image = (firmware / 'zephyr' / name for name in ('zephyr.elf', '.config', 'zephyr.bin'))
-        validate_config(config.read_text(), args.board, args.runtime)
+        validate_config(config.read_text(), args.board, args.runtime, observer)
         selection = out / 'transport-selection.json'
         transport_selection(elf, prefix, backend, selection)
         record['transport_selection_file'] = str(selection.relative_to(out))
@@ -424,6 +500,13 @@ def build(args):
         if args.board == 'esp32s3':
             import placement
             placement.audit(elf, prefix, out / 'hot-audit.json', board=args.board, backend=backend)
+            if observer == 'irq':
+                irq_audit = out / 'irq-audit.json'
+                inspection = placement.audit(elf, prefix, irq_audit, board=args.board,
+                                             backend=backend, irq_probe=True)
+                irq_root_addresses(inspection)
+                record['irq_audit_file'] = str(irq_audit.relative_to(out))
+                evidence.append(irq_audit)
         if args.runtime == 'nuttx':
             identity, kernel_evidence = kernel_identity(out, prefix, config)
             record['kernel_identity_file'] = str(identity.relative_to(out))
@@ -455,6 +538,7 @@ def receipt(root):
     if record.get('schema') != BUILD_SCHEMA or record.get('status') != 'complete' or record.get('failure') is not None:
         raise ValueError('incomplete build')
     selected_backend(record['runtime'], record['backend'])
+    selected_observer(record['board'], record['observer'])
     identity = canonical({k: record[k] for k in IDENTITY_FIELDS})
     if record['build_id'] != identity or record['source_sha256'] != inventory():
         raise ValueError('build identity/source drift')
@@ -477,7 +561,17 @@ def receipt(root):
             or selection.get('retained_native_queue_roots') != expected_roots
             or selection.get('native_queue_roots_required') is not (record['backend'] == 'native')):
         raise ValueError('transport selection does not match build/ELF')
-    validate_config((root / record['config_file']).read_text(), record['board'], record['runtime'])
+    validate_config((root / record['config_file']).read_text(), record['board'], record['runtime'], record['observer'])
+    if record['observer'] == 'irq':
+        name = record.get('irq_audit_file')
+        if name not in record['artifacts_sha256']:
+            raise ValueError('unbound IRQ observer placement')
+        audit = json.loads((root / name).read_text())
+        if audit.get('elf_sha256') != record['artifacts_sha256'][record['elf_file']]:
+            raise ValueError('IRQ observer placement does not match ELF')
+        record['irq_observer'] = irq_root_addresses(audit)
+        record['irq_probe_direct_paths_in_sram'] = audit.get('direct_paths_in_sram') is True
+        record['irq_probe_path_placement_qualified'] = False
     if record['runtime'] == 'nuttx':
         record['kernel_identity'] = read_kernel_identity(root, record)
     return record

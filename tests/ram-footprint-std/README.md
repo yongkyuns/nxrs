@@ -162,11 +162,51 @@ checks still run; this changes which API calls each binary must reference, not
 the target ABI. The canonical frontend's build policy is recorded independently
 of the standalone host Cargo profile; do not assume their LTO settings match.
 
+For a physical campaign, build from a clean committed checkout. The target
+validator requires the canonical `nxrs` revision and `nxrs_dirty=no`, since the
+build's source hash receipt does not enumerate every Rust source file. Preserve
+these files with their paths relative to the output directory:
+
+```text
+binaries.sha256                 provenance.txt
+native-context.json             resolved.config
+provider-selection.json         xtensa-esp32s3-nuttx.json
+nuttx/nuttx                     nuttx/nuttx.merged.bin
+nuttx/include/nuttx/config.h
+```
+
+The existing CI artifact also retains maps, symbols and other build diagnostics.
+The generated `config.h` is necessary: `native-context.json` hashes this header,
+which is different from the resolved Kconfig file. Keep both. Absolute original
+build paths in `binaries.sha256` are remapped to these retained paths for replay;
+the normalized output contains only relative artifact names and hashes.
+
+Run read-only preflight on all four completed build directories before board
+access, selecting the binary belonging to each directory:
+
+```sh
+python3 tests/ram-footprint-std/target_evidence.py \
+  --build target/ram-footprint-std-nuttx-inbox --binary ram-std-inbox \
+  --readelf "$READELF" --out target/ram-inbox-preflight.json
+```
+
+It verifies the final ELF, image, resolved configuration, observer configuration
+header, source/build identity and optimization policy. It extracts the RAM
+section ledger from the actual ELF. No port is opened or firmware flashed.
+
 On the corresponding image, capture one invocation per log, for example:
 
 ```text
-ramprobe services 20 4096
+if ramprobe services 20 4096
+then echo RAM_COMMAND_EXIT status=0
+else echo RAM_COMMAND_EXIT status=1
+fi
 ```
+
+Enter each line at the NSH prompt and retain the complete response through the
+final prompt. The shell exit marker follows Rust/native cleanup; `RAM_END`
+alone is insufficient because the process could fail during exit. Use
+`if ramprobe` without arguments for the baseline image.
 
 Run all five counts. `ram-threads` takes `threads COUNT STACK`; the two channel
 images take `queues COUNT STACK` or `services COUNT STACK`; `ram-baseline`
@@ -180,12 +220,25 @@ Validate and normalize a captured invocation:
 
 ```sh
 python3 tests/ram-footprint-std/report.py --input target/inbox-20.log \
-  --domain nuttx-target --out target/inbox-20.json
+  --domain nuttx-target --build target/ram-footprint-std-nuttx-inbox \
+  --readelf "$READELF" --binary ram-std-inbox --case services \
+  --owners 20 --stack-bytes 4096 --out target/inbox-20.json
 ```
 
 The parser rejects missing phases/completion, host/native mixing, altered
 capacity/topology, missing worker results, invalid stack observations and
-unreclaimed queue-only allocations. Target-domain output alone does not prove
-physical execution: retain the board/run provenance and exact flashed-image
-identity with the evidence. This fixture's ELF/native build and physical runs
-must be reported independently of the host witness.
+unreclaimed queue-only allocations. It also rejects failed/missing shell exit,
+late panic/assert output, contradictory heap totals, decreasing cumulative main
+stack watermarks, changed build artifacts, or a different requested invocation.
+The output binds the raw transcript hash and validated build identity. The
+baseline replay uses `--case baseline --owners 0 --stack-bytes 0`.
+
+This fixture provides build preflight and per-invocation replay; it does not
+manage flashing, reset, serial capture or backup restoration. The campaign
+operator must retain the board identity, verified private original-flash backup,
+flash/readback evidence for the selected image, fresh-boot/reset history, and
+restoration evidence. Keep exclusive access to the board and console. A failed
+or interrupted invocation is retained as a failure and repeated into a new log
+after its cause is resolved. Parsing target-domain output and binding files do
+not themselves prove physical execution. Report the native build and physical
+runs independently of the host witness; no physical result is supplied here.
