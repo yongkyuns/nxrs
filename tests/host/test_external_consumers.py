@@ -225,7 +225,6 @@ class ExternalConsumerTests(unittest.TestCase):
         sdk = self.directory / "profile-sdk"
         profiles = sdk / "platform/profiles"
         profiles.mkdir(parents=True)
-        (sdk / "platform/nuttx/platforms").mkdir(parents=True)
         (sdk / "hal").symlink_to(self.directory / "deps/hal", target_is_directory=True)
         (sdk / "Cargo.toml").write_text("[workspace]\n")
         for used, unused in [("wifi", "ble"), ("ble", "wifi")]:

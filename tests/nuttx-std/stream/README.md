@@ -28,7 +28,9 @@ or an autonomous trusted clock. Preserve and verify the original firmware before
 temporary flashing, and restore it after qualification.
 
 For continuous TLS **with the existing detector**, build with
-`build.sh --platform esp32s3-camera-stream-tls`, then run
+`build.sh --platform esp32s3-camera-stream-mcuboot` and the
+[signing inputs](../../../docs/build-system.md#inputs-and-outputs). Boot the
+signed artifact with its matching [MCUboot loader](../../../docs/firmware-updates.md), then run
 `stream_test tls continuous 0 320 240 81`. This uses the same capture,
 detector, reconnect and shutdown loop as HTTP. TLS owns the sole UART reader;
 sequence-bound USB control requests joined TLS renewal or full shutdown.

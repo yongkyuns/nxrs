@@ -444,7 +444,7 @@ and test-image provenance details.
 [std-patches]: ../upstream/rust-std/README.md
 [phase-patch]: ../tests/nuttx-std/channels/mpsc-fixture-phase.patch
 [entry-patch]: ../tests/nuttx-std/channels/mpsc-fixture-entry.patch
-[profile]: ../platform/nuttx/platforms/esp32s3-sync-iram.toml
+[profile]: ../tests/profiles/esp32s3-sync-iram.toml
 [controls]: ../tests/nuttx-std/channels/README.md
 [sdk]: ../platform/build/src/sdk.rs
 [pins]: ../tests/event-services-comparison/setup-pins.json

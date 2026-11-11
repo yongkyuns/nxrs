@@ -7,6 +7,7 @@ on:
       - 'hal/common/**'
       - 'platform/build-support/**'
       - 'platform/profiles/**'
+      - 'tests/profiles/mock.toml'
       - 'platform/nuttx/**'
       - 'platform/build/**'
       - 'tools/platform_config.py'

@@ -12,6 +12,7 @@ on:
       - 'shared/messaging/**'
       - 'platform/build-support/**'
       - 'platform/profiles/**'
+      - 'tests/profiles/mock.toml'
       - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tools/check-hal-isolation.py'

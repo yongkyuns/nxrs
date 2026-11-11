@@ -1,6 +1,6 @@
 # Reversible signed-image qualification; hardware secure boot/encryption stay off.
-extends = "esp32s3-camera-stream-tls"
-hal = { boot = "nuttx" }
+extends = "esp32s3-camera-stream"
+hal = { boot = "nuttx", tls = "nuttx" }
 
 # Stable product/flash-format class, independent of release version.
 image-class = "36996798-de02-40d5-94f9-fca81322a7db"

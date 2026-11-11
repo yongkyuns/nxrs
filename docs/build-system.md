@@ -34,8 +34,10 @@ can inherit settings using `extends`. When you supply both options, the explicit
 profile must belong to the same board and target family. Native builds target
 the current host OS.
 
-Start with the platform default for ordinary builds. Use an explicit profile for
-a specific qualification, such as `pico2-mock` for a sensor-free Pico 2 build.
+Start with the platform default for ordinary builds. The seven defaults live
+in `platform/profiles/`, with shared WROOM settings in its `wroom/` subdirectory.
+The configurations in `tests/profiles/` are explicit test inputs, such as
+`pico2-mock` for a sensor-free Pico 2 build. They do not add platform defaults.
 On a desktop, use `mock` for scripted providers and the navigation demo, or
 `simulation` for coordinated IMU/GNSS data. A build without a profile checks
 portable HAL contracts with hardware acquisition unbound.
@@ -143,8 +145,7 @@ manifests stay platform-free. Application-entry metadata under
 `qualification-only` fixture marker. Build planning and deployment preflight both
 validate this parent table and reject unknown fields, so misspelled metadata cannot
 silently select firmware defaults or skip capability admission. Other tools' metadata stays
-independent. Declarative profiles under `platform/profiles` and
-`platform/nuttx/platforms` select hardware
+independent. Declarative profiles under `platform/profiles` select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 

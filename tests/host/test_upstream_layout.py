@@ -132,8 +132,10 @@ class UpstreamLayoutTests(unittest.TestCase):
                 old = ROOT / "platform" / component
                 if component == "nuttx":
                     self.assertFalse((old / "patches").exists())
-                    for name in ("platforms", "profiles", "qualification", "std-app"):
+                    for name in ("profiles", "qualification", "std-app"):
                         self.assertTrue((old / name).is_dir())
+                    self.assertTrue((ROOT / "platform/profiles").is_dir())
+                    self.assertTrue((ROOT / "tests/profiles").is_dir())
                 else:
                     self.assertFalse(old.exists())
 

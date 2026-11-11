@@ -92,14 +92,14 @@ hal/imu/
   src/platform/nuttx/mod.rs            normalized acquisition and construction API
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
 platform/devices/imu/                 named IMU accessors and concrete construction
-platform/nuttx/platforms/              existing product and qualification profiles
 driver/i2c/, driver/spi/               NuttX-only embedded-hal resource adapters
 driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
 hal/acquisition/                       shared workers, cancellation and native readiness
   src/probe/                          optional acquisition and I²C/SPI timing
 hal/gnss/                              UART binding, UBX policy and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
-platform/profiles/                     host, simulation and qualification profiles
+platform/profiles/                     platform defaults and shared WROOM settings
+tests/profiles/                        mock, simulation and qualification inputs
 platform/build-support/                shared resolution and generic typed generation
 platform/build/                        build CLI and Cargo orchestration
 ~~~

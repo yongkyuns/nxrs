@@ -8,7 +8,7 @@ thin target-header adapters. It does not port Rust std to Zephyr.
 `rust/` owns workload scheduling, message validation, endpoint retirement and
 joined cleanup. `sdk_{nuttx,zephyr}.c` translate native operations;
 `boards/` owns clocks, console setup and native startup. NuttX profiles are in
-`platform/nuttx/platforms/{esp32s3,pico2w}-mpsc.toml`. No production HAL API or
+`tests/profiles/{esp32s3,pico2w}-mpsc.toml`. No production HAL API or
 benchmark Cargo feature is added.
 
 ## Build

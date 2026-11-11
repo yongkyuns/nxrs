@@ -15,6 +15,7 @@ on:
       - 'platform/build-support/**'
       - 'platform/devices/**'
       - 'platform/profiles/**'
+      - 'tests/profiles/mock.toml'
       - 'platform/build/**'
       - 'tools/platform_config.py'
       - 'tests/portable/**'
