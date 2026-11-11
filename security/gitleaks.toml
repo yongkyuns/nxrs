@@ -74,3 +74,27 @@ condition = "AND"
 paths = ['^tests/channel-progress/results/2026-11-04-esp32s3/(runs/(std|crossbeam|fifo)/[^/]+/run/(build|analysis|acceptance)|(std|fifo)-(no-repair|physical))\.json$']
 regexTarget = "line"
 regexes = ['^[\r\n \t]*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":[ \t]*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?[ \t\r]*$']
+
+# Exact historical public NuttX source preimage digests in the removed
+# Dropbear validation fixture; verified against the immutable old Git blob
+# by tools/scan-secrets.py self-test. No path-wide secret exclusion.
+[[allowlists]]
+description = "Reviewed historical Dropbear source SHA-256 preimages"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/host/fixtures/dropbear-native/upstream\.json$']
+regexTarget = "line"
+regexes = [
+  '^[\r\n \t]*"netutils/dropbear/port/nuttx_auth\.c":[ \t]*"bf80ad81244d769c98a3888742d4c8d829fc475593573f262e505db1477a3936",?[ \t\r]*$',
+  '^[\r\n \t]*"netutils/dropbear/patch/0002-use-nuttx-passwd-auth\.patch":[ \t]*"47f56660a9a2ef7fe1c1d218079e952c73d0ddd520ad6fc8eb1d49238bb93c47",?[ \t\r]*$',
+]
+
+# Reviewed historical resource-measurement table row; no credential is present.
+[[allowlists]]
+description = "Reviewed non-secret Dropbear resource cost table row"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^docs/dropbear-ssh\.md$']
+regexTarget = "line"
+regexes = ['^[\r\n \t]*\| Resource cost \| Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop \|[ \t\r]*$']
+

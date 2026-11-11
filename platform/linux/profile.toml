@@ -1,0 +1,8 @@
+# Native Linux providers.
+name = "linux"
+target-os = ["linux"]
+
+[hal]
+detector = "linux"
+wifi = "linux"
+ble = "linux"

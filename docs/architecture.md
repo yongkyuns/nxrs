@@ -18,14 +18,14 @@ explains the current evidence for the bounded single-inbox path.
 
 The [declarative build and static device decision](static-device-composition.md)
 records the accepted follow-up to composition v1. It is tracked in
-[issue #246](https://github.com/yongkyuns/nxrs/issues/246). IMU has canonical
-instances with direct device accessors and aliases; GNSS retains its default owner.
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246). IMU and GNSS use
+canonical instances with direct device accessors and aliases.
 
 HAL crates retain runtime contracts/implementations, native ABI source and
 declarative support metadata. Shared build tooling will own configuration
 generation and native compilation orchestration. Ordinary additive Cargo
-features enable implementations; profiles define physical devices and aliases.
-Each active physical device will have one canonical static opaque object,
+features enable implementations, and profiles define physical devices and aliases.
+Each active IMU or GNSS device has one canonical static opaque object
 with private instance state and an exclusive acquisition lease. Multiple aliases
 can refer to that same object; multiple devices can use the same implementation.
 
@@ -106,7 +106,7 @@ ImuService.start_on(devices::primary_imu())
     -> HAL IMU acquisition
     -> owner thread owns IMU for its lifetime
 
-GnssService.start()
+GnssService.start_on(gnss_devices::primary_gnss())
     -> HAL GNSS acquisition
     -> owner thread owns GNSS for its lifetime
 ~~~
@@ -351,8 +351,8 @@ app/home-cam -> camera            # package nxrs-camera
 ~~~
 
 One `NXRS_PLATFORM` value selects the build's provider bindings. For example,
-`linux`, `macos` and `windows` select their OS implementations and reuse the
-same Rust camera replay, file and socket code. `host-demo` selects mock IMU and
+`linux`, `macos` and `windows` select their OS providers. File replay,
+recording and UDP use shared Rust code enabled by Cargo features. `mock` selects mock IMU and
 GNSS; `host-imu` selects only a mock IMU. `std` is an environment, not a platform. The NuttX
 profiles bind only capabilities with an implemented NuttX provider. There is
 no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
@@ -461,7 +461,7 @@ nxrs-imu / nxrs-gnss
 build-selected capability providers
 ~~~
 
-With `NXRS_PLATFORM=host-demo`, ImuService and GnssService acquire synthetic
+With `NXRS_PLATFORM=mock`, ImuService and GnssService acquire synthetic
 providers internally. The app source and manifest do not know that.
 
 Service tests also execute through the mock IMU/GNSS provider selection rather than injecting
@@ -501,7 +501,7 @@ each service owns an exclusive session for its selected device. Starting two
 services on the same device returns Busy. Pausing one does not affect the other.
 
 The `host-imu` profile selects the scripted two-device mock IMU fixture; GNSS stays
-unbound. The event demo uses `host-demo`, which binds mock IMU and GNSS. Starting
+unbound. The event demo uses `mock`, which binds mock IMU and GNSS. Starting
 the dual app without an IMU binding is required to fail Unsupported, so no
 implicit mock fallback hides an unsupported image.
 

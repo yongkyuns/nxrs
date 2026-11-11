@@ -7,10 +7,11 @@ members = [
     "app/std-demo",
     "app/ao-stress",
     "app/home-cam",
-    "platform/build",
-    "platform/build-support",
+    "tools/build",
+    "tools/build-support",
     "platform/devices/imu",
-    "hal/detector/build-support",
+    "platform/devices/gnss",
+    "tools/detector-build-support",
     "driver/bmi270",
     "driver/i2c",
     "driver/spi",
@@ -71,6 +72,7 @@ members = [
 ]
 default-members = [
     "platform/devices/imu",
+    "platform/devices/gnss",
     "app/std-demo",
     "app/ao-stress",
     "app/home-cam",
@@ -94,6 +96,10 @@ default-members = [
     "hal/camera",
     "hal/detector",
 ]
+
+[workspace.metadata.nxrs.device-catalogues]
+imu = "platform/devices/imu"
+gnss = "platform/devices/gnss"
 
 [workspace.package]
 edition = "2021"

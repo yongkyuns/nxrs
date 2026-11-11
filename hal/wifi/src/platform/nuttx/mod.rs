@@ -1,8 +1,7 @@
 //! NuttX acquisition and scan normalization. Portable execution lives in worker.
 #![deny(unsafe_code)]
 
-#[path = "../../quiescence.rs"]
-mod quiescence;
+use crate::quiescence;
 
 pub(crate) use crate::worker::Lease;
 mod station;

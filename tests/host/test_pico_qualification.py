@@ -21,7 +21,7 @@ def load(name, path):
 REPORT = load('pico_report', 'tests/detection/report.py')
 GRAPH = load('pico_graph', 'upstream/esp-dl/graph.py')
 PREPARE = load('pico_prepare', 'upstream/esp-dl/prepare.py')
-BUILD = load('pico_build', 'hal/detector/src/compute/esp_dl/ffi/build.py')
+BUILD = load('platform_config', 'tools/platform_config.py')
 BOXES = load('pico_boxes', 'tests/detection/report_boxes.py')
 QUALIFY = load('pico_entries', 'upstream/esp-dl/qualify.py')
 DEVICE = load('pico_device', 'tests/detection/run_device.py')
@@ -96,20 +96,20 @@ class PicoQualification(unittest.TestCase):
             config = root / 'nuttx/config.h'
             qualified = '#define CONFIG_ARCH_CHIP_ESP32S3 1\n#define CONFIG_BUILD_FLAT 1\n'
             config.write_text(qualified)
-            BUILD.qualify_compute_context(root)
+            BUILD._query('detector-context', {}, include=str(root))
             config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n')
-            BUILD.qualify_compute_context(root)
+            BUILD._query('detector-context', {}, include=str(root))
             for flag in ('ARCH_PERF_EVENTS', 'TIMER_ARCH', 'ALARM_ARCH', 'PERF_OVERFLOW_CORRECTION'):
                 config.write_text(qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_' + flag + ' 1\n')
                 with self.assertRaisesRegex(ValueError, 'SMP-safe perf clock'):
-                    BUILD.qualify_compute_context(root)
+                    BUILD._query('detector-context', {}, include=str(root))
             for content in (qualified + '#define CONFIG_SMP 1\n',
                             qualified + '#define CONFIG_SMP 1\n#define CONFIG_SMP_NCPUS 2\n#define CONFIG_ARCH_PERF_EVENTS 1\n',
                             qualified.replace('CONFIG_ARCH_CHIP_ESP32S3', 'CONFIG_OTHER_CPU'),
                             qualified.replace('CONFIG_BUILD_FLAT', 'CONFIG_BUILD_PROTECTED')):
                 config.write_text(content)
                 with self.assertRaisesRegex(ValueError, 'flat NuttX'):
-                    BUILD.qualify_compute_context(root)
+                    BUILD._query('detector-context', {}, include=str(root))
 
 
     def test_localization_matching_is_one_to_one_and_crowd_images_are_excluded(self):

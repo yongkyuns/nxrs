@@ -3,7 +3,7 @@
 use crate::commissioning;
 use camera::{Camera, JpegQuality};
 use connectivity_service::Reconnector;
-use home_cam::{LiveCamera, TlsOptions, TlsOutput};
+use home_cam::{update::Update, LiveCamera, StreamOutput, TlsOptions};
 
 use std::{
     net::TcpListener,
@@ -16,6 +16,7 @@ const BYTES: usize = 320 * 240 * 2;
 const HEALTH_AGE_MS: u64 = 5000;
 const RENEW_AFTER: Duration = Duration::from_secs(45 * 60);
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
+const RECOVERY_REARM_FRAMES: u64 = 32;
 
 struct Sink {
     events: SyncSender<Event>,
@@ -97,14 +98,14 @@ enum Outcome {
     Healthy(home_cam::startup::Health),
 }
 
-fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>>(
-    mut live: LiveCamera<D, BYTES, Vec<u8>, TlsOutput<Vec<u8>>>,
-    network: &mut Reconnector<W, F>,
-    events: &Receiver<Event>,
+fn run_live<D: Camera, O: StreamOutput>(
+    mut live: LiveCamera<D, BYTES, Vec<u8>, O>,
+    mut poll_network: impl FnMut(u64) -> Result<(bool, Option<u64>), String>,
     origin: Instant,
-    update: Option<&home_cam::update::Update>,
+    update: Option<&Update>,
     trial: bool,
     budget: Option<detector::ExecutionBudget>,
+    can_recover: &mut bool,
 ) -> Result<Outcome, String> {
     let operation: Result<bool, String> = (|| {
         if let Some(budget) = budget {
@@ -142,10 +143,18 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
                 return Ok(false);
             }
             let elapsed = now(origin);
-            network_poll(network, events, elapsed)?;
-            let online = network.link() == LinkState::Addressed;
-            live.poll(elapsed, online)
-                .map_err(|e| format!("stream {e:?}"))?;
+            let (online, network_deadline) = poll_network(elapsed)?;
+            match live.poll(elapsed, online) {
+                Ok(_) => {}
+                Err(home_cam::Error::Camera(camera_service::Error::Device(
+                    error @ (camera::DeviceError::Io | camera::DeviceError::Timeout),
+                ))) if *can_recover => {
+                    *can_recover = false;
+                    eprintln!("CAMERA_READ_RETRY error={error:?}");
+                    return Ok(false);
+                }
+                Err(error) => return Err(format!("stream {error:?}")),
+            }
             if trial && online && home_cam::startup::healthy(&live, elapsed, HEALTH_AGE_MS) {
                 // Consuming retirement below joins before handing health to confirmation.
                 return Ok(true);
@@ -158,12 +167,14 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
             if stats.captured > captured {
                 captured = stats.captured;
                 last_capture = Instant::now();
+                if !*can_recover && captured >= RECOVERY_REARM_FRAMES {
+                    *can_recover = true;
+                }
             }
             if last_capture.elapsed() > Duration::from_secs(5) {
                 return Err("camera stalled".into());
             }
-            let wake = network
-                .next_deadline_ms()
+            let wake = network_deadline
                 .into_iter()
                 .chain(live.next_poll_at_ms())
                 .min()
@@ -187,6 +198,25 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
     } else {
         Outcome::Renew
     })
+}
+
+fn run_camera_sessions(
+    update: &mut Option<Update>,
+    mut run_session: impl FnMut(Option<&Update>, &mut bool) -> Result<Outcome, String>,
+) -> Result<Outcome, String> {
+    let mut can_recover = true;
+    loop {
+        match run_session(update.as_ref(), &mut can_recover)? {
+            Outcome::Renew => {
+                *update = update
+                    .take()
+                    .map(Update::renew)
+                    .transpose()
+                    .map_err(|e| format!("update renewal {e:?}"))?;
+            }
+            outcome => return Ok(outcome),
+        }
+    }
 }
 
 pub(crate) fn run() -> Result<(), String> {
@@ -233,7 +263,7 @@ pub(crate) fn run() -> Result<(), String> {
                 listener =
                     Some(TcpListener::bind("0.0.0.0:8443").map_err(|e| format!("listener {e:?}"))?);
             }
-            loop {
+            run_camera_sessions(&mut update, |update, can_recover| {
                 let mut camera = camera::open().map_err(|e| format!("camera open {e:?}"))?;
                 camera
                     .set_jpeg_quality(JpegQuality::new(81).map_err(|e| format!("quality {e:?}"))?)
@@ -270,29 +300,26 @@ pub(crate) fn run() -> Result<(), String> {
                         return Err(format!("TLS composition {error:?}"));
                     }
                 };
-                if let Some(update) = &update {
+                if let Some(update) = update {
                     live.enable_updates(update.clone())
                         .map_err(|e| format!("update receiver {e:?}"))?;
                 }
-                match run_live(
+                run_live(
                     live,
-                    &mut network,
-                    &events,
+                    |elapsed| {
+                        network_poll(&mut network, &events, elapsed)?;
+                        Ok((
+                            network.link() == LinkState::Addressed,
+                            network.next_deadline_ms(),
+                        ))
+                    },
                     origin,
-                    update.as_ref(),
+                    update,
                     trial.is_some(),
                     budget,
-                )? {
-                    Outcome::Renew => {
-                        update = update
-                            .take()
-                            .map(home_cam::update::Update::renew)
-                            .transpose()
-                            .map_err(|e| format!("update renewal {e:?}"))?;
-                    }
-                    outcome => return Ok(outcome),
-                }
-            }
+                    can_recover,
+                )
+            })
         })();
         let retired = retire_network(&mut network, &events, origin);
         if retry_network && retired.is_ok() {
@@ -353,4 +380,97 @@ fn update_capacity() -> Result<u32, String> {
     boot.update_capacity()
         .map(|bytes| bytes.min(2 * 1024 * 1024))
         .map_err(|e| format!("update capacity {e:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use camera::{Capture, DeviceError, Format};
+    use std::cell::Cell;
+
+    struct FailingRead<'a> {
+        retired: &'a Cell<u32>,
+        stop: Result<(), DeviceError>,
+        frames: u64,
+        format: Option<Format>,
+    }
+
+    impl Camera for FailingRead<'_> {
+        fn start(&mut self, format: Format) -> Result<Format, DeviceError> {
+            self.format = Some(format);
+            Ok(format)
+        }
+
+        fn poll_frame(
+            &mut self,
+            now: u64,
+            bytes: &mut [u8],
+        ) -> Result<Option<Capture>, DeviceError> {
+            self.frames = self.frames.checked_sub(1).ok_or(DeviceError::Io)?;
+            bytes[..4].copy_from_slice(&[0xff, 0xd8, 0xff, 0xd9]);
+            Ok(Some(Capture {
+                format: self.format.unwrap(),
+                len: 4,
+                timestamp_ms: now,
+            }))
+        }
+
+        fn stop(&mut self) -> Result<(), DeviceError> {
+            self.stop?;
+            self.retired.set(self.retired.get() + 1);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn read_error_recovery_requires_clean_retirement_and_rearms_after_capture() {
+        for (stop, recovery_frames, expected_sessions, expected_error) in [
+            (Ok(()), 0, 2, "stream Camera(Device(Io))"),
+            (
+                Ok(()),
+                RECOVERY_REARM_FRAMES,
+                3,
+                "stream Camera(Device(Io))",
+            ),
+            (
+                Err(DeviceError::Io),
+                0,
+                1,
+                "camera retirement Camera(Device(Io))",
+            ),
+        ] {
+            let retired = Cell::new(0);
+            let mut sessions = 0;
+            let mut update = Some(Update::new(1024, Duration::from_secs(1)).unwrap());
+            let result = run_camera_sessions(&mut update, |update, can_recover| {
+                assert_eq!(retired.get(), sessions);
+                sessions += 1;
+                let live = LiveCamera::new(
+                    FailingRead {
+                        retired: &retired,
+                        stop,
+                        frames: if sessions == 2 { recovery_frames } else { 0 },
+                        format: None,
+                    },
+                    TcpListener::bind("127.0.0.1:0").unwrap(),
+                    vec![0; BYTES],
+                    vec![0; BYTES],
+                    vec![0; BYTES],
+                    stream_service::Options::default(),
+                )
+                .unwrap();
+                run_live(
+                    live,
+                    |_| Ok((false, None)),
+                    Instant::now(),
+                    update,
+                    false,
+                    None,
+                    can_recover,
+                )
+            });
+            assert_eq!(result.err().as_deref(), Some(expected_error));
+            assert_eq!(sessions, expected_sessions);
+        }
+    }
 }

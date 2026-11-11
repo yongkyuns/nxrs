@@ -28,7 +28,7 @@ class DeploymentTests(unittest.TestCase):
             (directory / "Cargo.toml").write_text(
                 f'[package]\nname="nxrs-{capability}"\n[package.metadata.nxrs]\n'
                 'platforms=["mock","linux","macos","windows","nuttx"]\n')
-        self.directory = self.root / "platform/profiles"
+        self.directory = self.root / "tests/profiles"
         self.directory.mkdir(parents=True)
         self.profile('mock', 'execution="any"\n[hal]\nimu="mock"\ngnss="mock"\n')
 
@@ -104,9 +104,9 @@ class DeploymentTests(unittest.TestCase):
                 PLATFORM.resolve(name, self.root)
 
     def test_ambiguous_name_is_rejected(self):
-        other = self.root / 'platform/nuttx/platforms'
+        other = self.root / 'platform/board'
         other.mkdir(parents=True)
-        (other / 'mock.toml').write_text('[hal]\n')
+        (other / 'profile.toml').write_text('name = "mock"\n[hal]\n')
         with self.assertRaisesRegex(ValueError, 'ambiguous'):
             PLATFORM.resolve('mock', self.root)
 
@@ -118,7 +118,7 @@ class DeploymentTests(unittest.TestCase):
                 PLATFORM.resolve('bad', self.root)
 
     def test_target_validation_checks_whole_platform_not_only_current_crate(self):
-        self.profile('radio', 'execution="nuttx"\n[hal]\nwifi="nuttx"\n')
+        self.profile('radio', 'execution="nuttx"\n[hal]\nwifi="nuttx"\n[wifi]\ninterface="wlan0"\n')
         platform = PLATFORM.resolve('radio', self.root)
         PLATFORM.validate_target(platform, 'nuttx')
         for os in ('linux', 'macos', 'windows', 'none'):
@@ -136,16 +136,17 @@ class DeploymentTests(unittest.TestCase):
         for name in ('linux', 'macos', 'windows'):
             profile = PLATFORM.resolve(name)
             for capability in ('camera', 'storage', 'transport', 'detector'):
-                self.assertEqual(profile['hal'][capability], name)
+                binding = name if capability == 'detector' else None
+                self.assertEqual(profile['hal'].get(capability), binding)
                 cfgs = [line for line in PLATFORM.cargo_output(profile, capability, name)
                         if line.startswith('cargo:rustc-cfg=')]
-                self.assertEqual(cfgs, [f'cargo:rustc-cfg=platform="{name}"'])
-                for wrong in ('none', 'unknown', 'nuttx'):
-                    with self.assertRaises(ValueError):
-                        PLATFORM.validate_target(profile, wrong)
+                self.assertEqual(cfgs, [f'cargo:rustc-cfg=platform="{binding}"'] if binding else [])
+            for wrong in ('none', 'unknown', 'nuttx'):
+                with self.assertRaises(ValueError):
+                    PLATFORM.validate_target(profile, wrong)
 
     def test_real_os_bindings_cannot_target_bare_metal(self):
-        self.profile('device', '[hal]\ncamera="nuttx"\nstorage="nuttx"\n')
+        self.profile('device', '[hal]\ncamera="nuttx"\nstorage="nuttx"\n[camera]\ndevice="/dev/video0"\n')
         profile = PLATFORM.resolve('device', self.root)
         with self.assertRaisesRegex(ValueError, 'does not support target OS none'):
             PLATFORM.validate_target(profile, 'none')

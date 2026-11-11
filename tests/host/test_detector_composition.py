@@ -25,7 +25,7 @@ class DetectorCompositionTests(unittest.TestCase):
         library = libraries['nxrs_build_support']
         externs = [argument for name, path in libraries.items()
                    for argument in ('--extern', name + '=' + str(path))]
-        for name, path in [('hal', 'hal/detector/build.rs'),
+        for name, path in [('hal', 'tools/detector-build-support/cargo.rs'),
                            ('stream', 'tests/nuttx-std/stream/build.rs')]:
             executable = cls.directory / (name + ('.exe' if os.name == 'nt' else ''))
             subprocess.run(['rustc', '--edition=2024', str(ROOT / path), '-o', str(executable),

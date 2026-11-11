@@ -5,7 +5,7 @@ use archive::{recording::FileRecorder, recording::StorageLimits, Storage};
 use frames::{Camera, Format, Frame, PixelFormat};
 use motion::{Device, Session};
 use packets::PacketSink;
-use position::Gnss;
+use position::{Device as _, Session as _};
 use std::{fs, net::UdpSocket, path::PathBuf, sync::mpsc, time::Duration};
 
 fn main() {
@@ -75,11 +75,12 @@ fn main() {
         assert!(imu.is_finished());
 
         let (send, receive) = mpsc::channel();
-        let mut gnss = position::open(move |event| {
-            send.send(event).unwrap();
-            Ok(())
-        })
-        .unwrap();
+        let mut gnss = position_devices::primary_gnss()
+            .open(move |event| {
+                send.send(event).unwrap();
+                Ok(())
+            })
+            .unwrap();
         assert!(matches!(
             receive.recv_timeout(Duration::from_secs(3)).unwrap(),
             position::Event::Fix(_)

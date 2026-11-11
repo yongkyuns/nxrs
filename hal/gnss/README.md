@@ -1,21 +1,22 @@
 # GNSS capability
 
-`open` returns a `gnss::Session`: stop, join, completion and drop accounting for
+`gnss_devices::primary_gnss().open(sink)` returns a `gnss::Session`: stop, join, completion and drop accounting for
 active acquisition. Receiver protocol operations remain in the UBX driver.
-`gnss::Gnss` remains an alias of `Session` for existing consumers.
 
-`nxrs-gnss` owns receiver communication, configuration and the hardware-independent
-fix API. Services receive WGS84 latitude/longitude, speed in m/s and optional
+`nxrs-gnss` owns acquisition, resource lifetime and the hardware-independent
+fix API. `driver/peripheral::gnss::Receiver` defines bounded synchronous
+configuration, restoration and measurement operations; `driver/ubx` implements it. Services receive WGS84 latitude/longitude, speed in m/s and optional
 movement course in radians. `timestamp_ms` is the owner’s monotonic reception
 time, not UTC or measured satellite-to-host latency. Navigation owns projection
 into local north/east coordinates.
 
 The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
-resource and an M9 receiver. [bindings.toml](bindings.toml) declares supported
-receiver/resource combinations and a checked-in implementation ID. The shared
-resource renderer generates its typed UART binding and stack budget. No separate
-Rust projection schema or model enum is needed. The generic build adapter retains
-provider selection, input freshness and native linking.
+resource and an M9 receiver. The [driver binding](../../driver/ubx/bindings.toml)
+declares supported receiver/resource combinations. `platform/devices/gnss`
+constructs the concrete receiver and exports named `&'static impl gnss::Device`
+accessors. The HAL has no production UBX dependency. Each configured receiver
+has its own static storage and ownership/fault state; aliases share that object.
+Services receive the selected device through `GnssService::start_on`.
 
 The reusable `driver/ubx` crate runs M9 protocol transactions over an injected
 byte stream. It uses [`kinavis-ubx`](https://github.com/KINAVIS/kinavis) 0.1.1
@@ -27,8 +28,8 @@ The HAL suppresses repeated epochs and timestamps accepted fixes at reception.
 Acquisition reads the existing UART1 NAV-PVT output rate, sets it to one message
 per navigation epoch **in RAM only**, waits for ACK and verifies by readback.
 Release/failed acquisition restores that rate with readback before serial mode,
-descriptor and lease release. Configuration and restoration each have a one-second
-deadline; uncertain restoration quarantines acquisition until reboot. Baud,
+descriptor and ownership release. Configuration and restoration each have a one-second
+deadline; uncertain restoration quarantines only that receiver until reboot. Baud,
 protocol enables, navigation rate, BBR and flash settings are preserved. UART1
 must already accept/output UBX (the receiver’s default configuration).
 
@@ -42,10 +43,14 @@ Reference: [M9 SPG4.04 interface description, UBX-21022436 R02](https://content.
 
 ## Event-driven session
 
-`open(sink)` starts HAL-owned UART acquisition and delivers each normalized fix
+`Device::open(sink)` starts HAL-owned UART acquisition and delivers each normalized fix
 through a bounded task-context sink. Services do not poll the receiver. The
 worker waits on UART readiness and a cancellation pipe, parses fragmented input,
 and never waits for measurement queue capacity. Full rejections are counted by
 `dropped()`; terminal faults are retained in `join()` and retried with one pending
 event. `request_stop()` wakes the wait; explicitly `join()` before treating the
 resource as released. Drop requests cancellation without a hidden join.
+
+Product builds derive the catalogue's additive `ubx` Cargo feature from the
+profile. Direct Cargo qualification must enable it explicitly. Unbound builds
+keep the named primary accessor and return `Unsupported` on acquisition.

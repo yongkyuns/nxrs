@@ -2,16 +2,18 @@
 name = "nxrs-imu-devices"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../../tools/build-support/cargo/hal.rs"
 
 [lib]
 name = "imu_devices"
 
 [package.metadata.nxrs]
 kind = "device-catalogue"
-bindings = [{ dependency = "nxrs-bmi270" }, { dependency = "nxrs-lsm6dso" }]
+bindings = [{ dependency = "nxrs-bmi270", feature = "bmi270" }, { dependency = "nxrs-lsm6dso", feature = "lsm6dso" }]
 
 [features]
+bmi270 = ["dep:nxrs-bmi270"]
+lsm6dso = ["dep:nxrs-lsm6dso"]
 probe = ["nxrs-imu/probe"]
 
 [dependencies]
@@ -24,9 +26,9 @@ nxrs-messaging = { path = "../../../shared/messaging" }
 nxrs-peripheral = { path = "../../../driver/peripheral" }
 nxrs-i2c = { path = "../../../driver/i2c" }
 nxrs-spi = { path = "../../../driver/spi" }
-nxrs-bmi270 = { path = "../../../driver/bmi270" }
-nxrs-lsm6dso = { path = "../../../driver/lsm6dso" }
+nxrs-bmi270 = { path = "../../../driver/bmi270", optional = true }
+nxrs-lsm6dso = { path = "../../../driver/lsm6dso", optional = true }
 embedded-hal = "=1.0.0"
 
 [build-dependencies]
-nxrs-build-support = { path = "../../build-support" }
+nxrs-build-support = { path = "../../../tools/build-support" }

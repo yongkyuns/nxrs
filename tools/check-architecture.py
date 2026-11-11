@@ -27,8 +27,9 @@ ALLOWED = {
     'driver': {'api', 'driver', 'shared'},
     'shared': {'shared'},
     'build-support': {'build-support'},
+    'build': {'build-support'},
     'devices': {'hal', 'driver', 'shared'},
-    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared', 'build-support'},
+    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'devices', 'test', 'shared', 'build-support'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
@@ -48,8 +49,6 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-imu-devices': {'embedded-hal'},
-    # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
-    'nxrs-gnss': {'kinavis-ubx'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.
@@ -62,15 +61,13 @@ def layer(path: Path) -> str:
     parts = path.parts
     if not parts:
         raise ValueError('a package cannot live at the virtual workspace root')
-    if parts == ('platform', 'build-support'):
-        return 'build-support'
+    if parts[0] == 'tools':
+        return 'build' if parts == ('tools', 'build') else 'build-support'
     if len(parts) == 3 and parts[:2] == ('platform', 'devices'):
         return 'devices'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
             return 'api'
-        if len(parts) == 3 and parts[-1] == 'build-support':
-            return 'build-support'
         if len(parts) == 2 and parts[1] not in {'common', 'support', 'platform'}:
             return 'hal'
         raise ValueError(f'HAL must be one capability crate, not a nested contract/provider package: {path}')
@@ -109,11 +106,11 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             if dep.get('kind') == 'dev':
                 dep_path = dep.get('path')
                 destination = by_path.get(Path(dep_path).resolve()) if dep_path else None
-                if destination and ((role in {'app', 'service'} and roles[destination] in {'platform', 'build-support'})
-                                    or (role == 'platform' and roles[destination] == 'app')):
+                if destination and ((role in {'app', 'service'} and roles[destination] in {'platform', 'build', 'build-support'})
+                                    or (role in {'platform', 'build'} and roles[destination] == 'app')):
                     errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
                 if (destination and role in {'hal', 'driver', 'build-support'}
-                        and paths[destination] == Path('platform/build')):
+                        and paths[destination] == Path('tools/build')):
                     errors.append(f"{package['name']}: HAL and driver tooling must not depend on the build controller")
                 if destination and role in {'hal', 'driver'} and roles[destination] == 'build-support':
                     errors.append(f"{package['name']}: HAL and driver build helpers must be build dependencies")
@@ -130,10 +127,10 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                 # A HAL/driver can use generic host helpers or its own SDK build
                 # package. These are build edges only, never target libraries.
                 if (role in {'hal', 'driver', 'devices'} and dep.get('kind') == 'build'
-                        and (destination == ('platform', 'build-support')
-                             or (role == 'hal' and destination == (*source, 'build-support')))):
+                        and (destination == ('tools', 'build-support')
+                             or (role == 'hal' and destination == ('tools', source[-1] + '-build-support')))):
                     continue
-                if (source == ('platform', 'build-support') and destination[0] == 'hal'):
+                if source == ('tools', 'build-support') and roles[target] == 'build-support':
                     errors.append(f'{context}: generic build support must not depend on capability-specific tooling')
                 if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
@@ -178,13 +175,21 @@ def requires_test(attributes: str) -> bool:
     return False
 
 
-def inspect_source_ownership(directory: Path, root: Path, owners: set[Path]) -> list[str]:
+def inspect_source_ownership(directory: Path, root: Path, owners: set[Path], build_dependencies: set[Path]) -> list[str]:
     """Rust source belongs to its Cargo package; test witnesses remain explicit."""
     errors = []
     manifest = directory / 'Cargo.toml'
     build = tomllib.loads(manifest.read_text()).get('package', {}).get('build')
-    if isinstance(build, str) and not (directory / build).resolve().is_relative_to(directory):
-        errors.append(f'{manifest.relative_to(root)}: build scripts must belong to their Cargo package')
+    firmware = directory.relative_to(root).parts[0] in {'app', 'service', 'hal', 'driver', 'platform', 'shared'}
+    if firmware and (directory / 'build.rs').exists():
+        errors.append(f'{manifest.relative_to(root)}: build helpers belong under tools, not firmware')
+    if isinstance(build, str):
+        script = (directory / build).resolve()
+        owner = next((parent for parent in script.parents if parent in owners), None)
+        if firmware and (not script.is_relative_to(root / 'tools') or owner not in build_dependencies):
+            errors.append(f'{manifest.relative_to(root)}: build scripts must belong to declared tooling build dependencies')
+        elif not firmware and not script.is_relative_to(directory):
+            errors.append(f'{manifest.relative_to(root)}: build scripts must belong to their Cargo package')
     attributes = r'(?:#\s*\[[^\]]*\]\s*)+'
     module = re.compile(r'(' + attributes + r')(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*;', re.S)
     literal_include = re.compile(r'\binclude!\s*\(\s*"([^"\n]+)"\s*,?\s*\)')
@@ -227,7 +232,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
     owners = {manifest.parent for manifest in manifests}
-    for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests', 'shared']:
+    for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests', 'shared', 'tools']:
         for directory, children, files in os.walk(root / name):
             children[:] = [child for child in children if child not in {'target', '.git'}]
             if 'Cargo.toml' not in files:
@@ -265,7 +270,9 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
         except ValueError:
             continue
         if role != 'test':
-            errors.extend(inspect_source_ownership(directory, root, owners))
+            build_dependencies = {Path(dep['path']).resolve() for dep in package['dependencies']
+                                  if dep.get('kind') == 'build' and dep.get('path')}
+            errors.extend(inspect_source_ownership(directory, root, owners, build_dependencies))
         if role in {'app', 'service', 'shared'}:
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             manifest_text = (directory / 'Cargo.toml').read_text()
@@ -338,7 +345,9 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
         if command:
             identities.add(command)
             entry_symbols.add(command + "_main")
-    for path in (root / 'platform').rglob('*'):
+    platform_sources = [root / name for name in
+                        ('platform', 'tools/build', 'tools/build-support', 'tools/detector-build-support')]
+    for path in (path for directory in platform_sources for path in directory.rglob('*')):
         if not path.is_file() or path.suffix not in {'.rs', '.py', '.sh', '.toml', '.c', '.h', '.cpp', '.cc', '.m', '.mm'} or 'target' in path.relative_to(root).parts:
             continue
         text = path.read_text()
@@ -391,7 +400,9 @@ def declared_binding_catalogs(package: Path, stack=()) -> list[Path]:
             path = package / declaration
             path.resolve().relative_to(package)
             result.append(path)
-        elif isinstance(declaration, dict) and set(declaration) == {'dependency'}:
+        elif isinstance(declaration, dict) and set(declaration) in ({'dependency'}, {'dependency', 'feature'}):
+            if 'feature' in declaration and declaration['feature'] not in manifest.get('features', {}):
+                raise ValueError('binding feature must name a declared Cargo feature')
             alias = declaration['dependency']
             if not isinstance(alias, str):
                 raise ValueError('binding import requires a dependency alias')
@@ -416,18 +427,23 @@ def declared_binding_catalogs(package: Path, stack=()) -> list[Path]:
 
 def inspect_generated_imu_factory(root: Path) -> list[str]:
     """Check declarative sensor generation and the current typed runtime seam."""
+    root = root.resolve()
     errors = []
     relative = lambda path: path.relative_to(root).as_posix()
     for capability in ('imu', 'gnss'):
         hal = root / 'hal' / capability
-        owner = root / 'platform/devices/imu' if capability == 'imu' else hal
-        nuttx = owner / ('src/nuttx/mod.rs' if capability == 'imu' else 'src/platform/nuttx/mod.rs')
+        owner = root / 'platform/devices' / capability
+        nuttx = owner / 'src/nuttx/mod.rs'
         if not nuttx.is_file():
             continue
-        build = owner / 'build.rs'
         manifest = owner / 'Cargo.toml'
-        if not build.is_file() or not manifest.is_file():
+        if not manifest.is_file():
             errors.append(f'hal/{capability}: declare configuration in the owning package and use shared preparation')
+            continue
+        data = tomllib.loads(manifest.read_text())
+        build = (owner / data.get('package', {}).get('build', 'build.rs')).resolve()
+        if build != (root / 'tools/build-support/cargo/hal.rs').resolve() or not build.is_file():
+            errors.append(f'{relative(manifest)}: use the generic shared-preparation tooling adapter')
             continue
         build_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', build.read_text(), flags=re.S)
         calls = re.findall(r'\b([A-Za-z_]\w*(?:::\w+)*)\s*\(', build_source)
@@ -474,7 +490,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             compact = re.sub(r'\s+', '', source)
             if ('macro_rules!declare_device' not in compact
                     or 'static$name:Instance<' not in compact
-                    or 'binding.open(trace)' not in compact
+                    or '$open($binding,trace)' not in compact
                     or '<$sensor>::from_interface(' not in compact):
                 errors.append(f'{relative(nuttx)}: use canonical declarations and the checked-in typed resource factory')
             instance = hal / 'src/platform/nuttx/instance.rs'
@@ -503,8 +519,18 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
                     continue
                 if any(re.search(r'\b' + re.escape(name) + r'\b', path.read_text()) for name in implementations):
                     errors.append(f'{relative(path)}: concrete sensor wiring belongs in the platform device catalogue')
-        elif not re.search(r'Session::start\(STACK_BYTES\s*,', source):
-            errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
+        else:
+            runtime = (hal / 'src/platform/nuttx/mod.rs').read_text()
+            compact = re.sub(r'\s+', '', source)
+            if ('static$name:Instance<' not in compact or '$stack' not in compact
+                    or 'Worker::start_guarded' not in runtime
+                    or 'storage: Mutex<Option<Active<R>>>' not in runtime
+                    or re.search(r'\bstatic\s+OWNED\b', runtime)):
+                errors.append(f'{relative(nuttx)}: GNSS must retain canonical state through guarded retirement')
+            manifest_data = tomllib.loads((hal / 'Cargo.toml').read_text())
+            for table in [manifest_data, *manifest_data.get('target', {}).values()]:
+                if 'nxrs-ubx-driver' in table.get('dependencies', {}):
+                    errors.append('hal/gnss: concrete receiver construction belongs in the platform catalogue')
 
     return errors
 
@@ -545,8 +571,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         errors.append(f'{path.relative_to(root)}: name the HAL platform explicitly; native is ambiguous')
     for path in (root / 'hal').glob('*/src/platform/std*'):
         errors.append(f'{path.relative_to(root)}: std is an environment, not a platform; share ordinary Rust modules')
-    if (root / 'platform/profiles/std.toml').exists():
-        errors.append('platform/profiles/std.toml: std is not a platform')
+    if (root / 'platform/std/profile.toml').exists():
+        errors.append('platform/std/profile.toml: std is not a platform')
     for path in (root / 'hal').glob('*/Cargo.toml'):
         data = tomllib.loads(path.read_text())
         if data.get('package', {}).get('metadata', {}).get('nxrs', {}).get('kind') == 'hal-capability':
@@ -584,7 +610,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if path in declared:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
-    native_roots = [root / 'hal', root / 'driver']
+    native_roots = [root / 'hal', root / 'driver', root / 'tools']
     actual = {path.relative_to(root).as_posix(): path for native_root in native_roots for path in native_root.rglob('*')
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
@@ -593,7 +619,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     for relative, path in actual.items():
         if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'driver/(?:[^/]+/)+src/platform/(?:[^/]+/)+ffi/.+', relative)
-                or re.fullmatch(r'hal/[^/]+/build-support/src/ffi/.+', relative)
+                or re.fullmatch(r'tools/[^/]+/src/ffi/.+', relative)
                 or re.fullmatch(r'hal/tls/src/sdk/ffi/.+', relative)):
             errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')
         entry = declared.get(relative)

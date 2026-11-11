@@ -1,0 +1,5 @@
+# Storage acquisition for the NuttX std integration fixture.
+execution = "nuttx"
+
+[hal]
+storage = "nuttx"

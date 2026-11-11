@@ -129,7 +129,7 @@ impl imu_hal::Session for IdleImu {
 
 struct IdleGnss;
 
-impl gnss_hal::Gnss for IdleGnss {
+impl gnss_hal::Session for IdleGnss {
     fn request_stop(&mut self) -> Result<(), gnss_hal::DeviceError> {
         Ok(())
     }

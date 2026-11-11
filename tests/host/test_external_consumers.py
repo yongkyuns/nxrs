@@ -83,8 +83,8 @@ class ExternalConsumerTests(unittest.TestCase):
         return result
 
     def test_detached_consumer_with_own_lock_and_renamed_dependencies(self):
-        self.assertFalse((self.directory / "deps/platform/build").exists())
-        self.assertFalse((self.directory / "deps/platform/profiles").exists())
+        self.assertFalse((self.directory / "deps/tools/build").exists())
+        self.assertFalse(any((self.directory / "deps/platform").glob("*/profile.toml")))
         self.assertFalse((self.directory / "deps/driver/acquisition").exists())
         self.assertTrue((self.directory / "deps/hal/acquisition/Cargo.toml").is_file())
         self.assertFalse((self.directory / "deps/platform/hal-build.rs").exists())
@@ -131,8 +131,8 @@ class ExternalConsumerTests(unittest.TestCase):
                 for other in {"imu", "gnss", "camera"} - {capability}:
                     self.assertNotIn((ROOT / "hal" / other).resolve(), copied)
                     self.assertFalse((directory / "deps/hal" / other).exists())
-                self.assertFalse((directory / "deps/platform/profiles").exists())
-                self.assertFalse((directory / "deps/platform/build").exists())
+                self.assertFalse(any((directory / "deps/platform").glob("*/profile.toml")))
+                self.assertFalse((directory / "deps/tools/build").exists())
 
                 env = {**self.environment, "CARGO_TARGET_DIR": str(self.directory / "isolated-target")}
                 lock = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=directory,
@@ -223,9 +223,8 @@ class ExternalConsumerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "Linux GIO client selection")
     def test_unused_radio_binding_does_not_require_the_native_sdk(self):
         sdk = self.directory / "profile-sdk"
-        profiles = sdk / "platform/profiles"
+        profiles = sdk / "tests/profiles"
         profiles.mkdir(parents=True)
-        (sdk / "platform/nuttx/platforms").mkdir(parents=True)
         (sdk / "hal").symlink_to(self.directory / "deps/hal", target_is_directory=True)
         (sdk / "Cargo.toml").write_text("[workspace]\n")
         for used, unused in [("wifi", "ble"), ("ble", "wifi")]:

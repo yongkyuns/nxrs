@@ -12,6 +12,9 @@ cfg_if::cfg_if! {
         #[allow(unsafe_code)]
         mod nuttx;
         use nuttx as selected;
+    } else {
+        mod unbound;
+        use unbound as selected;
     }
 }
 

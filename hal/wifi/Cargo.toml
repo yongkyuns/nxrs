@@ -2,7 +2,7 @@
 name = "nxrs-wifi"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
+build = "../../tools/build-support/cargo/hal.rs"
 
 [features]
 probe = []
@@ -26,4 +26,4 @@ frameworks = ["CoreWLAN", "CoreLocation", "Foundation"]
 nxrs-linux-gio = { path = "../../driver/linux/gio", features = ["wifi"] }
 
 [build-dependencies]
-nxrs-build-support = { path = "../../platform/build-support" }
+nxrs-build-support = { path = "../../tools/build-support" }

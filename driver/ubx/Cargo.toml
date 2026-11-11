@@ -4,4 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nxrs-peripheral = { path = "../peripheral" }
 kinavis-ubx = { version = "=0.1.1", default-features = false, features = ["libm"] }
+
+[package.metadata.nxrs]
+bindings = ["bindings.toml"]

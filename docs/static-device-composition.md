@@ -59,21 +59,23 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU/GNSS output generation lives in shared build support. The IMU platform catalogue imports version 2
-binding declarations from its chip driver dependencies; GNSS declares its file
-locally. They describe compatible devices, resource constraints and checked-in
-Rust implementation IDs. The shared renderer uses fixed typed resource
-contracts and selects the implementation directly. Separate field-projection
-schemas, generated model enums and runtime model matches have been removed.
+IMU and GNSS use one generator in shared build support. Both catalogues import
+version 2 binding declarations from their chip drivers. Build support selects
+bindings by compatible and bus, then emits typed resource bindings, one
+instance per selected device, and alias accessors. The catalogues supply the
+checked-in Rust constructors. This follows
+[Zephyr's devicetree instantiation pattern](https://docs.zephyrproject.org/latest/build/dts/howtos.html#write-device-drivers-using-devicetree-apis).
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
 stream metadata, acquisition and optional transaction timing.
 
-The IMU catalogue and GNSS HAL build scripts remain generic adapters. They preserve
+The IMU and GNSS catalogue build scripts remain generic adapters. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
-native compilation/linking. Full pre-Cargo handoff, optional driver selection and
-GNSS static runtime instances remain later work. IMU now generates one canonical
-instance per physical record and named alias accessors, as described below.
+native compilation/linking. Full pre-Cargo native handoff remains later work.
+Both catalogues use additive optional chip dependencies selected before
+compilation and generate one canonical
+instance per physical record and named alias accessors. GNSS preserves
+receiver/serial rollback and per-instance quarantine through sink retirement.
 
 ### Implemented IMU device access
 
@@ -171,9 +173,12 @@ Do not restore per-field Rust projection schemas, programmable TOML, templates o
 per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
-Discover bindings through explicit package-relative metadata or imports naming
-declared normal Cargo path dependencies. Chip resource constraints belong with
-the driver; product profiles assign actual endpoints, addresses and aliases.
+The SDK's `workspace.metadata.nxrs.device-catalogues` maps capability names to
+catalogue package directories. The resolver reads only the entries for the
+profile's declared capabilities and tracks the workspace manifest in build
+receipts. Packages still declare their binding files and imports relative to
+their Cargo manifest. Drivers declare resource constraints. Product profiles
+assign actual endpoints, addresses and aliases.
 The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.

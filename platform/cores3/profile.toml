@@ -1,0 +1,78 @@
+# CoreS3 K128 + Module GNSS M135, software bring-up; physical qualification pending.
+name = "m5stack-cores3-gnss"
+board = "esp32s3-m5-cores3:nsh"
+target = "xtensa-esp32s3-nuttx"
+crossdev = "xtensa-esp32s3-elf-"
+machine = "Tensilica Xtensa Processor"
+image = "nuttx.bin"
+requires-qemu = false
+hal = { gnss = "nuttx", imu = "nuttx" }
+
+[build]
+size-optimized = true
+
+[composition]
+version = 1
+mode = "hardware"
+
+[resources.receiver_uart]
+binding = "uart1"
+kconfig = { ESP32S3_UART1_TXPIN = 17, ESP32S3_UART1_RXPIN = 18 }
+baud = 38400
+
+[resources.sensor_bus]
+binding = "i2c0"
+kconfig = { ESP32S3_I2C0_SDAPIN = 12, ESP32S3_I2C0_SCLPIN = 11 }
+frequency = 400000
+
+[devices.navigation]
+compatible = "u-blox,neo-m9n"
+bus = "receiver_uart"
+
+[devices.imu]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x68
+
+[devices.imu.wake]
+# M135 v1.0 leaves INT1/INT2 unwired. A HAL-owned timer wakes FIFO drains.
+kind = "periodic"
+
+[aliases]
+gnss = "navigation"
+
+[gnss]
+stack-bytes = 16384
+
+[imu]
+stack-bytes = 16384
+
+[kconfig]
+enable = [
+  "PIPES", "DEV_GPIO", "ESPRESSIF_GPIO_IRQ", "RAW_BINARY",
+  "ARCH_CHIP_ESP32S3CUSTOM", "ESP32S3CUSTOM_FLASH_16M", "ESP32S3_PSRAM_8M",
+  "ESP32S3_SPIRAM", "ESP32S3_SPIRAM_MODE_OCT", "ESP32S3_SPIRAM_TYPE_ESPPSRAM64",
+  "ESP32S3_SPIRAM_USER_HEAP", "ESP32S3_DEFAULT_CPU_FREQ_240", "PTHREAD_MUTEX_TYPES",
+  "DEBUG_FEATURES", "DEBUG_ASSERTIONS", "DEBUG_SYMBOLS", "DEBUG_LINK_MAP",
+  "SYSLOG_CONSOLE", "STACK_COLORATION",
+]
+disable = [
+  "NSH_PIPELINE", "SMP", "DISABLE_PTHREAD", "ARCH_LEDS", "NSH_ARCHINIT",
+  "ESP32S3_QEMU_IMAGE", "ESPRESSIF_WIFI", "ESPRESSIF_BLE", "SENSORS_BMI270", "ESP32S3_SPIRAM_COMMON_HEAP", "SYSLOG_DEFAULT",
+]
+set = [
+  "USEC_PER_TICK=1000",
+  "DEV_GPIO_NPOLLWAITERS=1", "DEV_GPIO_NSIGNALS=0",
+  "PTHREAD_STACK_DEFAULT=16384", "ARCH_INTERRUPTSTACK=4096", "TLS_TASK_NELEM=1",
+  "UART1_RXBUFSIZE=2048", "UART1_TXBUFSIZE=256",
+  "ESP32S3_I2CTIMEOSEC=0", "ESP32S3_I2CTIMEOMS=50",
+]
+require = [
+  "CONFIG_USEC_PER_TICK=1000",
+  "CONFIG_PIPES=y", "# CONFIG_NSH_PIPELINE is not set", "CONFIG_DEV_GPIO=y",
+  "CONFIG_ESPRESSIF_GPIO_IRQ=y", "CONFIG_DEV_GPIO_NPOLLWAITERS=1",
+  "CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y", "CONFIG_ARCH_BOARD_COMMON=y",
+  "CONFIG_ESP32S3_FLASH_16M=y", "CONFIG_ESP32S3_SPIRAM_SIZE=8388608",
+  "CONFIG_ESP32S3_I2CTIMEOMS=50",
+]
+forbid-regex = "^CONFIG_(SMP|I2C_POLLED|SENSORS_BMI270|ESPRESSIF_WIFI|ESPRESSIF_BLE)=y$"

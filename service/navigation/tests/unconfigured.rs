@@ -10,7 +10,7 @@ fn sensor_services_fail_without_selected_providers() {
         Ok(_) => panic!("IMU unexpectedly started without a selected provider"),
         Err(error) => error,
     };
-    let gnss_error = match GnssService::new(inputs.gnss).start() {
+    let gnss_error = match GnssService::new(inputs.gnss).start_on(gnss_devices::primary_gnss()) {
         Ok(_) => panic!("GNSS unexpectedly started without a HAL platform"),
         Err(error) => error,
     };
