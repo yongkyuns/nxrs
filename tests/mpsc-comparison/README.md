@@ -89,8 +89,10 @@ and SDK resources; it is not the production channel's memory footprint.
 
 Pico hot operations are relocated by changing input section names only, with
 instruction-byte checks, then linked through each OS's startup SRAM copy path.
-The early Zephyr memory hooks stay in flash. S3 uses the shared fixture IRAM
-fragment alongside each kernel's native wait/scheduler placement. Build receipts
+Early memory routines stay in flash on both Pico kernels. For NuttX, the
+placement step redirects compiler-generated memory calls only in the reset
+object and verifies the reset call targets in the final ELF. S3 uses the shared
+fixture IRAM fragment alongside each kernel's native wait/scheduler placement. Build receipts
 are not hardware qualification: inspect linked hot operations and indirect
 callees before claiming a new cohort has matched placement. The linked-image
 audit on both boards records direct paths, noninternal memory boundaries,

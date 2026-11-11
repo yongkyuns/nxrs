@@ -20,13 +20,21 @@ def transform(path,kind,all_kernel=False):
  for i,name,raw,flags,names in before:
   if not name.startswith('.text'):continue
   if all_kernel or any(COMMON.search(n) or (kind=='nuttx' and (NRUST.search(n) or NATIVE.search(n))) or (kind=='zephyr' and ZARCH.search(n)) for n in names):mapping[name]=('.time_critical.' if kind=='nuttx' else '.ramfunc.')+name
- if not mapping:return None
+ # GCC can lower the startup zero/copy loops to libc calls. Only the
+ # reset object's references need the XIP copies of these functions.
+ bootstrap = kind == 'nuttx' and path.name == 'rp23xx_start.o'
+ if not mapping and not bootstrap:return None
  out=path.with_suffix(path.suffix+'.placed');args=[OBJCOPY]
+ if bootstrap:
+  args.extend(['--redefine-sym', 'memset=mp_boot_memset',
+               '--redefine-sym', 'memcpy=mp_boot_memcpy'])
  for old,new in mapping.items():args.extend(['--rename-section',old+'='+new])
  subprocess.run([*args,str(path),str(out)],check=True);after=sections(out.read_bytes());lookup={name:raw for _,name,raw,_,_ in after}
  assert len(before)==len(after)
  for _,name,raw,_,_ in before:assert lookup[mapping.get(name,name)]==raw,'instruction bytes changed'
  result=dict(object=path.name,sections=[dict(old=old,new=new,bytes=len(lookup[new]),sha256=hashlib.sha256(lookup[new]).hexdigest()) for old,new in mapping.items()],all_executable_section_bytes_preserved=True)
+ if bootstrap:
+  result['startup_memory_references'] = {'memset': 'mp_boot_memset', 'memcpy': 'mp_boot_memcpy'}
  out.replace(path);return result
 def archive(path,kind,all_kernel=False):
  names=subprocess.check_output([AR,'t',str(path)],text=True).splitlines();assert len(names)==len(set(names)),('duplicate member names',path)
@@ -57,7 +65,7 @@ def prepare(root, prefix, env, zephyr=False, backend=None):
   changed=archive(resolved,kind,zephyr and path.name in ['libkernel.a','libdrivers__timer.a'])
   if changed:rows.append(dict(archive=str(path.relative_to(root)),objects=changed))
  if not rows:raise ValueError('no hot sections selected')
- (root/'hot-placement.json').write_text(json.dumps(dict(section_names_only=True,compiled_instruction_bytes_unchanged=True,selection=rows),indent=2)+'\n')
+ (root/'hot-placement.json').write_text(json.dumps(dict(section_names_only=zephyr,compiled_instruction_bytes_unchanged=True,selection=rows),indent=2)+'\n')
  if zephyr:
   subprocess.run(['cmake','--build',str(root/'firmware'),'--parallel','4'],env=env,check=True,stdout=subprocess.DEVNULL,timeout=300)
   elf=root/'firmware/zephyr/zephyr.elf'
@@ -74,7 +82,7 @@ def prepare(root, prefix, env, zephyr=False, backend=None):
  # transport is diagnostic until its additional public-mqueue call path has
  # been inspected; do not silently promote that entire dependency closure.
  audit(elf,prefix,root/'hot-audit.json',board='pico2w',backend=backend,
-       strict=zephyr or backend!='native')
+       strict=zephyr or backend!='native',nuttx_bootstrap=not zephyr)
 
 rootpat=re.compile(r'mpsc_comparison::engine::(?:worker|offer)|mpsc_comparison::arrivals::(?:tick|release)|transport::(?:ordinary_std::Std|Native).*Channel.*::(?:send|receive)|^(?:mq|nxmq)_(?:send|receive)$|^mp_(?:clock32|gate_post|gate_wait|queue_send|queue_receive|native_ticks|pulse_arm)$|^pulse_expired$|^std::sync::mpmc::array::(?:SendSlot|RecvSlot)|^std::sys::sync::thread_parking.*Parker::unpark$|^(?:arm_doirq|arm_svcall|arm_exception|exception_common|up_switch_context|nxsched_process_timer|sys_clock_isr|z_arm_pendsv|z_arm_svc|z_arm_exc_exit|z_arm_int_exit|arch_cpu_idle)$')
 def cold(n):
@@ -187,9 +195,31 @@ def inspect_disassembly(out,board,backend=None,irq_probe=False):
              scope='observed direct branches up to non-internal or listed cold boundaries; indirect targets and actual executed paths remain unqualified')
 
 
-def audit(elf,prefix,destination,*,board='pico2w',backend=None,strict=False,irq_probe=False):
+def check_nuttx_bootstrap(disassembly):
+ def function(name):
+  match = re.search(rf'^([0-9a-f]+) <{name}>:\n((?:[^\n]+\n)+)', disassembly, re.M)
+  if not match or memory_kind(int(match[1], 16), 'pico2w') != 'flash':
+   raise ValueError(f'Pico bootstrap function {name} is missing from flash')
+  return match[2]
+
+ reset = function('__start')
+ calls = re.findall(r'\bblx?(?:\.w)?\s+([0-9a-f]+)\s+<([^>]+)>', reset)
+ if not any(target == 'nx_start' for _, target in calls) or re.search(r'\bblx\s+r\d+', reset):
+  raise ValueError('Pico reset call sequence could not be verified')
+ for address, target in calls:
+  if (memory_kind(int(address, 16), 'pico2w') != 'flash' or target.endswith('_veneer')
+      or re.fullmatch(r'mem(?:set|cpy)|__aeabi_mem.*', target)):
+   raise ValueError(f'Pico reset calls unsafe bootstrap target {target}')
+  if target in ('mp_boot_memcpy', 'mp_boot_memset') and re.search(r'\bblx?(?:\.w)?\s', function(target)):
+   raise ValueError(f'Pico bootstrap function {target} calls another function')
+ return [target for _, target in calls]
+
+
+def audit(elf,prefix,destination,*,board='pico2w',backend=None,strict=False,irq_probe=False,nuttx_bootstrap=False):
  out=subprocess.check_output([prefix+'objdump','-d','-C',str(elf)],text=True)
  result=inspect_disassembly(out,board,backend,irq_probe)
+ if nuttx_bootstrap:
+  result['reset_flash_calls'] = check_nuttx_bootstrap(out)
  result['elf_sha256']=hashlib.sha256(Path(elf).read_bytes()).hexdigest()
  result['strict_gate']=strict
  Path(destination).write_text(json.dumps(result,indent=2)+'\n')

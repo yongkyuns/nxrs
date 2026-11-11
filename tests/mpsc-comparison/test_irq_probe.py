@@ -99,6 +99,7 @@ enum {SYSTIMER_CONF_REG, SYSTIMER_INT_ENA_REG, SYSTIMER_INT_RAW_REG,
 #define SYSTIMER_TARGET1_TIMER_UNIT_SEL (1u<<31)
 #define XCHAL_INTLEVEL1_MASK 0x637ffu
 #define ETS_SYSTIMER_TARGET1_INTR_SOURCE 58
+#define ESP32S3_IRQ_SYSTIMER_TARGET1 58
 #define ESP_INTR_FLAG_LEVEL1 (1u<<1)
 #define ESP_INTR_FLAG_IRAM (1u<<10)
 #define ESP_INTR_FLAG_INTRDISABLED (1u<<11)
@@ -108,6 +109,11 @@ static bool os_claimed, claimed, bad_address, valid_counter=true, replacement;
 static int allocation_error, free_error, enable_error, cpu, cpuint=3, released, writes_after_release;
 static unsigned depth, allocations, frees, callbacks;
 static uint64_t now, last_entry;
+static void (*sdk_handler)(void *);
+#ifdef __NuttX__
+static int (*os_handler)(int,void *,void *);
+static intr_handle_t mapped;
+#endif
 static unsigned lock(void) {unsigned previous=depth;depth++;return previous;}
 static void unlock(unsigned previous) {assert(depth>previous);depth=previous;}
 #define MP_IRQ_LOCK() lock()
@@ -125,7 +131,7 @@ static void write_reg(unsigned address,uint32_t value) {
 }
 #define MP_IRQ_WRITE(address,value) write_reg(address,value)
 static int esp_intr_alloc(int source,int flags,void (*isr)(void*),void *arg,intr_handle_t *handle) {
- (void)isr;(void)arg;allocations++;
+ (void)arg;sdk_handler=isr;allocations++;
  assert(source==58 && flags==(ESP_INTR_FLAG_LEVEL1|ESP_INTR_FLAG_IRAM|ESP_INTR_FLAG_INTRDISABLED));
  if(allocation_error)return allocation_error;
  if(claimed)return -12;
@@ -142,14 +148,37 @@ static int esp_intr_free(intr_handle_t h) {
  if(replacement) {regs[SYSTIMER_TARGET1_CONF_REG]=0x5678;regs[INTERRUPT_CORE0_SYSTIMER_TARGET1_INT_MAP_REG]=9;}
  return 0;
 }
+#ifdef __NuttX__
+static int esp_setup_irq_with_flags(int source,int flags,int (*handler)(int,void*,void*),void *arg) {
+ intr_handle_t handle=NULL;
+ int status=esp_intr_alloc(source,flags,NULL,arg,&handle);
+ if(status)return status;
+ mapped=handle;os_handler=handler;return cpuint;
+}
+static intr_handle_t esp_get_handle(int core,int irq) {assert(core==0&&irq==58);return mapped;}
+static void esp_teardown_irq(int source,int interrupt) {
+ assert(source==58&&interrupt==cpuint&&mapped);
+ if(esp_intr_free(mapped)==0)mapped=NULL;
+}
+#endif
 '''
         tests = r'''
+static void dispatch(void) {
+#ifdef __NuttX__
+ assert(mapped&&os_handler);assert(os_handler(58,NULL,NULL)==0);
+#else
+ assert(sdk_handler);sdk_handler(NULL);
+#endif
+}
 static void callback(uint64_t entered) {callbacks++;last_entry=entered;assert(mp_irq_probe_arm(entered+1600)==0);}
 static void reset(void) {
  memset(regs,0,sizeof(regs));mp_irq_handle=NULL;mp_irq_callback=NULL;mp_irq_active=false;
  os_claimed=claimed=bad_address=replacement=false;valid_counter=true;
  allocation_error=free_error=enable_error=cpu=released=writes_after_release=0;
- cpuint=3;depth=allocations=frees=callbacks=0;now=100;
+ cpuint=3;depth=allocations=frees=callbacks=0;now=100;sdk_handler=NULL;
+#ifdef __NuttX__
+ mapped=NULL;os_handler=NULL;
+#endif
  regs[SYSTIMER_CONF_REG]=SYSTIMER_CLK_EN|SYSTIMER_TIMER_UNIT0_WORK_EN|(1u<<24)|(1u<<22);
  regs[SYSTIMER_INT_ENA_REG]=5;regs[SYSTIMER_INT_RAW_REG]=5;
  regs[SYSTIMER_TARGET1_CONF_REG]=0xc0000123;regs[SYSTIMER_TARGET1_HI_REG]=7;regs[SYSTIMER_TARGET1_LO_REG]=42;
@@ -182,7 +211,7 @@ int main(void) {
  assert((regs[SYSTIMER_TARGET1_CONF_REG]&0xc0000000u)==0);
  assert((regs[SYSTIMER_CONF_REG]&~SYSTIMER_TARGET1_WORK_EN)==original);
  assert(regs[SYSTIMER_INT_ENA_REG]==7 && regs[SYSTIMER_INT_RAW_REG]==5);
- now=1711;regs[SYSTIMER_INT_RAW_REG]|=2;mp_irq_probe_isr(NULL);
+ now=1711;regs[SYSTIMER_INT_RAW_REG]|=2;dispatch();
  assert(callbacks==1 && last_entry==1711 && regs[SYSTIMER_INT_RAW_REG]==5);
  assert(regs[SYSTIMER_TARGET1_LO_REG]==3311 && !depth);
  now=3400;regs[SYSTIMER_INT_RAW_REG]|=2;
@@ -197,7 +226,7 @@ int main(void) {
  assert(mp_irq_probe_start(1700)==-7 && !mp_irq_active && !mp_irq_target_busy());
  assert(mp_irq_probe_close()==0);
  reset();assert(mp_irq_probe_open(callback,info)==0);free_error=-8;
- assert(mp_irq_probe_close()==-8 && mp_irq_handle && claimed);
+ assert(mp_irq_probe_close()!=0 && mp_irq_handle && claimed);
  free_error=0;assert(mp_irq_probe_close()==0);
  reset();valid_counter=false;assert(mp_irq_probe_now()==UINT64_MAX);
  return 0;
@@ -205,10 +234,11 @@ int main(void) {
 '''
         with tempfile.TemporaryDirectory() as directory:
             source, binary = Path(directory) / 'adapter.c', Path(directory) / 'adapter'
-            source.write_text(prelude + '\n#include "' + str(HERE / 'boards/esp32s3/irq_probe.c') + '"\n' + tests)
-            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)],
-                           check=True, capture_output=True)
-            subprocess.run([str(binary)], check=True, capture_output=True)
+            for os_define in ('', '#define __NuttX__ 1\n'):
+                source.write_text(os_define + prelude + '\n#include "' + str(HERE / 'boards/esp32s3/irq_probe.c') + '"\n' + tests)
+                subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)],
+                               check=True, capture_output=True)
+                subprocess.run([str(binary)], check=True, capture_output=True)
 
     @staticmethod
     def observation():

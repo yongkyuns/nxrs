@@ -146,7 +146,8 @@ python3 tests/owner-qualification/workflow.py replay \
   /tmp/owner-s3-independent-inputs
 ```
 
-Capture requires `pyserial`. It observes one fresh NSH banner, sends the exact
+Capture requires `pyserial`. It observes one fresh boot through the NuttX
+loader banner or NSH greeting, then waits for the shell prompt and sends the exact
 case/token command once, retains the complete console, waits for the result and
 return to the prompt, requests the terminal exit status and observes a further
 one-second tail. Before command submission it tolerates USB removal and

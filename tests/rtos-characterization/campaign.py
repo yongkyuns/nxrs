@@ -14,6 +14,9 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests"))
+from rtos_harness.console import BOOT_MARKERS, fresh_shell_boot
+
 MPSC = ROOT / "tests/mpsc-comparison/bench.py"
 OWNER = ROOT / "tests/owner-qualification/workflow.py"
 RAM = ROOT / "tests/ram-footprint-std"
@@ -277,7 +280,10 @@ def replay(ready, ledger):
                 "image_sha256": image_sha, "console_sha256": digest(path),
                 "fresh_boot": True, "flash_verified": True, "fresh_backup_verified": True}.items()),
                 "ordinary RAM session/image/console mismatch")
-            require(path.read_bytes().count(b"NuttShell (NSH)") == 1, "retain exactly one fresh NSH boot")
+            console = path.read_text().replace("\x1b[K", "").replace("\x1b[2K", "")
+            boot, _, rest = console.partition("nsh> if ramprobe")
+            require(rest and fresh_shell_boot(boot) and not BOOT_MARKERS.search(rest),
+                    "retain exactly one fresh NSH boot before the RAM command")
             report = command_json(RAM / "report.py", [
                 "--input", path, "--domain", "nuttx-target", "--build", build,
                 "--readelf", location(value["readelf"]), "--binary", run["binary"],

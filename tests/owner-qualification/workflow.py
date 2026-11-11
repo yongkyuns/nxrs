@@ -15,6 +15,9 @@ import time
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from rtos_harness.console import BOOT_MARKERS, fresh_shell_boot
+
 CASES = {
     # attempted, admitted, rejected, handled, discarded, joined, native waits
     "std-blocked-delivery": (16, 16, 0, 16, 0, 2, 16),
@@ -85,6 +88,7 @@ def inventory():
                      and (p.suffix in (".rs", ".c", ".h", ".toml", ".lock", ".py", ".sh", ".json", ".ld", ".patch", ".defs")
                           or p.name in ("Makefile", "Kconfig")))
     paths += [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml")]
+    paths.append(ROOT / "tests/rtos_harness/console.py")
     return {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(paths))}
 
 
@@ -256,11 +260,12 @@ def parse(text, build, case, token, physical=False):
         command = f"owner_qualification {case} {token}"
         before = text[:text.index(begin)]
         after = text[text.index(end) + len(end):]
-        if "NuttX" not in before or before.count(command) != 1 or f"OQ_STATUS_{token}:0" not in after:
+        if before.count(command) != 1 or f"OQ_STATUS_{token}:0" not in after:
             raise ValueError("fresh boot, exact command or clean exit missing")
         if re.findall(rf"(?m)^OQ_STATUS_{re.escape(token)}:([^\n]+)$", after) != ["0"] or "nsh>" not in after.split(f"OQ_STATUS_{token}:0", 1)[1]:
             raise ValueError("missing terminal status/prompt")
-        if len(re.findall(r"NuttShell \(NSH\)", text)) != 1:
+        boot, _, remainder = text.partition(command)
+        if not fresh_shell_boot(boot) or BOOT_MARKERS.search(remainder):
             raise ValueError("missing or repeated fresh shell boot")
     return report
 
@@ -403,7 +408,7 @@ def capture(args):
                     raise ValueError("native/fixture failure; retained console")
                 if len(data) > 1_048_576:
                     raise ValueError("console output limit")
-                if not sent and "NuttShell (NSH)" in text and "nsh>" in text:
+                if not sent and "nsh>" in text and fresh_shell_boot(text):
                     # A partial write may already start the case. Never reopen
                     # or retry a command after reaching this point.
                     sent = True

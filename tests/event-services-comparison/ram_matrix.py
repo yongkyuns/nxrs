@@ -170,7 +170,7 @@ def capture(fd, profile, platform, layout, configuration):
             chunks.extend(measure._read_serial_until(
                 fd, 120, lambda data: b"ES_FAIL " in data or
                 re.search(rb"ES_COMMAND_EXIT status=[1-9][0-9]*", data) or
-                (terminal in data and b"ES_COMMAND_EXIT " in data and prompt in data),
+                measure.command_completed(data, prompt, terminal),
                 "RAM qualification result and prompt"))
         raw = bytes(chunks)
         parsed = validate_output(raw, profile, platform, layout, configuration)

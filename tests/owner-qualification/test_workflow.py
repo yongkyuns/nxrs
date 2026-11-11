@@ -140,6 +140,16 @@ class ParserControls(unittest.TestCase):
                      text.replace("nsh> owner_qualification", "nsh> another_command")):
             with self.subTest(tail=data[-80:]), self.assertRaises(ValueError): self.parse(value, data)
 
+    def test_esp_loader_banner_without_shell_greeting(self):
+        value = report("std-disconnect", True)
+        greeting, text = transcript(value, True).split("\n", 1)
+        loader = "*** Booting NuttX ***\n"
+        for boot in (loader, loader + greeting + "\n"):
+            self.assertTrue(self.parse(value, boot + text)["pass"])
+        for data in (loader * 2 + text, loader + text + "\n" + loader):
+            with self.assertRaisesRegex(ValueError, "missing or repeated fresh shell boot"):
+                self.parse(value, data)
+
 
 class RetainedEvidenceControls(unittest.TestCase):
     def setUp(self):

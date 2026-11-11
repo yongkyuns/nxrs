@@ -433,6 +433,8 @@ def build(args):
                     command += ['--kconfig-enable', symbol]
             for source in (wrapper, board_dir / 'clock.c', board_dir / 'console_nuttx.c'):
                 command += ['--target-c-source', source]
+            if args.board == 'pico2w':
+                command += ['--target-c-source', board_dir / 'bootstrap.c']
             run(command, out / 'build.log', env)
             selected = json.loads((firmware / 'std-source.json').read_text())
             if selected['selected_source_matches'] is not True:

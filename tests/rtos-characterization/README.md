@@ -5,6 +5,8 @@ This campaign prepares evidence for the questions in
 It combines existing fixture protocols; it is not another runtime or benchmark
 implementation. `campaign.py` performs read-only build inspection and replay.
 It never flashes, resets, or opens a serial port.
+The [physical results](PHYSICAL-RESULTS.md) summarize the Pico 2 W and
+ESP32-S3 WROOM runs and their artifact cohorts.
 
 The unit of comparison is a required behavior on one board. The NuttX native
 queue control and NuttX std image share std threads and the same kernel inputs.

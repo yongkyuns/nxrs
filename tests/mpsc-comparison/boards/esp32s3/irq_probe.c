@@ -98,6 +98,32 @@ MP_IRQ_IRAM void mp_irq_probe_isr(void *unused)
     mp_irq_callback(entered);
 }
 
+/* NuttX dispatch resolves CPU interrupts through its handle map. Its normal
+ * setup API installs that map as well as the SDK callback; allocating only in
+ * the SDK leaves a level-triggered source undispatched and uncleared. */
+#ifdef __NuttX__
+static MP_IRQ_IRAM int mp_irq_probe_dispatch(int irq, void *context, void *arg)
+{
+  (void)irq;
+  (void)context;
+  mp_irq_probe_isr(arg);
+  return 0;
+}
+
+static int mp_irq_probe_release(intr_handle_t handle)
+{
+  esp_teardown_irq(ETS_SYSTIMER_TARGET1_INTR_SOURCE,
+                   esp_intr_get_intno(handle));
+  /* The NuttX API retains its map when the underlying SDK release fails. */
+  return esp_get_handle(0, ESP32S3_IRQ_SYSTIMER_TARGET1) == handle ? -1 : 0;
+}
+#else
+static int mp_irq_probe_release(intr_handle_t handle)
+{
+  return esp_intr_free(handle);
+}
+#endif
+
 static bool mp_irq_target_busy(void)
 {
   return (MP_IRQ_READ(SYSTIMER_CONF_REG) & SYSTIMER_TARGET1_WORK_EN) ||
@@ -125,9 +151,18 @@ int mp_irq_probe_open(void (*callback)(uint64_t), uint32_t *info)
   /* The allocator independently refuses an already claimed nonshared source.
    * Allocation is outside the ISR and outside our local IRQ lock. */
   intr_handle_t handle = NULL;
+#ifdef __NuttX__
+  int cpuint_allocated = esp_setup_irq_with_flags(ETS_SYSTIMER_TARGET1_INTR_SOURCE,
+      ESP_INTR_FLAG_LEVEL1 | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED,
+      mp_irq_probe_dispatch, NULL);
+  int status = cpuint_allocated < 0 ? cpuint_allocated : 0;
+  if (!status)
+    handle = esp_get_handle(0, ESP32S3_IRQ_SYSTIMER_TARGET1);
+#else
   int status = esp_intr_alloc(ETS_SYSTIMER_TARGET1_INTR_SOURCE,
       ESP_INTR_FLAG_LEVEL1 | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED,
       mp_irq_probe_isr, NULL, &handle);
+#endif
   if (status || !handle)
     return status ? status : -3;
   int cpu = esp_intr_get_cpu(handle), cpuint = esp_intr_get_intno(handle);
@@ -137,7 +172,7 @@ int mp_irq_probe_open(void (*callback)(uint64_t), uint32_t *info)
   MP_IRQ_UNLOCK(flags);
   if (unavailable)
     {
-      status = esp_intr_free(handle);
+      status = mp_irq_probe_release(handle);
       if (status) { mp_irq_handle = handle; return -4; }
       return -5;
     }
@@ -210,7 +245,7 @@ int mp_irq_probe_close(void)
   /* Restore while still owning the disabled source, then release it. Leave
    * the SDK's disabled matrix route: writing after free could overwrite a new
    * owner's mapping if a higher-priority task acquired the same source. */
-  status = esp_intr_free(mp_irq_handle);
+  status = mp_irq_probe_release(mp_irq_handle);
   if (status) return status; /* retain ownership on failed release */
   mp_irq_handle = NULL;
   mp_irq_callback = NULL;

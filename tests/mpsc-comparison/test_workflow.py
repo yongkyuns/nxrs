@@ -13,9 +13,24 @@ from unittest.mock import patch
 
 import build
 import capture
+import placement
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_pico_reset_rejects_libc_veneer_before_sram_copy(self):
+        safe = """10000124 <__start>:
+  10000168: f000 f803  bl 10000180 <mp_boot_memset>
+  1000016c: f000 f810  bl 10000190 <nx_start>
+
+10000180 <mp_boot_memset>:
+  10000180: 4770  bx lr
+
+"""
+        self.assertEqual(placement.check_nuttx_bootstrap(safe), ['mp_boot_memset', 'nx_start'])
+        for target in ('__memset_veneer', 'memset'):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, 'unsafe bootstrap'):
+                placement.check_nuttx_bootstrap(safe.replace('<mp_boot_memset>', f'<{target}>', 1))
+
     def test_native_simpleboot_parser_handles_legacy_and_digest_offsets(self):
         """Execute the actual SDK parser block before/after the carried patch."""
         name = 'arch/xtensa/src/common/espressif/esp_loader.c'
