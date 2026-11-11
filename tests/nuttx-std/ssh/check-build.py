@@ -39,7 +39,7 @@ def check(out, enabled):
     disabled("NSH_PIPELINE")
     disabled("NSH_DROPBEAR")
     if enabled:
-        for name in ("NETUTILS_DROPBEAR", "NET_TCP", "PSEUDOTERM", "PIPES", "SCHED_WAITPID",
+        for name in ("NETUTILS_DROPBEAR", "NET_TCP", "PSEUDOTERM", "PIPES", "ARCH_SETJMP_H", "SCHED_WAITPID",
                      "SCHED_HAVE_PARENT", "SCHED_CHILD_STATUS", "FSUTILS_PASSWD",
                      "DEV_RANDOM", "DEV_URANDOM_ARCH", "CRYPTO_CRYPTODEV",
                      "CRYPTO_CRYPTODEV_SOFTWARE_CRYPTO", "CRYPTO_SW_AES", "TTY_SIGINT"):
