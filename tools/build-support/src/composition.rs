@@ -73,63 +73,48 @@ pub struct GnssBinding<'a> {
 }
 
 impl Composition {
-    /// Direct device names and aliases share one accessor namespace and object.
-    pub(crate) fn imu_accessors<'a>(
+    pub(crate) fn devices_for<'a>(
         &'a self,
-        catalogs: &Catalogs,
-    ) -> Result<BTreeMap<&'a str, &'a str>> {
-        let mut names: BTreeMap<_, _> = self
-            .devices
+        catalogs: &'a Catalogs,
+        capability: &'a str,
+    ) -> impl Iterator<Item = (&'a str, &'a Device)> {
+        self.devices
             .iter()
-            .filter(|(_, device)| {
+            .filter(move |(_, device)| {
                 catalogs
-                    .values("imu")
+                    .values(capability)
                     .any(|binding| binding["compatible"] == device.compatible)
             })
-            .map(|(id, _)| (id.as_str(), id.as_str()))
-            .collect();
-        for (alias, id) in &self.aliases {
-            if alias == "imu" || alias.starts_with("imu_") {
-                let name = imu_alias_name(alias)?;
-                if let Some(previous) = names.insert(name, id) {
-                    if previous != id {
-                        return Err(format!(
-                            "IMU accessor {name} refers to both device {previous} and alias {alias} -> {id}"
-                        ));
-                    }
-                }
-            }
-        }
-        Ok(names)
+            .map(|(id, device)| (id.as_str(), device))
     }
 
-    pub(crate) fn gnss_accessors<'a>(
+    /// Direct names and aliases share the same namespace and canonical objects.
+    pub(crate) fn accessors<'a>(
         &'a self,
-        catalogs: &Catalogs,
-    ) -> Result<BTreeMap<&'a str, &'a str>> {
+        catalogs: &'a Catalogs,
+        capability: &'a str,
+    ) -> Result<BTreeMap<String, &'a str>> {
         let mut names: BTreeMap<_, _> = self
-            .devices
-            .iter()
-            .filter(|(_, d)| {
-                catalogs
-                    .values("gnss")
-                    .any(|b| b["compatible"] == d.compatible)
-            })
-            .map(|(id, _)| (id.as_str(), id.as_str()))
+            .devices_for(catalogs, capability)
+            .map(|(id, _)| (id.to_owned(), id))
             .collect();
         for (alias, id) in &self.aliases {
-            if alias == "gnss" || alias.starts_with("gnss_") {
-                let name = gnss_alias_name(alias)?;
-                if names.insert(name, id).is_some_and(|old| old != id) {
-                    return Err(format!("GNSS accessor {name} conflicts with alias {alias}"));
-                }
-                if !self.devices.get(id).is_some_and(|d| {
-                    catalogs
-                        .values("gnss")
-                        .any(|b| b["compatible"] == d.compatible)
-                }) {
+            let Some(name) = alias_name(capability, alias) else {
+                continue;
+            };
+            let name = name?;
+            if !self
+                .devices_for(catalogs, capability)
+                .any(|(device, _)| device == id)
+            {
+                return Err(format!(
+                    "{capability} alias {alias} must select a supported device"
+                ));
+            }
+            if let Some(previous) = names.insert(name.clone(), id) {
+                if previous != id {
                     return Err(format!(
-                        "GNSS alias {alias} must select a supported receiver"
+                        "{capability} accessor {name} refers to both device {previous} and alias {alias} -> {id}"
                     ));
                 }
             }
@@ -641,12 +626,11 @@ pub(crate) fn resolve_with_providers_and_origins(
         gnss_stack_bytes,
         simulation,
     };
-    graph
-        .imu_accessors(catalogs)
-        .map_err(|error| diagnostic(origins, "aliases", &error))?;
-    graph
-        .gnss_accessors(catalogs)
-        .map_err(|error| diagnostic(origins, "aliases", &error))?;
+    for capability in ["imu", "gnss"] {
+        graph
+            .accessors(catalogs, capability)
+            .map_err(|error| diagnostic(origins, "aliases", &error))?;
+    }
     Ok(Some(graph))
 }
 
@@ -1100,18 +1084,18 @@ fn validate_ids(
     }
     Ok(())
 }
-pub(crate) fn imu_alias_name(alias: &str) -> Result<&str> {
-    if alias == "imu" {
-        return Ok("primary_imu");
+fn alias_name(capability: &str, alias: &str) -> Option<Result<String>> {
+    let primary = format!("primary_{capability}");
+    if alias == capability {
+        return Some(Ok(primary));
     }
-    let name = alias
-        .strip_prefix("imu_")
-        .ok_or_else(|| format!("unsupported capability alias: {alias}"))?;
-    if matches!(name, "primary" | "primary_imu") {
-        return Err("use aliases.imu for the primary IMU".into());
+    let name = alias.strip_prefix(capability)?.strip_prefix('_')?;
+    if name == "primary" || name == primary {
+        return Some(Err(format!(
+            "use aliases.{capability} for the primary {capability} device"
+        )));
     }
-    accessor_name(name).map_err(|_| format!("invalid IMU alias accessor: {alias}"))?;
-    Ok(name)
+    Some(accessor_name(name).map(|()| name.to_owned()))
 }
 
 fn accessor_name(name: &str) -> Result<()> {
@@ -1127,26 +1111,12 @@ fn accessor_name(name: &str) -> Result<()> {
     }
     Ok(())
 }
-fn gnss_alias_name(alias: &str) -> Result<&str> {
-    if alias == "gnss" {
-        return Ok("primary_gnss");
-    }
-    let name = alias
-        .strip_prefix("gnss_")
-        .ok_or("unsupported GNSS alias")?;
-    if matches!(name, "primary" | "primary_gnss") {
-        return Err("use aliases.gnss for the primary GNSS receiver".into());
-    }
-    accessor_name(name)?;
-    Ok(name)
-}
 fn validate_aliases(aliases: &BTreeMap<String, String>) -> Result<()> {
     for alias in aliases.keys() {
-        if alias == "gnss" || alias.starts_with("gnss_") {
-            gnss_alias_name(alias)?;
-        } else {
-            imu_alias_name(alias)?;
-        }
+        ["imu", "gnss"]
+            .iter()
+            .find_map(|capability| alias_name(capability, alias))
+            .ok_or_else(|| format!("unsupported capability alias: {alias}"))??;
     }
     Ok(())
 }
@@ -1259,12 +1229,12 @@ mod tests {
             resolve_with_providers_and_origins(data, "none", "nuttx", &BTreeMap::new(), &catalogs)
         };
         let graph = resolve(&data).unwrap().unwrap();
-        let names = graph.gnss_accessors(&catalogs).unwrap();
+        let names = graph.accessors(&catalogs, "gnss").unwrap();
         assert_eq!(names["primary_gnss"], "navigation");
         assert_eq!(names["spare"], "backup");
         assert_eq!(names["backup"], "backup");
         let generated =
-            crate::configuration::render_gnss_instances(&graph, &catalogs, 16384).unwrap();
+            crate::configuration::render_instances(&graph, &catalogs, "gnss", 16384).unwrap();
         assert_eq!(generated.matches("declare_device!(").count(), 2);
         assert!(generated.contains("fn r#spare()"));
         let mut conflict = data.clone();
@@ -1272,9 +1242,14 @@ mod tests {
         assert!(resolve(&conflict).is_err());
         let mut unbound = data.clone();
         unbound["aliases"] = json!({"gnss_spare": "backup"});
-        let error =
-            resolve_with_providers_and_origins(&unbound, "none", "none", &BTreeMap::new(), &catalogs)
-                .unwrap_err();
+        let error = resolve_with_providers_and_origins(
+            &unbound,
+            "none",
+            "none",
+            &BTreeMap::new(),
+            &catalogs,
+        )
+        .unwrap_err();
         assert!(error.contains("aliases.gnss_spare"), "{error}");
         assert!(error.contains("physical gnss composition requires the nuttx provider"));
         data["resources"]["backup_uart"]["device"] = json!("/dev/ttyS1");
@@ -1293,11 +1268,11 @@ mod tests {
         assert_eq!(graph.aliases["imu_navigation"], graph.aliases["imu"]);
         assert_eq!(graph.devices.len(), 1);
         assert_eq!(
-            graph.imu_accessors(&catalogs).unwrap(),
+            graph.accessors(&catalogs, "imu").unwrap(),
             BTreeMap::from([
-                ("imu", "imu"),
-                ("navigation", "imu"),
-                ("primary_imu", "imu")
+                ("imu".to_owned(), "imu"),
+                ("navigation".to_owned(), "imu"),
+                ("primary_imu".to_owned(), "imu")
             ])
         );
         value["aliases"]["imu_navigation"] = json!("absent");
@@ -1335,7 +1310,7 @@ mod tests {
             resolve(&value)
                 .unwrap()
                 .unwrap()
-                .imu_accessors(&catalogs)
+                .accessors(&catalogs, "imu")
                 .unwrap()["backup"],
             "backup"
         );

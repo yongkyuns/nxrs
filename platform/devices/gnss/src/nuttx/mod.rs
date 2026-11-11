@@ -1,5 +1,8 @@
 //! Concrete UART receiver selection from validated product bindings.
-use gnss::construction::{Instance, Serial};
+use gnss::{
+    construction::{Instance, Serial},
+    Device,
+};
 #[cfg(feature = "ubx")]
 mod implementations {
     pub(super) type NeoM9n = nxrs_ubx_driver::Driver<super::Serial>;
