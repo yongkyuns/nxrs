@@ -64,48 +64,55 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
                 continue;
             }
             let required = profile.driver_features(capability)?;
-            for wanted in required {
-                let packages: Vec<_> = graph
-                    .iter()
-                    .filter(|(_, p)| p.name == catalogue.name)
-                    .collect();
-                if packages.is_empty() {
-                    continue;
-                }
-                if packages.len() != 1 {
+            if required.is_empty() {
+                continue;
+            }
+            let packages: Vec<_> = graph
+                .iter()
+                .filter(|(_, p)| p.name == catalogue.name)
+                .collect();
+            let (identity, package) = match packages.as_slice() {
+                [] => continue,
+                [selected] => *selected,
+                _ => {
                     return Err(format!(
                         "multiple {} packages in the product graph",
                         catalogue.name
-                    ));
+                    ))
                 }
-                let (identity, package) = packages[0];
-                if package.features.contains(&wanted) {
-                    continue;
-                }
-                let query = Query::from_build(&trial)?;
-                let candidates = query.feature_candidates(&trial, package, &wanted)?;
-                let mut selected = None;
-                for candidate in candidates {
-                    let resolved = query.graph(&trial, Some(&candidate))?;
-                    if resolved
-                        .get(identity)
-                        .is_some_and(|p| p.features.contains(&wanted))
-                    {
-                        selected = Some((candidate, resolved));
-                        break;
-                    }
-                }
-                let (feature, resolved) = selected.ok_or_else(|| {
-                    format!(
-                        "{} requires {wanted}; declare {} as a direct catalogue dependency",
-                        profile.name(),
-                        catalogue.name
-                    )
-                })?;
-                trial.args(["--features", &feature]);
-                graph = resolved;
-                driver_features.push(feature);
+            };
+            let missing: Vec<_> = required
+                .difference(&package.features)
+                .map(String::as_str)
+                .collect();
+            if missing.is_empty() {
+                continue;
             }
+            let query = Query::from_build(&trial)?;
+            let mut selected = None;
+            for features in query.feature_candidates(&trial, package, &missing)? {
+                let resolved = query.graph(&trial, Some(&features.join(",")))?;
+                if resolved
+                    .get(identity)
+                    .is_some_and(|p| required.is_subset(&p.features))
+                {
+                    selected = Some((features, resolved));
+                    break;
+                }
+            }
+            let (features, resolved) = selected.ok_or_else(|| {
+                format!(
+                    "{} requires {}; declare {} as a direct catalogue dependency",
+                    profile.name(),
+                    missing.join(", "),
+                    catalogue.name
+                )
+            })?;
+            for feature in &features {
+                trial.args(["--features", feature]);
+            }
+            graph = resolved;
+            driver_features.extend(features);
         }
     }
     let model_features = resolve_model(&mut trial, profile, &mut graph)?;
@@ -177,15 +184,17 @@ fn resolve_model(build: &mut Command, profile: &Profile, graph: &mut Graph) -> R
     // dependency's feature from an external consumer. Keep that composition edge
     // explicit instead of synthesizing manifests or service feature forwarding.
     let query = Query::from_build(build)?;
-    let candidates = query.feature_candidates(build, package, wanted)?;
-    for feature in candidates {
-        let resolved = query.graph(build, Some(&feature))?;
+    let candidates = query.feature_candidates(build, package, &[wanted])?;
+    for features in candidates {
+        let resolved = query.graph(build, Some(&features.join(",")))?;
         if resolved.get(identity).is_some_and(|package| {
             package.features.contains(wanted) && !package.features.contains(conflicting)
         }) {
-            build.args(["--features", &feature]);
+            for feature in &features {
+                build.args(["--features", feature]);
+            }
             *graph = resolved;
-            return Ok(vec![feature]);
+            return Ok(features);
         }
     }
     Err(format!(
@@ -332,10 +341,13 @@ impl Query {
         &self,
         build: &Command,
         package: &Package,
-        wanted: &str,
-    ) -> Result<BTreeSet<String>> {
+        wanted: &[&str],
+    ) -> Result<BTreeSet<Vec<String>>> {
         if package.depth == 0 {
-            return Ok(BTreeSet::from([wanted.to_owned()]));
+            return Ok(BTreeSet::from([wanted
+                .iter()
+                .map(|name| name.to_string())
+                .collect()]));
         }
         if package.depth != 1 {
             return Ok(BTreeSet::new());
@@ -363,10 +375,11 @@ impl Query {
                     .or(d["name"].as_str())
                     .ok_or("missing dependency name")?;
                 // A weak edge cannot activate an unconsumed optional catalogue.
-                Ok(format!(
-                    "{alias}{}/{wanted}",
-                    if d["optional"] == true { "?" } else { "" }
-                ))
+                let weak = if d["optional"] == true { "?" } else { "" };
+                Ok(wanted
+                    .iter()
+                    .map(|feature| format!("{alias}{weak}/{feature}"))
+                    .collect())
             })
             .collect()
     }

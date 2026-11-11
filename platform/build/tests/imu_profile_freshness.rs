@@ -52,7 +52,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         root.join("Cargo.toml"),
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
-             [features]\ndefault = [\"bmi270\", \"lsm6dso\"]\nbmi270=[]\nlsm6dso=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
+             [features]\ndefault = [\"bmi270\", \"lsm6dso\", \"i2c\", \"spi\"]\nbmi270=[]\nlsm6dso=[]\ni2c=[]\nspi=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
              nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
              nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\

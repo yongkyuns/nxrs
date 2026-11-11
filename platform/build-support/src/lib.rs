@@ -212,16 +212,10 @@ pub fn configure_hal() -> Result<String> {
     let binding = profile.binding(capability);
     let package_bindings = bindings::Package::load(&directory)?;
     if binding == os && !package_bindings.driver_features.is_empty() {
-        let graph = profile
-            .composition()?
-            .ok_or("driver features require composition")?;
-        for device in graph.devices.values() {
-            if let Some(feature) = package_bindings.driver_features.get(&device.compatible) {
-                let variable =
-                    format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
-                if env::var_os(&variable).is_none() {
-                    return Err(format!("{package} requires Cargo feature {feature}; use cargo nxrs build or enable the prepared profile's driver features"));
-                }
+        for feature in profile.driver_features(capability)? {
+            let variable = format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
+            if env::var_os(&variable).is_none() {
+                return Err(format!("{package} requires Cargo feature {feature}; use cargo nxrs build or enable the profile's driver and bus features"));
             }
         }
     }

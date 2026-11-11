@@ -304,18 +304,18 @@ fn an_unknown_frontend_option_cannot_silently_change_the_resolved_graph() {
 }
 
 #[test]
-fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
+fn profile_driver_and_bus_features_are_additive_and_unused_packages_leave_the_graph() {
     let fixture = Fixture::new(
         "[dependencies]\ndevices={package=\"nxrs-imu-devices\",path=\"../../sdk/devices\"}\n\
          model={package=\"nxrs-detector\",path=\"../../sdk/hal/detector\"}\n",
     );
     fixture.write(
         "sdk/Cargo.toml",
-        "[workspace]\nmembers=[\"devices\",\"bmi270\",\"lsm6dso\",\"hal/detector\"]\nresolver=\"2\"\n",
+        "[workspace]\nmembers=[\"devices\",\"bmi270\",\"lsm6dso\",\"i2c\",\"spi\",\"hal/detector\"]\nresolver=\"2\"\n",
     );
-    fixture.write("sdk/devices/Cargo.toml", "[package]\nname=\"nxrs-imu-devices\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[features]\nbmi270=[\"dep:nxrs-bmi270\"]\nlsm6dso=[\"dep:nxrs-lsm6dso\"]\n[dependencies]\nnxrs-bmi270={path=\"../bmi270\",optional=true}\nnxrs-lsm6dso={path=\"../lsm6dso\",optional=true}\n");
+    fixture.write("sdk/devices/Cargo.toml", "[package]\nname=\"nxrs-imu-devices\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[features]\nbmi270=[\"dep:nxrs-bmi270\"]\nlsm6dso=[\"dep:nxrs-lsm6dso\"]\ni2c=[\"dep:nxrs-i2c\"]\nspi=[\"dep:nxrs-spi\"]\n[dependencies]\nnxrs-bmi270={path=\"../bmi270\",optional=true}\nnxrs-lsm6dso={path=\"../lsm6dso\",optional=true}\nnxrs-i2c={path=\"../i2c\",optional=true}\nnxrs-spi={path=\"../spi\",optional=true}\n");
     fixture.write("sdk/devices/src/lib.rs", "");
-    for chip in ["bmi270", "lsm6dso"] {
+    for chip in ["bmi270", "lsm6dso", "i2c", "spi"] {
         fixture.write(
             &format!("sdk/{chip}/Cargo.toml"),
             &format!("[package]\nname=\"nxrs-{chip}\"\nversion=\"0.1.0\"\nedition=\"2021\"\n"),
@@ -327,32 +327,50 @@ fn profile_driver_features_are_additive_and_unused_drivers_leave_the_graph() {
     let mut profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
     profile.data["hal"]["detector"] = json!("nuttx");
     profile.data["detector"] = json!({"model":"pico", "stack-bytes":16384, "sample-ms":100});
-    for chips in [vec!["bmi270"], vec!["lsm6dso"], vec!["bmi270", "lsm6dso"]] {
+    for devices in [
+        vec![("bmi270", "i2c")],
+        vec![("lsm6dso", "i2c")],
+        vec![("bmi270", "i2c"), ("lsm6dso", "i2c")],
+        vec![("lsm6dso", "spi")],
+        vec![("bmi270", "i2c"), ("lsm6dso", "spi")],
+    ] {
         // Keep the real driver declarations, replacing only physical graph values.
         let mut data = profile.data.clone();
         data["hal"]["gnss"] = json!("none");
         data.as_object_mut().unwrap().remove("gnss");
         data["aliases"] = json!({"imu":"first"});
         data["devices"] = json!({});
-        for (index, chip) in chips.iter().enumerate() {
-            data["devices"][if index == 0 { "first" } else { "second" }] = json!({
+        for (index, (chip, bus)) in devices.iter().enumerate() {
+            let mut device = json!({
                 "compatible": if *chip == "bmi270" { "bosch,bmi270" } else { "st,lsm6dso" },
-                "bus":"sensor_bus", "address":if *chip == "bmi270" {104} else {106}, "wake":{"kind":"periodic"}
+                "bus": bus, "wake": {"kind":"periodic"}
             });
+            if *bus == "i2c" {
+                device["address"] = json!(if *chip == "bmi270" { 104 } else { 106 });
+            } else {
+                device["chip-select"] = json!(0);
+                device["spi-mode"] = json!(3);
+            }
+            data["devices"][if index == 0 { "first" } else { "second" }] = device;
         }
-        data["resources"] =
-            json!({"sensor_bus":{"kind":"i2c","device":"/dev/i2c0","frequency":400000}});
+        data["resources"] = json!({
+            "i2c": {"kind":"i2c","device":"/dev/i2c0","frequency":400000},
+            "spi": {"kind":"spi","device":"/dev/spi2","frequency":4000000},
+        });
         profile = Profile::from_data_with_catalogs(data, vec![], profile.catalogs().clone());
         let mut build = fixture.build();
         let selection = cargo_graph::resolve(&mut build, &profile).unwrap();
         assert_eq!(selection.model_features, ["model/pico-model"]);
-        for chip in ["bmi270", "lsm6dso"] {
+        for package in ["bmi270", "lsm6dso", "i2c", "spi"] {
             assert_eq!(
                 selection
                     .packages
                     .iter()
-                    .any(|name| name.starts_with(&format!("nxrs-{chip} v"))),
-                chips.contains(&chip)
+                    .any(|name| name.starts_with(&format!("nxrs-{package} v"))),
+                devices
+                    .iter()
+                    .any(|(chip, bus)| *chip == package || *bus == package),
+                "{package} for {devices:?}",
             );
         }
         succeeded(&mut build);

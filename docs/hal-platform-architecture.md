@@ -803,9 +803,8 @@ frontend asks Cargo which catalogues are consumed and enables the required
 features through direct catalogue dependencies, including renamed dependencies.
 Unused capability records do not activate packages. Mixed devices add features;
 there is no mutually exclusive chip selector. Plain Cargo builds with a physical
-profile must enable its catalogue features explicitly. Shared I2C/SPI adapters
-remain common catalogue dependencies; chip feature selection is distinct from
-resource selection and final linker dead-code elimination.
+profile must enable its catalogue features explicitly. The IMU catalogue also
+selects its I²C and SPI adapter dependencies from the configured buses.
 
 NuttX profiles explicitly supply `[camera].device`, `[watchdog].device` and
 `[wifi].interface`, alongside existing console and LED configuration. These are

@@ -4,7 +4,10 @@
 
 cfg_if::cfg_if! {
     if #[cfg(platform = "nuttx")] {
-        use {::i2c as resource, ::spi as spi_resource};
+        #[cfg(feature = "i2c")]
+        use ::i2c as resource;
+        #[cfg(feature = "spi")]
+        use ::spi as spi_resource;
         mod nuttx;
         use nuttx as selected;
     } else {

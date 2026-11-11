@@ -1,26 +1,21 @@
 //! Concrete driver/resource wiring from the validated profile.
-use super::{resource, spi_resource};
-use acquisition::probe::{Observed, Trace};
+use acquisition::probe::Trace;
 use imu::construction::Instance;
 use imu::{AppliedConfig, Config, DeviceError, Event, Session};
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
 mod resources;
-use resources::{Bus, Delay, Spi};
+use resources::Delay;
 
 #[allow(dead_code, reason = "Profiles select concrete implementations.")]
 mod implementations {
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "bmi270")] {
-            pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::Bus, super::Delay>;
-            pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::Spi, super::Delay>;
-        }
-    }
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "lsm6dso")] {
-            pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::Bus>;
-            pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::Spi>;
-        }
-    }
+    #[cfg(all(feature = "bmi270", feature = "i2c"))]
+    pub(super) type Bmi270 = nxrs_bmi270::Bmi270<super::resources::Bus, super::Delay>;
+    #[cfg(all(feature = "bmi270", feature = "spi"))]
+    pub(super) type Bmi270Spi = nxrs_bmi270::Bmi270Spi<super::resources::Spi, super::Delay>;
+    #[cfg(all(feature = "lsm6dso", feature = "i2c"))]
+    pub(super) type Lsm6dso = nxrs_lsm6dso::Lsm6dso<super::resources::Bus>;
+    #[cfg(all(feature = "lsm6dso", feature = "spi"))]
+    pub(super) type Lsm6dsoSpi = nxrs_lsm6dso::Lsm6dsoSpi<super::resources::Spi>;
 }
 
 // Resource opening and sensor initialization are separate callbacks so the HAL

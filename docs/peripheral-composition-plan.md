@@ -496,8 +496,8 @@ the full native pre-Cargo handoff remains open.
 
 The catalogues now declare additive optional chip dependencies. Product builds
 derive features through direct catalogue dependencies before compiling; graph
-witnesses cover either IMU driver alone and both. I2C/SPI resource adapters remain
-common dependencies. Full pre-Cargo native preparation remains D1 work.
+witnesses cover either IMU driver and bus alone, and mixed configurations.
+Full pre-Cargo native preparation remains D1 work.
 
 Change `platform/devices/imu/Cargo.toml`, catalogue module admission, binding metadata
 and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named

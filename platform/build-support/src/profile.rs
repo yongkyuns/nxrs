@@ -1,7 +1,7 @@
 //! One resolver for CLI builds and HAL build scripts.
 use crate::{
     bindings::{Catalogs, Package},
-    composition::{self, Composition},
+    composition::{self, Composition, Resource},
     hash_bytes, overlay, read, Result,
 };
 use regex::Regex;
@@ -246,7 +246,7 @@ impl Profile {
         Ok(())
     }
 
-    /// Additive catalogue features for every configured physical instance.
+    /// Additive catalogue features for the drivers and buses used by physical instances.
     pub fn driver_features(&self, capability: &str) -> Result<BTreeSet<String>> {
         let mut features = BTreeSet::new();
         if self.binding(capability) != "nuttx" {
@@ -258,6 +258,14 @@ impl Profile {
             for device in graph.devices.values() {
                 if let Some(feature) = package.driver_features.get(&device.compatible) {
                     features.insert(feature.clone());
+                    if capability == "imu" {
+                        let bus = match graph.resources.get(&device.bus) {
+                            Some(Resource::I2c { .. }) => "i2c",
+                            Some(Resource::Spi { .. }) => "spi",
+                            _ => return Err("IMU requires an I2C or SPI bus".into()),
+                        };
+                        features.insert(bus.into());
+                    }
                 }
             }
         }
