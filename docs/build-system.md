@@ -276,11 +276,19 @@ separate qualification gates.
 ## Native helper ownership
 
 The NuttX controller configures Make and generates target headers before invoking
-Cargo. A target in the ordinary application Makefile exports its selected C
-compiler, archiver and flags into `native-context.json`, including the target and
-configured-header digest. Each consumed HAL's local build script then compiles
-only that package's private ABI sources into its own archive. The native build
-continues to own OS drivers, registration and final image startup.
+Cargo. A Make target exports its C compiler, archiver and flags into
+`native-context.json`, with the target and configured-header digest.
+The controller precompiles consumed NuttX resource archives for the shared
+acquisition worker, GPIO, I²C and SPI. Their Cargo adapters validate the prepared
+archive and link it. Standalone Cargo and builds with Cargo-only compiler
+environment overrides compile the shims through the existing adapter.
+Consumed HAL providers still compile their private ABI
+sources through their package adapters. NuttX owns OS drivers and registration.
+
+The controller checks current compiler dependencies before reusing an archive,
+including headers that newly take precedence in the include search path.
+`provider-selection.json` records the prepared archive paths and hashes.
+Concurrent NuttX builds use separate output directories.
 
 Helpers for optional functionality follow the owning package's Cargo feature
 through `package.metadata.nxrs.platform.<os>.required-features`; the detector's

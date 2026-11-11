@@ -1,11 +1,13 @@
 //! Real Cargo/CC witness for private helper ownership and incremental headers.
 //! The host C ABI is intentional here; firmware ABI remains a target-build gate.
 #![cfg(unix)]
-use nxrs_build::{hash, json::json, read_json, write_json, TempDir};
-use std::{fs, path::Path, process::Command};
+use nxrs_build::{find_program, hash, json::json, read_json, shell_quote, write_json, TempDir};
+use nxrs_build_support::prepared_resource;
+use std::{env, fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 
 fn build(root: &Path, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO"))
+    let mut command = Command::new(env!("CARGO"));
+    command
         .current_dir(root)
         .args([
             "build",
@@ -21,8 +23,12 @@ fn build(root: &Path, extra: &[&str]) -> std::process::Output {
         .env_remove("CARGO_BUILD_TARGET")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .output()
-        .unwrap()
+        .env_remove(prepared_resource::ENVIRONMENT);
+    let cache = root.join("prepared");
+    if cache.is_dir() {
+        command.env(prepared_resource::ENVIRONMENT, cache);
+    }
+    command.output().unwrap()
 }
 
 fn runs(root: &Path, output: &std::process::Output) -> usize {
@@ -74,14 +80,20 @@ fn only_consumed_helpers_compile_and_cargo_revisits_changed_native_inputs() {
     for (directory, package) in [("selected", "selected-helper"), ("unused", "unused-helper")] {
         let path = root.join(directory);
         fs::create_dir_all(path.join("src/platform/nuttx/ffi")).unwrap();
-        fs::write(path.join("Cargo.toml"),format!("[package]\nname={package:?}\nversion=\"0.0.0\"\nedition=\"2021\"\n[build-dependencies]\nnxrs-build-support={{path={support:?}}}\n")).unwrap();
+        let metadata = if directory == "selected" {
+            "[package.metadata.nxrs]\nkind=\"native-resource\"\n"
+        } else {
+            ""
+        };
+        fs::write(path.join("Cargo.toml"),format!("[package]\nname={package:?}\nversion=\"0.0.0\"\nedition=\"2021\"\n{metadata}[build-dependencies]\nnxrs-build-support={{path={support:?}}}\n")).unwrap();
         fs::write(path.join("src/lib.rs"),"extern \"C\" { fn device_value() -> i32; }\npub fn value() -> i32 { unsafe { device_value() } }\n").unwrap();
         fs::write(path.join("build.rs"),r#"
 use std::{env,io::Write,path::PathBuf};
 fn main() {
-    let here=PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out=PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for line in nxrs_build_support::native::build(&here,"nuttx","fixture-nuttx",&out).unwrap() { println!("{line}"); }
+    env::set_var("CARGO_CFG_TARGET_OS", "nuttx");
+    env::set_var("TARGET", "fixture-nuttx");
+    nxrs_build_support::configure_resource().unwrap();
     writeln!(std::fs::OpenOptions::new().create(true).append(true).open(out.join("runs")).unwrap(),"run").unwrap();
 }
 "#).unwrap();
@@ -99,7 +111,7 @@ fn main() {
     fs::write(root.join("consumer/Cargo.toml"),"[package]\nname=\"consumer\"\nversion=\"0.0.0\"\nedition=\"2021\"\n[dependencies]\nselected-helper={path=\"../selected\"}\nunused-helper={path=\"../unused\",optional=true}\n").unwrap();
     fs::write(
         root.join("consumer/src/main.rs"),
-        "fn main() { assert!(selected_helper::value() > 0); }\n",
+        "fn main() { let value = selected_helper::value(); if let Some(expected) = std::env::args().nth(1) { assert_eq!(value, expected.parse::<i32>().unwrap()); } else { assert!(value > 0); } }\n",
     )
     .unwrap();
     let include = root.join("include");
@@ -109,12 +121,35 @@ fn main() {
     let private = root.join("private architecture #$");
     fs::create_dir(&private).unwrap();
     fs::write(private.join("context.h"), "#define CONTEXT_ABI 3\n").unwrap();
+    let higher_priority = root.join("higher-priority");
+    fs::create_dir(&higher_priority).unwrap();
+    let compiler = root.join("compiler");
+    let calls = root.join("compiler-calls");
+    let mutate = root.join("mutate-header");
+    let quote = |path: &Path| shell_quote(path.to_str().unwrap());
+    fs::write(
+        &compiler,
+        format!(
+            "#!/bin/sh\nprintf 'compile\\n' >> {}\n{} \"$@\" || exit $?\n\
+             if [ -f {} ]; then\n\
+               for arg do\n\
+                 if [ \"$arg\" = -c ]; then printf '#define CONTEXT_ABI 99\\n' > {}; fi\n\
+               done\n\
+             fi\n",
+            quote(&calls),
+            quote(&find_program("cc").unwrap()),
+            quote(&mutate),
+            quote(&private.join("context.h"))
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&compiler, fs::Permissions::from_mode(0o755)).unwrap();
     let context = root.join("native.json");
     write_json(
         &context,
         &json!({"schema":1,"target":"fixture-nuttx","directory":root,
-        "include":include,"config_sha256":hash(&header).unwrap(),"cc":["cc"],"ar":["ar","rcs"],
-        "cflags":["-I",include.to_str().unwrap(),"-I",private.to_str().unwrap()]}),
+        "include":include,"config_sha256":hash(&header).unwrap(),"cc":[compiler],"ar":[find_program("ar").unwrap(),"rcs"],
+        "cflags":["-I",include.to_str().unwrap(),"-I",higher_priority.to_str().unwrap(),"-I",private.to_str().unwrap()]}),
     )
     .unwrap();
     assert!(Command::new(env!("CARGO"))
@@ -157,4 +192,79 @@ fn main() {
     assert!(!included.status.success());
     assert!(String::from_utf8_lossy(&included.stderr)
         .contains("unconsumed private helper must not compile"));
+
+    let cache = root.join("prepared");
+    let compile_count = || fs::read_to_string(&calls).unwrap().lines().count();
+    let prepare = || {
+        prepared_resource::prepare(
+            &root.join("selected"),
+            "fixture-nuttx",
+            &context,
+            &cache,
+            &env::var_os("PATH").unwrap(),
+        )
+    };
+    let before = compile_count();
+    let archive = prepare().unwrap();
+    assert_eq!(compile_count(), before + 2);
+    assert_eq!(prepare().unwrap(), archive);
+    assert_eq!(runs(root, &build(root, &[])), 6);
+    assert_eq!(runs(root, &build(root, &[])), 6);
+    assert_eq!(compile_count(), before + 3);
+    fs::write(&header, "#define DEVICE_ABI 19\n").unwrap();
+    data["config_sha256"] = json!(hash(&header).unwrap());
+    write_json(&context, &data).unwrap();
+    let stale = build(root, &[]);
+    assert!(!stale.status.success());
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("stale native resource inputs"));
+    assert_eq!(compile_count(), before + 3);
+    let updated = prepare().unwrap();
+    assert_ne!(updated, archive);
+    assert_eq!(runs(root, &build(root, &[])), 7);
+    assert_eq!(compile_count(), before + 5);
+    assert!(Command::new(root.join("target/debug/consumer"))
+        .arg("20")
+        .status()
+        .unwrap()
+        .success());
+
+    let bucket = updated.parent().unwrap();
+    let moved = root.join("moved-archive");
+    fs::rename(bucket, &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, bucket).unwrap();
+    let linked = build(root, &[]);
+    assert!(!linked.status.success());
+    assert!(String::from_utf8_lossy(&linked.stderr).contains("must not be a symlink"));
+    assert!(prepare().unwrap_err().contains("must not be a symlink"));
+    fs::remove_file(bucket).unwrap();
+    fs::rename(moved, bucket).unwrap();
+
+    fs::write(
+        root.join("selected/src/platform/nuttx/ffi/value.c"),
+        "#include <context.h>\nint device_value(void) { return CONTEXT_ABI; }\n",
+    )
+    .unwrap();
+    let original = prepare().unwrap();
+    let shadowing_header = higher_priority.join("context.h");
+    fs::write(&shadowing_header, "#define CONTEXT_ABI 27\n").unwrap();
+    assert_ne!(prepare().unwrap(), original);
+    runs(root, &build(root, &[]));
+    assert!(Command::new(root.join("target/debug/consumer"))
+        .arg("27")
+        .status()
+        .unwrap()
+        .success());
+    fs::remove_file(shadowing_header).unwrap();
+    fs::write(mutate, "").unwrap();
+    fs::write(private.join("context.h"), "#define CONTEXT_ABI 5\n").unwrap();
+    assert!(prepare()
+        .unwrap_err()
+        .contains("changed during compilation"));
+    fs::create_dir(root.join(".cargo")).unwrap();
+    fs::write(
+        root.join(".cargo/config.toml"),
+        "[env]\nCPATH = '/fixture/include'\n",
+    )
+    .unwrap();
+    assert!(prepared_resource::cargo_compiler_environment(root).unwrap());
 }

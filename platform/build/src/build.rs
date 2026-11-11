@@ -307,10 +307,13 @@ pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
         return Err("build ownership marker must not be a symlink".into());
     }
     fs::create_dir_all(&resolved).map_err(|e| e.to_string())?;
-    if marker.exists() && crate::read_json(&marker)? != json!({"workspace":repo}) {
-        return Err("output belongs to another workspace".into());
+    if marker.exists() {
+        if crate::read_json(&marker)? != json!({"workspace":repo}) {
+            return Err("output belongs to another workspace".into());
+        }
+    } else {
+        write_json(&marker, &json!({"workspace":repo}))?;
     }
-    write_json(&marker, &json!({"workspace":repo}))?;
     Ok(resolved)
 }
 pub(crate) fn configure_profile(
