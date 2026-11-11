@@ -191,6 +191,14 @@ pub fn build(capability: &Path, os: &str, target: &str, out: &Path) -> Result<Ve
                 return Ok(inputs);
             }
         }
+        if matches!(
+            m["package"]["metadata"]["nxrs"]["kind"].as_str(),
+            Some("hal-capability" | "native-resource")
+        ) {
+            return Err(format!(
+                "{package} requires a prepared native archive; use cargo nxrs build"
+            ));
+        }
         return crate::native_nuttx::build(capability, &suffix, target, out, &sources, inputs);
     }
     if !["linux", "macos"].contains(&os) {

@@ -359,8 +359,9 @@ paths resolve against the selected workspace root.
 In the current v1 path, the build frontend writes `resolved-profile.json` into the owned build output
 and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
-it. Direct Cargo consumers select a named profile and its declared overlays
-through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
+it. NuttX profile builds require this frontend receipt. Explicit host fixtures
+may select a named profile and its declared overlays through `NXRS_PLATFORM` and
+`NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
 same shared preparation function. Their explicitly declared binding files select
 checked-in implementations. Shared build support renders fixed typed I²C/SPI/UART
 resource contracts, an implementation import and the validated stack budget.
@@ -481,8 +482,8 @@ Build scripts cannot enable optional dependencies. Any later dependency-pruning
 optimization must use the existing Cargo graph machinery and qualify workspace,
 transitive and detached consumers before changing this rule.
 
-Retain `NXRS_PLATFORM` for direct Cargo use and `NXRS_SDK_ROOT` for detached
-consumers. Such consumers use a named profile with declared overlays. Ad hoc CLI
+Retain `NXRS_PLATFORM` for explicit host Cargo fixtures and `NXRS_SDK_ROOT` for
+detached consumers. NuttX products use `cargo nxrs build` with their manifest. Ad hoc CLI
 overlays are normalized into a per-build resolved-profile file under the owned
 output directory, passed to HAL build scripts through the
 `NXRS_RESOLVED_PROFILE` input. If combined with a named profile, identities must

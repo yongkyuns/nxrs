@@ -217,12 +217,13 @@ Provider selection must retain per-package scope: a single global
 Write generated files atomically outside source directories. Key outputs by the
 resolved configuration, target, package/schema inputs and generator revision;
 retain semantic and source fingerprints. Preserve content-stable files, reject
-stale or mismatched inputs and isolate concurrent builds. Specify plain
-`cargo build/check/test/doc`, no-profile contracts, explicit test fixtures and
-detached-consumer behavior. No entry point may silently reuse the last product's
-configuration. The implementation contract must define whether profile-aware
-plain Cargo consumes an explicitly prepared artifact or another shared entry
-mechanism; unprepared profile use must have a clear diagnostic.
+stale or mismatched inputs and isolate concurrent builds. NuttX profile builds
+use `cargo nxrs build`. Underlying Cargo adapters and editor checks consume its
+validated receipt and prepared native resource archives; they do not resolve a
+board profile from its name alone or compile resource fallbacks. Ordinary
+Cargo remains available for portable contracts and explicit host fixtures. Apply
+the same rules to detached consumers. No entry point may silently reuse the last
+product's configuration.
 
 Native compilation still follows the consumed Cargo graph and required features.
 Retain target compiler/flags/header provenance, freshness, archive ownership and

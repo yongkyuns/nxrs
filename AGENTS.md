@@ -59,7 +59,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   test-only bus bindings. IMU and GNSS drivers own their `bindings.toml` declarations;
   the catalogues under `platform/devices/{imu,gnss}` import them through normal Cargo path dependencies. The sensor HALs must not depend on concrete sensors or their catalogues.
   Catalogue binding imports name additive Cargo features; product frontends enable
-  them before compilation, while direct Cargo qualification selects them explicitly. Product
+  them before compilation. NuttX profile builds use `cargo nxrs build`; internal
+  Cargo adapters and editor checks consume its validated receipt and prepared
+  native resources. Portable library tests and explicit host fixtures may use
+  Cargo directly. Product
   profiles select BSP resources, native pin settings and peripheral addresses. The BSP mapping
   derives NuttX Kconfig and endpoint paths together; reject conflicting overrides
   and unsupported registrations. Shared tooling emits fixed
