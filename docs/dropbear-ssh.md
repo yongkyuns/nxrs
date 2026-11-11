@@ -112,6 +112,9 @@ PTYs and pipes, serial termios/interrupt support, NuttX password and base64 code
 hardware RNG devices, and software cryptodev with its software-AES prerequisite.
 `ARCH_SETJMP_H=y` selects NuttX's matching Xtensa jump-buffer header and
 `setjmp`/`longjmp` implementation for native session cleanup.
+A backport of [ESP HAL PR #13](https://github.com/espressif/esp-hal-3rdparty/pull/13)
+prefixes the Wi-Fi AES helpers on NuttX so they can coexist with software
+cryptodev's AES implementation. The pinned dependency revision is retained.
 The native service is admitted only for a flat, non-SMP image. Kernel pipes remain
 enabled for PTYs and session signaling, while `NSH_PIPELINE=n` disables shell
 pipeline syntax alongside `NSH_DISABLEBG=y`.

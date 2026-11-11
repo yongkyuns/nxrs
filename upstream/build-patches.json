@@ -124,7 +124,8 @@
       "0002-intr-alloc-pair-capability-allocators.patch",
       "0003-esp32s3-serialize-wifi-phy-state.patch",
       "0005-esp32s3-inherit-watchdog-clock.patch",
-      "0006-esp32s3-inherit-watchdog-user-handoff.patch"
+      "0006-esp32s3-inherit-watchdog-user-handoff.patch",
+      "0007-wpa-aes-symbol-prefix.patch"
     ]
   }
 }
