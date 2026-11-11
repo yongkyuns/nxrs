@@ -97,6 +97,10 @@ default-members = [
     "hal/detector",
 ]
 
+[workspace.metadata.nxrs.device-catalogues]
+imu = "platform/devices/imu"
+gnss = "platform/devices/gnss"
+
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
