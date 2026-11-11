@@ -24,7 +24,7 @@ fn start_services() -> (
     (
         fusion.start().unwrap(),
         imu.start_on(imu_devices::primary_imu()).unwrap(),
-        gnss.start().unwrap(),
+        gnss.start_on(gnss_devices::primary_gnss()).unwrap(),
     )
 }
 

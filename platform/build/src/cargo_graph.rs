@@ -18,10 +18,11 @@ pub struct Selection {
     pub packages: Vec<String>,
     /// Profile features that were verified by Cargo and appended to the build.
     pub model_features: Vec<String>,
+    pub driver_features: Vec<String>,
 }
 impl Selection {
     pub fn json(&self) -> Value {
-        json!({"status":"resolved","packages":self.packages,"model_features":self.model_features})
+        json!({"status":"resolved","packages":self.packages,"model_features":self.model_features,"driver_features":self.driver_features})
     }
 }
 
@@ -34,12 +35,104 @@ struct Package {
 type Graph = BTreeMap<String, Package>;
 
 /// Resolve a fully configured production `cargo build` invocation, then append
-/// only the profile model feature that Cargo verified for that invocation.
+/// the additive driver and model features Cargo verified for that invocation.
 ///
 /// Call this after setting the actual compiler, target (including custom JSON),
 /// configuration, user features, and default-feature selection. The build command
 /// is unchanged on failure. SDK-free planning must leave this resolution pending.
 pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
+    // Prepare a complete proposal before changing the caller's command.
+    let mut trial = Command::new(build.get_program());
+    trial.args(build.get_args());
+    if let Some(cwd) = build.get_current_dir() {
+        trial.current_dir(cwd);
+    }
+    for (key, value) in build.get_envs() {
+        if let Some(value) = value {
+            trial.env(key, value);
+        } else {
+            trial.env_remove(key);
+        }
+    }
+    let mut enabled = Vec::new();
+    if profile.composition()?.is_some() {
+        for (capability, catalogue) in profile.catalogs().packages() {
+            if profile.binding(capability) != "nuttx" {
+                continue;
+            }
+            let required = profile.driver_features(capability)?;
+            for wanted in required {
+                let query = Query::from_build(&trial)?;
+                let graph = query.graph(&trial, None)?;
+                let packages: Vec<_> = graph
+                    .iter()
+                    .filter(|(_, p)| p.name == catalogue.name)
+                    .collect();
+                if packages.is_empty() {
+                    continue;
+                }
+                if packages.len() != 1 {
+                    return Err(format!(
+                        "multiple {} packages in the product graph",
+                        catalogue.name
+                    ));
+                }
+                let (identity, package) = packages[0];
+                if package.features.contains(&wanted) {
+                    continue;
+                }
+                let candidates = query.feature_candidates(&trial, package, &wanted)?;
+                let mut selected = None;
+                for candidate in candidates {
+                    let resolved = query.graph(&trial, Some(&candidate))?;
+                    if resolved
+                        .get(identity)
+                        .is_some_and(|p| p.features.contains(&wanted))
+                    {
+                        selected = Some(candidate);
+                        break;
+                    }
+                }
+                let feature = selected.ok_or_else(|| {
+                    format!(
+                        "{} requires {wanted}; declare {} as a direct catalogue dependency",
+                        profile.name(),
+                        catalogue.name
+                    )
+                })?;
+                trial.args(["--features", &feature]);
+                enabled.push(feature);
+            }
+        }
+    }
+    let mut selection = resolve_model(&mut trial, profile)?;
+    let graph = Query::from_build(&trial)?.graph(&trial, None)?;
+    for (capability, catalogue) in profile.catalogs().packages() {
+        let required = profile.driver_features(capability)?;
+        if required.is_empty() {
+            continue;
+        }
+        let consumed: Vec<_> = graph
+            .values()
+            .filter(|p| p.name == catalogue.name)
+            .collect();
+        if consumed.len() > 1
+            || consumed
+                .first()
+                .is_some_and(|p| !required.is_subset(&p.features))
+        {
+            return Err(format!(
+                "combined feature selection does not satisfy {}",
+                catalogue.name
+            ));
+        }
+    }
+    selection.driver_features = enabled;
+    build.args(trial.get_args().skip(build.get_args().count()));
+    Ok(selection)
+}
+
+fn resolve_model(build: &mut Command, profile: &Profile) -> Result<Selection> {
     let query = Query::from_build(build)?;
     let graph = query.graph(build, None)?;
     let Some(detector) = profile.detector()? else {
@@ -80,42 +173,7 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
     // workspace-inherited dependencies. It cannot address an arbitrary transitive
     // dependency's feature from an external consumer. Keep that composition edge
     // explicit instead of synthesizing manifests or service feature forwarding.
-    let metadata = query.metadata(build)?;
-    let app = metadata["packages"]
-        .as_array()
-        .ok_or("Cargo metadata did not return packages")?
-        .iter()
-        .find(|package| {
-            package["manifest_path"]
-                .as_str()
-                .and_then(|path| PathBuf::from(path).canonicalize().ok())
-                .is_some_and(|path| path == query.manifest)
-        })
-        .ok_or("Cargo metadata did not contain the application manifest")?;
-    let mut candidates = BTreeSet::new();
-    if package.depth == 0 {
-        candidates.insert(wanted.to_owned());
-    } else if package.depth == 1 {
-        for dependency in app["dependencies"]
-            .as_array()
-            .ok_or("Cargo metadata did not contain application dependencies")?
-        {
-            if dependency["name"] != "nxrs-detector" || !dependency["kind"].is_null() {
-                continue;
-            }
-            let alias = dependency["rename"]
-                .as_str()
-                .or_else(|| dependency["name"].as_str())
-                .ok_or("Cargo dependency did not have a name")?;
-            // A weak feature edge cannot turn on a disabled optional dependency.
-            let weak = if dependency["optional"].as_bool() == Some(true) {
-                "?"
-            } else {
-                ""
-            };
-            candidates.insert(format!("{alias}{weak}/{wanted}"));
-        }
-    }
+    let candidates = query.feature_candidates(build, package, wanted)?;
     for feature in candidates {
         let resolved = query.graph(build, Some(&feature))?;
         if resolved.get(identity).is_some_and(|package| {
@@ -135,6 +193,7 @@ fn selection(graph: Graph, model_features: Vec<String>) -> Selection {
     Selection {
         packages: graph.into_keys().collect(),
         model_features,
+        driver_features: vec![],
     }
 }
 
@@ -270,6 +329,49 @@ impl Query {
             query.args(["--features", feature]);
         }
         parse_tree(&capture(&mut query)?)
+    }
+
+    fn feature_candidates(
+        &self,
+        build: &Command,
+        package: &Package,
+        wanted: &str,
+    ) -> Result<BTreeSet<String>> {
+        if package.depth == 0 {
+            return Ok(BTreeSet::from([wanted.to_owned()]));
+        }
+        if package.depth != 1 {
+            return Ok(BTreeSet::new());
+        }
+        let metadata = self.metadata(build)?;
+        let app = metadata["packages"]
+            .as_array()
+            .ok_or("missing Cargo packages")?
+            .iter()
+            .find(|p| {
+                p["manifest_path"]
+                    .as_str()
+                    .and_then(|p| PathBuf::from(p).canonicalize().ok())
+                    .is_some_and(|p| p == self.manifest)
+            })
+            .ok_or("missing application manifest")?;
+        app["dependencies"]
+            .as_array()
+            .ok_or("missing Cargo dependencies")?
+            .iter()
+            .filter(|d| d["name"] == package.name && d["kind"].is_null())
+            .map(|d| {
+                let alias = d["rename"]
+                    .as_str()
+                    .or(d["name"].as_str())
+                    .ok_or("missing dependency name")?;
+                // A weak edge cannot activate an unconsumed optional catalogue.
+                Ok(format!(
+                    "{alias}{}/{wanted}",
+                    if d["optional"] == true { "?" } else { "" }
+                ))
+            })
+            .collect()
     }
 
     fn metadata(&self, build: &Command) -> Result<Value> {

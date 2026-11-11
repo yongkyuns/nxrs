@@ -118,7 +118,7 @@ class DeploymentTests(unittest.TestCase):
                 PLATFORM.resolve('bad', self.root)
 
     def test_target_validation_checks_whole_platform_not_only_current_crate(self):
-        self.profile('radio', 'execution="nuttx"\n[hal]\nwifi="nuttx"\n')
+        self.profile('radio', 'execution="nuttx"\n[hal]\nwifi="nuttx"\n[wifi]\ninterface="wlan0"\n')
         platform = PLATFORM.resolve('radio', self.root)
         PLATFORM.validate_target(platform, 'nuttx')
         for os in ('linux', 'macos', 'windows', 'none'):
@@ -146,7 +146,7 @@ class DeploymentTests(unittest.TestCase):
                     PLATFORM.validate_target(profile, wrong)
 
     def test_real_os_bindings_cannot_target_bare_metal(self):
-        self.profile('device', '[hal]\ncamera="nuttx"\nstorage="nuttx"\n')
+        self.profile('device', '[hal]\ncamera="nuttx"\nstorage="nuttx"\n[camera]\ndevice="/dev/video0"\n')
         profile = PLATFORM.resolve('device', self.root)
         with self.assertRaisesRegex(ValueError, 'does not support target OS none'):
             PLATFORM.validate_target(profile, 'none')

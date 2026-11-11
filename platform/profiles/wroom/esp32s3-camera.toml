@@ -47,3 +47,6 @@ require = [
   "CONFIG_SYSLOG_CONSOLE=y",
 ]
 forbid-regex = "^CONFIG_(ESP32S3_QEMU_IMAGE|SMP|ESPRESSIF_WIFI|ESPRESSIF_BLE)=y$"
+
+[camera]
+device = "/dev/video0"

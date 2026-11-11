@@ -48,8 +48,6 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-imu-devices': {'embedded-hal'},
-    # Pinned no_std UBX codec; fixed buffers, no alloc/std/serial/runtime features.
-    'nxrs-gnss': {'kinavis-ubx'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.
@@ -391,7 +389,9 @@ def declared_binding_catalogs(package: Path, stack=()) -> list[Path]:
             path = package / declaration
             path.resolve().relative_to(package)
             result.append(path)
-        elif isinstance(declaration, dict) and set(declaration) == {'dependency'}:
+        elif isinstance(declaration, dict) and set(declaration) in ({'dependency'}, {'dependency', 'feature'}):
+            if 'feature' in declaration and declaration['feature'] not in manifest.get('features', {}):
+                raise ValueError('binding feature must name a declared Cargo feature')
             alias = declaration['dependency']
             if not isinstance(alias, str):
                 raise ValueError('binding import requires a dependency alias')
@@ -420,8 +420,8 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
     relative = lambda path: path.relative_to(root).as_posix()
     for capability in ('imu', 'gnss'):
         hal = root / 'hal' / capability
-        owner = root / 'platform/devices/imu' if capability == 'imu' else hal
-        nuttx = owner / ('src/nuttx/mod.rs' if capability == 'imu' else 'src/platform/nuttx/mod.rs')
+        owner = root / 'platform/devices' / capability
+        nuttx = owner / 'src/nuttx/mod.rs'
         if not nuttx.is_file():
             continue
         build = owner / 'build.rs'
@@ -503,8 +503,18 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
                     continue
                 if any(re.search(r'\b' + re.escape(name) + r'\b', path.read_text()) for name in implementations):
                     errors.append(f'{relative(path)}: concrete sensor wiring belongs in the platform device catalogue')
-        elif not re.search(r'Session::start\(STACK_BYTES\s*,', source):
-            errors.append(f'{relative(nuttx)}: generated execution budget must feed the checked-in factory')
+        else:
+            runtime = (hal / 'src/platform/nuttx/mod.rs').read_text()
+            compact = re.sub(r'\s+', '', source)
+            if ('static$name:Instance<' not in compact or '$stack' not in compact
+                    or 'Worker::start_guarded' not in runtime
+                    or 'storage: Mutex<Option<Active<R>>>' not in runtime
+                    or re.search(r'\bstatic\s+OWNED\b', runtime)):
+                errors.append(f'{relative(nuttx)}: GNSS must retain canonical state through guarded retirement')
+            manifest_data = tomllib.loads((hal / 'Cargo.toml').read_text())
+            for table in [manifest_data, *manifest_data.get('target', {}).values()]:
+                if 'nxrs-ubx-driver' in table.get('dependencies', {}):
+                    errors.append('hal/gnss: concrete receiver construction belongs in the platform catalogue')
 
     return errors
 

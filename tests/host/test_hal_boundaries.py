@@ -175,6 +175,22 @@ class HalBoundariesTests(unittest.TestCase):
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
 
+    def test_gnss_uses_driver_declarations_and_retains_canonical_ownership(self):
+        for relative in ("platform/devices/gnss/Cargo.toml", "platform/devices/gnss/build.rs",
+                         "platform/devices/gnss/src/nuttx/mod.rs", "driver/ubx/Cargo.toml",
+                         "driver/ubx/bindings.toml", "hal/gnss/Cargo.toml",
+                         "hal/gnss/src/platform/nuttx/mod.rs"):
+            self.write(relative, (ROOT / relative).read_text())
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        runtime = self.root / "hal/gnss/src/platform/nuttx/mod.rs"
+        original = runtime.read_text()
+        runtime.write_text(original.replace("Worker::start_guarded", "Worker::start"))
+        self.assertTrue(any("canonical state" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
+        runtime.write_text(original)
+        manifest = self.root / "hal/gnss/Cargo.toml"
+        manifest.write_text(manifest.read_text().replace("[dependencies]", "[dependencies]\nnxrs-ubx-driver = { path = \"../../driver/ubx\" }"))
+        self.assertTrue(any("concrete receiver construction" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
+
     def test_platform_wiring_and_ordinary_test_selection_are_allowed(self):
         self.write('hal/demo/src/lib.rs', '#[cfg(target_os = "linux")] mod selected;')
         self.write('hal/demo/src/worker.rs', '#[cfg(test)] mod tests; // no target_os selection\n')

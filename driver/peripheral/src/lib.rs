@@ -3,3 +3,5 @@
 #![forbid(unsafe_code)]
 
 pub mod imu;
+
+pub mod gnss;

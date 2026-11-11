@@ -362,6 +362,7 @@ pub fn build(
     let selection = crate::cargo_graph::resolve(&mut command, p)?;
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
+    deployment["driver_features"] = json!(selection.driver_features);
     write_json(&out.join("provider-selection.json"), &deployment)?;
     let messages = out.join("cargo-messages.jsonl");
     build::cargo_messages(&mut command, &messages)?;

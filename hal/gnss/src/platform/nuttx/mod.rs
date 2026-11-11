@@ -1,36 +1,41 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
-use crate::{session::WorkerSession, DeviceError, Event, Session};
-use acquisition::{nuttx as events, readiness};
+#[cfg(test)]
+use crate::test_support::{events, ffi};
+use crate::{receiver::Receiver, DeviceError, Event, Session};
+#[cfg(not(test))]
+use acquisition::nuttx as events;
+use acquisition::readiness;
+use acquisition::Worker;
 use core::sync::atomic::{AtomicU8, Ordering};
+use peripheral::gnss::Receiver as Protocol;
+use std::sync::Mutex;
 use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
     os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
 };
+#[cfg(not(test))]
 #[allow(unsafe_code)]
 mod ffi;
 
-struct Binding<'a> {
-    path: &'a str,
-    baud: u32,
-}
-mod implementations {
-    pub(super) type NeoM9n<S> = crate::receiver::Receiver<S>;
+const TRANSACTION_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+fn deadline() -> std::time::Instant {
+    std::time::Instant::now() + TRANSACTION_BUDGET
 }
 
-include!(concat!(env!("OUT_DIR"), "/gnss_config.rs"));
-
-static OWNED: AtomicU8 = AtomicU8::new(0);
-struct Lease;
-impl Drop for Lease {
+struct UseGuard(&'static AtomicU8);
+impl Drop for UseGuard {
     fn drop(&mut self) {
-        let _ = OWNED.compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire);
+        let _ = self
+            .0
+            .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire);
     }
 }
 struct Port {
     file: File,
     saved: [u8; 64],
     restored: bool,
+    state: &'static AtomicU8,
 }
 impl Port {
     fn restore(&mut self) -> Result<(), DeviceError> {
@@ -39,7 +44,7 @@ impl Port {
         }
         self.restored = true;
         ffi::restore(self.file.as_raw_fd(), &self.saved).map_err(|_| {
-            OWNED.store(2, Ordering::Release);
+            self.state.store(2, Ordering::Release);
             DeviceError::Io
         })
     }
@@ -49,9 +54,10 @@ impl Drop for Port {
         let _ = self.restore();
     }
 }
-struct Serial {
+/// Owned UART stream supplied to a protocol driver by catalogue construction.
+pub struct Serial {
     port: Port,
-    _lease: Lease,
+    _guard: UseGuard,
 }
 impl Read for Serial {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
@@ -66,45 +72,59 @@ impl Write for Serial {
         self.port.file.flush()
     }
 }
-struct Device {
-    receiver: Implementation<Serial>,
+struct Active<R: Protocol + AsRef<Serial> + AsMut<Serial>> {
+    receiver: Receiver<R>,
     cleaned: bool,
 }
-impl Device {
+impl<R: Protocol + AsRef<Serial> + AsMut<Serial>> Active<R> {
     fn cleanup(&mut self) -> Result<(), DeviceError> {
         if self.cleaned {
             return Ok(());
         }
         self.cleaned = true;
-        let receiver = self.receiver.restore();
-        let port = self.receiver.io_mut().port.restore();
+        let receiver = self
+            .receiver
+            .source
+            .restore(deadline())
+            .map_err(crate::receiver::map_error);
+        let port = self.receiver.source.as_mut().port.restore();
         if receiver.is_err() || port.is_err() {
-            OWNED.store(2, Ordering::Release);
+            self.receiver
+                .source
+                .as_ref()
+                .port
+                .state
+                .store(2, Ordering::Release);
         }
         receiver.and(port)
     }
 }
-impl Drop for Device {
+impl<R: Protocol + AsRef<Serial> + AsMut<Serial>> Drop for Active<R> {
     fn drop(&mut self) {
         let _ = self.cleanup();
     }
 }
-fn acquire() -> Result<Device, DeviceError> {
-    OWNED
+fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
+    state: &'static AtomicU8,
+    path: &str,
+    baud: u32,
+    construct: fn(Serial) -> R,
+) -> Result<Active<R>, DeviceError> {
+    state
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-        .map_err(|state| {
-            if state == 1 {
+        .map_err(|value| {
+            if value == 1 {
                 DeviceError::Busy
             } else {
                 DeviceError::Io
             }
         })?;
-    let lease = Lease;
+    let guard = UseGuard(state);
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .custom_flags(ffi::nonblocking_flag())
-        .open(BINDING.path)
+        .open(path)
         .map_err(|_| DeviceError::Io)?;
     let mut saved = [0; 64];
     ffi::capture(file.as_raw_fd(), &mut saved).map_err(|_| DeviceError::Io)?;
@@ -112,58 +132,127 @@ fn acquire() -> Result<Device, DeviceError> {
         file,
         saved,
         restored: false,
+        state,
     };
-    ffi::configure(port.file.as_raw_fd(), &port.saved, BINDING.baud)
-        .map_err(|_| DeviceError::Io)?;
-    // Port restores/closes before the lease can admit another receiver.
-    let mut receiver = Implementation::new(Serial {
+    ffi::configure(port.file.as_raw_fd(), &port.saved, baud).map_err(|_| DeviceError::Io)?;
+    let mut source = construct(Serial {
         port,
-        _lease: lease,
+        _guard: guard,
     });
-    if let Err(error) = receiver.configure() {
-        if receiver.restore().is_err() {
-            OWNED.store(2, Ordering::Release);
+    if let Err(error) = source.configure(deadline()) {
+        if source.restore(deadline()).is_err() {
+            state.store(2, Ordering::Release);
         }
-        return Err(error);
+        return Err(crate::receiver::map_error(error));
     }
-    Ok(Device {
-        receiver,
+    Ok(Active {
+        receiver: Receiver::new(source),
         cleaned: false,
     })
 }
 
-pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
-    sink: S,
-) -> Result<impl Session + Send + 'static, DeviceError> {
-    let mut device = acquire()?;
-    let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
-    let wake = cancel.reader.clone();
-    WorkerSession::start(STACK_BYTES, cancel, sink, move |stop, emit| {
-        let origin = std::time::Instant::now();
-        let result = (|| {
-            while !stop.load(Ordering::Acquire) {
-                if !readiness::wait(&device.receiver.io().port.file, &wake, events::wait)
-                    .map_err(|_| DeviceError::Io)?
-                {
-                    break;
-                }
-                let mut connected = true;
-                let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
-                device.receiver.read_events(now, |fix| {
-                    if connected {
-                        connected = match fix {
-                            Ok(fix) => emit(Event::Fix(fix)),
-                            Err(DeviceError::Busy) => true,
-                            Err(_) => emit(Event::InvalidFrame),
-                        };
+/// One canonical physical receiver. Aliases must return this same static object.
+pub struct Instance<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> {
+    id: &'static str,
+    path: &'static str,
+    baud: u32,
+    stack_bytes: usize,
+    state: AtomicU8,
+    storage: Mutex<Option<Active<R>>>,
+    construct: fn(Serial) -> R,
+}
+impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> Instance<R> {
+    pub const fn new(
+        id: &'static str,
+        path: &'static str,
+        baud: u32,
+        stack_bytes: usize,
+        construct: fn(Serial) -> R,
+    ) -> Self {
+        Self {
+            id,
+            path,
+            baud,
+            stack_bytes,
+            state: AtomicU8::new(0),
+            storage: Mutex::new(None),
+            construct,
+        }
+    }
+}
+struct Retained<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static>(&'static Instance<R>);
+impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> Drop for Retained<R> {
+    fn drop(&mut self) {
+        let mut storage = self.0.storage.lock().unwrap_or_else(|error| {
+            self.0.state.store(2, Ordering::Release);
+            error.into_inner()
+        });
+        drop(storage.take());
+    }
+}
+impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::api::Sealed
+    for Instance<R>
+{
+}
+impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device for Instance<R> {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+    fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+        &'static self,
+        sink: S,
+    ) -> Result<impl Session + Send + 'static, DeviceError> {
+        let device = acquire(&self.state, self.path, self.baud, self.construct)?;
+        *self.storage.lock().map_err(|_| {
+            self.state.store(2, Ordering::Release);
+            DeviceError::Io
+        })? = Some(device);
+        // Keep ownership through terminal delivery, sink destruction and cleanup.
+        let delivery = (sink, Retained(self));
+        let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
+        let wake = cancel.reader.clone();
+        Worker::start_guarded(
+            "gnss-acquire",
+            self.stack_bytes,
+            cancel,
+            delivery.0,
+            delivery.1,
+            Event::Failed,
+            move |stop, emit| {
+                let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
+                let device = storage.as_mut().ok_or(DeviceError::Io)?;
+                let origin = std::time::Instant::now();
+                let result = (|| {
+                    while !stop.load(Ordering::Acquire) {
+                        if !readiness::wait(
+                            &device.receiver.source.as_ref().port.file,
+                            &wake,
+                            events::wait,
+                        )
+                        .map_err(|_| DeviceError::Io)?
+                        {
+                            break;
+                        }
+                        let mut connected = true;
+                        let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+                        device.receiver.read_events(now, |fix| {
+                            if connected {
+                                connected = match fix {
+                                    Ok(fix) => emit(Event::Fix(fix)),
+                                    Err(DeviceError::Busy) => true,
+                                    Err(_) => emit(Event::InvalidFrame),
+                                };
+                            }
+                        })?;
+                        if !connected {
+                            break;
+                        }
                     }
-                })?;
-                if !connected {
-                    break;
-                }
-            }
-            Ok(())
-        })();
-        device.cleanup().and(result)
-    })
+                    Ok(())
+                })();
+                device.cleanup().and(result)
+            },
+        )
+        .map_err(|_| DeviceError::Io)
+    }
 }

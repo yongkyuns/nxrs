@@ -103,6 +103,40 @@ impl Composition {
         Ok(names)
     }
 
+    pub(crate) fn gnss_accessors<'a>(
+        &'a self,
+        catalogs: &Catalogs,
+    ) -> Result<BTreeMap<&'a str, &'a str>> {
+        let mut names: BTreeMap<_, _> = self
+            .devices
+            .iter()
+            .filter(|(_, d)| {
+                catalogs
+                    .values("gnss")
+                    .any(|b| b["compatible"] == d.compatible)
+            })
+            .map(|(id, _)| (id.as_str(), id.as_str()))
+            .collect();
+        for (alias, id) in &self.aliases {
+            if alias == "gnss" || alias.starts_with("gnss_") {
+                let name = gnss_alias_name(alias)?;
+                if names.insert(name, id).is_some_and(|old| old != id) {
+                    return Err(format!("GNSS accessor {name} conflicts with alias {alias}"));
+                }
+                if !self.devices.get(id).is_some_and(|d| {
+                    catalogs
+                        .values("gnss")
+                        .any(|b| b["compatible"] == d.compatible)
+                }) {
+                    return Err(format!(
+                        "GNSS alias {alias} must select a supported receiver"
+                    ));
+                }
+            }
+        }
+        Ok(names)
+    }
+
     pub fn imu(&self) -> Option<ImuBinding<'_>> {
         let device_id = self.aliases.get("imu")?;
         let device = self.devices.get(device_id)?;
@@ -537,14 +571,18 @@ pub(crate) fn resolve_with_providers_and_origins(
     validate_ids(&resources, &devices, &aliases, origins)?;
     validate_aliases(&aliases).map_err(|e| diagnostic(origins, "aliases", &e))?;
     for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
-        let alias = aliases.contains_key(capability)
-            || (capability == "imu" && aliases.keys().any(|alias| alias.starts_with("imu_")));
-        if alias && provider != "nuttx" {
-            return Err(diagnostic(
-                origins,
-                &format!("aliases.{capability}"),
-                &format!("physical {capability} composition requires the nuttx provider"),
-            ));
+        if provider != "nuttx" {
+            let prefix = format!("{capability}_");
+            if let Some(alias) = aliases
+                .keys()
+                .find(|alias| alias.as_str() == capability || alias.starts_with(&prefix))
+            {
+                return Err(diagnostic(
+                    origins,
+                    &format!("aliases.{alias}"),
+                    &format!("physical {capability} composition requires the nuttx provider"),
+                ));
+            }
         }
         if provider == "nuttx" && !aliases.contains_key(capability) {
             let mut candidates = devices.iter().filter(|(_, device)| {
@@ -605,6 +643,9 @@ pub(crate) fn resolve_with_providers_and_origins(
     };
     graph
         .imu_accessors(catalogs)
+        .map_err(|error| diagnostic(origins, "aliases", &error))?;
+    graph
+        .gnss_accessors(catalogs)
         .map_err(|error| diagnostic(origins, "aliases", &error))?;
     Ok(Some(graph))
 }
@@ -1086,14 +1127,30 @@ fn accessor_name(name: &str) -> Result<()> {
     }
     Ok(())
 }
+fn gnss_alias_name(alias: &str) -> Result<&str> {
+    if alias == "gnss" {
+        return Ok("primary_gnss");
+    }
+    let name = alias
+        .strip_prefix("gnss_")
+        .ok_or("unsupported GNSS alias")?;
+    if matches!(name, "primary" | "primary_gnss") {
+        return Err("use aliases.gnss for the primary GNSS receiver".into());
+    }
+    accessor_name(name)?;
+    Ok(name)
+}
 fn validate_aliases(aliases: &BTreeMap<String, String>) -> Result<()> {
     for alias in aliases.keys() {
-        if alias != "gnss" {
+        if alias == "gnss" || alias.starts_with("gnss_") {
+            gnss_alias_name(alias)?;
+        } else {
             imu_alias_name(alias)?;
         }
     }
     Ok(())
 }
+
 fn decode<T: DeserializeOwned>(value: &Value, message: &str) -> Result<T> {
     T::deserialize(value).map_err(|error| format!("{message}: {error}"))
 }
@@ -1157,7 +1214,10 @@ mod tests {
     fn fixture_catalogs() -> Catalogs {
         let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut catalogs = Catalogs::default();
-        for (capability, directory) in [("imu", "platform/devices/imu"), ("gnss", "hal/gnss")] {
+        for (capability, directory) in [
+            ("imu", "platform/devices/imu"),
+            ("gnss", "platform/devices/gnss"),
+        ] {
             catalogs
                 .insert(
                     capability,
@@ -1185,6 +1245,40 @@ mod tests {
             "devices":{"navigation":{"compatible":"u-blox,neo-m9n","bus":"uart1"}},
             "aliases":{"gnss":"navigation"}
         })
+    }
+
+    #[test]
+    fn gnss_names_aliases_and_independent_uarts_generate_canonical_instances() {
+        let catalogs = fixture_catalogs();
+        let mut data = gnss_profile();
+        data["resources"]["backup_uart"] =
+            json!({"kind":"uart", "device":"/dev/ttyS2", "baud":38400});
+        data["devices"]["backup"] = json!({"compatible":"u-blox,neo-m9n", "bus":"backup_uart"});
+        data["aliases"]["gnss_spare"] = json!("backup");
+        let resolve = |data: &Value| {
+            resolve_with_providers_and_origins(data, "none", "nuttx", &BTreeMap::new(), &catalogs)
+        };
+        let graph = resolve(&data).unwrap().unwrap();
+        let names = graph.gnss_accessors(&catalogs).unwrap();
+        assert_eq!(names["primary_gnss"], "navigation");
+        assert_eq!(names["spare"], "backup");
+        assert_eq!(names["backup"], "backup");
+        let generated =
+            crate::configuration::render_gnss_instances(&graph, &catalogs, 16384).unwrap();
+        assert_eq!(generated.matches("declare_device!(").count(), 2);
+        assert!(generated.contains("fn r#spare()"));
+        let mut conflict = data.clone();
+        conflict["aliases"]["gnss_backup"] = json!("navigation");
+        assert!(resolve(&conflict).is_err());
+        let mut unbound = data.clone();
+        unbound["aliases"] = json!({"gnss_spare": "backup"});
+        let error =
+            resolve_with_providers_and_origins(&unbound, "none", "none", &BTreeMap::new(), &catalogs)
+                .unwrap_err();
+        assert!(error.contains("aliases.gnss_spare"), "{error}");
+        assert!(error.contains("physical gnss composition requires the nuttx provider"));
+        data["resources"]["backup_uart"]["device"] = json!("/dev/ttyS1");
+        assert!(resolve(&data).is_err());
     }
 
     #[test]
@@ -1708,7 +1802,7 @@ mod tests {
         catalogs
             .insert(
                 "gnss",
-                crate::bindings::Package::load(&sdk.join("hal/gnss")).unwrap(),
+                crate::bindings::Package::load(&sdk.join("platform/devices/gnss")).unwrap(),
             )
             .unwrap();
         assert!(catalogs.package("imu").is_none());
@@ -1754,7 +1848,7 @@ mod tests {
         catalogs
             .insert(
                 "gnss",
-                crate::bindings::Package::load(&sdk.join("hal/gnss")).unwrap(),
+                crate::bindings::Package::load(&sdk.join("platform/devices/gnss")).unwrap(),
             )
             .unwrap();
         let error = super::resolve_with_providers_and_origins(

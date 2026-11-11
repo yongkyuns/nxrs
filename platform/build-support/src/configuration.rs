@@ -5,23 +5,6 @@ use crate::{
     Result,
 };
 
-pub fn render(
-    graph: &Composition,
-    alias: &str,
-    implementation: &str,
-    stack_bytes: u64,
-) -> Result<String> {
-    crate::bindings::validate_implementation(implementation)?;
-    let id = graph.aliases.get(alias).ok_or("missing device alias")?;
-    let (binding_type, fields) = resource_binding(graph, id)?;
-    Ok(format!(
-        "// Generated from validated device/resource bindings.\n\
-         use implementations::{implementation} as Implementation;\n\
-         const STACK_BYTES: usize = {stack_bytes};\n\
-         const BINDING: {binding_type}<'static> = {binding_type} {{ {fields} }};\n"
-    ))
-}
-
 fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, String)> {
     let device = graph.devices.get(id).ok_or("missing device")?;
     let bus = graph
@@ -57,10 +40,7 @@ fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, Stri
             let irq_path = irq_path()?;
             ("resources::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
         }
-        Resource::Uart { device: path, baud } => {
-            ("Binding", format!("path: {path:?}, baud: {baud}"))
-        }
-        Resource::GpioInterrupt { .. } => return Err("interrupt resource is not a bus".into()),
+        _ => return Err("IMU requires an I2C or SPI bus".into()),
     };
     Ok(binding)
 }
@@ -123,6 +103,46 @@ pub fn render_imu_instances(
     Ok(source)
 }
 
+/// Emit each UART receiver once; aliases borrow the canonical instance.
+pub fn render_gnss_instances(
+    graph: &Composition,
+    catalogs: &crate::bindings::Catalogs,
+    stack: u64,
+) -> Result<String> {
+    let mut source = String::from("// Generated canonical GNSS instances.\n");
+    let mut instances = std::collections::BTreeMap::new();
+    for (id, device) in &graph.devices {
+        if !catalogs
+            .values("gnss")
+            .any(|b| b["compatible"] == device.compatible)
+        {
+            continue;
+        }
+        let Some(Resource::Uart { device: path, baud }) = graph.resources.get(&device.bus) else {
+            return Err("GNSS requires a UART bus".into());
+        };
+        let binding = catalogs.binding("gnss", &device.compatible, "uart")?;
+        let implementation = binding["implementation"]
+            .as_str()
+            .ok_or("missing implementation")?;
+        crate::bindings::validate_implementation(implementation)?;
+        let name = format!("DEVICE_{}", instances.len());
+        source.push_str(&format!("declare_device!({name}, {id:?}, implementations::{implementation}, {path:?}, {baud}, {stack});\n"));
+        instances.insert(id.as_str(), name);
+    }
+    source.push_str("pub mod devices {\n");
+    for (accessor, id) in graph.gnss_accessors(catalogs)? {
+        let instance = instances
+            .get(id)
+            .ok_or("GNSS accessor references an inactive device")?;
+        source.push_str(&format!(
+            "pub fn r#{accessor}() -> &'static impl gnss::Device {{ &super::{instance} }}\n"
+        ));
+    }
+    source.push_str("}\n");
+    Ok(source)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,9 +165,8 @@ mod tests {
         let imu = render_imu_instances(&graph, &catalogs, 16384).unwrap();
         assert!(imu.contains("implementations::AnotherSensor"));
         assert!(imu.contains("address: 104, frequency: 400000, irq_path: None"));
-        let gnss = render(&graph, "gnss", "NeoM9n", 32768).unwrap();
-        assert!(gnss.contains("path: \"/dev/ttyS1\", baud: 38400"));
-        assert!(gnss.contains("STACK_BYTES: usize = 32768"));
+        let gnss = render_gnss_instances(&graph, profile.catalogs(), 32768).unwrap();
+        assert!(gnss.contains("implementations::NeoM9n, \"/dev/ttyS1\", 38400, 32768"));
         for invalid in [
             "",
             "Self",
@@ -155,9 +174,8 @@ mod tests {
             "Sensor;fn injected(){}",
             "1Sensor",
         ] {
-            assert!(render(&graph, "imu", invalid, 16384).is_err());
+            assert!(crate::bindings::validate_implementation(invalid).is_err());
         }
-        assert!(render(&graph, "unknown", "Sensor", 16384).is_err());
 
         // Compile both output contracts without hardware or target dependencies.
         let temp = TempDir::new(&std::env::temp_dir()).unwrap();
@@ -165,6 +183,7 @@ mod tests {
         fs::write(&witness, format!(r#"
             #![allow(dead_code, unused_imports)]
             extern crate self as imu;
+            extern crate self as gnss;
             trait Device {{}}
             mod imu_wiring {{
                 mod implementations {{ pub struct AnotherSensor; }}
@@ -179,9 +198,15 @@ mod tests {
                 }}
                 {imu}
             }}
-            mod gnss {{
+            mod gnss_wiring {{
                 mod implementations {{ pub struct NeoM9n; }}
-                struct Binding<'a> {{ path: &'a str, baud: u32 }}
+                struct Instance<R>(std::marker::PhantomData<R>);
+                impl<R> crate::Device for Instance<R> {{}}
+                macro_rules! declare_device {{
+                    ($name:ident, $id:literal, $receiver:ty, $path:literal, $baud:literal, $stack:literal) => {{
+                        static $name: Instance<$receiver> = Instance(std::marker::PhantomData);
+                    }};
+                }}
                 {gnss}
             }}
             fn main() {{}}

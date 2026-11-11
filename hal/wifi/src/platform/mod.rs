@@ -1,4 +1,6 @@
 //! Select one implementation from the validated profile binding.
+#[cfg(not(platform = "nuttx"))]
+mod unbound;
 cfg_if::cfg_if! {
     if #[cfg(platform = "linux")] {
         #[allow(unsafe_code)]
@@ -13,7 +15,6 @@ cfg_if::cfg_if! {
         mod nuttx;
         use nuttx as selected;
     } else {
-        mod unbound;
         use unbound as selected;
     }
 }

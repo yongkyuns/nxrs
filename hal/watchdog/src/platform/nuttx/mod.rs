@@ -25,8 +25,7 @@ struct Owner {
 /// nor restart it. Inherited driver timeout accounting may be zero; only the
 /// active/reset flags establish adoption, not a software time-left estimate.
 pub fn adopt() -> Result<impl ArmedWatchdog, DeviceError> {
-    // The selected ESP32-S3 board registers its reset watchdog at this node.
-    adopt_at(std::path::Path::new("/dev/watchdog2"))
+    adopt_at(std::path::Path::new(env!("WATCHDOG_DEVICE")))
 }
 
 pub(super) fn adopt_at(device: &std::path::Path) -> Result<impl ArmedWatchdog, DeviceError> {

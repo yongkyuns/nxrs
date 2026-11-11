@@ -10,6 +10,7 @@ members = [
     "platform/build",
     "platform/build-support",
     "platform/devices/imu",
+    "platform/devices/gnss",
     "hal/detector/build-support",
     "driver/bmi270",
     "driver/i2c",
@@ -71,6 +72,7 @@ members = [
 ]
 default-members = [
     "platform/devices/imu",
+    "platform/devices/gnss",
     "app/std-demo",
     "app/ao-stress",
     "app/home-cam",

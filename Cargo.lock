@@ -514,6 +514,7 @@ version = "0.1.0"
 name = "nxrs-event-demo"
 version = "0.1.0"
 dependencies = [
+ "nxrs-gnss-devices",
  "nxrs-imu-devices",
  "nxrs-navigation-services",
 ]
@@ -545,7 +546,18 @@ dependencies = [
  "nxrs-acquisition",
  "nxrs-build-support",
  "nxrs-messaging",
+ "nxrs-peripheral",
  "nxrs-simulation",
+ "nxrs-ubx-driver",
+]
+
+[[package]]
+name = "nxrs-gnss-devices"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
+ "nxrs-gnss",
  "nxrs-ubx-driver",
 ]
 
@@ -679,6 +691,7 @@ name = "nxrs-navigation-services"
 version = "0.1.0"
 dependencies = [
  "nxrs-gnss",
+ "nxrs-gnss-devices",
  "nxrs-imu",
  "nxrs-imu-devices",
  "nxrs-messaging",
@@ -894,6 +907,7 @@ name = "nxrs-ubx-driver"
 version = "0.1.0"
 dependencies = [
  "kinavis-ubx",
+ "nxrs-peripheral",
 ]
 
 [[package]]

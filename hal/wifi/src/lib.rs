@@ -13,6 +13,8 @@ pub use api::{
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 mod platform;
+#[cfg(any(platform = "nuttx", test))]
+mod quiescence;
 #[cfg(any(platform = "linux", platform = "macos", all(test, unix)))]
 mod shared;
 #[cfg(any(

@@ -1,16 +1,12 @@
 //! Own the GIO ABI once. Contract-only and mock builds need no GLib SDK.
-use nxrs_build_support::{native, profile::Profile, sdk_root, Result};
+use nxrs_build_support::{native, selected_profile, Result};
 use std::{env, path::PathBuf};
 
 fn main() -> Result<()> {
-    println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
-    println!("cargo:rerun-if-env-changed=NXRS_SDK_ROOT");
-    let Some(name) = env::var_os("NXRS_PLATFORM") else {
+    let here = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing manifest")?);
+    let Some((root, profile)) = selected_profile(&here)? else {
         return Ok(());
     };
-    let here = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing manifest")?);
-    let root = sdk_root(&here)?;
-    let profile = Profile::resolve(&root, name.to_str().ok_or("platform name must be UTF-8")?)?;
     // Also watch provider declarations used by profile validation when disabled.
     for capability in ["wifi", "ble"] {
         for line in profile.cargo_output(

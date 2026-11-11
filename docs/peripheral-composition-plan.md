@@ -419,10 +419,10 @@ physical S8 results and unrelated radio/camera work separately scoped.
 
 Record current build duties and lifetime behavior before moving them. Shared
 preparation now loads package-owned catalogs and generates direct implementation
-selection with typed resource bindings. Unconditional NuttX sensor dependencies remain in the platform catalogue,
-which supplies named references to apps. Services accept device references and
-the IMU HAL consumes only normalized sensor operations. IMU now has permanent `Device` references, static per-device acquisition
-storage and per-device IRQ quarantine. GNSS retains its existing global owner.
+selection with typed resource bindings. Both catalogues supply named references
+to apps and use additive optional chip dependencies. Services receive normalized
+device references. IMU and GNSS have permanent `Device` references and static
+per-device acquisition storage; uncertain cleanup quarantines only that device.
 
 Extend the typed resource construction convention to permanent instances. Settle
 generated-input delivery and package-specific compiler/link configuration; the
@@ -485,14 +485,19 @@ responsibilities lacks a replacement.
 
 The configuration cleanup uses version 2 binding declarations, fixed I²C/UART
 resource contracts and direct checked-in implementation selection. The IMU platform catalogue imports
-its driver-owned declarations; GNSS retains its local binding file. This
+its driver-owned declarations; GNSS does likewise through its catalogue. This
 removes field-projection schemas and both model-enum tables. The reusable NuttX
 I²C adapter is owned by `driver/i2c`. Profile/overlay semantics and singleton ownership
 are preserved; detached build tests compile the actual IMU factory across both
-sensor selections. Optional dependency activation and per-device ownership remain
-open below.
+sensor selections. Optional dependency activation and per-device ownership are implemented below;
+the full native pre-Cargo handoff remains open.
 
 ### D2 — Make implementations optional and additive
+
+The catalogues now declare additive optional chip dependencies. Product builds
+derive features through direct catalogue dependencies before compiling; graph
+witnesses cover either IMU driver alone and both. I2C/SPI resource adapters remain
+common dependencies. Full pre-Cargo native preparation remains D1 work.
 
 Change `platform/devices/imu/Cargo.toml`, catalogue module admission, binding metadata
 and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named
@@ -511,7 +516,7 @@ unselected driver is absent in each single-model production build.
 
 ### D3 — Enforce canonical static objects and per-device ownership
 
-**IMU implemented in PR #306.** Named accessors refer to permanent objects;
+**IMU implemented in PR #306; GNSS now follows the same ownership boundary.** Named accessors refer to permanent objects;
 same-model and mixed-model devices acquire independently. Tests cover concurrent
 settings/events, Busy aliases, failure isolation, cancellation-setup rollback,
 terminal backpressure, callback retirement and per-instance IRQ quarantine.
@@ -520,8 +525,8 @@ Flat/protected target compile/link checks do not qualify physical concurrency.
 In the pinned 32-bit Xtensa release/probe witness, two BMI270 I²C slots and one
 LSM6DSO I²C slot occupy 144 + 144 + 168 = 456 static bytes; four aliases emit three
 objects. These sizes exclude worker stacks, transient buffers and OS allocations.
-Optional dependency selection (D2), full pre-Cargo handoff (D1) and GNSS instances
-remain separate unfinished work.
+Full pre-Cargo handoff (D1) remains unfinished. GNSS now owns per-receiver static storage and
+retains admission through terminal delivery, sink destruction and restored UART cleanup.
 
 Generate one actual static object for each active physical device with private
 configuration, persistent instance storage and ownership/fault state. Common HAL
@@ -545,7 +550,7 @@ behavior remains a separate gate.
 
 ### D4 — Prove reuse and detached package closure
 
-Migrate GNSS through the same declarative renderer and preparation path. Preserve
+GNSS now uses the same declarative preparation path and a platform catalogue. Preserve
 UART configuration/restore ordering, receiver initialization rollback, terminal
 faults and joined cleanup. Use it to demonstrate that the schema and instance
 machinery do not encode IMU knowledge; do not expand into an unrelated HAL rewrite.

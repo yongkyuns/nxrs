@@ -59,9 +59,8 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU/GNSS output generation lives in shared build support. The IMU platform catalogue imports version 2
-binding declarations from its chip driver dependencies; GNSS declares its file
-locally. They describe compatible devices, resource constraints and checked-in
+IMU/GNSS output generation lives in shared build support. Both platform
+catalogues import version 2 binding declarations from their chip drivers. They describe compatible devices, resource constraints and checked-in
 Rust implementation IDs. The shared renderer uses fixed typed resource
 contracts and selects the implementation directly. Separate field-projection
 schemas, generated model enums and runtime model matches have been removed.
@@ -69,11 +68,13 @@ Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
 stream metadata, acquisition and optional transaction timing.
 
-The IMU catalogue and GNSS HAL build scripts remain generic adapters. They preserve
+The IMU and GNSS catalogue build scripts remain generic adapters. They preserve
 package-specific provider flags, OUT_DIR delivery, simulation preparation and
-native compilation/linking. Full pre-Cargo handoff, optional driver selection and
-GNSS static runtime instances remain later work. IMU now generates one canonical
-instance per physical record and named alias accessors, as described below.
+native compilation/linking. Full pre-Cargo native handoff remains later work.
+Both catalogues use additive optional chip dependencies selected before
+compilation and generate one canonical
+instance per physical record and named alias accessors. GNSS preserves
+receiver/serial rollback and per-instance quarantine through sink retirement.
 
 ### Implemented IMU device access
 

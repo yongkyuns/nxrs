@@ -386,6 +386,7 @@ pub fn host(
     let selection = crate::cargo_graph::resolve(&mut command, profile)?;
     evidence["dependency_resolution"] = selection.json();
     evidence["model_features"] = json!(selection.model_features);
+    evidence["driver_features"] = json!(selection.driver_features);
     write_json(&out.join("provider-selection.json"), &evidence)?;
     run(&mut command)
 }

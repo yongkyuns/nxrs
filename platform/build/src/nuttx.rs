@@ -992,13 +992,17 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let selection = crate::cargo_graph::resolve(&mut cargo, p)?;
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
+    deployment["driver_features"] = json!(selection.driver_features);
     let editor_sdk: BTreeMap<_, _> = ["NXRS_PICO_SDK", "NXRS_TLS_ARCHIVE"]
         .into_iter()
         .filter_map(|name| env::var_os(name).map(|path| (name, PathBuf::from(path))))
         .collect();
     let editor = json!({
         "cargo": tools.cargo,
-        "features": options.features.iter().chain(&selection.model_features).collect::<Vec<_>>(),
+        "features": options.features.iter()
+            .chain(&selection.driver_features)
+            .chain(&selection.model_features)
+            .collect::<Vec<_>>(),
         "no_default_features": options.no_default_features,
         "sdk": editor_sdk,
     });
