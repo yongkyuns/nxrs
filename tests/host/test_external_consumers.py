@@ -223,7 +223,6 @@ class ExternalConsumerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "Linux GIO client selection")
     def test_unused_radio_binding_does_not_require_the_native_sdk(self):
         sdk = self.directory / "profile-sdk"
-        (sdk / "platform").mkdir()
         profiles = sdk / "tests/profiles"
         profiles.mkdir(parents=True)
         (sdk / "hal").symlink_to(self.directory / "deps/hal", target_is_directory=True)

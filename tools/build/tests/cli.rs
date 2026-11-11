@@ -93,6 +93,15 @@ fn editor_switch_preserves_project_settings_on_invalid_build() {
 }
 
 fn write_imu_fixture(root: &Path) {
+    use std::io::Write;
+    writeln!(
+        fs::OpenOptions::new()
+            .append(true)
+            .open(root.join("Cargo.toml"))
+            .unwrap(),
+        "\n[workspace.metadata.nxrs.device-catalogues]\nimu = 'platform/devices/imu'"
+    )
+    .unwrap();
     let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     fs::create_dir_all(root.join("platform/nuttx/resources")).unwrap();
     fs::write(

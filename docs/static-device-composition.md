@@ -173,9 +173,12 @@ Do not restore per-field Rust projection schemas, programmable TOML, templates o
 per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
-Discover bindings through explicit package-relative metadata or imports naming
-declared normal Cargo path dependencies. Chip resource constraints belong with
-the driver; product profiles assign actual endpoints, addresses and aliases.
+The SDK's `workspace.metadata.nxrs.device-catalogues` maps capability names to
+catalogue package directories. The resolver reads only the entries for the
+profile's declared capabilities and tracks the workspace manifest in build
+receipts. Packages still declare their binding files and imports relative to
+their Cargo manifest. Drivers declare resource constraints. Product profiles
+assign actual endpoints, addresses and aliases.
 The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.

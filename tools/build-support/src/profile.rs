@@ -1,6 +1,6 @@
 //! One resolver for CLI builds and HAL build scripts.
 use crate::{
-    bindings::{Catalogs, Package},
+    bindings::Catalogs,
     composition::{self, Composition},
     hash_bytes, overlay, read, Result,
 };
@@ -289,21 +289,12 @@ impl Profile {
         let capabilities = self.data["hal"]
             .as_object()
             .ok_or("[hal] must be a table")?;
-        let mut catalogs = Catalogs::default();
         for capability in capabilities.keys() {
             if !CAPABILITIES.contains(&capability.as_str()) {
                 return Err(format!("unknown capability: {capability}"));
             }
-            let catalogue = root.join("platform/devices").join(capability);
-            let directory = if catalogue.join("Cargo.toml").is_file() {
-                catalogue
-            } else {
-                root.join("hal").join(capability)
-            };
-            let package = Package::load(&directory)?;
-            catalogs.insert(capability, package)?;
         }
-        self.catalogs = catalogs;
+        self.catalogs = Catalogs::load(&root, capabilities.keys().map(String::as_str))?;
         self.sdk_root = Some(root);
         Ok(())
     }
@@ -542,6 +533,7 @@ impl Profile {
                 "resolver": "peripheral-profile-v1-declarative-inputs",
                 "inputs": self.inputs,
                 "binding-inputs": self.catalogs.report(),
+                "catalogue-workspace": self.catalogs.workspace_manifest,
             })
             .to_string()
             .as_bytes(),
@@ -1011,6 +1003,7 @@ mod tests {
         let wifi = root.join("hal/wifi");
         fs::create_dir_all(&profiles).unwrap();
         fs::create_dir_all(&wifi).unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
         fs::write(
             wifi.join("Cargo.toml"),
             "[package]\nname='nxrs-wifi'\n[package.metadata.nxrs]\nplatforms=['nuttx']\n",
@@ -1154,20 +1147,20 @@ mod tests {
     #[test]
     fn explicit_sdk_catalogs_track_catalog_bytes_without_scanning_other_hals() {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
-        let directory = temp.0.join("hal/imu");
+        let workspace = temp.0.canonicalize().unwrap().join("Cargo.toml");
+        let declarations =
+            "[workspace.metadata.nxrs.device-catalogues]\nimu='wiring/sensor'\ngnss='absent'\n";
+        fs::write(&workspace, declarations).unwrap();
+        let directory = temp.0.join("wiring/sensor");
         fs::create_dir_all(&directory).unwrap();
         fs::write(
             directory.join("Cargo.toml"),
-            "[package]\nname='nxrs-imu'\nversion='0.1.0'\n\
-             [package.metadata.nxrs]\nbindings=['bindings.toml']\n",
+            "[package]\nname='nxrs-imu-devices'\nversion='0.1.0'\n\
+             [package.metadata.nxrs]\nkind='device-catalogue'\nbindings=['bindings.toml']\n",
         )
         .unwrap();
         let catalog = "version=2\n[[binding]]\ncompatible='vendor,sensor'\nbus='i2c'\nimplementation='Sensor'\n";
         fs::write(directory.join("bindings.toml"), catalog).unwrap();
-        // An unrelated package is deliberately incomplete.
-        fs::create_dir_all(temp.0.join("hal/gnss")).unwrap();
-        fs::write(temp.0.join("hal/gnss/Cargo.toml"), "invalid").unwrap();
-
         let profile_path = temp.0.join("profile.toml");
         let profile_contents = "[hal]\nimu='none'\n";
         fs::write(&profile_path, profile_contents).unwrap();
@@ -1175,9 +1168,10 @@ mod tests {
             Profile::from_data(json!({"hal":{"imu":"none"}}), vec![profile_path.clone()]);
         assert!(profile.catalogs().package("imu").is_none());
         profile.load_catalogs(&temp.0).unwrap();
-        assert_eq!(profile.catalogs().source_paths().count(), 2);
+        assert_eq!(profile.catalogs().source_paths().count(), 3);
         assert!(profile.catalogs().package("gnss").is_none());
-        assert_eq!(profile.source_paths().count(), 3);
+        assert_eq!(profile.source_paths().count(), 4);
+        assert!(profile.source_paths().any(|path| path == &workspace));
         assert!(profile
             .source_paths()
             .any(|path| path.ends_with("bindings.toml")));
@@ -1223,5 +1217,14 @@ mod tests {
 
         changed.data["hal"]["gnss"] = json!("none");
         assert!(changed.load_catalogs(&temp.0).is_err());
+        fs::write(
+            &workspace,
+            declarations.replace("wiring/sensor", "../sensor"),
+        )
+        .unwrap();
+        let error = profile.load_catalogs(&temp.0).unwrap_err();
+        assert!(
+            error.contains("device-catalogues.imu") && error.contains("contained relative path")
+        );
     }
 }

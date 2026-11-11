@@ -21,6 +21,7 @@ pub struct Input {
 #[derive(Debug, Clone)]
 pub struct Package {
     pub name: String,
+    device_catalogue: bool,
     pub manifest: Input,
     pub catalogs: Vec<Input>,
     pub dependencies: Vec<Input>,
@@ -142,6 +143,10 @@ impl Package {
         stack.pop();
         Ok(Self {
             name,
+            device_catalogue: data
+                .pointer("/package/metadata/nxrs/kind")
+                .and_then(Value::as_str)
+                == Some("device-catalogue"),
             manifest,
             catalogs,
             dependencies,
@@ -188,11 +193,60 @@ fn dependency(root: &Path, manifest: &Value, alias: &str) -> Result<(PathBuf, St
 
 #[derive(Debug, Clone, Default)]
 pub struct Catalogs {
+    pub(crate) workspace_manifest: Option<Input>,
     packages: BTreeMap<String, Package>,
     bindings: BTreeMap<(String, String, String), Value>,
 }
 
 impl Catalogs {
+    /// Read catalogue locations only for the capabilities declared by the profile.
+    pub(crate) fn load<'a>(
+        root: &Path,
+        capabilities: impl Iterator<Item = &'a str>,
+    ) -> Result<Self> {
+        let workspace_manifest = input(root, "Cargo.toml")?;
+        let workspace = parse(&workspace_manifest)?;
+        let declarations = workspace
+            .pointer("/workspace/metadata/nxrs/device-catalogues")
+            .map(|value| {
+                value.as_object().ok_or(
+                    "workspace.metadata.nxrs.device-catalogues must be a table of package paths",
+                )
+            })
+            .transpose()?;
+        let mut catalogs = Self {
+            workspace_manifest: Some(workspace_manifest),
+            ..Self::default()
+        };
+        for capability in capabilities {
+            let package = if let Some(path) = declarations.and_then(|map| map.get(capability)) {
+                let key = format!("workspace.metadata.nxrs.device-catalogues.{capability}");
+                let relative = path
+                    .as_str()
+                    .ok_or_else(|| format!("{key} must be a package path"))?;
+                let directory =
+                    contained_path(root, relative).map_err(|error| format!("{key}: {error}"))?;
+                let mut package = Package::load(&directory)?;
+                let expected = format!("nxrs-{capability}-devices");
+                if !package.device_catalogue
+                    || package.name != expected
+                    || package.catalogs.is_empty()
+                {
+                    return Err(format!(
+                        "{key} must name the {expected} device-catalogue package with bindings"
+                    ));
+                }
+                // Watch the declared path as well as the resolved binding inputs.
+                package.manifest.path = root.join(relative).join("Cargo.toml");
+                package
+            } else {
+                Package::load(&root.join("hal").join(capability))?
+            };
+            catalogs.insert(capability, package)?;
+        }
+        Ok(catalogs)
+    }
+
     pub fn insert(&mut self, capability: &str, package: Package) -> Result<()> {
         if !identifier(capability) {
             return Err(format!("invalid binding capability: {capability}"));
@@ -253,6 +307,7 @@ impl Catalogs {
         self.packages
             .values()
             .flat_map(Package::inputs)
+            .chain(self.workspace_manifest.iter())
             .map(|input| &input.path)
     }
 
@@ -362,7 +417,7 @@ fn parse(source: &Input) -> Result<Value> {
     serde_json::to_value(data).map_err(|error| error.to_string())
 }
 
-fn input(root: &Path, relative: &str) -> Result<Input> {
+fn contained_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = Path::new(relative);
     if relative.is_empty()
         || relative.contains(['\\', ':', '\0', '\r', '\n'])
@@ -379,9 +434,21 @@ fn input(root: &Path, relative: &str) -> Result<Input> {
     let canonical = path
         .canonicalize()
         .map_err(|error| format!("{}: {error}", path.display()))?;
-    if !canonical.starts_with(root) || !canonical.is_file() {
+    if !canonical.starts_with(root) {
         return Err(format!(
-            "package declaration escapes its package or is not a file: {}",
+            "package declaration escapes its root: {}",
+            path.display()
+        ));
+    }
+    Ok(canonical)
+}
+
+fn input(root: &Path, relative: &str) -> Result<Input> {
+    let canonical = contained_path(root, relative)?;
+    let path = root.join(relative);
+    if !canonical.is_file() {
+        return Err(format!(
+            "package declaration is not a file: {}",
             path.display()
         ));
     }
