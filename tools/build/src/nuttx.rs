@@ -1057,16 +1057,13 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     fs::write(out.join("rust-elf-header.txt"), header).map_err(|e| e.to_string())?;
     let symbols = output(tools.command(&format!("{}nm", tools.prefix)).arg(&elf))?;
     require_symbols(&symbols, &[("main", "T")])?;
-    if abi == "active" {
-        require_symbols(
-            &symbols,
-            &[
-                ("pthread_create", "U"),
-                ("pthread_join", "U"),
-                ("clock_gettime", "U"),
-            ],
-        )?;
-    }
+    // An active ABI makes these APIs available; it does not require an app to
+    // use them. Check only retained strong imports after the native link.
+    let runtime_symbols = if abi == "active" {
+        runtime_symbol_requirements(&symbols)
+    } else {
+        Vec::new()
+    };
     fs::write(out.join("rust-symbols.txt"), symbols).map_err(|e| e.to_string())?;
     // Qualification is an independent test program, not build configuration policy.
     run(tools
@@ -1133,13 +1130,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         None
     };
     let mut needed = vec![(entry_symbol.as_str(), "TtWw")];
-    if abi == "active" {
-        needed.extend([
-            ("pthread_create", "TtWw"),
-            ("pthread_join", "TtWw"),
-            ("clock_gettime", "TtWw"),
-        ]);
-    }
+    needed.extend(runtime_symbols);
     require_symbols(user_symbols.as_deref().unwrap_or(&symbols), &needed)?;
     if let Some(user_symbols) = user_symbols {
         fs::write(out.join("user-symbols.txt"), user_symbols).map_err(|e| e.to_string())?;
@@ -1538,15 +1529,28 @@ fn reset_output(out: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn has_symbol(symbols: &str, name: &str, kinds: &str) -> bool {
+    symbols.lines().any(|line| {
+        let words: Vec<_> = line.split_whitespace().collect();
+        words.len() >= 2
+            && words[words.len() - 1] == name
+            && words[words.len() - 2].len() == 1
+            && kinds.contains(words[words.len() - 2])
+    })
+}
+
+fn runtime_symbol_requirements(symbols: &str) -> Vec<(&'static str, &'static str)> {
+    ["pthread_create", "pthread_join", "clock_gettime"]
+        .into_iter()
+        .filter(|name| has_symbol(symbols, name, "U"))
+        // A weak undefined symbol (lowercase w) is not a resolved function.
+        .map(|name| (name, "TtW"))
+        .collect()
+}
+
 fn require_symbols(symbols: &str, required: &[(&str, &str)]) -> Result<()> {
     for (name, kinds) in required {
-        if !symbols.lines().any(|line| {
-            let words: Vec<_> = line.split_whitespace().collect();
-            words.len() >= 2
-                && words[words.len() - 1] == *name
-                && words[words.len() - 2].len() == 1
-                && kinds.contains(words[words.len() - 2])
-        }) {
+        if !has_symbol(symbols, name, kinds) {
             return Err(format!("ELF missing required symbol {name}"));
         }
     }
@@ -1605,6 +1609,63 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn minimal_application_does_not_require_runtime_calls() {
+        let symbols = "00000000 T main\n         U puts\n";
+        assert!(runtime_symbol_requirements(symbols).is_empty());
+        assert!(require_symbols(symbols, &[("main", "T")]).is_ok());
+        assert!(require_symbols("         U puts\n", &[("main", "T")]).is_err());
+    }
+
+    #[test]
+    fn runtime_requirements_follow_each_retained_import() {
+        for name in ["pthread_create", "pthread_join", "clock_gettime"] {
+            let input = format!("00000000 T main\n         U {name}\n");
+            let required = runtime_symbol_requirements(&input);
+            assert_eq!(required, vec![(name, "TtW")]);
+            for kind in ["T", "t", "W"] {
+                assert!(require_symbols(&format!("00000000 {kind} {name}\n"), &required).is_ok());
+            }
+            for kind in ["U", "w", "v", "D", "B"] {
+                assert!(require_symbols(&format!("00000000 {kind} {name}\n"), &required).is_err());
+            }
+            assert!(require_symbols("", &required).is_err());
+        }
+    }
+
+    #[test]
+    fn threaded_application_does_not_require_clock_calls() {
+        let input = "00000000 T main\n         U pthread_create\n         U pthread_join\n";
+        let required = runtime_symbol_requirements(input);
+        assert_eq!(
+            required,
+            vec![("pthread_create", "TtW"), ("pthread_join", "TtW")]
+        );
+        let output = "00000000 T pthread_create\n00000010 T pthread_join\n";
+        assert!(require_symbols(output, &required).is_ok());
+        assert!(require_symbols("00000010 T pthread_join\n", &required).is_err());
+        assert!(require_symbols("00000000 T pthread_create\n", &required).is_err());
+    }
+
+    #[test]
+    fn runtime_import_selection_uses_exact_names_and_types() {
+        let symbols = "         U pthread_create_extra\n\
+                       00000000 T pthread_create\n\
+                                w pthread_join\n\
+                                v clock_gettime\n\
+                                U clock_gettime64\n\
+                               UU pthread_create\n";
+        assert!(runtime_symbol_requirements(symbols).is_empty());
+        assert_eq!(
+            runtime_symbol_requirements("U clock_gettime\nU pthread_join\nU pthread_create\n"),
+            vec![
+                ("pthread_create", "TtW"),
+                ("pthread_join", "TtW"),
+                ("clock_gettime", "TtW")
+            ]
+        );
+    }
+
     #[test]
     fn direct_application_init_does_not_require_a_shell() {
         let mut profile = Profile::from_data(json!({}), vec![]);

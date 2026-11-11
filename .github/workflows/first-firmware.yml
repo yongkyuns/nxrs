@@ -1,0 +1,75 @@
+name: First firmware tutorial
+
+on:
+  push:
+    branches: [main]
+    paths: ['website/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+  pull_request:
+    paths: ['website/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-to-qemu:
+    name: Build tutorial source and execute on NuttX
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.90.0
+      - name: Install tutorial build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep the package list in the user guide as the source of truth.
+          mapfile -t packages < <(python3 - <<'PY'
+          import shlex, sys
+          sys.path.insert(0, 'website/tests')
+          from check_examples import block
+          lines = block('firmware.md', 'packages', 'sh').splitlines()
+          args = shlex.split(lines[1])
+          if args[:4] != ['sudo', 'apt-get', 'install', '-y']:
+              raise SystemExit('unexpected guide package-install command')
+          print('\n'.join(args[4:]))
+          PY
+          )
+          test "${#packages[@]}" -gt 0
+          bash .github/scripts/install-ubuntu-packages.sh "${packages[@]}"
+          python3 -m venv target/tutorial-venv
+          target/tutorial-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/tutorial-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Install and verify compiler and emulator tools
+        run: bash tools/install-qemu-tools.sh
+      - name: Console and source-workflow regression tests
+        run: python3 -m unittest discover -s website/tests -p test_first_firmware.py -v
+      - name: Build, boot, edit, rebuild and extend the source application
+        run: python3 website/tests/first_firmware.py
+      - name: Retain source identities, build records and console transcripts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: first-firmware-tutorial
+          path: |
+            target/first-firmware/
+            target/build/hello/esp32s3-qemu-mock/*.json
+            target/build/hello/esp32s3-qemu-mock/*.config
+          if-no-files-found: warn
+          retention-days: 14
