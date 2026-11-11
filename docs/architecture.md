@@ -18,14 +18,14 @@ explains the current evidence for the bounded single-inbox path.
 
 The [declarative build and static device decision](static-device-composition.md)
 records the accepted follow-up to composition v1. It is tracked in
-[issue #246](https://github.com/yongkyuns/nxrs/issues/246). IMU has canonical
-instances with direct device accessors and aliases; GNSS retains its default owner.
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246). IMU and GNSS use
+canonical instances with direct device accessors and aliases.
 
 HAL crates retain runtime contracts/implementations, native ABI source and
 declarative support metadata. Shared build tooling will own configuration
 generation and native compilation orchestration. Ordinary additive Cargo
-features enable implementations; profiles define physical devices and aliases.
-Each active physical device will have one canonical static opaque object,
+features enable implementations, and profiles define physical devices and aliases.
+Each active IMU or GNSS device has one canonical static opaque object
 with private instance state and an exclusive acquisition lease. Multiple aliases
 can refer to that same object; multiple devices can use the same implementation.
 
