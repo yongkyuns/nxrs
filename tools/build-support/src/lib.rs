@@ -146,6 +146,9 @@ pub fn selected_profile(manifest: &Path) -> Result<Option<(std::path::PathBuf, p
         resolved::load(&path, &root, name, &target, &os)?
     } else {
         let profile = profile::Profile::resolve(&root, name.ok_or("missing platform name")?)?;
+        if os == "nuttx" && profile.data.get("board").is_some() {
+            return Err("NuttX profile builds require prepared inputs; use cargo nxrs build with --platform or --profile".into());
+        }
         profile.validate_cargo_target(&target, &os)?;
         profile
     };
@@ -163,8 +166,7 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     profile.detector()
 }
 
-/// Link ABI glue for an explicitly acquired OS resource. Standalone Cargo
-/// builds can compile it using the configured native context.
+/// Link resource ABI glue prepared by the firmware frontend.
 pub fn configure_resource() -> Result<()> {
     use std::{env, path::PathBuf};
     let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing manifest")?);
@@ -225,7 +227,7 @@ pub fn configure_hal() -> Result<String> {
                 let variable =
                     format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
                 if env::var_os(&variable).is_none() {
-                    return Err(format!("{package} requires Cargo feature {feature}; use cargo nxrs build or enable the prepared profile's driver features"));
+                    return Err(format!("{package} is missing the profile-derived {feature} dependency; rerun cargo nxrs build"));
                 }
             }
         }

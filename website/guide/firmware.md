@@ -2,6 +2,8 @@
 
 Continue with the `hello` source project from [Your first application](first-application.md). This chapter builds that same Cargo package for **ESP32-S3 under NuttX**, boots it in QEMU, and checks an edit/rebuild cycle. No board or precompiled firmware download is needed.
 
+The supported `cargo nxrs build` command derives driver features from the platform profile; you do not need to select chip features manually.
+
 ## Prepare Ubuntu
 
 Use **Ubuntu 24.04 on Linux x86-64** for this walkthrough. The repository's pinned compiler/emulator installer checks the host architecture. Host-only development can still use macOS or Windows; this target setup is a separate Linux environment.

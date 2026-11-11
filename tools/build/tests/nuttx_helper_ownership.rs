@@ -27,7 +27,7 @@ fn build(root: &Path, extra: &[&str]) -> std::process::Output {
         .env("NXRS_NUTTX_NATIVE_CONFIG", root.join("native.json"))
         .env("NXRS_PLATFORM", "m5stack-cores3-gnss")
         .env("NXRS_SDK_ROOT", SDK)
-        .env_remove("NXRS_RESOLVED_PROFILE")
+        .env("NXRS_RESOLVED_PROFILE", root.join("profile.json"))
         .env_remove("CARGO_BUILD_TARGET")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
@@ -88,7 +88,7 @@ fn only_consumed_helpers_compile_and_cargo_revisits_changed_native_inputs() {
         let metadata = if directory == "selected" {
             "[features]\nhelper=[]\n[package.metadata.nxrs]\nkind=\"hal-capability\"\n[package.metadata.nxrs.platform.nuttx]\nrequired-features=[\"helper\"]\n"
         } else {
-            ""
+            "[package.metadata.nxrs]\nkind=\"native-resource\"\n"
         };
         fs::write(path.join("Cargo.toml"),format!("[package]\nname={package:?}\nversion=\"0.0.0\"\nedition=\"2021\"\n{metadata}[build-dependencies]\nnxrs-build-support={{path={support:?}}}\n")).unwrap();
         fs::write(path.join("src/lib.rs"),"#[cfg(feature=\"helper\")] extern \"C\" { fn device_value() -> i32; }\npub fn value() -> i32 { #[cfg(feature=\"helper\")] { unsafe { device_value() } } #[cfg(not(feature=\"helper\"))] { 1 } }\n").unwrap();
@@ -167,43 +167,29 @@ fn main() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(runs(root, &build(root, &[])), 1);
-    assert_eq!(runs(root, &build(root, &[])), 1);
-    // NuttX Make writes and removes this temporary file after Cargo. No header
-    // changed, so directory mtime churn must not rerun the owning HAL's script.
-    let temporary_header = include.join("nuttx/config.h.tmp");
-    fs::write(&temporary_header, "temporary generated configuration").unwrap();
-    fs::remove_file(&temporary_header).unwrap();
-    assert_eq!(runs(root, &build(root, &[])), 1);
-    fs::write(&header, "#define DEVICE_ABI 8\n").unwrap();
-    let stale = build(root, &[]);
-    assert!(!stale.status.success());
-    assert!(String::from_utf8_lossy(&stale.stderr).contains("configured NuttX headers changed"));
-    let mut data = read_json(&context).unwrap();
-    data["config_sha256"] = json!(hash(&header).unwrap());
-    write_json(&context, &data).unwrap();
-    assert_eq!(runs(root, &build(root, &[])), 2);
-    assert_eq!(runs(root, &build(root, &[])), 2);
-    fs::write(private.join("context.h"), "#define CONTEXT_ABI 4\n").unwrap();
-    assert_eq!(runs(root, &build(root, &[])), 3);
-    // Used headers outside include/ are tracked by compiler dependencies, too.
-    fs::remove_file(private.join("context.h")).unwrap();
-    assert!(!build(root, &[]).status.success());
-    fs::write(private.join("context.h"), "#define CONTEXT_ABI 4\n").unwrap();
-    assert_eq!(runs(root, &build(root, &[])), 4);
-    fs::write(
-        root.join("selected/src/platform/nuttx/ffi/value.c"),
-        "#include <nuttx/config.h>\nint device_value(void) { return DEVICE_ABI + 1; }\n",
-    )
-    .unwrap();
-    assert_eq!(runs(root, &build(root, &[])), 5);
     let owner = root.join("selected").canonicalize().unwrap();
     let cores3 = Profile::resolve(Path::new(SDK), "m5stack-cores3-gnss").unwrap();
+    nxrs_build_support::resolved::write(
+        &root.join("profile.json"),
+        Path::new(SDK),
+        &cores3,
+        TARGET,
+        "nuttx",
+    )
+    .unwrap();
     let wroom = Profile::resolve(Path::new(SDK), "esp32s3-camera-stream-mcuboot").unwrap();
     let enabled = BTreeSet::from(["helper".to_owned()]);
     assert!(prepared_resource::selected(&owner, &cores3, &enabled).unwrap());
     assert!(!prepared_resource::selected(&owner, &cores3, &BTreeSet::new()).unwrap());
     assert!(!prepared_resource::selected(&owner, &wroom, &enabled).unwrap());
+    let missing = build(root, &[]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("use cargo nxrs build"));
+    assert!(
+        !calls.exists(),
+        "Cargo must not compile unprepared resources"
+    );
+
     let cache = root.join("prepared");
     let compile_count = || fs::read_to_string(&calls).unwrap().lines().count();
     let prepare = || {
@@ -215,42 +201,87 @@ fn main() {
             &env::var_os("PATH").unwrap(),
         )
     };
-    let before = compile_count();
     let archive = prepare().unwrap();
-    assert_eq!(compile_count(), before + 2);
     write_json(
         &cache.join(prepared_resource::PACKAGE_LIST),
         &json!([owner]),
     )
     .unwrap();
+    assert_eq!(compile_count(), 2);
     assert_eq!(prepare().unwrap(), archive);
-    assert_eq!(runs(root, &build(root, &[])), 6);
-    assert_eq!(runs(root, &build(root, &[])), 6);
-    assert_eq!(compile_count(), before + 3);
+    assert_eq!(compile_count(), 3);
+    assert_eq!(runs(root, &build(root, &[])), 1);
+    assert_eq!(runs(root, &build(root, &[])), 1);
     let disabled = build(root, &["--no-default-features"]);
     assert!(
         disabled.status.success(),
         "{}",
         String::from_utf8_lossy(&disabled.stderr)
     );
-    assert_eq!(compile_count(), before + 3);
+    assert_eq!(compile_count(), 3);
     assert!(Command::new(root.join("target/debug/consumer"))
         .arg("1")
         .status()
         .unwrap()
         .success());
-    assert_eq!(runs(root, &build(root, &[])), 6);
+    assert_eq!(runs(root, &build(root, &[])), 1);
+    // NuttX Make's temporary config file must not invalidate an unchanged header.
+    let temporary_header = include.join("nuttx/config.h.tmp");
+    fs::write(&temporary_header, "temporary generated configuration").unwrap();
+    fs::remove_file(&temporary_header).unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 1);
+    assert_eq!(compile_count(), 3, "Cargo must only consume the archive");
+    fs::write(&header, "#define DEVICE_ABI 8\n").unwrap();
+    let stale = build(root, &[]);
+    assert!(!stale.status.success());
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("configured NuttX headers changed"));
+    let mut data = read_json(&context).unwrap();
+    data["config_sha256"] = json!(hash(&header).unwrap());
+    write_json(&context, &data).unwrap();
+    assert!(!build(root, &[]).status.success());
+    prepare().unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 2);
+    assert_eq!(runs(root, &build(root, &[])), 2);
+    fs::write(private.join("context.h"), "#define CONTEXT_ABI 4\n").unwrap();
+    assert!(!build(root, &[]).status.success());
+    prepare().unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 3);
+    // Headers outside include/ remain tracked, including deletion and repair.
+    fs::remove_file(private.join("context.h")).unwrap();
+    assert!(!build(root, &[]).status.success());
+    assert!(prepare().is_err());
+    fs::write(private.join("context.h"), "#define CONTEXT_ABI 4\n").unwrap();
+    prepare().unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 4);
+    fs::write(
+        root.join("selected/src/platform/nuttx/ffi/value.c"),
+        "#include <nuttx/config.h>\nint device_value(void) { return DEVICE_ABI + 1; }\n",
+    )
+    .unwrap();
+    assert!(!build(root, &[]).status.success());
+    let archive = prepare().unwrap();
+    assert_eq!(runs(root, &build(root, &[])), 5);
+    let before = compile_count();
+    let included = build(root, &["--features", "unused-helper"]);
+    assert!(!included.status.success());
+    assert!(String::from_utf8_lossy(&included.stderr).contains("cargo nxrs build"));
+    assert_eq!(
+        compile_count(),
+        before,
+        "Cargo must not compile a missing helper"
+    );
+
     fs::write(&header, "#define DEVICE_ABI 19\n").unwrap();
     data["config_sha256"] = json!(hash(&header).unwrap());
     write_json(&context, &data).unwrap();
     let stale = build(root, &[]);
     assert!(!stale.status.success());
     assert!(String::from_utf8_lossy(&stale.stderr).contains("stale native resource inputs"));
-    assert_eq!(compile_count(), before + 3);
+    assert_eq!(compile_count(), before);
     let updated = prepare().unwrap();
     assert_ne!(updated, archive);
-    assert_eq!(runs(root, &build(root, &[])), 7);
-    assert_eq!(compile_count(), before + 5);
+    assert_eq!(runs(root, &build(root, &[])), 6);
+    assert_eq!(compile_count(), before + 2);
     assert!(Command::new(root.join("target/debug/consumer"))
         .arg("20")
         .status()
@@ -291,15 +322,16 @@ fn main() {
         .contains("changed during compilation"));
     fs::remove_file(mutate).unwrap();
     prepare().unwrap();
-    let included = build(root, &["--features", "unused-helper"]);
-    assert!(!included.status.success());
-    assert!(String::from_utf8_lossy(&included.stderr)
-        .contains("unconsumed private helper must not compile"));
+    runs(root, &build(root, &[]));
+    let before = compile_count();
     fs::create_dir(root.join(".cargo")).unwrap();
-    fs::write(
-        root.join(".cargo/config.toml"),
-        "[env]\nCPATH = '/fixture/include'\n",
-    )
-    .unwrap();
-    assert!(prepared_resource::cargo_compiler_environment(root).unwrap());
+    let config = root.join(".cargo/config.toml");
+    fs::write(&config, "[env]\nCPATH = '/fixture/include'\n").unwrap();
+    let changed_environment = build(root, &[]);
+    assert!(!changed_environment.status.success());
+    assert!(String::from_utf8_lossy(&changed_environment.stderr)
+        .contains("stale native resource inputs"));
+    assert_eq!(compile_count(), before, "Cargo must not compile a fallback");
+    fs::write(config, "[build]\njobs = 2\n").unwrap();
+    runs(root, &build(root, &[]));
 }
