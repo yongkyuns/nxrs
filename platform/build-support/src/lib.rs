@@ -171,18 +171,17 @@ pub fn configure_resource() -> Result<()> {
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
     let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
     let target = env::var("TARGET").map_err(|e| e.to_string())?;
-    let prepared = prepared_resource::ENVIRONMENT;
-    println!("cargo:rerun-if-env-changed={prepared}");
-    let directives = match env::var_os(prepared) {
-        Some(path) if os == "nuttx" && prepared_resource::declared(&directory)? => {
-            prepared_resource::consume(&directory, &target, &PathBuf::from(path))?
-        }
-        _ => native::build(&directory, &os, &target, &out)?,
-    };
-    for line in directives {
+    for line in native::build(&directory, &os, &target, &out)? {
         println!("{line}");
     }
     Ok(())
+}
+
+fn capability_name(package: &str) -> Result<&str> {
+    let capability = package
+        .strip_prefix("nxrs-")
+        .ok_or("capability package name")?;
+    Ok(capability.strip_suffix("-devices").unwrap_or(capability))
 }
 
 /// Cargo adapter for shared profile, declarative configuration and native preparation.
@@ -210,10 +209,7 @@ pub fn configure_hal() -> Result<String> {
         return Ok("none".into());
     };
     let package = env::var("CARGO_PKG_NAME").map_err(|e| e.to_string())?;
-    let capability = package
-        .strip_prefix("nxrs-")
-        .ok_or("capability package name")?;
-    let capability = capability.strip_suffix("-devices").unwrap_or(capability);
+    let capability = capability_name(&package)?;
     let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
     for line in profile.cargo_output(&root, capability, &os)? {
         println!("{line}")

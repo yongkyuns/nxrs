@@ -278,12 +278,12 @@ separate qualification gates.
 The NuttX controller configures Make and generates target headers before invoking
 Cargo. A Make target exports its C compiler, archiver and flags into
 `native-context.json`, with the target and configured-header digest.
-The controller precompiles consumed NuttX resource archives for the shared
-acquisition worker, GPIO, I²C and SPI. Their Cargo adapters validate the prepared
-archive and link it. Standalone Cargo and builds with Cargo-only compiler
-environment overrides compile the shims through the existing adapter.
-Consumed HAL providers still compile their private ABI
-sources through their package adapters. NuttX owns OS drivers and registration.
+The controller precompiles the consumed NuttX resource and HAL ABI archives.
+HAL helpers follow the resolved profile binding and the required features
+selected by Cargo. Package adapters validate and link the archives listed for
+the build. Standalone Cargo, non-path dependencies and builds with Cargo-only
+compiler environment overrides compile shims through their package adapters.
+SDK preparation keeps its own build path. NuttX owns OS drivers and registration.
 
 The controller checks current compiler dependencies before reusing an archive,
 including headers that newly take precedence in the include search path.
