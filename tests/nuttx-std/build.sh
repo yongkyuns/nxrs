@@ -114,7 +114,7 @@ python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
 if test "$INTEGRATION" = 1; then
   APP="$OUT/apps/examples/nxrs_sim"
   mkdir -p "$APP"
-  cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
+  cp "$ROOT/tools/build/nuttx/qualification/"* "$APP/"
   cp "$ROOT/tests/nuttx/c/"* "$APP/"
   # The test-local DeviceCamera/OwnedFd interposes the real close bridge.
   # The nuttx-std profile leaves the production camera provider unbound.

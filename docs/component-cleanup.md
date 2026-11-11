@@ -53,11 +53,11 @@ datagrams. Sharing implementation does not erase those differences.
 | `hal/<capability>` | Public contract, errors, resource acquisition and device policy. |
 | `hal/acquisition` | Shared sensor worker, cancellation and scripted-session mechanics. |
 | `driver/linux/gio` | Shared GLib/GIO Rust bindings and one native ABI archive for Wi-Fi and BLE. |
-| `platform/build-support` | Generic host build, profile, native-tool and source helpers. |
-| `hal/detector/build-support` | Detector-owned numerical SDK build code and its compatibility header. |
-| `platform/build` | Application build controller, target configuration and qualification commands. |
+| `tools/build-support` | Generic host build, profile, native-tool and source helpers. |
+| `tools/detector-build-support` | Detector-owned numerical SDK build code and its compatibility header. |
+| `tools/build` | Application build controller, target configuration and qualification commands. |
 
-HALs own local `build.rs` entry points and depend on host helpers through
+Firmware manifests select tooling-owned Cargo adapters through
 `[build-dependencies]`. The build controller does not enter HAL or driver build
 closures. Detector build support can use generic support; generic support
 cannot depend back on a capability's SDK tooling. Apps/services cannot depend
@@ -123,9 +123,9 @@ never treated as evidence that the current build succeeded.
 | [Architecture controls](../tests/host/test_architecture.py) and [HAL boundary controls](../tests/host/test_hal_boundaries.py) | Reject runtime build-tool edges, escaped source imports, wildcard selectors and unreviewed native behavior; preserve explicit test witnesses. |
 | [Clean HAL isolation](../tools/check-hal-isolation.py) and [artifact rejection controls](../tests/host/test_hal_isolation.py) | Compare actual host/target artifacts for core, WASM, mock and native cases; reject controller contamination, missing packages and stale evidence. |
 | [Detached consumer](../tests/host/test_external_consumers.py) | Declared-package reuse, independent lockfile, renamed dependencies, real software operations and one GIO archive. |
-| [Cargo graph controls](../platform/build/tests/cargo_graph.rs) | Defaults, optional/target dependencies, aliases, compiler/configuration forwarding and excluded nonproduction edges. |
-| [Native helper ownership](../platform/build/tests/nuttx_helper_ownership.rs) and [header freshness](../platform/build/tests/native_header_freshness.rs) | Compile/link only consumed helpers; rerun or fail after header/source/configuration changes. |
-| [Reuse controls](../platform/build/src/reuse.rs) | Matching bytes, changed configuration, interrupted builds, explicit clean and unchanged-file timestamps. |
+| [Cargo graph controls](../tools/build/tests/cargo_graph.rs) | Defaults, optional/target dependencies, aliases, compiler/configuration forwarding and excluded nonproduction edges. |
+| [Native helper ownership](../tools/build/tests/nuttx_helper_ownership.rs) and [header freshness](../tools/build/tests/native_header_freshness.rs) | Compile/link only consumed helpers; rerun or fail after header/source/configuration changes. |
+| [Reuse controls](../tools/build/src/reuse.rs) | Matching bytes, changed configuration, interrupted builds, explicit clean and unchanged-file timestamps. |
 | [Storage faults](../hal/storage/src/file_tests.rs), [worker lifecycle](../hal/storage/src/recording/writer.rs) and [UDP tests](../hal/transport/tests) | Rollback, poisoning, bounded buffers, barriers, completion, packet bytes, rejection and distinct empty-packet behavior. |
 | [Native composition](../tests/native/tests/native.rs) | Independently decode persisted frames and UDP datagrams under unset/mock/host profiles; cover consumer restart, cleanup and small-stack buffers. |
 

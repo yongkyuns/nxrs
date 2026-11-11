@@ -657,7 +657,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         "features":options.features,"no_default_features":options.no_default_features,
         "size":size,"trace":trace,"immediate":immediate,"abi":abi,
         "nuttx":source::revision(root,"nuttx")?,"apps":source::revision(root,"nuttx-apps")?,
-        "build_inputs":reuse::snapshot(root,&["upstream","platform/nuttx/std-app"])?,
+        "build_inputs":reuse::snapshot(root,&["upstream","tools/build/nuttx/std-app"])?,
         "sdk":sdk_input,"sdk_inputs":reuse::sdk_snapshot(sdk_input)?,
         "compiler":hash(&tools.rustc)?,"native_compiler":hash(&tools.program(&format!("{}gcc",tools.prefix))?)?,
         "controller":hash(&env::current_exe().map_err(|e|e.to_string())?)?,"helpers":helper_inputs,
@@ -705,7 +705,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     };
     let entry = apps.join("examples/nxrs_std_app");
     fs::create_dir_all(&entry).map_err(|e| e.to_string())?;
-    for file in fs::read_dir(root.join("platform/nuttx/std-app")).map_err(|e| e.to_string())? {
+    for file in fs::read_dir(root.join("tools/build/nuttx/std-app")).map_err(|e| e.to_string())? {
         let file = file.map_err(|e| e.to_string())?;
         reuse::copy_if_changed(&file.path(), &entry.join(file.file_name()))?;
     }
@@ -1924,7 +1924,7 @@ mod rebuild_tests {
         .unwrap();
         fs::write(apps.join("Application.mk"), "").unwrap();
         fs::copy(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nuttx/std-app/Makefile"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("nuttx/std-app/Makefile"),
             entry.join("Makefile"),
         )
         .unwrap();

@@ -65,7 +65,7 @@ fn native_adapters_track_same_path_header_changes() {
              nxrs-detector-build-support = {{ path = {:?} }}\n\
              [workspace]\n",
             root.join("../build-support"),
-            root.join("../../hal/detector/build-support"),
+            root.join("../../tools/detector-build-support"),
         ),
     )
     .unwrap();
@@ -93,7 +93,7 @@ fn main() {{
     writeln!(runs, "run").unwrap();
 }}
 "#,
-            tls = root.join("../../hal/tls/build_sdk.rs"),
+            tls = root.join("../../tools/build-support/cargo/build_sdk.rs"),
         ),
     )
     .unwrap();

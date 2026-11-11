@@ -26,4 +26,4 @@ name = "imu-qualification"
 path = "src/main.rs"
 
 [build-dependencies]
-nxrs-build-support = { path = "../../../platform/build-support" }
+nxrs-build-support = { path = "../../../tools/build-support" }

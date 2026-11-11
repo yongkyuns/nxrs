@@ -363,7 +363,7 @@ cargo nxrs build --app event-demo --profile pico2-mock
 ~~~
 
 The repository alias invokes the narrowly scoped host-side
-`platform/build` package. It reads firmware-entry metadata from the selected
+`tools/build` package. It reads firmware-entry metadata from the selected
 app's existing `Cargo.toml`, validates the product-platform selection, and
 runs the shared Rust controller for SDK preparation, Cargo and native OS
 build/link/package steps. See [the build interface](build-system.md).

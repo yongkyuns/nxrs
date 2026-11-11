@@ -120,7 +120,7 @@ class UpstreamLayoutTests(unittest.TestCase):
         self.assertNotIn("HEAD:external/", userled)
         adapter = (ROOT / "tools/build-nuttx-std-app.sh").read_text()
         self.assertIn('cargo nxrs nuttx-build "$@"', adapter)
-        controller = (ROOT / "platform/build/src/nuttx.rs").read_text()
+        controller = (ROOT / "tools/build/src/nuttx.rs").read_text()
         self.assertIn('source::revision(root, "nuttx")?', controller)
         self.assertIn('source::revision(root, "nuttx-apps")?', controller)
         self.assertIn("nxrs_dirty=", controller)
@@ -132,8 +132,10 @@ class UpstreamLayoutTests(unittest.TestCase):
                 old = ROOT / "platform" / component
                 if component == "nuttx":
                     self.assertFalse((old / "patches").exists())
-                    for name in ("profiles", "qualification", "std-app"):
-                        self.assertTrue((old / name).is_dir())
+                    for name in ("qualification", "std-app"):
+                        self.assertTrue((ROOT / "tools/build/nuttx" / name).is_dir())
+                        self.assertFalse((old / name).exists())
+                    self.assertTrue((old / "resources").is_dir())
                     self.assertTrue((ROOT / "platform/profiles").is_dir())
                     self.assertTrue((ROOT / "tests/profiles").is_dir())
                 else:

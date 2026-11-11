@@ -69,12 +69,12 @@ qualification=userled-esp32s3
 provider_path=/dev/nxrs-userled
 lower_half=instrumented-test-not-physical-gpio
 USERLED_PROVENANCE
-sha256sum hal/led/Cargo.toml hal/led/build.rs hal/led/src/lib.rs hal/led/src/api.rs \
+sha256sum hal/led/Cargo.toml tools/build-support/cargo/hal.rs hal/led/src/lib.rs hal/led/src/api.rs \
   hal/led/src/platform/mod.rs hal/led/src/platform/nuttx/mod.rs \
   hal/led/src/platform/nuttx/ffi/userled.c \
-  platform/build-support/Cargo.toml platform/build-support/src/lib.rs \
-  platform/build-support/src/profile.rs platform/build-support/src/native.rs \
-  platform/build-support/src/native_nuttx.rs platform/nuttx/std-app/Makefile \
+  tools/build-support/Cargo.toml tools/build-support/src/lib.rs \
+  tools/build-support/src/profile.rs tools/build-support/src/native.rs \
+  tools/build-support/src/native_nuttx.rs tools/build/nuttx/std-app/Makefile \
   tests/profiles/esp32s3-userled.toml tests/profiles/esp32s3-qemu-mock.toml \
   tests/nuttx-std/userled/src/main.rs tests/nuttx-std/userled/nuttx/fixture.c \
   tests/nuttx-std/userled/Cargo.toml tests/nuttx-std/userled/build.sh > "$OUT/userled-sources.sha256"

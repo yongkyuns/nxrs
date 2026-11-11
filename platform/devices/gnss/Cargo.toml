@@ -1,4 +1,5 @@
 [package]
+build = "../../../tools/build-support/cargo/hal.rs"
 name = "nxrs-gnss-devices"
 version.workspace = true
 edition.workspace = true
@@ -21,4 +22,4 @@ nxrs-gnss = { path = "../../../hal/gnss" }
 nxrs-ubx-driver = { path = "../../../driver/ubx", optional = true }
 
 [build-dependencies]
-nxrs-build-support = { path = "../../build-support" }
+nxrs-build-support = { path = "../../../tools/build-support" }

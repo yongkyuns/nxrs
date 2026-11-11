@@ -124,7 +124,7 @@ kind = "abi"
 reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owning Rust provider."
 
 [[bridge]]
-path = "hal/detector/build-support/src/ffi/compat.hpp"
+path = "tools/detector-build-support/src/ffi/compat.hpp"
 kind = "abi"
 reason = "Mechanical allocator/timing hooks required by the pinned ESP-DL numerical SDK on std and NuttX. No Rust caller consumes these POSIX aliases; Rust owns JPEG validation, model output policy, worker synchronization and shutdown. The SDK launches no tasks."
 allowed_calls = ["clock_gettime"]

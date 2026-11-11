@@ -28,14 +28,14 @@ def canonical(value):
 
 def inventory():
     files = []
-    for directory in (HERE, ROOT / 'platform/build', ROOT / 'platform/build-support',
+    for directory in (HERE, ROOT / 'tools/build', ROOT / 'tools/build-support',
                       ROOT / 'upstream/rust-std', ROOT / 'upstream/nuttx',
                       ROOT / 'upstream/nuttx-apps', ROOT / 'upstream/esp-hal-3rdparty'):
         files.extend(p for p in directory.rglob('*') if p.is_file()
                      and not any(x in p.parts for x in ('target', '__pycache__', '.git'))
                      and (p.suffix in ('.rs', '.py', '.toml', '.lock', '.c', '.h', '.conf', '.overlay', '.patch', '.ld')
                           or p.name == 'CMakeLists.txt'))
-    files.extend(p for p in (ROOT / 'platform/nuttx/std-app').rglob('*') if p.is_file())
+    files.extend(p for p in (ROOT / 'tools/build/nuttx/std-app').rglob('*') if p.is_file())
     files.extend((ROOT / 'tests/profiles' / f'{b}-mpsc.toml') for b in BOARDS)
     files.extend([ROOT / 'upstream/build-patches.json', ROOT / 'Cargo.toml', ROOT / 'Cargo.lock', ROOT / '.cargo/config.toml',
                   ROOT / 'platform/nuttx/linker/esp32s3-mpsc.ld',

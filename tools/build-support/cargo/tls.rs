@@ -18,7 +18,6 @@ fn main() {
     }
     for path in [
         directory.join("src/sdk/ffi"),
-        directory.join("build_sdk.rs"),
         root.join("upstream/mbedtls/source.json"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
