@@ -35,13 +35,33 @@ For example, a data logger can separate input acquisition from formatting, recor
 | `hal/<capability>/` | Public capability API and implementations |
 | `hal/<capability>/src/platform/` | OS-specific implementation selection |
 | Provider-local `ffi/` directories | Native ABI bindings |
-| `platform/devices/` | Portable device catalogues and construction |
-| `platform/profiles/` and `platform/nuttx/` | Product and target configuration |
+| `platform/src/` | Named devices and typed constructors |
+| `platform/<platform>/profile.toml` and `platform/nuttx/` | Product and target configuration |
 | `service/` | Reusable application behavior |
 
 ## Add a peripheral
 
-Check the BSP registration, implement or reuse the resource adapter, then test the device protocol and capability lifecycle. Add its supported device and resource bindings to the profile configuration. Verify startup, I/O, failure handling, and shutdown on the target.
+First check what NuttX needs to expose. For a chip driven by NXRS over a
+raw bus, NuttX initializes the controller and registers the bus endpoint.
+The Rust driver owns the chip protocol. If the HAL uses a native NuttX
+device driver, enable that driver and register the device in board bring-up,
+then check that its file operations or ioctls match the HAL provider. If
+the device uses a wired interrupt, qualify the pin, trigger and readiness
+path on the board as well. See [Prepare the NuttX BSP](profiles.md#prepare-the-nuttx-bsp).
+
+With a supported driver and bus, add a device to the profile or overlay. If
+the bus is new to the profile, add a resource that selects its registered BSP
+binding and supplies bus and pin settings. The device names that resource,
+its driver-compatible string, and settings such as an address. An alias gives
+the app a stable device name.
+The [CoreS3 example](examples.md#add-a-second-sensor-on-cores3) shows the files
+and commands.
+
+For a new driver on a supported bus, implement the peripheral contract and
+declare the supported combinations in the driver's `bindings.toml`. Register
+one optional Cargo dependency in the composition crate. Build support enables
+it and generates the typed wiring for the selected device. See the
+[driver registration example](../../platform/README.md).
 
 DMA buffers, callbacks, file descriptors, and device leases must remain valid until the associated work has stopped. Include those lifetimes in tests when changing an implementation.
 

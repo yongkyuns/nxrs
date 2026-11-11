@@ -452,3 +452,9 @@ The following are architectural invariants:
 See [HAL capability architecture](hal-platform-architecture.md),
 [architecture](architecture.md), [NuttX std qualification](nuttx-std.md), and
 [NuttX descriptor ownership](nuttx-ownership.md).
+
+NuttX camera/watchdog device paths and the Wi-Fi interface name are explicit
+profile values (`camera.device`, `watchdog.device`, `wifi.interface`). They select
+existing BSP registrations; declaring a path does not create a driver or endpoint.
+GNSS device catalogues supply UART bindings and concrete protocol constructors;
+the HAL retains descriptor ownership, termios rollback and per-receiver faults.

@@ -51,15 +51,11 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertEqual(self.errors(), [])
 
     def write_declarative_imu(self):
-        self.write('platform/devices/imu/src/nuttx/mod.rs', '''
+        self.write('platform/src/nuttx/imu.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
-            mod implementations {
-                type Bmi270 = nxrs_bmi270::Bmi270<Bus, Delay>;
-                type Lsm6dso = nxrs_lsm6dso::Lsm6dso<Bus>;
-            }
             macro_rules! declare_device {
                 static $name: Instance<$sensor, $resources> = Instance::new(
-                    |trace| binding.open(trace), |bus, settings| {
+                    |trace| $open($binding, trace), |bus, settings| {
                     <$sensor>::from_interface(bus.try_into()?, Delay, settings)
                 });
             }
@@ -70,18 +66,31 @@ class HalBoundariesTests(unittest.TestCase):
             storage: Mutex<Option<device::Device<S>>>,
             Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
         """)
-        self.write('platform/devices/imu/build.rs', '''
+        self.write('tools/build-support/cargo/composition.rs', '''
             fn main() {
-                nxrs_build_support::configure_hal().unwrap_or_else(|error| panic!("{error}"));
+                nxrs_build_support::configure_composition().unwrap_or_else(|error| panic!("{error}"));
             }
         ''')
-        self.write('platform/devices/imu/Cargo.toml', '''
+        self.write('platform/Cargo.toml', '''
             [package]
-            name = "nxrs-imu"
+            name = "nxrs-composition"
+            build = "../tools/build-support/cargo/composition.rs"
+            [features]
+            imu = []
+            [package.metadata.nxrs]
+            device-capabilities = ["imu"]
+            [target.'cfg(target_os = "nuttx")'.dependencies]
+            sensor = { package = "nxrs-bmi270", path = "../driver/bmi270", optional = true }
+        ''')
+        self.write('driver/bmi270/Cargo.toml', '''
+            [package]
+            name = "nxrs-bmi270"
             [package.metadata.nxrs]
             bindings = ["bindings.toml"]
+            [package.metadata.nxrs.device]
+            capability = "imu"
         ''')
-        self.write('platform/devices/imu/bindings.toml', '''
+        self.write('driver/bmi270/bindings.toml', '''
             version = 2
             [[binding]]
             compatible = "bosch,bmi270"
@@ -92,13 +101,13 @@ class HalBoundariesTests(unittest.TestCase):
     def test_sensor_generation_uses_declarative_package_inputs(self):
         self.write_declarative_imu()
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
-        build = self.root / 'platform/devices/imu/build.rs'
+        build = self.root / 'tools/build-support/cargo/composition.rs'
         generic = build.read_text()
-        build.write_text(generic.replace('configure_hal()', 'configure_hal_with(emit)'))
+        build.write_text(generic.replace('configure_composition()', 'configure_composition_with(emit)'))
         self.assertTrue(any('generic shared-preparation' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         build.write_text(generic)
-        emitter = self.write('platform/devices/imu/build/emit.rs', 'fn emit() {}')
+        emitter = self.write('platform/build/emit.rs', 'fn emit() {}')
         self.assertTrue(any('host generation belongs' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         emitter.unlink()
@@ -106,21 +115,21 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_generated_sensor_include_matches_its_resource_contract(self):
         self.write_declarative_imu()
-        provider = self.root / 'platform/devices/imu/src/nuttx/mod.rs'
+        provider = self.root / 'platform/src/nuttx/imu.rs'
         provider.write_text(provider.read_text().replace('imu_config.rs', 'other.rs'))
         self.assertTrue(any('declared generated output' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
         provider.write_text(provider.read_text().replace('other.rs', 'imu_config.rs'))
-        manifest = self.root / 'platform/devices/imu/Cargo.toml'
+        manifest = self.root / 'driver/bmi270/Cargo.toml'
         manifest.write_text(manifest.read_text().replace('bindings.toml', '../outside.toml'))
         self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_generated_imu_keeps_the_current_checked_in_constructor_boundary(self):
         self.write_declarative_imu()
-        nuttx = self.root / 'platform/devices/imu/src/nuttx/mod.rs'
-        nuttx.write_text(nuttx.read_text().replace('type Bmi270 =', 'type Unknown ='))
-        self.assertTrue(any('checked-in typed constructor' in error
+        nuttx = self.root / 'platform/src/nuttx/imu.rs'
+        nuttx.write_text(nuttx.read_text() + '\ntype Bmi270 = sensor::Bmi270<Bus, Delay>;\n')
+        self.assertTrue(any('generate driver types' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_static_devices_cannot_regress_to_global_or_descriptor_only_ownership(self):
@@ -145,35 +154,30 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertTrue(any('concrete bindings belong' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
-    def test_sensor_bindings_can_belong_to_a_declared_driver(self):
+    def test_sensor_bindings_require_a_normal_optional_driver_dependency(self):
         self.write_declarative_imu()
-        catalog = self.root / 'platform/devices/imu/bindings.toml'
-        self.write('driver/bmi270/bindings.toml', catalog.read_text())
-        catalog.unlink()
-        driver = self.write('driver/bmi270/Cargo.toml', '''
-            [package]
-            name = "nxrs-bmi270"
-            [package.metadata.nxrs]
-            bindings = ["bindings.toml"]
-        ''')
-        manifest = self.write('platform/devices/imu/Cargo.toml', '''
-            [package]
-            name = "nxrs-imu"
-            [package.metadata.nxrs]
-            bindings = [{ dependency = "sensor" }]
-            [target.'cfg(target_os = "nuttx")'.dependencies]
-            sensor = { package = "nxrs-bmi270", path = "../../../driver/bmi270" }
-        ''')
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
-        original = manifest.read_text()
-        manifest.write_text(original.replace('.dependencies]', '.dev-dependencies]'))
-        self.assertTrue(any('normal Cargo path dependency' in error
-                            for error in CHECK.inspect_generated_imu_factory(self.root)))
-        manifest.write_text(original)
-        driver.write_text(driver.read_text().replace('bindings.toml', '../outside.toml'))
-        self.assertTrue(any('package-relative' in error
+        manifest = self.root / 'platform/Cargo.toml'
+        manifest.write_text(manifest.read_text().replace('.dependencies]', '.dev-dependencies]'))
+        self.assertTrue(any('optional Cargo path dependency' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
 
+    def test_gnss_uses_driver_declarations_and_retains_canonical_ownership(self):
+        for relative in ("platform/Cargo.toml", "tools/build-support/cargo/composition.rs",
+                         "platform/src/nuttx/gnss.rs", "driver/ubx/Cargo.toml",
+                         "driver/ubx/bindings.toml", "driver/bmi270/Cargo.toml",
+                         "driver/lsm6dso/Cargo.toml", "hal/gnss/Cargo.toml",
+                         "hal/gnss/src/platform/nuttx/mod.rs"):
+            self.write(relative, (ROOT / relative).read_text())
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        runtime = self.root / "hal/gnss/src/platform/nuttx/mod.rs"
+        original = runtime.read_text()
+        runtime.write_text(original.replace("Worker::start_guarded", "Worker::start"))
+        self.assertTrue(any("canonical state" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
+        runtime.write_text(original)
+        manifest = self.root / "hal/gnss/Cargo.toml"
+        manifest.write_text(manifest.read_text().replace("[dependencies]", "[dependencies]\nnxrs-ubx-driver = { path = \"../../driver/ubx\" }"))
+        self.assertTrue(any("concrete receiver construction" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_platform_wiring_and_ordinary_test_selection_are_allowed(self):
         self.write('hal/demo/src/lib.rs', '#[cfg(target_os = "linux")] mod selected;')
@@ -210,7 +214,7 @@ class HalBoundariesTests(unittest.TestCase):
             path.parent.rmdir()
 
     def test_std_cannot_return_as_a_platform_or_shared_provider_directory(self):
-        path = self.write('platform/profiles/std.toml', '[hal]\n')
+        path = self.write('platform/std/profile.toml', '[hal]\n')
         self.assertTrue(self.errors())
         path.unlink()
         path = self.write('hal/demo/src/platform/std/mod.rs', 'fn f() {}')
@@ -231,7 +235,7 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_driver_and_sdk_build_packages_retain_native_inventory_and_behavior_checks(self):
         for name in ('driver/linux/gio/src/platform/linux/ffi/gio.c',
-                     'hal/detector/build-support/src/ffi/compat.hpp'):
+                     'tools/detector-build-support/src/ffi/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.assertTrue(any('documented ABI boundary' in error for error in self.errors()))
@@ -244,7 +248,7 @@ class HalBoundariesTests(unittest.TestCase):
                 self.write('hal/ffi-boundaries.toml', '')
 
     def test_driver_and_sdk_glue_cannot_move_outside_the_owning_source_module(self):
-        for name in ('driver/linux/gio/ffi/gio.c', 'hal/detector/build-support/compat.hpp'):
+        for name in ('driver/linux/gio/ffi/gio.c', 'tools/detector-build-support/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')

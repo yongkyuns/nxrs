@@ -1,0 +1,452 @@
+//! Compile both production sensor resource bindings in one detached Cargo output.
+use nxrs_build::{profile::Profile, TempDir};
+use nxrs_build_support::{preparation, resolved};
+use std::{fs, path::Path, process::Command};
+
+#[test]
+fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let temporary = TempDir::new(&std::env::temp_dir()).unwrap();
+    let root = &temporary.0;
+    let sdk = root.join("sdk");
+    fs::create_dir_all(sdk.join("platform/cores3")).unwrap();
+    fs::create_dir_all(sdk.join("platform/nuttx/resources")).unwrap();
+    // This isolated host fixture also models a SPI endpoint. The real CoreS3
+    // BSP does not register one and is independently required to reject it.
+    let mut bsp =
+        fs::read_to_string(source.join("platform/nuttx/resources/esp32s3-m5-cores3.toml")).unwrap();
+    let devkit =
+        fs::read_to_string(source.join("platform/nuttx/resources/esp32s3-devkit.toml")).unwrap();
+    bsp.push_str(&devkit[devkit.find("[resources.spi2]").unwrap()..]);
+    fs::write(
+        sdk.join("platform/nuttx/resources/esp32s3-m5-cores3.toml"),
+        bsp,
+    )
+    .unwrap();
+    fs::write(
+        sdk.join("Cargo.toml"),
+        "[workspace.metadata.nxrs]\ndevice-catalogue='wiring'\n",
+    )
+    .unwrap();
+    for (relative, files) in [
+        ("hal/imu", &["Cargo.toml"][..]),
+        ("platform", &["Cargo.toml"][..]),
+        ("hal/gnss", &["Cargo.toml"][..]),
+        ("driver/ubx", &["Cargo.toml", "bindings.toml"][..]),
+        ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
+        ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
+    ] {
+        let package = sdk.join(if relative == "platform" { "wiring" } else { relative });
+        fs::create_dir_all(&package).unwrap();
+        for file in files {
+            fs::copy(source.join(relative).join(file), package.join(file)).unwrap();
+        }
+    }
+    fs::copy(
+        source.join("platform/cores3/profile.toml"),
+        sdk.join("platform/cores3/profile.toml"),
+    )
+    .unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+             [features]\ndefault = [\"bmi270\", \"lsm6dso\"]\nbmi270=[]\nlsm6dso=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
+             nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
+             nxrs-peripheral = {{ path = {:?} }}\n\
+             bmi270 = {{ package = \"nxrs-bmi270\", path = {:?} }}\nlsm6dso = {{ package = \"nxrs-lsm6dso\", path = {:?} }}\nembedded-hal = '=1.0.0'\n\
+             [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
+            source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
+            source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("tools/build-support")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rs"),
+        r#"
+use nxrs_build_support::{preparation, resolved};
+use std::{env, path::PathBuf};
+fn main() {
+    let root = PathBuf::from(env::var_os("NXRS_SDK_ROOT").unwrap());
+    let receipt = PathBuf::from(env::var_os("NXRS_RESOLVED_PROFILE").unwrap());
+    println!("cargo:rerun-if-changed={}", receipt.display());
+    // Render the actual NuttX resource bindings on the host without compiling native helpers.
+    let profile = resolved::load(&receipt, &root, Some("m5stack-cores3-gnss"), "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+    let handoff = env::var_os(preparation::ENVIRONMENT).map(PathBuf::from);
+    println!("cargo:rerun-if-env-changed={}", preparation::ENVIRONMENT);
+    if let Some(path) = &handoff { println!("cargo:rerun-if-changed={}", path.display()); }
+    let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    for capability in ["imu", "gnss"] {
+        let package_output = output.join(capability);
+        std::fs::create_dir_all(&package_output).unwrap();
+        let inputs = match &handoff {
+            Some(path) => preparation::consume(path, &root.join("wiring"), capability, &profile, "xtensa-esp32s3-nuttx", "nuttx", &package_output).unwrap().unwrap(),
+            None => preparation::prepare_package(&root.join("wiring"), capability, &profile, "nuttx", &package_output).unwrap(),
+        };
+        for path in inputs {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+    std::fs::copy(output.join("imu/imu_config.rs"), output.join("imu_config.rs")).unwrap();
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        r#"
+#![allow(dead_code, unused_imports)]
+extern crate self as imu;
+#[path = @API@] mod api;
+pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
+#[cfg(unix)] pub use api::Device;
+#[path = @SESSION@] mod session;
+#[cfg(unix)]
+#[path = @DEVICE_STATE@] mod device_state;
+#[cfg(not(unix))] pub trait Device {}
+// Every host checks generated bindings below. Unix hosts additionally compile
+// the actual NuttX factory, whose descriptor and cancellation APIs require Unix.
+#[cfg(unix)]
+mod ffi {
+    pub fn transfer(_: i32, _: u8, _: u32, _: &[u8], _: &mut [u8]) -> std::io::Result<()> {
+        panic!("resolving sensor settings must not access the bus")
+    }
+    pub fn pipe() -> std::io::Result<(std::fs::File, std::fs::File)> { panic!("unexpected I/O") }
+    pub fn wait(_: i32, _: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
+    pub fn tick(_: i32, _: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
+    pub fn irq_check(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
+    pub fn irq_register(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
+    pub fn irq_unregister(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
+    pub fn irq_read(_: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
+}
+#[cfg(unix)]
+use ffi as events;
+#[cfg(unix)]
+#[path = @GPIO@] mod gpio_resource;
+#[cfg(unix)]
+#[path = @RESOURCE@] mod resource;
+#[cfg(unix)]
+#[path = @SPI@] mod spi_resource;
+#[cfg(unix)]
+mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [u8]) -> std::io::Result<()> { panic!("unexpected I/O") } }
+#[cfg(unix)]
+#[path = @HAL_FACTORY@] pub mod construction;
+#[cfg(unix)]
+#[path = @FACTORY@] mod production;
+// Windows cannot compile the Unix descriptor implementation. Still compile
+// the generated declaration/alias syntax against its typed resource contracts.
+#[cfg(not(unix))]
+mod production {
+    use crate::Device;
+    mod resource { pub struct Config<'a> { pub path: &'a str, pub frequency: u32 } }
+    mod spi_resource { pub struct Config<'a> { pub path: &'a str, pub chip_select: u16, pub frequency: u32, pub mode: u8 } }
+    mod resources {
+        pub type I2cResource = (); pub type SpiResource = ();
+        pub type Bus = (); pub type Spi = (); pub type Delay = ();
+        pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {}
+        pub fn open_spi(_: super::spi_resource::Config<'_>, _: ()) -> SpiResource {}
+    }
+    struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
+    impl<S: Sync, R: Sync> crate::Device for Instance<S, R> {}
+    macro_rules! declare_device {
+        ($name:ident, $id:literal, $sensor:ty, $resource:ty, $open:path, $binding:expr, $irq:expr, $stack:expr) => {
+            const _: fn() = || { let _: $resource = $open($binding, ()); let _: Option<&str> = $irq; };
+            static $name: Instance<$sensor, $resource> = Instance(std::marker::PhantomData);
+        };
+    }
+    include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
+}
+#[cfg(unix)] include!("named.rs");
+fn main() {
+    #[cfg(unix)] {
+        let applied = production::devices::primary_imu().resolve(Config {
+            min_rate_millihz: 100000, max_rate_millihz: 110000,
+            accel_range_g: 4, gyro_range_dps: 2000, max_delivery_interval_us: 10000,
+        }).unwrap();
+        assert!(matches!(applied.rate_millihz, 100000 | 104000));
+        verify_named();
+    }
+    println!("{}", include_str!(concat!(env!("OUT_DIR"), "/imu_config.rs")));
+    println!("{}", include_str!(concat!(env!("OUT_DIR"), "/gnss/gnss_config.rs")));
+}
+
+"#
+        .replace(
+            "@GPIO@",
+            &format!("{:?}", source.join("driver/gpio/tests/support/mod.rs")),
+        )
+        .replace("@SPI@", &format!("{:?}", source.join("driver/spi/tests/support/mod.rs")))
+        .replace("@SESSION@", &format!("{:?}", source.join("hal/imu/src/session.rs")))
+        .replace("@DEVICE_STATE@", &format!("{:?}", source.join("hal/imu/src/device_state.rs")))
+        .replace("@API@", &format!("{:?}", source.join("hal/imu/src/api.rs")))
+        .replace(
+            "@RESOURCE@",
+            &format!("{:?}", source.join("driver/i2c/tests/support/mod.rs")),
+        )
+        .replace("@HAL_FACTORY@", &format!("{:?}", source.join("hal/imu/src/platform/nuttx/mod.rs")))
+        .replace(
+            "@FACTORY@",
+            &format!("{:?}", source.join("platform/src/nuttx/imu.rs")),
+        ),
+    )
+    .unwrap();
+    let single_device = r#"
+fn verify_named() {
+    assert_eq!(production::devices::primary_imu() as *const _ as *const (), production::devices::@DEVICE@() as *const _ as *const ());
+}
+"#;
+    let cargo = env!("CARGO");
+    let version = nxrs_build::output(Command::new(cargo).current_dir(root).arg("-vV")).unwrap();
+    let target = version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .unwrap();
+    let patch = root.join("alternate.toml");
+    fs::write(
+        &patch,
+        "[resources.sensor_bus]\nbinding = \"i2c1\"\nkconfig = { ESP32S3_I2C1_SDAPIN = 12, ESP32S3_I2C1_SCLPIN = 11 }\nfrequency = 100000\n\
+         [devices.imu]\naddress = 105\n\
+         [resources.receiver_uart]\nbaud = 115200\n",
+    )
+    .unwrap();
+    let replacement = source.join("tests/host/fixtures/lsm6dso-overlay.toml");
+    let bmi_spi = source.join("tests/nuttx-std/imu-qualification/overlays/bmi270-spi.toml");
+    let lsm_spi = source.join("tests/nuttx-std/imu-qualification/overlays/lsm6dso-spi.toml");
+    let inferred = root.join("inferred.toml");
+    fs::write(&inferred, "remove-aliases = [\"gnss\"]\n").unwrap();
+    let receipt = root.join("resolved-profile.json");
+    let prepare = |profile: &Profile| {
+        resolved::write(&receipt, &sdk, profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+        let directory = sdk.join("wiring");
+        let features = ["imu".into(), "gnss".into()].into_iter().collect();
+        preparation::prepare_consumers(
+            [(directory.as_path(), &features)], profile, "xtensa-esp32s3-nuttx", "nuttx",
+            &root.join("configuration"),
+        ).unwrap().unwrap()
+    };
+    let run = |handoff: Option<&Path>| {
+        let mut command = Command::new(cargo);
+        command
+            .current_dir(root)
+            .args(["run", "--offline", "--quiet", "--target", target])
+            .env("CARGO_TARGET_DIR", root.join("target"))
+            .env("NXRS_SDK_ROOT", &sdk)
+            .env("NXRS_RESOLVED_PROFILE", &receipt)
+            .env_remove(preparation::ENVIRONMENT);
+        if let Some(path) = handoff { command.env(preparation::ENVIRONMENT, path); }
+        command.output()
+            .unwrap()
+    };
+    let original = [
+        "::r#bmi270::Bmi270<resources::Bus, resources::Delay>,",
+        "}, 104)",
+        "path: \"/dev/i2c0\"",
+        "\"/dev/ttyS1\", 38400",
+    ];
+    for (overlays, expected, device_name) in [
+        (&[][..], original, "imu"),
+        (&[inferred][..], original, "imu"),
+        (
+            &[patch][..],
+            [
+                "::r#bmi270::Bmi270<resources::Bus, resources::Delay>,",
+                "}, 105)",
+                "path: \"/dev/i2c1\"",
+                "\"/dev/ttyS1\", 115200",
+            ],
+            "imu",
+        ),
+        (
+            &[replacement][..],
+            [
+                "::r#lsm6dso::Lsm6dso<resources::Bus>,",
+                "}, 106)",
+                "frequency: 100000",
+                "\"/dev/ttyS1\", 38400",
+            ],
+            "imu",
+        ),
+        (
+            &[bmi_spi][..],
+            [
+                "::r#bmi270::Bmi270Spi<resources::Spi, resources::Delay>,",
+                "chip_select: 0",
+                "mode: 3",
+                "path: \"/dev/spi2\"",
+            ],
+            "imu_spi",
+        ),
+        (
+            &[lsm_spi][..],
+            [
+                "::r#lsm6dso::Lsm6dsoSpi<resources::Spi>,",
+                "chip_select: 0",
+                "mode: 3",
+                "path: \"/dev/spi2\"",
+            ],
+            "imu_spi",
+        ),
+        (&[][..], original, "imu"),
+    ] {
+        let profile =
+            Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", overlays).unwrap();
+        let handoff = prepare(&profile);
+        fs::write(
+            root.join("src/named.rs"),
+            single_device.replace("@DEVICE@", device_name),
+        )
+        .unwrap();
+        let result = run(Some(&handoff));
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output = String::from_utf8_lossy(&result.stdout);
+        for field in expected {
+            assert!(output.contains(field), "missing {field}: {output}");
+        }
+        assert_eq!(output.matches("declare_device!(").count(), 2);
+    }
+
+    // Same-model plus mixed-model instances and aliases compile in the actual factory.
+    let multiple = root.join("multiple.toml");
+    fs::write(
+        &multiple,
+        r#"
+[devices.backup]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 105
+[devices.backup.wake]
+kind = "periodic"
+[devices.auxiliary]
+compatible = "st,lsm6dso"
+bus = "sensor_bus"
+address = 106
+[devices.auxiliary.wake]
+kind = "periodic"
+[aliases]
+imu = "imu"
+imu_backup = "backup"
+imu_auxiliary = "auxiliary"
+imu_navigation = "imu"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/named.rs"), r#"
+fn verify_named() {
+    let primary = production::devices::primary_imu();
+    let alias = production::devices::navigation();
+    assert_eq!(primary as *const _ as *const (), alias as *const _ as *const ());
+    assert_eq!(primary as *const _ as *const (), production::devices::imu() as *const _ as *const ());
+    assert_eq!(production::devices::backup().id(), "backup");
+    assert_eq!(production::devices::auxiliary().id(), "auxiliary");
+    assert_ne!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
+}
+"#).unwrap();
+    let profile = Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", &[multiple]).unwrap();
+    let handoff = prepare(&profile);
+    let result = run(Some(&handoff));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout)
+            .matches("declare_device!(")
+            .count(),
+        4
+    );
+    // Move only the default alias; physical names continue to identify the same devices.
+    let redirect = root.join("redirect.toml");
+    fs::write(&redirect, "[aliases]\nimu = \"backup\"\n").unwrap();
+    fs::write(root.join("src/named.rs"), r#"
+fn verify_named() {
+    let primary = production::devices::primary_imu();
+    assert_eq!(primary.id(), "backup");
+    assert_eq!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
+    assert_eq!(production::devices::imu().id(), "imu");
+    assert_ne!(primary as *const _ as *const (), production::devices::imu() as *const _ as *const ());
+}
+"#).unwrap();
+    let profile = Profile::resolve_with_overlays(
+        &sdk,
+        "m5stack-cores3-gnss",
+        &[root.join("multiple.toml"), redirect],
+    )
+    .unwrap();
+    let handoff = prepare(&profile);
+    let result = run(Some(&handoff));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    fs::write(
+        root.join("src/named.rs"),
+        single_device.replace("@DEVICE@", "imu"),
+    )
+    .unwrap();
+    let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+    let handoff = prepare(&profile);
+    let result = run(Some(&handoff));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout)
+            .matches("declare_device!(")
+            .count(),
+        2
+    );
+    let local = run(None);
+    assert!(local.status.success(), "{}", String::from_utf8_lossy(&local.stderr));
+    assert_eq!(local.stdout, result.stdout);
+
+    // Content changes at the same declared path must invalidate both Cargo and
+    // the receipt, even when the resolved values are semantically unchanged.
+    for relative in [
+        "platform/nuttx/resources/esp32s3-m5-cores3.toml",
+        "driver/bmi270/bindings.toml",
+        "driver/lsm6dso/bindings.toml",
+        "driver/bmi270/Cargo.toml",
+        "wiring/Cargo.toml",
+        "Cargo.toml",
+        "driver/ubx/bindings.toml",
+    ] {
+        let path = sdk.join(relative);
+        let mut content = fs::read_to_string(&path).unwrap();
+        content.push_str("\n# same-path freshness witness\n");
+        fs::write(&path, content).unwrap();
+        let stale = run(Some(&handoff));
+        assert!(!stale.status.success(), "stale {relative} was accepted");
+        assert!(
+            String::from_utf8_lossy(&stale.stderr).contains("stale"),
+            "{}",
+            String::from_utf8_lossy(&stale.stderr)
+        );
+        let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+        resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
+        let stale = run(Some(&handoff));
+        assert!(!stale.status.success(), "stale prepared {relative} was accepted");
+        assert!(String::from_utf8_lossy(&stale.stderr).contains("stale prepared configuration"));
+        let handoff = prepare(&profile);
+        let refreshed = run(Some(&handoff));
+        assert!(
+            refreshed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&refreshed.stderr)
+        );
+        for field in original {
+            assert!(String::from_utf8_lossy(&refreshed.stdout).contains(field));
+        }
+    }
+}

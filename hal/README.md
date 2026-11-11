@@ -22,7 +22,7 @@ Use Rust `std` directly where it already supplies the portable operation. Add
 device adapters and execution resources only for requirements it cannot express.
 The [`acquisition`](acquisition/README.md) package is shared implementation support
 with no profile binding. `imu::Session` and `gnss::Session` name acquisition
-lifetimes; `gnss::Gnss` remains an alias for existing GNSS consumers.
+lifetimes.
 
 OS implementations live in each HAL's `src/platform/`, named `linux`,
 `macos`, `windows`, or `nuttx`, matching the profile bindings in the root
@@ -31,7 +31,8 @@ available environment, not a platform or provider choice. Reusable code lives
 in ordinary modules outside `platform/`, with no OS flags or copied OS wrappers.
 The root tree owns configuration and build wiring; HAL code stays in its crate.
 Rust's target selects the OS; profiles enable capabilities at module/factory
-boundaries. No per-platform Cargo features or OS-valued custom cfg are used.
+boundaries. One internal `platform` cfg names the exact validated binding at
+each selector; there are no per-platform Cargo features.
 
 Rust owns validation, ownership, queues, synchronization, retries, cancellation,
 recovery, deadlines, and error policy. Use ordinary qualified `std::fs`,
@@ -95,10 +96,11 @@ are built; profiles select physical resource bindings and NuttX configuration.
 
 ## Build and qualification ownership
 
-Each HAL owns a local `build.rs`. Host helpers live in `platform/build-support`,
-and detector SDK compilation has its own `hal/detector/build-support` package.
+Cargo adapters and host helpers live in `tools/build-support`,
+and detector SDK compilation lives in `tools/detector-build-support`.
+HAL manifests point directly to those tooling-owned adapters.
 Only build dependencies connect a HAL to these packages. The application build
-controller in `platform/build` does not enter the HAL dependency graph.
+controller in `tools/build` does not enter the HAL dependency graph.
 Native ABI compilation belongs to the consumed Cargo package; an unused profile
 binding does not compile another capability's helpers.
 

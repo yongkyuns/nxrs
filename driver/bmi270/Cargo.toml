@@ -10,3 +10,8 @@ bindings = ["bindings.toml"]
 nxrs-peripheral = { path = "../peripheral" }
 bmi2 = "=0.1.2"
 embedded-hal = "=1.0.0"
+
+[package.metadata.nxrs.device]
+capability = "imu"
+stores-delay = true
+sensor-reference = true

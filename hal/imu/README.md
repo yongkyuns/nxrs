@@ -2,13 +2,13 @@
 
 This HAL manages acquisition over `peripheral::imu::Imu`. It has no production
 sensor-driver or I²C/SPI adapter dependency. Concrete selection and resource
-construction live in the [platform device catalogue](../../platform/devices/imu/README.md).
+construction live in the [platform composition crate](../../platform/README.md).
 
 Applications select a named device and pass it to a service, or use the HAL API:
 
 ```rust,ignore
 use imu::{Device, Session};
-let device = imu_devices::primary_imu();
+let device = composition::imu::primary_imu();
 let mut session = device.open_default(sink)?;
 session.request_stop()?;
 session.join()?;
@@ -53,7 +53,7 @@ Resource packages own native ABI glue; this HAL contains no C/FFI implementation
 
 `probe` enables optional tracing. Ordinary builds use zero-sized tracing and
 unwrapped resources, with no observer checks or timing reads. The catalogue's
-`imu_devices::probe::open_configured` selects a physical device and activates an
+`composition::probe::open_configured` selects a physical device and activates an
 observer. Shared timing events and bus wrappers live in `acquisition::probe`;
 the catalogue reexports `Timing` for diagnostic callers. Sensor-reference setup remains
 in catalogue diagnostics, with HAL cleanup retained on setup failure. Mock,

@@ -1,0 +1,38 @@
+[
+  {
+    "label": "Nxrs editor: Show active profile",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "status"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Nxrs editor: Host",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "host"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Nxrs editor: WROOM (NuttX)",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "--build-dir", "target/editor/wroom"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Nxrs editor: WROOM IMU (DevKit qualification)",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "--build-dir", "target/editor/wroom-imu"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Nxrs editor: CoreS3 (NuttX)",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "--build-dir", "target/editor/cores3"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Nxrs editor: Pico 2 W (NuttX)",
+    "command": "cargo",
+    "args": ["nxrs", "editor", "--build-dir", "target/editor/pico2w"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  }
+]

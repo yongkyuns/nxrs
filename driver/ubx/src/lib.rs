@@ -22,18 +22,16 @@ pub struct NavPvt {
     pub heading_accuracy_rad: f32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DriverError {
-    Io,
-    Timeout,
-    InvalidData,
-    NoFix,
-}
+pub use peripheral::gnss::Error as DriverError;
+
+/// M9N receiver type exported for the board binding.
+pub type NeoM9n<T> = Driver<T>;
 
 /// A single injected UBX byte stream and its bounded frame decoder.
 pub struct Driver<R> {
     io: R,
     decoder: ubx::Decoder,
+    saved_rate: Option<u8>,
 }
 
 impl<R: Read + Write> Driver<R> {
@@ -41,6 +39,7 @@ impl<R: Read + Write> Driver<R> {
         Self {
             io,
             decoder: ubx::Decoder::default(),
+            saved_rate: None,
         }
     }
 
@@ -174,3 +173,43 @@ fn pause() {
 
 #[cfg(test)]
 mod tests;
+
+impl<R> AsRef<R> for Driver<R> {
+    fn as_ref(&self) -> &R {
+        &self.io
+    }
+}
+impl<R> AsMut<R> for Driver<R> {
+    fn as_mut(&mut self) -> &mut R {
+        &mut self.io
+    }
+}
+impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
+    fn configure(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        self.saved_rate = Some(self.query_nav_pvt_uart1_rate(deadline)?);
+        self.set_and_verify_nav_pvt_uart1_rate(1, deadline)?;
+        self.reset_decoder();
+        Ok(())
+    }
+    fn restore(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        if let Some(rate) = self.saved_rate {
+            self.set_and_verify_nav_pvt_uart1_rate(rate, deadline)?;
+            self.saved_rate = None;
+        }
+        Ok(())
+    }
+    fn read_available(
+        &mut self,
+        mut emit: impl FnMut(Result<peripheral::gnss::Measurement, DriverError>),
+    ) -> Result<(), DriverError> {
+        self.poll(|event| {
+            emit(event.map(|report| peripheral::gnss::Measurement {
+                epoch_ms: u64::from(report.itow_ms),
+                latitude_deg: report.latitude_deg,
+                longitude_deg: report.longitude_deg,
+                speed_mps: report.speed_mps,
+                course_rad: report.heading_rad,
+            }))
+        })
+    }
+}

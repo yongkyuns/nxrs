@@ -27,17 +27,14 @@ cfg_if::cfg_if! {
 #[cfg(any(platform = "linux", platform = "macos", all(test, unix)))]
 mod shared;
 
-cfg_if::cfg_if! {
-    if #[cfg(any(platform = "nuttx", platform = "linux", platform = "macos"))] {
-        mod platform;
+mod platform;
 
-        pub fn open<S>(sink: S) -> Result<Controller<impl Ble + Send>, Error>
-        where
-            S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
-        {
-            platform::open(sink).map(Controller::new)
-        }
-    }
+/// Open the selected BLE provider, or return `Unsupported` when unbound.
+pub fn open<S>(sink: S) -> Result<Controller<impl Ble + Send>, Error>
+where
+    S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
+{
+    platform::open(sink).map(Controller::new)
 }
 
 #[cfg(test)]

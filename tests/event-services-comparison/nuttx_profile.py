@@ -100,7 +100,7 @@ def prepare(baseline, hal_cache, out, target_spec=None):
                  '--component', 'esp-hal-3rdparty', '--source', destination,
                  '--revision', hal_revision, '--build-checkout',
                  '--record', out / 'esp-hal-patches.json'])
-    shutil.copytree(ROOT / 'platform/nuttx/std-app', out / 'apps/examples/nxrs_std_app')
+    shutil.copytree(ROOT / 'tools/build/nuttx/std-app', out / 'apps/examples/nxrs_std_app')
     app = out / 'apps/examples/nxrs_bench'
     app.mkdir()
     (app / 'Kconfig').write_text('config EXAMPLES_NXRS_BENCH\n\tbool "C event-service control"\n\tdefault n\n')

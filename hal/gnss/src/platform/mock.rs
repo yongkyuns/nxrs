@@ -1,5 +1,6 @@
 //! Deterministic synthetic GNSS for architecture demonstrations.
 #![forbid(unsafe_code)]
+pub use crate::fixtures::devices;
 
 type MockSession = acquisition::mock::Session<DeviceError>;
 use crate::{DeviceError, Event, GnssFix, Session};

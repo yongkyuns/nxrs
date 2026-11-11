@@ -208,7 +208,7 @@ pub(super) mod gpio_resource;
 #[path = "../../../../driver/i2c/tests/support/mod.rs"]
 mod resource;
 #[allow(dead_code)]
-#[path = "../../../../platform/devices/imu/src/nuttx/resources.rs"]
+#[path = "../../../../platform/src/nuttx/imu_resources.rs"]
 mod resources;
 #[path = "../../../../driver/spi/tests/support/mod.rs"]
 mod spi_resource;
@@ -218,26 +218,27 @@ use peripheral::imu::Imu as ImuDevice;
 
 type Bmi270Sensor = nxrs_bmi270::Bmi270<resources::Bus, resources::Delay>;
 type Lsm6dsoSensor = nxrs_lsm6dso::Lsm6dso<resources::Bus>;
+type I2cBinding<'a> = ((resource::Config<'a>, u8), Option<&'a str>);
 
 fn acquire_bmi270(
-    binding: resources::I2cBinding<'_>,
+    binding: I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     acquire_bmi270_traced(binding, config, trace::Trace::default())
 }
 
 fn acquire_bmi270_traced(
-    binding: resources::I2cBinding<'_>,
+    (binding, irq_path): I2cBinding<'_>,
     config: crate::Config,
     trace: trace::Trace,
 ) -> Result<device::Device<Bmi270Sensor>, crate::DeviceError> {
     let observed = trace.clone();
     device::Device::open(
         config,
-        binding.irq_path,
+        irq_path,
         trace,
         &DEVICE_STATE,
-        || binding.open(observed),
+        || resources::open_i2c(binding, observed),
         |(bus, address), settings| {
             Bmi270Sensor::open_configured(bus, address, resources::Delay, settings)
                 .map_err(Into::into)
@@ -246,15 +247,15 @@ fn acquire_bmi270_traced(
 }
 
 fn acquire_lsm6dso(
-    binding: resources::I2cBinding<'_>,
+    (binding, irq_path): I2cBinding<'_>,
     config: crate::Config,
 ) -> Result<device::Device<Lsm6dsoSensor>, crate::DeviceError> {
     device::Device::open(
         config,
-        binding.irq_path,
+        irq_path,
         trace::Trace::default(),
         &DEVICE_STATE,
-        || binding.open(trace::Trace::default()),
+        || resources::open_i2c(binding, trace::Trace::default()),
         |(bus, address), settings| {
             Lsm6dsoSensor::open_configured(bus, address, resources::Delay, settings)
                 .map_err(Into::into)
@@ -306,13 +307,17 @@ fn reset() {
         .store(State::Available as u8, Ordering::Relaxed);
     *FAKE.lock().unwrap() = Fake::new();
 }
-fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> resources::I2cBinding<'a> {
-    resources::I2cBinding {
-        path,
-        address: 0x68,
-        frequency: 400_000,
+fn binding<'a>(path: &'a str, irq_path: Option<&'a str>) -> I2cBinding<'a> {
+    (
+        (
+            resource::Config {
+                path,
+                frequency: 400_000,
+            },
+            0x68,
+        ),
         irq_path,
-    }
+    )
 }
 
 fn default_config() -> crate::Config {
@@ -436,12 +441,7 @@ fn both_declared_bmi270_endpoints_reach_the_same_bus_adapter() {
         (alternate.path(), 0x69, 100_000),
     ] {
         reset();
-        let binding = resources::I2cBinding {
-            path,
-            address,
-            frequency,
-            irq_path: None,
-        };
+        let binding = ((resource::Config { path, frequency }, address), None);
         let device = acquire_bmi270(binding, default_config()).unwrap();
         assert_eq!(
             FAKE.lock().unwrap().last_endpoint,
@@ -457,27 +457,24 @@ fn replacement_sensor_uses_the_same_state_and_reports_its_exact_rate() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
     reset();
-    let replacement = resources::I2cBinding {
-        path: file.path(),
-        address: 0x6a,
-        frequency: 100_000,
-        irq_path: None,
+    let replacement = || {
+        (
+            (
+                resource::Config {
+                    path: file.path(),
+                    frequency: 100_000,
+                },
+                0x6a,
+            ),
+            None,
+        )
     };
     let default = Lsm6dsoSensor::DEFAULT;
     assert_eq!(
-        acquire_lsm6dso(replacement, default_config()).err(),
+        acquire_lsm6dso(replacement(), default_config()).err(),
         Some(crate::DeviceError::Unsupported)
     );
-    let device = acquire_lsm6dso(
-        resources::I2cBinding {
-            path: file.path(),
-            address: 0x6a,
-            frequency: 100_000,
-            irq_path: None,
-        },
-        default,
-    )
-    .unwrap();
+    let device = acquire_lsm6dso(replacement(), default).unwrap();
     assert_eq!(device.applied_config().rate_millihz, 104_000);
     assert_eq!(device.applied_config().delivery_interval_us, 9_616);
     assert_eq!(FAKE.lock().unwrap().last_endpoint, Some((0x6a, 100_000)));
@@ -851,12 +848,11 @@ fn spi_factories_share_device_state_and_cleanup() {
     }
     for select in [0, 1] {
         reset();
-        let binding = resources::SpiBinding {
+        let binding = spi_resource::Config {
             path: file.path(),
             chip_select: select,
             frequency: 4_000_000,
             mode: 3,
-            irq_path: None,
         };
         {
             let mut fake = FAKE.lock().unwrap();
@@ -877,7 +873,7 @@ fn spi_factories_share_device_state_and_cleanup() {
                     None,
                     trace::Trace::default(),
                     &DEVICE_STATE,
-                    || binding.open(trace::Trace::default()),
+                    || resources::open_spi(binding, trace::Trace::default()),
                     |bus, settings| {
                         Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into)
                     },
@@ -893,7 +889,7 @@ fn spi_factories_share_device_state_and_cleanup() {
                     None,
                     trace::Trace::default(),
                     &DEVICE_STATE,
-                    || binding.open(trace::Trace::default()),
+                    || resources::open_spi(binding, trace::Trace::default()),
                     |bus, settings| {
                         Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into)
                     },
@@ -906,19 +902,18 @@ fn spi_factories_share_device_state_and_cleanup() {
     reset();
     FAKE.lock().unwrap().bad_init = true;
     type Sensor = nxrs_bmi270::Bmi270Spi<resources::Spi, resources::Delay>;
-    let binding = resources::SpiBinding {
+    let binding = spi_resource::Config {
         path: file.path(),
         chip_select: 0,
         frequency: 4_000_000,
         mode: 3,
-        irq_path: None,
     };
     let result = device::Device::open(
         Sensor::DEFAULT,
         None,
         trace::Trace::default(),
         &DEVICE_STATE,
-        || binding.open(trace::Trace::default()),
+        || resources::open_spi(binding, trace::Trace::default()),
         |bus, settings| Sensor::open_spi(bus, resources::Delay, settings).map_err(Into::into),
     );
     assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));

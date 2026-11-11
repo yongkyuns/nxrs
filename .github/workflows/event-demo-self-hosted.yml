@@ -14,7 +14,9 @@ on:
       - 'shared/messaging/**'
       - 'shared/simulation/**'
       - 'hal/imu/**'
-      - 'platform/devices/**'
+      - 'platform/Cargo.toml'
+      - 'platform/src/**'
+      - 'platform/tests/**'
       - 'driver/i2c/**'
       - 'driver/spi/**'
       - 'driver/gpio/**'
@@ -26,12 +28,12 @@ on:
       - 'driver/lsm6dso/**'
       - 'driver/ubx/**'
       - 'tests/host/fixtures/lsm6dso-overlay.toml'
-      - 'platform/nuttx/std-app/**'
-      - 'platform/build/**'
+      - 'tools/build/**'
       - '.cargo/config.toml'
-      - 'platform/build-support/**'
-      - 'platform/profiles/**'
-      - 'platform/nuttx/platforms/**'
+      - 'tools/build-support/**'
+      - 'platform/*/profile.toml'
+      - 'platform/*/profiles/**'
+      - 'tests/profiles/**'
       - 'tools/platform_config.py'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
@@ -98,7 +100,7 @@ jobs:
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
             --app-manifest app/event-demo/Cargo.toml \
-            --platform host-demo --target-os linux
+            --platform mock --target-os linux
           python3 tools/check-deployment.py \
             --app-manifest app/dual-imu-demo/Cargo.toml \
             --platform host-imu --target-os linux
@@ -109,9 +111,9 @@ jobs:
           cargo +1.90.0 test --locked -p nxrs-messaging
           cargo +1.90.0 test --locked \
             -p nxrs-navigation-services --test unconfigured
-          NXRS_PLATFORM=host-demo cargo +1.90.0 test --locked \
+          NXRS_PLATFORM=mock cargo +1.90.0 test --locked \
             -p nxrs-navigation-services -p nxrs-messaging --test active
-          NXRS_PLATFORM=host-demo cargo +1.90.0 test --locked -p nxrs-imu-devices
+          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-composition --features imu
           cargo +1.90.0 check --locked \
             -p nxrs-gnss \
             --target thumbv6m-none-eabi
@@ -134,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/event-demo
-          NXRS_PLATFORM=host-demo cargo +1.90.0 build --locked \
+          NXRS_PLATFORM=mock cargo +1.90.0 build --locked \
             -p nxrs-event-demo -p nxrs-imu -p nxrs-gnss --bin event-demo
           target/debug/event-demo --duration-ms 900 | tee target/event-demo/run.log
           grep -q '^EVENT_DEMO topology:' target/event-demo/run.log
@@ -185,7 +187,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo +1.90.0 test --locked -p nxrs-simulation
-          NXRS_PLATFORM=simulation cargo +1.90.0 test --locked -p nxrs-imu-devices
+          NXRS_PLATFORM=simulation cargo +1.90.0 test --locked -p nxrs-composition --features imu
           cargo +1.90.0 nxrs build --app event-demo --profile simulation \
             --out target/event-demo/simulation
           target/event-demo/simulation/cargo/release/event-demo --duration-ms 1200 \
@@ -197,10 +199,10 @@ jobs:
           cargo +1.90.0 clippy --locked \
             -p nxrs-navigation-services -p nxrs-messaging \
             -p nxrs-imu -p nxrs-gnss -- -D warnings
-          NXRS_PLATFORM=host-demo cargo +1.90.0 clippy --locked \
+          NXRS_PLATFORM=mock cargo +1.90.0 clippy --locked \
             -p nxrs-navigation-services -p nxrs-messaging \
             -p nxrs-imu -p nxrs-gnss -- -D warnings
-          NXRS_PLATFORM=host-demo cargo +1.90.0 clippy --locked \
+          NXRS_PLATFORM=mock cargo +1.90.0 clippy --locked \
             -p nxrs-event-demo -p nxrs-imu -p nxrs-gnss --bin event-demo -- -D warnings
           NXRS_PLATFORM=host-imu cargo +1.90.0 clippy --locked \
             -p nxrs-dual-imu-demo -p nxrs-imu --bin dual-imu-demo -- -D warnings

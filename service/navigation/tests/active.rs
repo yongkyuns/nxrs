@@ -23,8 +23,8 @@ fn start_services() -> (
 
     (
         fusion.start().unwrap(),
-        imu.start_on(imu_devices::primary_imu()).unwrap(),
-        gnss.start().unwrap(),
+        imu.start_on(composition::imu::primary_imu()).unwrap(),
+        gnss.start_on(composition::gnss::primary_gnss()).unwrap(),
     )
 }
 
@@ -33,13 +33,13 @@ fn active_services_own_hal_threads_and_lifecycle() {
     let _primary = PRIMARY.lock().unwrap();
     let (fusion, imu, gnss) = start_services();
     assert_eq!(
-        imu_devices::primary_imu().open_default(|_| Ok(())).err(),
+        composition::imu::primary_imu().open_default(|_| Ok(())).err(),
         Some(imu::DeviceError::Busy)
     );
     let (other_fusion, other_inputs) = FusionService::new();
     let other_fusion = other_fusion.start().unwrap();
     let other_imu = ImuService::new(other_inputs.imu)
-        .start_on(imu_devices::secondary())
+        .start_on(composition::imu::secondary())
         .unwrap();
 
     let mut health = HealthService::default();
@@ -76,7 +76,7 @@ fn active_services_own_hal_threads_and_lifecycle() {
 
     // A completed service shutdown releases the same device for its next owner.
     use imu::Session;
-    imu_devices::primary_imu()
+    composition::imu::primary_imu()
         .open_default(|_| Ok(()))
         .unwrap()
         .join()

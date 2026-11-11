@@ -19,7 +19,7 @@ from platform_config import detector_config, resolve, validate_target
 
 def main() -> None:
     host = {'darwin': 'macos', 'win32': 'windows'}.get(sys.platform, 'linux')
-    profile = ROOT / 'platform/profiles' / ('qualification-detector-' + uuid.uuid4().hex + '.toml')
+    profile = ROOT / 'tests/profiles' / ('qualification-detector-' + uuid.uuid4().hex + '.toml')
     output = tempfile.TemporaryDirectory(prefix="nxrs-detector-composition-")
     try:
         for suffix, expected in [('', ['nxrs-detector/pico-model']),
@@ -30,7 +30,10 @@ def main() -> None:
                 text += (f'[detector]\nmodel="{config["model"]}"\n'
                          f'stack-bytes={config["stack-bytes"]}\nsample-ms={config["sample-ms"]}\n')
             else:
-                text += 'detector={}\n[hal]\ndetector="none"\n'
+                text += 'detector={}\n'
+            text += '[hal]\ncamera="mock"\n'
+            if not config:
+                text += 'detector="none"\n'
             profile.write_text(text)
             product = resolve(profile.stem)
             validate_target(product, host)

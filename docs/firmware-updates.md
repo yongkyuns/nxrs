@@ -99,7 +99,7 @@ python3 tools/build-mcuboot.py --platform esp32s3-camera-stream-startup \
 ```
 
 The source repositories must contain the NuttX-pinned commits declared in
-`platform/nuttx/mcuboot.py`. The builder exports those exact Git objects into
+`tools/build/nuttx/mcuboot.py`. The builder exports those exact Git objects into
 a fresh output directory and builds upstream's EC P-256 verifier with TinyCrypt.
 Only a public key is accepted; the signing key is unnecessary on the boot build
 host. `bootloader.json` records the pins, geometry, public-root and binary hashes.

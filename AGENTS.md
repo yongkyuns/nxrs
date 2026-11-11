@@ -14,6 +14,10 @@ checks with the new invariants in the implementation PR while preserving
 portability, dependency, native-boundary and lifecycle coverage. The OS/provider
 `selected` module convention below is separate from additive chip modules.
 
+- Keep host build tooling and Cargo adapter source under `tools/`. Firmware
+  manifests may reference adapters through declared build dependencies.
+  Platform directories hold declarative profiles, BSP inputs and device
+  construction. Drivers and HALs retain their runtime and native ABI sources.
 - For peripheral composition work, also read `docs/peripheral-composition.md`
   and `docs/peripheral-composition-plan.md`. Composition version 1, ordered
   overlays, resolved-profile build wiring, and the migrated IMU/GNSS bindings
@@ -31,7 +35,7 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   adds stream metadata, resource ownership and delivery/lifecycle policy.
   Drivers must not depend on capability HALs, applications or services. Use `hal/<capability>/src/platform/` for OS
   implementations; the root
-  `platform/` tree owns product profiles, device catalogues and concrete construction, not HAL runtime code.
+  `platform/` tree owns product profiles and concrete device composition, not HAL runtime code.
   Profile bindings name actual operating systems: `linux`, `macos`, `windows`,
   or `nuttx`. The coordinated host `simulation` binding is available to IMU
   and GNSS only through a distinct simulation profile. `mock` is an explicit
@@ -52,8 +56,14 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   Catalogues supply concrete resource configuration; sensor HALs own acquisition policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile alias. Host witnesses inject
-  test-only bus bindings. IMU drivers own their `bindings.toml` declarations;
-  the IMU catalogue under `platform/devices/imu` imports them through normal Cargo path dependencies. The IMU HAL must not depend on concrete sensors or the catalogue. Product
+  test-only bus bindings. IMU and GNSS drivers own their `bindings.toml` declarations;
+  the composition crate in `platform/` imports them through normal Cargo path dependencies. Sensor HALs must not depend on concrete sensors or composition.
+  A renamed optional NuttX dependency registers a driver and supplies its
+  Cargo feature. Shared tooling generates the driver's typed construction from
+  its binding and the selected resource. NuttX profile builds use
+  `cargo nxrs build`. Internal Cargo adapters and editor checks consume its
+  validated receipt and prepared native resources. Portable library tests and
+  explicit host fixtures may use Cargo directly. Product
   profiles select BSP resources, native pin settings and peripheral addresses. The BSP mapping
   derives NuttX Kconfig and endpoint paths together; reject conflicting overrides
   and unsupported registrations. Shared tooling emits fixed
@@ -112,10 +122,8 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   internal cfg names and files. Retain namespacing only where an external
   interface or global symbol collision makes it necessary.
 - App and service source, manifests and build scripts must contain no OS/board
-  cfg, native imports, device paths or platform inspection. Apps may depend on
-  portable catalogues under `platform/devices/<capability>` to select named devices;
-  services receive their normalized HAL references and have no production catalogue
-  dependency. Other app/service platform dependencies remain forbidden. Only catalogue
+  cfg, native imports, device paths or platform inspection. Apps may use the portable `nxrs-composition` capability modules to select named devices.
+  Services receive normalized HAL references from callers. Other app/service platform dependencies remain forbidden. Only catalogue
   wiring and qualification may use `imu::construction`; apps/services cannot create
   a second instance for an endpoint. Catalogues contain no acquisition/runtime policy.
   Platform code stays application-agnostic; build frontends accept the selected entry

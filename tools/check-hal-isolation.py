@@ -153,7 +153,7 @@ def run(out, capabilities=CAPABILITIES):
         ["cargo", "metadata", "--locked", "--format-version=1"], cwd=ROOT, text=True))
     names = {p["id"]: p["name"] for p in metadata["packages"]}
     workspace = {names[identity]: identity for identity in metadata["workspace_members"]}
-    # Every HAL uses this pinned, macro-only dependency for grouped selection.
+    # Grouped selectors use this pinned macro dependency. IMU uses item cfgs.
     conditional, = (p["id"] for p in metadata["packages"]
                     if p["name"] == "cfg-if" and p["version"] == "1.0.5")
     compiler = subprocess.check_output([os.environ.get("RUSTC", "rustc"), "-vV"], text=True)
@@ -187,7 +187,7 @@ def run(out, capabilities=CAPABILITIES):
             cases.append(("simulation-host", "simulation", "simulation", None, None))
         if capability in {"camera", "storage", "transport"}:
             example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
-            cases.append((HOST_PLATFORM, HOST_PLATFORM, HOST_PLATFORM, None, example))
+            cases.append((HOST_PLATFORM, HOST_PLATFORM, "none", None, example))
         for label, profile, provider, target, example in cases:
             expected = set(base_expected)
             # GNSS retains a core-only contract; IMU's contract also uses std.
@@ -196,7 +196,8 @@ def run(out, capabilities=CAPABILITIES):
             if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
-            expected.add(conditional)
+            if capability != "imu":
+                expected.add(conditional)
             host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
             target = target or host_target
@@ -249,7 +250,7 @@ def run(out, capabilities=CAPABILITIES):
     # Reuse one Cargo cache: changing the environment must rerun selection, not
     # leave an old implementation active in a developer's incremental build.
     with tempfile.TemporaryDirectory(prefix="switch-", dir=out) as directory:
-        for profile, provider in [(HOST_PLATFORM, HOST_PLATFORM), ("mock", "mock"), (None, "none")]:
+        for profile, provider in [(HOST_PLATFORM, "none"), ("mock", "mock"), (None, "none")]:
             env = {**os.environ, "CARGO_TARGET_DIR": directory}
             env.pop("NXRS_PLATFORM", None)
             if profile:

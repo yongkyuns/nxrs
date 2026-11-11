@@ -1,8 +1,0 @@
-# Legacy std integration fixture; board/Kconfig are owned by its build script.
-execution = "nuttx"
-
-[hal]
-# Camera/close faults use the explicitly staged test-local DeviceCamera ABI.
-camera = "none"
-storage = "nuttx"
-transport = "nuttx"

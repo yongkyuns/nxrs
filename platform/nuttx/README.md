@@ -38,7 +38,7 @@ migration and the hardware qualification evidence that remains pending.
 
 ## Build mechanics
 
-`platform/build` contains the shared Rust controller. It resolves the selected
+`tools/build` contains the shared Rust controller. It resolves the selected
 app/profile, prepares private sources and SDKs, configures NuttX, invokes Cargo,
 checks the ABI and performs the final Make/link/signing steps. Upstream build
 and cryptographic SDK tools remain external commands. See the concise
@@ -47,10 +47,8 @@ and cryptographic SDK tools remain external commands. See the concise
 The exact Apache source pins and the build-time NuttX, NuttX-apps, and Rust
 library patchsets are documented in [upstream-patchsets](../../docs/upstream-patchsets.md).
 
-`profiles/` contains older focused NuttX configuration recipes used by the
-core-only simulator path. `qualification/` supplies NuttX application
-registration/archive-linking rules for target tests. `std-app/` is generic
-ordinary-Rust-main integration.
+The simulator recipe and NuttX Make integration for product and qualification
+entries live in `tools/build/nuttx/`.
 
 Reusable adapters and C ABI bridges live below `hal/`; product operating modes
 remain in portable application code.

@@ -38,17 +38,18 @@ python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
 cd "$ROOT"
 # The distributed core uses the kernel code model, not small/PIC. Scope the
 # unstable rebuild opt-in to this pinned compiler invocation.
-NXRS_PLATFORM=nuttx-core RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
+env -u NXRS_PLATFORM -u NXRS_RESOLVED_PROFILE \
+  RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
   cargo build --locked --profile nuttx-sim --lib -p nxrs-nuttx-app \
   --target x86_64-unknown-none -Zbuild-std=core
 LIB="$ROOT/target/x86_64-unknown-none/nuttx-sim/libnxrs_nuttx_app.a"
 APP="$OUT/apps/examples/nxrs_sim"
 mkdir -p "$APP"
-cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
+cp "$ROOT/tools/build/nuttx/qualification/"* "$APP/"
 cp "$ROOT/tests/nuttx/c/"* "$APP/"
 cp "$ROOT/hal/camera/src/platform/nuttx/ffi/"{close.c,status.h} "$APP/"
 cd "$OUT/nuttx"
-source "$ROOT/platform/nuttx/profiles/sim.sh"
+source "$ROOT/tools/build/nuttx/sim.sh"
 make -j"${NUTTX_SIM_JOBS:-4}" NXRS_SIM_LIB="$LIB"
 cp .config "$OUT/resolved.config"
 nm arch/sim/src/nuttx.rel > "$OUT/symbols.txt"

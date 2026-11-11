@@ -4,7 +4,7 @@ A named profile and its ordered overlays resolve to one validated composition.
 Hardware profiles bind IMU and GNSS aliases to concrete sensors and NuttX
 resources. The simulation profile binds those aliases to one shared scenario.
 Shared build preparation verifies package declarations and generates typed IMU
-instances and the default GNSS factory. Small HAL Cargo adapters invoke that
+and GNSS instances. Small HAL Cargo adapters invoke that
 shared path and preserve provider/native build integration. See the
 [implementation and qualification plan](peripheral-composition-plan.md).
 
@@ -12,7 +12,7 @@ The accepted [declarative build and static-device follow-up](static-device-compo
 replaces local host emission with shared generic preparation, makes driver
 features additive, and gives each active physical device one canonical static
 opaque object. That work is tracked in [issue #246](https://github.com/yongkyuns/nxrs/issues/246).
-IMU supports simultaneous named instances; GNSS retains its default-session API.
+IMU and GNSS support simultaneous named instances.
 Sections below distinguish current v1 mechanics from the remaining target.
 
 ## Ownership
@@ -70,7 +70,7 @@ Chip filters, FIFO tags and other specialized controls remain chip-specific.
 
 The HAL supplies acquisition execution and lifetime policy. Its `imu::Session`
 and `gnss::Session` contracts describe active use, distinct from the synchronous
-device operations in the chip drivers. `gnss::Gnss` remains an alias for existing GNSS consumers. Reuse `nxrs-acquisition` and typed Rust
+device operations in the chip drivers. Reuse `nxrs-acquisition` and typed Rust
 functions or closures for execution. That helper shares worker code, not a
 scheduler. Execution resources are an explicit implementation choice; other
 driver protocols may need their own runtime. Introduce a private shared protocol
@@ -91,17 +91,18 @@ hal/imu/
   src/platform/mod.rs                 selected acquisition exports
   src/platform/nuttx/mod.rs            normalized acquisition and construction API
   src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
-platform/devices/imu/                 named IMU accessors and concrete construction
-platform/nuttx/platforms/              existing product and qualification profiles
+platform/src/nuttx/imu.rs             concrete IMU construction
 driver/i2c/, driver/spi/               NuttX-only embedded-hal resource adapters
 driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
 hal/acquisition/                       shared workers, cancellation and native readiness
   src/probe/                          optional acquisition and I²C/SPI timing
-hal/gnss/                              UART binding, UBX policy and simulation adapter
+platform/src/nuttx/gnss.rs            concrete GNSS construction
+hal/gnss/                              UART acquisition, stream metadata and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
-platform/profiles/                     host, simulation and qualification profiles
-platform/build-support/                shared resolution and generic typed generation
-platform/build/                        build CLI and Cargo orchestration
+platform/<platform>/profile.toml      platform default device and resource data
+tests/profiles/                        mock, simulation and qualification inputs
+tools/build-support/                shared resolution and generic typed generation
+tools/build/                        build CLI and Cargo orchestration
 ~~~
 
 OS adapters stay under the actual OS. Boards using the same sensor share the
@@ -259,8 +260,8 @@ stack-bytes = 16384
 The `[hal] imu = "nuttx"` binding selects NuttX integration for this capability.
 The device's `compatible` selects the sensor. The capability API owns ODR and
 full-scale requests. The device is named `imu`, so firmware can access it through
-`imu_devices::imu()`. This single-IMU profile needs no alias;
-`imu_devices::primary_imu().open_default(sink)` acquires that same device.
+`composition::imu::imu()`. This single-IMU profile needs no alias;
+`composition::imu::primary_imu().open_default(sink)` acquires that same device.
 
 Composition version 1 is the migration boundary for physical sensor profiles.
 Move legacy IMU driver, address and wake settings into the device record,
@@ -289,11 +290,11 @@ sensor ODR. An interrupt acquisition failure remains an error. The M135 stock
 module uses periodic wakes because its interrupts are unwired.
 
 Device names identify configured instances: `[devices.imu]` generates
-`imu_devices::imu()`. Names use lowercase snake case; `self`, `super` and
+`composition::imu::imu()`. Names use lowercase snake case; `self`, `super` and
 `crate` are reserved. Each physical IMU has one canonical static object with its
 own driver storage and ownership/fault record. `aliases.imu` selects
-`imu_devices::primary_imu()` for default acquisition. Additional
-`imu_<name>` aliases generate `imu_devices::<name>()` accessors:
+`composition::imu::primary_imu()` for default acquisition. Additional
+`imu_<name>` aliases generate `composition::imu::<name>()` accessors:
 
 ```toml
 [aliases]
@@ -310,9 +311,10 @@ overlay preserves direct device names and never creates another device owner.
 Applications import `imu::Device` and call `device.open(config, sink)` or
 `device.open_default(sink)`. References do not acquire hardware. Different devices
 may acquire independently; aliases share Busy/fault state until the prior worker,
-terminal delivery, sink and resource cleanup retire. GNSS retains its existing
-default-session API. The OS/resource
-adapter retains transaction serialization for a shared bus. See the
+terminal delivery, sink and resource cleanup retire. GNSS follows the same
+ownership pattern through `composition::gnss::primary_gnss()` and
+`gnss_<name>` aliases. The OS/resource adapter retains transaction serialization
+for a shared bus. See the
 [static-device contract](static-device-composition.md#permanent-device-objects-and-temporary-sessions)
 for lifecycle, opacity and storage requirements.
 
@@ -324,18 +326,16 @@ bus frequencies and readiness modes. IMU declarations live in each chip driver's
 Product profiles choose the actual bus, address and interrupt endpoint. NuttX
 owns physical pin assignment and device registration.
 
-Each package declares version 2 binding files in `package.metadata.nxrs.bindings`.
-The IMU platform catalogue imports its drivers' declarations with `{ dependency = "nxrs-bmi270" }`
-and the corresponding LSM6DSO entry. Imports must name an existing normal Cargo
-dependency with an explicit path; target tables and dependency aliases are
-supported. Registry-only and workspace-inherited imports are not implemented.
-The loader follows declared inputs, records their manifests and binding files,
-and rejects cycles and ambiguous matches. It does not select Cargo dependencies.
-GNSS currently owns its binding file in its HAL package.
+Drivers declare version 2 binding files in `package.metadata.nxrs.bindings`
+and their capability in `package.metadata.nxrs.device`. The composition crate
+registers each driver as a renamed optional NuttX path dependency. The
+loader records the declared manifests and binding files and rejects ambiguous
+matches. Product builds enable the dependency alias's Cargo feature for
+consumed devices. See the [driver registration example](../platform/README.md).
 
 Build-only resolution selects a checked-in constructor. Profiles cannot supply
 Rust paths or executable code. Unknown models and unsupported buses fail.
-One implementation ID names a checked-in Rust type; profiles do not name code.
+The implementation identifier names a type exported by the driver.
 Resolution loads those declarations for explicit `[hal]` capabilities, including
 `"none"` entries used to validate unselected devices. A physical device whose
 capability is absent from `[hal]` has no admitted catalog and fails validation.
@@ -355,9 +355,10 @@ paths resolve against the selected workspace root.
 In the current v1 path, the build frontend writes `resolved-profile.json` into the owned build output
 and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts
 verify the workspace, target, profile name and input fingerprints before using
-it. Direct Cargo consumers select a named profile and its declared overlays
-through `NXRS_PLATFORM` and `NXRS_SDK_ROOT`. Both sensor Cargo adapters call the
-same shared preparation function. Their explicitly declared binding files select
+it. NuttX profile builds require this frontend receipt. Explicit host fixtures
+may select a named profile and its declared overlays through `NXRS_PLATFORM` and
+`NXRS_SDK_ROOT`. The composition crate uses one Cargo adapter.
+The driver binding declarations select
 checked-in implementations. Shared build support renders fixed typed I²C/SPI/UART
 resource contracts, an implementation import and the validated stack budget.
 
@@ -477,8 +478,8 @@ Build scripts cannot enable optional dependencies. Any later dependency-pruning
 optimization must use the existing Cargo graph machinery and qualify workspace,
 transitive and detached consumers before changing this rule.
 
-Retain `NXRS_PLATFORM` for direct Cargo use and `NXRS_SDK_ROOT` for detached
-consumers. Such consumers use a named profile with declared overlays. Ad hoc CLI
+Retain `NXRS_PLATFORM` for explicit host Cargo fixtures and `NXRS_SDK_ROOT` for
+detached consumers. NuttX products use `cargo nxrs build` with their manifest. Ad hoc CLI
 overlays are normalized into a per-build resolved-profile file under the owned
 output directory, passed to HAL build scripts through the
 `NXRS_RESOLVED_PROFILE` input. If combined with a named profile, identities must

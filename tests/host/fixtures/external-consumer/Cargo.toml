@@ -17,7 +17,7 @@ ble = ["dep:bluetooth"]
 radios = ["wifi", "ble"]
 
 [dependencies]
-devices = { package = "nxrs-imu-devices", path = "deps/platform/devices/imu" }
+nxrs-composition = { path = "deps/platform", features = ["imu", "gnss"] }
 frames = { package = "nxrs-camera", path = "deps/hal/camera", features = ["replay"] }
 archive = { package = "nxrs-storage", path = "deps/hal/storage", features = ["recording"] }
 packets = { package = "nxrs-transport", path = "deps/hal/transport", features = ["udp"] }

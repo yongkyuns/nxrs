@@ -1,6 +1,6 @@
 //! Event-driven architecture demonstration.
 //!
-//! The app connects portable services and selects the named IMU device.
+//! The app connects portable services and selects named IMU and GNSS devices.
 //! Services acquire and own their HAL sessions.
 #![forbid(unsafe_code)]
 
@@ -33,8 +33,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let gnss = GnssService::new(inputs.gnss);
 
     let fusion = fusion.start()?;
-    let imu = imu.start_on(devices::primary_imu())?;
-    let gnss = gnss.start()?;
+    let imu = imu.start_on(composition::imu::primary_imu())?;
+    let gnss = gnss.start_on(composition::gnss::primary_gnss())?;
 
     println!("EVENT_DEMO topology:");
     println!("  ImuService  owns HAL session + processing/event loop; HAL owns acquisition");

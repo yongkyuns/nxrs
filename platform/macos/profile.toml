@@ -1,0 +1,8 @@
+# Native macOS providers.
+name = "macos"
+target-os = ["macos"]
+
+[hal]
+detector = "macos"
+wifi = "macos"
+ble = "macos"

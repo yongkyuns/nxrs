@@ -1,0 +1,35 @@
+[package]
+name = "nxrs-composition"
+version.workspace = true
+edition.workspace = true
+build = "../tools/build-support/cargo/composition.rs"
+
+[lib]
+name = "composition"
+
+[package.metadata.nxrs]
+device-capabilities = ["imu", "gnss"]
+
+[features]
+imu = ["dep:nxrs-imu", "dep:nxrs-acquisition", "dep:nxrs-i2c", "dep:nxrs-spi", "dep:nxrs-peripheral", "dep:embedded-hal"]
+gnss = ["dep:nxrs-gnss"]
+probe = ["imu", "dep:nxrs-messaging", "nxrs-imu/probe"]
+
+[dependencies]
+cfg-if = "=1.0.5"
+nxrs-acquisition = { path = "../hal/acquisition", optional = true }
+nxrs-gnss = { path = "../hal/gnss", optional = true }
+nxrs-imu = { path = "../hal/imu", optional = true }
+nxrs-messaging = { path = "../shared/messaging", optional = true }
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+embedded-hal = { version = "=1.0.0", optional = true }
+bmi270 = { package = "nxrs-bmi270", path = "../driver/bmi270", optional = true }
+nxrs-i2c = { path = "../driver/i2c", optional = true }
+lsm6dso = { package = "nxrs-lsm6dso", path = "../driver/lsm6dso", optional = true }
+nxrs-peripheral = { path = "../driver/peripheral", optional = true }
+nxrs-spi = { path = "../driver/spi", optional = true }
+ubx = { package = "nxrs-ubx-driver", path = "../driver/ubx", optional = true }
+
+[build-dependencies]
+nxrs-build-support = { path = "../tools/build-support" }

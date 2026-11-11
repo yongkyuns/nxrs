@@ -41,7 +41,12 @@ def copy_dependency_closure(directory, pending):
             continue
         copied.add(source)
         destination = directory / "deps" / source.relative_to(ROOT)
-        shutil.copytree(source, destination, ignore=shutil.ignore_patterns("target", ".git"))
+        ignore = shutil.ignore_patterns("target", ".git")
+        if source == ROOT / "platform":
+            # Copy the target crate without SDK profiles or board inputs.
+            shutil.copytree(source / "src", destination / "src", ignore=ignore)
+        else:
+            shutil.copytree(source, destination, ignore=ignore)
         text = without_dev_dependencies((source / "Cargo.toml").read_text())
         (destination / "Cargo.toml").write_text(text)
         pending.extend(source / dependency["path"] for dependency in dependencies(tomllib.loads(text))
@@ -83,8 +88,8 @@ class ExternalConsumerTests(unittest.TestCase):
         return result
 
     def test_detached_consumer_with_own_lock_and_renamed_dependencies(self):
-        self.assertFalse((self.directory / "deps/platform/build").exists())
-        self.assertFalse((self.directory / "deps/platform/profiles").exists())
+        self.assertFalse((self.directory / "deps/tools/build").exists())
+        self.assertFalse(any((self.directory / "deps/platform").glob("*/profile.toml")))
         self.assertFalse((self.directory / "deps/driver/acquisition").exists())
         self.assertTrue((self.directory / "deps/hal/acquisition/Cargo.toml").is_file())
         self.assertFalse((self.directory / "deps/platform/hal-build.rs").exists())
@@ -125,14 +130,14 @@ class ExternalConsumerTests(unittest.TestCase):
                     'fn main() { assert!(std::mem::size_of::<capability::DeviceError>() > 0); }\n')
                 copied = copy_dependency_closure(directory, [ROOT / "hal" / capability])
                 if capability == "imu":
-                    for concrete in ("platform/devices/imu", "driver/bmi270", "driver/lsm6dso",
+                    for concrete in ("platform", "driver/bmi270", "driver/lsm6dso",
                                      "driver/i2c", "driver/spi"):
                         self.assertNotIn((ROOT / concrete).resolve(), copied)
                 for other in {"imu", "gnss", "camera"} - {capability}:
                     self.assertNotIn((ROOT / "hal" / other).resolve(), copied)
                     self.assertFalse((directory / "deps/hal" / other).exists())
-                self.assertFalse((directory / "deps/platform/profiles").exists())
-                self.assertFalse((directory / "deps/platform/build").exists())
+                self.assertFalse(any((directory / "deps/platform").glob("*/profile.toml")))
+                self.assertFalse((directory / "deps/tools/build").exists())
 
                 env = {**self.environment, "CARGO_TARGET_DIR": str(self.directory / "isolated-target")}
                 lock = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=directory,
@@ -154,7 +159,7 @@ class ExternalConsumerTests(unittest.TestCase):
                                     if item.get("reason") == "compiler-artifact"}
                         self.assertIn(capability, compiled)
                         if capability == "imu":
-                            self.assertTrue(compiled.isdisjoint({"imu_devices", "nxrs_bmi270",
+                            self.assertTrue(compiled.isdisjoint({"composition", "nxrs_bmi270",
                                                                "nxrs_lsm6dso", "i2c", "spi"}))
                         for other in {"imu", "gnss", "camera"} - {capability}:
                             self.assertNotIn(other, compiled)
@@ -223,9 +228,8 @@ class ExternalConsumerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "Linux GIO client selection")
     def test_unused_radio_binding_does_not_require_the_native_sdk(self):
         sdk = self.directory / "profile-sdk"
-        profiles = sdk / "platform/profiles"
+        profiles = sdk / "tests/profiles"
         profiles.mkdir(parents=True)
-        (sdk / "platform/nuttx/platforms").mkdir(parents=True)
         (sdk / "hal").symlink_to(self.directory / "deps/hal", target_is_directory=True)
         (sdk / "Cargo.toml").write_text("[workspace]\n")
         for used, unused in [("wifi", "ble"), ("ble", "wifi")]:

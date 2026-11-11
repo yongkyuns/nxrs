@@ -434,7 +434,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_irq_include_paths_are_confined_to_application_helpers(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             native = root / 'firmware/nuttx/arch/xtensa/src'
             sdk = native / 'esp32s3/esp-hal-3rdparty'
             private, public = native / 'common/espressif', sdk / 'components/efuse/include'
