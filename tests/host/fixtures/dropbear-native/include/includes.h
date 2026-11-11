@@ -71,7 +71,7 @@ struct dropbear_channel {
  void *typedata; int prio, readfd, writefd, errfd, bidir_fd;
  unsigned remotechan,index,sent_close,recv_close,sent_eof,recv_eof;
  unsigned transwindow,transmaxpacket,await_open,recvwindow,recvdonelen,recvmaxpacket;
- void *writebuf,*extrabuf; const struct dropbear_chantype *type;
+ void *writebuf,*extrabuf,*conn_pending; const struct dropbear_chantype *type;
 };
 extern const struct dropbear_chantype svrchansess;
 struct sshsession {

@@ -25,6 +25,7 @@ def module(name, path):
 SSH = module("ssh_qualification", DIRECTORY / "run.py")
 CONSOLE = module("ssh_console", DIRECTORY / "console.py")
 BUILD = module("ssh_build", DIRECTORY / "check-build.py")
+NATIVE = module("dropbear_native_fixture", ROOT / "tests/host/test_dropbear_native.py")
 
 
 class SshQualificationTests(unittest.TestCase):
@@ -33,9 +34,14 @@ class SshQualificationTests(unittest.TestCase):
             out = Path(directory)
             (out / "resolved.config").write_text("CONFIG_NSH_DISABLEBG=y\n")
             (out / "symbols.txt").write_text("00000000 T ssh_probe_main\n")
+            for name in ("ssh-build-evidence.json", "ssh-dropbear-source-receipt.json",
+                         "ssh-localoptions.h"):
+                (out / name).write_text("stale-success-control\n")
             with self.assertRaisesRegex(ValueError, "required cross-build artifact"):
                 BUILD.check(out, False)
             self.assertFalse((out / "ssh-build-evidence.json").exists())
+            self.assertFalse((out / "ssh-dropbear-source-receipt.json").exists())
+            self.assertFalse((out / "ssh-localoptions.h").exists())
 
     def test_secret_echo_across_chunks_is_withheld(self):
         secret = secrets.token_bytes(24)
@@ -206,6 +212,81 @@ sys.exit(7)
             self.assertEqual(SSH.verify_known_hosts(known, "127.0.0.1", 2222, fingerprint), known)
             with self.assertRaisesRegex(SSH.CheckFailure, "fingerprint_mismatch"):
                 SSH.verify_known_hosts(known, "127.0.0.1", 2222, "SHA256:deliberately-wrong")
+
+
+@unittest.skipUnless(shutil.which("git") and shutil.which("patch"), "Git and patch required")
+class DropbearSourceReceiptTests(unittest.TestCase):
+    """Verify real full-series source preparation without synthesizing an image."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="nxrs-ssh-source-control-")
+        self.addCleanup(directory.cleanup)
+        self.out = Path(directory.name)
+        self.upstream = NATIVE.prepare(self.out / "apps")
+        self.port = self.out / "apps/netutils/dropbear"
+        self.expected = json.loads(BUILD.DROPBEAR_SOURCE_RECEIPT.read_text())
+        self.revision = self.expected["revision"]
+
+    def test_real_complete_patch_sequence_matches_without_claiming_a_crossbuild(self):
+        receipt = BUILD.check_dropbear_sources(self.out, self.revision)
+        self.assertEqual(receipt["evidence_class"], "prepared_source_identity")
+        self.assertEqual(receipt["expected_receipt"], self.expected)
+        self.assertEqual(set(receipt["recipe_sha256"]), {"Makefile", "CMakeLists.txt"})
+        self.assertEqual(receipt["device_qualification"], "pending")
+        self.assertFalse((self.out / "ssh-build-evidence.json").exists())
+
+    def test_historical_misplaced_hooks_fail_even_with_correct_patch_bytes(self):
+        # The old zero-context patch exits successfully after patches 0001-0004,
+        # but lands a cancellation hook in a comment. Keep the corrected patch
+        # files in the tree: validation must inspect actual prepared C source.
+        bad_out = self.out / "historical"
+        bad_upstream = NATIVE.prepare(
+            bad_out / "apps", final_patch=NATIVE.FIXTURE / "misplaced-zero-context.patch",
+            verify_prepared=False)
+        self.assertIn("dropbear_nuttx_channel_cancel(channel);",
+                      (bad_upstream / "src/common-channel.c").read_text())
+        with self.assertRaisesRegex(ValueError, "prepared Dropbear source differs: src/common-channel.c"):
+            BUILD.check_dropbear_sources(bad_out, self.revision)
+        self.assertFalse((bad_out / "ssh-build-evidence.json").exists())
+
+    def test_both_recipes_must_declare_the_complete_ordered_sequence(self):
+        first, second = [entry["path"].removeprefix("patch/")
+                         for entry in self.expected["nested_patches"][:2]]
+        for name in ("Makefile", "CMakeLists.txt"):
+            path = self.port / name
+            original = path.read_text()
+            for changed in (original.replace(first, "omitted.patch"),
+                            original.replace(first, "SWAP_PLACEHOLDER")
+                            .replace(second, first).replace("SWAP_PLACEHOLDER", second)):
+                with self.subTest(recipe=name, changed=changed != original):
+                    path.write_text(changed)
+                    with self.assertRaisesRegex(ValueError, "nested patch sequence differs"):
+                        BUILD.check_dropbear_sources(self.out, self.revision)
+                    path.write_text(original)
+
+    def test_missing_or_changed_nested_patch_is_rejected(self):
+        path = self.port / self.expected["nested_patches"][-1]["path"]
+        original = path.read_bytes()
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, "prepared Dropbear patch missing"):
+            BUILD.check_dropbear_sources(self.out, self.revision)
+        path.write_bytes(original + b"\n# unexpected patch drift\n")
+        with self.assertRaisesRegex(ValueError, "prepared Dropbear patch differs"):
+            BUILD.check_dropbear_sources(self.out, self.revision)
+
+    def test_missing_or_changed_prepared_source_is_rejected(self):
+        path = self.upstream / "src/common-channel.c"
+        original = path.read_bytes()
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, "prepared Dropbear source missing"):
+            BUILD.check_dropbear_sources(self.out, self.revision)
+        path.write_bytes(original + b"\n/* unexpected source drift */\n")
+        with self.assertRaisesRegex(ValueError, "prepared Dropbear source differs"):
+            BUILD.check_dropbear_sources(self.out, self.revision)
+
+    def test_configuration_must_select_the_receipted_upstream_revision(self):
+        with self.assertRaisesRegex(ValueError, "revision differs from source receipt"):
+            BUILD.check_dropbear_sources(self.out, "0" * 40)
 
 
 @unittest.skipUnless(shutil.which("rustc"), "Rust host compiler unavailable")

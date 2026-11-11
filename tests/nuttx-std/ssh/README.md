@@ -31,8 +31,14 @@ returns unavailable because no native `dropbear` builtin is registered.
 `build.sh` selects the pinned dependency's networking, PTY, child/wait, password,
 codec, hardware entropy and software cryptodev prerequisites. It verifies the
 effective configuration and final symbols through `check-build.py`. The enabled
-image also retains the exact prepared `ssh-localoptions.h`. Both images require
-the prepared Rust main-thread-initialization fix and its hashed receipt. The resulting
+image also checks the configured Dropbear revision, all five nested patch files,
+their declared order in both build recipes, and every affected prepared C/header
+file against the checked-in full-series source receipt. This catches misplaced
+patch hunks even when they still produce a linked image. The verified source
+identities are retained in `ssh-dropbear-source-receipt.json`, alongside the exact
+prepared `ssh-localoptions.h`. Both images require the prepared Rust
+main-thread-initialization fix and its hashed receipt. A failed recheck removes
+stale success receipts. The resulting
 `ssh-build-evidence.json` is **crossbuild** evidence. It does not prove successful
 authentication, terminal behavior, entropy quality or physical board operation.
 

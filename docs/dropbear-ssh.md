@@ -123,6 +123,18 @@ The exact prepared algorithm header and effective configuration are retained
 beside the image. Negotiated algorithm names are recorded only by real OpenSSH
 device trials; source configuration is not negotiation evidence.
 
+The enabled build verifier also checks the configured upstream revision, all
+five nested patch files, their declared order in Make and CMake, and all affected
+prepared source/header bytes against
+[`dropbear-source-receipt.json`](../upstream/nuttx-apps/dropbear-source-receipt.json).
+The host controls apply the complete sequence to checksum-verified upstream
+sources. A historical zero-context patch that placed a cancellation hook inside
+a comment is a negative control: the prepared-source check must reject it even
+though the hook text exists and the image can link. The build retains
+`ssh-dropbear-source-receipt.json`, whose hash is included in the image evidence.
+These source checks establish which reviewed patch output is present; runtime
+behavior still requires the stated device trials.
+
 The qualification recipe selects these explicit limits:
 
 | Setting | Value |

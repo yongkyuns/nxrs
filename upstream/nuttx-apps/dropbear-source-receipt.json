@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "repository": "mkj/dropbear",
+  "revision": "54ef47adf8c99b422be6a8f694f2866e62f88b9e",
+  "nuttx_apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+  "nested_patches": [
+    {
+      "path": "patch/0001-guard-platform-declarations.patch",
+      "sha256": "170e6a7ebbbcaaaf006b90bf00aab7be185fedb4262df40fc5b42949d046ec57"
+    },
+    {
+      "path": "patch/0002-use-nuttx-passwd-auth.patch",
+      "sha256": "c5ef04f0a1502a7ab62693645b05bdc7a328214cc0c0bd03c63645aeac56ac67"
+    },
+    {
+      "path": "patch/0003-allow-localoptions-to-override-tracking-malloc.patch",
+      "sha256": "fcd29d7de2e8c16f29a01c12c410882c2506dc82fa32c5e753c4a99fe17e8c06"
+    },
+    {
+      "path": "patch/0004-use-nuttx-unused-macro.patch",
+      "sha256": "2d4d8e41d7bd4f1d1babeb0f4d3ff3cb6da97e8d9d8b7227eb6b5257dc046018"
+    },
+    {
+      "path": "patch/0005-nuttx-bounded-service.patch",
+      "sha256": "f8b719611439b1227d2939ab5d459782bf424b6eefca32d44a65c651c6e97c12"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/chachapoly.c",
+      "pristine_sha256": "cd282908ed3510a1a82dfdb2f0d7675e6ef8059db150246f7e5e9f6dd273438a",
+      "prepared_sha256": "d6a0d8eaafc1ba071727a09640f964f00ec0392204343f1fa62d167e87c14a78"
+    },
+    {
+      "path": "src/common-algo.c",
+      "pristine_sha256": "c3b388c7f6c89b972253fbef7e2442f951276a2d280d46ba1c2837ed79bc42be",
+      "prepared_sha256": "8a33b2da9db1594a55799f0dbe4afe544a02e4b2bc1d1a42b4244e86fdc77d66"
+    },
+    {
+      "path": "src/common-channel.c",
+      "pristine_sha256": "bd9f962f969672f947456faf4e3a3dff0584035206d1d01226cad479b0f91b87",
+      "prepared_sha256": "fc338c25d3320440193f43d636651ce55a0e5e56c977f371fa6707f3d842779d"
+    },
+    {
+      "path": "src/common-session.c",
+      "pristine_sha256": "dc19e059cb085b661aa3c25d6d2936bfd885d3b67807a1fbd4facc27124f56f6",
+      "prepared_sha256": "495d90effcb115b5ed8c29df298ef8665e37cd0d192063d0dce4158ad4e2df5d"
+    },
+    {
+      "path": "src/compat.c",
+      "pristine_sha256": "8838de287645665289f85b56dfa933129386aa104eda947ee5b2533d0b8fc53a",
+      "prepared_sha256": "8ed30c0da4f3dba76d885dfc89cfb35843c920e69a8db72f7fe6a7f30aab18a6"
+    },
+    {
+      "path": "src/dbmalloc.c",
+      "pristine_sha256": "61a41bbfe46705d4c18d664e1f1e679afedcab31627d8652df51b48b834bc51d",
+      "prepared_sha256": "3e48fee79f255b9c77d7819ee7872af790e318db8ecce7a6d22bdc0c5d1f1307"
+    },
+    {
+      "path": "src/dbrandom.c",
+      "pristine_sha256": "a09cfe2cdcdfe642529e9385969e048834886e97ab4a28530fce699b4a7dfa04",
+      "prepared_sha256": "4b9411aed7e7743406849b16302e2b5282271efe9ae5030a1e91f7991e9e5763"
+    },
+    {
+      "path": "src/dbutil.c",
+      "pristine_sha256": "6dfff6c00add1e679d4addebafb215f51595f8089757f572a5557c1b4cf146ea",
+      "prepared_sha256": "00909032587a0cdf35876964ea95788c01eac809aba24cd6924b20c1ae3a5bd1"
+    },
+    {
+      "path": "src/ltc_prng.c",
+      "pristine_sha256": "9912f07b2e173395c078d2d60ca56c741a55d6c3749a5f5a44250662d1372110",
+      "prepared_sha256": "2af9e9530957e7e3e3ffd1695f3f35f0bff168af5361df9ad72c69e7623e5986"
+    },
+    {
+      "path": "src/netio.c",
+      "pristine_sha256": "b903685d1ce9384d809f4cacf9f92718b4fdd7c9f66612e96eccade983417366",
+      "prepared_sha256": "6b1f231e8ccd170e871d693081db19d85320f5134fa7cea569f119cfe51fb45d"
+    },
+    {
+      "path": "src/signkey.h",
+      "pristine_sha256": "dbdeaafbb54b6efe887630d456341906a3a633f89127307e48d5ff17e258cfcf",
+      "prepared_sha256": "1e8b99e0010a6b9c018be494fe0ccd309ece9d8de2e582ea0ff653667b498510"
+    },
+    {
+      "path": "src/svr-authpasswd.c",
+      "pristine_sha256": "4c8e5a7add68b9424df41a9a3adef43bc1318e8a0abd270c6a156c7357b55257",
+      "prepared_sha256": "66ce7e13fef040bfaf607ff09cc07561da142a9bcb513cbcb93f3690a7a2bc66"
+    },
+    {
+      "path": "src/sysoptions.h",
+      "pristine_sha256": "147d8e8c6a98043873868c597961c98501c4ce707161e56eb6044ec6b7ef636f",
+      "prepared_sha256": "7dfe5960afa5f2f9d59dac6a6fe6b6f347d2ce22c0b3c335272ce7109acc8cbd"
+    }
+  ]
+}

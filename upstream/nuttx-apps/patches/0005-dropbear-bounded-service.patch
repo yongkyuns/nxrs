@@ -8,7 +8,7 @@ entropy device and require provisioned host identity by default.
 diff --git a/netutils/dropbear/CMakeLists.txt b/netutils/dropbear/CMakeLists.txt
 --- a/netutils/dropbear/CMakeLists.txt
 +++ b/netutils/dropbear/CMakeLists.txt
-@@ -1,256 +1,267 @@
+@@ -1,256 +1,283 @@
  # ##############################################################################
  # apps/netutils/dropbear/CMakeLists.txt
  #
@@ -58,25 +58,45 @@ diff --git a/netutils/dropbear/CMakeLists.txt b/netutils/dropbear/CMakeLists.txt
          COMMAND
            patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
            "${CMAKE_CURRENT_SOURCE_DIR}/patch/0001-guard-platform-declarations.patch"
-         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear prerequisite patch failed")
++      endif()
        execute_process(
          COMMAND
            patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
            "${CMAKE_CURRENT_SOURCE_DIR}/patch/0002-use-nuttx-passwd-auth.patch"
-         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear prerequisite patch failed")
++      endif()
        execute_process(
          COMMAND
            patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
            "${CMAKE_CURRENT_SOURCE_DIR}/patch/0003-allow-localoptions-to-override-tracking-malloc.patch"
-         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear prerequisite patch failed")
++      endif()
        execute_process(
          COMMAND
            patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
            "${CMAKE_CURRENT_SOURCE_DIR}/patch/0004-use-nuttx-unused-macro.patch"
-         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear prerequisite patch failed")
++      endif()
 +      execute_process(
 +        COMMAND
-+          patch -s -N -l -p1 -d "${DROPBEAR_UNPACKNAME}" -i
++          patch -s -N -l --fuzz=0 -p1 -d "${DROPBEAR_UNPACKNAME}" -i
 +          "${CMAKE_CURRENT_SOURCE_DIR}/patch/0005-nuttx-bounded-service.patch"
 +        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 +        RESULT_VARIABLE dropbear_patch_result)
@@ -671,11 +691,15 @@ diff --git a/netutils/dropbear/Makefile b/netutils/dropbear/Makefile
  	$(Q) rm -rf $(DROPBEAR_UNPACKNAME)
  	$(Q) mv dropbear-$(DROPBEAR_COMMIT) $(DROPBEAR_UNPACKNAME)
  	@echo "Patching $(DROPBEAR_UNPACKNAME)"
- 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0001-guard-platform-declarations.patch; true
- 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0002-use-nuttx-passwd-auth.patch; true
- 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0003-allow-localoptions-to-override-tracking-malloc.patch; true
- 	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0004-use-nuttx-unused-macro.patch; true
-+	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0005-nuttx-bounded-service.patch
+-	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0001-guard-platform-declarations.patch; true
+-	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0002-use-nuttx-passwd-auth.patch; true
+-	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0003-allow-localoptions-to-override-tracking-malloc.patch; true
+-	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0004-use-nuttx-unused-macro.patch; true
++	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0001-guard-platform-declarations.patch
++	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0002-use-nuttx-passwd-auth.patch
++	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0003-allow-localoptions-to-override-tracking-malloc.patch
++	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0004-use-nuttx-unused-macro.patch
++	$(Q) $(PATCH) -s -N -l --fuzz=0 -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0005-nuttx-bounded-service.patch
  	@echo "Generating default_options_guard.h"
  	$(Q) sh $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)ifndef_wrapper.sh \
  		< $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)default_options.h \
@@ -2548,79 +2572,240 @@ diff --git a/netutils/dropbear/patch/0005-nuttx-bounded-service.patch b/netutils
 new file mode 100644
 --- /dev/null
 +++ b/netutils/dropbear/patch/0005-nuttx-bounded-service.patch
-@@ -0,0 +1,106 @@
-+diff --git a/src/common-session.c b/src/common-session.c
-+--- a/src/common-session.c
-++++ b/src/common-session.c
-+@@ -37,0 +38,3 @@
-++#if DROPBEAR_NUTTX
-++#include "dropbear_control.h"
-++#endif
-+@@ -97,0 +101,6 @@
-++#if DROPBEAR_NUTTX
-++	if (fcntl(ses.signal_pipe[0], F_SETFD, FD_CLOEXEC) < 0 ||
-++		fcntl(ses.signal_pipe[1], F_SETFD, FD_CLOEXEC) < 0) {
-++		dropbear_exit("Signal pipe descriptor flags failed");
-++	}
-++#endif
-+@@ -545,0 +555,5 @@
-++#if DROPBEAR_NUTTX
-++	if (dropbear_service_stopping()) {
-++		dropbear_close("Service stopped");
-++	}
-++#endif
-+@@ -643,0 +658,3 @@
-++#if DROPBEAR_NUTTX
-++	timeout = MIN(timeout, 1);
-++#endif
+@@ -0,0 +1,277 @@
++From: nxrs contributors
++Subject: [PATCH] bound NuttX session resources and cleanup
++
++Apply after the four NuttX port patches. Keep contextual hunks so earlier
++source edits cannot silently displace lifecycle hooks into comments or branches.
++
 +diff --git a/src/common-channel.c b/src/common-channel.c
 +--- a/src/common-channel.c
 ++++ b/src/common-channel.c
-+@@ -34,0 +35,3 @@
++@@ -30,10 +30,13 @@
++ #include "ssh.h"
++ #include "buffer.h"
++ #include "circbuffer.h"
++ #include "dbutil.h"
++ #include "channel.h"
 ++#if DROPBEAR_NUTTX
 ++#include "dropbear_control.h"
 ++#endif
-+@@ -113,0 +117,6 @@
++ #include "listener.h"
++ #include "runopts.h"
++ #include "netio.h"
++
++ static void send_msg_channel_open_failure(unsigned int remotechan, int reason,
++@@ -109,10 +112,16 @@
++
++        struct Channel * newchan;
++        unsigned int i, j;
++
++        TRACE(("enter newchannel"))
 ++#if DROPBEAR_NUTTX
 ++	/* Bound resources before allocating a channel buffer or NSH task. */
 ++	if (ses.chancount >= 1) {
 ++		return NULL;
 ++	}
 ++#endif
-+@@ -618,0 +628,6 @@
++
++        /* first see if we can use existing channels */
++        for (i = 0; i < ses.chansize; i++) {
++                if (ses.channels[i] == NULL) {
++                        break;
++@@ -616,17 +625,27 @@
++        channel = getchannel_msg("Close");
++
++        channel->recv_eof = 1;
++        channel->recv_close = 1;
++
 ++#if DROPBEAR_NUTTX
 ++	/* A transport owns exactly one channel.  A client close must retire its
 ++	 * NSH task even if the task is still waiting for input or a builtin.
 ++	 * Session cleanup cancels, closes the PTY and joins before reuse. */
 ++	dropbear_close("Channel closed");
 ++#else
-+@@ -619,0 +635 @@
++        check_close(channel);
 ++#endif
-+@@ -625,0 +642,3 @@
++        TRACE(("leave recv_msg_channel_close"))
++ }
++
++ /* Remove a channel entry, this is only executed after both sides have sent
++  * channel close */
++ static void remove_channel(struct Channel * channel) {
 ++#if DROPBEAR_NUTTX
 ++	dropbear_nuttx_channel_cancel(channel);
 ++#endif
-+diff --git a/src/dbrandom.c b/src/dbrandom.c
-+--- a/src/dbrandom.c
-++++ b/src/dbrandom.c
-+@@ -30,0 +31,3 @@
++
++        TRACE(("enter remove_channel"))
++        TRACE(("channel index is %d", channel->index))
++
++        cbuf_free(channel->writebuf);
++diff --git a/src/common-session.c b/src/common-session.c
++--- a/src/common-session.c
+++++ b/src/common-session.c
++@@ -33,10 +33,13 @@
++ #include "dbrandom.h"
++ #include "kex.h"
++ #include "channel.h"
++ #include "runopts.h"
++ #include "netio.h"
 ++#if DROPBEAR_NUTTX
 ++#include "dropbear_control.h"
 ++#endif
-+@@ -51,0 +55 @@
++
++ static void checktimeouts(void);
++ static long select_timeout(void);
++ static int ident_readln(int fd, char* buf, int count);
++ static void read_session_identification(void);
++@@ -93,10 +96,16 @@
++ #endif
++        {
++        if (pipe(ses.signal_pipe) < 0) {
++                dropbear_exit("Signal pipe failed");
++        }
+++#if DROPBEAR_NUTTX
+++	if (fcntl(ses.signal_pipe[0], F_SETFD, FD_CLOEXEC) < 0 ||
+++		fcntl(ses.signal_pipe[1], F_SETFD, FD_CLOEXEC) < 0) {
+++		dropbear_exit("Signal pipe descriptor flags failed");
+++	}
+++#endif
++        setnonblocking(ses.signal_pipe[0]);
++        setnonblocking(ses.signal_pipe[1]);
++        ses.maxfd = MAX(ses.maxfd, ses.signal_pipe[0]);
++        ses.maxfd = MAX(ses.maxfd, ses.signal_pipe[1]);
++        }
++@@ -541,10 +550,15 @@
++ }
++
++ /* Check all timeouts which are required. Currently these are the time for
++  * user authentication, and the automatic rekeying. */
++ static void checktimeouts() {
+++#if DROPBEAR_NUTTX
+++	if (dropbear_service_stopping()) {
+++		dropbear_close("Service stopped");
+++	}
+++#endif
++
++        time_t now;
++        now = monotonic_now();
++
++        if (IS_DROPBEAR_SERVER && ses.authstate.authdone != 1
++@@ -639,10 +653,13 @@
++
++        update_timeout(opts.max_duration_secs, now, ses.connect_time,
++                &timeout);
++
++        /* clamp negative timeouts to zero - event has already triggered */
+++#if DROPBEAR_NUTTX
+++	timeout = MIN(timeout, 1);
+++#endif
++        return MAX(timeout, 0);
++ }
++
++ const char* get_user_shell() {
++        /* an empty shell should be interpreted as "/bin/sh" */
++diff --git a/src/dbmalloc.c b/src/dbmalloc.c
++--- a/src/dbmalloc.c
+++++ b/src/dbmalloc.c
++@@ -159,10 +159,11 @@
++     remove_alloc(header);
++
++     size = size + sizeof(struct dbmalloc_header);
++     mem = realloc(header, size);
++     if (mem == NULL) {
+++        put_alloc(header);
++         dropbear_exit("m_realloc failed");
++     }
++
++     header = (struct dbmalloc_header*)mem;
++     put_alloc(header);
++diff --git a/src/dbrandom.c b/src/dbrandom.c
++--- a/src/dbrandom.c
+++++ b/src/dbrandom.c
++@@ -26,10 +26,13 @@
++ #include "buffer.h"
++ #include "dbutil.h"
++ #include "bignum.h"
++ #include "dbrandom.h"
++ #include "runopts.h"
+++#if DROPBEAR_NUTTX
+++#include "dropbear_control.h"
+++#endif
++
++ /* this is used to generate unique output from the same hashpool */
++ static uint32_t counter = 0;
++ /* the max value for the counter, so it won't integer overflow */
++ #define MAX_COUNTER (1<<30)
++@@ -47,10 +50,11 @@
++  * It is important to ensure that counter doesn't wrap around before we
++  * feed in new entropy.
++  *
++  */
++
 ++#if !DROPBEAR_NUTTX
-+@@ -111,0 +116,2 @@
++ /* Pass wantlen=0 to hash an entire file */
++ static int
++ process_file(hash_state *hs, const char *filename,
++                unsigned int wantlen, int prngd) {
++        int readfd = -1;
++@@ -107,10 +111,12 @@
++ out:
++        close(readfd);
++        return ret;
++ }
++
 ++#endif
 ++
-+@@ -131,0 +138 @@
++ void addrandom(const unsigned char * buf, unsigned int len)
++ {
++        hash_state hs;
++
++ #if DROPBEAR_FUZZ
++@@ -127,10 +133,11 @@
++        /* new */
++        sha256_process(&hs, buf, len);
++        sha256_done(&hs, hashpool);
++ }
++
 ++#if !DROPBEAR_NUTTX
-+@@ -150,0 +158,2 @@
++ static void write_urandom(void)
++ {
++ #if DROPBEAR_FUZZ
++        if (fuzz.fuzzing) {
++                return;
++@@ -146,10 +153,12 @@
++        genrandom(buf, sizeof(buf));
++        fwrite(buf, sizeof(buf), 1, f);
++        fclose(f);
++ #endif
++ }
 ++
 ++#endif
-+@@ -165 +174 @@
++
++ #if DROPBEAR_FUZZ
++ void fuzz_seed(const unsigned char* dat, unsigned int len) {
++        hash_state hs;
++        sha256_init(&hs);
++@@ -160,11 +169,11 @@
++        donerandinit = 1;
++ }
++ #endif
++
++
 +-#ifdef HAVE_GETRANDOM
 ++#if defined(HAVE_GETRANDOM) && !DROPBEAR_NUTTX
-+@@ -223,0 +233,17 @@
++ /* Reads entropy seed with getrandom().
++  * May block if the kernel isn't ready.
++  * Return DROPBEAR_SUCCESS or DROPBEAR_FAILURE */
++ static int process_getrandom(hash_state *hs) {
++        char buf[INIT_SEED_SIZE];
++@@ -219,10 +228,27 @@
++ #endif /* HAVE_GETRANDOM */
++
++ /* Initialise the prng from /dev/urandom or prngd. This function can
++  * be called multiple times */
++ void seedrandom() {
 ++#if DROPBEAR_NUTTX
 ++	unsigned char seed[INIT_SEED_SIZE];
 ++	hash_state hs;
@@ -2638,7 +2823,17 @@ new file mode 100644
 ++	donerandinit = 1;
 ++#else
 ++
-+@@ -310 +336,10 @@
++        hash_state hs;
++
++        pid_t pid;
++        struct timeval tv;
++        clock_t clockval;
++@@ -305,11 +331,20 @@
++        donerandinit = 1;
++
++        /* Feed it all back into /dev/urandom - this might help if Dropbear
++         * is running from inetd and gets new state each time */
++        write_urandom();
 +-}
 ++#endif
 ++}
@@ -2650,11 +2845,11 @@ new file mode 100644
 ++	donerandinit = 0;
 ++}
 ++#endif
-+diff --git a/src/dbmalloc.c b/src/dbmalloc.c
-+--- a/src/dbmalloc.c
-++++ b/src/dbmalloc.c
-+@@ -163,0 +164 @@
-++        put_alloc(header);
++
++ /* return len bytes of pseudo-random data */
++ void genrandom(unsigned char* buf, unsigned int len) {
++
++        hash_state hs;
 diff --git a/netutils/dropbear/port/dropbear_control.c b/netutils/dropbear/port/dropbear_control.c
 new file mode 100644
 --- /dev/null
