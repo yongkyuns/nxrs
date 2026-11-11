@@ -51,7 +51,7 @@ cargo nxrs profile --help
 cargo nxrs build --help
 ```
 
-The seven default configurations are under [platform/profiles](../../platform/profiles/). Use [tests/profiles](../../tests/profiles/) to find a specific test or qualification input.
+The seven default configurations are under [the platform directories](../../platform/). Use [tests/profiles](../../tests/profiles/) to find a specific test or qualification input.
 
 The resolver validates device/resource bindings and records the resolved configuration with the build. Checked BSP mappings under `platform/nuttx/resources/` connect admitted native settings to Rust endpoints.
 

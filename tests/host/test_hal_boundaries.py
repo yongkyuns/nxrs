@@ -59,7 +59,7 @@ class HalBoundariesTests(unittest.TestCase):
             }
             macro_rules! declare_device {
                 static $name: Instance<$sensor, $resources> = Instance::new(
-                    |trace| binding.open(trace), |bus, settings| {
+                    |trace| $open($binding, trace), |bus, settings| {
                     <$sensor>::from_interface(bus.try_into()?, Delay, settings)
                 });
             }
@@ -228,7 +228,7 @@ class HalBoundariesTests(unittest.TestCase):
             path.parent.rmdir()
 
     def test_std_cannot_return_as_a_platform_or_shared_provider_directory(self):
-        path = self.write('platform/profiles/std.toml', '[hal]\n')
+        path = self.write('platform/std/profile.toml', '[hal]\n')
         self.assertTrue(self.errors())
         path.unlink()
         path = self.write('hal/demo/src/platform/std/mod.rs', 'fn f() {}')

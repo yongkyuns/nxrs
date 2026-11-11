@@ -48,7 +48,7 @@ Read `hal/imu/src/{api,bmi270,cadence}.rs`,
 `hal/imu/src/platform/nuttx/{mod,irq,signal}.rs`, `hal/imu/src/test_support.rs`,
 `hal/acquisition/src/`, `tools/build-support/src/profile.rs`,
 `tools/build/src/{deployment,cargo_graph}.rs` and
-`platform/profiles/m5stack-cores3-gnss.toml`.
+`platform/cores3/profile.toml`.
 
 1. Trace profile values through `configure_hal` to resource acquisition. Record
    that driver selection currently accepts only BMI270 and construction is

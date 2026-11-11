@@ -33,7 +33,7 @@ on:
       - 'hal/boot/**'
       - 'tools/build/**'
       - 'tools/build-nuttx-std-app.sh'
-      - 'platform/profiles/wroom/**'
+      - 'platform/wroom/**'
       - 'tests/profiles/nuttx-std.toml'
       - 'tests/profiles/esp32s3-camera-stream-protected-build.toml'
       - 'tests/host/test_mcuboot_image.py'

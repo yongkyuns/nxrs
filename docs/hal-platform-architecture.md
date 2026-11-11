@@ -454,7 +454,7 @@ identifiers and environment variables retain their external namespacing.
 
 ## Platform variants and validation
 
-Platform defaults live in `platform/profiles`. Test profiles live in
+Platform defaults live in `platform/<platform>/profile.toml`. Test profiles live in
 `tests/profiles`. Names are unique across both locations. A product variant may
 extend an actual OS or board profile and override
 selected `[hal]` bindings. `simulation` runs coordinated IMU and GNSS.

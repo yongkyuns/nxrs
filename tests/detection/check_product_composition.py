@@ -19,7 +19,7 @@ from platform_config import detector_config, resolve, validate_target
 
 def main() -> None:
     host = {'darwin': 'macos', 'win32': 'windows'}.get(sys.platform, 'linux')
-    profile = ROOT / 'platform/profiles' / ('qualification-detector-' + uuid.uuid4().hex + '.toml')
+    profile = ROOT / 'tests/profiles' / ('qualification-detector-' + uuid.uuid4().hex + '.toml')
     output = tempfile.TemporaryDirectory(prefix="nxrs-detector-composition-")
     try:
         for suffix, expected in [('', ['nxrs-detector/pico-model']),

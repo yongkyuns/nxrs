@@ -1,5 +1,5 @@
 # Native macOS providers.
-default-for = "macos"
+name = "macos"
 target-os = ["macos"]
 
 [hal]

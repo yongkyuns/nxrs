@@ -7,22 +7,27 @@ use std::{
     process::{Command, Output},
 };
 
+fn host_profile(root: &Path) -> std::path::PathBuf {
+    root.join("platform").join(env::consts::OS).join("profile.toml")
+}
+
 fn fixture() -> TempDir {
     let root = TempDir::new(&env::temp_dir()).unwrap();
-    fs::create_dir_all(root.0.join("platform/profiles")).unwrap();
+    fs::create_dir_all(root.0.join("tests/profiles")).unwrap();
+    fs::create_dir_all(host_profile(&root.0).parent().unwrap()).unwrap();
     fs::create_dir_all(root.0.join("hal")).unwrap();
     fs::create_dir_all(root.0.join("app/probe/src")).unwrap();
     fs::write(root.0.join("Cargo.toml"), "[workspace]\nresolver = \"2\"\n").unwrap();
     fs::write(
-        root.0.join("platform/profiles/host.toml"),
+        host_profile(&root.0),
         format!(
-            "default-for = \"{os}\"\ntarget-os = [\"{os}\"]\nexecution = \"std\"\n[hal]\n",
+            "name = \"host\"\ntarget-os = [\"{os}\"]\nexecution = \"std\"\n[hal]\n",
             os = env::consts::OS
         ),
     )
     .unwrap();
     fs::write(
-        root.0.join("platform/profiles/browser.toml"),
+        root.0.join("tests/profiles/browser.toml"),
         "target-os = [\"emscripten\"]\nexecution = \"web\"\ntarget = \"wasm32-unknown-emscripten\"\n[hal]\n",
     )
     .unwrap();
@@ -120,7 +125,7 @@ fn write_imu_fixture(root: &Path) {
 
 fn write_imu_profile(root: &Path, name: &str, body: &str) {
     fs::write(
-        root.join(format!("platform/profiles/{name}.toml")),
+        root.join(format!("tests/profiles/{name}.toml")),
         format!(
             "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\ntarget = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n[hal]\nimu = \"nuttx\"\n{body}"
         ),
@@ -179,8 +184,7 @@ fn platform_defaults_are_declared_by_profiles() {
     let fixtures = root.0.join("tests/profiles");
     fs::create_dir_all(&fixtures).unwrap();
     let variant = fixtures.join("variant.toml");
-    let duplicate = format!("extends = \"host\"\ndefault-for = \"{platform}\"\n");
-    fs::write(&variant, &duplicate).unwrap();
+    fs::write(&variant, "extends = \"host\"\n").unwrap();
     assert_eq!(success(run(&["platforms"])).trim(), platform);
     let profile: Value =
         serde_json::from_str(&success(run(&["profile", "--platform", platform]))).unwrap();
@@ -212,11 +216,16 @@ fn platform_defaults_are_declared_by_profiles() {
         "--dry-run",
     ]))
     .contains("another platform family"));
-    let platform_variant = root.0.join("platform/profiles/variant.toml");
-    fs::rename(&variant, &platform_variant).unwrap();
-    assert!(failure(run(&["platforms"])).contains("multiple defaults"));
-    fs::write(platform_variant, "invalid = [").unwrap();
+    let duplicate = root.0.join("platform/other/profile.toml");
+    fs::create_dir_all(duplicate.parent().unwrap()).unwrap();
+    fs::write(&duplicate, "name = \"host\"\n").unwrap();
+    assert!(failure(run(&["platforms"])).contains("ambiguous platform: host"));
+    success(run(&["profile", "--platform", "browser"]));
+    fs::write(duplicate, "invalid = [").unwrap();
+    assert!(failure(run(&["platforms"])).contains("profile.toml"));
+    assert!(failure(run(&["profile", "--platform", "other"])).contains("profile.toml"));
     success(run(&["profile", "--platform", "host"]));
+    success(run(&["build", "--app", "probe", "--platform", platform, "--dry-run"]));
 }
 
 #[test]
@@ -261,8 +270,7 @@ fn profile_honors_the_explicit_root_from_another_directory() {
     assert_eq!(profile["target-os"][0], env::consts::OS);
     assert_eq!(
         profile["sources"][0],
-        root.0
-            .join("platform/profiles/host.toml")
+        host_profile(&root.0)
             .canonicalize()
             .unwrap()
             .to_str()
@@ -310,7 +318,7 @@ fn profile_cli_reports_the_resolved_imu_and_its_provenance() {
     assert_eq!(
         composition["sources"][0],
         root.0
-            .join("platform/profiles/typed-imu.toml")
+            .join("tests/profiles/typed-imu.toml")
             .canonicalize()
             .unwrap()
             .to_str()
@@ -329,12 +337,12 @@ fn profile_cli_reports_the_resolved_imu_and_its_provenance() {
 fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_identity() {
     let root = fixture();
     write_imu_fixture(&root.0);
-    fs::create_dir_all(root.0.join("platform/profiles/patches")).unwrap();
+    fs::create_dir_all(root.0.join("tests/profiles/patches")).unwrap();
     fs::create_dir_all(root.0.join("overlays")).unwrap();
 
     // Named overlay paths are relative to the profile that declares them.
     fs::write(
-        root.0.join("platform/profiles/base.toml"),
+        root.0.join("tests/profiles/base.toml"),
         format!(
             "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\n\
              target = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n\
@@ -344,19 +352,19 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     )
     .unwrap();
     fs::write(
-        root.0.join("platform/profiles/derived.toml"),
+        root.0.join("tests/profiles/derived.toml"),
         "extends = \"base\"\noverlays = [\"patches/child.toml\"]\n",
     )
     .unwrap();
 
     let address_overlay = |address| format!("[devices.imu]\naddress = {address}\n");
     fs::write(
-        root.0.join("platform/profiles/patches/ancestor.toml"),
+        root.0.join("tests/profiles/patches/ancestor.toml"),
         address_overlay(105),
     )
     .unwrap();
     fs::write(
-        root.0.join("platform/profiles/patches/child.toml"),
+        root.0.join("tests/profiles/patches/child.toml"),
         address_overlay(104),
     )
     .unwrap();
@@ -394,8 +402,8 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     );
     let hashes = composition["source-hashes"].as_array().unwrap();
     let expected = [
-        ("platform/profiles/base.toml", "profile"),
-        ("platform/profiles/derived.toml", "profile"),
+        ("tests/profiles/base.toml", "profile"),
+        ("tests/profiles/derived.toml", "profile"),
         ("patches/ancestor.toml", "declared-overlay"),
         ("patches/child.toml", "declared-overlay"),
         ("overlays/first.toml", "command-line-overlay"),
@@ -532,14 +540,14 @@ fn cli_overlay_repairs_a_removed_alias_and_dry_run_matches_inspection() {
     );
 
     // A named overlay is resolved before a normal build reaches Cargo too.
-    fs::create_dir_all(root.0.join("platform/profiles/overlays")).unwrap();
+    fs::create_dir_all(root.0.join("tests/profiles/overlays")).unwrap();
     fs::write(
-        root.0.join("platform/profiles/overlays/invalid.toml"),
+        root.0.join("tests/profiles/overlays/invalid.toml"),
         "remove-devices = [\"missing\"]\n",
     )
     .unwrap();
     fs::write(
-        root.0.join("platform/profiles/typed-imu.toml"),
+        root.0.join("tests/profiles/typed-imu.toml"),
         format!(
             "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\n\
              target = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n\
@@ -566,7 +574,7 @@ fn cli_overlay_repairs_a_removed_alias_and_dry_run_matches_inspection() {
     let error = failure(output);
     assert!(error.contains("unknown devices ID 'missing'"), "{error}");
 
-    fs::remove_file(root.0.join("platform/profiles/overlays/invalid.toml")).unwrap();
+    fs::remove_file(root.0.join("tests/profiles/overlays/invalid.toml")).unwrap();
     let error = failure(frontend(
         &root.0,
         &outside.0,
@@ -576,7 +584,7 @@ fn cli_overlay_repairs_a_removed_alias_and_dry_run_matches_inspection() {
 
     for (name, parent) in [("cycle-a", "cycle-b"), ("cycle-b", "cycle-a")] {
         fs::write(
-            root.0.join(format!("platform/profiles/{name}.toml")),
+            root.0.join(format!("tests/profiles/{name}.toml")),
             format!("extends = \"{parent}\"\n"),
         )
         .unwrap();

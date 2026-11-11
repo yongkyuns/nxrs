@@ -14,8 +14,8 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULTS = ROOT / "platform/profiles"
-WROOM = DEFAULTS / "wroom"
+PLATFORMS = ROOT / "platform"
+WROOM = PLATFORMS / "wroom/profiles"
 FIXTURES = ROOT / "tests/profiles"
 _SPEC = importlib.util.spec_from_file_location('platform_config', ROOT / 'tools/platform_config.py')
 PLATFORM_CONFIG = importlib.util.module_from_spec(_SPEC)
@@ -31,10 +31,12 @@ FIRMWARE_APPS = {
     "ao-stress": ("nxrs-ao-stress", "ao-stress", "ao_stress"),
 }
 def firmware_profiles():
-    for directory in (DEFAULTS, WROOM, FIXTURES):
-        for path in sorted(directory.glob("*.toml")):
-            if PLATFORM_CONFIG.resolve(path.stem).get("board"):
-                yield path
+    paths = [*PLATFORMS.glob("*/profile.toml"), *PLATFORMS.glob("*/profiles/*.toml"),
+             *FIXTURES.glob("*.toml")]
+    for path in sorted(paths):
+        name = tomllib.loads(path.read_text())["name"] if path.name == "profile.toml" else path.stem
+        if PLATFORM_CONFIG.resolve(name).get("board"):
+            yield name, path
 
 APP_OWNED = (
     "NXRS_DEPLOYMENT",
@@ -121,9 +123,9 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_platforms_are_declarative_and_own_hardware_not_app_policy(self):
         profiles = list(firmware_profiles())
         self.assertTrue(profiles)
-        for platform in profiles:
-            with self.subTest(platform=platform.name):
-                data = PLATFORM_CONFIG.resolve(platform.stem)
+        for profile_name, platform in profiles:
+            with self.subTest(platform=profile_name):
+                data = PLATFORM_CONFIG.resolve(profile_name)
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
                     self.assertTrue(data[key])
@@ -161,7 +163,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for name, bindings in expected.items():
                     if name.startswith("esp32s3-camera-stream") or name == "esp32s3-camera-tls":
                         bindings.update(console="nuttx", execution="nuttx")
-                self.assertEqual(features, expected.get(platform.stem,
+                self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)
                 if not features:
@@ -345,8 +347,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
         platforms = self.cargo_firmware("--list-platforms").stdout.splitlines()
         self.assertEqual(platforms, ["cores3", "linux", "macos", "pico2w", "web", "windows", "wroom"])
-        self.assertEqual(sorted(tomllib.loads(path.read_text())["default-for"]
-                                for path in DEFAULTS.glob("*.toml")), platforms)
+        self.assertEqual(sorted(path.parent.name for path in PLATFORMS.glob("*/profile.toml")), platforms)
 
     def test_pico_radio_profile_excludes_gpio25_led_and_boot_credentials(self):
         data = PLATFORM_CONFIG.resolve("pico2w-wifi")
@@ -369,9 +370,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                              "FIRMWARE_BIN_PATH" in setting for setting in config["set"]))
 
     def test_usb_bootloader_trigger_is_limited_to_pico_development(self):
-        for path in firmware_profiles():
-            config = PLATFORM_CONFIG.resolve(path.stem)["kconfig"]
-            enabled = path.stem in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc")
+        for name, _ in firmware_profiles():
+            config = PLATFORM_CONFIG.resolve(name)["kconfig"]
+            enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):

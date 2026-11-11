@@ -12,7 +12,7 @@ on:
       - 'tests/tls/**'
       - 'tests/nuttx-std/tls-identity/**'
       - 'upstream/mbedtls/**'
-      - 'platform/profiles/linux.toml'
+      - 'platform/linux/profile.toml'
       - 'tests/profiles/linux-tls.toml'
       - 'tools/build-support/**'
       - 'tools/build/**'

@@ -1,5 +1,5 @@
 # Native Linux providers.
-default-for = "linux"
+name = "linux"
 target-os = ["linux"]
 
 [hal]
