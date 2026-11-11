@@ -366,7 +366,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertEqual(apps, sorted(FIRMWARE_APPS))
 
         platforms = self.cargo_firmware("--list-platforms").stdout.splitlines()
-        self.assertEqual(platforms,["wroom","cores3","pico2w","linux","macos","windows","web"])
+        self.assertEqual(platforms, ["cores3", "linux", "macos", "pico2w", "web", "windows", "wroom"])
 
     def test_pico_radio_profile_excludes_gpio25_led_and_boot_credentials(self):
         data = tomllib.loads((PLATFORMS / "pico2w-wifi.toml").read_text())

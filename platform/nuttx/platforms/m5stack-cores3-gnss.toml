@@ -1,4 +1,5 @@
 # CoreS3 K128 + Module GNSS M135, software bring-up; physical qualification pending.
+default-for = "cores3"
 board = "esp32s3-m5-cores3:nsh"
 target = "xtensa-esp32s3-nuttx"
 crossdev = "xtensa-esp32s3-elf-"

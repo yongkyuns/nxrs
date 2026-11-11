@@ -27,10 +27,15 @@ The seven platform families are:
 | `windows` | Native Windows | `windows` |
 | `web` | Browser, `wasm32-unknown-emscripten` | `web` |
 
-`--profile` selects an explicit product or qualification configuration. With
-`--platform`, it must belong to that family. Qualification profiles such as
+`--platform` uses the profile file that declares `default-for` for that family.
+`cargo nxrs profile --platform wroom` shows the resolved WROOM default.
+`--profile` selects an explicit product or qualification configuration, which
+can inherit settings using `extends`. When you supply both options, the explicit
+profile must belong to the same board and target family. Qualification profiles such as
 `pico2-mock` and `mps2-an521-mock` are configurations, not additional public
 platform families. Native builds target the current host OS.
+Use `--overlay` to adjust devices, resources, or aliases on a profile with
+[peripheral composition](peripheral-composition.md#bindings-and-overlays).
 
 Platform admission does not imply every HAL is implemented or physically
 qualified. CoreS3 sensor wiring still needs physical qualification. Windows has
