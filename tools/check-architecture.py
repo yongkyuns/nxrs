@@ -388,10 +388,31 @@ def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[
         raise ValueError('binding dependency cycle or depth limit')
     manifest = tomllib.loads((package / 'Cargo.toml').read_text())
     metadata = manifest.get('package', {}).get('metadata', {}).get('nxrs', {})
-    declarations = (metadata.get('bindings', []) if capability is None
-                    else metadata.get('device-bindings', {}).get(capability, []))
-    if capability is not None and capability not in manifest.get('features', {}):
-        raise ValueError('device binding requires a matching Cargo feature')
+    if capability is not None:
+        if (capability not in metadata.get('device-capabilities', [])
+                or capability not in manifest.get('features', {})):
+            raise ValueError('device binding requires a matching Cargo feature')
+        dependencies = ((alias, dependency)
+                        for target, table in manifest.get('target', {}).items()
+                        if re.fullmatch(r'\s*cfg\s*\(\s*target_os\s*=\s*"nuttx"\s*\)\s*', target)
+                        for alias, dependency in table.get('dependencies', {}).items())
+        result = []
+        for alias, dependency in dependencies:
+            if not isinstance(dependency, dict) or not dependency.get('optional'):
+                continue
+            if 'package' not in dependency or 'path' not in dependency:
+                continue
+            source = (package / dependency['path']).resolve()
+            driver = tomllib.loads((source / 'Cargo.toml').read_text())['package']
+            if driver.get('metadata', {}).get('nxrs', {}).get('device', {}).get('capability') != capability:
+                continue
+            if driver['name'] != dependency['package']:
+                raise ValueError(f'binding dependency {alias} package name mismatch')
+            result.extend(declared_binding_catalogs(source, (*stack, package)))
+        if not result:
+            raise ValueError(f'declare an optional Cargo path dependency for {capability}')
+        return result
+    declarations = metadata.get('bindings', [])
     if not isinstance(declarations, list) or not declarations:
         raise ValueError('declare the package binding catalog inputs')
     result = []
@@ -404,9 +425,7 @@ def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[
             path = package / declaration
             path.resolve().relative_to(package)
             result.append(path)
-        elif isinstance(declaration, dict) and set(declaration) in ({'dependency'}, {'dependency', 'feature'}):
-            if 'feature' in declaration and declaration['feature'] not in manifest.get('features', {}):
-                raise ValueError('binding feature must name a declared Cargo feature')
+        elif isinstance(declaration, dict) and set(declaration) == {'dependency'}:
             alias = declaration['dependency']
             if not isinstance(alias, str):
                 raise ValueError('binding import requires a dependency alias')
@@ -485,9 +504,9 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
         if source.count(include) != 1 or re.search(r'include!\s*\(', source.replace(include, '')):
             errors.append(f'{relative(nuttx)}: include only the declared generated output from its owning OUT_DIR')
 
-        aliases = set(re.findall(r'\btype\s+([A-Z]\w*)\s*(?:<[^;]+?>)?\s*=', source))
-        if not implementations <= aliases or not re.search(r'\bmod\s+implementations\s*\{', source):
-            errors.append(f'{relative(nuttx)}: catalog implementations must name checked-in typed constructors')
+        if (re.search(r'\bmod\s+implementations\s*\{', source)
+                or any(re.search(r'\b' + re.escape(name) + r'\b', source) for name in implementations)):
+            errors.append(f'{relative(nuttx)}: generate driver types from declared Cargo bindings')
         if re.search(r'\b(?:MODEL|SensorModel)\b', source):
             errors.append(f'{relative(nuttx)}: select the catalog implementation directly, without a model table')
         if capability == 'imu':

@@ -24,6 +24,9 @@ pub struct NavPvt {
 
 pub use peripheral::gnss::Error as DriverError;
 
+/// M9N receiver type exported for the board binding.
+pub type NeoM9n<T> = Driver<T>;
+
 /// A single injected UBX byte stream and its bounded frame decoder.
 pub struct Driver<R> {
     io: R,

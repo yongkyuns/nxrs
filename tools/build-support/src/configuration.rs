@@ -23,7 +23,7 @@ pub(crate) fn render_instances(
             },
             Some(Wake::Periodic {}) | None => None,
         };
-        let (bus, arguments) = match graph.resources.get(&device.bus) {
+        let (bus, adapter, arguments) = match graph.resources.get(&device.bus) {
             Some(Resource::I2c {
                 device: path,
                 frequency,
@@ -31,7 +31,7 @@ pub(crate) fn render_instances(
                 let address = device.address.ok_or("I2C device requires an address")?;
                 let config =
                     format!("resource::Config {{ path: {path:?}, frequency: {frequency} }}");
-                ("i2c", format!("resources::I2cResource, resources::open_i2c, ({config}, {address}), {irq:?}"))
+                ("i2c", "resources::Bus", format!("resources::I2cResource, resources::open_i2c, ({config}, {address}), {irq:?}"))
             }
             Some(Resource::Spi {
                 device: path,
@@ -46,10 +46,13 @@ pub(crate) fn render_instances(
                 );
                 (
                     "spi",
+                    "resources::Spi",
                     format!("resources::SpiResource, resources::open_spi, {config}, {irq:?}"),
                 )
             }
-            Some(Resource::Uart { device: path, baud }) => ("uart", format!("{path:?}, {baud}")),
+            Some(Resource::Uart { device: path, baud }) => {
+                ("uart", "Serial", format!("{path:?}, {baud}"))
+            }
             _ => return Err(format!("device {id} requires a supported bus")),
         };
         let binding = catalogs.binding(capability, &device.compatible, bus)?;
@@ -57,14 +60,35 @@ pub(crate) fn render_instances(
             .as_str()
             .ok_or("missing implementation")?;
         crate::bindings::validate_implementation(implementation)?;
+        let driver = catalogs
+            .package(capability)
+            .and_then(|package| package.drivers.get(&device.compatible))
+            .ok_or_else(|| format!("{} has no Cargo driver registration", device.compatible))?;
+        let dependency = driver.dependency.replace('-', "_");
+        let delay = if driver.stores_delay {
+            ", resources::Delay"
+        } else {
+            ""
+        };
+        let driver_type = format!("::r#{dependency}::{implementation}<{adapter}{delay}>");
         let name = if primary.is_some_and(|primary| primary == id) {
             "PRIMARY_DEVICE".to_owned()
         } else {
             format!("DEVICE_{}", instances.len())
         };
         source.push_str(&format!(
-            "declare_device!({name}, {id:?}, implementations::{implementation}, {arguments}, {stack});\n"
+            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack});\n"
         ));
+        if capability == "imu" && name == "PRIMARY_DEVICE" {
+            let enable_reference = if driver.sensor_reference {
+                "Some(|sensor| sensor.enable_sensor_reference().map_err(Into::into))"
+            } else {
+                "None"
+            };
+            source.push_str(&format!(
+                "#[cfg(feature = \"probe\")]\nconst SENSOR_REFERENCE: Option<fn(&mut {driver_type}) -> Result<(), peripheral::imu::Error>> = {enable_reference};\n"
+            ));
+        }
         instances.insert(id, name);
     }
 
@@ -91,21 +115,64 @@ mod tests {
     fn resources_compile_with_a_new_implementation_without_a_model_table() {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let profile = Profile::resolve(&source, "m5stack-cores3-gnss").unwrap();
-        let graph = profile.composition().unwrap().unwrap();
-        let mut package =
-            crate::bindings::Package::load_capability(&source.join("platform"), "imu").unwrap();
-        for input in &mut package.catalogs {
-            input.contents = input.contents.replace("Bmi270", "AnotherSensor");
-            input.sha256 = crate::hash_bytes(input.contents.as_bytes());
-        }
+        let mut graph = profile.composition().unwrap().unwrap();
+        graph.devices.get_mut("imu").unwrap().compatible = "vendor,fixture".into();
+        let temp = TempDir::new(&std::env::temp_dir()).unwrap();
+        let composition = temp.0.join("composition");
+        let driver = temp.0.join("driver");
+        fs::create_dir(&composition).unwrap();
+        fs::create_dir(&driver).unwrap();
+        fs::write(
+            composition.join("Cargo.toml"),
+            r#"
+            [package]
+            name = "fixture-composition"
+            [features]
+            imu = []
+            [package.metadata.nxrs]
+            device-capabilities = ["imu"]
+            [target.'cfg(target_os="nuttx")'.dependencies]
+            test-imu = { package = "fixture-driver", path = "../driver", optional = true }
+        "#,
+        )
+        .unwrap();
+        fs::write(
+            driver.join("Cargo.toml"),
+            r#"
+            [package]
+            name = "fixture-driver"
+            [package.metadata.nxrs]
+            bindings = ["bindings.toml"]
+            [package.metadata.nxrs.device]
+            capability = "imu"
+        "#,
+        )
+        .unwrap();
+        fs::write(
+            driver.join("bindings.toml"),
+            r#"
+            version = 2
+            [[binding]]
+            compatible = "vendor,fixture"
+            bus = "i2c"
+            implementation = "AnotherSensor"
+        "#,
+        )
+        .unwrap();
         let mut catalogs = crate::bindings::Catalogs::default();
-        catalogs.insert("imu", package).unwrap();
+        catalogs
+            .insert(
+                "imu",
+                crate::bindings::Package::load_capability(&composition, "imu").unwrap(),
+            )
+            .unwrap();
         let imu = render_instances(&graph, &catalogs, "imu", 16384).unwrap();
-        assert!(imu.contains("implementations::AnotherSensor"));
+        assert!(imu.contains("::r#test_imu::AnotherSensor<resources::Bus>"));
+        assert!(imu.contains("peripheral::imu::Error>> = None;"));
         assert!(imu
             .contains("(resource::Config { path: \"/dev/i2c0\", frequency: 400000 }, 104), None"));
         let gnss = render_instances(&graph, profile.catalogs(), "gnss", 32768).unwrap();
-        assert!(gnss.contains("implementations::NeoM9n, \"/dev/ttyS1\", 38400, 32768"));
+        assert!(gnss.contains("::r#ubx::NeoM9n<Serial>, \"/dev/ttyS1\", 38400, 32768"));
         for invalid in [
             "",
             "Self",
@@ -116,17 +183,49 @@ mod tests {
             assert!(crate::bindings::validate_implementation(invalid).is_err());
         }
 
+        let manifest = composition.join("Cargo.toml");
+        let registration = fs::read_to_string(&manifest).unwrap();
+        for (contents, message) in [
+            (
+                registration.replace("test-imu =", "default ="),
+                "implicit Cargo feature",
+            ),
+            (
+                format!(
+                    "{registration}\n{}",
+                    registration
+                        .lines()
+                        .find(|line| line.contains("test-imu ="))
+                        .unwrap()
+                        .replace("test-imu", "test_imu")
+                ),
+                "collides",
+            ),
+        ] {
+            fs::write(&manifest, contents).unwrap();
+            assert!(
+                crate::bindings::Package::load_capability(&composition, "imu")
+                    .unwrap_err()
+                    .contains(message)
+            );
+        }
+
         // Compile both output contracts without hardware or target dependencies.
-        let temp = TempDir::new(&std::env::temp_dir()).unwrap();
         let witness = temp.0.join("witness.rs");
         fs::write(&witness, format!(r#"
             #![allow(dead_code, unused_imports)]
+            extern crate self as peripheral;
+            extern crate self as test_imu;
+            extern crate self as ubx;
+            pub mod imu {{ pub struct Error; }}
+            pub struct AnotherSensor<B>(std::marker::PhantomData<B>);
+            pub struct NeoM9n<R>(std::marker::PhantomData<R>);
             trait Device {{}}
             mod imu_wiring {{
                 use crate::Device;
-                mod implementations {{ pub struct AnotherSensor; }}
                 mod resource {{ pub struct Config<'a> {{ pub path: &'a str, pub frequency: u32 }} }}
                 mod resources {{
+                    pub type Bus = ();
                     pub type I2cResource = ();
                     pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {{}}
                 }}
@@ -142,7 +241,7 @@ mod tests {
             }}
             mod gnss_wiring {{
                 use crate::Device;
-                mod implementations {{ pub struct NeoM9n; }}
+                type Serial = ();
                 struct Instance<R>(std::marker::PhantomData<R>);
                 impl<R> crate::Device for Instance<R> {{}}
                 macro_rules! declare_device {{
@@ -155,7 +254,7 @@ mod tests {
             fn main() {{}}
         "#)).unwrap();
         let result = std::process::Command::new("rustc")
-            .args(["--edition=2021", "--emit=metadata"])
+            .args(["--edition=2021", "--emit=metadata", "--cfg", "feature=\"probe\""])
             .arg(&witness)
             .arg("-o")
             .arg(temp.0.join("witness.rmeta"))
