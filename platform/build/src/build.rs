@@ -333,6 +333,26 @@ pub(crate) fn configure_profile(
     Ok(())
 }
 
+pub(crate) fn configure_preparation(
+    command: &mut Command,
+    out: &Path,
+    profile: &Profile,
+    selection: &crate::cargo_graph::Selection,
+    target: &str,
+    os: &str,
+) -> Result<Option<PathBuf>> {
+    use nxrs_build_support::preparation;
+    let prepared = preparation::prepare_consumers(
+        selection.path_packages().map(|(_, directory, _)| directory),
+        profile, target, os, &out.join("configuration"),
+    )?;
+    match &prepared {
+        Some(path) => command.env(preparation::ENVIRONMENT, path),
+        None => command.env_remove(preparation::ENVIRONMENT),
+    };
+    Ok(prepared)
+}
+
 fn host_target(root: &Path) -> Result<String> {
     if let Some(target) = std::env::var_os("CARGO_BUILD_TARGET") {
         let target = target.to_str().ok_or("Cargo target must be UTF-8")?;
@@ -384,9 +404,13 @@ pub fn host(
         .arg(dunce::simplified(&app.manifest))
         .args(["--bin", &app.bin])
         .env("CARGO_TARGET_DIR", out.join("cargo"));
-    configure_profile(&mut command, &out, root, profile, &host_target(root)?, os)?;
+    let target = host_target(root)?;
+    configure_profile(&mut command, &out, root, profile, &target, os)?;
     options.configure_cargo(&mut command, &[]);
     let selection = crate::cargo_graph::resolve(&mut command, profile)?;
+    evidence["configuration"] = json!(
+        configure_preparation(&mut command, &out, profile, &selection, &target, os)?
+    );
     evidence["dependency_resolution"] = selection.json();
     evidence["model_features"] = json!(selection.model_features);
     evidence["driver_features"] = json!(selection.driver_features);
