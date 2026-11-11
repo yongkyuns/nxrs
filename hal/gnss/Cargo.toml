@@ -17,12 +17,15 @@ nxrs-messaging = { path = "../../shared/messaging", default-features = false }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 nxrs-acquisition = { path = "../acquisition" }
-nxrs-peripheral = { path = "../../driver/peripheral" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 nxrs-simulation = { path = "../../shared/simulation" }
 
+[target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-peripheral = { path = "../../driver/peripheral" }
+
 [dev-dependencies]
+nxrs-peripheral = { path = "../../driver/peripheral" }
 # Host tests exercise the physical receiver's bounded UBX protocol.
 nxrs-ubx-driver = { path = "../../driver/ubx" }
 
