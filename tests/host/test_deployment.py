@@ -28,7 +28,7 @@ class DeploymentTests(unittest.TestCase):
             (directory / "Cargo.toml").write_text(
                 f'[package]\nname="nxrs-{capability}"\n[package.metadata.nxrs]\n'
                 'platforms=["mock","linux","macos","windows","nuttx"]\n')
-        self.directory = self.root / "platform/profiles"
+        self.directory = self.root / "tests/profiles"
         self.directory.mkdir(parents=True)
         self.profile('mock', 'execution="any"\n[hal]\nimu="mock"\ngnss="mock"\n')
 
@@ -104,9 +104,9 @@ class DeploymentTests(unittest.TestCase):
                 PLATFORM.resolve(name, self.root)
 
     def test_ambiguous_name_is_rejected(self):
-        other = self.root / 'tests/profiles'
+        other = self.root / 'platform/board'
         other.mkdir(parents=True)
-        (other / 'mock.toml').write_text('[hal]\n')
+        (other / 'profile.toml').write_text('name = "mock"\n[hal]\n')
         with self.assertRaisesRegex(ValueError, 'ambiguous'):
             PLATFORM.resolve('mock', self.root)
 

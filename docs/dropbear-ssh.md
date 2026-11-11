@@ -124,7 +124,7 @@ beside the image. Negotiated algorithm names are recorded only by real OpenSSH
 device trials; source configuration is not negotiation evidence.
 
 The enabled build verifier also checks the configured upstream revision, all
-five nested patch files, their declared order in Make and CMake, and all affected
+eight nested patch files, their declared order in Make and CMake, and all 16 affected
 prepared source/header bytes against
 [`dropbear-source-receipt.json`](../upstream/nuttx-apps/dropbear-source-receipt.json).
 The host controls apply the complete sequence to checksum-verified upstream
@@ -133,7 +133,21 @@ a comment is a negative control: the prepared-source check must reject it even
 though the hook text exists and the image can link. The build retains
 `ssh-dropbear-source-receipt.json`, whose hash is included in the image evidence.
 These source checks establish which reviewed patch output is present; runtime
-behavior still requires the stated device trials.
+behavior still requires the stated device trials. The cross-build evidence also
+records artifact byte sizes beside their hashes, so image costs stay associated
+with the exact measured revision.
+
+The SSH qualification verifier requires `FDCHECK=n` and checks
+`NFILE_DESCRIPTORS_PER_BLOCK <= max(LIBC_OPEN_MAX, 16)` in the effective
+configuration. At the retained NuttX revision,
+[`limits.h`](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/include/limits.h)
+defines that maximum as `OPEN_MAX`, and
+[`select.h`](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/include/sys/select.h)
+uses it as `FD_SETSIZE`.
+The [descriptor allocator](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/fs/inode/fs_files.c)
+bounds later table extensions by `OPEN_MAX`; this additional check bounds the
+initial row as well. Encoded descriptors under `FDCHECK=y` require separate SSH
+qualification. The verified values are retained in the image evidence.
 
 The qualification recipe selects these explicit limits:
 
@@ -143,6 +157,7 @@ The qualification recipe selects these explicit limits:
 | Authentication deadline | 30 seconds |
 | Authentication failures | 3 maximum attempts |
 | Session idle deadline | 60 seconds |
+| Deferred replies during rekey | 2 entries; the third is refused before allocation |
 | Listen setup | 2 retries, maximum retry interval 2 seconds |
 | Stop deadline | 10 seconds |
 | Native server stack | 65,536 bytes |
@@ -161,6 +176,32 @@ that image. This proves the scope of the effective-configuration/final-symbol
 check. A clean build/cache audit must additionally demonstrate that an SSH-off
 build did not fetch or compile the nested Dropbear dependency; a warm workspace
 containing another build's source cannot establish that by directory existence.
+
+## Upstream corrections at the retained pins
+
+The integration retains Apps `3c772ea35b9245972e18999828f7b533e6fc57cc` and
+Dropbear `54ef47adf8c99b422be6a8f694f2866e62f88b9e`. The complete nested series
+includes three subsequent upstream corrections:
+
+| Backport | Behavior and validation scope |
+| --- | --- |
+| [Deferred reply bound](https://github.com/mkj/dropbear/commit/d35cf53782040ab11ea38369244cdbe92fc85b9a) | Bounds replies queued during server-initiated rekey. The native threshold is one, retaining upstream's strict `>` check, so at most two entries are admitted. Initialization and draining reset the counter. |
+| [ECDSA identifier comparison](https://github.com/mkj/dropbear/commit/cfedf9889222e44b2a31ecc14a289b7d0d86c563) | Replaces a fixed-length comparison with a terminated-string comparison. A direct helper witness reproduces the historical short-identifier over-read; the review did not establish that the ordinary native key-loader dispatcher admits that input. |
+| [Channel packet bounds](https://github.com/mkj/dropbear/commit/59870ad43153fe8d4f1c96f5d5752116c94f31ff) | Clamps channel-open and confirmation packet limits to `[1, TRANS_MAX_PAYLOAD_LEN]`, preventing a peer's zero limit from stalling progress. |
+
+The one-channel admission limit does not itself bound rejection replies during
+rekey. Native sanitizer controls compile the actual prepared functions and
+demonstrate the historical queue, parser and packet-limit failures when each
+corresponding backport is omitted. Server-initiated rekey with repeated rejected
+requests still needs a device trial; the harness's client-triggered rekey case
+does not exercise that condition.
+
+The effective-config verifier also requires `SIG_DEFAULT=n`, which excludes the
+default SIGPIPE termination condition addressed by the later
+[Apps SIGPIPE change](https://github.com/apache/nuttx-apps/commit/b75aab77d18e2eb5fc371351df844f6c0d3306a2).
+The qualified build path uses Make. Both recipes apply the same reviewed patch
+sequence with fatal failures, but CMake build qualification remains pending,
+including review of the later [Apps CMake corrections](https://github.com/apache/nuttx-apps/commit/7691b5a6ae40d3e084b542a54ad813cb78155058).
 
 ## Entropy, crypto and provisioning
 

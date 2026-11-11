@@ -59,11 +59,12 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU/GNSS output generation lives in shared build support. Both platform
-catalogues import version 2 binding declarations from their chip drivers. They describe compatible devices, resource constraints and checked-in
-Rust implementation IDs. The shared renderer uses fixed typed resource
-contracts and selects the implementation directly. Separate field-projection
-schemas, generated model enums and runtime model matches have been removed.
+IMU and GNSS use one generator in shared build support. Both catalogues import
+version 2 binding declarations from their chip drivers. Build support selects
+bindings by compatible and bus, then emits typed resource bindings, one
+instance per selected device, and alias accessors. The catalogues supply the
+checked-in Rust constructors. This follows
+[Zephyr's devicetree instantiation pattern](https://docs.zephyrproject.org/latest/build/dts/howtos.html#write-device-drivers-using-devicetree-apis).
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
 stream metadata, acquisition and optional transaction timing.

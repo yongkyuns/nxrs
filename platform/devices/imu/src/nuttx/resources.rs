@@ -6,41 +6,22 @@ use std::time::Duration;
 pub(super) type Bus = Observed<resource::Bus>;
 pub(super) type Spi = Observed<spi_resource::Device>;
 
-pub(super) struct I2cBinding<'a> {
-    pub(super) path: &'a str,
-    pub(super) address: u8,
-    pub(super) frequency: u32,
-    pub(super) irq_path: Option<&'a str>,
+pub(super) fn open_i2c(
+    (config, address): (resource::Config<'_>, u8),
+    trace: Trace,
+) -> Result<I2cResource, DeviceError> {
+    resource::Bus::open(config)
+        .map(|bus| (trace.observe(bus), address))
+        .map_err(|_| DeviceError::Io)
 }
 
-impl I2cBinding<'_> {
-    pub(super) fn open(&self, trace: Trace) -> Result<(Bus, u8), DeviceError> {
-        let bus = resource::Bus::open(resource::Config {
-            path: self.path,
-            frequency: self.frequency,
-        })
-        .map_err(|_| DeviceError::Io)?;
-        Ok((trace.observe(bus), self.address))
-    }
-}
-pub(super) struct SpiBinding<'a> {
-    pub(super) path: &'a str,
-    pub(super) chip_select: u16,
-    pub(super) frequency: u32,
-    pub(super) mode: u8,
-    pub(super) irq_path: Option<&'a str>,
-}
-impl SpiBinding<'_> {
-    pub(super) fn open(&self, trace: Trace) -> Result<Spi, DeviceError> {
-        spi_resource::Device::open(spi_resource::Config {
-            path: self.path,
-            chip_select: self.chip_select,
-            frequency: self.frequency,
-            mode: self.mode,
-        })
+pub(super) fn open_spi(
+    config: spi_resource::Config<'_>,
+    trace: Trace,
+) -> Result<SpiResource, DeviceError> {
+    spi_resource::Device::open(config)
         .map(|device| trace.observe(device))
         .map_err(|_| DeviceError::Io)
-    }
 }
 
 pub(super) struct Delay;

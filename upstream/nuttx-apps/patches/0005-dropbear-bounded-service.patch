@@ -8,7 +8,7 @@ entropy device and require provisioned host identity by default.
 diff --git a/netutils/dropbear/CMakeLists.txt b/netutils/dropbear/CMakeLists.txt
 --- a/netutils/dropbear/CMakeLists.txt
 +++ b/netutils/dropbear/CMakeLists.txt
-@@ -1,256 +1,283 @@
+@@ -1,256 +1,310 @@
  # ##############################################################################
  # apps/netutils/dropbear/CMakeLists.txt
  #
@@ -102,6 +102,33 @@ diff --git a/netutils/dropbear/CMakeLists.txt b/netutils/dropbear/CMakeLists.txt
 +        RESULT_VARIABLE dropbear_patch_result)
 +      if(NOT dropbear_patch_result EQUAL 0)
 +        message(FATAL_ERROR "Dropbear bounded service patch failed")
++      endif()
++      execute_process(
++        COMMAND
++          patch -s -N -l --fuzz=0 -p1 -d "${DROPBEAR_UNPACKNAME}" -i
++          "${CMAKE_CURRENT_SOURCE_DIR}/patch/0006-limit-kex-deferred-replies.patch"
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear upstream backport failed: 0006-limit-kex-deferred-replies.patch")
++      endif()
++      execute_process(
++        COMMAND
++          patch -s -N -l --fuzz=0 -p1 -d "${DROPBEAR_UNPACKNAME}" -i
++          "${CMAKE_CURRENT_SOURCE_DIR}/patch/0007-validate-ecdsa-curve-identifier.patch"
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear upstream backport failed: 0007-validate-ecdsa-curve-identifier.patch")
++      endif()
++      execute_process(
++        COMMAND
++          patch -s -N -l --fuzz=0 -p1 -d "${DROPBEAR_UNPACKNAME}" -i
++          "${CMAKE_CURRENT_SOURCE_DIR}/patch/0008-enforce-channel-packet-bounds.patch"
++        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++        RESULT_VARIABLE dropbear_patch_result)
++      if(NOT dropbear_patch_result EQUAL 0)
++        message(FATAL_ERROR "Dropbear upstream backport failed: 0008-enforce-channel-packet-bounds.patch")
 +      endif()
        message(STATUS "Generating default_options_guard.h")
        execute_process(
@@ -508,7 +535,7 @@ diff --git a/netutils/dropbear/Kconfig b/netutils/dropbear/Kconfig
 diff --git a/netutils/dropbear/Makefile b/netutils/dropbear/Makefile
 --- a/netutils/dropbear/Makefile
 +++ b/netutils/dropbear/Makefile
-@@ -1,205 +1,207 @@
+@@ -1,205 +1,210 @@
  ############################################################################
  # apps/netutils/dropbear/Makefile
  #
@@ -700,6 +727,9 @@ diff --git a/netutils/dropbear/Makefile b/netutils/dropbear/Makefile
 +	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0003-allow-localoptions-to-override-tracking-malloc.patch
 +	$(Q) $(PATCH) -s -N -l -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0004-use-nuttx-unused-macro.patch
 +	$(Q) $(PATCH) -s -N -l --fuzz=0 -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0005-nuttx-bounded-service.patch
++	$(Q) $(PATCH) -s -N -l --fuzz=0 -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0006-limit-kex-deferred-replies.patch
++	$(Q) $(PATCH) -s -N -l --fuzz=0 -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0007-validate-ecdsa-curve-identifier.patch
++	$(Q) $(PATCH) -s -N -l --fuzz=0 -p1 -d $(DROPBEAR_UNPACKNAME) -i $(APPDIR)$(DELIM)netutils$(DELIM)dropbear$(DELIM)patch$(DELIM)0008-enforce-channel-packet-bounds.patch
  	@echo "Generating default_options_guard.h"
  	$(Q) sh $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)ifndef_wrapper.sh \
  		< $(DROPBEAR_UNPACKNAME)$(DELIM)src$(DELIM)default_options.h \
@@ -2850,6 +2880,201 @@ new file mode 100644
 + void genrandom(unsigned char* buf, unsigned int len) {
 +
 +        hash_state hs;
+diff --git a/netutils/dropbear/patch/0006-limit-kex-deferred-replies.patch b/netutils/dropbear/patch/0006-limit-kex-deferred-replies.patch
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/patch/0006-limit-kex-deferred-replies.patch
+@@ -0,0 +1,107 @@
++From: nxrs contributors
++Subject: [PATCH] Limit replies deferred during key exchange
++
++Upstream: https://github.com/mkj/dropbear/commit/d35cf53782040ab11ea38369244cdbe92fc85b9a
++
++Preserve the upstream queue guard and resets. For the bounded NuttX server,
++set MAX_DEFER_REPLY_QUEUE to 1 independently of upstream MAX_CHANNELS (1000).
++The upstream greater-than guard permits two entries and rejects the third
++before allocating; other platforms retain the upstream MAX_CHANNELS setting.
++
++diff --git a/src/common-session.c b/src/common-session.c
++--- a/src/common-session.c
+++++ b/src/common-session.c
++@@ -124,10 +124,11 @@
++                             send the SSH_MSG_KEXINIT */
++     ses.ignorenext = 0;
++     ses.lastpacket = 0;
++     ses.reply_queue_head = NULL;
++     ses.reply_queue_tail = NULL;
+++	ses.reply_queue_len = 0;
++
++     /* set all the algos to none */
++     ses.keys = (struct key_context*)m_malloc(sizeof(struct key_context));
++     ses.newkeys = NULL;
++     ses.keys->recv.algo_crypt = &dropbear_nocipher;
++diff --git a/src/packet.c b/src/packet.c
++--- a/src/packet.c
+++++ b/src/packet.c
++@@ -475,10 +475,16 @@
++     return 1;
++ }
++
++ static void enqueue_reply_packet(void) {
++     struct packetlist * new_item = NULL;
+++
+++	if (ses.reply_queue_len > MAX_DEFER_REPLY_QUEUE) {
+++		/* This limit should never be reached by a normal peer. */
+++		dropbear_exit("Full reply queue");
+++	}
+++
++     new_item = m_malloc(sizeof(struct packetlist));
++     new_item->next = NULL;
++
++     new_item->payload = buf_newcopy(ses.writepayload);
++     buf_setpos(ses.writepayload, 0);
++@@ -488,10 +494,11 @@
++         ses.reply_queue_tail->next = new_item;
++     } else {
++         ses.reply_queue_head = new_item;
++     }
++     ses.reply_queue_tail = new_item;
+++	ses.reply_queue_len++;
++ }
++
++ void maybe_flush_reply_queue() {
++     struct packetlist *tmp_item = NULL, *curr_item = NULL;
++     if (!ses.dataallowed)
++@@ -510,10 +517,11 @@
++         curr_item = curr_item->next;
++         m_free(tmp_item);
++         encrypt_packet();
++     }
++     ses.reply_queue_head = ses.reply_queue_tail = NULL;
+++	ses.reply_queue_len = 0;
++ }
++
++ /* encrypt the writepayload, putting into writebuf, ready for write_packet()
++  * to put on the wire */
++ void encrypt_packet() {
++diff --git a/src/session.h b/src/session.h
++--- a/src/session.h
+++++ b/src/session.h
++@@ -204,10 +204,11 @@
++     int allow_ext_info;
++
++     /* a list of queued replies that should be sent after a KEX has
++        concluded (ie, while dataallowed was unset)*/
++     struct packetlist *reply_queue_head, *reply_queue_tail;
+++	size_t reply_queue_len;
++
++     void(*remoteclosed)(void); /* A callback to handle closure of the
++                                       remote connection */
++
++     void(*extra_session_cleanup)(void); /* client or server specific cleanup */
++diff --git a/src/sysoptions.h b/src/sysoptions.h
++--- a/src/sysoptions.h
+++++ b/src/sysoptions.h
++@@ -259,10 +259,19 @@
++                             connection, so can't be _too_ small */
++
++ #define MAX_STRING_LEN (MAX(MAX_CMD_LEN, 2400)) /* Sun SSH needs 2400 for algos,
++                                                    MAX_CMD_LEN is usually longer */
++
+++/* Count of packets to enqueue deferring while a KEX is in progress.
+++ * We wouldn't expect to be anywhere near one-per-channel in normal
+++ * operation, but all replies are small so this is a reasonable upper bound */
+++#ifdef DROPBEAR_NUTTX
+++/* One interactive channel; upstream permits this limit plus one entry. */
+++#define MAX_DEFER_REPLY_QUEUE 1
+++#else
+++#define MAX_DEFER_REPLY_QUEUE MAX_CHANNELS
+++#endif
++
++ /* Key type sizes are ordered large to small, all are
++  determined empirically, and rounded up */
++ #if DROPBEAR_RSA
++ /* 4096 bit RSA key */
+diff --git a/netutils/dropbear/patch/0007-validate-ecdsa-curve-identifier.patch b/netutils/dropbear/patch/0007-validate-ecdsa-curve-identifier.patch
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/patch/0007-validate-ecdsa-curve-identifier.patch
+@@ -0,0 +1,24 @@
++From: nxrs contributors
++Subject: [PATCH] Validate the complete ECDSA curve identifier
++
++Upstream: https://github.com/mkj/dropbear/commit/cfedf9889222e44b2a31ecc14a289b7d0d86c563
++
++Match the NUL-terminated identifier with strcmp, as upstream does, rather
++than reading the curve-name length from a possibly shorter allocation.
++
++diff --git a/src/ecdsa.c b/src/ecdsa.c
++--- a/src/ecdsa.c
+++++ b/src/ecdsa.c
++@@ -101,11 +101,11 @@
++             goto out;
++         }
++     }
++
++     for (curve = dropbear_ecc_curves; *curve; curve++) {
++-		if (memcmp(identifier, (char*)(*curve)->name, strlen((char*)(*curve)->name)) == 0) {
+++		if (strcmp((char*)identifier, (*curve)->name) == 0) {
++             break;
++         }
++     }
++     if (!*curve) {
++         TRACE(("couldn't match ecc curve"))
+diff --git a/netutils/dropbear/patch/0008-enforce-channel-packet-bounds.patch b/netutils/dropbear/patch/0008-enforce-channel-packet-bounds.patch
+new file mode 100644
+--- /dev/null
++++ b/netutils/dropbear/patch/0008-enforce-channel-packet-bounds.patch
+@@ -0,0 +1,49 @@
++From: nxrs contributors
++Subject: [PATCH] Bound negotiated channel packet sizes
++
++Upstream: https://github.com/mkj/dropbear/commit/59870ad43153fe8d4f1c96f5d5752116c94f31ff
++
++Keep both channel-open paths within [1, TRANS_MAX_PAYLOAD_LEN] so a peer
++cannot negotiate a zero packet size that never makes progress.
++
++diff --git a/src/common-channel.c b/src/common-channel.c
++--- a/src/common-channel.c
+++++ b/src/common-channel.c
++@@ -101,11 +101,11 @@
++     m_free(ses.channels);
++     TRACE(("leave chancleanup"))
++ }
++
++ /* Create a new channel entry, send a reply confirm or failure */
++-/* If remotechan, transwindow and transmaxpacket are not know (for a new
+++/* If remotechan, transwindow and transmaxpacket are not known (for a new
++  * outgoing connection, with them to be filled on confirmation), they should
++  * all be set to 0 */
++ static struct Channel* newchannel(unsigned int remotechan,
++         const struct ChanType *type,
++         unsigned int transwindow, unsigned int transmaxpacket) {
++@@ -931,10 +931,11 @@
++
++     remotechan = buf_getint(ses.payload);
++     transwindow = buf_getint(ses.payload);
++     transmaxpacket = buf_getint(ses.payload);
++     transmaxpacket = MIN(transmaxpacket, TRANS_MAX_PAYLOAD_LEN);
+++	transmaxpacket = MAX(transmaxpacket, 1);
++
++     /* figure what type of packet it is */
++     if (typelen > MAX_NAME_LEN) {
++         goto failure;
++     }
++@@ -1171,10 +1172,12 @@
++     channel->await_open = 0;
++
++     channel->remotechan =  buf_getint(ses.payload);
++     channel->transwindow = buf_getint(ses.payload);
++     channel->transmaxpacket = buf_getint(ses.payload);
+++	channel->transmaxpacket = MIN(channel->transmaxpacket, TRANS_MAX_PAYLOAD_LEN);
+++	channel->transmaxpacket = MAX(channel->transmaxpacket, 1);
++
++     TRACE(("new chan remote %d local %d",
++                 channel->remotechan, channel->index))
++
++     /* Run the inithandler callback */
 diff --git a/netutils/dropbear/port/dropbear_control.c b/netutils/dropbear/port/dropbear_control.c
 new file mode 100644
 --- /dev/null

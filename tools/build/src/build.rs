@@ -1,7 +1,7 @@
 //! Application descriptors are platform-free; this host controller supplies build wiring.
 use crate::{
     deployment,
-    profile::{manifest, platform_defaults, Profile},
+    profile::{manifest, platform_default, Profile},
     run, write_json, Result,
 };
 use serde_json::{json, Value};
@@ -290,17 +290,14 @@ pub fn selection(
     name: Option<&str>,
     overlays: &[PathBuf],
 ) -> Result<Profile> {
-    let defaults = platform_defaults(root)?;
-    let default = defaults
-        .get(platform)
-        .ok_or_else(|| format!("unknown platform {platform}; run cargo nxrs platforms"))?;
-    let name = name.unwrap_or(default);
+    let default = platform_default(root, platform)?;
+    let name = name.unwrap_or(&default);
     let selected = Profile::resolve_with_overlays(root, name, overlays)?;
     if name != default {
         fn bsp(profile: &Profile) -> Option<&str> {
             profile.data["board"].as_str()?.split(':').next()
         }
-        let base = Profile::resolve(root, default)?;
+        let base = Profile::resolve(root, &default)?;
         let compatible = if let Some(board) = bsp(&base) {
             bsp(&selected) == Some(board) && selected.data["target"] == base.data["target"]
         } else {

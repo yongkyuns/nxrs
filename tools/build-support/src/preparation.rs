@@ -1,10 +1,5 @@
 //! Package-owned declarative configuration, independent of Cargo's environment.
-use crate::{
-    bindings::{Catalogs, Package},
-    configuration, hash_bytes,
-    profile::Profile,
-    Result, TempDir,
-};
+use crate::{bindings::Package, configuration, hash_bytes, profile::Profile, Result, TempDir};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -77,14 +72,9 @@ fn render(package: &Package, profile: &Profile, os: &str) -> Result<Option<(Stri
     let composition = profile
         .composition()?
         .ok_or_else(|| format!("{name}/{provider} configuration requires a composition"))?;
-    let mut catalogs = Catalogs::default();
-    catalogs.insert(capability, package.clone())?;
     let stack = crate::profile::sensor_stack(&profile.data[capability])?;
-    let source = match capability {
-        "imu" => configuration::render_imu_instances(&composition, &catalogs, stack)?,
-        "gnss" => configuration::render_gnss_instances(&composition, &catalogs, stack)?,
-        _ => return Err(format!("no device renderer for {capability}")),
-    };
+    let source =
+        configuration::render_instances(&composition, profile.catalogs(), capability, stack)?;
     Ok(Some((format!("{capability}_config.rs"), source)))
 }
 

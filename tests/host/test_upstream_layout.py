@@ -136,7 +136,7 @@ class UpstreamLayoutTests(unittest.TestCase):
                         self.assertTrue((ROOT / "tools/build/nuttx" / name).is_dir())
                         self.assertFalse((old / name).exists())
                     self.assertTrue((old / "resources").is_dir())
-                    self.assertTrue((ROOT / "platform/profiles").is_dir())
+                    self.assertTrue((ROOT / "platform/cores3/profile.toml").is_file())
                     self.assertTrue((ROOT / "tests/profiles").is_dir())
                 else:
                     self.assertFalse(old.exists())

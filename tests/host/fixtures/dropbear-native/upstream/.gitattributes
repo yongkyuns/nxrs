@@ -1,3 +1,5 @@
 # Hashed upstream snapshots preserve original bytes, including trailing spaces.
 src/*.c -text whitespace=-blank-at-eol,-blank-at-eof
 src/*.h -text whitespace=-blank-at-eol,-blank-at-eof
+# packet.c also contains an upstream tab-space-tab indentation sequence.
+src/packet.c whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

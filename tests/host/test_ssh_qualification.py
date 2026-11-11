@@ -29,6 +29,42 @@ NATIVE = module("dropbear_native_fixture", ROOT / "tests/host/test_dropbear_nati
 
 
 class SshQualificationTests(unittest.TestCase):
+    def test_descriptor_block_must_fit_the_pinned_fd_set(self):
+        config = {"CONFIG_NFILE_DESCRIPTORS_PER_BLOCK": "256", "CONFIG_LIBC_OPEN_MAX": "256"}
+        BUILD.check_descriptor_configuration(config)
+        config["CONFIG_NFILE_DESCRIPTORS_PER_BLOCK"] = "257"
+        with self.assertRaisesRegex(ValueError, "must fit within OPEN_MAX"):
+            BUILD.check_descriptor_configuration(config)
+        # The POSIX floor in the pinned header is effective even below 16.
+        config.update(CONFIG_NFILE_DESCRIPTORS_PER_BLOCK="16", CONFIG_LIBC_OPEN_MAX="8")
+        BUILD.check_descriptor_configuration(config)
+        config["CONFIG_NFILE_DESCRIPTORS_PER_BLOCK"] = "17"
+        with self.assertRaisesRegex(ValueError, "must fit within OPEN_MAX"):
+            BUILD.check_descriptor_configuration(config)
+
+    def test_descriptor_configuration_refuses_missing_or_malformed_limits(self):
+        good = {"CONFIG_NFILE_DESCRIPTORS_PER_BLOCK": "8", "CONFIG_LIBC_OPEN_MAX": "256"}
+        for name in good:
+            for invalid in (None, "", "-1", "y", "0x100"):
+                with self.subTest(name=name, invalid=invalid):
+                    config = dict(good)
+                    if invalid is None:
+                        del config[name]
+                    else:
+                        config[name] = invalid
+                    with self.assertRaisesRegex(ValueError, "nonnegative decimal integer"):
+                        BUILD.check_descriptor_configuration(config)
+        with self.assertRaisesRegex(ValueError, "must fit within OPEN_MAX"):
+            BUILD.check_descriptor_configuration(dict(good, CONFIG_NFILE_DESCRIPTORS_PER_BLOCK="0"))
+
+    def test_encoded_descriptors_require_separate_ssh_qualification(self):
+        config = {"CONFIG_NFILE_DESCRIPTORS_PER_BLOCK": "8", "CONFIG_LIBC_OPEN_MAX": "256",
+                  "CONFIG_FDCHECK": "y"}
+        with self.assertRaisesRegex(ValueError, "FDCHECK disabled"):
+            BUILD.check_descriptor_configuration(config)
+        config["CONFIG_FDCHECK"] = "n"
+        BUILD.check_descriptor_configuration(config)
+
     def test_incomplete_build_cannot_emit_crossbuild_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)

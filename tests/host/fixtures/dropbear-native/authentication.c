@@ -5,6 +5,10 @@
  */
 
 #include "includes.h"
+/* The receipt now includes the real session.h. This isolated handler witness
+ * supplies its small session ABI above rather than the full transport graph.
+ */
+#define DROPBEAR_SESSION_H_
 #include "netutils/dropbear/dropbear/src/svr-authpasswd.c"
 
 struct sshsession ses;

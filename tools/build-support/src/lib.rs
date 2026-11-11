@@ -5,7 +5,7 @@ pub use serde_json as json;
 pub mod archive;
 pub mod bindings;
 pub mod composition;
-pub mod configuration;
+mod configuration;
 pub mod native;
 mod native_nuttx;
 pub mod nuttx_resources;
@@ -95,7 +95,7 @@ pub fn write_simulation_config(profile: &profile::Profile, out: &Path) -> Result
 pub fn sdk_root(manifest: &Path) -> Result<std::path::PathBuf> {
     fn valid(root: &Path) -> bool {
         root.join("Cargo.toml").is_file()
-            && root.join("platform/profiles").is_dir()
+            && profile::has_profiles(root)
             && root.join("hal").is_dir()
     }
     println!("cargo:rerun-if-env-changed=NXRS_SDK_ROOT");

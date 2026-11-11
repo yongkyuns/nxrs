@@ -23,6 +23,18 @@
     {
       "path": "patch/0005-nuttx-bounded-service.patch",
       "sha256": "f8b719611439b1227d2939ab5d459782bf424b6eefca32d44a65c651c6e97c12"
+    },
+    {
+      "path": "patch/0006-limit-kex-deferred-replies.patch",
+      "sha256": "0b4e955d62f291fbc89969ff6e0f3e4c570d4fdc28263ed9379e73944088e254"
+    },
+    {
+      "path": "patch/0007-validate-ecdsa-curve-identifier.patch",
+      "sha256": "2aa970f987d6f3ce5220d2357a0d27ba17d3545194d86abaae8f498c659b383f"
+    },
+    {
+      "path": "patch/0008-enforce-channel-packet-bounds.patch",
+      "sha256": "61e506627037c1e15d7cfd7b132cd8f31d56f37f3b584cb0d1d20b6e6d87d042"
     }
   ],
   "files": [
@@ -39,12 +51,12 @@
     {
       "path": "src/common-channel.c",
       "pristine_sha256": "bd9f962f969672f947456faf4e3a3dff0584035206d1d01226cad479b0f91b87",
-      "prepared_sha256": "fc338c25d3320440193f43d636651ce55a0e5e56c977f371fa6707f3d842779d"
+      "prepared_sha256": "98cc84c796883e70442735947955cf3e4a1869255845559a3344ea5c8bbd4e7d"
     },
     {
       "path": "src/common-session.c",
       "pristine_sha256": "dc19e059cb085b661aa3c25d6d2936bfd885d3b67807a1fbd4facc27124f56f6",
-      "prepared_sha256": "495d90effcb115b5ed8c29df298ef8665e37cd0d192063d0dce4158ad4e2df5d"
+      "prepared_sha256": "33db9deedbef88914c54712aec7545a54f5e7c96137f598db481aef1798ea812"
     },
     {
       "path": "src/compat.c",
@@ -67,6 +79,11 @@
       "prepared_sha256": "00909032587a0cdf35876964ea95788c01eac809aba24cd6924b20c1ae3a5bd1"
     },
     {
+      "path": "src/ecdsa.c",
+      "pristine_sha256": "fee748267fbc0572d3a6da9a766262751bb470c292a82d64419e32e66c2c1016",
+      "prepared_sha256": "52958fc1490a542b4452227079ee6a259b80e0b68010933e644f839150535c75"
+    },
+    {
       "path": "src/ltc_prng.c",
       "pristine_sha256": "9912f07b2e173395c078d2d60ca56c741a55d6c3749a5f5a44250662d1372110",
       "prepared_sha256": "2af9e9530957e7e3e3ffd1695f3f35f0bff168af5361df9ad72c69e7623e5986"
@@ -75,6 +92,16 @@
       "path": "src/netio.c",
       "pristine_sha256": "b903685d1ce9384d809f4cacf9f92718b4fdd7c9f66612e96eccade983417366",
       "prepared_sha256": "6b1f231e8ccd170e871d693081db19d85320f5134fa7cea569f119cfe51fb45d"
+    },
+    {
+      "path": "src/packet.c",
+      "pristine_sha256": "bc69e8742e1b20c3395360041699ce098f9224494bc9ded22cc67855664c0b06",
+      "prepared_sha256": "23efb68af5e50f25fac1d0550637cc676fe9d503d3e0fba61f52995cf3847152"
+    },
+    {
+      "path": "src/session.h",
+      "pristine_sha256": "95d2099430947d2e61cd70394b883116ee052cffacea1b4b651507bab511815d",
+      "prepared_sha256": "232492684b6360d0477b3bac16c93a340f3475030ef82565ed183d88db7c2886"
     },
     {
       "path": "src/signkey.h",
@@ -89,7 +116,7 @@
     {
       "path": "src/sysoptions.h",
       "pristine_sha256": "147d8e8c6a98043873868c597961c98501c4ce707161e56eb6044ec6b7ef636f",
-      "prepared_sha256": "7dfe5960afa5f2f9d59dac6a6fe6b6f347d2ce22c0b3c335272ce7109acc8cbd"
+      "prepared_sha256": "95b5c9a96968dbdf2ec8bf56f839fa0a450d958011acddc498f2738b1ef0ed87"
     }
   ]
 }

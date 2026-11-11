@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn uart_numbering_and_baud_follow_the_same_bsp_contract() {
         let mut data =
-            manifest(&root().join("platform/profiles/m5stack-cores3-gnss.toml")).unwrap();
+            manifest(&root().join("platform/cores3/profile.toml")).unwrap();
         data["resources"]["receiver_uart"]["baud"] = json!(115200);
         resolve(
             &mut data,

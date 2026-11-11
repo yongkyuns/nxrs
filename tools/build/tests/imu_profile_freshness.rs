@@ -12,7 +12,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     let temporary = TempDir::new(&std::env::temp_dir()).unwrap();
     let root = &temporary.0;
     let sdk = root.join("sdk");
-    fs::create_dir_all(sdk.join("platform/profiles")).unwrap();
+    fs::create_dir_all(sdk.join("platform/cores3")).unwrap();
     fs::create_dir_all(sdk.join("platform/nuttx/resources")).unwrap();
     // This isolated host fixture also models a SPI endpoint. The real CoreS3
     // BSP does not register one and is independently required to reject it.
@@ -43,8 +43,8 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         }
     }
     fs::copy(
-        source.join("platform/profiles/m5stack-cores3-gnss.toml"),
-        sdk.join("platform/profiles/m5stack-cores3-gnss.toml"),
+        source.join("platform/cores3/profile.toml"),
+        sdk.join("platform/cores3/profile.toml"),
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
@@ -138,17 +138,20 @@ mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [
 // the generated declaration/alias syntax against its typed resource contracts.
 #[cfg(not(unix))]
 mod production {
+    use crate::Device;
+    mod resource { pub struct Config<'a> { pub path: &'a str, pub frequency: u32 } }
+    mod spi_resource { pub struct Config<'a> { pub path: &'a str, pub chip_select: u16, pub frequency: u32, pub mode: u8 } }
     mod resources {
-        pub struct I2cBinding<'a> { pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
         pub type I2cResource = (); pub type SpiResource = ();
-        pub struct SpiBinding<'a> { pub path: &'a str, pub chip_select: u16, pub mode: u8, pub frequency: u32, pub irq_path: Option<&'a str> }
+        pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {}
+        pub fn open_spi(_: super::spi_resource::Config<'_>, _: ()) -> SpiResource {}
     }
     mod implementations { pub struct Bmi270; pub struct Lsm6dso; pub struct Bmi270Spi; pub struct Lsm6dsoSpi; }
     struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
     impl<S: Sync, R: Sync> crate::Device for Instance<S, R> {}
     macro_rules! declare_device {
-        ($name:ident, $id:literal, $sensor:ty, $binding_type:ty, $resource:ty, $binding:expr, $stack:expr) => {
-            const _: $binding_type = $binding;
+        ($name:ident, $id:literal, $sensor:ty, $resource:ty, $open:path, $binding:expr, $irq:expr, $stack:expr) => {
+            const _: fn() = || { let _: $resource = $open($binding, ()); let _: Option<&str> = $irq; };
             static $name: Instance<$sensor, $resource> = Instance(std::marker::PhantomData);
         };
     }
@@ -236,7 +239,7 @@ fn verify_named() {
     };
     let original = [
         "implementations::Bmi270,",
-        "address: 104",
+        "}, 104)",
         "path: \"/dev/i2c0\"",
         "\"/dev/ttyS1\", 38400",
     ];
@@ -247,7 +250,7 @@ fn verify_named() {
             &[patch][..],
             [
                 "implementations::Bmi270,",
-                "address: 105",
+                "}, 105)",
                 "path: \"/dev/i2c1\"",
                 "\"/dev/ttyS1\", 115200",
             ],
@@ -257,7 +260,7 @@ fn verify_named() {
             &[replacement][..],
             [
                 "implementations::Lsm6dso,",
-                "address: 106",
+                "}, 106)",
                 "frequency: 100000",
                 "\"/dev/ttyS1\", 38400",
             ],

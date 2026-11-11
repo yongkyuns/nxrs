@@ -10,6 +10,27 @@ ROOT = Path(__file__).resolve().parents[3]
 DROPBEAR_SOURCE_RECEIPT = ROOT / "upstream/nuttx-apps/dropbear-source-receipt.json"
 
 
+def check_descriptor_configuration(config):
+    """Qualify the pinned NuttX descriptor allocator against its fd_set size."""
+    if config.get("CONFIG_FDCHECK") not in (None, "n"):
+        raise ValueError("SSH qualification requires FDCHECK disabled")
+    values = {}
+    for name in ("NFILE_DESCRIPTORS_PER_BLOCK", "LIBC_OPEN_MAX"):
+        literal = config.get("CONFIG_" + name, "")
+        if not re.fullmatch(r"[0-9]+", literal):
+            raise ValueError(f"effective {name} must be a nonnegative decimal integer")
+        values[name] = int(literal)
+    # Pinned include/limits.h floors OPEN_MAX at _POSIX_OPEN_MAX (16), and
+    # include/sys/select.h uses OPEN_MAX as FD_SETSIZE. fs/inode/fs_files.c
+    # bounds table extensions by OPEN_MAX; its initial row needs this check.
+    fd_setsize = max(values["LIBC_OPEN_MAX"], 16)
+    block = values["NFILE_DESCRIPTORS_PER_BLOCK"]
+    if not 1 <= block <= fd_setsize:
+        raise ValueError("effective NFILE_DESCRIPTORS_PER_BLOCK must fit within OPEN_MAX")
+    return {"descriptors_per_block": block, "libc_open_max": values["LIBC_OPEN_MAX"],
+            "fd_setsize": fd_setsize, "fdcheck": False}
+
+
 def check_dropbear_sources(out, configured_revision):
     """Match real prepared sources to the reviewed full nested patch sequence.
 
@@ -119,6 +140,8 @@ def check(out, enabled):
     disabled("NSH_PIPELINE")
     disabled("NSH_DROPBEAR")
     if enabled:
+        disabled("SIG_DEFAULT")
+        descriptor_configuration = check_descriptor_configuration(config)
         for name in ("NETUTILS_DROPBEAR", "NET_TCP", "PSEUDOTERM", "PIPES", "ARCH_SETJMP_H", "SCHED_WAITPID",
                      "SCHED_HAVE_PARENT", "SCHED_CHILD_STATUS", "FSUTILS_PASSWD",
                      "DEV_RANDOM", "DEV_URANDOM_ARCH", "CRYPTO_CRYPTODEV",
@@ -138,12 +161,15 @@ def check(out, enabled):
         if re.search(r"\b(?:dropbear_main|dropbear_nshsession_cleanup|svr_session|passwd_verify)$", symbols, re.M):
             raise ValueError("SSH/password implementation leaked into disabled image")
     identities = {}
+    sizes = {}
     for name in required:
-        path = out / name
-        if path.is_file(): identities[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        content = (out / name).read_bytes()
+        identities[name] = hashlib.sha256(content).hexdigest()
+        sizes[name] = len(content)
     evidence = {
         "schema": 1, "evidence_class": "crossbuild", "ssh_enabled": enabled,
         "device_qualification": "pending", "identities_sha256": identities,
+        "artifact_sizes_bytes": sizes,
         "rust_main_thread_initialization": std["main_thread_initialization"],
         "effective_ssh_config": {key: value for key, value in config.items()
                                  if "DROPBEAR" in key or key.startswith("CONFIG_FSUTILS_PASSWD")},
@@ -152,6 +178,7 @@ def check(out, enabled):
     }
     port = out / "apps/netutils/dropbear/port/localoptions.h"
     if enabled:
+        evidence["descriptor_configuration"] = descriptor_configuration
         if not port.is_file() or port.stat().st_size == 0:
             raise ValueError("prepared native algorithm configuration is missing")
         content = port.read_bytes()

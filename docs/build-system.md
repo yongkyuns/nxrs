@@ -27,7 +27,8 @@ The seven platform families are:
 | `windows` | Native Windows | `windows` |
 | `web` | Browser, `wasm32-unknown-emscripten` | `web` |
 
-`--platform` uses the profile file that declares `default-for` for that family.
+`--platform` selects `platform/<platform>/profile.toml`. The file's `name`
+preserves its explicit `--profile` identifier.
 `cargo nxrs profile --platform wroom` shows the resolved WROOM default.
 `--profile` selects an explicit product or qualification configuration, which
 can inherit settings using `extends`. When you supply both options, the explicit
@@ -35,7 +36,7 @@ profile must belong to the same board and target family. Native builds target
 the current host OS.
 
 Start with the platform default for ordinary builds. The seven defaults live
-in `platform/profiles/`, with shared WROOM settings in its `wroom/` subdirectory.
+in each platform directory. Named product variants live in its `profiles/` subdirectory.
 The configurations in `tests/profiles/` are explicit test inputs, such as
 `pico2-mock` for a sensor-free Pico 2 build. They do not add platform defaults.
 On a desktop, use `mock` for scripted providers and the navigation demo, or
@@ -140,7 +141,7 @@ manifests stay platform-free. Application-entry metadata under
 `qualification-only` fixture marker. Build planning and deployment preflight both
 validate this parent table and reject unknown fields, so misspelled metadata cannot
 silently select firmware defaults or skip capability admission. Other tools' metadata stays
-independent. Declarative profiles under `platform/profiles` select hardware
+independent. Declarative platform profiles select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 

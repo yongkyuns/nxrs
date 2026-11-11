@@ -19,17 +19,26 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests/host/fixtures/dropbear-native"
 PATCH = ROOT / "upstream/nuttx-apps/patches/0005-dropbear-bounded-service.patch"
 RECEIPT = ROOT / "upstream/nuttx-apps/dropbear-source-receipt.json"
+BOUNDED_PATCH = "patch/0005-nuttx-bounded-service.patch"
+BACKPORTS = (
+    "patch/0006-limit-kex-deferred-replies.patch",
+    "patch/0007-validate-ecdsa-curve-identifier.patch",
+    "patch/0008-enforce-channel-packet-bounds.patch",
+)
 
 
-def prepare(destination, *, final_patch=None, verify_prepared=True):
+def prepare(destination, *, final_patch=None, omitted_backport=None, verify_prepared=True):
     """Apply the complete firmware patch series to checked upstream bytes.
 
-    The explicit override is only for the historical misapplication control;
-    normal witnesses and the build verifier use the checked receipt unchanged.
+    Overrides are only for compiled historical negative controls. They still
+    verify every input and patch; normal preparation verifies every postimage.
     """
     destination.mkdir(parents=True, exist_ok=True)
     metadata = json.loads((FIXTURE / "upstream.json").read_text())
     receipt = json.loads(RECEIPT.read_text())
+    if omitted_backport is not None:
+        if omitted_backport not in BACKPORTS or verify_prepared:
+            raise AssertionError("Only an explicit negative control may omit a backport")
     if (receipt["revision"] != metadata["revision"] or
             receipt["nuttx_apps_revision"] != metadata["nuttx_apps_revision"]):
         raise AssertionError("Dropbear source receipt revision mismatch")
@@ -61,7 +70,9 @@ def prepare(destination, *, final_patch=None, verify_prepared=True):
     subprocess.run(["git", "apply", "--whitespace=error", str(PATCH)],
                    cwd=destination, env=env, check=True, capture_output=True)
     upstream = destination / "netutils/dropbear/dropbear"
-    for name, entry in metadata["files"].items():
+    if metadata["files"].keys() & metadata.get("support_files", {}).keys():
+        raise AssertionError("Patched and auxiliary source inputs must be distinct")
+    for name, entry in {**metadata["files"], **metadata.get("support_files", {})}.items():
         content = (FIXTURE / "upstream" / name).read_bytes()
         if hashlib.sha256(content).hexdigest() != entry["sha256"]:
             raise AssertionError("Upstream fixture checksum mismatch: " + name)
@@ -76,11 +87,13 @@ def prepare(destination, *, final_patch=None, verify_prepared=True):
             raise AssertionError("Nested patch checksum mismatch: " + entry["path"])
         touched.update(re.findall(r"(?m)^\+\+\+ b/(.+)$", selected.read_text()))
         options = []
-        if index == len(patch_entries) - 1:
-            if final_patch is not None:
-                selected = final_patch
-            else:
-                options = ["--fuzz=0"]
+        if index >= 4:
+            options = ["--fuzz=0"]
+        if entry["path"] == BOUNDED_PATCH and final_patch is not None:
+            selected = final_patch
+            options = []
+        if entry["path"] == omitted_backport:
+            continue
         subprocess.run(["patch", "-s", "-N", "-l", *options, "-p1", "-i",
                         str(selected)],
                        cwd=upstream, check=True, capture_output=True)
@@ -133,14 +146,46 @@ class DropbearNativeTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, "Historical broken source unexpectedly passed")
             self.assertIn(expected_failure, result.stderr)
 
-    def extract_channel_functions(self, root, declarations, filename):
-        source = (root / "netutils/dropbear/dropbear/src/common-channel.c").read_text()
+    def extract_functions(self, root, source_path, declarations, filename, *, append=False):
+        source = (root / "netutils/dropbear/dropbear" / source_path).read_text()
         functions = []
         for declaration in declarations:
             match = re.search(r"(?ms)^" + declaration + r"\([^;{}]*\)\s*\{.*?^\}", source)
             self.assertIsNotNone(match, declaration)
             functions.append(match.group())
-        (root / filename).write_text("\n\n".join(functions) + "\n")
+        with (root / filename).open("a" if append else "w") as target:
+            target.write("\n\n".join(functions) + "\n")
+
+    def extract_channel_functions(self, root, declarations, filename):
+        self.extract_functions(root, "src/common-channel.c", declarations, filename)
+
+    def extract_backport_limits(self, root):
+        # The negative controls retain the corrected profile's actual constants
+        # while compiling historical function bodies. No C implementation is
+        # reconstructed in Python, and the witnesses assert the admitted bound.
+        source = (self.upstream / "src/sysoptions.h").read_text()
+        blocks = []
+        for macro, next_macro in (("MAX_NAME_LEN", "MAX_PROPOSED_ALGO"),
+                                  ("MAX_CHANNELS", "MAX_STRING_LEN")):
+            start = source.index("#define " + macro + " ")
+            end = source.index("#define " + next_macro + " ", start)
+            blocks.append(source[start:end])
+        native_limit = [block for block in re.findall(
+            r"(?ms)^#ifdef DROPBEAR_NUTTX\n.*?^#endif$", source)
+                       if "#define MAX_DEFER_REPLY_QUEUE " in block]
+        self.assertEqual(len(native_limit), 1)
+        blocks.extend(native_limit)
+        defaults = (self.upstream / "src/default_options.h").read_text()
+        payload_limit = re.findall(r"(?m)^#define TRANS_MAX_PAYLOAD_LEN .+$", defaults)
+        self.assertEqual(len(payload_limit), 1)
+        blocks.extend(payload_limit)
+        (root / "backport-limits.inc").write_text("\n".join(blocks) + "\n")
+
+    def prepare_negative_control(self, name, omitted_backport):
+        root = self.root / name
+        prepare(root, omitted_backport=omitted_backport, verify_prepared=False)
+        shutil.copytree(FIXTURE / "include", root / "include")
+        return root
 
     def test_foreground_singleton_listener_and_monotonic_stop(self):
         import socket
@@ -181,6 +226,67 @@ class DropbearNativeTests(unittest.TestCase):
         self.extract_channel_functions(self.root, (r"static void remove_channel",),
                                        "channel-removal-function.inc")
         self.compile_run("channel_cleanup")
+
+    def prepare_deferred_queue_witness(self, root):
+        self.extract_backport_limits(root)
+        self.extract_functions(root, "src/common-session.c", (r"void common_session_init",),
+                               "deferred-queue-functions.inc")
+        self.extract_functions(root, "src/packet.c",
+                               (r"static void enqueue_reply_packet",
+                                r"void maybe_flush_reply_queue"),
+                               "deferred-queue-functions.inc", append=True)
+
+    def test_deferred_replies_are_bounded_before_allocation_and_reset(self):
+        self.prepare_deferred_queue_witness(self.root)
+        self.compile_run("deferred_queue")
+
+    def test_historical_deferred_queue_fails_each_bound_and_reset_control(self):
+        root = self.prepare_negative_control("unbounded-queue", BACKPORTS[0])
+        self.prepare_deferred_queue_witness(root)
+        controls = ((1, "deferred reply allocated beyond bound"),
+                    (2, "drain retained deferred reply count"),
+                    (3, "new session retained deferred count"))
+        for case, failure in controls:
+            with self.subTest(case=case):
+                self.compile_run("deferred_queue", "-DWITNESS_QUEUE_CASE=" + str(case),
+                                 root=root, expected_failure=failure)
+
+    def test_ecdsa_helper_refuses_short_or_mismatched_curve_identifiers(self):
+        self.extract_functions(self.root, "src/ecdsa.c",
+                               (r"ecc_key \*buf_get_ecdsa_pub_key",),
+                               "ecdsa-identifier-function.inc")
+        self.compile_run("ecdsa_identifier")
+
+    def test_historical_ecdsa_helper_overread_is_detected_by_address_sanitizer(self):
+        # Invoke the complete helper directly. The host-key dispatcher normally
+        # rejects malformed outer key names before reaching it; this is parser
+        # hardening coverage, not evidence of remote host-key exploitability.
+        root = self.prepare_negative_control("short-curve-identifier", BACKPORTS[1])
+        self.extract_functions(root, "src/ecdsa.c",
+                               (r"ecc_key \*buf_get_ecdsa_pub_key",),
+                               "ecdsa-identifier-function.inc")
+        self.compile_run("ecdsa_identifier", root=root,
+                         expected_failure="AddressSanitizer: heap-buffer-overflow")
+
+    def prepare_channel_packet_witness(self, root):
+        self.extract_backport_limits(root)
+        self.extract_channel_functions(root,
+                                       (r"void recv_msg_channel_open",
+                                        r"void recv_msg_channel_open_confirmation"),
+                                       "channel-packet-functions.inc")
+
+    def test_both_channel_open_handlers_bound_peer_packet_sizes(self):
+        self.prepare_channel_packet_witness(self.root)
+        self.compile_run("channel_packet")
+
+    def test_historical_channel_packet_sizes_fail_each_admission_control(self):
+        root = self.prepare_negative_control("channel-packet-size", BACKPORTS[2])
+        self.prepare_channel_packet_witness(root)
+        for case in (1, 2, 4):
+            with self.subTest(case=case):
+                self.compile_run("channel_packet", "-DWITNESS_CHANNEL_CASE=" + str(case),
+                                 root=root,
+                                 expected_failure="selected->transmaxpacket == expected_packet")
 
     def test_historical_zero_context_patch_misplaces_live_cancellation(self):
         # The real old patch returns success after the full prerequisite series,

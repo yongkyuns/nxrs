@@ -26,11 +26,20 @@
     "src/dbutil.c": {
       "sha256": "6dfff6c00add1e679d4addebafb215f51595f8089757f572a5557c1b4cf146ea"
     },
+    "src/ecdsa.c": {
+      "sha256": "fee748267fbc0572d3a6da9a766262751bb470c292a82d64419e32e66c2c1016"
+    },
     "src/ltc_prng.c": {
       "sha256": "9912f07b2e173395c078d2d60ca56c741a55d6c3749a5f5a44250662d1372110"
     },
     "src/netio.c": {
       "sha256": "b903685d1ce9384d809f4cacf9f92718b4fdd7c9f66612e96eccade983417366"
+    },
+    "src/packet.c": {
+      "sha256": "bc69e8742e1b20c3395360041699ce098f9224494bc9ded22cc67855664c0b06"
+    },
+    "src/session.h": {
+      "sha256": "95d2099430947d2e61cd70394b883116ee052cffacea1b4b651507bab511815d"
     },
     "src/signkey.h": {
       "sha256": "dbdeaafbb54b6efe887630d456341906a3a633f89127307e48d5ff17e258cfcf"
@@ -66,5 +75,10 @@
       "sha256": "2d4d8e41d7bd4f1d1babeb0f4d3ff3cb6da97e8d9d8b7227eb6b5257dc046018"
     }
   },
-  "misplaced_patch_sha256": "e19d89d4fa3547653682c3cd1996e83902787f530f6051a70b75fc52c4ee6e2a"
+  "misplaced_patch_sha256": "e19d89d4fa3547653682c3cd1996e83902787f530f6051a70b75fc52c4ee6e2a",
+  "support_files": {
+    "src/default_options.h": {
+      "sha256": "ff678fc3efd3d9b88c5d5bdb64bc272fed1af5aa504517b7ba710bd76b1ca9bb"
+    }
+  }
 }

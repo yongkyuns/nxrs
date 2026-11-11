@@ -31,8 +31,8 @@ returns unavailable because no native `dropbear` builtin is registered.
 `build.sh` selects the pinned dependency's networking, PTY, child/wait, password,
 codec, hardware entropy and software cryptodev prerequisites. It verifies the
 effective configuration and final symbols through `check-build.py`. The enabled
-image also checks the configured Dropbear revision, all five nested patch files,
-their declared order in both build recipes, and every affected prepared C/header
+image also checks the configured Dropbear revision, all eight nested patch files,
+their declared order in both build recipes, and all 16 affected prepared C/header
 file against the checked-in full-series source receipt. This catches misplaced
 patch hunks even when they still produce a linked image. The verified source
 identities are retained in `ssh-dropbear-source-receipt.json`, alongside the exact
@@ -41,6 +41,11 @@ main-thread-initialization fix and its hashed receipt. A failed recheck removes
 stale success receipts. The resulting
 `ssh-build-evidence.json` is **crossbuild** evidence. It does not prove successful
 authentication, terminal behavior, entropy quality or physical board operation.
+Artifact byte sizes are recorded alongside their hashes. The enabled fixture
+also requires `SIG_DEFAULT=n`, `FDCHECK=n` and a descriptor block that fits within
+the pinned NuttX `OPEN_MAX`; effective values are checked after configuration.
+The integration reference documents the retained pins, three upstream backports
+and the separate CMake qualification gap. The qualified recipe here uses Make.
 
 For an actual mounted persistent filesystem, select its paths explicitly:
 
@@ -191,6 +196,12 @@ unverified. A client reconnect loop alone is not leak evidence.
 | Excluded requests | Remote exec, legacy SCP exec, SFTP subsystem, remote forwarding and direct TCP forwarding are explicitly refused. |
 | Reconnects | By default 100 successful sessions, interleaved wrong-password logins, within the same local-owner lifetime. No reboot masks accumulated state. |
 | Local control | Native readiness/state, authentication-deadline reclamation, progress during output, task/FD snapshots, active stop of a cooperative Rust builtin, restart, final child reap and Wi-Fi join. |
+
+The automated rekey case is initiated by the client. The deferred-reply bound
+protects a different condition: server-initiated rekey while an authenticated
+peer sends requests that cause rejection replies. Native controls verify the
+two-entry bound and refusal before allocation; that condition still needs a
+separate device trial.
 
 Every run creates a new timestamped directory; failed trials remain present.
 `summary.json` contains narrow public results, negotiated algorithms and failure
