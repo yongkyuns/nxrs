@@ -97,6 +97,15 @@ fn editor_switch_preserves_project_settings_on_invalid_build() {
 }
 
 fn write_imu_fixture(root: &Path) {
+    use std::io::Write;
+    writeln!(
+        fs::OpenOptions::new()
+            .append(true)
+            .open(root.join("Cargo.toml"))
+            .unwrap(),
+        "\n[workspace.metadata.nxrs]\ndevice-catalogue = 'platform'"
+    )
+    .unwrap();
     let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     fs::create_dir_all(root.join("platform/nuttx/resources")).unwrap();
     fs::write(
@@ -106,7 +115,7 @@ fn write_imu_fixture(root: &Path) {
     .unwrap();
     for package in [
         "hal/imu",
-        "platform/devices/imu",
+        "platform",
         "driver/bmi270",
         "driver/lsm6dso",
     ] {

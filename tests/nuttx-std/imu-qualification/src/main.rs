@@ -217,14 +217,14 @@ fn main() -> ExitCode {
         let observer = timing.clone();
         let observe = move |event| observer.record(event);
         let opened = if sensor_reference {
-            imu_devices::probe::open_sensor_reference_configured(CONFIG, sink, observe)
+            composition::probe::open_sensor_reference_configured(CONFIG, sink, observe)
         } else {
-            imu_devices::probe::open_configured(CONFIG, sink, observe)
+            composition::probe::open_configured(CONFIG, sink, observe)
         };
         (timing, opened)
     };
     #[cfg(not(feature = "probe"))]
-    let opened = imu_devices::primary_imu().open(CONFIG, sink);
+    let opened = composition::imu::primary_imu().open(CONFIG, sink);
     let (mut device, applied) = match opened {
         Ok(opened) => opened,
         Err(error) => return report("open_failed", 0, Duration::ZERO, seen, 0, Some(error)),

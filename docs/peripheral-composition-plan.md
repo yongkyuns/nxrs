@@ -191,9 +191,9 @@ Depends on S5. Change `tools/build-support/src/lib.rs`,
 `hal/imu/src/platform/` and detached-consumer tests.
 
 1. Emit a versioned resolved-profile file atomically per build and implement
-   `NXRS_RESOLVED_PROFILE` validation. Direct Cargo consumers resolve named
-   profiles with declared overlays using `NXRS_PLATFORM` and `NXRS_SDK_ROOT`.
-   Both entry points must share the resolver and produce the same graph.
+   `NXRS_RESOLVED_PROFILE` validation. NuttX profile builds use the frontend;
+   Cargo adapters consume its receipt. Explicit host fixtures may resolve named
+   profiles using `NXRS_PLATFORM` and `NXRS_SDK_ROOT` through the same resolver.
 2. Generate typed constants and the selected checked-in factory into OUT_DIR.
    Use parsed enums and allowlisted mappings, escaping strings as Rust literals.
    Never interpolate profile text as Rust paths, shell commands or source code.
@@ -419,7 +419,7 @@ physical S8 results and unrelated radio/camera work separately scoped.
 
 Record current build duties and lifetime behavior before moving them. Shared
 preparation now loads package-owned catalogs and generates direct implementation
-selection with typed resource bindings. Both catalogues supply named references
+selection with typed resource bindings. The composition crate supplies named references
 to apps and use additive optional chip dependencies. Services receive normalized
 device references. IMU and GNSS have permanent `Device` references and static
 per-device acquisition storage; uncertain cleanup quarantines only that device.
@@ -476,9 +476,10 @@ runtime owner and compile only consumed, feature-enabled helpers. Generated
 files stay outside source and have target/configuration/schema/generator identity,
 atomic writes and concurrent-build isolation.
 
-Define and exercise normal frontend builds, plain Cargo build/check/test/doc,
-explicitly prepared profile inputs, no-profile contracts and explicit fixtures.
-Unprepared or stale profile inputs fail clearly. Update affected generation,
+Exercise NuttX builds through `cargo nxrs build`, including detached products
+and qualification apps. Cargo adapters and editor checks consume prepared inputs;
+unprepared or stale firmware inputs fail clearly. Preserve ordinary Cargo for
+no-profile contracts and explicit host fixtures. Update affected generation,
 freshness and native-helper tests in this PR.
 Exit with a working handoff; do not delete HAL scripts while any of their
 responsibilities lacks a replacement.
@@ -499,7 +500,7 @@ derive features through direct catalogue dependencies before compiling; graph
 witnesses cover either IMU driver alone and both. I2C/SPI resource adapters remain
 common dependencies. Full pre-Cargo native preparation remains D1 work.
 
-Change `platform/devices/imu/Cargo.toml`, catalogue module admission, binding metadata
+Change `platform/Cargo.toml`, catalogue module admission, binding metadata
 and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named
 implementation module. Keep direct implementation selection when extending generation to multiple
 instances; the global `MODEL` match has already been removed. No redundant `source` metadata,

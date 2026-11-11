@@ -1,53 +1,88 @@
 #!/usr/bin/env python3
-"""Compile and run the documentation's dependency-free Rust examples."""
+"""Create and compile the guide's source project, without copying build outputs."""
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
-import shutil
+import re
+import shlex
 import subprocess
 import tempfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
+GUIDE = ROOT / 'website/guide'
 
 
-def run(command: list[str], cwd: Path, env: dict[str, str]) -> str:
-    result = subprocess.run(command, cwd=cwd, env=env, text=True,
+def block(page: str, tag: str, language: str) -> str:
+    text = (GUIDE / page).read_text()
+    pattern = rf'<!-- tutorial:{re.escape(tag)} -->\s*```{re.escape(language)}\n(.*?)\n```'
+    found = re.findall(pattern, text, re.S)
+    if len(found) != 1:
+        raise ValueError(f'{page}: expected exactly one tutorial:{tag} {language} block')
+    return found[0] + '\n'
+
+
+def command(page: str, tag: str, project: Path) -> list[str]:
+    return [part.replace('../my-firmware', str(project.resolve()))
+            for part in shlex.split(block(page, tag, 'sh'))]
+
+
+def environment() -> dict[str, str]:
+    env = os.environ.copy()
+    env['RUSTUP_TOOLCHAIN'] = tomllib.loads((ROOT / 'rust-toolchain.toml').read_text())['toolchain']['channel']
+    for name in ('NXRS_PLATFORM', 'RUSTC', 'RUSTDOC', 'CARGO_BUILD_TARGET',
+                 'CARGO_TARGET_DIR', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS'):
+        env.pop(name, None)
+    return env
+
+
+def run(args: list[str], cwd: Path, env: dict[str, str]) -> str:
+    print('$ ' + shlex.join(args), flush=True)
+    result = subprocess.run(args, cwd=cwd, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
-    print('$ ' + ' '.join(command), flush=True)
     print(result.stdout, end='', flush=True)
     print(result.stderr, end='', flush=True)
     result.check_returncode()
     return result.stdout
 
 
+def create_project(project: Path, env: dict[str, str]) -> None:
+    if project.exists():
+        raise FileExistsError(f'refusing to overwrite {project}')
+    run(command('first-application.md', 'create', project), ROOT, env)
+    (project / 'Cargo.toml').write_text(block('first-application.md', 'manifest', 'toml'))
+    (project / 'src/main.rs').write_text(block('first-application.md', 'source', 'rust'))
+    run(command('first-application.md', 'lock', project), ROOT, env)
+
+
+def phases() -> list[tuple[str, str, str]]:
+    return [
+        ('hello', block('first-application.md', 'source', 'rust'), 'Hello from NXRS'),
+        ('edited', block('firmware.md', 'modified-source', 'rust'), 'Hello again from NXRS'),
+        ('worker', block('services.md', 'worker-source', 'rust'), 'Processed total: 6'),
+    ]
+
+
 def main() -> None:
-    env = os.environ.copy()
-    channel = tomllib.loads((ROOT / 'rust-toolchain.toml').read_text())['toolchain']['channel']
-    env['RUSTUP_TOOLCHAIN'] = channel
-    env.pop('NXRS_PLATFORM', None)
-    report = {'toolchain': channel, 'checks': []}
+    env = environment()
+    report = {'toolchain': env['RUSTUP_TOOLCHAIN'], 'checks': []}
     with tempfile.TemporaryDirectory(prefix='nxrs-guide-') as directory:
         project = Path(directory) / 'my-firmware'
-        shutil.copytree(ROOT / 'website/examples/basic-firmware', project,
-                        ignore=shutil.ignore_patterns('target'))
-        manifest = str(project / 'Cargo.toml')
-        base = ['cargo', 'run', '--locked', '--offline', '--manifest-path', manifest]
-        output = run(base + ['--bin', 'hello'], project, env)
-        if output.strip() != 'Hello from NXRS':
-            raise RuntimeError('unexpected hello output')
-        output = run(base + ['--example', 'worker'], project, env)
-        if output.strip() != 'Processed total: 6':
-            raise RuntimeError('unexpected worker output')
-        run(['cargo', 'test', '--locked', '--offline', '--manifest-path', manifest, '--all-targets'], project, env)
-        report['checks'].append('copied independent workspace: hello, worker and lifecycle unit tests')
-        run(['cargo', 'nxrs', 'build', '--manifest-path', manifest,
-             '--profile', 'esp32s3-qemu-mock', '--dry-run'], ROOT, env)
-        report['checks'].append('copied application accepted by the NuttX build planner (dry run)')
+        create_project(project, env)
+        for name, source, expected in phases():
+            (project / 'src/main.rs').write_text(source)
+            output = run(command('first-application.md', 'host', project), ROOT, env)
+            if output.strip() != expected:
+                raise RuntimeError(f'{name}: unexpected application output')
+            report['checks'].append(f'cargo-new source project: {name} host execution')
+        run(command('firmware.md', 'build', project) + ['--dry-run'], ROOT, env)
+        report['checks'].append('external application accepted by NuttX build planner (dry run)')
 
-    # Exercise the same public commands shown by the guide on the real checkout.
+    run(['cargo', 'test', '--locked', '--offline', '--manifest-path',
+         str(ROOT / 'website/examples/basic-firmware/Cargo.toml'), '--all-targets'], ROOT, env)
+    report['checks'].append('source-matched worker lifecycle tests')
     output = run(['cargo', 'run', '--locked', '-p', 'nxrs-std-demo', '--', '--list'], ROOT, env)
     if 'channels' not in output.splitlines() or 'deadlines' not in output.splitlines():
         raise RuntimeError('missing documented standard-library recipes')

@@ -35,7 +35,7 @@ For example, a data logger can separate input acquisition from formatting, recor
 | `hal/<capability>/` | Public capability API and implementations |
 | `hal/<capability>/src/platform/` | OS-specific implementation selection |
 | Provider-local `ffi/` directories | Native ABI bindings |
-| `platform/devices/` | Portable device catalogues and construction |
+| `platform/src/` | Named devices and typed constructors |
 | `platform/<platform>/profile.toml` and `platform/nuttx/` | Product and target configuration |
 | `service/` | Reusable application behavior |
 

@@ -10,8 +10,8 @@ to apply only to the revisions and configurations they measured.
 
 ## Decision
 
-HAL packages own runtime contracts and acquisition. Platform device catalogues own
-concrete construction and import driver-owned supported binding declarations. The shared build system resolves profiles and generates
+HAL packages own runtime contracts and acquisition. The platform composition crate owns
+concrete construction and imports driver-owned supported binding declarations. The shared build system resolves profiles and generates
 validated configuration and instance declarations. Cargo features enable the
 required implementations. Every configured physical device in the firmware's
 active instance set has one canonical, statically allocated, opaque object with
@@ -59,28 +59,26 @@ does not introduce a new profile field or a runtime device registry.
 
 ## First implemented slice: shared sensor preparation
 
-IMU and GNSS use one generator in shared build support. Both catalogues import
-version 2 binding declarations from their chip drivers. Build support selects
+IMU and GNSS use one generator in shared build support. The composition crate
+imports version 2 binding declarations from each capability's chip drivers. Build support selects
 bindings by compatible and bus, then emits typed resource bindings, one
-instance per selected device, and alias accessors. The catalogues supply the
+instance per selected device, and alias accessors. The composition crate supplies the
 checked-in Rust constructors. This follows
 [Zephyr's devicetree instantiation pattern](https://docs.zephyrproject.org/latest/build/dts/howtos.html#write-device-drivers-using-devicetree-apis).
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
 stream metadata, acquisition and optional transaction timing.
 
-The IMU and GNSS catalogue build scripts remain generic adapters. They preserve
-package-specific provider flags, OUT_DIR delivery, simulation preparation and
-native compilation/linking. Full pre-Cargo native handoff remains later work.
-Both catalogues use additive optional chip dependencies selected before
-compilation and generate one canonical
-instance per physical record and named alias accessors. GNSS preserves
+One shared Cargo adapter admits each consumed physical capability. The
+composition crate uses additive capability features to keep their dependencies
+independent. The build derives chip features before compilation and generates
+one canonical instance per physical record with named alias accessors. GNSS preserves
 receiver/serial rollback and per-instance quarantine through sink retirement.
 
 ### Implemented IMU device access
 
-`imu_devices::<device_name>()` returns the configured device directly.
-`aliases.imu` selects `imu_devices::primary_imu()`; `imu_<alias>` adds another accessor in
+`composition::imu::<device_name>()` returns the configured device directly.
+`aliases.imu` selects `composition::imu::primary_imu()`; `imu_<alias>` adds another accessor in
 `imu_devices`. All return `&'static impl imu::Device` for the same canonical
 object. A single IMU needs no alias; multiple IMUs require an explicit default.
 Accessor name collisions between different devices are rejected. `Device::open`
@@ -139,7 +137,7 @@ that both drivers remain in the linked firmware.
 | Owner | Responsibilities |
 | --- | --- |
 | `hal/<capability>` | Managed public contract, acquisition/lifecycle policy and OS resource integration |
-| `platform/devices/<capability>` | Portable named accessors, concrete driver/resource wiring, canonical static declarations and their Cargo dependencies |
+| `platform/` composition crate | Portable named accessors, concrete driver/resource wiring, canonical static declarations and their Cargo dependencies |
 | `driver/<device>` | Reusable chip protocol, supported settings/resource bindings, chip-specific API and direct implementation of shared device contracts; no dependency on HALs, services or profile resolution |
 | `driver/peripheral` | Synchronous per-peripheral contracts; no resource construction or acquisition runtime |
 | Provider-local `ffi/` | Mechanical ABI source for the consuming provider |
@@ -173,9 +171,12 @@ Do not restore per-field Rust projection schemas, programmable TOML, templates o
 per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
-Discover bindings through explicit package-relative metadata or imports naming
-declared normal Cargo path dependencies. Chip resource constraints belong with
-the driver; product profiles assign actual endpoints, addresses and aliases.
+The SDK's `workspace.metadata.nxrs.device-catalogue` locates the composition
+crate. Its `package.metadata.nxrs.device-bindings` groups binding imports by
+capability feature. The resolver reads the declarations for capabilities in the
+profile and tracks the workspace manifest in receipts. Drivers declare binding
+files and resource constraints. Product profiles
+assign actual endpoints, addresses and aliases.
 The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.
@@ -214,12 +215,13 @@ Provider selection must retain per-package scope: a single global
 Write generated files atomically outside source directories. Key outputs by the
 resolved configuration, target, package/schema inputs and generator revision;
 retain semantic and source fingerprints. Preserve content-stable files, reject
-stale or mismatched inputs and isolate concurrent builds. Specify plain
-`cargo build/check/test/doc`, no-profile contracts, explicit test fixtures and
-detached-consumer behavior. No entry point may silently reuse the last product's
-configuration. The implementation contract must define whether profile-aware
-plain Cargo consumes an explicitly prepared artifact or another shared entry
-mechanism; unprepared profile use must have a clear diagnostic.
+stale or mismatched inputs and isolate concurrent builds. NuttX profile builds
+use `cargo nxrs build`. Underlying Cargo adapters and editor checks consume its
+validated receipt and prepared native resource archives; they do not resolve a
+board profile from its name alone or compile resource fallbacks. Ordinary
+Cargo remains available for portable contracts and explicit host fixtures. Apply
+the same rules to detached consumers. No entry point may silently reuse the last
+product's configuration.
 
 Native compilation still follows the consumed Cargo graph and required features.
 Retain target compiler/flags/header provenance, freshness, archive ownership and
@@ -309,8 +311,8 @@ requests cancellation; it does not establish that retirement has completed.
 Opaque means private representation. It does not require `dyn` dispatch, a
 vtable, heap boxing or a heterogeneous runtime registry. Private typed instances
 and named accessors returning an opaque implementation can preserve static
-dispatch. The implemented IMU API is `Device`, `imu_devices::primary_imu()` and
-`imu_devices::<name>()`; its `Instance<S, R>` fields stay private. A uniform collection
+dispatch. The implemented IMU API is `Device`, `composition::imu::primary_imu()` and
+`composition::imu::<name>()`; its `Instance<S, R>` fields stay private. A uniform collection
 of unlike devices needs a separately reviewed dispatch/storage choice. Preserve
 the generic typed callback contract without silently boxing sinks.
 

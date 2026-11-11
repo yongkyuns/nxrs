@@ -221,6 +221,52 @@ def reviewed_prose_controls(scanner, source, config, token, alphabet):
     outside.unlink()
 
 
+def reviewed_dropbear_history_controls(scanner, source, config, alphabet):
+    """Protect exact historical false positives without hiding new secrets."""
+    # Reuse independently verified source bytes instead of repeating their hashes.
+    digests = dict(reviewed_dropbear_preimages())
+    doc_line = None
+    # Fail closed if any reviewed historical source changes or is unavailable.
+    for idx, (blob, kind) in enumerate([
+        ("0e459071db6015776f5852d1916ee62a494d4757", "fixture"),
+        ("99905d0c3206804f7c5ffafb125a1d2629525571", "guide"),
+    ]):
+        result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
+                                capture_output=True, check=False, timeout=10)
+        if result.returncode:
+            raise ControlFailure(f"dropbear-object-{idx}")
+        if kind == "fixture":
+            original = json.loads(result.stdout)["apps_preimages"]
+            if any(original.get(k) != v for k, v in digests.items()):
+                raise ControlFailure("dropbear-hash-identity")
+        else:
+            rows = [line for line in result.stdout.splitlines()
+                    if line.startswith(b"| Resource cost | ")]
+            if len(rows) != 1:
+                raise ControlFailure("dropbear-guide-identity")
+            doc_line = rows[0].decode("ascii")
+    if doc_line is None:
+        raise ControlFailure("dropbear-guide-identity")
+    cases = [("tests/host/fixtures/dropbear-native/upstream.json",
+              '    "' + k + '": "' + v + '",') for k, v in digests.items()]
+    cases.append(("docs/dropbear-ssh.md", doc_line))
+    for index, (relative, line) in enumerate(cases):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for variant, contents in enumerate((line + "\n", "{\n" + line + "\n}\n",
+                                            "{\r\n" + line + "\r\n}\r\n")):
+            path.write_bytes(contents.encode("utf-8"))
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ControlFailure(f"dropbear-allow-{index}-{variant}")
+        # Extra API keys at precisely these paths must still be detected.
+        path.write_text(line + ' api_key = "' + alphabet * 4 + '"\n')
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(f.get("RuleID") == "generic-api-key" for f in findings) or alphabet * 4 in output:
+            raise ControlFailure(f"dropbear-reject-{index}")
+        path.unlink()
+
+
 def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
     with tempfile.TemporaryDirectory(prefix="nxrs-secret-control-") as directory:
@@ -253,6 +299,7 @@ def self_test(scanner):
             path.write_text('{"description":"synthetic clean file"}\n')
         reviewed_hash_controls(scanner, source, config, token, alphabet)
         reviewed_prose_controls(scanner, source, config, token, alphabet)
+        reviewed_dropbear_history_controls(scanner, source, config, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")

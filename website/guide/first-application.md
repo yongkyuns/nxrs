@@ -1,41 +1,32 @@
 # Your first application
 
-An NXRS application starts with a normal Rust package and `main()` function. Application code selects its components; a platform profile supplies the target configuration.
+An NXRS application is a normal Rust package with a `main()` function. Create your own source project, run it on the host, and then build the same project for NuttX. NXRS supplies target integration and configuration; it does not supply a precompiled application.
 
-The [basic-firmware example](../examples/basic-firmware/) is a small, self-contained starting point. Its entry point is:
+The complete Rust source for this first program is:
 
+<!-- tutorial:source -->
 ```rust
 fn main() {
     println!("Hello from NXRS");
 }
 ```
 
-## Copy the example
+## Create a source project
 
-From the NXRS repository root, copy `website/examples/basic-firmware` into a sibling directory named `my-firmware`.
+Run this from the NXRS repository root, using an unused sibling directory:
 
-POSIX shell:
-
+<!-- tutorial:create -->
 ```sh
-cp -R website/examples/basic-firmware ../my-firmware
+cargo new --bin --edition 2024 --name nxrs-basic-firmware --vcs none ../my-firmware
 ```
 
-PowerShell:
+The command creates `Cargo.toml` and `src/main.rs`. Put the Rust source shown above in `../my-firmware/src/main.rs`.
 
-```powershell
-Copy-Item -Recurse website/examples/basic-firmware ../my-firmware
-```
+## Add firmware metadata
 
-Run the copied application:
+Replace `../my-firmware/Cargo.toml` with the following complete manifest:
 
-```sh
-cargo run --locked --manifest-path ../my-firmware/Cargo.toml --bin hello
-```
-
-The copy has its own Cargo workspace and lockfile. There is no need to add it to the NXRS workspace or copy any board code.
-
-## Understand the manifest
-
+<!-- tutorial:manifest -->
 ```toml
 [package]
 name = "nxrs-basic-firmware"
@@ -55,32 +46,50 @@ priority = 100
 stack-size = 65536
 ```
 
-The package and binary are ordinary Cargo definitions. The empty `[workspace]` table makes this directory an independent workspace even while the example lives inside the NXRS checkout.
+`[package]`, `[workspace]`, and `[[bin]]` are Cargo settings. The package owns its workspace and lockfile. `hello` is the binary name; no NXRS runtime dependency is needed for this program.
 
-The firmware metadata tells the NXRS build frontend which binary to build, the command to register with NuttX, and the entry task's priority and stack allocation. The values above match the example configuration; adjust the stack and priority for your target and workload. Host Cargo execution does not use those NuttX settings.
+The firmware metadata selects the binary and NuttX shell command, with the entry task's priority and stack allocation. The tutorial requests a 64 KiB entry stack. This is an example allocation, not a minimum or a recommendation for every application. Host Cargo execution does not use these NuttX settings.
 
-## Build against an NXRS profile
+## Build and run on the host
 
-Keep working from the NXRS repository root when using its `cargo nxrs` alias:
+Generate the lockfile from the manifest you just wrote, then build and run:
 
+<!-- tutorial:lock -->
 ```sh
-cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qemu-mock --dry-run
+cargo generate-lockfile --offline --manifest-path ../my-firmware/Cargo.toml
 ```
 
-This prints the build plan. After preparing the target tools described in [Building for NuttX](firmware.md), remove `--dry-run` to build the image. The SDK root supplies NuttX, the toolchain integration, and the selected profile; the application remains in its own workspace.
-
-The [build reference](../../docs/build-system.md#external-applications-and-package-boundaries) describes external workspaces, path resolution, and direct Cargo use with `NXRS_SDK_ROOT`.
-
-## Add functionality in ordinary Rust
-
-Add modules and dependencies through Cargo. Use `std` directly for threads, synchronization, time, files, and sockets. Introduce a hardware interface when the application needs a peripheral or subsystem that `std` does not describe.
-
-The copied example also contains a small `worker` example:
-
+<!-- tutorial:host -->
 ```sh
-cargo run --locked --manifest-path ../my-firmware/Cargo.toml --example worker
+cargo run --locked --manifest-path ../my-firmware/Cargo.toml --bin hello
 ```
 
-It prints `Processed total: 6`. [Services and concurrency](services.md) walks through its typed events, bounded queue, and shutdown.
+Expected application output:
 
-As the application grows, move reusable behavior into library crates and pass dependencies through constructors. Keep board pins, device paths, and implementation selection in platform configuration and hardware integration code. [Drivers and HALs](hardware.md) and [Profiles and overlays](profiles.md) explain those responsibilities.
+```text
+Hello from NXRS
+```
+
+Cargo compiles your source into a host executable before running it. There is no executable-copy step. No platform profile or MCU toolchain is needed yet.
+
+Keep running these commands from the NXRS checkout so its pinned Rust toolchain is selected. Commit your application's source, manifest, and lockfile to its own repository when ready.
+
+## Build the same project for NuttX
+
+[Building for NuttX](firmware.md) continues with `../my-firmware/Cargo.toml`, including complete Ubuntu setup, the build command, QEMU startup, expected shell output, and an edit/rebuild cycle.
+
+The command will be:
+
+```sh
+cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qemu-mock
+```
+
+Run it after installing the tools in that chapter. `cargo nxrs` is an alias provided by the NXRS checkout. Its `--manifest-path` selects your external source package; `--profile` selects the target configuration. The build compiles the application, its Rust standard library, and NuttX into one target image.
+
+The [build reference](../../docs/build-system.md#external-applications-and-package-boundaries) covers external workspaces and SDK-root selection in more detail.
+
+## Add a worker
+
+Once `hello` runs in QEMU, follow [Services and concurrency](services.md#run-the-worker-in-your-application). It provides the complete worker source to put in the same `src/main.rs`. Keep the manifest and target profile unchanged, then rebuild on the host and for NuttX.
+
+The checked-in [basic-firmware sources](../examples/basic-firmware/) are a reference for the documentation tests. You do not need to copy that directory or any of its build output to follow the tutorial.

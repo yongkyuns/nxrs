@@ -146,6 +146,9 @@ pub fn selected_profile(manifest: &Path) -> Result<Option<(std::path::PathBuf, p
         resolved::load(&path, &root, name, &target, &os)?
     } else {
         let profile = profile::Profile::resolve(&root, name.ok_or("missing platform name")?)?;
+        if os == "nuttx" && profile.data.get("board").is_some() {
+            return Err("NuttX profile builds require prepared inputs; use cargo nxrs build with --platform or --profile".into());
+        }
         profile.validate_cargo_target(&target, &os)?;
         profile
     };
@@ -163,8 +166,7 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     profile.detector()
 }
 
-/// Link ABI glue for an explicitly acquired OS resource. Standalone Cargo
-/// builds can compile it using the configured native context.
+/// Link resource ABI glue prepared by the firmware frontend.
 pub fn configure_resource() -> Result<()> {
     use std::{env, path::PathBuf};
     let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing manifest")?);
@@ -181,7 +183,7 @@ fn capability_name(package: &str) -> Result<&str> {
     let capability = package
         .strip_prefix("nxrs-")
         .ok_or("capability package name")?;
-    Ok(capability.strip_suffix("-devices").unwrap_or(capability))
+    Ok(capability)
 }
 
 /// Cargo adapter for shared profile, declarative configuration and native preparation.
@@ -215,40 +217,7 @@ pub fn configure_hal() -> Result<String> {
         println!("{line}")
     }
     let binding = profile.binding(capability);
-    let package_bindings = bindings::Package::load(&directory)?;
-    if binding == os && !package_bindings.driver_features.is_empty() {
-        let graph = profile
-            .composition()?
-            .ok_or("driver features require composition")?;
-        for device in graph.devices.values() {
-            if let Some(feature) = package_bindings.driver_features.get(&device.compatible) {
-                let variable =
-                    format!("CARGO_FEATURE_{}", feature.replace('-', "_").to_uppercase());
-                if env::var_os(&variable).is_none() {
-                    return Err(format!("{package} requires Cargo feature {feature}; use cargo nxrs build or enable the prepared profile's driver features"));
-                }
-            }
-        }
-    }
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
-    let target = env::var("TARGET").map_err(|error| error.to_string())?;
-    let prepared = preparation::ENVIRONMENT;
-    println!("cargo:rerun-if-env-changed={prepared}");
-    let consumed = match env::var_os(prepared) {
-        Some(path) => {
-            let path = PathBuf::from(path);
-            println!("cargo:rerun-if-changed={}", path.display());
-            preparation::consume(&path, &directory, &profile, &target, &os, &out)?
-        }
-        None => None,
-    };
-    let inputs = match consumed {
-        Some(inputs) => inputs,
-        None => preparation::prepare_package(&directory, &profile, &os, &out)?,
-    };
-    for path in inputs {
-        println!("cargo:rerun-if-changed={}", path.display());
-    }
     if binding == "simulation" {
         write_simulation_config(&profile, &out)?;
     }
@@ -259,6 +228,75 @@ pub fn configure_hal() -> Result<String> {
         }
     }
     Ok(binding.into())
+}
+
+/// Select concrete factories for the capability features consumed by this build.
+pub fn configure_composition() -> Result<()> {
+    use std::{env, path::PathBuf};
+
+    let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing manifest")?);
+    let manifest_path = directory.join("Cargo.toml");
+    println!("cargo:rerun-if-changed={}", manifest_path.display());
+    let manifest = profile::manifest(&manifest_path)?;
+    let capabilities =
+        bindings::device_bindings(&manifest)?.ok_or("missing nxrs.device-bindings")?;
+    let cfg_values = capabilities
+        .keys()
+        .map(|cap| format!("{:?}", format!("{cap}:nuttx")))
+        .collect::<Vec<_>>();
+    println!(
+        "cargo:rustc-check-cfg=cfg(device_binding, values({}))",
+        cfg_values.join(", ")
+    );
+    let Some((_, profile)) = selected_profile(&directory)? else {
+        return Ok(());
+    };
+    let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
+    let os = env::var("CARGO_CFG_TARGET_OS").map_err(|e| e.to_string())?;
+    let target = env::var("TARGET").map_err(|e| e.to_string())?;
+    println!("cargo:rerun-if-env-changed={}", preparation::ENVIRONMENT);
+    let handoff = env::var_os(preparation::ENVIRONMENT).map(PathBuf::from);
+    if let Some(path) = &handoff {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    let cargo_feature = |name: &str| {
+        env::var_os(format!(
+            "CARGO_FEATURE_{}",
+            name.replace('-', "_").to_uppercase()
+        ))
+        .is_some()
+    };
+    for capability in capabilities.keys().filter(|cap| cargo_feature(cap)) {
+        let physical = os == "nuttx" && profile.binding(capability) == os;
+        if physical {
+            for feature in profile.driver_features(capability)? {
+                if !cargo_feature(&feature) {
+                    return Err(format!("{capability} is missing the profile-derived {feature} dependency; rerun cargo nxrs build"));
+                }
+            }
+            println!(
+                "cargo:rustc-cfg=device_binding={:?}",
+                format!("{capability}:{os}")
+            );
+        }
+        let prepared = match &handoff {
+            Some(path) => {
+                preparation::consume(path, &directory, capability, &profile, &target, &os, &out)?
+            }
+            None => None,
+        };
+        let inputs = match prepared {
+            Some(inputs) => inputs,
+            None if physical => return Err(format!(
+                "missing prepared device configuration for {capability}; rerun cargo nxrs build"
+            )),
+            None => preparation::prepare_package(&directory, capability, &profile, &os, &out)?,
+        };
+        for path in inputs {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+    Ok(())
 }
 
 pub fn read_json(path: &Path) -> Result<serde_json::Value> {

@@ -60,7 +60,7 @@ fn main() {
 
     if std::env::args().any(|argument| argument == "--sensors") {
         let (send, receive) = mpsc::channel();
-        let mut imu = devices::primary_imu()
+        let mut imu = composition::imu::primary_imu()
             .open_default(move |event| {
                 send.send(event).unwrap();
                 Ok(())
@@ -75,7 +75,7 @@ fn main() {
         assert!(imu.is_finished());
 
         let (send, receive) = mpsc::channel();
-        let mut gnss = position_devices::primary_gnss()
+        let mut gnss = composition::gnss::primary_gnss()
             .open(move |event| {
                 send.send(event).unwrap();
                 Ok(())

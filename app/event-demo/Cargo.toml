@@ -13,8 +13,7 @@ priority = 100
 stack-size = 65536
 
 [dependencies]
-nxrs-gnss-devices = { path = "../../platform/devices/gnss" }
-devices = { package = "nxrs-imu-devices", path = "../../platform/devices/imu" }
+nxrs-composition = { path = "../../platform", features = ["imu", "gnss"] }
 nxrs-navigation-services = { path = "../../service/navigation" }
 
 [[bin]]
