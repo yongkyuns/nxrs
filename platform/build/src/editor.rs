@@ -243,6 +243,9 @@ fn nuttx_settings(root: &Path, directory: &Path) -> Result<Value> {
     if !resources.is_empty() {
         extra_env[nxrs_build_support::prepared_resource::ENVIRONMENT] = json!(prepared);
     }
+    if let Some(path) = selection["configuration"].as_str() {
+        extra_env[nxrs_build_support::preparation::ENVIRONMENT] = json!(path);
+    }
     for name in ["NXRS_PICO_SDK", "NXRS_TLS_ARCHIVE"] {
         if let Some(path) = editor["sdk"].get(name) {
             extra_env[name] = path.clone();
