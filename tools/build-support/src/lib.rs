@@ -5,7 +5,7 @@ pub use serde_json as json;
 pub mod archive;
 pub mod bindings;
 pub mod composition;
-pub mod configuration;
+mod configuration;
 pub mod native;
 mod native_nuttx;
 pub mod nuttx_resources;

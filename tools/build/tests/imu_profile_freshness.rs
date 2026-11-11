@@ -138,6 +138,7 @@ mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [
 // the generated declaration/alias syntax against its typed resource contracts.
 #[cfg(not(unix))]
 mod production {
+    use crate::Device;
     mod resource { pub struct Config<'a> { pub path: &'a str, pub frequency: u32 } }
     mod spi_resource { pub struct Config<'a> { pub path: &'a str, pub chip_select: u16, pub frequency: u32, pub mode: u8 } }
     mod resources {

@@ -2,7 +2,7 @@
 use super::{resource, spi_resource};
 use acquisition::probe::{Observed, Trace};
 use imu::construction::Instance;
-use imu::{AppliedConfig, Config, DeviceError, Event, Session};
+use imu::{AppliedConfig, Config, Device, DeviceError, Event, Session};
 #[allow(dead_code, reason = "Profiles select the resource constructors.")]
 mod resources;
 use resources::{Bus, Delay, Spi};
@@ -49,7 +49,7 @@ pub(crate) fn open_probed(
     observe: impl Fn(acquisition::probe::Timing) + Send + Sync + 'static,
     sensor_reference: bool,
 ) -> Result<(std::boxed::Box<dyn Session + Send>, AppliedConfig), DeviceError> {
-    primary_instance()
+    PRIMARY_DEVICE
         .start(
             config,
             Trace::new(observe).ok_or(DeviceError::Unsupported)?,
