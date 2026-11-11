@@ -152,9 +152,9 @@ pub fn platform_defaults(root: &Path) -> Result<BTreeMap<String, String>> {
     for entry in entries {
         let path = entry.map_err(|e| e.to_string())?.path();
         if !path.is_file()
-            || !path
+            || path
                 .extension()
-                .is_some_and(|extension| extension == "toml")
+                .is_none_or(|extension| extension != "toml")
         {
             continue;
         }
