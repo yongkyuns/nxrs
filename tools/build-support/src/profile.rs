@@ -113,82 +113,144 @@ pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
     }
     Ok(stack)
 }
-const PLATFORM_PROFILES: &str = "platform/profiles";
-const PROFILE_DIRS: [&str; 3] = [
-    PLATFORM_PROFILES,
-    "platform/profiles/wroom",
-    "tests/profiles",
-];
+#[derive(Default)]
+struct ProfileFiles {
+    paths: BTreeMap<String, Vec<PathBuf>>,
+    defaults: BTreeMap<String, Result<String>>,
+}
+
+fn profile_id(name: &str) -> Result<()> {
+    if matches!(name, "std" | "native" | "")
+        || name.starts_with('-')
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(format!("unknown or ambiguous platform: {name}"));
+    }
+    Ok(())
+}
+
+fn entries(directory: &Path) -> Result<Vec<PathBuf>> {
+    match fs::read_dir(directory) {
+        Ok(entries) => entries
+            .map(|entry| entry.map(|item| item.path()).map_err(|e| e.to_string()))
+            .collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(format!("{}: {error}", directory.display())),
+    }
+}
+
+pub(crate) fn has_profiles(root: &Path) -> bool {
+    root.join("tests/profiles").is_dir()
+        || entries(&root.join("platform")).is_ok_and(|directories| {
+            directories
+                .iter()
+                .any(|dir| dir.join("profile.toml").is_file())
+        })
+}
+
+impl ProfileFiles {
+    fn read(root: &Path) -> Result<Self> {
+        let mut profiles = Self::default();
+        for directory in entries(&root.join("platform"))? {
+            let default = directory.join("profile.toml");
+            if !default.is_file() {
+                continue;
+            }
+            let platform = directory
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or("invalid platform directory name")?;
+            let name = (|| {
+                profile_id(platform)?;
+                let data = manifest(&default)?;
+                let name = data["name"].as_str().ok_or_else(|| {
+                    format!("{}: default profile requires a name", default.display())
+                })?;
+                profile_id(name)?;
+                Ok(name.to_owned())
+            })();
+            if let Ok(name) = &name {
+                profiles
+                    .paths
+                    .entry(name.clone())
+                    .or_default()
+                    .push(default);
+            }
+            profiles.defaults.insert(platform.to_owned(), name);
+            profiles.read_variants(&directory.join("profiles"))?;
+        }
+        profiles.read_variants(&root.join("tests/profiles"))?;
+        Ok(profiles)
+    }
+
+    fn read_variants(&mut self, directory: &Path) -> Result<()> {
+        for path in entries(directory)? {
+            if path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension == "toml")
+            {
+                let name = path
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .ok_or("invalid profile filename")?
+                    .to_owned();
+                if profile_id(&name).is_ok() {
+                    self.paths.entry(name).or_default().push(path);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn path(&self, name: &str) -> Result<PathBuf> {
+        let Some([path]) = self.paths.get(name).map(Vec::as_slice) else {
+            return Err(format!("unknown or ambiguous platform: {name}"));
+        };
+        path.canonicalize().map_err(|error| error.to_string())
+    }
+
+    fn default_name(&self, platform: &str) -> Result<String> {
+        let name = self
+            .defaults
+            .get(platform)
+            .ok_or_else(|| format!("unknown platform {platform}; run cargo nxrs platforms"))?
+            .as_ref()
+            .map_err(Clone::clone)?;
+        self.path(name)?;
+        Ok(name.clone())
+    }
+}
 
 pub fn profile_path(root: &Path, name: &str) -> Result<PathBuf> {
-    find_profile_path(root, name)?.ok_or_else(|| format!("unknown or ambiguous platform: {name}"))
+    ProfileFiles::read(root)?.path(name)
 }
 
-fn find_profile_path(root: &Path, name: &str) -> Result<Option<PathBuf>> {
-    if matches!(name, "std" | "native") || !matches(name, r"^[a-z0-9][a-z0-9-]*$") {
-        return Err(format!("unknown or ambiguous platform: {name}"));
-    }
-    let mut paths = PROFILE_DIRS
-        .into_iter()
-        .map(|p| root.join(p).join(format!("{name}.toml")))
-        .filter(|p| p.is_file());
-    let Some(path) = paths.next() else {
-        return Ok(None);
-    };
-    if paths.next().is_some() {
-        return Err(format!("unknown or ambiguous platform: {name}"));
-    }
-    path.canonicalize().map(Some).map_err(|e| e.to_string())
-}
-
-/// Discover platform aliases declared by the default profile files.
+/// Discover defaults from each platform directory's profile.toml.
 pub fn platform_defaults(root: &Path) -> Result<BTreeMap<String, String>> {
-    let mut defaults = BTreeMap::new();
-    let directory = root.join(PLATFORM_PROFILES);
-    let entries = match fs::read_dir(&directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(defaults),
-        Err(error) => return Err(format!("{}: {error}", directory.display())),
-    };
-    for entry in entries {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if !path.is_file()
-            || path
-                .extension()
-                .is_none_or(|extension| extension != "toml")
-        {
-            continue;
-        }
-        let data = manifest(&path)?;
-        let Some(alias) = data.get("default-for") else {
-            continue;
-        };
-        let alias = alias
-            .as_str()
-            .filter(|alias| {
-                !matches!(*alias, "std" | "native") && matches(alias, r"^[a-z0-9][a-z0-9-]*$")
-            })
-            .ok_or_else(|| format!("{}: default-for must be a platform name", path.display()))?;
-        let name = path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| format!("invalid profile filename {}", path.display()))?;
-        profile_path(root, name)?;
-        if let Some(other) = defaults.insert(alias.to_owned(), name.to_owned()) {
-            return Err(format!(
-                "multiple defaults for platform {alias}: {other} and {name}"
-            ));
-        }
-    }
-    Ok(defaults)
+    let profiles = ProfileFiles::read(root)?;
+    profiles
+        .defaults
+        .keys()
+        .map(|platform| Ok((platform.clone(), profiles.default_name(platform)?)))
+        .collect()
+}
+
+/// Select one platform's default independently of other platform files.
+pub fn platform_default(root: &Path, platform: &str) -> Result<String> {
+    ProfileFiles::read(root)?.default_name(platform)
 }
 
 /// Profile inspection accepts existing profile names and platform aliases.
 pub fn profile_or_default(root: &Path, name: &str) -> Result<String> {
-    if find_profile_path(root, name)?.is_some() {
-        return Ok(name.into());
+    profile_id(name)?;
+    let profiles = ProfileFiles::read(root)?;
+    if !profiles.paths.contains_key(name) && profiles.defaults.contains_key(name) {
+        return profiles.default_name(name);
     }
-    Ok(platform_defaults(root)?.remove(name).unwrap_or_else(|| name.into()))
+    Ok(name.to_owned())
 }
 impl Profile {
     /// Construct a profile from existing data for inspection and host fixtures.
@@ -274,7 +336,8 @@ impl Profile {
 
     pub fn resolve_with_overlays(root: &Path, name: &str, cli: &[PathBuf]) -> Result<Self> {
         let mut declared = Vec::new();
-        let mut profile = Self::inherit(root, name, &[], &mut declared)?;
+        let profiles = ProfileFiles::read(root)?;
+        let mut profile = Self::inherit(root, &profiles, name, &[], &mut declared)?;
         profile.cli_overlays = cli.to_vec();
         if declared.len() + cli.len() > 64 {
             return Err("at most 64 overlays can be selected for a profile".into());
@@ -338,6 +401,7 @@ impl Profile {
 
     fn inherit(
         root: &Path,
+        profiles: &ProfileFiles,
         name: &str,
         chain: &[String],
         declared: &mut Vec<PathBuf>,
@@ -345,9 +409,9 @@ impl Profile {
         if chain.len() >= 16 || chain.iter().any(|s| s == name) {
             return Err(format!("platform inheritance cycle/depth: {name}"));
         }
-        let path = profile_path(root, name)?;
+        let path = profiles.path(name)?;
         let (mut child, input) = read_input(path.clone(), InputKind::Profile)?;
-        child.as_object_mut().unwrap().remove("default-for");
+        child.as_object_mut().unwrap().remove("name");
         if child.get("hal-features").is_some() {
             return Err("retired hal-features; platform must own [hal] bindings".into());
         }
@@ -356,7 +420,7 @@ impl Profile {
             let parent = parent.as_str().ok_or("extends must name one platform")?;
             let mut chain = chain.to_vec();
             chain.push(name.into());
-            Self::inherit(root, parent, &chain, declared)?
+            Self::inherit(root, profiles, parent, &chain, declared)?
         } else {
             Self::from_data(json!({"hal":{}}), Vec::new())
         };
@@ -943,7 +1007,7 @@ mod tests {
     fn disabling_a_nuttx_provider_drops_its_inherited_endpoint() {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
         let root = &temp.0;
-        let profiles = root.join(PLATFORM_PROFILES);
+        let profiles = root.join("tests/profiles");
         let wifi = root.join("hal/wifi");
         fs::create_dir_all(&profiles).unwrap();
         fs::create_dir_all(&wifi).unwrap();
@@ -1041,20 +1105,15 @@ mod tests {
     #[test]
     fn every_tracked_profile_resolves() {
         let root = root();
-        for dir in PROFILE_DIRS {
-            for file in fs::read_dir(root.join(dir)).unwrap() {
-                let p = file.unwrap().path();
-                if p.extension().is_some_and(|s| s == "toml") {
-                    Profile::resolve(&root, p.file_stem().unwrap().to_str().unwrap()).unwrap();
-                }
-            }
+        for name in ProfileFiles::read(&root).unwrap().paths.keys() {
+            Profile::resolve(&root, name).unwrap();
         }
         for name in platform_defaults(&root).unwrap().values() {
             let default = Profile::resolve(&root, name).unwrap();
             assert!(default
                 .sources
                 .iter()
-                .all(|path| path.starts_with(root.join(PLATFORM_PROFILES))));
+                .all(|path| path.starts_with(root.join("platform"))));
         }
     }
 

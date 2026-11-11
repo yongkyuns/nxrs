@@ -1,5 +1,5 @@
 # Reversible unencrypted trial-startup qualification; no physical provisioning.
-default-for = "wroom"
+name = "esp32s3-camera-stream-startup"
 extends = "esp32s3-camera-stream-mcuboot"
 hal = { watchdog = "nuttx", config = "nuttx" }
 boot-watchdog-ms = 180000

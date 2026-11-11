@@ -26,15 +26,12 @@ mod implementations {
 // Resource opening and sensor initialization are separate callbacks so the HAL
 // can distinguish a missing endpoint from an uncertain sensor configuration.
 macro_rules! declare_device {
-    ($name:ident, $id:literal, $sensor:ty, $binding_type:ty, $resources:ty, $binding:expr, $stack:expr) => {
+    ($name:ident, $id:literal, $sensor:ty, $resources:ty, $open:path, $binding:expr, $irq:expr, $stack:expr) => {
         static $name: Instance<$sensor, $resources> = Instance::new(
             $id,
-            ($binding).irq_path,
+            $irq,
             $stack,
-            |trace| {
-                let binding: $binding_type = $binding;
-                binding.open(trace)
-            },
+            |trace| $open($binding, trace),
             |bus, settings| {
                 let interface = bus
                     .try_into()

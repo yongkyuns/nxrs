@@ -490,7 +490,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             compact = re.sub(r'\s+', '', source)
             if ('macro_rules!declare_device' not in compact
                     or 'static$name:Instance<' not in compact
-                    or 'binding.open(trace)' not in compact
+                    or '$open($binding,trace)' not in compact
                     or '<$sensor>::from_interface(' not in compact):
                 errors.append(f'{relative(nuttx)}: use canonical declarations and the checked-in typed resource factory')
             instance = hal / 'src/platform/nuttx/instance.rs'
@@ -571,8 +571,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         errors.append(f'{path.relative_to(root)}: name the HAL platform explicitly; native is ambiguous')
     for path in (root / 'hal').glob('*/src/platform/std*'):
         errors.append(f'{path.relative_to(root)}: std is an environment, not a platform; share ordinary Rust modules')
-    if (root / 'platform/profiles/std.toml').exists():
-        errors.append('platform/profiles/std.toml: std is not a platform')
+    if (root / 'platform/std/profile.toml').exists():
+        errors.append('platform/std/profile.toml: std is not a platform')
     for path in (root / 'hal').glob('*/Cargo.toml'):
         data = tomllib.loads(path.read_text())
         if data.get('package', {}).get('metadata', {}).get('nxrs', {}).get('kind') == 'hal-capability':

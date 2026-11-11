@@ -1,5 +1,5 @@
 # Windows detector admission.
-default-for = "windows"
+name = "windows"
 target-os = ["windows"]
 
 [hal]

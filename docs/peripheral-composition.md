@@ -99,7 +99,7 @@ hal/acquisition/                       shared workers, cancellation and native r
 platform/devices/gnss/                named GNSS accessors and concrete receiver construction
 hal/gnss/                              UART acquisition, stream metadata and simulation adapter
 shared/simulation/                     seeded scenario and logical clock
-platform/profiles/                     platform defaults and shared WROOM settings
+platform/<platform>/profile.toml      platform default device and resource data
 tests/profiles/                        mock, simulation and qualification inputs
 tools/build-support/                shared resolution and generic typed generation
 tools/build/                        build CLI and Cargo orchestration

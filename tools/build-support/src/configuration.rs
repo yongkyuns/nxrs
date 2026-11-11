@@ -5,46 +5,6 @@ use crate::{
     Result,
 };
 
-fn resource_binding(graph: &Composition, id: &str) -> Result<(&'static str, String)> {
-    let device = graph.devices.get(id).ok_or("missing device")?;
-    let bus = graph
-        .resources
-        .get(&device.bus)
-        .ok_or("missing device bus")?;
-    let irq_path = || -> Result<Option<&str>> {
-        match device.wake.as_ref().ok_or("missing wake configuration")? {
-            Wake::Periodic {} => Ok(None),
-            Wake::Interrupt { resource } => match graph.resources.get(resource) {
-                Some(Resource::GpioInterrupt { device, .. }) => Ok(Some(device.as_str())),
-                _ => Err("wake requires an interrupt resource".into()),
-            },
-        }
-    };
-    let binding = match bus {
-        Resource::I2c {
-            device: path,
-            frequency,
-        } => {
-            let address = device.address.ok_or("I2C device requires an address")?;
-            let irq_path = irq_path()?;
-            ("resources::I2cBinding", format!("path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path:?}"))
-        }
-        Resource::Spi {
-            device: path,
-            frequency,
-        } => {
-            let chip_select = device
-                .chip_select
-                .ok_or("SPI device requires chip-select")?;
-            let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
-            let irq_path = irq_path()?;
-            ("resources::SpiBinding", format!("path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode}, irq_path: {irq_path:?}"))
-        }
-        _ => return Err("IMU requires an I2C or SPI bus".into()),
-    };
-    Ok(binding)
-}
-
 /// Emit canonical instances, direct device accessors and aliases for one HAL.
 pub fn render_imu_instances(
     graph: &Composition,
@@ -62,16 +22,32 @@ pub fn render_imu_instances(
         {
             continue;
         }
-        let (binding_type, fields) = resource_binding(graph, id)?;
-        let bus = match graph.resources.get(&device.bus) {
-            Some(Resource::I2c { .. }) => "i2c",
-            Some(Resource::Spi { .. }) => "spi",
-            _ => return Err("IMU requires an I2C or SPI bus".into()),
+        let irq = match device.wake.as_ref().ok_or("missing wake configuration")? {
+            Wake::Periodic {} => None,
+            Wake::Interrupt { resource } => match graph.resources.get(resource) {
+                Some(Resource::GpioInterrupt { device, .. }) => Some(device.as_str()),
+                _ => return Err("wake requires an interrupt resource".into()),
+            },
         };
-        let resources = match bus {
-            "i2c" => "resources::I2cResource",
-            "spi" => "resources::SpiResource",
-            _ => unreachable!(),
+        let (bus, resource, open, config) = match graph.resources.get(&device.bus) {
+            Some(Resource::I2c {
+                device: path,
+                frequency,
+            }) => {
+                let address = device.address.ok_or("I2C device requires an address")?;
+                ("i2c", "I2cResource", "open_i2c", format!("(resource::Config {{ path: {path:?}, frequency: {frequency} }}, {address})"))
+            }
+            Some(Resource::Spi {
+                device: path,
+                frequency,
+            }) => {
+                let chip_select = device
+                    .chip_select
+                    .ok_or("SPI device requires chip-select")?;
+                let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
+                ("spi", "SpiResource", "open_spi", format!("spi_resource::Config {{ path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode} }}"))
+            }
+            _ => return Err("IMU requires an I2C or SPI bus".into()),
         };
         let binding = catalogs.binding("imu", &device.compatible, bus)?;
         let implementation = binding["implementation"]
@@ -79,8 +55,8 @@ pub fn render_imu_instances(
             .ok_or("missing implementation")?;
         crate::bindings::validate_implementation(implementation)?;
         let name = format!("DEVICE_{}", instances.len());
-        source.push_str(&format!("declare_device!({name}, {id:?}, implementations::{implementation}, {binding_type}<'static>, {resources}, {binding_type} {{ {fields} }}, {stack});\n"));
-        instances.insert(id.as_str(), (name, implementation, resources));
+        source.push_str(&format!("declare_device!({name}, {id:?}, implementations::{implementation}, resources::{resource}, resources::{open}, {config}, {irq:?}, {stack});\n"));
+        instances.insert(id.as_str(), (name, implementation, resource));
     }
     source.push_str("pub mod devices {\n");
     for (accessor, id) in graph.imu_accessors(catalogs)? {
@@ -99,7 +75,7 @@ pub fn render_imu_instances(
     let (instance, implementation, resources) = instances
         .get(id.as_str())
         .ok_or("missing primary IMU instance")?;
-    source.push_str(&format!("fn primary_instance() -> &'static Instance<implementations::{implementation}, {resources}> {{ &{instance} }}\n"));
+    source.push_str(&format!("fn primary_instance() -> &'static Instance<implementations::{implementation}, resources::{resources}> {{ &{instance} }}\n"));
     Ok(source)
 }
 
@@ -164,7 +140,8 @@ mod tests {
         catalogs.insert("imu", package).unwrap();
         let imu = render_imu_instances(&graph, &catalogs, 16384).unwrap();
         assert!(imu.contains("implementations::AnotherSensor"));
-        assert!(imu.contains("address: 104, frequency: 400000, irq_path: None"));
+        assert!(imu
+            .contains("(resource::Config { path: \"/dev/i2c0\", frequency: 400000 }, 104), None"));
         let gnss = render_gnss_instances(&graph, profile.catalogs(), 32768).unwrap();
         assert!(gnss.contains("implementations::NeoM9n, \"/dev/ttyS1\", 38400, 32768"));
         for invalid in [
@@ -187,12 +164,16 @@ mod tests {
             trait Device {{}}
             mod imu_wiring {{
                 mod implementations {{ pub struct AnotherSensor; }}
-                mod resources {{ pub type I2cResource = (); pub struct I2cBinding<'a> {{ pub path: &'a str, pub address: u8, pub frequency: u32, pub irq_path: Option<&'a str> }} }}
+                mod resource {{ pub struct Config<'a> {{ pub path: &'a str, pub frequency: u32 }} }}
+                mod resources {{
+                    pub type I2cResource = ();
+                    pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {{}}
+                }}
                 struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
                 impl<S, R> crate::Device for Instance<S, R> {{}}
                 macro_rules! declare_device {{
-                    ($name:ident, $id:literal, $sensor:ty, $binding:ty, $resources:ty, $value:expr, $stack:literal) => {{
-                        const _: $binding = $value;
+                    ($name:ident, $id:literal, $sensor:ty, $resources:ty, $open:path, $value:expr, $irq:expr, $stack:literal) => {{
+                        const _: fn() = || {{ let _: $resources = $open($value, ()); let _: Option<&str> = $irq; }};
                         static $name: Instance<$sensor, $resources> = Instance(std::marker::PhantomData);
                     }};
                 }}
