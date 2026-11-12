@@ -65,6 +65,14 @@ def raw_output(profile="normal", platform="embassy", layout="one", *,
 
 
 class MeasurementValidationTests(unittest.TestCase):
+    def test_completion_requires_full_exit_row_and_a_later_prompt(self):
+        prefix = b"event> normal\r\nES_RESULT ok=1\r\n"
+        for tail in (b"ES_COMMAND_EXIT ", b"ES_COMMAND_EXIT status=0",
+                     b"ES_COMMAND_EXIT status=0\r\n"):
+            self.assertFalse(measure.command_completed(prefix + tail, b"event> "))
+        self.assertTrue(measure.command_completed(
+            prefix + b"ES_COMMAND_EXIT status=0\r\nevent> ", b"event> "))
+
     def test_all_profiles_and_layouts_validate_expected_workloads(self):
         for profile in measure.PROFILES:
             for layout in measure.LAYOUTS:

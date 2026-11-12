@@ -21,6 +21,8 @@ Start with the [user guide](../website/guide/start-here.md) for setup, applicati
 
 Use the [test index](../tests/README.md) for commands and prerequisites. The [NuttX simulator](nuttx-sim.md) and [QEMU](nuttx-qemu.md) guides cover firmware execution. [Event-path measurements](std-channel-performance.md), [Rust std footprint](rust-std-footprint.md), and [RTOS comparisons](rtos-comparison.md) record performance and memory evaluations.
 
+[Characterizing Zephyr, NuttX and NXRS](rtos-characterization.md) defines the broader comparison: deployment resources, responsiveness, bounded progress, recovery, portability and integration. It maps existing evidence to five experiments and separates OS costs from the ordinary NXRS application layer.
+
 ## Application-specific notes
 
 The [examples guide](../website/guide/examples.md) separates introductory programs from application-specific code. The [event-driven application](event-driven-demo.md), [camera delivery](camera-detection-delivery.md), and [native camera clients](client-camera-architecture.md) references describe particular applications rather than requirements of the framework.

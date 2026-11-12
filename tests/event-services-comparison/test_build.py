@@ -59,6 +59,7 @@ class InventoryTests(unittest.TestCase):
         required = {
             "platform.h", "contract.h", "runtime.h", "runtime.c", "core.c",
             "core.rs", "platform_nuttx.c", "platform_zephyr.c", "nuttx.rs",
+            "native_stack.h", "stack_config.rs", "stack_watermark.rs",
             "zephyr_main.c", "CMakeLists.txt", "Cargo.toml", "Cargo.lock",
             "../zephyr-comparison/prj.conf", "../zephyr-comparison/app.overlay",
             "../embassy-comparison/stack.x", "../service-footprint/Cargo.toml",
@@ -86,6 +87,20 @@ class InventoryTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+    def test_stack_requests_are_explicit_and_reject_wrong_platform_or_alignment(self):
+        from types import SimpleNamespace
+        self.assertEqual(build.stack_configuration(SimpleNamespace(platform="nuttx-c")), (4096, 8192, False))
+        self.assertEqual(build.stack_configuration(SimpleNamespace(platform="nuttx-rust", worker_stack_bytes=2048,
+                                                                   stack_watermark=True)), (2048, 8192, True))
+        self.assertEqual(build.stack_configuration(SimpleNamespace(platform="embassy", shared_stack_bytes=4096,
+                                                                   stack_watermark=True)), (4096, 4096, True))
+        for platform, worker, shared in (("nuttx-c", 2049, 8192), ("nuttx-c", 4096, 4096),
+                                         ("embassy", 2048, 8192), ("embassy", 4096, 1000),
+                                         ("zephyr-c", 0, 8192), ("nuttx-rust", 131072, 8192)):
+            with self.subTest(platform=platform, worker=worker, shared=shared), self.assertRaises(ValueError):
+                build.stack_configuration(SimpleNamespace(platform=platform, worker_stack_bytes=worker,
+                                                          shared_stack_bytes=shared))
+
     def test_command_stringifies_arguments_and_records_subprocess_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

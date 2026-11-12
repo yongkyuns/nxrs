@@ -161,6 +161,9 @@ unsigned es_platform_queue_peak(void) { return ES_QUEUE_SLOTS; }
 void es_platform_resources(void) {
   printf("MOCK_RESOURCES held=%u\n", ready == ES_SERVICES && !released);
 }
+void es_platform_stack_report(void) {
+  if (!joined || spawned) abort();
+}
 const char *es_platform_name(void) { return "mock"; }
 int main(void) { return es_run_saturation(); }
 """

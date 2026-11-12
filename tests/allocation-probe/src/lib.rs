@@ -84,13 +84,29 @@ impl<A> Tracking<A> {
         self.subtract(&self.active, 1);
     }
 
+    fn update_peak(&self, live: usize) {
+        // The pinned Xtensa compiler (esp-1.90.0.0) emits undefined block labels
+        // for optimized atomic min/max. Use the equivalent CAS loop, retaining
+        // a SeqCst read-modify-write even when the peak does not increase.
+        let mut previous = self.peak.load(SeqCst);
+        loop {
+            match self
+                .peak
+                .compare_exchange_weak(previous, previous.max(live), SeqCst, SeqCst)
+            {
+                Ok(_) => return,
+                Err(current) => previous = current,
+            }
+        }
+    }
+
     fn allocated(&self, pointer: *mut u8, size: usize) {
         if pointer.is_null() {
             self.add(&self.failed, 1);
         } else {
             self.add(&self.blocks, 1);
             let live = self.add(&self.live, size);
-            self.peak.fetch_max(live, SeqCst);
+            self.update_peak(live);
         }
     }
 
@@ -171,7 +187,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Tracking<A> {
             self.add(&self.failed, 1);
         } else if size >= layout.size() {
             let live = self.add(&self.live, size - layout.size());
-            self.peak.fetch_max(live, SeqCst);
+            self.update_peak(live);
         } else {
             self.subtract(&self.live, layout.size() - size);
         }

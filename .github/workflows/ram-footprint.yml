@@ -1,0 +1,159 @@
+name: RAM footprint controls
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ram-footprint.yml'
+      - '.github/scripts/install-ubuntu-packages.sh'
+      - 'tests/event-services-comparison/**'
+      - 'tests/ram-footprint-std/**'
+      - 'tests/allocation-probe/**'
+      - 'tests/rtos_harness/**'
+      - 'tests/zephyr-comparison/**'
+      - 'tests/embassy-comparison/**'
+      - 'tests/service-footprint/**'
+      - 'tests/nuttx-std/**'
+      - 'shared/messaging/**'
+      - 'tools/build/**'
+      - 'tools/build-support/**'
+      - 'platform/nuttx/**'
+      - 'tests/profiles/esp32s3-ram-*.toml'
+      - 'upstream/rust-std/**'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'tools/install-qemu-tools.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ram-footprint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  RUSTUP_TOOLCHAIN: '1.90.0'
+
+jobs:
+  host:
+    name: Host accounting and lifecycle controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ env.SOURCE_SHA }}
+          submodules: true
+      - name: Install pinned host Rust
+        run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+      - name: Validate native controls and memory accounting contracts
+        run: |
+          python3 -m unittest discover -s tests/event-services-comparison -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/rtos_harness -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/ram-footprint-std -p 'test_*.py' -v
+          cargo +1.90.0 fmt --manifest-path tests/ram-footprint-std/Cargo.toml --check
+      - name: Run fresh-process ordinary Rust controls on the host
+        run: python3 tests/ram-footprint-std/run.py --out target/ram-footprint-host
+      - name: Retain host-only evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ram-footprint-host
+          path: |
+            target/ram-footprint-host/*.json
+            target/ram-footprint-host/*.jsonl
+            target/ram-footprint-host/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  nuttx-build:
+    name: NuttX compile and link (${{ matrix.binary }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        binary: [ram-baseline, ram-threads, ram-std-inbox, ram-crossbeam-select]
+    env:
+      NUTTX_STD_COMPAT_FIXES: '1'
+      RAM_BINARY: ${{ matrix.binary }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ env.SOURCE_SHA }}
+          submodules: true
+      - name: Install pinned Cargo and native build dependencies
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          python3 -m venv target/ram-footprint-venv
+          target/ram-footprint-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/ram-footprint-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Install hash-verified pinned Xtensa tools
+        run: bash tools/install-qemu-tools.sh
+      - name: Build an ordinary Rust binary and target observation ABI
+        run: |
+          set -euo pipefail
+          ram_out="target/ram-footprint-target/$RAM_BINARY"
+          mkdir -p "$ram_out"
+          cargo +1.90.0 nxrs build \
+            --manifest-path tests/ram-footprint-std/Cargo.toml \
+            --profile esp32s3-ram-footprint --bin "$RAM_BINARY" \
+            --command ramprobe --stack-size 16384 --abi-profile minimal \
+            --target-c-source tests/ram-footprint-std/ffi/observe.c \
+            --out "$ram_out" 2>&1 | tee "$ram_out/build.log"
+      - name: Verify retained native observation and worker APIs
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          binary = os.environ['RAM_BINARY']
+          out = Path('target/ram-footprint-target') / binary
+          defined = (out / 'symbols.txt').read_text()
+          for symbol in ('ram_probe_heap', 'ram_probe_stack'):
+              if not re.search(r'(?m)^\s*[0-9a-fA-F]+\s+[TtWw]\s+' + symbol + r'$', defined):
+                  raise SystemExit('missing target observer: ' + symbol)
+          # The baseline deliberately does not spawn threads. The other three
+          # images must retain real pthread calls behind ordinary Rust threads.
+          if binary != 'ram-baseline':
+              unresolved = (out / 'rust-symbols.txt').read_text()
+              for symbol in ('pthread_create', 'pthread_join'):
+                  if not re.search(r'(?m)^\s*U\s+' + symbol + r'$', unresolved):
+                      raise SystemExit('missing ordinary Rust thread dependency: ' + symbol)
+                  if not re.search(r'(?m)^\s*[0-9a-fA-F]+\s+[TtWw]\s+' + symbol + r'$', defined):
+                      raise SystemExit('missing final thread implementation: ' + symbol)
+          PY
+      - name: Retain target build evidence without source worktrees
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ram-footprint-nuttx-${{ matrix.binary }}-build-only
+          path: |
+            target/ram-footprint-target/${{ matrix.binary }}/*.elf
+            target/ram-footprint-target/${{ matrix.binary }}/*.map
+            target/ram-footprint-target/${{ matrix.binary }}/*.config
+            target/ram-footprint-target/${{ matrix.binary }}/*.json
+            target/ram-footprint-target/${{ matrix.binary }}/*.jsonl
+            target/ram-footprint-target/${{ matrix.binary }}/*.txt
+            target/ram-footprint-target/${{ matrix.binary }}/*.sha256
+            target/ram-footprint-target/${{ matrix.binary }}/*.log
+            target/ram-footprint-target/${{ matrix.binary }}/nuttx/nuttx
+            target/ram-footprint-target/${{ matrix.binary }}/nuttx/nuttx.map
+            target/ram-footprint-target/${{ matrix.binary }}/nuttx/System.map
+            target/ram-footprint-target/${{ matrix.binary }}/nuttx/nuttx.merged.bin
+            target/ram-footprint-target/${{ matrix.binary }}/nuttx/include/nuttx/config.h
+          if-no-files-found: warn
+          retention-days: 14

@@ -10,7 +10,7 @@ int main(void) {
     return 1;
   puts("EVENT_SERVICES_READY platform=zephyr-c");
   for (;;) {
-    char command[16];
+    char command[32];
     unsigned length = 0;
     unsigned char byte;
     printf("event> ");

@@ -33,6 +33,9 @@ int mp_get_schedule(int *v) {v[0]=0;v[1]=k_thread_priority_get(k_current_get());
 int mp_set_schedule(int policy,int priority) {(void)policy;k_thread_priority_set(k_current_get(),priority);return 0;}
 uintptr_t mp_tid(void) {return (uintptr_t)k_current_get();}
 int mp_waiting(uintptr_t tid) {struct k_thread *t=(struct k_thread *)tid;return k_thread_priority_get(t)==20&&(t->base.thread_state&_THREAD_PENDING)&&t->base.pended_on==&queue.wait_q;}
+/* Zephyr uses one wait queue for blocked producers and the unique receiver.
+ * The Rust phase proves the direction; this witness proves object identity. */
+int mp_queue_waiting(uintptr_t tid,int sending) {(void)sending;return mp_waiting(tid);}
 int mp_gate_init(size_t i) {return k_sem_init(&gates[i],0,UINT32_MAX);}
 int mp_gate_post(size_t i) {k_sem_give(&gates[i]);return 0;}
 int mp_gate_wait(size_t i) {return k_sem_take(&gates[i],K_SECONDS(60));}
@@ -42,15 +45,23 @@ int mp_queue_send(const uint8_t *data,int blocking) {int r=k_msgq_put(&queue,dat
 int mp_queue_receive(uint8_t *data) {return k_msgq_get(&queue,data,K_FOREVER);}
 int mp_queue_destroy(void) {return k_msgq_cleanup(&queue);}
 uint64_t mp_runtime(uintptr_t tid) {
-#ifdef CONFIG_THREAD_RUNTIME_STATS
+#if defined(CONFIG_THREAD_RUNTIME_STATS) && defined(CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS)
   k_thread_runtime_stats_t s;if(k_thread_runtime_stats_get((k_tid_t)tid,&s))return UINT64_MAX;
-  return timing_cycles_to_ns(s.execution_cycles);
+  /* The CPU diagnostic selects the timing counter explicitly. Xtensa's
+   * usage hooks stop charging the thread before ISR dispatch. */
+  uint64_t hz=timing_freq_get();
+  if(hz!=CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC)return UINT64_MAX;
+  uint64_t seconds=s.execution_cycles/hz;
+  uint64_t fraction=(s.execution_cycles%hz)*1000000000u/hz;
+  if(seconds>(UINT64_MAX-fraction)/1000000000u)return UINT64_MAX;
+  return seconds*1000000000u+fraction;
 #else
   (void)tid;return UINT64_MAX;
 #endif
 }
 int mp_stack(uintptr_t tid,uint32_t *v) {struct k_thread *t=(struct k_thread *)tid;size_t unused;if(k_thread_stack_space_get(t,&unused))return -1;v[0]=t->stack_info.size;v[1]=v[0]-unused;v[2]=t->stack_info.start>=MP_RAM_BEGIN&&t->stack_info.start+v[0]<=MP_RAM_END;return 0;}
-void mp_heap(uint32_t *v) {memset(v,0,4*sizeof(*v));}
+/* No complete allocator-arena observer is implemented for this native arm. */
+int mp_heap(uint32_t *v) {(void)v;return 0;}
 int mp_watchdog_start(uint32_t ms,void (*callback)(void)) {deadline_callback=callback;k_timer_start(&watchdog,K_MSEC(ms),K_NO_WAIT);return 0;}
 int mp_watchdog_stop(void) {k_timer_stop(&watchdog);return 0;}
 int mp_output(const uint8_t *p,size_t bytes) {return fwrite(p,1,bytes,stdout)==bytes?0:-1;}

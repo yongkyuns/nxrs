@@ -104,14 +104,19 @@ def read_until_prompt(fd, prompt, timeout=30):
     return _read_serial_until(fd, timeout, lambda data: prompt in data, repr(prompt))
 
 
+def command_completed(data, prompt, terminal=b"ES_RESULT "):
+    """A previous prompt cannot finish a fragmented command-exit row."""
+    exit_row = re.search(rb"(?:^|[\r\n])ES_COMMAND_EXIT status=[0-9]+\r*\n", data)
+    return (exit_row is not None and terminal in data[:exit_row.start()]
+            and prompt in data[exit_row.end():])
+
+
 def read_until_completion(fd, prompt, timeout=120):
     """Read a whole invocation; a prompt alone cannot truncate marker rows."""
     return _read_serial_until(
         fd,
         timeout,
-        lambda data: b"ES_RESULT " in data
-        and b"ES_COMMAND_EXIT " in data
-        and prompt in data,
+        lambda data: command_completed(data, prompt),
         "event-service completion markers and prompt",
     )
 

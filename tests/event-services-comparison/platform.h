@@ -7,7 +7,21 @@
 #endif
 #define ES_QUEUES_PER_SERVICE (ES_MAILBOX ? 1 : 3)
 #define ES_QUEUE_SLOTS (ES_MAILBOX ? 24 : 8)
+#ifndef ES_STACK_BYTES
+#define ES_STACK_BYTES 4096u
+#endif
+#ifndef ES_STACK_WATERMARK
+#define ES_STACK_WATERMARK 0
+#endif
+#if ES_STACK_BYTES < 256 || (ES_STACK_BYTES % 16) != 0
+#error "ES_STACK_BYTES must be at least 256 and a multiple of 16"
+#endif
+#if ES_STACK_WATERMARK != 0 && ES_STACK_WATERMARK != 1
+#error "ES_STACK_WATERMARK must be zero or one"
+#endif
 int es_platform_init(void);
+/* Gates and thread bookkeeping only: never constructs application queues. */
+int es_platform_init_threads(void);
 void es_platform_close(void);
 /* 0 accepted, 1 full/rejected, -1 platform error. NEVER waits for capacity. */
 int es_platform_send(unsigned destination, unsigned kind,
@@ -32,5 +46,11 @@ uint32_t es_platform_heap_used(void);
 int es_platform_queue_depth(unsigned destination, unsigned kind);
 unsigned es_platform_queue_peak(void);
 void es_platform_resources(void);
+/* Call only after joining all workers. Samples are taken before their entry
+ * trampoline returns, so they are observations, not bounds on exit teardown. */
+void es_platform_stack_report(void);
+/* Allocation snapshots count fixed static reservations even before objects
+ * are initialized. static_storage is adapter storage, not whole-system RAM. */
+void es_platform_alloc_report(const char *stage, unsigned requested_workers);
 const char *es_platform_name(void);
 #endif
