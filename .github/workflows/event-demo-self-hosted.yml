@@ -17,6 +17,7 @@ on:
       - 'platform/Cargo.toml'
       - 'platform/src/**'
       - 'platform/tests/**'
+      - 'platform/nuttx/resources/**'
       - 'driver/i2c/**'
       - 'driver/spi/**'
       - 'driver/gpio/**'
@@ -37,11 +38,14 @@ on:
       - 'tools/platform_config.py'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
+      - 'tools/check-device-closure.py'
+      - 'tools/check-hal-isolation.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/install-qemu-tools.sh'
       - 'tests/nuttx-std/**'
       - 'tests/host/test_architecture.py'
       - 'tests/host/test_deployment.py'
+      - 'tests/host/test_device_closure.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test-event-demo-nuttx.py'
       - 'Cargo.toml'
@@ -49,6 +53,10 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx/**'
+      - 'upstream/build-patches.json'
+      - 'upstream/esp-hal-3rdparty/patches/**'
+      - 'upstream/rust-std/patches/**'
+      - 'upstream/libc/patches/**'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
@@ -97,6 +105,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
+          python3 -m unittest discover -s tests/host -p test_device_closure.py -v
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
             --app-manifest app/event-demo/Cargo.toml \
@@ -274,6 +283,17 @@ jobs:
           --overlay tests/host/fixtures/lsm6dso-overlay.toml
           --out target/firmware/event-demo/cores3-lsm6dso
 
+      - name: Verify selected devices in the linked CoreS3 images
+        shell: bash
+        run: |
+          set -euo pipefail
+          source target/qemu-tools/environment.sh
+          python3 tools/check-device-closure.py \
+            --bmi270-out target/firmware/event-demo/cores3 \
+            --lsm6dso-out target/firmware/event-demo/cores3-lsm6dso \
+            --revision "$GITHUB_SHA" \
+            --report target/firmware/event-demo/device-closure.json
+
       - name: Cross-link the protected ESP32-S3 IMU ABI witness
         run: |
           source target/qemu-tools/environment.sh
@@ -315,6 +335,22 @@ jobs:
         with:
           name: event-demo-esp32s3-nuttx
           path: |
+            target/firmware/event-demo/device-closure.json
+            target/firmware/event-demo/cores3*/nuttx/nuttx
+            target/firmware/event-demo/cores3*/nuttx/nuttx.bin
+            target/firmware/event-demo/cores3*/nuttx/nuttx.map
+            target/firmware/event-demo/cores3*/cargo/xtensa-esp32s3-nuttx/release/event-demo
+            target/firmware/event-demo/cores3*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*_config.rs
+            target/firmware/event-demo/cores3*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*.configuration.json
+            target/firmware/event-demo/cores3*/*.elf
+            target/firmware/event-demo/cores3*/*.map
+            target/firmware/event-demo/cores3*/*.txt
+            target/firmware/event-demo/cores3*/*.json
+            target/firmware/event-demo/cores3*/*.jsonl
+            target/firmware/event-demo/cores3*/*.config
+            target/firmware/event-demo/cores3*/*.sha256
+            target/firmware/event-demo/cores3*/configuration/
+            target/firmware/event-demo/cores3*/native-resources/
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.map

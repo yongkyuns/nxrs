@@ -617,6 +617,36 @@ not proof of driver inclusion/exclusion. Cross-link the affected NuttX paths
 with their pinned ABI witnesses. Run physical S8 checks only when the required
 hardware is available and authorized, and label pending cases.
 
+#### Paired CoreS3 linked-device evidence
+
+The event-demo workflow checks its existing CoreS3 BMI270 build and replacement
+LSM6DSO overlay build with `tools/check-device-closure.py`. Each image also
+consumes the configured UBX GNSS device. This is a comparison of two
+single-IMU images; it does not qualify a mixed-IMU image.
+
+The checker connects the selected production packages and target Cargo
+artifacts to the prepared configuration, build receipts, and actual Rust and
+final NuttX ELFs. It rejects a wrong model, target or revision, missing or changed
+inputs, and evidence that tries to satisfy a target-driver requirement using
+only a host artifact. Symbol inspection supplements the package and artifact
+checks; absence of a name after optimization is not sufficient evidence that a
+driver was excluded. Observed permanent device objects are reported with their
+symbol sizes, separately from worker stacks, queues, transient/session state,
+native descriptors and other runtime allocations.
+
+The `event-demo-esp32s3-nuttx` artifact retains both images, link maps, generated
+configuration, native-helper archives, Cargo messages, provenance, input hashes
+and the successful `device-closure.json` report. The report records the exact
+revision and image hashes. A failed check removes any previous report, so a
+stale success cannot be published by a repeated invocation.
+
+This paired witness narrows D5's implementation-selection and permanent-state
+evidence gap. A current mixed-device image, complete allocation accounting and
+an explicit simultaneous different-profile/separate-output build witness remain
+separate items. Same-output locking and sequential profile-switch tests already
+cover their respective concurrency and freshness cases. Physical S8 behavior
+and any performance or whole-system memory claims require their own evidence.
+
 Update architecture docs, HAL READMEs and AGENTS rules to the implemented state,
 remove superseded migration guidance and retain source/qualification provenance.
 A documentation-only PR references #246; it does not close this implementation

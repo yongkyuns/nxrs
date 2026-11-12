@@ -282,6 +282,29 @@ registry packages, rejects unknown artifact identities, and records the observed
 sets. `provider-selection.json` describes profile bindings, including available
 bindings that an application may not consume; it is not a compiled-package list.
 
+The event-demo workflow also checks its two existing CoreS3 images with the
+test-only `tools/check-device-closure.py` audit. After building the stock BMI270
+profile and `tests/host/fixtures/lsm6dso-overlay.toml` into their separate output
+directories, use the pinned target tools to inspect the completed pair:
+
+```sh
+source target/qemu-tools/environment.sh
+python3 tools/check-device-closure.py \
+  --bmi270-out target/firmware/event-demo/cores3 \
+  --lsm6dso-out target/firmware/event-demo/cores3-lsm6dso \
+  --revision "$(git rev-parse HEAD)" \
+  --report target/firmware/event-demo/device-closure.json
+```
+
+This audit binds the selected packages, prepared configuration and target Cargo
+artifacts to the successful build's hashes and actual Rust/final ELFs. Its
+report includes identifiable permanent device objects and their symbol sizes;
+it does not treat absent symbol names as sufficient driver-exclusion evidence.
+Evidence from both build directories and the report is retained in the
+`event-demo-esp32s3-nuttx` CI artifact. See the
+[D5 evidence scope](peripheral-composition-plan.md#paired-cores3-linked-device-evidence)
+for the remaining mixed-device, allocation and physical qualification work.
+
 ## Incremental builds and evidence
 
 Normal builds preserve Cargo output. NuttX also retains its configured native
