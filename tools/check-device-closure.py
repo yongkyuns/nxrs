@@ -224,8 +224,23 @@ def validate_selection(evidence, case, revision):
     require(graph["resources"] == resources, "unexpected declared resource graph")
     require(graph["stack_bytes"] == graph["gnss_stack_bytes"] == 16384,
             "unexpected acquisition stack configuration")
+    # Receipts preserve CLI spelling; the resolver interprets relative overlays
+    # against the workspace and records canonical paths separately in profiles.
+    # Apply that interpretation after relocating the recorded workspace, without
+    # accepting another file merely because its basename or content matches.
+    require(isinstance(r["cli_overlays"], list)
+            and all(isinstance(value, str) for value in r["cli_overlays"]),
+            "overlay receipt must be an array of path strings")
+    cli_overlays = []
+    for value in r["cli_overlays"]:
+        recorded = e.workspace / value
+        require(recorded.is_relative_to(e.workspace), "overlay is outside the recorded workspace")
+        local = (e.root / recorded.relative_to(e.workspace)).resolve()
+        require(local.is_relative_to(e.root), "overlay escapes the mapped workspace")
+        cli_overlays.append(local)
     overlays = [str(e.workspace / OVERLAY)] if case == "lsm6dso" else []
-    require(r["cli_overlays"] == overlays, "wrong overlay receipt")
+    expected_overlays = [(e.root / OVERLAY).resolve()] if overlays else []
+    require(cli_overlays == expected_overlays, "wrong overlay receipt")
     profiles = {str(e.workspace / name) for name in (BASE, BSP)} | set(overlays)
     require({p["path"] for p in s["profiles"]} == profiles, "wrong profile source set")
     dependencies = {}

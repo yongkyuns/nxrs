@@ -98,7 +98,11 @@
       "0111-esp32s3-devkit-configurable-imu-irq.patch",
       "0112-i2c-scheduler-note-qualification.patch",
       "0113-pty-window-size-ioctls.patch",
-      "0114-tcp-reuseaddr-listener-recovery.patch"
+      "0114-tcp-reuseaddr-listener-recovery.patch",
+      "0115-esp32s3-smp-flash-rendezvous.patch",
+      "0116-xtensa-serialize-wifi-reconnect.patch",
+      "0117-mm-heap-propagate-lock-failure.patch",
+      "0118-esp32s3-smp-psram-atomics.patch"
     ]
   },
   "mcuboot": {
@@ -127,7 +131,8 @@
       "0003-esp32s3-serialize-wifi-phy-state.patch",
       "0005-esp32s3-inherit-watchdog-clock.patch",
       "0006-esp32s3-inherit-watchdog-user-handoff.patch",
-      "0007-wpa-aes-symbol-prefix.patch"
+      "0007-wpa-aes-symbol-prefix.patch",
+      "0008-esp32s3-smp-rng.patch"
     ]
   }
 }

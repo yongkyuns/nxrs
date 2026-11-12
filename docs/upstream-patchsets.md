@@ -19,7 +19,7 @@ and retired investigation tools are not silently renumbered.
 | Area | Retained patch IDs | Purpose |
 | --- | --- | --- |
 | Random-source failure | 0090–0091 | Bound RP2350 hardware polling/health rejection and latch failures; stop `arc4random_buf` after clearing output when device reads cannot fill it |
-| ESP32-S3 RF entropy access | 0093 | Hold the existing SDK PHY mutex through `/dev/random` sampling; refuse unavailable RF and unsupported PM/SMP, cap reads at 32 bytes, and honor nonblocking raw-device locking |
+| ESP32-S3 RF entropy access | 0093 | Hold the existing SDK PHY mutex through `/dev/random` sampling; refuse unavailable RF and unsupported PM and auto-sleep, cap reads at 32 bytes, and honor nonblocking raw-device locking |
 | Original platform support | 0001–0004, 0007–0008 | ESP32-S3 BLE, Wi-Fi, camera, PSRAM validation and Freenove LED |
 | POSIX/network integration | 0005–0006, 0022, 0042, 0077–0078, 0086–0087 | UDP empty datagrams, flat-build pthread cleanup, TCP connect/retransmission progress, safe link-layer dispatch, sequence validation before ACK/close progress, cumulative ACK acceptance after partial retransmission, and congestion-window recovery |
 | Pico board and radio assets | 0009, 0011–0012, 0021, 0028 | Pico 2 W wiring, firmware validation, CLM alignment, calibration and open-network setup |
@@ -37,6 +37,7 @@ and retired investigation tools are not silently renumbered.
 | ESP32-S3 voluntary switching | 0106 | Build the full native context directly in flat single-core windowed-ABI builds; retain syscall switching for other targets and modes |
 | ESP32-S3 IRAM product layout | 0107 | Include an empty-by-default product linker fragment; the build frontend stages and hashes a profile-selected synchronization layout |
 | ESP32-S3 SIMPLE_BOOT image parsing | 0108 | Skip a declared ROM prefix digest before parsing flash-mapped segments |
+| Signed ESP32-S3 SMP | 0115–0118 | Acknowledge peer flash-cache restoration, serialize station reconnect and stop, backport the heap mutex fix and select PSRAM-safe atomics |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps

@@ -3,9 +3,15 @@ extends = "esp32s3-camera-stream-mcuboot"
 # Factory-image builds only: the pinned encrypted update path is unqualified.
 hal = { boot = "none" }
 hardware-protection = true
+cpus = 1
 
 # Stable product/flash-format class, independent of release version.
 image-class = "b8c23dde-977a-454f-88ea-7cafafe51a90"
+
+[detector]
+model = "pico"
+stack-bytes = 131072
+sample-ms = 500
 
 [mcuboot]
 flash-size = 0x1000000

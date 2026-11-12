@@ -1,0 +1,8 @@
+# Single-core control for camera and detector measurements.
+extends = "esp32s3-camera-stream"
+cpus = 1
+
+[detector]
+model = "pico"
+stack-bytes = 131072
+sample-ms = 750

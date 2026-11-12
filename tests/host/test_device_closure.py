@@ -134,7 +134,7 @@ class DeviceClosureTests(unittest.TestCase):
         dependencies = [self.source_hash(name) for name in self.sources + overlay]
         manifest = str(RECORDED / "app/event-demo/Cargo.toml")
         receipt = {"version": 1, "workspace": str(RECORDED), "profile": "m5stack-cores3-gnss",
-                   "target": TARGET, "os": "nuttx", "cli_overlays": [str(RECORDED / n) for n in overlay],
+                   "target": TARGET, "os": "nuttx", "cli_overlays": overlay,
                    "product_manifest": manifest, "data": data, "graph": graph, "semantic_digest": semantic,
                    "raw_fingerprint": sha(case.encode()), "dependencies": dependencies}
         write_json(out / "resolved-profile.json", receipt)
@@ -270,6 +270,47 @@ class DeviceClosureTests(unittest.TestCase):
             self.assertIn("nxrs-build-support", result["cargo_packages"]["host"])
             self.assertTrue(any("/out/imu_config.rs" in p for p in result["evidence_sha256"]))
             self.assertIn("provenance.txt", result["evidence_sha256"])
+
+    def test_relative_and_absolute_overlay_spellings_resolve_to_the_same_input(self):
+        path = self.outputs["lsm6dso"] / "resolved-profile.json"
+        receipt = read_json(path)
+        for overlay in ("./tests/host/fixtures/lsm6dso-overlay.toml",
+                        str(RECORDED / "tests/host/fixtures/lsm6dso-overlay.toml")):
+            with self.subTest(overlay=overlay):
+                receipt["cli_overlays"] = [overlay]
+                write_json(path, receipt)
+                self.check()
+
+    def test_wrong_duplicate_or_escaping_overlay_receipts_are_rejected(self):
+        path = self.outputs["lsm6dso"] / "resolved-profile.json"
+        receipt = read_json(path)
+        expected = "tests/host/fixtures/lsm6dso-overlay.toml"
+        other = self.root / "other/lsm6dso-overlay.toml"
+        other.parent.mkdir()
+        other.write_bytes((self.root / expected).read_bytes())
+        for overlays in ([], [expected, expected], ["other/lsm6dso-overlay.toml"],
+                         ["../outside/lsm6dso-overlay.toml"],
+                         ["/outside/tests/host/fixtures/lsm6dso-overlay.toml"]):
+            with self.subTest(overlays=overlays):
+                receipt["cli_overlays"] = overlays
+                write_json(path, receipt)
+                with self.assertRaisesRegex(ValueError, "overlay"):
+                    self.check()
+
+    def test_overlay_receipt_requires_an_array_of_strings(self):
+        for case in ("bmi270", "lsm6dso"):
+            path = self.outputs[case] / "resolved-profile.json"
+            receipt = read_json(path)
+            original = receipt["cli_overlays"]
+            for value in ("", {}, None, False, [None], [123], [False],
+                          {"tests/host/fixtures/lsm6dso-overlay.toml": None}):
+                with self.subTest(case=case, value=value):
+                    receipt["cli_overlays"] = value
+                    write_json(path, receipt)
+                    with self.assertRaisesRegex(ValueError, "array of path strings"):
+                        self.check()
+            receipt["cli_overlays"] = original
+            write_json(path, receipt)
 
     def test_unselected_host_library_and_shared_host_target_identity_are_not_target_contamination(self):
         records = self.records("bmi270")

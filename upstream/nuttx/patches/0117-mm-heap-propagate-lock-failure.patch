@@ -1,0 +1,48 @@
+From 1c03b44a37b5f7724980a1bf23baf682a858382d Mon Sep 17 00:00:00 2001
+From: Marco Casaroli <marco.casaroli@gmail.com>
+Date: Mon, 12 Oct 2026 14:45:33 +0200
+Subject: [PATCH] mm/mm_heap: Do not run without the heap lock when a signal
+ arrives.
+
+mm_lock() returned 0 even when nxmutex_lock() failed.  nxmutex_lock()
+returns -EINTR when a signal interrupts the wait, so a task that got a
+signal while another task held the heap lock went on to change the heap
+without the lock, and two tasks changed the free lists at the same
+time.  With SMP this happened within seconds when processes were
+created and reaped in parallel: SIGCHLD reached the parents while the
+heap was busy, and the heap was corrupted.
+
+Retry the lock when a signal interrupts it, and return the result.
+
+Assisted-by: Claude Code:claude-opus-5-5
+Signed-off-by: Marco Casaroli <marco.casaroli@gmail.com>
+
+diff --git a/mm/mm_heap/mm_lock.c b/mm/mm_heap/mm_lock.c
+index a5a2c649..2776ee3e 100644
+--- a/mm/mm_heap/mm_lock.c
++++ b/mm/mm_heap/mm_lock.c
+@@ -104,13 +104,22 @@ int mm_lock(FAR struct mm_heap_s *heap)
+     }
+   else
+     {
+-      int ret = nxmutex_lock(&heap->mm_lock);
++      int ret;
++
++      /* A signal must not make the caller run without the lock */
++
++      do
++        {
++          ret = nxmutex_lock(&heap->mm_lock);
++        }
++      while (ret == -EINTR);
++
+       if (ret >= 0)
+         {
+           kasan_bypass(true);
+         }
+ 
+-      return 0;
++      return ret;
+     }
+ }
+ 

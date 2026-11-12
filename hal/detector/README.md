@@ -77,9 +77,9 @@ preserve that state. A Rust lease serializes kernels and restores the prior
 enabled state before releasing ownership, including unwind. JPEG/box processing
 and idle time do not retain a newly enabled SIMD context. This adapter requires
 the selected flat NuttX profile. An explicit `compute-core` resource pins numerical
-execution and restores affinity after restoring SIMD state. The unsigned SMP
-experiment reuses the existing capture and detection workers; it adds no thread.
-The signed product remains single-core pending TLS/OTA SMP qualification.
+execution and restores affinity after restoring SIMD state. Signed and unsigned
+WROOM streaming profiles use the same CPU placement and reuse the existing
+capture and detection workers.
 Shared Rust behavior contains no platform/provider flags.
 
 ## Numerical SDK scope and ownership
