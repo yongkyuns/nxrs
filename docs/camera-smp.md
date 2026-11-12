@@ -2,9 +2,8 @@
 
 `esp32s3-camera-stream-smp` is an explicit, unsigned experiment. It enables two
 NuttX CPUs and pins synchronous PICO numerical execution to core 1 through the
-profile's `compute-core` resource. Capture and detection keep their existing
-Rust workers. No extra application thread, graph, weight copy or arena is added;
-the detector API, model, thresholds and 750 ms observation budget are unchanged.
+profile's `compute-core` resource. Capture and detection use their existing
+Rust workers, and the profile defaults to a 500 ms observation interval.
 
 The NuttX factory validates placement before enabling SIMD. Rust serializes
 numerical execution and restores SIMD state before restoring affinity, including
@@ -27,7 +26,9 @@ latency, CPU time, observation cadence and decoded video FPS are separate metric
 On the Freenove ESP32-S3 N16R8/OV3660, eight calls alternating the two committed
 96×96 witnesses preserve all numerical output fingerprints, scores and box
 counts. This is a regression/performance probe, not an accuracy corpus.
-At 320×240, quality 81, the final 60-second comparison of source `48f187d0` measured:
+The earlier 60-second comparison of source `48f187d0` used a 750 ms interval
+at 320×240, quality 81. Use `--sample-ms 750` in the fixture to reproduce
+that interval.
 
 | Measurement | Single core | SMP, one numerical worker |
 | --- | ---: | ---: |
@@ -50,7 +51,18 @@ periods: SMP initially captured without delivering to a viewer for longer. The
 last 40 recorded calls occur after both viewers are active; their lower SMP
 mean is descriptive evidence from one short run with unmatched live inputs,
 not a controlled speedup. Earlier controls showed video variability and some
-discards. Sustained video, thermal, power and maximum throughput remain unqualified.
+discards.
+
+## 500 ms sampling
+
+Two 60-second runs per setting on the same SMP image averaged 1.91 detections/s
+at 500 ms and 1.30 at 750 ms, with about 17.8 decoded FPS in both cases.
+A ten-minute run at 500 ms completed 1,176 detections (1.96/s) with 514 ms p95
+inference latency, zero inference failures and zero camera-driver drops.
+After a forced Wi-Fi reconnect at five minutes, decoded video returned to
+about 17.8 FPS and median heap use stayed level. The longest gap between decoded
+frames was 5.21 seconds. The 500 ms runs used the fixture's interval override.
+Thermal and power behavior remain unqualified.
 
 The signed product remains single-core. TLS entropy and Wi-Fi shutdown/OTA are
 still unqualified on SMP and their admission gates remain closed. Physical
