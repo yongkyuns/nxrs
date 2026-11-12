@@ -39,7 +39,11 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
     ] {
-        let package = sdk.join(if relative == "platform" { "wiring" } else { relative });
+        let package = sdk.join(if relative == "platform" {
+            "wiring"
+        } else {
+            relative
+        });
         fs::create_dir_all(&package).unwrap();
         for file in files {
             fs::copy(source.join(relative).join(file), package.join(file)).unwrap();
@@ -55,7 +59,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         root.join("Cargo.toml"),
         format!(
             "[package]\nname = \"sensor-binding-witness\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
-             [features]\ndefault = [\"bmi270\", \"lsm6dso\"]\nbmi270=[]\nlsm6dso=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
+             [features]\nbmi270=[]\nlsm6dso=[]\ni2c=[]\nspi=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
              nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
              bmi270 = {{ package = \"nxrs-bmi270\", path = {:?} }}\nlsm6dso = {{ package = \"nxrs-lsm6dso\", path = {:?} }}\nembedded-hal = '=1.0.0'\n\
@@ -127,9 +131,9 @@ mod ffi {
 use ffi as events;
 #[cfg(unix)]
 #[path = @GPIO@] mod gpio_resource;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "i2c"))]
 #[path = @RESOURCE@] mod resource;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "spi"))]
 #[path = @SPI@] mod spi_resource;
 #[cfg(unix)]
 mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [u8]) -> std::io::Result<()> { panic!("unexpected I/O") } }
@@ -153,7 +157,7 @@ mod production {
     struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
     impl<S: Sync, R: Sync> crate::Device for Instance<S, R> {}
     macro_rules! declare_device {
-        ($name:ident, $id:literal, $sensor:ty, $resource:ty, $open:path, $binding:expr, $irq:expr, $stack:expr) => {
+        ($name:ident, $id:literal, $sensor:ty, $resource:ty, $open:path, $binding:expr, $irq:expr, $stack:expr, $reference:tt) => {
             const _: fn() = || { let _: $resource = $open($binding, ()); let _: Option<&str> = $irq; };
             static $name: Instance<$sensor, $resource> = Instance(std::marker::PhantomData);
         };
@@ -224,22 +228,41 @@ fn verify_named() {
         let directory = sdk.join("wiring");
         let features = ["imu".into(), "gnss".into()].into_iter().collect();
         preparation::prepare_consumers(
-            [(directory.as_path(), &features)], profile, "xtensa-esp32s3-nuttx", "nuttx",
+            [(directory.as_path(), &features)],
+            profile,
+            "xtensa-esp32s3-nuttx",
+            "nuttx",
             &root.join("configuration"),
-        ).unwrap().unwrap()
+        )
+        .unwrap()
+        .unwrap()
     };
-    let run = |handoff: Option<&Path>| {
+    let run = |handoff: Option<&Path>, profile: &Profile, probe: bool| {
+        let mut features = profile.driver_features("imu").unwrap();
+        if probe {
+            features.insert("probe".into());
+        }
         let mut command = Command::new(cargo);
         command
             .current_dir(root)
-            .args(["run", "--offline", "--quiet", "--target", target])
+            .args([
+                "run",
+                "--offline",
+                "--quiet",
+                "--target",
+                target,
+                "--no-default-features",
+                "--features",
+            ])
+            .arg(features.into_iter().collect::<Vec<_>>().join(","))
             .env("CARGO_TARGET_DIR", root.join("target"))
             .env("NXRS_SDK_ROOT", &sdk)
             .env("NXRS_RESOLVED_PROFILE", &receipt)
             .env_remove(preparation::ENVIRONMENT);
-        if let Some(path) = handoff { command.env(preparation::ENVIRONMENT, path); }
-        command.output()
-            .unwrap()
+        if let Some(path) = handoff {
+            command.env(preparation::ENVIRONMENT, path);
+        }
+        command.output().unwrap()
     };
     let original = [
         "::r#bmi270::Bmi270<resources::Bus, resources::Delay>,",
@@ -300,7 +323,7 @@ fn verify_named() {
             single_device.replace("@DEVICE@", device_name),
         )
         .unwrap();
-        let result = run(Some(&handoff));
+        let result = run(Some(&handoff), &profile, false);
         assert!(
             result.status.success(),
             "{}",
@@ -311,13 +334,24 @@ fn verify_named() {
             assert!(output.contains(field), "missing {field}: {output}");
         }
         assert_eq!(output.matches("declare_device!(").count(), 2);
+        let probed = run(Some(&handoff), &profile, true);
+        assert!(
+            probed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&probed.stderr)
+        );
+        assert_eq!(probed.stdout, result.stdout);
     }
 
-    // Same-model plus mixed-model instances and aliases compile in the actual factory.
+    // Same-model and mixed-model instances, both buses and aliases compile together.
     let multiple = root.join("multiple.toml");
     fs::write(
         &multiple,
         r#"
+[resources.sensor_spi]
+binding = "spi2"
+kconfig = { ESP32S3_SPI2_CLKPIN = 4, ESP32S3_SPI2_MOSIPIN = 5, ESP32S3_SPI2_MISOPIN = 6, ESP32S3_SPI2_CSPIN = 10 }
+frequency = 4_000_000
 [devices.backup]
 compatible = "bosch,bmi270"
 bus = "sensor_bus"
@@ -326,8 +360,9 @@ address = 105
 kind = "periodic"
 [devices.auxiliary]
 compatible = "st,lsm6dso"
-bus = "sensor_bus"
-address = 106
+bus = "sensor_spi"
+chip-select = 0
+spi-mode = 3
 [devices.auxiliary.wake]
 kind = "periodic"
 [aliases]
@@ -351,26 +386,29 @@ fn verify_named() {
 "#).unwrap();
     let profile = Profile::resolve_with_overlays(&sdk, "m5stack-cores3-gnss", &[multiple]).unwrap();
     let handoff = prepare(&profile);
-    let result = run(Some(&handoff));
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&result.stdout)
-            .matches("declare_device!(")
-            .count(),
-        4
-    );
-    // Move only the default alias; physical names continue to identify the same devices.
+    for probe in [false, true] {
+        let result = run(Some(&handoff), &profile, probe);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&result.stdout)
+                .matches("declare_device!(")
+                .count(),
+            4
+        );
+    }
+    // Move the default to the other model and transport. Probe generation must
+    // follow that primary's metadata while physical names keep their identity.
     let redirect = root.join("redirect.toml");
-    fs::write(&redirect, "[aliases]\nimu = \"backup\"\n").unwrap();
+    fs::write(&redirect, "[aliases]\nimu = \"auxiliary\"\n").unwrap();
     fs::write(root.join("src/named.rs"), r#"
 fn verify_named() {
     let primary = production::devices::primary_imu();
-    assert_eq!(primary.id(), "backup");
-    assert_eq!(primary as *const _ as *const (), production::devices::backup() as *const _ as *const ());
+    assert_eq!(primary.id(), "auxiliary");
+    assert_eq!(primary as *const _ as *const (), production::devices::auxiliary() as *const _ as *const ());
     assert_eq!(production::devices::imu().id(), "imu");
     assert_ne!(primary as *const _ as *const (), production::devices::imu() as *const _ as *const ());
 }
@@ -382,12 +420,14 @@ fn verify_named() {
     )
     .unwrap();
     let handoff = prepare(&profile);
-    let result = run(Some(&handoff));
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    for probe in [false, true] {
+        let result = run(Some(&handoff), &profile, probe);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
     fs::write(
         root.join("src/named.rs"),
         single_device.replace("@DEVICE@", "imu"),
@@ -395,7 +435,7 @@ fn verify_named() {
     .unwrap();
     let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
     let handoff = prepare(&profile);
-    let result = run(Some(&handoff));
+    let result = run(Some(&handoff), &profile, false);
     assert!(
         result.status.success(),
         "{}",
@@ -407,8 +447,12 @@ fn verify_named() {
             .count(),
         2
     );
-    let local = run(None);
-    assert!(local.status.success(), "{}", String::from_utf8_lossy(&local.stderr));
+    let local = run(None, &profile, false);
+    assert!(
+        local.status.success(),
+        "{}",
+        String::from_utf8_lossy(&local.stderr)
+    );
     assert_eq!(local.stdout, result.stdout);
 
     // Content changes at the same declared path must invalidate both Cargo and
@@ -426,7 +470,7 @@ fn verify_named() {
         let mut content = fs::read_to_string(&path).unwrap();
         content.push_str("\n# same-path freshness witness\n");
         fs::write(&path, content).unwrap();
-        let stale = run(Some(&handoff));
+        let stale = run(Some(&handoff), &profile, false);
         assert!(!stale.status.success(), "stale {relative} was accepted");
         assert!(
             String::from_utf8_lossy(&stale.stderr).contains("stale"),
@@ -435,11 +479,14 @@ fn verify_named() {
         );
         let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
         resolved::write(&receipt, &sdk, &profile, "xtensa-esp32s3-nuttx", "nuttx").unwrap();
-        let stale = run(Some(&handoff));
-        assert!(!stale.status.success(), "stale prepared {relative} was accepted");
+        let stale = run(Some(&handoff), &profile, false);
+        assert!(
+            !stale.status.success(),
+            "stale prepared {relative} was accepted"
+        );
         assert!(String::from_utf8_lossy(&stale.stderr).contains("stale prepared configuration"));
         let handoff = prepare(&profile);
-        let refreshed = run(Some(&handoff));
+        let refreshed = run(Some(&handoff), &profile, false);
         assert!(
             refreshed.status.success(),
             "{}",

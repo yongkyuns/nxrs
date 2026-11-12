@@ -20,6 +20,8 @@ struct Receipt {
     target: String,
     os: String,
     cli_overlays: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    product_manifest: Option<PathBuf>,
     data: Value,
     graph: Value,
     semantic_digest: String,
@@ -83,6 +85,7 @@ fn receipt(root: &Path, profile: &Profile, target: &str, os: &str) -> Result<Rec
         target: target.to_owned(),
         os: os.to_owned(),
         cli_overlays: profile.cli_overlays.clone(),
+        product_manifest: profile.product_manifest.clone(),
         data: profile.data.clone(),
         semantic_digest: semantic_digest(profile, &graph),
         raw_fingerprint: profile.input_fingerprint(),
@@ -159,7 +162,12 @@ pub fn load(
     if platform.is_some_and(|name| name != saved.profile) {
         return Err("resolved profile receipt does not match the selected platform".into());
     }
-    let resolved = Profile::resolve_with_overlays(root, &saved.profile, &saved.cli_overlays)?;
+    let resolved = Profile::resolve_for_manifest(
+        root,
+        &saved.profile,
+        &saved.cli_overlays,
+        saved.product_manifest.as_deref(),
+    )?;
     let current = receipt(root, &resolved, target, os)?;
     if current.dependencies != saved.dependencies {
         return Err("stale profile dependency list or content".into());

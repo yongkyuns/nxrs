@@ -89,17 +89,24 @@ existing native-header, helper-exclusion and incremental-evidence gates remain.
 
 ## Shared declarative sensor preparation
 
-Each sensor catalogue imports its drivers' package-relative binding declarations.
-For example, the GNSS catalogue declares:
+Each sensor catalogue imports its drivers' package-relative binding declarations
+through renamed optional NuttX dependencies. For example:
 
 ```toml
 [package.metadata.nxrs]
-bindings = [{ dependency = "nxrs-ubx-driver", feature = "ubx" }]
+device-capabilities = ["gnss"]
+
+[features]
+gnss = ["dep:nxrs-gnss"]
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+ubx = { package = "nxrs-ubx-driver", path = "../driver/ubx", optional = true }
 ```
 
 Catalog version 2 declares compatible devices, bus constraints and a single
-`implementation` identifier naming a checked-in type in the catalogue's
-`implementations` module. Composition profiles/overlays remain version 1.
+`implementation` identifier naming a type exported by the registered driver.
+The dependency alias qualifies that type and supplies its implicit Cargo feature.
+Composition profiles/overlays remain version 1.
 The renderer emits typed I²C, SPI, or UART bindings and one static instance per
 configured endpoint. Named accessors and aliases borrow that instance. The HAL
 owns acquisition and releases the instance only after delivery and cleanup retire.
@@ -108,12 +115,13 @@ After Cargo resolves the production graph, the build controller renders the
 consumed path catalogues through shared binding validation. It publishes
 immutable configuration files and a handoff keyed by profile, compiler target,
 package inputs and generator revision. `provider-selection.json` records the
-handoff path. The common `configure_hal()` adapter verifies those inputs and
+handoff path. The common `configure_composition()` adapter verifies those inputs and
 output hashes before copying the files into its package's `OUT_DIR`.
 
-Standalone Cargo and other dependency sources use the same renderer through
-`nxrs-build-support::preparation::prepare_package`. Provider flags, simulation
-configuration and SDK preparation continue through their package adapters.
+Explicit host fixtures use the same renderer through
+`nxrs-build-support::preparation::prepare_package`. NuttX product builds require
+the frontend's validated receipt and prepared inputs. Provider flags and
+simulation configuration continue through their generic package adapters.
 
 Profile resolution loads package declarations for explicit `[hal]` keys,
 including a provider of `"none"` when its unselected physical devices must be
@@ -125,10 +133,11 @@ that does not add packages to the consumer's Cargo graph.
 Manifest and catalog bytes participate in receipt dependencies,
 the input fingerprint and Cargo rebuild tracking. The report's
 `resolved-composition.binding-inputs` records their paths and hashes.
-`binding-sources` retains the catalog paths relative to the SDK.
-A copied consumer package must declare matching catalog contents; its
-packaging-only manifest differences are permitted and its actual manifest is
-also tracked. Generated files retain their timestamps when content is unchanged.
+`binding-sources` reports SDK-relative paths for contained catalogs and absolute
+paths for external catalogs. A copied consumer package must preserve binding
+contents, driver registrations and normalized `resource-features` mappings.
+Packaging-only manifest differences and TOML table order may differ; the actual
+manifest is also tracked. Generated files retain their timestamps when content is unchanged.
 An output ownership record removes an obsolete generated Rust file when configuration is removed, while preserving unrelated outputs and native archives.
 
 ## Configuration and ownership
@@ -228,7 +237,8 @@ Dry runs reject backend-incompatible switches before any build starts. Their
 `dependency_resolution` is `pending`, with null `model_features` and `driver_features`.
 Resolving a NuttX custom target waits for its actual compiler and target spec.
 Completed builds record the Cargo-selected packages and the model and driver
-feature requests added by the frontend.
+feature requests added by the frontend. The `driver_features` report includes
+the catalogue's required resource features as well as chip features.
 Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 
 The IMU catalogue's `bmi270` and `lsm6dso` features and the GNSS catalogue's
@@ -238,6 +248,14 @@ features for the configured devices in each consumed catalogue. For example,
 These are internal dependency switches; use `cargo nxrs build` for NuttX profile
 builds rather than setting chip features manually. Mixed IMU profiles select both
 drivers. Host driver tests compile the implementations through dev-dependencies.
+
+The composition package also maps bus kinds to declared features with
+`package.metadata.nxrs.resource-features`. Required resource features join the
+same Cargo feature proposal: I2C-only, SPI-only and mixed IMU profiles select the
+corresponding adapters. An unconsumed capability activates neither its drivers
+nor its resource features. Prepared native helpers follow the resulting graph;
+final linked code and data still require image-level evidence. Feature names
+belong to the catalogue, not a global allowlist.
 
 The isolation audit uses full Cargo package metadata and observed compiler
 artifacts. It checks target packages separately from host build tools, retains
@@ -315,6 +333,18 @@ In-checkout builds can discover it. The SDK
 root provides profiles and pinned native inputs and need not be the application's
 Cargo workspace. No source path outside an ordinary dependency package supplies
 its build script or production Rust modules.
+
+The selected application's Cargo workspace may declare
+`workspace.metadata.nxrs.device-catalogue` to use a product-owned composition
+package instead of the SDK default. Driver discovery supports renamed optional
+NuttX path dependencies and Cargo-normalized workspace inheritance. Receipt
+revalidation retains the selected product manifest and workspace metadata, so
+all adapters resolve the same catalogue. Its manifest, inherited declarations,
+driver manifests and binding files are tracked inputs. See the
+[composition guide](../platform/README.md#own-the-catalogue-in-an-external-product)
+for the declaration and normal build command. Catalogue sources remain local
+path packages; remote driver sources need a future resolved-package integration,
+not a second Cargo resolver.
 
 Shared acquisition/session code is the normal `nxrs-acquisition` dependency.
 Linux Wi-Fi and BLE share the `nxrs-linux-gio` package and one private GIO native

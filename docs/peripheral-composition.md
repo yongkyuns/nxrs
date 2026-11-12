@@ -449,11 +449,11 @@ The [SPI resource limitations](../driver/spi/README.md) still apply.
 
 ## Construction and Cargo
 
-The following describes the implemented v1 handoff. The accepted
-[shared preparation and additive driver design](static-device-composition.md#preparation-and-generated-input-handoff)
-supersedes local OUT_DIR emission and unconditional driver dependencies as the
-target for new work. Keep the v1 compatibility and qualification evidence until
-its replacements are proven.
+Composition/overlay version 1 uses the
+[shared preparation and additive driver design](static-device-composition.md#preparation-and-generated-input-handoff).
+IMU and GNSS share the package-discovered generator and use canonical static
+instances in the composition crate. Chip and resource dependencies are selected
+before target compilation through ordinary additive Cargo features.
 
 Resolve once to a typed device/resource graph in `nxrs-build-support`. Both the
 CLI and shared Cargo adapter use that resolver. Emit inspectable resolved JSON and
@@ -462,20 +462,27 @@ Keep an additional input fingerprint covering ordered source content hashes,
 binding schemas and resolver/emitter revision in the build/cache identity.
 Equivalent graphs share a semantic digest even if input spelling differs.
 Input/order changes still invalidate source-derived outputs through the input
-fingerprint. A common resource renderer generates canonical IMU instances and
-accessors in the platform catalogue's OUT_DIR, and the default GNSS binding in
-its HAL OUT_DIR.
-It validates identifiers and escapes literal values.
+fingerprint. A common resource renderer generates canonical IMU/GNSS instances
+and accessors into an immutable pre-Cargo handoff. The generic composition
+adapter verifies its identity and hashes before copying the generated files to
+the package's OUT_DIR. Shared validation checks endpoint identity and aliases;
+the renderer validates identifiers and escapes literal values.
 There are no per-HAL emitters, Rust projection schemas or model-enum matches.
 
-Cargo still resolves dependencies before running HAL build scripts. V1 keeps
-portable driver crates as ordinary declared dependencies in their construction
-owner (the platform catalogue for IMU, its HAL for GNSS), following existing target scoping where valid. Select the actual HAL
-source and constructor at compile time. Unselected portable dependency artifacts
-may still compile. Measure build cost separately from linked firmware size.
-Build scripts cannot enable optional dependencies. Any later dependency-pruning
-optimization must use the existing Cargo graph machinery and qualify workspace,
-transitive and detached consumers before changing this rule.
+Cargo resolves dependencies before running package adapters. Renamed optional
+NuttX dependencies in the catalogue register chip drivers. Catalogue-owned
+`resource-features` maps bus kinds to ordinary features. The frontend derives
+required chip/resource features only for consumed capabilities and verifies the
+result through Cargo's actual target graph. Native preparation compiles only
+selected helpers. Build scripts cannot enable optional dependencies. Feature
+activation uses declared Cargo edges, including aliases and workspace inheritance;
+a transitive catalogue without an addressable feature edge fails with a direct
+dependency diagnostic. Measure build cost separately from linked firmware size.
+
+A product workspace can select its own catalogue with
+`workspace.metadata.nxrs.device-catalogue`. Local path driver packages and
+workspace-inherited paths use the same discovery, generation and receipt
+validation as SDK packages. See the [composition guide](../platform/README.md).
 
 Retain `NXRS_PLATFORM` for explicit host Cargo fixtures and `NXRS_SDK_ROOT` for
 detached consumers. NuttX products use `cargo nxrs build` with their manifest. Ad hoc CLI
@@ -488,7 +495,8 @@ atomically and never rewrite source profiles.
 Equivalent input selections through either entry point must produce the same
 typed graph and digest. Invalid/stale selections fail before native compilation.
 
-Each HAL currently selects one default factory through the resolved provider. Contract-only
+IMU/GNSS named accessors refer to per-device static objects; default aliases
+select among those objects. Their HALs own acquisition and cleanup. Contract-only
 builds retain explicit unavailable factories. Test fixtures require an explicit
 profile or test injection.
 Selected exports remain named and factory-local. Generated wiring needs audit

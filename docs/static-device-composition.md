@@ -1,6 +1,6 @@
 # Declarative builds and static device instances
 
-**Status: accepted direction, November 8, 2026; migration in progress.**
+**Status: accepted November 8, 2026; IMU/GNSS static composition implemented.**
 [Issue #246](https://github.com/yongkyuns/nxrs/issues/246) tracks implementation.
 This decision extends the [peripheral composition architecture](peripheral-composition.md)
 and supersedes its HAL-local emission and singleton IMU construction approach.
@@ -53,11 +53,13 @@ The firmware's active instance set consists of configured physical devices for
 capabilities both admitted by the profile and consumed in the target production
 Cargo graph. Available devices in a full board profile must not add an unconsumed
 HAL, driver, helper or static allocation to an application. Validate required
-aliases against the active set. D0 must specify treatment and validation of
-unconsumed profile records without undeclared catalog dependencies. This rule
+aliases against the active set. Profile resolution validates physical records
+against the declared capability catalogues, including records for an explicit
+`none` provider; inspecting these declarations does not activate their packages
+in Cargo. Generation and native preparation use the consumed target graph. This rule
 does not introduce a new profile field or a runtime device registry.
 
-## First implemented slice: shared sensor preparation
+## Implemented shared sensor preparation
 
 IMU and GNSS use one generator in shared build support. The composition crate
 imports version 2 binding declarations from each capability's chip drivers. Build support selects
@@ -78,7 +80,7 @@ receiver/serial rollback and per-instance quarantine through sink retirement.
 
 `composition::imu::<device_name>()` returns the configured device directly.
 `aliases.imu` selects `composition::imu::primary_imu()`; `imu_<alias>` adds another accessor in
-`imu_devices`. All return `&'static impl imu::Device` for the same canonical
+`composition::imu`. All return `&'static impl imu::Device` for the same canonical
 object. A single IMU needs no alias; multiple IMUs require an explicit default.
 Accessor name collisions between different devices are rejected. `Device::open`
 accepts configuration and a typed sink; `open_default` uses the driver's default.
@@ -170,12 +172,18 @@ Do not restore per-field Rust projection schemas, programmable TOML, templates o
 per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
-The SDK's `workspace.metadata.nxrs.device-catalogue` locates the composition
-crate. Its renamed optional NuttX path dependencies register drivers. The
+The selected product workspace's `workspace.metadata.nxrs.device-catalogue`
+can locate a product-owned composition crate; otherwise the SDK supplies its
+default catalogue. Renamed optional NuttX path dependencies register drivers,
+including dependencies inherited from the declaring Cargo workspace. The
 dependency alias supplies both the Rust crate name and the Cargo feature.
 The driver declares its capability and binding files. The generator qualifies
 the binding's exported type with that alias and supplies the resource adapter
-types. The [composition README](../platform/README.md) shows the registration.
+types. Catalogue-owned `resource-features` metadata maps bus kinds to ordinary
+Cargo features. Required chip and resource features are additive and are
+requested only for capabilities consumed in the target graph. The
+[composition README](../platform/README.md) shows registration and detached
+product configuration, including the current path-source requirement.
 The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.
@@ -229,24 +237,23 @@ every helper mentioned by a profile.
 
 ## Implementation availability and static selection
 
-Declare drivers as optional Cargo dependencies and gate each coherent sensor
-implementation once at its normal Rust module boundary:
+Declare drivers as renamed optional Cargo dependencies:
 
-~~~rust
-#[cfg(feature = "bmi270")]
-mod bmi270;
-
-#[cfg(feature = "lsm6dso")]
-mod lsm6dso;
+~~~toml
+[target.'cfg(target_os = "nuttx")'.dependencies]
+bmi270 = { package = "nxrs-bmi270", path = "../driver/bmi270", optional = true }
+lsm6dso = { package = "nxrs-lsm6dso", path = "../driver/lsm6dso", optional = true }
 ~~~
 
-These modules have different names and can coexist. Each implements the common
-contract for its own concrete type. Internal names in separate modules do not
-collide. Do not implement the same trait twice for one shared concrete type.
-The existing OS/provider-level `selected` module remains a separate concern.
+These dependencies can coexist. Each exports its own concrete type implementing
+the common device contract. The generator uses the dependency alias and binding
+implementation name directly; no catalogue-local chip module or model table is
+needed. Gate resource adapter code at coherent module boundaries. The existing
+OS/provider-level `selected` module remains a separate concern.
 
-A binding may request `cargo_features`; Rust module declarations already map
-those features to source files. Do not add a redundant binding `source` field,
+The optional dependency alias supplies the chip feature; catalogue-owned
+`resource-features` supplies mapped resource features. Cargo resolves those
+declared edges before construction is generated. Do not add a redundant binding `source` field,
 a generated file-selection module or generated boolean aliases for the same
 choice. Avoid feature conditions scattered through methods and algorithms.
 
@@ -383,25 +390,30 @@ systems are separate properties. This decision claims a portable source/API
 boundary, with product-specific compilation. QNX's userspace driver model remains
 comparative context; it does not establish NuttX ownership, ABI or timing.
 
-## Remaining design choices and completion
+## Extension and remaining qualification
 
-Complete generated-input delivery, package-specific compiler/link integration,
-optional driver activation and extension beyond IMU. These choices must satisfy the invariants
-above; none authorizes a new runtime registry or a per-HAL host emitter.
+IMU and GNSS use shared generated-input delivery, package-specific compiler/link
+integration, additive driver/resource features and canonical static instances.
+Common identity, alias and physical-claim checks must remain independent of
+capability-specific acquisition and configuration. A build-only third-capability
+fixture exercises the shared construction convention; it does not add a
+production HAL or qualify another class of hardware.
 
-Start with IMU, prove same-model and mixed-model instances, then use GNSS as a
-second capability to prove the generic build path. Preserve existing sensor
-defaults, simulation/qualification separation and portable service behavior.
-Coordinate with [PR #299](https://github.com/yongkyuns/nxrs/pull/299), which changes
-NuttX resource bindings and GNSS port ownership; recheck its final merge state
-before moving those paths. Keep unrelated camera/radio migrations separately scoped.
+Further capabilities need their own portable contract, typed construction and
+runtime qualification. Reuse the common instance mechanism when the capability
+has permanent physical identity, and add resource kinds only for an actual
+supported construction need. Preserve sensor defaults, simulation/qualification
+separation and portable service behavior. Keep camera/radio migrations separately
+scoped.
 
-The follow-up plan and issue require negative ownership/alias cases, failure
+The follow-up plan and issue retain negative ownership/alias cases, failure
 isolation, shared-bus witnesses, Cargo graph and binary evidence, fresh/concurrent
-generation and detached-consumer tests. Existing architecture tests that require
-the local IMU emitter or global model match must be replaced with checks for the
-new invariants in the implementation PR, without weakening dependency, native
-boundary or lifecycle coverage.
+generation and detached-consumer tests as acceptance gates. Target link maps,
+memory measurements and physical concurrency/transport measurements must identify
+the exact revision and configuration tested. Host graph and factory witnesses do
+not replace those measurements. Architecture checks enforce the shared generator,
+typed construction and per-instance ownership without weakening dependency,
+native-boundary or lifecycle coverage.
 
 ## Language and build references
 

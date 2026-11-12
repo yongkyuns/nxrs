@@ -31,7 +31,7 @@ The `profile` inspection command uses `--platform` for either a platform family 
 | A reusable wiring or device variation | Ordered composition overlay | Replace a supported peripheral while preserving its application alias |
 | Native controller setup and endpoint registration | NuttX BSP, Kconfig, and checked resource mapping | Register the bus endpoint selected by the profile |
 
-Changing a profile does not add an arbitrary crate to your application. Cargo resolves the declared dependency graph. The frontend requests the internal driver or model features needed by consumed, configured components through those existing dependency edges. [Profiles and overlays](profiles.md) explains the configuration side; [Drivers and HALs](hardware.md) explains runtime ownership.
+Changing a profile does not add an arbitrary crate to your application. Cargo resolves the declared dependency graph. The frontend requests the driver, resource, and model features needed by consumed, configured components through those existing dependency edges. [Profiles and overlays](profiles.md) explains the configuration side; [Drivers and HALs](hardware.md) explains runtime ownership.
 
 ## Follow a NuttX build
 
@@ -54,13 +54,13 @@ The host controller and its build-support dependencies execute on your computer.
 Start with a profile inspection and a dry run:
 
 ```sh
-cargo nxrs profile --platform esp32s3-qemu-mock
+cargo nxrs profile --platform esp32s3-qemu-mock --manifest-path ../my-firmware/Cargo.toml
 cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qemu-mock --dry-run
 ```
 
 The first command prints the resolved profile, including source paths and any composition information. The second prints the selected binary, shell command, backend, output directory, and deployment inputs. For the first tutorial application, the default output is `target/build/hello/esp32s3-qemu-mock/`.
 
-A dry run catches selection and configuration errors without compiling. Its dependency resolution remains `pending`; driver and model feature requests are not yet a completed Cargo result. It does not check that the target compiler is installed, prove that an image links, or verify attached hardware. Follow it with the real build and target execution.
+A dry run catches selection and configuration errors without compiling. Its dependency resolution remains `pending`; driver, resource, and model feature requests are not yet a completed Cargo result. It does not check that the target compiler is installed, prove that an image links, or verify attached hardware. Follow it with the real build and target execution.
 
 Use `cargo nxrs build --help` for the current supported switches. Diagnostic Kconfig and ABI overrides are qualification tools. Put persistent product settings in a reviewed profile so that inspection and subsequent builds use the same inputs.
 
@@ -104,6 +104,8 @@ The first tutorial already uses an independent Cargo workspace. Its source, mani
 Run `cargo nxrs` from that checkout and pass the external manifest. Relative `--manifest-path`, `--out`, and other build paths are resolved against the selected NXRS root. The controller also accepts `--workspace-root <path>` before its subcommand for an explicitly selected SDK checkout; this does not install the repository Cargo alias in unrelated directories.
 
 As you add NXRS packages, declare normal Cargo dependencies using the actual package names and paths. Portable package checks can use Cargo directly. Selected NuttX builds use the frontend so their Cargo adapters receive a verified resolved profile and native preparation. Detached host consumers that need a profile provide `NXRS_SDK_ROOT` as described in the [external-consumer reference](../../docs/build-system.md#external-applications-and-package-boundaries).
+
+A product workspace can select its own composition package with `workspace.metadata.nxrs.device-catalogue`. Declare that package as a direct application dependency with the capability features the application consumes. Pass the same external `--manifest-path` to profile inspection and builds so both use that catalogue. Driver discovery supports local path packages, including workspace-inherited dependencies. See [product-owned catalogues](../../platform/README.md#own-the-catalogue-in-an-external-product) for the declarations and typed factory requirements.
 
 ## Optional SDKs and deployment
 

@@ -2,8 +2,7 @@
 use crate::{
     deployment,
     profile::{manifest, platform_default, Profile},
-    run,
-    write_json, Result,
+    run, write_json, Result,
 };
 use serde_json::{json, Value};
 use std::{
@@ -229,9 +228,19 @@ pub fn selection(
     name: Option<&str>,
     overlays: &[PathBuf],
 ) -> Result<Profile> {
+    selection_for_manifest(root, platform, name, overlays, None)
+}
+
+pub fn selection_for_manifest(
+    root: &Path,
+    platform: &str,
+    name: Option<&str>,
+    overlays: &[PathBuf],
+    manifest: Option<&Path>,
+) -> Result<Profile> {
     let default = platform_default(root, platform)?;
     let name = name.unwrap_or(&default);
-    let selected = Profile::resolve_with_overlays(root, name, overlays)?;
+    let selected = Profile::resolve_for_manifest(root, name, overlays, manifest)?;
     if name != default {
         fn bsp(profile: &Profile) -> Option<&str> {
             profile.data["board"].as_str()?.split(':').next()
@@ -410,9 +419,14 @@ pub fn host(
     configure_profile(&mut command, &out, root, profile, &target, os)?;
     options.configure_cargo(&mut command, &[]);
     let selection = crate::cargo_graph::resolve(&mut command, profile)?;
-    evidence["configuration"] = json!(
-        configure_preparation(&mut command, &out, profile, &selection, &target, os)?
-    );
+    evidence["configuration"] = json!(configure_preparation(
+        &mut command,
+        &out,
+        profile,
+        &selection,
+        &target,
+        os
+    )?);
     evidence["dependency_resolution"] = selection.json();
     evidence["model_features"] = json!(selection.model_features);
     evidence["driver_features"] = json!(selection.driver_features);

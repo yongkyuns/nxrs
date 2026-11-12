@@ -83,7 +83,7 @@ Paths are relative to the selected Nxrs workspace unless absolute.
 }
 fn profile_usage() -> &'static str {
     "usage:
-  cargo nxrs profile --platform <profile> [--overlay <path>] [--target-os <os>]
+  cargo nxrs profile --platform <profile> [--manifest-path <product>] [--overlay <path>] [--target-os <os>]
   cargo nxrs profile --platform <profile> --capability <capability> --target-os <os>
 
 Manifest paths are relative to the selected Nxrs workspace unless absolute."
@@ -229,14 +229,21 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         app.stack = n;
     }
     let profile = if let Some(platform) = platform {
-        build::selection(root, &platform, profile.as_deref(), &overlays)?
+        build::selection_for_manifest(
+            root,
+            &platform,
+            profile.as_deref(),
+            &overlays,
+            Some(&app.manifest),
+        )?
     } else {
-        Profile::resolve_with_overlays(
+        Profile::resolve_for_manifest(
             root,
             profile
                 .as_deref()
                 .ok_or("choose a --platform or explicit qualification --profile")?,
             &overlays,
+            Some(&app.manifest),
         )?
     };
     let os = if profile.data.get("board").is_some() {
@@ -285,6 +292,7 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     let mut os = None;
     let mut capability = None;
     let mut overlays = Vec::new();
+    let mut manifest = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -292,11 +300,14 @@ fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             "--target-os" => os = Some(args.next().ok_or("missing --target-os value")?),
             "--capability" => capability = Some(args.next().ok_or("missing --capability value")?),
             "--overlay" => overlays.push(PathBuf::from(args.next().ok_or("missing overlay path")?)),
+            "--manifest-path" => {
+                manifest = Some(root.join(args.next().ok_or("missing --manifest-path value")?));
+            }
             _ => return Err(format!("unknown profile argument {arg}")),
         }
     }
     let name = profile_or_default(root, name.ok_or("profile requires --platform")?)?;
-    let profile = Profile::resolve_with_overlays(root, &name, &overlays)?;
+    let profile = Profile::resolve_for_manifest(root, &name, &overlays, manifest.as_deref())?;
     if let Some(os) = os {
         profile.validate_target(os)?;
     }

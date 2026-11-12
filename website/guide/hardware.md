@@ -64,11 +64,11 @@ Keep callbacks, buffers and descriptors alive until the producer has stopped. Fo
 | `hal/<capability>/` | Public capability API and implementations |
 | `hal/<capability>/src/platform/` | OS-specific implementation selection |
 | Provider-local `ffi/` directories | Native ABI bindings |
-| `platform/src/` | Named devices and typed constructors |
+| `platform/src/` or a product-owned composition package | Named devices and typed constructors |
 | `platform/<family>/profile.toml` and `platform/nuttx/` | Product and target configuration |
 | `service/` | Reusable application behavior |
 
-Portable applications and services use capability contracts. OS/provider selection stays at module and factory boundaries. Cargo selects optional driver code; profile records describe concrete instances and their resources. [Profiles and overlays](profiles.md) explains how those inputs fit together.
+Portable applications and services use capability contracts. OS/provider selection stays at module and factory boundaries. Cargo selects optional driver and resource code; profile records describe concrete instances and their resources. The catalogue's `resource-features` mapping selects the bus adapters needed by consumed capabilities. An unused capability's profile records do not activate its HAL, drivers, or native helpers. See [resource dependency selection](../../platform/README.md#select-resource-dependencies) and [Profiles and overlays](profiles.md).
 
 ## Add a peripheral
 
@@ -86,7 +86,7 @@ For a chip driven by NXRS over a raw bus, NuttX initializes the controller and r
 
 With a supported driver and bus, add a device to the profile or overlay. If the bus is new to the profile, add a resource that selects its registered BSP binding and supplies bus and pin settings. The device names that resource, its driver-compatible string, and settings such as an address. An alias gives the app a stable device name. The [CoreS3 example](examples.md#add-a-second-sensor-on-cores3) shows the files and commands.
 
-For a new driver in an existing composed capability family, implement the peripheral contract and declare the supported combinations in the driver's `bindings.toml`. Register one optional Cargo dependency in the composition crate. Build support enables it and generates the typed wiring for the selected device. See the [driver registration example](../../platform/README.md).
+For a new driver in an existing composed capability family, implement the peripheral contract and declare the supported combinations in the driver's `bindings.toml`. Register a renamed optional NuttX path dependency in the selected composition crate, either in the SDK or the product workspace. Build support enables its Cargo feature and generates the typed wiring for the selected device. See the [driver registration example](../../platform/README.md).
 
 A new capability also needs its own HAL contract and provider. If it will participate in the device catalogue, add the corresponding composition support; a binding declaration by itself cannot introduce a new subsystem. The [composition reference](../../docs/peripheral-composition.md) identifies the currently implemented families.
 

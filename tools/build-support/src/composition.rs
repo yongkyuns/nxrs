@@ -73,6 +73,53 @@ pub struct GnssBinding<'a> {
 }
 
 impl Composition {
+    /// Identity and aliases are independent of a capability's acquisition API.
+    /// Keep these checks shared by profile resolution and static generation.
+    pub(crate) fn validate_instances(
+        &self,
+        catalogs: &Catalogs,
+        origins: &BTreeMap<String, PathBuf>,
+    ) -> Result<()> {
+        validate_ids(&self.resources, &self.devices, &self.aliases, origins)?;
+        validate_aliases(&self.aliases, catalogs)
+            .map_err(|error| diagnostic(origins, "aliases", &error))?;
+        validate_resource_claims(&self.resources, &self.devices, origins)?;
+        for (id, device) in &self.devices {
+            let owners: Vec<_> = catalogs
+                .packages()
+                .filter(|(capability, _)| {
+                    catalogs
+                        .values(capability)
+                        .any(|binding| binding["compatible"] == device.compatible)
+                })
+                .map(|(capability, _)| capability)
+                .collect();
+            if owners.is_empty() {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.compatible"),
+                    &format!("{} has no declared capability owner", device.compatible),
+                ));
+            }
+            if owners.len() > 1 {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.compatible"),
+                    &format!(
+                        "{} has multiple capability owners: {}; one physical device must have one canonical instance",
+                        device.compatible,
+                        owners.join(", ")
+                    ),
+                ));
+            }
+        }
+        for (capability, _) in catalogs.packages() {
+            self.accessors(catalogs, capability)
+                .map_err(|error| diagnostic(origins, "aliases", &error))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn devices_for<'a>(
         &'a self,
         catalogs: &'a Catalogs,
@@ -196,6 +243,17 @@ pub(crate) enum Resource {
     Spi { device: String, frequency: u32 },
     GpioInterrupt { device: String, trigger: Trigger },
     Uart { device: String, baud: u32 },
+}
+
+impl Resource {
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::I2c { .. } => "i2c",
+            Self::Spi { .. } => "spi",
+            Self::GpioInterrupt { .. } => "gpio-interrupt",
+            Self::Uart { .. } => "uart",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -554,7 +612,7 @@ pub(crate) fn resolve_with_providers_and_origins(
     };
     let resources = normalize_resources(resources, origins)?;
     validate_ids(&resources, &devices, &aliases, origins)?;
-    validate_aliases(&aliases).map_err(|e| diagnostic(origins, "aliases", &e))?;
+    validate_aliases(&aliases, catalogs).map_err(|e| diagnostic(origins, "aliases", &e))?;
     for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
         if provider != "nuttx" {
             let prefix = format!("{capability}_");
@@ -626,44 +684,17 @@ pub(crate) fn resolve_with_providers_and_origins(
         gnss_stack_bytes,
         simulation,
     };
-    for capability in ["imu", "gnss"] {
-        graph
-            .accessors(catalogs, capability)
-            .map_err(|error| diagnostic(origins, "aliases", &error))?;
-    }
+    graph.validate_instances(catalogs, origins)?;
     Ok(Some(graph))
 }
 
-fn validate_graph(
-    catalog: &Catalog,
-    gnss_catalog: &GnssCatalog,
+/// Claim physical endpoints once across all capability owners. A shared bus is
+/// reusable; a device address, chip select, UART or IRQ cannot have two owners.
+fn validate_resource_claims(
     resources: &BTreeMap<String, Resource>,
     devices: &BTreeMap<String, Device>,
-    aliases: &BTreeMap<String, String>,
     origins: &BTreeMap<String, PathBuf>,
-) -> Result<(Option<String>, Option<String>)> {
-    // Validate every physical instance, including devices not selected by an alias.
-    // Discovery is limited to explicit [hal] capability keys, including "none".
-    for (id, device) in devices {
-        if !catalog
-            .binding
-            .iter()
-            .any(|binding| binding.compatible == device.compatible)
-            && !gnss_catalog
-                .binding
-                .iter()
-                .any(|binding| binding.compatible == device.compatible)
-        {
-            return Err(diagnostic(
-                origins,
-                &format!("devices.{id}.compatible"),
-                &format!(
-                    "unsupported compatible/bus binding: {}; declare the owning capability in [hal] (provider may be none) and its package bindings in Cargo metadata",
-                    device.compatible
-                ),
-            ));
-        }
-    }
+) -> Result<()> {
     let mut endpoints: BTreeMap<&str, (&str, &Resource)> = BTreeMap::new();
     for (id, resource) in resources {
         let path = match resource {
@@ -714,8 +745,135 @@ fn validate_graph(
         }
     }
 
+    #[derive(PartialEq, Eq, PartialOrd, Ord)]
+    enum Endpoint {
+        I2c(u8),
+        Spi(u16),
+        Uart,
+    }
     let mut physical_claims = BTreeMap::new();
     let mut irq_claims = BTreeMap::new();
+    for (id, device) in devices {
+        let bus = resources.get(&device.bus).ok_or_else(|| {
+            diagnostic_related(
+                origins,
+                &format!("devices.{id}.bus"),
+                &[&format!("resources.{}", device.bus)],
+                "references unknown bus",
+            )
+        })?;
+        let (path, endpoint, field) = match bus {
+            Resource::I2c { device: path, .. } => (
+                path,
+                Endpoint::I2c(device.address.ok_or_else(|| {
+                    diagnostic(
+                        origins,
+                        &format!("devices.{id}.address"),
+                        "I2C device requires address",
+                    )
+                })?),
+                "address",
+            ),
+            Resource::Spi { device: path, .. } => (
+                path,
+                Endpoint::Spi(device.chip_select.ok_or_else(|| {
+                    diagnostic(
+                        origins,
+                        &format!("devices.{id}.chip-select"),
+                        "SPI device requires chip-select",
+                    )
+                })?),
+                "chip-select",
+            ),
+            Resource::Uart { device: path, .. } => (path, Endpoint::Uart, "bus"),
+            Resource::GpioInterrupt { .. } => {
+                return Err(diagnostic(
+                    origins,
+                    &format!("devices.{id}.bus"),
+                    "requires an I2C, SPI or UART bus",
+                ))
+            }
+        };
+        if let Some((previous_id, previous_bus)) =
+            physical_claims.insert((path.as_str(), endpoint), (id, &device.bus))
+        {
+            return Err(diagnostic_related(
+                origins,
+                &format!("devices.{id}.{field}"),
+                &[
+                    &format!("devices.{previous_id}.{field}"),
+                    &format!("devices.{id}.bus"),
+                    &format!("devices.{previous_id}.bus"),
+                    &format!("resources.{}.device", device.bus),
+                    &format!("resources.{previous_bus}.device"),
+                ],
+                if matches!(bus, Resource::Uart { .. }) {
+                    "conflicting exclusive UART device claim"
+                } else {
+                    "conflicting physical device address claim"
+                },
+            ));
+        }
+        if let Some(Wake::Interrupt { resource }) = &device.wake {
+            let irq = resources.get(resource).ok_or_else(|| {
+                diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.wake.resource"),
+                    &[&format!("resources.{resource}")],
+                    &format!("references unknown IRQ resource {resource}"),
+                )
+            })?;
+            let Resource::GpioInterrupt { device: path, .. } = irq else {
+                return Err(diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.wake.resource"),
+                    &[&format!("resources.{resource}.kind")],
+                    "IRQ reference is not a GPIO interrupt",
+                ));
+            };
+            if let Some(previous_id) = irq_claims.insert(path.as_str(), id) {
+                return Err(diagnostic_related(
+                    origins,
+                    &format!("devices.{id}.wake.resource"),
+                    &[&format!("devices.{previous_id}.wake.resource")],
+                    "conflicting exclusive IRQ resource claim",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_graph(
+    catalog: &Catalog,
+    gnss_catalog: &GnssCatalog,
+    resources: &BTreeMap<String, Resource>,
+    devices: &BTreeMap<String, Device>,
+    aliases: &BTreeMap<String, String>,
+    origins: &BTreeMap<String, PathBuf>,
+) -> Result<(Option<String>, Option<String>)> {
+    // Validate every physical instance, including devices not selected by an alias.
+    // Discovery is limited to explicit [hal] capability keys, including "none".
+    for (id, device) in devices {
+        if !catalog
+            .binding
+            .iter()
+            .any(|binding| binding.compatible == device.compatible)
+            && !gnss_catalog
+                .binding
+                .iter()
+                .any(|binding| binding.compatible == device.compatible)
+        {
+            return Err(diagnostic(
+                origins,
+                &format!("devices.{id}.compatible"),
+                &format!(
+                    "unsupported compatible/bus binding: {}; declare the owning capability in [hal] (provider may be none) and its package bindings in Cargo metadata; catalogue discovery reads local path packages, including workspace inheritance",
+                    device.compatible
+                ),
+            ));
+        }
+    }
     let mut imu_implementation = None;
     let mut gnss_implementation = None;
     for (id, device) in devices {
@@ -754,7 +912,7 @@ fn validate_graph(
                     &format!("references unknown bus {}", device.bus),
                 )
             })?;
-            let Resource::Uart { device: path, baud } = bus else {
+            let Resource::Uart { baud, .. } = bus else {
                 return Err(diagnostic_related(
                     origins,
                     &format!("devices.{id}.bus"),
@@ -769,16 +927,6 @@ fn validate_graph(
                     &format!("unsupported GNSS UART baud {baud}"),
                 ));
             }
-            if let Some(previous) =
-                physical_claims.insert((path.as_str(), *baud), (id.as_str(), device.bus.as_str()))
-            {
-                return Err(diagnostic_related(
-                    origins,
-                    &format!("devices.{id}.bus"),
-                    &[&format!("devices.{}.bus", previous.0)],
-                    "conflicting exclusive UART device claim",
-                ));
-            }
             gnss_implementation = Some(binding.implementation.clone());
             continue;
         }
@@ -790,9 +938,9 @@ fn validate_graph(
                 "references unknown bus",
             )
         })?;
-        let (kind, path, frequency) = match bus {
-            Resource::I2c { device, frequency } => ("i2c", device, frequency),
-            Resource::Spi { device, frequency } => ("spi", device, frequency),
+        let (kind, frequency) = match bus {
+            Resource::I2c { frequency, .. } => ("i2c", frequency),
+            Resource::Spi { frequency, .. } => ("spi", frequency),
             _ => {
                 return Err(diagnostic(
                     origins,
@@ -803,7 +951,7 @@ fn validate_graph(
         };
         let binding = binding_for(catalog, &device.compatible, kind)
             .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
-        let (claim, field) = if kind == "i2c" {
+        if kind == "i2c" {
             if device.chip_select.is_some() || device.spi_mode.is_some() {
                 return Err(diagnostic(
                     origins,
@@ -825,7 +973,6 @@ fn validate_graph(
                     "unsupported IMU address",
                 ));
             }
-            (u32::from(address), "address")
         } else {
             if device.address.is_some() {
                 return Err(diagnostic(
@@ -834,7 +981,7 @@ fn validate_graph(
                     "SPI device cannot have an I2C address",
                 ));
             }
-            let select = device.chip_select.ok_or_else(|| {
+            device.chip_select.ok_or_else(|| {
                 diagnostic(
                     origins,
                     &format!("devices.{id}.chip-select"),
@@ -855,7 +1002,6 @@ fn validate_graph(
                     "unsupported SPI mode",
                 ));
             }
-            (u32::from(select), "chip-select")
         };
         if device.wake.is_none() {
             return Err(diagnostic(
@@ -871,60 +1017,12 @@ fn validate_graph(
                 "unsupported IMU bus frequency",
             ));
         }
-        if let Some((previous_id, previous_bus)) =
-            physical_claims.insert((path.as_str(), claim), (id, &device.bus))
-        {
-            return Err(diagnostic_related(
+        if matches!(device.wake, Some(Wake::Interrupt { .. })) && !binding.interrupt {
+            return Err(diagnostic(
                 origins,
-                &format!("devices.{id}.{field}"),
-                &[
-                    &format!("devices.{previous_id}.{field}"),
-                    &format!("devices.{id}.bus"),
-                    &format!("devices.{previous_id}.bus"),
-                    &format!("resources.{}.device", device.bus),
-                    &format!("resources.{previous_bus}.device"),
-                ],
-                "conflicting physical device address claim",
+                &format!("devices.{id}.wake.kind"),
+                &format!("{} does not support interrupt wake", device.compatible),
             ));
-        }
-        if let Some(Wake::Interrupt { resource }) = &device.wake {
-            if !binding.interrupt {
-                return Err(diagnostic(
-                    origins,
-                    &format!("devices.{id}.wake.kind"),
-                    &format!("{} does not support interrupt wake", device.compatible),
-                ));
-            }
-            match resources.get(resource).ok_or_else(|| {
-                diagnostic_related(
-                    origins,
-                    &format!("devices.{id}.wake.resource"),
-                    &[&format!("resources.{resource}")],
-                    &format!("references unknown IRQ resource {resource}"),
-                )
-            })? {
-                Resource::GpioInterrupt {
-                    device: irq,
-                    trigger: Trigger::Rising,
-                } => {
-                    if let Some(previous_id) = irq_claims.insert(irq.as_str(), id) {
-                        return Err(diagnostic_related(
-                            origins,
-                            &format!("devices.{id}.wake.resource"),
-                            &[&format!("devices.{previous_id}.wake.resource")],
-                            "conflicting exclusive IRQ resource claim",
-                        ));
-                    }
-                }
-                Resource::I2c { .. } | Resource::Spi { .. } | Resource::Uart { .. } => {
-                    return Err(diagnostic_related(
-                        origins,
-                        &format!("devices.{id}.wake.resource"),
-                        &[&format!("resources.{resource}.kind")],
-                        "IRQ reference is not a GPIO interrupt",
-                    ))
-                }
-            }
         }
     }
     for (alias, alias_device) in aliases
@@ -1111,12 +1209,17 @@ fn accessor_name(name: &str) -> Result<()> {
     }
     Ok(())
 }
-fn validate_aliases(aliases: &BTreeMap<String, String>) -> Result<()> {
+fn validate_aliases(aliases: &BTreeMap<String, String>, catalogs: &Catalogs) -> Result<()> {
     for alias in aliases.keys() {
-        ["imu", "gnss"]
-            .iter()
-            .find_map(|capability| alias_name(capability, alias))
+        let mut names = catalogs
+            .packages()
+            .filter_map(|(capability, _)| alias_name(capability, alias));
+        names
+            .next()
             .ok_or_else(|| format!("unsupported capability alias: {alias}"))??;
+        if names.next().is_some() {
+            return Err(format!("ambiguous capability alias: {alias}"));
+        }
     }
     Ok(())
 }

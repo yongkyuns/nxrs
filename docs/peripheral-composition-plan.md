@@ -406,13 +406,19 @@ They supersede S4/S6's local emitter, unconditional-driver and singleton
 construction mechanisms. Preserve the earlier steps' behavior and qualification
 evidence; do not restart the sensor extraction or simulation work.
 
-PR #306 and the profile/IMU cleanup in PR #308 are merged. Continue from main; do not create stacked PRs.
+IMU and GNSS now use the shared pre-Cargo configuration/native handoff, optional
+chip and resource features, and canonical per-device storage. Product-owned
+catalogues and inherited path drivers use the same frontend. Common instance
+checks have a build-only third-capability witness; this does not qualify a new
+production HAL. The steps below retain the design sequence and evidence gates.
+Physical results remain specific to the revision and configuration measured.
+
+Continue from main; do not create stacked PRs.
 Update affected architecture and regression checks in the same PR that replaces
 the mechanism they enforce. Every intermediate PR must retain passing relevant
 gates; D5 audits the integrated result, not deferred repair of earlier tests.
-Recheck [PR #299](https://github.com/yongkyuns/nxrs/pull/299) before editing
-composition documentation or NuttX GNSS/resource ownership. Integrate its final
-changes without restoring the old descriptor/lease release ordering. Keep
+Preserve the current NuttX resource contracts and GNSS receiver/descriptor lease
+release ordering. Keep
 physical S8 results and unrelated radio/camera work separately scoped.
 
 ### D0 — Freeze the contract and record the baseline
@@ -449,11 +455,11 @@ The production shared preparation API is exercised by a detached Cargo witness;
 catalog changes invalidate receipts and generated outputs. Isolated
 IMU-only, GNSS-only and camera-only consumers check package closure.
 
-D1a preserves provider flags, OUT_DIR handoff, simulation preparation and native
-compilation in the existing generic adapter. It does not complete D1's pre-Cargo
-compiler/link integration or D2/D3's optional implementations and static objects.
-Keep those gates open and preserve the current runtime until their replacement
-is independently qualified.
+D1a initially preserved provider flags, OUT_DIR handoff, simulation preparation
+and native compilation in generic adapters. The current frontend now publishes
+validated configuration and consumed native archives before target compilation;
+adapters consume that handoff. Preserve the corresponding freshness, helper
+exclusion and target-context checks as composition is extended.
 
 
 Start in `tools/build-support/src/{composition,profile,resolved,lib}.rs`,
@@ -488,17 +494,19 @@ The configuration cleanup uses version 2 binding declarations, fixed I²C/UART
 resource contracts and direct checked-in implementation selection. The IMU platform catalogue imports
 its driver-owned declarations; GNSS does likewise through its catalogue. This
 removes field-projection schemas and both model-enum tables. The reusable NuttX
-I²C adapter is owned by `driver/i2c`. Profile/overlay semantics and singleton ownership
-are preserved; detached build tests compile the actual IMU factory across both
-sensor selections. Optional dependency activation and per-device ownership are implemented below;
-the full native pre-Cargo handoff remains open.
+I²C adapter is owned by `driver/i2c`. Profile/overlay semantics are preserved;
+detached build tests compile the actual IMU factory across both sensor
+selections. Optional dependency activation and per-device ownership are
+implemented below; current native preparation follows the consumed target graph.
 
 ### D2 — Make implementations optional and additive
 
 The catalogues now declare additive optional chip dependencies. Product builds
 derive features through direct catalogue dependencies before compiling; graph
-witnesses cover either IMU driver alone and both. I2C/SPI resource adapters remain
-common dependencies. Full pre-Cargo native preparation remains D1 work.
+witnesses cover either IMU driver alone and both. Catalogue-owned
+`resource-features` additionally select I2C/SPI adapters from validated devices.
+Graph and native archive witnesses cover I2C-only, SPI-only, mixed and unconsumed
+IMU configurations. Feature names remain catalogue-owned ordinary Cargo features.
 
 Change `platform/Cargo.toml`, catalogue module admission, binding metadata
 and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named
@@ -526,7 +534,7 @@ Flat/protected target compile/link checks do not qualify physical concurrency.
 In the pinned 32-bit Xtensa release/probe witness, two BMI270 I²C slots and one
 LSM6DSO I²C slot occupy 144 + 144 + 168 = 456 static bytes; four aliases emit three
 objects. These sizes exclude worker stacks, transient buffers and OS allocations.
-Full pre-Cargo handoff (D1) remains unfinished. GNSS now owns per-receiver static storage and
+GNSS owns per-receiver static storage and
 retains admission through terminal delivery, sink destruction and restored UART cleanup.
 
 Generate one actual static object for each active physical device with private
@@ -563,6 +571,12 @@ GNSS-only detached dependency closures; retain camera-only and other existing
 external-consumer witnesses. Do not let a fixture that includes both sensor HALs
 hide undeclared sibling catalog access. Preserve explicit simulation/qualification
 profiles and portable service logic.
+
+The external product witness additionally selects a product-owned catalogue,
+inherits a renamed optional path driver through Cargo workspace metadata,
+compiles generated construction, and rejects stale workspace/catalogue inputs.
+Git/registry binding-source discovery remains outside the current path-package
+contract; it must not be approximated by an all-features fetch or another resolver.
 
 Exit with common preparation for both capabilities, no migrated HAL-local
 `build.rs`/host emitter, complete package-owned inputs and correct native-helper

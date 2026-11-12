@@ -323,6 +323,8 @@ edition = "2021"
 [features]
 imu = []
 gnss = []
+i2c = []
+spi = []
 [dependencies]
 ubx = { package = "nxrs-ubx-driver", path = "../ubx-driver", optional = true }
 bmi270 = { package = "nxrs-bmi270", path = "../bmi270", optional = true }
@@ -432,4 +434,149 @@ lsm6dso = { package = "nxrs-lsm6dso", path = "../lsm6dso", optional = true }
         original,
         build.get_args().map(|a| a.to_owned()).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn physical_resource_features_follow_only_consumed_device_buses() {
+    use nxrs_build_support::prepared_resource;
+    use std::collections::BTreeSet;
+
+    let sdk = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let catalogue = sdk.join("platform");
+    let fixture = Fixture::new(&format!(
+        "[dependencies]\ndevices={{package=\"nxrs-composition\",path={catalogue:?},features=[\"imu\"]}}\n"
+    ));
+    fixture.lock();
+    let base = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+    let manifest = fs::read_to_string(fixture.manifest()).unwrap();
+    for (case, buses, consumed, expected) in [
+        ("i2c", &["i2c"][..], "imu", &["i2c"][..]),
+        ("spi", &["spi"][..], "imu", &["spi"][..]),
+        ("mixed", &["i2c", "spi"][..], "imu", &["i2c", "spi"][..]),
+        // Both physical sensor records remain available in the board profile.
+        ("gnss-only", &["i2c", "spi"][..], "gnss", &[][..]),
+    ] {
+        fixture.write(
+            "consumer/app/Cargo.toml",
+            &manifest.replace("features=[\"imu\"]", &format!("features=[{consumed:?}]")),
+        );
+        fixture.lock();
+        let mut data = json!({
+            "name":"resource-fixture", "target-os":["nuttx"],
+            "hal":{"imu":"nuttx", "gnss":"nuttx"},
+            "composition":{"version":1, "mode":"hardware"},
+            "resources":{
+                "i2c":{"kind":"i2c", "device":"/dev/i2c0", "frequency":400000},
+                "spi":{"kind":"spi", "device":"/dev/spi2", "frequency":4000000},
+                "uart":{"kind":"uart", "device":"/dev/ttyS1", "baud":38400}
+            },
+            "devices":{"receiver":{"compatible":"u-blox,neo-m9n", "bus":"uart"}},
+            "aliases":{"imu":"first", "gnss":"receiver"}
+        });
+        for (index, bus) in buses.iter().enumerate() {
+            let id = if index == 0 { "first" } else { "second" };
+            data["devices"][id] = if *bus == "i2c" {
+                json!({"compatible":"bosch,bmi270", "bus":bus, "address":104, "wake":{"kind":"periodic"}})
+            } else {
+                json!({"compatible":"bosch,bmi270", "bus":bus, "chip-select":0, "spi-mode":3, "wake":{"kind":"periodic"}})
+            };
+        }
+        let profile = Profile::from_data_with_catalogs(data, vec![], base.catalogs().clone());
+        let mut build = fixture.build();
+        // The target graph needs no cross std or target linker. The actual
+        // NuttX target_os selects the production manifests and dependency edges.
+        let target = "thumbv7em-nuttx-eabi";
+        build.args(["--target", target]);
+        let selected = cargo_graph::resolve(&mut build, &profile).unwrap();
+        for bus in ["i2c", "spi"] {
+            assert_eq!(
+                contains(&selected, &format!("nxrs-{bus}")),
+                expected.contains(&bus),
+                "{case}: wrong {bus} resource dependency"
+            );
+        }
+        assert_eq!(contains(&selected, "nxrs-imu"), consumed == "imu");
+        assert_eq!(contains(&selected, "nxrs-bmi270"), consumed == "imu");
+        assert!(!contains(&selected, "nxrs-lsm6dso"));
+        let helpers = selected
+            .path_packages()
+            .filter_map(|(identity, path, features)| {
+                let bus = ["i2c", "spi"]
+                    .into_iter()
+                    .find(|bus| identity.starts_with(&format!("nxrs-{bus} v")))?;
+                assert!(prepared_resource::selected(path, &profile, features).unwrap());
+                Some((bus, path))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            helpers.iter().map(|(bus, _)| *bus).collect::<BTreeSet<_>>(),
+            expected.iter().copied().collect()
+        );
+        #[cfg(unix)]
+        compile_selected_resource_archives(&fixture.0.join(case), target, &helpers);
+    }
+}
+
+/// Compile the actual selected native adapters into prepared archives using a
+/// deliberately small host ABI fixture. Missing bus headers reject accidental
+/// native preparation; physical target ABI remains a firmware-build gate.
+#[cfg(unix)]
+fn compile_selected_resource_archives(
+    directory: &std::path::Path,
+    target: &str,
+    helpers: &[(&str, &std::path::Path)],
+) {
+    use nxrs_build::{find_program, hash, write_json};
+    use nxrs_build_support::prepared_resource;
+
+    let include = directory.join("include");
+    for child in ["nuttx/i2c", "nuttx/spi", "sys"] {
+        fs::create_dir_all(include.join(child)).unwrap();
+    }
+    let config = include.join("nuttx/config.h");
+    fs::write(
+        &config,
+        "#define CONFIG_SPI_EXCHANGE 1\n#define CONFIG_SPI_DRIVER 1\n",
+    )
+    .unwrap();
+    fs::write(include.join("sys/ioctl.h"), "int ioctl(int, int, ...);\n").unwrap();
+    let has = |bus| helpers.iter().any(|(selected, _)| *selected == bus);
+    fs::write(include.join("nuttx/i2c/i2c_master.h"), if has("i2c") {
+        "#include <stdint.h>\n#define I2C_M_READ 1\n#define I2C_M_NOSTOP 64\n#define I2CIOC_TRANSFER 123\nstruct i2c_msg_s { uint32_t frequency; uint16_t addr, flags; uint8_t *buffer; int length; };\nstruct i2c_transfer_s { struct i2c_msg_s *msgv; int msgc; };\n"
+    } else { "#error unconsumed I2C helper must not compile\n" }).unwrap();
+    fs::write(include.join("nuttx/spi/spi_transfer.h"), if has("spi") {
+        "#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n#define SPIDEV_MODE0 10\n#define SPIDEV_MODE1 11\n#define SPIDEV_MODE2 12\n#define SPIDEV_MODE3 13\n#define SPIDEV_USER(n) (0x80000u | (n))\n#define SPIIOC_TRANSFER 456\nstruct spi_trans_s { bool deselect; bool cmd; uint32_t hwfeat, delay; size_t nwords; const void *txbuffer; void *rxbuffer; };\nstruct spi_sequence_s { uint32_t dev; uint8_t mode, nbits, ntrans; uint32_t frequency, a, b, c, i; struct spi_trans_s *trans; };\n"
+    } else { "#error unconsumed SPI helper must not compile\n" }).unwrap();
+    let context = directory.join("native.json");
+    write_json(
+        &context,
+        &json!({
+            "schema":1, "target":target, "directory":directory, "include":include,
+            "config_sha256":hash(&config).unwrap(),
+            "cc":[find_program("cc").unwrap()], "ar":[find_program("ar").unwrap(), "rcs"],
+            "cflags":["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", include]
+        }),
+    )
+    .unwrap();
+    let mut archives = std::collections::BTreeSet::new();
+    for (bus, package) in helpers {
+        let archive = prepared_resource::prepare(
+            package,
+            target,
+            &context,
+            &directory.join("prepared"),
+            &std::env::var_os("PATH").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            archive.file_name().unwrap().to_str().unwrap(),
+            format!("lib{bus}_native.a")
+        );
+        assert!(fs::metadata(&archive).unwrap().len() > 0);
+        archives.insert(*bus);
+    }
+    assert_eq!(archives.len(), helpers.len());
 }
