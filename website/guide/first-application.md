@@ -2,6 +2,8 @@
 
 An NXRS application is a normal Rust package with a `main()` function. Create your own source project, run it on the host, and then build the same project for NuttX. NXRS supplies target integration and configuration; it does not supply a precompiled application.
 
+**Before you start:** finish the host setup in [Getting started](getting-started.md), keep the terminal in the NXRS root, and choose an unused `../my-firmware` directory. By the end of this chapter, your own Cargo package will print a greeting on the host and contain the metadata needed by the target builder.
+
 The complete Rust source for this first program is:
 
 <!-- tutorial:source -->
@@ -50,6 +52,16 @@ stack-size = 65536
 
 The firmware metadata selects the binary and NuttX shell command, with the entry task's priority and stack allocation. The tutorial requests a 64 KiB entry stack. This is an example allocation, not a minimum or a recommendation for every application. Host Cargo execution does not use these NuttX settings.
 
+| Manifest value | Meaning in this example |
+| --- | --- |
+| Package `nxrs-basic-firmware` | Cargo's package identity |
+| Binary `hello` | The executable target selected by Cargo and the frontend |
+| Firmware `command = "hello"` | The command you will type at the NuttX shell |
+| Firmware `priority = 100` | The requested priority of the application entry task |
+| Firmware `stack-size = 65536` | The entry task's requested stack allocation in bytes |
+
+Keep firmware metadata with the application because it describes how that entry point runs. Board names, device addresses, and native pin settings belong in [profiles](profiles.md). Additional threads choose their own stack requirements; changing the entry stack does not set every worker's stack.
+
 ## Build and run on the host
 
 Generate the lockfile from the manifest you just wrote, then build and run:
@@ -73,6 +85,17 @@ Hello from NXRS
 Cargo compiles your source into a host executable before running it. There is no executable-copy step. No platform profile or MCU toolchain is needed yet.
 
 Keep running these commands from the NXRS checkout so its pinned Rust toolchain is selected. Commit your application's source, manifest, and lockfile to its own repository when ready.
+
+## Understand the files you own
+
+| File | What you change as the application grows |
+| --- | --- |
+| `src/main.rs` | Startup, component construction, error handling, and shutdown |
+| Other Rust modules under `src/` | Application-specific behavior and tests |
+| `Cargo.toml` | Dependencies, supported features, binary targets, and entry metadata |
+| `Cargo.lock` | The resolved dependency versions used for reproducible builds |
+
+The `[workspace]` table makes this package its own workspace. You do not need to add the application to the NXRS repository's workspace or copy target integration code into it. Use ordinary Cargo dependencies when you later add reusable NXRS components or other Rust libraries.
 
 ## Build the same project for NuttX
 

@@ -39,33 +39,13 @@ BSP mappings and migration from raw resource paths.
 
 A typical physical NuttX capability has this shape:
 
-~~~text
-portable app/service
-        |
-        | typed Rust API
-        v
-hal/<capability>/
-  src/api.rs              provider-independent contract
-  src/lib.rs              crate root and profile-selected wiring
-  src/platform/nuttx/    private NuttX implementation in Rust
-    ffi/                   optional, minimal target-header glue only
-        |
-        +---- std::fs / std::io / std::net
-        |         |
-        |         v
-        |      NuttX libc/VFS/socket interface
-        |
-        +---- private typed FFI, only when std cannot express the operation
-                  |
-                  v
-               ioctl / target ABI operation
-                  |
-                  v
-             NuttX VFS driver
-                  |
-                  v
-          lower-half / hardware
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-device-access-dark.svg">
+    <img src="assets/nxrs-device-access.svg" alt="A typed capability API leads to its private Rust NuttX provider. Qualified std file operations and minimal private device-control bindings reach NuttX native operations and the registered device driver." loading="lazy">
+  </picture>
+  <figcaption>The device endpoint path is shown. Qualified networking uses std::net directly; native radio SDK calls remain private to their capability. <a href="assets/nxrs-device-access.svg">Open SVG</a>.</figcaption>
+</figure>
 
 The Rust NuttX provider is the implementation. The optional C file is not
 another adapter architecture. It is only an ABI boundary for operations whose
@@ -74,15 +54,13 @@ headers.
 
 Example with the qualified USERLED implementation:
 
-~~~text
-application/service
-  -> led::open() / led::Led       # Rust crate namespace; package nxrs-led
-       -> private NuttX module    # hal/led/src/platform/nuttx/mod.rs
-            -> OpenOptions("/dev/userleds")
-            -> set(index, on)
-                 -> private NuttX USERLED ioctl
-                      -> hal/led/src/platform/nuttx/ffi/userled.c
-~~~
+| Boundary | USERLED implementation |
+| --- | --- |
+| Public Rust API | `led::open()` and `led::Led` in package `nxrs-led` |
+| Private provider | `hal/led/src/platform/nuttx/mod.rs` |
+| Resource acquisition | `OpenOptions` opens `/dev/userleds` |
+| Typed operation | `set(index, on)` requests the private NuttX USERLED control |
+| Target-header translation | `hal/led/src/platform/nuttx/ffi/userled.c` |
 
 This is an implemented path, not a claim that every HAL or radio has a NuttX
 provider. The selected `NXRS_PLATFORM` must bind a capability to an existing
@@ -107,26 +85,10 @@ required operation, the provider should use ordinary Rust APIs directly:
 
 Conceptually:
 
-~~~text
-OpenOptions::open("/dev/imu0")
-        |
-        v
-Rust std
-        |
-        v
-NuttX open()
-        |
-        v
-VFS lookup
-        |
-        v
-driver open()
-
-File::read(...)
-        |
-        v
-Rust std -> NuttX read() -> driver read()
-~~~
+| Rust operation | Native operation | NuttX dispatch |
+| --- | --- | --- |
+| `OpenOptions::open("/dev/imu0")` | Rust std calls NuttX `open()` | VFS resolves the registered endpoint and calls its driver `open()` |
+| `File::read(...)` | Rust std calls NuttX `read()` | VFS dispatches the descriptor to the driver's `read()` |
 
 This is the preferred path because it has no Nxrs-specific translation layer.
 
@@ -239,27 +201,17 @@ shim.
 
 A NuttX provider should normally consist of:
 
-~~~text
-hal/<capability>/src/platform/
-  nuttx/
-    mod.rs         # real Rust implementation
-    ffi/           # absent unless target ABI glue is needed
-~~~
+| Path inside `hal/<capability>/src/platform/nuttx/` | Content |
+| --- | --- |
+| `mod.rs` | The Rust implementation |
+| `ffi/` | Optional target ABI glue; omit it when unnecessary |
 
 Do not add wrappers for operations already available through a qualified Rust
 standard-library path.
 
 In particular, do not create capability-local C wrappers merely to rename:
 
-~~~text
-open()
-read()
-write()
-socket()
-send()
-recv()
-close()
-~~~
+`open()`, `read()`, `write()`, `socket()`, `send()`, `recv()` and `close()`
 
 when the provider can use the corresponding qualified Rust `std` facility
 directly.
@@ -280,18 +232,11 @@ IMU is `/dev/imu0`, or which bus/address/IRQ backs either device.
 
 Those facts belong below the portable boundary:
 
-~~~text
-product platform / NuttX board configuration
-        |
-        v
-selected capability provider
-        |
-        v
-provider-local configuration
-        |
-        v
-NuttX device node
-~~~
+| Owner | Configuration responsibility |
+| --- | --- |
+| Product profile and NuttX board configuration | Select supported resources and native settings |
+| Selected capability provider | Consume the validated, provider-local configuration |
+| NuttX device node | Expose the endpoint registered by the BSP and driver |
 
 The exact mechanism can vary by capability. Do not create one giant portable
 configuration enum solely to represent provider-specific resource descriptions.
@@ -334,24 +279,10 @@ interface directly. A resource must have one active driver owner. The CoreS3
 raw-I2C profile therefore disables NuttX's BMI270 driver. Existing camera and
 radio paths retain their qualified SDK/kernel ownership.
 
-~~~text
-Rust capability semantics
-        |
-        v
-NuttX provider in hal/<capability>/nuttx
-        |
-        v
-descriptor operations + minimal private controls
-        |
-        v
-NuttX upper-half / file_operations
-        |
-        v
-NuttX lower-half
-        |
-        v
-hardware
-~~~
+The Rust capability defines semantics and lifetime. Its NuttX provider uses
+ordinary descriptor operations plus the minimum private controls required.
+NuttX dispatches those operations through its upper-half `file_operations` and
+lower-half driver to hardware, as shown in the [device-access figure](#1-architecture).
 
 Nxrs therefore does not need another C "upper half" above the NuttX upper half.
 
@@ -415,16 +346,11 @@ for new physical HALs.
 
 As each corresponding Rust `std` path is qualified, simplify those providers:
 
-~~~text
-before
-Rust HAL -> C open/read/write/close wrapper -> NuttX
-
-target
-Rust HAL -> Rust std -> NuttX
-
-and only where required
-Rust HAL typed method -> tiny private ioctl/ABI helper -> NuttX
-~~~
+| Operation | Migration direction |
+| --- | --- |
+| Ordinary open, read, write and close | Replace the C forwarding wrapper with qualified Rust std calls into NuttX |
+| Device controls requiring native ABI definitions | Retain a typed Rust method with a minimal private ioctl/ABI helper |
+| Capability lifecycle and errors | Keep ownership and error policy in Rust, including existing close/error guarantees |
 
 Existing special close/error qualification must be preserved where its stronger
 lifecycle semantics are part of a capability's requirements; migration must not

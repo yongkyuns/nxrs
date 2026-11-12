@@ -40,15 +40,13 @@ wakes on its inbox, runs ordinary synchronous Rust methods, and returns to its
 wait. Local processing uses direct calls and borrows. Messages are for useful
 ownership boundaries; there is no need to put every calculation on a thread.
 
-```mermaid
-flowchart TD
-    I["IMU provider"] --> Q["Bounded typed inbox"]
-    G["GNSS provider"] --> Q
-    C["Commands and peer events"] --> Q
-    Q --> W["One owner waits and receives"]
-    W --> H["Synchronous state update"]
-    H --> W
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-owner-event-loop-dark.svg">
+    <img src="assets/nxrs-owner-event-loop.svg" alt="Commands and peer or I/O events share one bounded inbox. One owner waits, updates private state synchronously and submits bounded outputs before waiting again." loading="lazy">
+  </picture>
+  <figcaption>The IMU, GNSS and command inputs share the same ownership pattern. This describes the application architecture; the measurements below isolate the standard channel primitive. <a href="assets/nxrs-owner-event-loop.svg">Open SVG</a>.</figcaption>
+</figure>
 
 That topology already exists. The [messaging implementation][messaging] wraps
 `std::sync::mpsc::sync_channel` directly: cloned senders feed one queue, a unique

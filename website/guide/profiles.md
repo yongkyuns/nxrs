@@ -2,6 +2,8 @@
 
 A platform profile describes the configuration used for a host or firmware build. It selects hardware resources, device instances, implementations, and target settings outside reusable application code.
 
+Use this guide when changing where an application runs, adding a supported device, or making a product variant. Start from a profile that already builds for the intended target. The [first firmware tutorial](firmware.md) supplies a working emulator baseline; the [build workflow](build-system.md) explains how the frontend consumes the configuration.
+
 ## Application and platform are separate inputs
 
 An application is a Cargo package. A profile describes where it runs. For example:
@@ -13,6 +15,15 @@ cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
 The same application can be built with a different profile without adding board branches to its `main()` function.
 
 `cargo nxrs platforms` lists platform families. `--platform` uses a family's default profile; `--profile` selects a specific configuration. When both are supplied, the profile must belong to that family. Use an explicit profile when reproducing a build.
+
+| Selection | Meaning | Where to find it |
+| --- | --- | --- |
+| Platform family | A supported host or board family with a default configuration | `platform/<family>/profile.toml` |
+| Named product profile | A specific board/product configuration, optionally inheriting another profile | `platform/<family>/profiles/` |
+| Qualification profile | A deliberate input for a particular test or emulator setup | `tests/profiles/` |
+| Overlay | Ordered resource, device, or alias changes applied to a composition | A version-controlled TOML file selected by the profile or command |
+
+An NXRS profile selects platform inputs; it is unrelated to Cargo's `dev` and `release` optimization profiles. A name ending in `mock` describes the selected test inputs, not the implementation of every dependency in the image.
 
 ## Portable development with Cargo
 
@@ -43,6 +54,14 @@ NuttX firmware and qualification builds use `cargo nxrs build`; their Cargo adap
 | NuttX BSP and Kconfig | Native pin/controller configuration and device registration |
 
 A reusable driver implements a device protocol. The profile selects its physical instance and resource bindings. A service receives the resulting capability, while the application chooses how that service participates in the firmware.
+
+<figure class="architecture-art">
+  <img class="theme-light" src="../../docs/assets/nxrs-profile-composition.svg" alt="Profiles and ordered overlays resolve resources, physical devices, and logical aliases into native configuration and typed Rust access.">
+  <img class="theme-dark" src="../../docs/assets/nxrs-profile-composition-dark.svg" alt="Profiles and ordered overlays resolve resources, physical devices, and logical aliases into native configuration and typed Rust access.">
+  <figcaption>One resolved configuration connects native resource registration and Rust device construction. Application behavior remains in source code. <a href="../../docs/assets/nxrs-profile-composition.svg">Open SVG</a>.</figcaption>
+</figure>
+
+The composition schema is implemented for the device families listed in the [composition reference](../../docs/peripheral-composition.md). It is not a universal declaration language for every HAL. Some capabilities use native operating-system facilities directly and do not need a chip catalogue or resource wrapper.
 
 ## Add a NuttX board
 
@@ -139,22 +158,55 @@ check. Opening a physical device verifies that acquisition can start.
 ## Inspect a profile before changing it
 
 ```sh
-cargo nxrs profile --help
-cargo nxrs build --help
+cargo nxrs platforms
+cargo nxrs profile --platform esp32s3-qemu-mock
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
 ```
 
 The default configurations are under [the platform directories](../../platform/). Use [tests/profiles](../../tests/profiles/) to find a specific test or qualification input.
 
 The resolver validates device/resource bindings and records the resolved configuration with the build. Checked BSP mappings under `platform/nuttx/resources/` connect admitted native settings to Rust endpoints.
 
+Read the output in this order:
+
+1. Check the profile name, target, and board. Make sure this is the configuration you intend to build.
+2. Check capability bindings. Availability here does not prove the application actually depends on that capability.
+3. For a composed device, inspect its resource, address or endpoint, wake settings, and aliases.
+4. Check the source list and composition provenance to see which profile or overlay supplied the final value.
+5. After a real NuttX build, compare the effective `resolved.config` with the requested native settings.
+
+Profile inspection uses `--platform` even when the argument is an explicit profile name. Use `cargo nxrs profile --help` for inspection options and `cargo nxrs build --help` for build options. A dry run validates selection; compilation and physical acquisition remain later checks.
+
 ## Apply an overlay
 
 An overlay changes devices, resources, or aliases in a base composition. The frontend applies repeated `--overlay` arguments in order. Keep product overlays in version control and review the resolved configuration after changing them.
 
+Resolution applies inherited profile values, the child profile, declared overlays from ancestor to child, and finally command-line overlays in their supplied order. Declared overlay paths are relative to the declaring profile; command-line overlay paths are relative to the selected NXRS root.
+
+| Change | Merge behavior |
+| --- | --- |
+| Update a named resource or device | Merge the supplied properties; later scalar and array values replace earlier values |
+| Change a device's `compatible` or a resource's `binding` | Replace the whole record and supply its required fields again |
+| Change `wake` or a resource's `kconfig` | Replace that table as a unit |
+| Change an alias | Replace the named assignment |
+| Remove a device, resource, or alias | Use the explicit removal list and repair references that would become invalid |
+
+Overlays cannot change the execution OS, target, BSP, or composition mode, and cannot include further overlays. Use a named profile for those changes. The resolver checks the final graph for missing references, unsupported combinations, duplicate physical claims, and conflicting declared native settings.
+
 For example, two revisions of an IoT device may use different supported peripheral parts while keeping the same application-level capability. Their profiles describe that difference. The application should not need to inspect a board name to choose its behavior.
+
+The [second-device example](examples.md#add-a-second-sensor-on-cores3) contains a complete overlay plus matching inspection, build, and board checks. When adapting it, keep the same overlay arguments on the inspection and real build commands. An overlay can select an implemented device; it cannot add the driver, BSP registration, or electrical support for a new part.
 
 ## Device instances
 
 Driver availability and physical instances are separate. Several instances can use the same driver, but each physical endpoint needs its own configured identity and ownership. The available acquisition API depends on the capability.
 
 The [peripheral composition reference](../../docs/peripheral-composition.md) contains the schema and concrete device examples. The [static-device design](../../docs/static-device-composition.md) describes named devices and ownership. Keep those implementation details separate from the basic application/build workflow.
+
+References and aliases point to configured objects. They do not independently acquire the hardware. The capability's acquisition method establishes an active lifetime and can report busy, unsupported, or initialization failure. Two aliases for the same physical device share ownership state; separate configured devices can have independent lifetimes while sharing a serialized bus.
+
+## Check a configuration change
+
+Keep the application source unchanged while you inspect and build the new profile. On the target, check that NuttX registered the expected resources, then open the capability and exercise useful I/O. Test cleanup and reopening as well as the first successful operation.
+
+Record the source revision, profile, overlay order, image, and observed hardware behavior. This separates a successfully resolved configuration from a working device. Continue with [Testing and debugging](testing.md) for the verification steps.

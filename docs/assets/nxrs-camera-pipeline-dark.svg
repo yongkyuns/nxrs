@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="792" viewBox="0 0 800 792" role="img" aria-labelledby="title description">
+  <title id="title">Independent streaming and bounded inference paths</title>
+  <desc id="description">The camera HAL feeds CameraService, which supplies MJPEG streaming and offers one owned JPEG to an inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8199B1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #1A2533; stroke: #34465A; stroke-width: 1.2; }
+      .label { fill: #E5EDF5; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #ACBDCE; font-size: 18px; }
+      .edge { fill: none; stroke: #8199B1; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #ACBDCE; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="792" rx="24" fill="#10161F"/>
+
+  <g id="node-camera-hal" data-panel="true">
+    <rect x="240" y="24" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="56" text-anchor="middle" class="label" font-size="22">Camera HAL</text>
+    <text x="400" y="83" text-anchor="middle" class="subtitle">Capture ownership</text>
+  </g>
+  <g id="node-camera-service" data-panel="true">
+    <rect x="240" y="150" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="255" y="170" width="4" height="48" rx="2" fill="#83C5EA"/>
+    <text x="400" y="182" text-anchor="middle" class="label" font-size="22">CameraService</text>
+    <text x="400" y="209" text-anchor="middle" class="subtitle">Frame history and delivery</text>
+  </g>
+  <path id="edge-camera-hal-camera-service" data-from="camera-hal" data-to="camera-service" d="M400 112 V148" class="edge"/>
+  <g id="node-stream" data-panel="true">
+    <rect x="24" y="302" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="184" y="334" text-anchor="middle" class="label" font-size="22">MJPEG service</text>
+    <text x="184" y="361" text-anchor="middle" class="subtitle">Streaming keeps progressing</text>
+  </g>
+  <g id="node-jpeg" data-panel="true">
+    <rect x="436" y="302" width="340" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="451" y="322" width="4" height="48" rx="2" fill="#F2A06A"/>
+    <text x="606" y="334" text-anchor="middle" class="label" font-size="22">One owned JPEG</text>
+    <text x="606" y="361" text-anchor="middle" class="subtitle">Bounded copy; excess offers drop</text>
+  </g>
+  <path id="edge-camera-service-stream" data-from="camera-service" data-to="stream" d="M320 238 V270 H184 V300" class="edge"/>
+  <path id="edge-camera-service-jpeg" data-from="camera-service" data-to="jpeg" d="M480 238 V270 H606 V300" class="edge"/>
+  <g id="node-worker" data-panel="true">
+    <rect x="436" y="430" width="340" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="606" y="462" text-anchor="middle" class="label" font-size="22">Inference worker</text>
+    <text x="606" y="489" text-anchor="middle" class="subtitle">Owns the copied frame</text>
+  </g>
+  <g id="node-detector" data-panel="true">
+    <rect x="436" y="558" width="340" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="606" y="590" text-anchor="middle" class="label" font-size="22">Detector HAL</text>
+    <text x="606" y="617" text-anchor="middle" class="subtitle">Synchronous model execution</text>
+  </g>
+  <g id="node-monitor" data-panel="true">
+    <rect x="24" y="558" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="39" y="578" width="4" height="48" rx="2" fill="#83C5EA"/>
+    <text x="184" y="590" text-anchor="middle" class="label" font-size="22">Monitor</text>
+    <text x="184" y="617" text-anchor="middle" class="subtitle">Confirmation · freshness policy</text>
+  </g>
+  <g id="node-events" data-panel="true">
+    <rect x="24" y="686" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="184" y="718" text-anchor="middle" class="label" font-size="22">Typed state and events</text>
+    <text x="184" y="745" text-anchor="middle" class="subtitle">Application-visible results</text>
+  </g>
+  <path id="edge-jpeg-worker" data-from="jpeg" data-to="worker" d="M606 390 V428" class="edge"/>
+  <path id="edge-worker-detector" data-from="worker" data-to="detector" d="M606 518 V556" class="edge"/>
+  <path id="edge-detector-monitor" data-from="detector" data-to="monitor" d="M436 602 H346" class="edge"/>
+  <path id="edge-monitor-events" data-from="monitor" data-to="events" d="M184 646 V684" class="edge"/>
+
+</svg>

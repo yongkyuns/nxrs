@@ -224,8 +224,12 @@ class Site:
         def emit(route: str, title: str, kind: str, content: str = '', toc=None, source=''):
             target = output / route / 'index.html'
             target.parent.mkdir(parents=True, exist_ok=True)
+            related_key = self.config.get('reference_guides', {}).get(source.removeprefix('docs/'))
+            related_guide = next((item for item in guides
+                                  if item['route'] == f'guide/{related_key}/'), None)
             target.write_text(template.render(**shared, route=route, title=title, kind=kind,
                               content=content, toc=toc or [], source_url=self.github(source) if source else '',
+                              related_guide=related_guide,
                               all_references=sorted((p for p in self.pages.values() if p['section'] == 'Reference'),
                                                     key=lambda p: p['title'].casefold())), encoding='utf-8')
 
