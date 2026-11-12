@@ -39,17 +39,18 @@ and its qualification evidence. Composition version 1 and ordered overlays
 resolve the supported hardware bindings for physical IMU and GNSS aliases. Named
 test and qualification profiles can select explicit mock bindings.
 
-## Accepted follow-up: declarative builds and static devices
+## Declarative builds and static devices
 
-The [static-device decision](static-device-composition.md) is the accepted target
-for new peripheral composition work. Its implementation remains open in
-[issue #246](https://github.com/yongkyuns/nxrs/issues/246). The descriptions below
-of HAL-local build scripts and default sensor factories document the current
-baseline; they are not requirements to preserve those mechanisms.
+The [static-device decision](static-device-composition.md) defines the current
+IMU/GNSS composition boundary. Shared tooling prepares their configuration and
+consumed native helpers before Cargo compiles the target. Generic package
+adapters validate and consume that handoff. The remaining integration and
+physical qualification gates are tracked in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246).
 
-The target keeps managed capability APIs, acquisition and native ABI source in
+This design keeps managed capability APIs, acquisition and native ABI source in
 their owning HALs. Shared synchronous device normalization belongs to driver
-implementations of the contracts in `driver/peripheral`. HAL build requirements become declarative.
+implementations of the contracts in `driver/peripheral`. HAL build requirements are declarative.
 Shared tooling owns generic generation, package-specific provider selection,
 native compilation/link integration and input freshness. Cargo owns ordinary
 optional driver dependencies. Gate uniquely named implementation modules once
@@ -65,11 +66,12 @@ ownership guards. IMU implements this through `imu::Device` references returned 
 `composition::imu::primary_imu()` and profile-defined `composition::imu::<name>()`; acquisition uses
 `Device::open` or `Device::open_default`. Its worker retains storage and ownership through final
 delivery, sink destruction and resource cleanup. GNSS uses the same named-device
-pattern through `gnss_devices`, with per-receiver UART restoration and quarantine.
+pattern through `composition::gnss`, with per-receiver UART restoration and quarantine.
 
 Opaque access does not require dynamic dispatch or heap boxing. IMU's named
-accessors preserve concrete driver and sink types. Generated-input transport and
-the full pre-Cargo native handoff remain in the [follow-up plan](peripheral-composition-plan.md#static-device-follow-up).
+accessors preserve concrete driver and sink types. The generated-input and
+pre-Cargo native handoff contracts and their evidence gates are recorded in the
+[follow-up plan](peripheral-composition-plan.md#static-device-follow-up).
 Static instance storage and remaining thread/queue/backend allocation costs must
 be reported separately. Existing lifecycle, native-boundary and portability
 requirements continue to apply throughout migration.
@@ -798,8 +800,9 @@ All build adapters, including shared Linux GIO, validate the same optional
 `NXRS_RESOLVED_PROFILE` receipt. A receipt can select the profile without
 `NXRS_PLATFORM`; a conflicting name, stale input or wrong target fails.
 
-IMU and GNSS catalogues import driver-owned bindings. Each import's `feature`
-names an ordinary declared Cargo feature. Before target compilation, the product
+IMU and GNSS catalogues import driver-owned bindings through renamed optional
+NuttX dependencies. Each dependency alias supplies an ordinary Cargo feature.
+Before target compilation, the product
 frontend asks Cargo which catalogues are consumed and enables the required
 features through direct catalogue dependencies, including renamed dependencies.
 Unused capability records do not activate packages. Mixed devices add features;
@@ -807,9 +810,20 @@ there is no mutually exclusive chip selector. NuttX profile builds use
 `cargo nxrs build`; driver features are internal dependency switches. Cargo build
 adapters require its validated profile receipt and prepared resource archives.
 Portable library tests and explicit host fixtures may still use Cargo directly.
-Shared I2C/SPI adapters
-remain common catalogue dependencies; chip feature selection is distinct from
-resource selection and final linker dead-code elimination.
+Catalogue-owned `resource-features` metadata maps resource kinds to ordinary
+declared features. The frontend adds the mapped features required by the
+consumed capability's devices. I2C-only IMU products select the I2C adapter;
+SPI-only products select SPI; mixed products select both. Native helper
+preparation follows the resulting Cargo graph. Package/helper exclusion is
+separate from final linker dead-code elimination.
+
+A product workspace may select its own composition package with
+`workspace.metadata.nxrs.device-catalogue`. That package and its driver bindings
+remain ordinary path dependencies, including Cargo workspace inheritance.
+Receipts record the selected workspace, catalogue and driver inputs so package
+adapters revalidate the same construction. The SDK catalogue remains the default.
+See the [composition guide](../platform/README.md) for the declaration contract
+and current source limitations.
 
 NuttX profiles explicitly supply `[camera].device`, `[watchdog].device` and
 `[wifi].interface`, alongside existing console and LED configuration. These are

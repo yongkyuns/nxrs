@@ -4,7 +4,10 @@
 #[cfg(feature = "imu")]
 cfg_if::cfg_if! {
     if #[cfg(device_binding = "imu:nuttx")] {
-        use {::i2c as resource, ::spi as spi_resource};
+        #[cfg(feature = "i2c")]
+        use ::i2c as resource;
+        #[cfg(feature = "spi")]
+        use ::spi as spi_resource;
         #[path = "nuttx/imu.rs"]
         mod imu_factory;
         pub use imu_factory::devices as imu;

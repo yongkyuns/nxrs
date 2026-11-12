@@ -57,10 +57,17 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile alias. Host witnesses inject
   test-only bus bindings. IMU and GNSS drivers own their `bindings.toml` declarations;
-  the composition crate in `platform/` imports them through normal Cargo path dependencies. Sensor HALs must not depend on concrete sensors or composition.
+  the composition crate in `platform/` or a product-owned catalogue imports them
+  through normal Cargo path dependencies, including workspace inheritance.
+  Product workspace metadata may select that catalogue without an SDK registry edit.
+  Sensor HALs must not depend on concrete sensors or composition.
   A renamed optional NuttX dependency registers a driver and supplies its
   Cargo feature. Shared tooling generates the driver's typed construction from
-  its binding and the selected resource. NuttX profile builds use
+  its binding and the selected resource. Catalogue-owned `resource-features`
+  maps bus kinds to ordinary declared features; select only the resources of
+  consumed capabilities through Cargo's resolved graph. Keep common instance,
+  alias and endpoint-claim validation independent of capability acquisition policy.
+  NuttX profile builds use
   `cargo nxrs build`. Internal Cargo adapters and editor checks consume its
   validated receipt and prepared native resources. Portable library tests and
   explicit host fixtures may use Cargo directly. Product

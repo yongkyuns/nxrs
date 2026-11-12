@@ -396,6 +396,7 @@ dependencies = [
  "nxrs-i2c",
  "nxrs-lsm6dso",
  "nxrs-messaging",
+ "nxrs-ubx-driver",
  "regex",
  "serde_json",
 ]

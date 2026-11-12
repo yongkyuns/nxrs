@@ -40,6 +40,7 @@ pub struct Profile {
     sdk_root: Option<PathBuf>,
     origins: overlay::Origins,
     pub(crate) cli_overlays: Vec<PathBuf>,
+    pub(crate) product_manifest: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -268,6 +269,7 @@ impl Profile {
             sdk_root: None,
             origins,
             cli_overlays: Vec::new(),
+            product_manifest: None,
         }
     }
 
@@ -294,12 +296,16 @@ impl Profile {
                 return Err(format!("unknown capability: {capability}"));
             }
         }
-        self.catalogs = Catalogs::load(&root, capabilities.keys().map(String::as_str))?;
+        self.catalogs = Catalogs::load(
+            &root,
+            capabilities.keys().map(String::as_str),
+            self.product_manifest.as_deref(),
+        )?;
         self.sdk_root = Some(root);
         Ok(())
     }
 
-    /// Additive catalogue features for every configured physical instance.
+    /// Additive driver and resource features for this capability's physical instances.
     pub fn driver_features(&self, capability: &str) -> Result<BTreeSet<String>> {
         let mut features = BTreeSet::new();
         if self.binding(capability) != "nuttx" {
@@ -308,9 +314,23 @@ impl Profile {
         if let (Some(graph), Some(package)) =
             (self.composition()?, self.catalogs.package(capability))
         {
-            for device in graph.devices.values() {
+            let resources = package.resource_features()?;
+            for (_, device) in graph.devices_for(&self.catalogs, capability) {
                 if let Some(feature) = package.drivers.get(&device.compatible) {
                     features.insert(feature.dependency.clone());
+                }
+                let mut used = vec![device.bus.as_str()];
+                if let Some(composition::Wake::Interrupt { resource }) = &device.wake {
+                    used.push(resource);
+                }
+                for id in used {
+                    let resource = graph
+                        .resources
+                        .get(id)
+                        .ok_or_else(|| format!("device references unknown resource {id}"))?;
+                    if let Some(feature) = resources.get(resource.kind()) {
+                        features.insert(feature.clone());
+                    }
                 }
             }
         }
@@ -326,10 +346,28 @@ impl Profile {
     }
 
     pub fn resolve_with_overlays(root: &Path, name: &str, cli: &[PathBuf]) -> Result<Self> {
+        Self::resolve_for_manifest(root, name, cli, None)
+    }
+
+    /// Resolve an SDK profile using the selected product's declared catalogue.
+    /// Cargo locates that product's workspace; its catalogue replaces only the
+    /// capabilities it declares. Other SDK capability declarations remain intact.
+    pub fn resolve_for_manifest(
+        root: &Path,
+        name: &str,
+        cli: &[PathBuf],
+        product_manifest: Option<&Path>,
+    ) -> Result<Self> {
         let mut declared = Vec::new();
         let profiles = ProfileFiles::read(root)?;
         let mut profile = Self::inherit(root, &profiles, name, &[], &mut declared)?;
         profile.cli_overlays = cli.to_vec();
+        profile.product_manifest = product_manifest
+            .map(|path| {
+                path.canonicalize()
+                    .map_err(|error| format!("product manifest {}: {error}", path.display()))
+            })
+            .transpose()?;
         if declared.len() + cli.len() > 64 {
             return Err("at most 64 overlays can be selected for a profile".into());
         }
@@ -1248,5 +1286,51 @@ mod tests {
         .unwrap();
         let error = profile.load_catalogs(&temp.0).unwrap_err();
         assert!(error.contains("contained relative path"));
+    }
+
+    #[test]
+    fn resource_feature_mappings_use_declared_package_features() {
+        let profile = Profile::resolve(&root(), "m5stack-cores3-gnss").unwrap();
+        let with_manifest = |replacements: &[(&str, &str)]| {
+            let mut catalogs = Catalogs::default();
+            for (capability, package) in profile.catalogs().packages() {
+                let mut package = package.clone();
+                for (from, to) in replacements {
+                    package.manifest.contents = package.manifest.contents.replace(from, to);
+                }
+                catalogs.insert(capability, package).unwrap();
+            }
+            Profile::from_data_with_catalogs(profile.data.clone(), vec![], catalogs)
+        };
+        let renamed = with_manifest(&[
+            ("i2c = \"i2c\"", "i2c = \"sensor-i2c\""),
+            ("[features]", "[features]\nsensor-i2c = [\"i2c\"]"),
+        ]);
+        assert_eq!(
+            renamed.driver_features("imu").unwrap(),
+            BTreeSet::from(["bmi270".into(), "sensor-i2c".into()])
+        );
+        assert_eq!(
+            renamed.driver_features("gnss").unwrap(),
+            BTreeSet::from(["ubx".into()])
+        );
+        for (from, to, expected) in [
+            (
+                "i2c = \"i2c\"",
+                "i22c = \"i2c\"",
+                "unsupported resource kind",
+            ),
+            (
+                "i2c = \"i2c\"",
+                "i2c = \"missing\"",
+                "declared Cargo feature",
+            ),
+            ("i2c = \"i2c\"", "i2c = 1", "resource-features"),
+        ] {
+            let error = with_manifest(&[(from, to)])
+                .driver_features("imu")
+                .unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
     }
 }

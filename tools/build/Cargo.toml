@@ -24,4 +24,5 @@ nxrs-i2c = { path = "../../driver/i2c" }
 nxrs-gpio = { path = "../../driver/gpio" }
 nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
+nxrs-ubx-driver = { path = "../../driver/ubx" }
 embedded-hal = "=1.0.0"

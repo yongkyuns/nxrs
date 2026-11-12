@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Component, Path, PathBuf},
+    process::Command,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -102,14 +103,21 @@ impl Package {
                 .flat_map(|(_, table)| table["dependencies"].as_object().into_iter().flatten())
                 .collect::<Vec<_>>();
             for &(alias, declaration) in &candidates {
-                // Renamed optional path dependencies opt into driver discovery.
+                // Renamed optional dependencies opt into driver discovery. Cargo
+                // supplies the effective alias/name/path for workspace inheritance.
                 if declaration["optional"] != true
-                    || declaration.get("package").is_none()
-                    || declaration.get("path").is_none()
+                    || (declaration.get("package").is_none() && declaration["workspace"] != true)
                 {
                     continue;
                 }
-                let (directory, expected_name) = dependency(&root, &data, alias)?;
+                let resolved = dependency(&root, &data, alias)?;
+                let expected_name = resolved.name;
+                dependencies.extend(resolved.inputs);
+                let Some(directory) = resolved.directory else {
+                    // This can be an unrelated library, not a device driver.
+                    // Do not download it merely to inspect its metadata.
+                    continue;
+                };
                 let source = input(&directory, "Cargo.toml")?;
                 let driver = parse(&source)?;
                 dependencies.push(source);
@@ -209,7 +217,10 @@ impl Package {
                             .get("dependency")
                             .and_then(Value::as_str)
                             .ok_or("binding import requires a dependency alias")?;
-                        let (directory, expected_name) = dependency(&root, &data, alias)?;
+                        let resolved = dependency(&root, &data, alias)?;
+                        let directory = resolved.directory.ok_or_else(|| source_error(alias))?;
+                        let expected_name = resolved.name;
+                        dependencies.extend(resolved.inputs);
                         let imported = Self::load_with_dependencies(&directory, None, stack)?;
                         if imported.name != expected_name || imported.catalogs.is_empty() {
                             return Err(format!("binding dependency {alias} must name {expected_name} with declared catalogs"));
@@ -244,6 +255,35 @@ impl Package {
         })
     }
 
+    /// Resource selection is a declaration contract, even when detached packages
+    /// adjust unrelated Cargo packaging metadata.
+    pub(crate) fn resource_features(&self) -> Result<BTreeMap<String, String>> {
+        let manifest = parse(&self.manifest)?;
+        let resources = manifest
+            .pointer("/package/metadata/nxrs/resource-features")
+            .map(|value| {
+                serde_json::from_value::<BTreeMap<String, String>>(value.clone())
+                    .map_err(|error| format!("{} resource-features: {error}", self.name))
+            })
+            .transpose()?
+            .unwrap_or_default();
+        for (kind, feature) in &resources {
+            if !["i2c", "spi", "uart", "gpio-interrupt"].contains(&kind.as_str()) {
+                return Err(format!(
+                    "{} resource-features: unsupported resource kind {kind}",
+                    self.name
+                ));
+            }
+            if !manifest["features"][feature].is_array() {
+                return Err(format!(
+                    "{} resource-features.{kind} must name a declared Cargo feature: {feature}",
+                    self.name
+                ));
+            }
+        }
+        Ok(resources)
+    }
+
     /// All bytes that determine a package's declarations, including its metadata.
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
         std::iter::once(&self.manifest)
@@ -262,9 +302,16 @@ fn nuttx_target(selector: &str) -> bool {
         .is_some_and(|(name, value)| name.trim() == "target_os" && value.trim() == "\"nuttx\"")
 }
 
-/// Imports name existing normal Cargo path dependencies, including target tables.
-/// They do not select features or introduce another package-resolution mechanism.
-fn dependency(root: &Path, manifest: &Value, alias: &str) -> Result<(PathBuf, String)> {
+struct Dependency {
+    directory: Option<PathBuf>,
+    name: String,
+    inputs: Vec<Input>,
+}
+
+/// Imports name existing normal Cargo path dependencies, including inherited and
+/// target-specific declarations. Cargo normalizes workspace inheritance; this
+/// reader never resolves versions, selects features or downloads package sources.
+fn dependency(root: &Path, manifest: &Value, alias: &str) -> Result<Dependency> {
     let tables = std::iter::once(manifest).chain(
         manifest
             .get("target")
@@ -273,22 +320,110 @@ fn dependency(root: &Path, manifest: &Value, alias: &str) -> Result<(PathBuf, St
             .flat_map(|v| v.values()),
     );
     let mut selected = BTreeSet::new();
+    let mut inherited = false;
     for table in tables {
         if let Some(dep) = table.get("dependencies").and_then(|v| v.get(alias)) {
-            let path = dep.get("path").and_then(Value::as_str).ok_or_else(|| {
-                format!("binding dependency {alias} requires an explicit Cargo path")
-            })?;
-            let directory = root.join(path).canonicalize().map_err(|e| e.to_string())?;
+            if dep["workspace"] == true {
+                inherited = true;
+                continue;
+            }
+            let directory = dep
+                .get("path")
+                .and_then(Value::as_str)
+                .map(|path| root.join(path).canonicalize().map_err(|e| e.to_string()))
+                .transpose()?;
             let name = dep.get("package").and_then(Value::as_str).unwrap_or(alias);
             selected.insert((directory, name.to_owned()));
         }
+    }
+    let mut inputs = Vec::new();
+    if inherited {
+        let metadata = cargo_metadata(&root.join("Cargo.toml"))?;
+        let package = metadata["packages"]
+            .as_array()
+            .ok_or("Cargo metadata is missing packages")?
+            .iter()
+            .find(|package| {
+                package["manifest_path"]
+                    .as_str()
+                    .and_then(|path| Path::new(path).canonicalize().ok())
+                    .is_some_and(|path| path == root.join("Cargo.toml"))
+            })
+            .ok_or("Cargo metadata is missing the binding package")?;
+        for declaration in package["dependencies"]
+            .as_array()
+            .ok_or("Cargo metadata is missing dependencies")?
+            .iter()
+            .filter(|dep| {
+                dep["kind"].is_null()
+                    && dep["rename"].as_str().or(dep["name"].as_str()) == Some(alias)
+            })
+        {
+            let directory = declaration["path"]
+                .as_str()
+                .map(|path| {
+                    Path::new(path)
+                        .canonicalize()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()?;
+            let name = declaration["name"]
+                .as_str()
+                .ok_or("Cargo metadata dependency is missing its package name")?;
+            selected.insert((directory, name.to_owned()));
+        }
+        let workspace = metadata["workspace_root"]
+            .as_str()
+            .ok_or("Cargo metadata is missing workspace_root")?;
+        inputs.push(input(Path::new(workspace), "Cargo.toml")?);
     }
     if selected.len() != 1 {
         return Err(format!(
             "binding dependency {alias} must identify one declared normal Cargo package"
         ));
     }
-    Ok(selected.into_iter().next().unwrap())
+    let (directory, name) = selected.into_iter().next().unwrap();
+    Ok(Dependency {
+        directory,
+        name,
+        inputs,
+    })
+}
+
+fn source_error(alias: &str) -> String {
+    format!("binding dependency {alias} requires a Cargo path dependency (workspace inheritance is supported); Git and registry binding sources are not supported by catalogue discovery")
+}
+
+/// Read Cargo's normalized declarations without resolving/fetching dependencies.
+/// This is also safe during receipt revalidation in a Cargo build adapter.
+fn cargo_metadata(manifest: &Path) -> Result<Value> {
+    let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+        .current_dir(manifest.parent().ok_or("Cargo manifest has no parent")?)
+        .args([
+            "metadata",
+            "--no-deps",
+            "--offline",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
+        // Cargo 1.90 can reject Windows verbatim canonical manifest paths.
+        // The selected parent is already the working directory.
+        .arg(
+            manifest
+                .file_name()
+                .ok_or("Cargo manifest has no filename")?,
+        )
+        .output()
+        .map_err(|error| format!("Cargo catalogue discovery failed: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Cargo catalogue discovery failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("invalid Cargo catalogue metadata: {error}"))
 }
 
 pub(crate) fn device_capabilities(manifest: &Value) -> Result<Option<Vec<&str>>> {
@@ -324,6 +459,7 @@ impl Catalogs {
     pub(crate) fn load<'a>(
         root: &Path,
         capabilities: impl Iterator<Item = &'a str>,
+        product_manifest: Option<&Path>,
     ) -> Result<Self> {
         let workspace_manifest = input(root, "Cargo.toml")?;
         let workspace = parse(&workspace_manifest)?;
@@ -331,35 +467,36 @@ impl Catalogs {
             discovery_inputs: vec![workspace_manifest],
             ..Self::default()
         };
-        let catalogue = workspace
-            .pointer("/workspace/metadata/nxrs/device-catalogue")
-            .map(|value| {
-                let relative = value
+        let sdk_catalogue = catalogue(root, &workspace, &mut catalogs.discovery_inputs)?;
+        let product = product_manifest
+            .map(|manifest| {
+                let metadata = cargo_metadata(manifest)?;
+                let workspace_root = metadata["workspace_root"]
                     .as_str()
-                    .ok_or("workspace.metadata.nxrs.device-catalogue must name a package path")?;
-                let directory = root.join(relative);
-                let mut source = input(&contained_path(root, relative)?, "Cargo.toml")?;
-                let manifest = parse(&source)?;
-                let scopes = device_capabilities(&manifest)?.ok_or_else(|| {
-                    format!(
-                        "{}: missing package.metadata.nxrs.device-capabilities",
-                        directory.display()
-                    )
-                })?;
-                source.path = directory.join("Cargo.toml");
+                    .ok_or("Cargo metadata is missing the product workspace_root")?;
+                let workspace_root = Path::new(workspace_root);
+                let source = input(workspace_root, "Cargo.toml")?;
+                let data = parse(&source)?;
                 catalogs.discovery_inputs.push(source);
-                Ok::<_, String>((
-                    directory,
-                    scopes
-                        .into_iter()
-                        .map(str::to_owned)
-                        .collect::<BTreeSet<_>>(),
-                ))
+                catalogs.discovery_inputs.push(input(
+                    manifest.parent().ok_or("product manifest has no parent")?,
+                    "Cargo.toml",
+                )?);
+                catalogue(workspace_root, &data, &mut catalogs.discovery_inputs)
             })
-            .transpose()?;
+            .transpose()?
+            .flatten();
         for capability in capabilities {
-            let package = match &catalogue {
-                Some((directory, scopes)) if scopes.contains(capability) => {
+            let selected = product
+                .as_ref()
+                .filter(|(_, scopes)| scopes.contains(capability))
+                .or_else(|| {
+                    sdk_catalogue
+                        .as_ref()
+                        .filter(|(_, scopes)| scopes.contains(capability))
+                });
+            let package = match selected {
+                Some((directory, _)) => {
                     let mut package = Package::load_capability(directory, capability)?;
                     package.manifest.path = directory.join("Cargo.toml");
                     package
@@ -405,7 +542,8 @@ impl Catalogs {
             .ok_or_else(|| {
                 format!(
                     "unsupported compatible/bus binding for {capability}: {compatible}/{bus}; \
-                     declare {capability} in [hal] and its package bindings in Cargo metadata"
+                     declare {capability} in [hal] and its package bindings in Cargo metadata; \
+                     catalogue discovery currently reads Cargo path dependencies, including workspace inheritance"
                 )
             })
     }
@@ -454,6 +592,33 @@ impl Catalogs {
                 .collect(),
         )
     }
+}
+
+fn catalogue(
+    root: &Path,
+    workspace: &Value,
+    inputs: &mut Vec<Input>,
+) -> Result<Option<(PathBuf, BTreeSet<String>)>> {
+    workspace
+        .pointer("/workspace/metadata/nxrs/device-catalogue")
+        .map(|value| {
+            let relative = value
+                .as_str()
+                .ok_or("workspace.metadata.nxrs.device-catalogue must name a package path")?;
+            let directory = contained_path(root, relative)?;
+            let source = input(&directory, "Cargo.toml")?;
+            let manifest = parse(&source)?;
+            let scopes = device_capabilities(&manifest)?.ok_or_else(|| {
+                format!(
+                    "{}: missing package.metadata.nxrs.device-capabilities",
+                    directory.display()
+                )
+            })?;
+            let scopes = scopes.into_iter().map(str::to_owned).collect();
+            inputs.push(source);
+            Ok((directory, scopes))
+        })
+        .transpose()
 }
 
 #[derive(Deserialize)]
@@ -805,5 +970,83 @@ mod tests {
                 .unwrap_err()
                 .contains("binding dependency chip"));
         }
+    }
+
+    #[test]
+    fn driver_discovery_uses_cargo_workspace_inheritance_without_resolving_other_sources() {
+        let temp = fixture(
+            "[workspace]\n\
+             [workspace.dependencies]\nchip={package='nxrs-chip',path='driver'}\n\
+             bus-api={package='embedded-hal',version='=1.0.0'}\n\
+             [package.metadata.nxrs]\ndevice-capabilities=['imu']\n\
+             [features]\nimu=[]\n\
+             [dependencies]\nunused={git='https://example.invalid/not-fetched.git',optional=true}\n\
+             [target.'cfg(target_os = \"nuttx\")'.dependencies]\nchip={workspace=true,optional=true}\n\
+             bus-api={workspace=true,optional=true}\n\
+             remote={package='unrelated-library',git='https://example.invalid/not-fetched.git',optional=true}\n",
+        );
+        fs::create_dir_all(temp.0.join("src")).unwrap();
+        fs::write(temp.0.join("src/lib.rs"), "").unwrap();
+        let driver = temp.0.join("driver");
+        fs::create_dir_all(driver.join("src")).unwrap();
+        fs::write(driver.join("src/lib.rs"), "").unwrap();
+        fs::write(
+            driver.join("Cargo.toml"),
+            "[package]\nname='nxrs-chip'\nversion='0.1.0'\n\
+             [package.metadata.nxrs]\nbindings=['bindings.toml']\n\
+             [package.metadata.nxrs.device]\ncapability='imu'\n",
+        )
+        .unwrap();
+        fs::write(driver.join("bindings.toml"), CATALOG).unwrap();
+
+        let package = Package::load_capability(&temp.0, "imu").unwrap();
+        assert_eq!(package.drivers["vendor,sensor"].dependency, "chip");
+        assert_eq!(package.catalogs[0].path, driver.join("bindings.toml"));
+        assert!(package
+            .dependencies
+            .iter()
+            .any(|input| input.path == temp.0.join("Cargo.toml")));
+        assert!(
+            !temp.0.join("Cargo.lock").exists(),
+            "discovery must not resolve or write a lockfile"
+        );
+
+        // Metadata-only discovery still uses the actual inherited package name;
+        // the alias is never interpreted as a separate package or source path.
+        let manifest = temp.0.join("Cargo.toml");
+        let original = fs::read_to_string(&manifest).unwrap();
+        fs::write(
+            &manifest,
+            original.replace("package='nxrs-chip'", "package='wrong-package'"),
+        )
+        .unwrap();
+        assert!(Package::load_capability(&temp.0, "imu").is_err());
+    }
+
+    #[test]
+    fn non_path_candidates_are_not_fetched_and_explicit_imports_explain_the_limit() {
+        let temp = fixture(
+            "[package.metadata.nxrs]\ndevice-capabilities=['imu']\n\
+             [features]\nimu=[]\n\
+             [target.'cfg(target_os = \"nuttx\")'.dependencies]\n\
+             chip={package='nxrs-chip',git='https://example.invalid/not-fetched.git',optional=true}\n",
+        );
+        let package = Package::load_capability(&temp.0, "imu").unwrap();
+        assert!(package.catalogs.is_empty());
+        let original = fs::read_to_string(temp.0.join("Cargo.toml")).unwrap();
+        fs::write(
+            temp.0.join("Cargo.toml"),
+            original.replace(
+                "device-capabilities=['imu']",
+                "device-capabilities=['imu']\nbindings=[{dependency='chip'}]",
+            ),
+        )
+        .unwrap();
+        let error = Package::load(&temp.0).unwrap_err();
+        assert!(
+            error.contains("Git and registry binding sources are not supported"),
+            "{error}"
+        );
+        assert!(!temp.0.join("Cargo.lock").exists());
     }
 }

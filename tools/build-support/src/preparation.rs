@@ -63,7 +63,7 @@ fn render(
         .catalogs()
         .package(capability)
         .ok_or_else(|| format!("profile has no declared package bindings for {capability}"))?;
-    if !same_declarations(package, expected) {
+    if !same_declarations(package, expected)? {
         return Err(format!(
             "configuration inputs for {name} differ from the resolved profile; use matching package binding catalogs"
         ));
@@ -268,15 +268,16 @@ fn reject_symlink(path: &Path) -> Result<()> {
 
 /// Detached packages may adjust packaging/dependency metadata. Their declared
 /// build data must still match the inputs against which the profile was resolved.
-fn same_declarations(actual: &Package, expected: &Package) -> bool {
-    actual.name == expected.name
+fn same_declarations(actual: &Package, expected: &Package) -> Result<bool> {
+    Ok(actual.name == expected.name
         && actual.consumer_feature == expected.consumer_feature
         && actual.drivers == expected.drivers
+        && actual.resource_features()? == expected.resource_features()?
         && actual
             .catalogs
             .iter()
             .map(|input| &input.sha256)
-            .eq(expected.catalogs.iter().map(|input| &input.sha256))
+            .eq(expected.catalogs.iter().map(|input| &input.sha256)))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -355,6 +356,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn detached_catalogues_must_preserve_resource_feature_declarations() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let profile = Profile::resolve(&root, "m5stack-cores3-gnss").unwrap();
+        let expected = profile.catalogs().package("imu").unwrap();
+        let original = render(expected, "imu", &profile, "nuttx").unwrap();
+        let mut detached = expected.clone();
+
+        // Packaging changes and table order do not alter the construction
+        // contract; detached distributions can still adjust their manifests.
+        detached.manifest.contents = detached
+            .manifest
+            .contents
+            .replace(
+                "[package]",
+                "[package]\ndescription = 'Detached distribution'",
+            )
+            .replace(
+                "resource-features = { i2c = \"i2c\", spi = \"spi\" }",
+                "resource-features = { spi = \"spi\", i2c = \"i2c\" }",
+            );
+        assert_eq!(
+            render(&detached, "imu", &profile, "nuttx").unwrap(),
+            original
+        );
+
+        // Both feature names exist, so Cargo can accept the wrong selection.
+        // Reject the mismatch before generating a factory for a missing bus.
+        detached.manifest.contents = detached
+            .manifest
+            .contents
+            .replace("i2c = \"i2c\"", "i2c = \"spi\"");
+        assert!(render(&detached, "imu", &profile, "nuttx")
+            .unwrap_err()
+            .contains("differ from the resolved profile"));
+    }
+
+    #[test]
     fn prepared_handoff_checks_outputs_and_isolates_profile_switches() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -368,7 +406,13 @@ mod tests {
         let out = temp.0.join("cargo");
         let target = "xtensa-esp32s3-nuttx";
         let try_prepare = |profile: &Profile| {
-            prepare_consumers([(directory.as_path(), &features)], profile, target, "nuttx", &cache)
+            prepare_consumers(
+                [(directory.as_path(), &features)],
+                profile,
+                target,
+                "nuttx",
+                &cache,
+            )
         };
         let prepare = |profile: &Profile| try_prepare(profile).unwrap().unwrap();
         let apply = |path: &Path, profile: &Profile| {
@@ -378,9 +422,11 @@ mod tests {
         let stamp = fs::metadata(&handoff).unwrap().modified().unwrap();
         assert_eq!(prepare(&profile), handoff);
         assert_eq!(fs::metadata(&handoff).unwrap().modified().unwrap(), stamp);
-        assert!(consume(&handoff, &directory, "gnss", &profile, target, "nuttx", &out)
-            .unwrap()
-            .is_none());
+        assert!(
+            consume(&handoff, &directory, "gnss", &profile, target, "nuttx", &out)
+                .unwrap()
+                .is_none()
+        );
         let inputs = apply(&handoff, &profile).unwrap().unwrap();
         let generated = inputs
             .iter()
@@ -391,7 +437,16 @@ mod tests {
             .unwrap();
         let expected = fs::read(out.join("imu_config.rs")).unwrap();
         assert_eq!(expected, fs::read(generated).unwrap());
-        assert!(consume(&handoff, &directory, "imu", &profile, "wrong-nuttx", "nuttx", &out).is_err());
+        assert!(consume(
+            &handoff,
+            &directory,
+            "imu",
+            &profile,
+            "wrong-nuttx",
+            "nuttx",
+            &out
+        )
+        .is_err());
         fs::write(generated, "corrupt generated output").unwrap();
         assert!(apply(&handoff, &profile)
             .unwrap_err()
