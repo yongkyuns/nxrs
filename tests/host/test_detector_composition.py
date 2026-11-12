@@ -86,7 +86,8 @@ fn main() {
         self.assertIn('person_detect.tflite', (out / 'network.rs').read_text())
 
     def test_stream_factory_and_budget_follow_profile_with_independent_probes(self):
-        for suffix, enabled, stack, interval in [('', True, 131072, 750),
+        for suffix, enabled, stack, interval in [('', True, 131072, 500),
+                                                 ('-single-core', True, 131072, 750),
                                                  ('-vww', True, 524288, 2000),
                                                  ('-video', False, 131072, 750)]:
             for features in ((), ('PROBE',)):
@@ -97,7 +98,8 @@ fn main() {
                     self.assertIn(f'ENABLED:bool = {str(enabled).lower()}', text)
                     self.assertIn(f'STACK_BYTES:usize = {stack}', text)
                     self.assertIn(f'SAMPLE_MS:u64 = {interval}', text)
-                    self.assertEqual('mod batch;' in text, suffix == '' and features == ('PROBE',))
+                    pico = suffix in ('', '-single-core')
+                    self.assertEqual('mod batch;' in text, pico and features == ('PROBE',))
                     self.assertIn('esp32s3-camera-stream.toml', result.stdout)
 
     def test_dry_run_leaves_model_dependency_resolution_pending(self):
