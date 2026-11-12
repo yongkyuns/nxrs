@@ -48,6 +48,8 @@ target/build/hello/esp32s3-qemu-mock/
 
 Its `nuttx/nuttx` file is the target ELF. `nuttx/nuttx.merged.bin` is the flash image QEMU will boot. These are local build outputs, not files to copy into your application directory.
 
+The directory also records the resolved profile, effective NuttX configuration, selected sources, and image checks. [Understand the build system](build-system.md#read-the-build-output) explains those records and how to distinguish configuration, Cargo compilation, native linking, and artifact validation.
+
 ## Boot QEMU
 
 <!-- tutorial:qemu -->
@@ -96,6 +98,12 @@ Hello again from NXRS
 ```
 
 Exit the previous emulator before rebuilding and boot a new process afterward. Rebuilding a file does not replace the firmware already executing in QEMU. Normal builds reuse compatible compilation output; this source edit should not need `--clean`.
+
+## What this walkthrough establishes
+
+You have compiled application source for a target, linked it with the selected Rust standard library and NuttX, and executed it through the NuttX shell. The edit/rebuild step confirms which source and image you are running.
+
+This QEMU profile disables networking and uses qualification bindings. It does not exercise physical pins, radios, storage media, or board timing. When moving to a device, select its supported profile and follow its bootloader, flashing, and peripheral checks. [Profiles and overlays](profiles.md) explains that transition without changing the application entry model.
 
 ## Add ordinary Rust concurrency
 

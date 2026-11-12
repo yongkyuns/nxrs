@@ -4,7 +4,7 @@ The website is static HTML, CSS, and JavaScript generated from the guide and rep
 
 ## Content
 
-- `guide/`: user-facing guides, with general firmware topics first and application examples separate.
+- `guide/`: task-oriented guides for the first build, architecture and APIs, application design, configuration, debugging, and examples.
 - `site.json`: page titles, guide sections, and reference groups.
 - `layout.html`: shared homepage and documentation layouts.
 - `static/`: local styles, search, theme, and navigation behavior.
@@ -48,7 +48,7 @@ With the toolchain from `rust-toolchain.toml` installed:
 python website/tests/check_examples.py
 ```
 
-This copies the introductory Cargo workspace outside the checkout, runs `hello` and `worker`, and runs the worker's unit tests. It also executes the documented `std-demo` commands on the real checkout. Results are written to `target/website-examples.json`. This test covers host execution; target builds remain in the firmware test workflows.
+This runs the guide's `cargo new` command outside the checkout, writes its published manifest and source, and executes the greeting, edited greeting, and worker revisions. It also checks the external application's firmware plan, runs the source worker's unit tests, and executes the documented `std-demo` commands on the real checkout. Results are written to `target/website-examples.json`. This test covers host execution and build planning; target builds remain in the firmware test workflows.
 
 For browser tests:
 
@@ -58,13 +58,28 @@ python -m playwright install --with-deps chromium
 python website/tests/browser.py --site target/website --base-path /nxrs/
 ```
 
-The browser runner starts its own prefixed local server. It checks desktop/mobile navigation, search and focus, themes, the guide sequence, reference coverage, code controls, and no-JavaScript reading. Screenshots and reports are under `target/website-browser/`.
+The browser runner starts its own prefixed local server. It checks desktop/mobile navigation, search and focus, themes (including reference SVGs), pagination across guide sections, the mobile section index, reference coverage, code controls, and no-JavaScript reading. Screenshots and reports are under `target/website-browser/`.
+
+## Diagrams
+
+The diagram source is [render-architecture.mjs](../docs/assets/render-architecture.mjs). Regenerate the committed light and dark SVGs from the repository root:
+
+```sh
+node docs/assets/render-architecture.mjs
+node docs/assets/render-architecture.mjs --check
+```
+
+Keep the approved architecture's typography, rounded containers, muted connectors, and blue/orange accents. Each figure should answer one question, with a caption explaining its scope and meaningful alternative text. Use prose or a table for a short path inventory or a simple mapping. Reserve code blocks for commands, source, configuration, and actual output.
+
+Reference Markdown can use a `<picture>` with a dark source so it also reads on GitHub. The site's theme control updates these sources to match the reader's selected theme. Guide figures can use the existing `theme-light` and `theme-dark` image classes. Keep an SVG link in the caption when a detailed diagram needs a larger view. The Website workflow checks reproducibility and rejects missing or stale SVGs without changing files.
 
 ## Links and examples
 
 Use relative Markdown links between guide and reference sources. The build rewrites links to published pages; links to source code and directories point to the build's repository revision. Keep code and documentation synchronized through the excerpt tests.
 
 Add a guide to `site.json` and exactly one section. Add curated references to `reference_groups` without duplication; remaining documents stay available under Additional engineering notes. Preserve old URL fragments when a heading is renamed.
+
+The guide order also defines previous/next navigation across sections. A `reference_guides` entry connects an engineering reference to its practical introduction without duplicating its source. Keep the guide index's task map and homepage reading paths aligned with that organization.
 
 The site loads no external application or embedded runtime. Its content security policy uses `frame-src 'none'`.
 

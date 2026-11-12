@@ -26,3 +26,6 @@ nxrs-bmi270 = { path = "../../driver/bmi270" }
 nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
 nxrs-ubx-driver = { path = "../../driver/ubx" }
 embedded-hal = "=1.0.0"
+# Offline NuttX graph queries also inspect tar/filetime's Unix dependency when
+# the test host is Windows, where normal host builds do not fetch its source.
+libc = "=0.2.191"

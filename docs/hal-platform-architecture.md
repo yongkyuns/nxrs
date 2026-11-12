@@ -126,15 +126,13 @@ live under `tests/host/radio_shims`, enabled only in those test builds; they do
 not determine the production provider interface. Actual native callbacks keep
 the ABI and lifetime rules required by their SDK.
 
-~~~text
-capability-owned Rust API and shared behavior
-                    |
-          selected Rust platform provider
-                    |
-       std facilities / minimal private ABI or SDK binding
-                    |
-             platform implementation
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-interface-boundaries-dark.svg">
+    <img src="assets/nxrs-interface-boundaries.svg" alt="Portable application code uses capability APIs or Rust std. Each capability selects a private Rust provider that uses the required standard-library, driver or native support." loading="lazy">
+  </picture>
+  <figcaption>The embedded NuttX path illustrates the boundary. Other OS providers follow the same separation between shared Rust behavior and native implementation. <a href="assets/nxrs-interface-boundaries.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
@@ -266,23 +264,20 @@ SDK through the shared build support; embedded builds use their own NuttX helper
 
 ## Source organization
 
-~~~text
-hal/wifi/
-  Cargo.toml
-  src/
-    lib.rs                 public interface and selected exports
-    api.rs                 portable traits, commands, events and errors
-    controller.rs          shared operation/lifecycle logic
-    worker.rs              private std execution for blocking adapters
-    shared/                reusable Rust station ownership and contract
-    platform/
-      mod.rs               capability admission and acquisition wiring
-      nuttx/               NuttX Rust implementation
-        ffi/               minimal target-header C helpers
-      linux/               Linux Rust implementation using nxrs-linux-gio
-      macos/               macOS Rust implementation
-        ffi/               minimal Objective-C SDK binding
-~~~
+| Path inside `hal/wifi/` | Responsibility |
+| --- | --- |
+| `Cargo.toml` | Package and declared dependencies |
+| `src/lib.rs` | Public interface and selected exports |
+| `src/api.rs` | Portable traits, commands, events and errors |
+| `src/controller.rs` | Shared operation and lifecycle logic |
+| `src/worker.rs` | Private std execution for blocking adapters |
+| `src/shared/` | Reusable Rust station ownership and contract |
+| `src/platform/mod.rs` | Capability admission and acquisition wiring |
+| `src/platform/nuttx/` | NuttX Rust implementation |
+| `src/platform/nuttx/ffi/` | Minimal target-header C helpers |
+| `src/platform/linux/` | Linux Rust implementation using `nxrs-linux-gio` |
+| `src/platform/macos/` | macOS Rust implementation |
+| `src/platform/macos/ffi/` | Minimal Objective-C SDK binding |
 
 HALs own managed capability contracts and acquisition implementations.
 HALs and peripheral drivers may use Rust `std`; portability requires clean OS

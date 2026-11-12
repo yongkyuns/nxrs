@@ -44,6 +44,10 @@ jobs:
           python -m unittest discover -s website/tests -p 'test_*.py' -v
           node --check website/static/site.js
           node --check website/static/theme.js
+      - name: Check generated architecture diagrams
+        run: |
+          node --check docs/assets/render-architecture.mjs
+          node docs/assets/render-architecture.mjs --check
       - name: Build complete guide and reference library
         run: |
           python website/build.py --base-path /nxrs/ --out target/website

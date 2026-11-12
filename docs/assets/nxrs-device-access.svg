@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="792" viewBox="0 0 800 792" role="img" aria-labelledby="title description">
+  <title id="title">Typed Rust access to NuttX device endpoints</title>
+  <desc id="description">Portable code calls a capability contract. Its private NuttX provider uses Rust standard-library file operations for ordinary opens and data transfer. Controls that std cannot express use small private target-header ABI helpers. Both paths reach NuttX native operations and the registered VFS driver; NuttX owns lower-half hardware access. Ordinary networking instead uses qualified std::net socket operations.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8A9CAF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#24374A" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #FFFFFF; stroke: #D7E1EB; stroke-width: 1.2; }
+      .label { fill: #203042; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #596B7D; font-size: 18px; }
+      .edge { fill: none; stroke: #8A9CAF; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #596B7D; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="792" rx="24" fill="#FCFDFE"/>
+
+  <g id="node-api" data-panel="true">
+    <rect x="160" y="24" width="480" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="175" y="44" width="4" height="48" rx="2" fill="#73B9E2"/>
+    <text x="400" y="56" text-anchor="middle" class="label" font-size="22">Portable capability API</text>
+    <text x="400" y="83" text-anchor="middle" class="subtitle">Typed operations · errors · lifecycle</text>
+  </g>
+  <g id="node-provider" data-panel="true">
+    <rect x="160" y="150" width="480" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="182" text-anchor="middle" class="label" font-size="22">Private NuttX provider</text>
+    <text x="400" y="209" text-anchor="middle" class="subtitle">Rust owns behavior and resource lifetime</text>
+  </g>
+  <path id="edge-api-provider" data-from="api" data-to="provider" d="M400 112 V148" class="edge"/>
+  <g id="node-std" data-panel="true">
+    <rect x="24" y="302" width="348" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="39" y="322" width="4" height="48" rx="2" fill="#73B9E2"/>
+    <text x="198" y="334" text-anchor="middle" class="label" font-size="22">Rust std file I/O</text>
+    <text x="198" y="361" text-anchor="middle" class="subtitle">OpenOptions · Read · Write</text>
+  </g>
+  <g id="node-ffi" data-panel="true">
+    <rect x="428" y="302" width="348" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="443" y="322" width="4" height="48" rx="2" fill="#F08A4B"/>
+    <text x="602" y="334" text-anchor="middle" class="label" font-size="22">Private target ABI helper</text>
+    <text x="602" y="361" text-anchor="middle" class="subtitle">Device controls not expressed by std</text>
+  </g>
+  <path id="edge-provider-std" data-from="provider" data-to="std" d="M280 238 V270 H198 V300" class="edge"/>
+  <path id="edge-provider-ffi" data-from="provider" data-to="ffi" d="M520 238 V270 H602 V300" class="edge"/>
+  <g id="node-native" data-panel="true">
+    <rect x="160" y="454" width="480" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="486" text-anchor="middle" class="label" font-size="22">NuttX native operations</text>
+    <text x="400" y="513" text-anchor="middle" class="subtitle">open / read / write · ioctl</text>
+  </g>
+  <path id="edge-std-native" data-from="std" data-to="native" d="M198 390 V422 H280 V452" class="edge"/>
+  <path id="edge-ffi-native" data-from="ffi" data-to="native" d="M602 390 V422 H520 V452" class="edge"/>
+  <g id="node-vfs" data-panel="true">
+    <rect x="160" y="580" width="480" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="612" text-anchor="middle" class="label" font-size="22">Registered VFS driver</text>
+    <text x="400" y="639" text-anchor="middle" class="subtitle">Device lookup · driver file operations</text>
+  </g>
+  <path id="edge-native-vfs" data-from="native" data-to="vfs" d="M400 542 V578" class="edge"/>
+  <g id="node-hardware" data-panel="true">
+    <rect x="160" y="706" width="480" height="60" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="743" text-anchor="middle" class="label" font-size="22">NuttX lower-half / hardware</text>
+
+  </g>
+  <path id="edge-vfs-hardware" data-from="vfs" data-to="hardware" d="M400 668 V704" class="edge"/>
+
+</svg>

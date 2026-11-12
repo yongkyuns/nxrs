@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="756" viewBox="0 0 800 756" role="img" aria-labelledby="title description">
+  <title id="title">Acquisition and service ownership in the navigation example</title>
+  <desc id="description">IMU IRQ or HAL timer readiness wakes a HAL worker that drains the FIFO and produces typed samples. GNSS UART readiness wakes a HAL worker that reads and parses UBX into typed fixes. The corresponding sensor services each own an event inbox and forward normalized events to the fusion owner. Commands enter the service inboxes. No service handler runs inline in the acquisition producer or interrupt.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8199B1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #1A2533; stroke: #34465A; stroke-width: 1.2; }
+      .label { fill: #E5EDF5; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #ACBDCE; font-size: 18px; }
+      .edge { fill: none; stroke: #8199B1; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #ACBDCE; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="756" rx="24" fill="#10161F"/>
+
+  <g id="node-imu-wake" data-panel="true">
+    <rect x="64" y="24" width="300" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="214" y="56" text-anchor="middle" class="label" font-size="22">IMU readiness</text>
+    <text x="214" y="83" text-anchor="middle" class="subtitle">IRQ or HAL timer</text>
+  </g>
+  <g id="node-gnss-wake" data-panel="true">
+    <rect x="436" y="24" width="300" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="586" y="56" text-anchor="middle" class="label" font-size="22">GNSS readiness</text>
+    <text x="586" y="83" text-anchor="middle" class="subtitle">UART readable</text>
+  </g>
+  <g id="node-imu-hal" data-panel="true">
+    <rect x="64" y="172" width="300" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="79" y="192" width="4" height="48" rx="2" fill="#83C5EA"/>
+    <text x="214" y="204" text-anchor="middle" class="label" font-size="22">IMU acquisition worker</text>
+    <text x="214" y="231" text-anchor="middle" class="subtitle">FIFO drain · typed Sample</text>
+  </g>
+  <g id="node-gnss-hal" data-panel="true">
+    <rect x="436" y="172" width="300" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="451" y="192" width="4" height="48" rx="2" fill="#83C5EA"/>
+    <text x="586" y="204" text-anchor="middle" class="label" font-size="22">GNSS acquisition worker</text>
+    <text x="586" y="231" text-anchor="middle" class="subtitle">Read / UBX parse · typed Fix</text>
+  </g>
+  <g id="node-imu-service" data-panel="true">
+    <rect x="64" y="324" width="300" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="214" y="356" text-anchor="middle" class="label" font-size="22">ImuService</text>
+    <text x="214" y="383" text-anchor="middle" class="subtitle">Own inbox · local processing</text>
+  </g>
+  <g id="node-gnss-service" data-panel="true">
+    <rect x="436" y="324" width="300" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="586" y="356" text-anchor="middle" class="label" font-size="22">GnssService</text>
+    <text x="586" y="383" text-anchor="middle" class="subtitle">Own inbox · local processing</text>
+  </g>
+  <path id="edge-imu-wake-imu-hal" data-from="imu-wake" data-to="imu-hal" d="M214 112 V170" class="edge"/>
+  <path id="edge-gnss-wake-gnss-hal" data-from="gnss-wake" data-to="gnss-hal" d="M586 112 V170" class="edge"/>
+  <path id="edge-imu-hal-imu-service" data-from="imu-hal" data-to="imu-service" d="M214 260 V322" class="edge"/>
+  <path id="edge-gnss-hal-gnss-service" data-from="gnss-hal" data-to="gnss-service" d="M586 260 V322" class="edge"/>
+  <text x="400" y="296" text-anchor="middle" class="edge-label">Bounded task-context delivery</text>
+  <g id="node-fusion" data-panel="true">
+    <rect x="224" y="500" width="352" height="100" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="239" y="520" width="4" height="60" rx="2" fill="#F2A06A"/>
+    <text x="400" y="532" text-anchor="middle" class="label" font-size="22">FusionService</text>
+    <text x="400" y="559" text-anchor="middle" class="subtitle">One inbox · private state</text>
+  </g>
+  <path id="edge-imu-service-fusion" data-from="imu-service" data-to="fusion" d="M214 412 V456 H312 V498" class="edge"/>
+  <path id="edge-gnss-service-fusion" data-from="gnss-service" data-to="fusion" d="M586 412 V456 H488 V498" class="edge"/>
+  <g id="node-commands" data-panel="true">
+    <rect x="240" y="656" width="320" height="76" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="688" text-anchor="middle" class="label" font-size="22">Application commands</text>
+    <text x="400" y="715" text-anchor="middle" class="subtitle">Typed service inputs</text>
+  </g>
+  <path id="edge-commands-imu-service" data-from="commands" data-to="imu-service" d="M240 694 H24 V368 H62" class="edge"/>
+  <path id="edge-commands-gnss-service" data-from="commands" data-to="gnss-service" d="M560 694 H776 V368 H738" class="edge"/>
+  <path id="edge-commands-fusion" data-from="commands" data-to="fusion" d="M400 656 V602" class="edge"/>
+
+</svg>

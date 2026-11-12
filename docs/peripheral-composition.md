@@ -21,22 +21,20 @@ Applications consume capabilities. Profiles assemble their implementations from
 operating-system resources and reusable peripheral drivers where needed. Prefer
 Rust std operations on NuttX POSIX endpoints before introducing custom access.
 
-~~~text
-application / service
-        |
-        v
-capability HAL                 resource ownership and managed lifecycle
-        |
-        +-- std::fs / std::io / std::net --> NuttX VFS / sockets
-        |
-        +-- chip / protocol driver
-        |       +-- std::io stream ------> NuttX UART endpoint
-        |       +-- embedded-hal adapter -> NuttX bus / GPIO controls
-        |
-        +-- thin native binding ----------> device controls / radio SDK
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-interface-boundaries-dark.svg">
+    <img src="assets/nxrs-interface-boundaries.svg" alt="Applications and services use portable capability contracts or Rust std. Capability providers use the needed driver, resource adapter or operating-system support." loading="lazy">
+  </picture>
+  <figcaption>A capability owns resources and lifecycle. NuttX remains responsible for controller setup, pins, DMA and interrupt entry. <a href="assets/nxrs-interface-boundaries.svg">Open SVG</a>.</figcaption>
+</figure>
 
-NuttX BSP and kernel own controller setup, pins, DMA and interrupt entry.
-~~~
+| Provider operation | Existing resource interface |
+| --- | --- |
+| Ordinary files and networking | `std::fs`, `std::io` and `std::net` reach NuttX VFS or sockets |
+| Chip/protocol traffic over a UART | `std::io` streams reach the registered NuttX UART endpoint |
+| Bus transactions and GPIO semantics | `embedded-hal` adapters reach NuttX bus and GPIO controls |
+| Controls or radio operations not expressible through std | Minimal private native bindings reach the device controls or radio SDK |
 
 | Owner | Responsibility |
 | --- | --- |
@@ -78,32 +76,31 @@ only when multiple implementations actually need the same operations.
 
 ## Source organization
 
-~~~text
-driver/peripheral/src/imu.rs           shared synchronous IMU device contract
-driver/bmi270/                         chip API and direct IMU contract implementation
-driver/lsm6dso/                        reusable tagged-FIFO IMU driver
-driver/{bmi270,lsm6dso}/bindings.toml   supported resource combinations and implementation IDs
-driver/ubx/                            reusable M9 protocol driver
-hal/imu/
-  src/api.rs                          application-facing IMU contract
-  src/session.rs                      Session contract implemented on the shared worker
-  src/platform/simulation.rs          adapter to a coordinated simulation session
-  src/platform/mod.rs                 selected acquisition exports
-  src/platform/nuttx/mod.rs            normalized acquisition and construction API
-  src/platform/nuttx/device.rs         ownership, stream metadata and acquisition
-platform/src/nuttx/imu.rs             concrete IMU construction
-driver/i2c/, driver/spi/               NuttX-only embedded-hal resource adapters
-driver/gpio/                           NuttX GPIO interrupt owner and embedded-hal input
-hal/acquisition/                       shared workers, cancellation and native readiness
-  src/probe/                          optional acquisition and I²C/SPI timing
-platform/src/nuttx/gnss.rs            concrete GNSS construction
-hal/gnss/                              UART acquisition, stream metadata and simulation adapter
-shared/simulation/                     seeded scenario and logical clock
-platform/<platform>/profile.toml      platform default device and resource data
-tests/profiles/                        mock, simulation and qualification inputs
-tools/build-support/                shared resolution and generic typed generation
-tools/build/                        build CLI and Cargo orchestration
-~~~
+| Source | Responsibility |
+| --- | --- |
+| `driver/peripheral/src/imu.rs` | Shared synchronous IMU device contract |
+| `driver/bmi270/` | Chip API and direct IMU contract implementation |
+| `driver/lsm6dso/` | Reusable tagged-FIFO IMU driver |
+| `driver/{bmi270,lsm6dso}/bindings.toml` | Supported resource combinations and implementation IDs |
+| `driver/ubx/` | Reusable M9 protocol driver |
+| `hal/imu/src/api.rs` | Application-facing IMU contract |
+| `hal/imu/src/session.rs` | Session contract implemented on the shared worker |
+| `hal/imu/src/platform/simulation.rs` | Adapter to a coordinated simulation session |
+| `hal/imu/src/platform/mod.rs` | Selected acquisition exports |
+| `hal/imu/src/platform/nuttx/mod.rs` | Normalized acquisition and construction API |
+| `hal/imu/src/platform/nuttx/device.rs` | Ownership, stream metadata and acquisition |
+| `platform/src/nuttx/imu.rs` | Concrete IMU construction |
+| `driver/i2c/`, `driver/spi/` | NuttX-only embedded-hal resource adapters |
+| `driver/gpio/` | NuttX GPIO interrupt owner and embedded-hal input |
+| `hal/acquisition/` | Shared workers, cancellation and native readiness |
+| `hal/acquisition/src/probe/` | Optional acquisition and I²C/SPI timing |
+| `platform/src/nuttx/gnss.rs` | Concrete GNSS construction |
+| `hal/gnss/` | UART acquisition, stream metadata and simulation adapter |
+| `shared/simulation/` | Seeded scenario and logical clock |
+| `platform/<platform>/profile.toml` | Platform default device and resource data |
+| `tests/profiles/` | Mock, simulation and qualification inputs |
+| `tools/build-support/` | Shared resolution and generic typed generation |
+| `tools/build/` | Build CLI and Cargo orchestration |
 
 OS adapters stay under the actual OS. Boards using the same sensor share the
 sensor implementation. A board-specific factory is warranted when it implements
@@ -168,11 +165,13 @@ the resolver derives both NuttX configuration and typed Rust endpoint bindings.
 The mapping and every input are hashed for Cargo freshness and build receipts.
 NuttX retains its existing controller initialization and endpoint registration.
 
-~~~text
-profile + overlays -> BSP resource resolution
-                       |-> Kconfig -> NuttX bring-up -> registered endpoints
-                       |-> Rust bindings -> open endpoints -> peripheral drivers
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-profile-composition-dark.svg">
+    <img src="assets/nxrs-profile-composition.svg" alt="A profile and ordered overlays resolve resources, device instances and aliases. Resource bindings supply native settings; generated device and alias accessors refer to canonical instances." loading="lazy">
+  </picture>
+  <figcaption>BSP resource resolution derives both Kconfig for NuttX bring-up and Rust bindings that open the registered endpoints. Configuration cannot invent missing BSP support. <a href="assets/nxrs-profile-composition.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Select `binding` and supply its declared native pin symbols in the resource's
 `kconfig` table. Do not repeat `kind`, `/dev` paths or the binding's fixed Kconfig

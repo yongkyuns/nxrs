@@ -2,6 +2,21 @@
 
 Use the small examples to learn a particular API or pattern. Larger applications show how several components fit together and are optional reading.
 
+## Choose an example by task
+
+| I want to learn… | Example | Runs without a board? |
+| --- | --- | --- |
+| The application/source/build workflow | `basic-firmware` greeting | Yes, as host Rust and in the firmware tutorial |
+| A bounded worker and joined shutdown | `basic-firmware` worker | Yes, using the same tutorial workspace |
+| Rust collections, ownership, channels, and deadlines | `std-demo` recipes | Yes |
+| Overload, owner progress, and repeated lifetimes | `ao-stress` | Yes; host measurements describe the host |
+| Existing replay, recording, and UDP implementations | Feature-selected package examples and tests | Yes, subject to their file/network prerequisites |
+| Several services connected by an application | `event-demo` | Yes with its documented mock or simulation setup |
+| Named physical instances sharing a bus | `dual-imu-demo` | Build inspection is local; acquisition needs the configured devices |
+| A larger connected camera application | `home-cam` | Parts run on the host; full capture and delivery need the relevant hardware/services |
+
+Commands below run from the NXRS root. Finish [Getting started](getting-started.md) first. Use [Build workflow](build-system.md) to distinguish a host run, a firmware build, and a command entered in NSH.
+
 ## Basic firmware
 
 The [basic-firmware package](../examples/basic-firmware/) has a normal Rust entry point, an independent Cargo workspace, and NuttX firmware metadata. It is the starting point for [Your first application](first-application.md).
@@ -13,6 +28,8 @@ cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --
 
 `hello` prints a greeting. `worker` sends typed commands to a bounded inbox and joins the worker after shutdown. It uses no hardware-specific service or driver.
 
+Expected final output is `Hello from NXRS` for `hello` and `Processed total: 6` for `worker`. The checked-in package is useful for running the examples directly; the tutorial teaches you to create your own source package with the same behavior.
+
 ## Standard-library recipes
 
 [app/std-demo](../../app/std-demo/) contains collections, ownership, channels, synchronization, and deadline examples:
@@ -22,7 +39,56 @@ cargo run --locked -p nxrs-std-demo -- --list
 cargo run --locked -p nxrs-std-demo -- --case channels
 ```
 
-Use [Standard-library APIs](standard-library.md) for an overview and [Building for NuttX](firmware.md) to build this application for a target.
+The selected channel recipe finishes with `STD_DEMO PASS cases=1`. With no `--case`, the program runs all nine recipes and reports `STD_DEMO PASS cases=9`. Each recipe checks its own result before printing success.
+
+| `--case` | What to inspect in the source |
+| --- | --- |
+| `vec` | Growth, reservation, reuse, and an application-enforced capacity limit |
+| `fixed` | Inline arrays and an occupied slice |
+| `maps` | `HashMap` updates, admission limits, and ordered `BTreeMap` entries |
+| `queues` | `VecDeque` reuse and earliest-deadline ordering with `BinaryHeap` |
+| `bytes` | Fixed byte buffers, little-endian encoding, `String`, and `Cow` |
+| `ownership` | Unique/shared ownership, one-time initialization, and joined threads |
+| `channels` | Bounded and rendezvous channels, full/disconnected handling, and moved buffers |
+| `synchronization` | Mutex/condition-variable predicates and atomic publication |
+| `deadlines` | An absolute deadline and remaining-time receive waits |
+
+The implementations are in [collections.rs](../../app/std-demo/src/collections.rs) and [concurrency.rs](../../app/std-demo/src/concurrency.rs). These recipes explain behavior; they are not a claim that every `std` operation is allocation-free or has a target-independent timing bound.
+
+After completing the target setup in [Building for NuttX](firmware.md), build this repository application with:
+
+```sh
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock
+```
+
+Use the tutorial's QEMU invocation with the image path changed to `target/build/std-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin`. At `nsh>`, run `std_demo --case channels`. The Cargo application name uses a hyphen; its registered NSH command uses an underscore.
+
+Use [Standard-library APIs](standard-library.md) to choose APIs for your own code and the [recipe reference](../../docs/std-demo-and-ao-stress.md#the-curated-recipes) for details.
+
+## Exercise overload and shutdown
+
+`ao-stress` uses producer threads, bounded worker inboxes, and a collector. Start with the default configuration on the host:
+
+```sh
+cargo run --locked -p nxrs-ao-stress -- --scenario steady
+cargo run --locked -p nxrs-ao-stress -- --scenario burst --rounds 3
+```
+
+The first run ends with `AO_STRESS PASS scenarios=1 rounds=1`; the second ends with `AO_STRESS PASS scenarios=1 rounds=3`. Before that, `AO_RESULT` records report accepted work, losses, latency, owner progress, and shutdown behavior. Exact counts and timings depend on the executing system.
+
+The stress workload deliberately counts full-queue drops. A passing run verifies its accounting, ordering, checksums, and cleanup; it does not mean zero loss. Compare admitted work with completed work before interpreting a throughput number. Read the [stress reference](../../docs/std-demo-and-ao-stress.md#stress-topology-and-policy) before changing capacities, thread counts, or stack settings for an MCU.
+
+## Test a reusable software capability
+
+These package tests exercise existing implementations without selecting a hardware profile:
+
+```sh
+cargo test --locked -p nxrs-camera --features replay
+cargo test --locked -p nxrs-storage --features recording
+cargo test --locked -p nxrs-transport --features udp
+```
+
+Follow the owning [camera](../../hal/camera/README.md), [storage](../../hal/storage/README.md), and [transport](../../hal/transport/README.md) guides for runnable examples and file or network inputs. Enable the feature on the dependency that owns the functionality. The package references explain queue admission, record commit, cancellation, and cleanup contracts that matter when combining these components.
 
 ## IoT application structure
 
@@ -43,6 +109,8 @@ Read this material when working on a camera application. It is not required for 
 <span id="navigation-and-service-composition"></span>
 
 The repository also contains [event-demo](../../app/event-demo/) and [dual-imu-demo](../../app/dual-imu-demo/), which exercise sensor-specific service composition and named devices. Their [application notes](../../docs/event-driven-demo.md) remain available as implementation examples rather than the default introduction to NXRS.
+
+Read `main.rs` to see component construction and shutdown, then follow the linked service and HAL contracts. Copy a pattern only after deciding which component should own each resource in your own application. The application examples do not define a mandatory set of services or a required event bus.
 
 ## Add a second sensor on CoreS3
 
@@ -117,3 +185,5 @@ profile. See [Required and optional devices](profiles.md#required-and-optional-d
 ## Tests and benchmarks
 
 Stress workloads and focused measurement fixtures live alongside the application examples and under `tests/`. Use the [test index](../../tests/README.md) and [Performance and memory](performance.md) when working on those tests; they are separate from the introductory programs.
+
+For your next application, start with the small source package and add one useful capability at a time. Keep a host test for the behavior, a target build for the integration, and a physical test for each hardware dependency. [Designing applications](designing-applications.md) develops that process.

@@ -2,10 +2,18 @@ const root = document.documentElement;
 const base = document.body.dataset.base;
 const themeButton = document.querySelector('#theme-toggle');
 const media = matchMedia('(prefers-color-scheme: dark)');
+// Reference Markdown uses <picture> so the same artwork works on GitHub.
+// Preserve that fallback while making its sources follow the site's own theme.
+const themeSources = [...document.querySelectorAll('picture source[media]')]
+  .map(source => ({ source, scheme: source.media.match(/^\(prefers-color-scheme: (dark|light)\)$/)?.[1] }))
+  .filter(item => item.scheme);
 function updateThemeButton() {
   const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
   themeButton.textContent = next === 'dark' ? 'Dark' : 'Light';
   themeButton.setAttribute('aria-label', `Switch to ${next} theme`);
+  for (const { source, scheme } of themeSources) {
+    source.media = scheme === root.dataset.theme ? 'all' : 'not all';
+  }
 }
 themeButton.addEventListener('click', () => {
   root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';

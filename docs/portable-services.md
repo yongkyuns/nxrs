@@ -18,16 +18,13 @@ These do not establish physical capture, RTOS scheduling or radio behavior.
 
 The qualification composes the same capability-first service APIs:
 
-```text
-tests/camera-support -> nxrs-camera-service
-                        nxrs-recording-service
-                        nxrs-telemetry-service
-                        -> nxrs-camera / nxrs-storage / nxrs-transport
-
-service/navigation   -> nxrs-imu / nxrs-gnss
-                          -> provider-independent api contract
-                          -> one build-selected provider
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-service-dependencies-dark.svg">
+    <img src="assets/nxrs-service-dependencies.svg" alt="The camera test composition connects camera, recording and telemetry services to their capability contracts. Navigation services independently use IMU and GNSS contracts with selected providers." loading="lazy">
+  </picture>
+  <figcaption>Arrows show dependencies. The camera composition is qualification support; production applications construct their own services. <a href="assets/nxrs-service-dependencies.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Production apps and services depend on capability contracts, never on this test
 helper. Native qualification explicitly constructs replay, recording and UDP

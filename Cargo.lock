@@ -388,6 +388,7 @@ version = "0.1.0"
 dependencies = [
  "dunce",
  "embedded-hal",
+ "libc",
  "nxrs-acquisition",
  "nxrs-bmi270",
  "nxrs-build-support",

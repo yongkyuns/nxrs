@@ -325,7 +325,17 @@ fn product_owned_packages_compile_and_inherited_reselection_invalidates_receipts
         .canonicalize()
         .unwrap();
     let temporary = TempDir::new(&std::env::temp_dir()).unwrap();
-    let product = &temporary.0;
+    let product = temporary.0.join("product");
+    fs::create_dir(&product).unwrap();
+    // Exercise the alternate spelling used by macOS temporary directories on
+    // every Unix host, while preserving the full product build/freshness witness.
+    #[cfg(unix)]
+    let product = {
+        let alias = temporary.0.join("product-link");
+        std::os::unix::fs::symlink(product.canonicalize().unwrap(), &alias).unwrap();
+        alias
+    };
+    let product = &product;
     fixture(product, &sdk);
     lock(product);
     let original_app = fs::read(product.join("app/src/main.rs")).unwrap();
@@ -367,12 +377,13 @@ fn product_owned_packages_compile_and_inherited_reselection_invalidates_receipts
         "sensor-a/Cargo.toml",
         "sensor-a/bindings.toml",
     ] {
+        let expected = product.join(relative).canonicalize().unwrap();
         assert!(
             saved["dependencies"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|input| input["path"].as_str() == product.join(relative).to_str()),
+                .any(|input| input["path"].as_str().map(Path::new) == Some(expected.as_path())),
             "missing {relative}"
         );
     }

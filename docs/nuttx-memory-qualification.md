@@ -64,8 +64,8 @@ cargo nxrs build --app ao-stress --profile mps2-an521-mock
 python3 tests/host/run-std-apps-nuttx.py \
   --qemu "$(command -v qemu-system-arm)" \
   --app ao-stress \
-  --image target/firmware/ao-stress/mps2-an521-mock/nuttx/nuttx \
-  --log target/firmware/ao-stress/mps2-an521-mock/console.log
+  --image target/build/ao-stress/mps2-an521-mock/nuttx/nuttx \
+  --log target/build/ao-stress/mps2-an521-mock/console.log
 ```
 
 Parser and false-success controls run independently on the host:
