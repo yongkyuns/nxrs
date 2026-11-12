@@ -1097,7 +1097,7 @@ mod tests {
             p.data[cap][key] = bad;
             assert!(p.validate_resources().is_err());
         }
-        let base = Profile::resolve(&root(), "esp32s3-camera-stream-smp").unwrap();
+        let base = Profile::resolve(&root(), "esp32s3-camera-stream").unwrap();
         for bad in [json!(-1), json!(32), json!(true)] {
             let mut p = base.clone();
             p.data["detector"]["compute-core"] = bad;

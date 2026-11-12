@@ -1,4 +1,4 @@
 # Video-only baseline retains the same camera, radio and memory configuration.
-extends = "esp32s3-camera-stream"
+extends = "esp32s3-camera-stream-single-core"
 hal = { detector = "none" }
 detector = {}

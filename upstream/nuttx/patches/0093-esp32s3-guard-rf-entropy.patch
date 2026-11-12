@@ -2,7 +2,7 @@ From: nxrs contributors
 Subject: [PATCH] esp32s3: guard RF entropy and bound random-device reads
 
 Use the pinned SDK PHY mutex through sampling, refuse uninitialized, sleeping
-or busy Wi-Fi entropy, and leave unsupported PM/SMP configurations closed.
+or busy Wi-Fi entropy, and leave unsupported PM configurations closed.
 Keep the raw urandom interface distinct and honor nonblocking lock acquisition.
 A read copies at most 32 bytes; the vendor sampling cadence is unchanged.
 This is not physical entropy, latency or health qualification.
@@ -107,7 +107,7 @@ This is not physical entropy, latency or health qualification.
 +static ssize_t esp32s3_trng_read(struct file *filep, char *buffer,
 +                                 size_t buflen)
 +{
-+#if defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_SMP) && \
++#if defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && \
 +    !defined(CONFIG_PM) && !defined(CONFIG_ESP32S3_AUTO_SLEEP)
 +  _lock_t lock;
 +  ssize_t ret = -EAGAIN;

@@ -24,10 +24,11 @@ class TlsSdkTests(unittest.TestCase):
                  (rp - {'RP23XX_RNG'}, False),
                  (rp | {'SMP'}, False),
                  (rp | {'DEV_URANDOM_RANDOM_POOL'}, False),
-                 (s3, True)]
+                 (s3, True),
+                 (s3 | {'SMP'}, True)]
         cases.extend((s3 - {required}, False) for required in s3)
         cases.extend((s3 | {unsupported}, False)
-                     for unsupported in ('SMP', 'PM', 'ESPRESSIF_AUTO_SLEEP',
+                     for unsupported in ('PM', 'ESPRESSIF_AUTO_SLEEP',
                                          'ESP32S3_AUTO_SLEEP'))
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)

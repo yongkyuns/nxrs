@@ -524,9 +524,10 @@ after normal sessions have disconnected, stopped and joined. Acquisition is
 read-only; explicit `quiesce()` requests native interface shutdown and verifies
 down state. Retain this owner through flash work and `resume()` before reopening
 a session. An uncertain transition is sticky and quarantines admission until
-reset; Drop does no blocking radio cleanup. Only the ESP32-S3 STA, single-core
-NuttX provider admits this resource, using the patched poll-thread join barrier.
-It does not establish shutdown of other peripherals or physical bus timing.
+reset; Drop does no blocking radio cleanup. The ESP32-S3 station-only NuttX
+provider uses the poll-thread join barrier and closes deferred reconnect
+admission under the native Wi-Fi mutex. Other peripherals have separate
+shutdown lifetimes.
 
 The hardware-backed `ble::open` contract is scanning only. Scan events have no generic GATT
 value buffer. A full bounded peer registry emits `DiscoveryLimited` once per

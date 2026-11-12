@@ -1,0 +1,197 @@
+From: nxrs contributors
+Subject: [PATCH] xtensa: serialize station reconnect with Wi-Fi shutdown
+
+Check reconnect admission inside the same mutex as disconnect and stop.
+Deferred reconnect work must never reopen admission after an explicit stop.
+
+--- a/arch/xtensa/src/common/espressif/esp_wifi_api.c
++++ b/arch/xtensa/src/common/espressif/esp_wifi_api.c
+@@ -61,14 +61,14 @@
+  ****************************************************************************/
+ 
+ /****************************************************************************
+- * Public Data
++ * Private Data
+  ****************************************************************************/
+ 
+ #ifdef ESP_WLAN_HAS_STA
+ 
+ /* Whether the station should reconnect after an unsolicited disconnection */
+ 
+-volatile bool g_sta_reconnect;
++static bool g_sta_reconnect;
+ 
+ #endif /* ESP_WLAN_HAS_STA */
+ 
+@@ -345,7 +345,11 @@
+   wifi_mode_t mode;
+   wifi_mode_t current_mode;
+ 
+-  esp_wifi_lock(true);
++  ret = esp_wifi_lock(true);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   ret = esp_wifi_get_mode(&current_mode);
+   if (ret != 0)
+@@ -360,10 +364,18 @@
+   if (mode == -EINVAL)
+     {
+       wlerr("Invalid mode=%ld\n", stop_mode);
+-      return -EINVAL;
++      ret = -EINVAL;
++      goto errout;
+     }
+ 
+   wlinfo("current_mode=%d, mode=%d\n", current_mode, mode);
++
++#ifdef ESP_WLAN_HAS_STA
++  if (mode == WIFI_MODE_STA)
++    {
++      g_sta_reconnect = false;
++    }
++#endif
+ 
+   ret = esp_wifi_stop();
+   if (ret != 0)
+@@ -696,21 +708,29 @@
+  *   Trigger Wi-Fi station connection action.
+  *
+  * Input Parameters:
+- *   None
+- *
+- * Returned Value:
+- *   OK on success; Negated errno returned on failure.
+- *
+- ****************************************************************************/
+-
+-int esp_wifi_sta_connect(void)
++ *   retry - Reconnect only while explicit connection is enabled.
++ *
++ * Returned Value:
++ *   OK on success; Negated errno returned on failure.
++ *
++ ****************************************************************************/
++
++int esp_wifi_sta_connect(bool retry)
+ {
+   int ret;
+ 
++  ret = esp_wifi_lock(true);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  if (retry && !g_sta_reconnect)
++    {
++      return esp_wifi_lock(false);
++    }
++
+   wlinfo("Wi-Fi station connecting\n");
+-
+-  esp_wifi_lock(true);
+-
+   g_sta_reconnect = true;
+ 
+   ret = esp_wifi_connect();
+@@ -748,7 +768,11 @@
+   int ret;
+   wifi_config_t wifi_config;
+ 
+-  esp_wifi_lock(true);
++  ret = esp_wifi_lock(true);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* WARNING: failure_retry_cnt has no documented effect unless scan_method
+    * is WIFI_ALL_CHANNEL_SCAN, which NuttX never selects.  Reconnection is
+--- a/arch/xtensa/src/common/espressif/esp_wifi_api.h
++++ b/arch/xtensa/src/common/espressif/esp_wifi_api.h
+@@ -36,18 +36,6 @@
+ #include "esp_wlan_netdev.h"
+ 
+ /****************************************************************************
+- * Public Data
+- ****************************************************************************/
+-
+-#ifdef ESP_WLAN_HAS_STA
+-
+-/* Whether the station should reconnect after an unsolicited disconnection */
+-
+-extern volatile bool g_sta_reconnect;
+-
+-#endif /* ESP_WLAN_HAS_STA */
+-
+-/****************************************************************************
+  * Public Function Prototypes
+  ****************************************************************************/
+ 
+@@ -284,14 +272,14 @@
+  *   Trigger Wi-Fi station connection action.
+  *
+  * Input Parameters:
+- *   None
+- *
+- * Returned Value:
+- *   OK on success; Negated errno returned on failure.
+- *
+- ****************************************************************************/
+-
+-int esp_wifi_sta_connect(void);
++ *   retry - Reconnect only while explicit connection is enabled.
++ *
++ * Returned Value:
++ *   OK on success; Negated errno returned on failure.
++ *
++ ****************************************************************************/
++
++int esp_wifi_sta_connect(bool retry);
+ 
+ /****************************************************************************
+  * Name: esp_wifi_sta_disconnect
+--- a/arch/xtensa/src/common/espressif/esp_wifi_event_handler.c
++++ b/arch/xtensa/src/common/espressif/esp_wifi_event_handler.c
+@@ -103,12 +103,7 @@
+   UNUSED(arg);
+   int ret;
+ 
+-  if (!g_sta_reconnect)
+-    {
+-      return;
+-    }
+-
+-  ret = esp_wifi_sta_connect();
++  ret = esp_wifi_sta_connect(true);
+   if (ret < 0)
+     {
+       wlerr("Failed to reconnect to Wi-Fi on callback\n");
+@@ -205,11 +200,8 @@
+ 
+           wlinfo("Wi-Fi station disconnected, reason: %u\n", reason);
+           esp_wlan_sta_disconnect_hook();
+-          if (g_sta_reconnect)
+-            {
+-              work_queue(LPWORK, &g_wifi_reconnect_work,
+-                         esp_reconnect_work_cb, NULL, 0);
+-            }
++          work_queue(LPWORK, &g_wifi_reconnect_work,
++                     esp_reconnect_work_cb, NULL, 0);
+         }
+         break;
+ 
+--- a/arch/xtensa/src/common/espressif/esp_wlan_netdev.c
++++ b/arch/xtensa/src/common/espressif/esp_wlan_netdev.c
+@@ -437,7 +437,7 @@
+ 
+   if (priv->mode == IW_MODE_INFRA)
+     {
+-      ret = esp_wifi_sta_connect();
++      ret = esp_wifi_sta_connect(false);
+       if (ret < 0)
+         {
+           wlerr("Failed to connect to Wi-Fi\n");

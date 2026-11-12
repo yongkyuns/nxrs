@@ -68,7 +68,9 @@ int main(void) {
                             ['-DCONFIG_ARCH_CHIP_ESP32S3', '-DCONFIG_ESPRESSIF_WIFI_STATION',
                              '-DEXPECT_AVAILABLE=1'],
                             ['-DCONFIG_ARCH_CHIP_ESP32S3', '-DCONFIG_ESPRESSIF_WIFI_STATION',
-                             '-DCONFIG_SMP', '-DEXPECT_AVAILABLE=0']):
+                             '-DCONFIG_SMP', '-DEXPECT_AVAILABLE=1'],
+                            ['-DCONFIG_ARCH_CHIP_ESP32S3', '-DCONFIG_ESPRESSIF_WIFI_STATION',
+                             '-DCONFIG_ESPRESSIF_WIFI_SOFTAP', '-DEXPECT_AVAILABLE=0']):
                 result = subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', *defines,
                                          str(path / 'flags.c'), '-o', str(path / 'flags')],
                                         text=True, capture_output=True)
