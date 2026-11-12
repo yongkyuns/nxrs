@@ -76,10 +76,6 @@ class PtyProcess:
     def __init__(self, argv, sensitive=()):
         self.guard = SecretGuard(sensitive)
         self.pending = bytearray()
-        self.newkeys = 0
-        self._debug_tail = b""
-        self._debug_line = bytearray()
-        self.algorithms = {}
         self.returncode = None
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
@@ -105,25 +101,6 @@ class PtyProcess:
             self.poll()
             return False
         self.guard.feed(value)
-        debug = self._debug_tail + value
-        marker = b"SSH2_MSG_NEWKEYS received"
-        self.newkeys += debug.count(marker)
-        self._debug_tail = debug[-(len(marker) - 1):]
-        self._debug_line.extend(value)
-        while b"\n" in self._debug_line:
-            line, _, rest = self._debug_line.partition(b"\n")
-            self._debug_line = bytearray(rest)
-            for label, pattern in (
-                ("key_exchange", rb"debug1: kex: algorithm: ([A-Za-z0-9@._+-]+)"),
-                ("host_key", rb"debug1: kex: host key algorithm: ([A-Za-z0-9@._+-]+)"),
-                ("server_to_client", rb"debug1: kex: server->client cipher: ([A-Za-z0-9@._+-]+) MAC: ([A-Za-z0-9@._+<>-]+) compression: ([A-Za-z0-9@._+-]+)"),
-                ("client_to_server", rb"debug1: kex: client->server cipher: ([A-Za-z0-9@._+-]+) MAC: ([A-Za-z0-9@._+<>-]+) compression: ([A-Za-z0-9@._+-]+)"),
-            ):
-                match = re.search(pattern, line)
-                if match:
-                    self.algorithms[label] = [group.decode("ascii") for group in match.groups()]
-        if len(self._debug_line) > 16384:
-            self._debug_line = self._debug_line[-4096:]
         self.pending.extend(value)
         if len(self.pending) > 2 * 1024 * 1024:
             raise CheckFailure("bounded_client_output_exceeded")
@@ -202,6 +179,27 @@ class PtyProcess:
                         self.returncode = os.waitstatus_to_exitcode(status)
         finally:
             os.close(self.fd)
+
+
+def ssh_trace(path, password):
+    limit = 256 * 1024
+    with path.open("rb") as stream:
+        output = stream.read(limit + 1)
+    if len(output) > limit:
+        raise CheckFailure("bounded_ssh_trace_exceeded")
+    SecretGuard((password,)).feed(output)
+    newkeys = len(re.findall(rb"^debug1: SSH2_MSG_NEWKEYS received\r?$", output, re.M))
+    algorithms = {}
+    for label, pattern in (
+        ("key_exchange", rb"^debug1: kex: algorithm: ([A-Za-z0-9@._+-]+)"),
+        ("host_key", rb"^debug1: kex: host key algorithm: ([A-Za-z0-9@._+-]+)"),
+        ("server_to_client", rb"^debug1: kex: server->client cipher: ([A-Za-z0-9@._+-]+) MAC: ([A-Za-z0-9@._+<>-]+) compression: ([A-Za-z0-9@._+-]+)"),
+        ("client_to_server", rb"^debug1: kex: client->server cipher: ([A-Za-z0-9@._+-]+) MAC: ([A-Za-z0-9@._+<>-]+) compression: ([A-Za-z0-9@._+-]+)"),
+    ):
+        matches = list(re.finditer(pattern, output, re.M))
+        if matches:
+            algorithms[label] = [group.decode("ascii") for group in matches[-1].groups()]
+    return newkeys, algorithms
 
 
 def verify_known_hosts(path, host, port, expected):
@@ -373,7 +371,10 @@ class Suite:
         self.wait_listening()
         with tempfile.TemporaryDirectory(prefix="nxrs-ssh-") as directory:
             control = Path(directory) / "master"
-            process = self.client.login(control=control, master=True)
+            # OpenSSH may log in the middle of a partial terminal write during
+            # rekey. Keep its diagnostics on a separate, private stream.
+            trace = Path(directory) / "openssh.log"
+            process = self.client.login(control=control, master=True, extra=("-E", str(trace)))
             try:
                 token = secrets.token_hex(12)
                 # Deliberately partial NSH command input.
@@ -407,26 +408,29 @@ class Suite:
                 process.expect(PROMPT)
                 self.second_transport(process)
                 self.second_channel(process, control)
-                baseline_keys = process.newkeys
+                baseline_keys, _ = ssh_trace(trace, self.client.password)
                 before_ticks = self.console.progress() if self.console else None
                 count = 8192
                 command(process, f"ssh_probe bulk {token} {count}")
                 time.sleep(1) # Deliberately stop consuming the host terminal.
                 if self.console and self.console.progress() <= before_ticks:
                     raise CheckFailure("independent_progress_stalled_during_output")
+                row = re.escape(marker("DATA", token)) + rb" sequence=(\d{5})\r*\n"
                 for sequence in range(count):
-                    _, groups = process.expect(re.escape(marker("DATA", token)) + rb" sequence=(\d{5})\b", 30)
-                    if int(groups[0]) != sequence:
-                        raise CheckFailure("bulk_output_missing_duplicated_or_reordered")
+                    _, groups = process.expect(row, 30)
+                    received = int(groups[0])
+                    if received != sequence:
+                        raise CheckFailure(f"bulk_output_sequence_mismatch:{sequence}:{received}")
                 tail, _ = process.expect(re.escape(marker("BULK_DONE", token)) + f" lines={count}".encode())
                 if marker("DATA", token) in tail:
                     raise CheckFailure("bulk_output_has_extra_rows")
                 process.expect(PROMPT, 30)
-                if process.newkeys <= baseline_keys:
+                newkeys, algorithms = ssh_trace(trace, self.client.password)
+                if newkeys <= baseline_keys:
                     raise CheckFailure("no_observed_rekey_after_bulk_output")
                 logout(process)
-                return {"bulk_lines": count, "newkeys_received": process.newkeys,
-                        "negotiated_algorithms": process.algorithms,
+                return {"bulk_lines": count, "newkeys_received": newkeys,
+                        "negotiated_algorithms": algorithms,
                         "stderr_scope": "separate marker on the merged PTY", "ctrl_c": "explicit_fixture_SIGINT_handler"}
             finally:
                 process.close()

@@ -203,7 +203,9 @@ unverified. A client reconnect loop alone is not leak evidence.
 | Reconnects | By default 100 successful sessions, interleaved wrong-password logins, within the same local-owner lifetime. No reboot masks accumulated state. |
 | Local control | Native readiness/state, authentication-deadline reclamation followed by a fresh login, progress during output, task/FD snapshots, active stop of a cooperative Rust builtin, restart, final child reap and Wi-Fi join. |
 
-The automated rekey case is initiated by the client. The deferred-reply bound
+The automated rekey case is initiated by the client. OpenSSH writes its
+diagnostics to a temporary file so they cannot split the numbered PTY output.
+The deferred-reply bound
 protects a different condition: server-initiated rekey while an authenticated
 peer sends requests that cause rejection replies. Native controls verify the
 two-entry bound and refusal before allocation; that condition still needs a

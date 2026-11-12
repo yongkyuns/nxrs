@@ -87,6 +87,16 @@ class SshQualificationTests(unittest.TestCase):
             guard.feed(secret[11:] + b"\r\n")
         self.assertNotIn(repr(secret), str(raised.exception))
 
+    def test_ssh_rekey_counts_only_complete_debug_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "openssh.log"
+            trace.write_bytes(b"debug1: kex: host key algorithm: ecdsa-sha2-nistp256\n"
+                              b"debug1: SSH2_MSG_NEWKEYS received\n"
+                              b"debug1: peer message SSH2_MSG_NEWKEYS received\n"
+                              b"debug1: SSH2_MSG_NEWKEYS received\r\n")
+            self.assertEqual(SSH.ssh_trace(trace, b"Fixture9!"),
+                             (2, {"host_key": ["ecdsa-sha2-nistp256"]}))
+
     def test_stale_sdk_receipt_cannot_emit_crossbuild_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
