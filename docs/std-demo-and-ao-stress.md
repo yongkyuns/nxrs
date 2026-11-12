@@ -74,11 +74,13 @@ infallible allocations and thread creation still have their platform limitations
 
 ## Stress topology and policy
 
-```text
-P paced/bursty producer threads
-  -> W worker active objects, each with its own bounded inbox and private state
-  -> one collector active object with another bounded inbox and private state
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-ao-stress-dark.svg">
+    <img src="assets/nxrs-ao-stress.svg" alt="P producer threads send work to W worker owners, each with its own bounded inbox and private state. Workers send results to one collector with another bounded inbox and private state." loading="lazy">
+  </picture>
+  <figcaption>P, W and inbox capacities are test inputs. Both queue boundaries count rejected work; the configured overload policy is drop-newest. <a href="assets/nxrs-ao-stress.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Default: two producers, two workers, one collector, 16 slots per inbox, 300 ms
 per scenario. The four scenarios are paced steady traffic, unpaced bursts,

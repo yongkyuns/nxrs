@@ -6,9 +6,13 @@ The public introduction describes NXRS as a general-purpose Rust firmware develo
 
 Start with host setup, a minimal Cargo application, and a NuttX build. Develop the general topics independently: standard-library APIs, services and concurrency, hardware access, networking/storage, profiles, and tests.
 
+Give readers two ways through the material: a continuous learning path and a task map for returning users. Explain the design choices and API boundaries before asking the reader to compose several components. Keep the build workflow separate from the first target tutorial: one explains how inputs become artifacts, while the other takes a particular program through a working build and boot.
+
 Domain-specific applications belong under Examples or application-specific reference notes. They may illustrate a general concept, but a reader should not need to understand sensor fusion, a camera pipeline, or any other product to learn the framework.
 
 Give each tutorial a task, prerequisites, commands, expected output, an explanation of the relevant files, and a next step. Distinguish a runnable example from a design illustration by naming it accordingly. Keep real configuration requirements near the operation they affect.
+
+Use generated SVGs for topology, ownership, lifecycle, and build flow. Match the approved overall architecture; replace text sketches, including diagrams in tilde-fenced blocks. A directory inventory or a simple dependency mapping is usually clearer as a table. Preserve real code and terminal output. Explain a diagram's scope in its caption and keep small-screen reading possible through descriptive prose and a link to the full SVG.
 
 ## Sources reviewed for this revision
 
@@ -23,13 +27,15 @@ These are documentation references, not compatibility, endorsement, or feature-p
 
 ## Maintainable examples
 
-`examples/basic-firmware` is an independent, dependency-free Cargo workspace. The first application and worker excerpts are checked against their source. Website CI compiles and runs a copied workspace, tests the worker lifecycle, and executes the documented `std-demo` commands.
+`examples/basic-firmware` is an independent, dependency-free Cargo workspace. The first application and worker excerpts are checked against their source. Website CI creates an external workspace from the guide's `cargo new` command and published blocks, compiles and runs each tutorial revision, tests the worker lifecycle, and executes the documented `std-demo` commands.
 
-Keep the copied-project workflow runnable. Add real behavior only when it helps teach the next concept; do not turn the introductory template into a product or framework runtime.
+Keep the source-project workflow runnable. Add real behavior only when it helps teach the next concept; do not turn the introductory template into a product or framework runtime.
 
 ## Navigation and reference ownership
 
 `site.json` declares the guide order and sections. Each guide belongs to one section. Core references appear in the persistent sidebar; application-specific notes are linked from Examples and the categorized Reference index.
+
+Pagination follows the entire guide across section boundaries. Reference-to-guide links help a reader who arrives through search recover the user-facing introduction. The mobile section index is native HTML and remains useful without JavaScript.
 
 The index renders every `docs/**/*.md` source once, including additional notes outside its curated groups. Do not delete historical test reports or change their results as part of an editorial revision.
 

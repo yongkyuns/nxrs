@@ -11,11 +11,13 @@ NXRS_PLATFORM=host-imu cargo run --locked -p nxrs-dual-imu-demo
 
 ## Ownership and delivery
 
-```text
-IMU IRQ/timer → HAL FIFO drain → typed Sample ─→ ImuService ──┐
-GNSS UART ready → HAL read/UBX → typed Fix ────→ GnssService ─┼→ FusionService
-commands ──────────────────────────────────→ service inboxes ┘
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-navigation-dataflow-dark.svg">
+    <img src="assets/nxrs-navigation-dataflow.svg" alt="Separate IMU and GNSS acquisition workers normalize data into typed events, their sensor services process those events, and a fusion owner receives their outputs. Application commands enter service inboxes." loading="lazy">
+  </picture>
+  <figcaption>Acquisition and each service own separate execution lifetimes. Arrows denote bounded task-context delivery; interrupts only notify the acquisition path. <a href="assets/nxrs-navigation-dataflow.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Each HAL owns acquisition, parsing, normalization and device cleanup. Services
 own local processing and session lifecycle. Acquisition events use bounded,

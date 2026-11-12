@@ -37,15 +37,13 @@ The service owns application state, processing policy and HAL session lifecycle.
 The provider owns device resources and acquisition/parsing state. Owning a GNSS
 session does not mean reading a UART on the service thread.
 
-~~~text
-GNSS device -> HAL wait/read/parse/normalize -> typed delivery endpoint
-                                                     |
-commands / peer events ------------------------------+-> service queues
-                                                          |
-                                                  one selection point
-                                                          |
-                                       local calibration / fusion / health
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-acquisition-boundary-dark.svg">
+    <img src="assets/nxrs-acquisition-boundary.svg" alt="HAL acquisition waits, reads, parses and normalizes device data. A typed endpoint admits it to bounded service queues, where one owner selects inputs and runs local processing." loading="lazy">
+  </picture>
+  <figcaption>For GNSS, the provider owns UART parsing and coherent measurement assembly. Calibration, fusion and health policy run with the receiving service state. <a href="assets/nxrs-acquisition-boundary.svg">Open SVG</a>.</figcaption>
+</figure>
 
 GNSS HAL hides NMEA versus UBX, serial framing, checksums, partial input,
 receiver-specific configuration/recovery and coherent measurement assembly.
@@ -113,11 +111,13 @@ important and ordinary queues. A dedicated lifecycle-stop queue can additionally
 isolate shutdown from an important-event burst. This replaces the earlier rule
 of one physical queue for every source.
 
-~~~text
-lifecycle owner -> stop queue (reserved for stop) --+
-critical commands / terminal faults -> important -+-> one select -> one owner
-HAL solutions / ordinary peer events -> ordinary -+
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-priority-inboxes-dark.svg">
+    <img src="assets/nxrs-priority-inboxes.svg" alt="A reserved stop queue, an important queue for critical commands and terminal faults, and an ordinary queue for HAL data and peer events feed one selection point and one owner." loading="lazy">
+  </picture>
+  <figcaption>Separate capacity isolates admission classes. Selection preference does not preempt a handler or establish fairness by itself. <a href="assets/nxrs-priority-inboxes.svg">Open SVG</a>.</figcaption>
+</figure>
 
 All senders for a class fan into its queue. Separate capacity is not a reason to
 create one queue per producer, device, enum variant or processing module.

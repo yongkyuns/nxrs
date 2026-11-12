@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="456" viewBox="0 0 800 456" role="img" aria-labelledby="title description">
+  <title id="title">Active-object stress traffic and ownership</title>
+  <desc id="description">P configured producer threads send paced or bursty work to W worker active objects. Each worker has a bounded inbox, private state and one event/deadline wait. Workers send results to one collector with its own bounded inbox and state. Both transfer boundaries use nonblocking try_send with counted drop-newest overload. Counts and queue capacities are configured by the test.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8A9CAF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#24374A" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #FFFFFF; stroke: #D7E1EB; stroke-width: 1.2; }
+      .label { fill: #203042; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #596B7D; font-size: 18px; }
+      .edge { fill: none; stroke: #8A9CAF; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #596B7D; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="456" rx="24" fill="#FCFDFE"/>
+
+  <g id="group-producers"><rect x="24" y="32" width="220" height="318" rx="21" fill="#F4F7FB" stroke="#CCD9E6" stroke-width="1.2"/><text x="48" y="67" class="label" font-size="21">P producer threads</text></g>
+  <g id="node-producer" data-panel="true">
+    <rect x="44" y="112" width="180" height="100" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="134" y="144" text-anchor="middle" class="label" font-size="22">Traffic source</text>
+    <text x="134" y="171" text-anchor="middle" class="subtitle">Paced or bursty</text>
+  </g>
+  <text x="134" y="270" text-anchor="middle" class="edge-label">Configured rate</text>
+  <text x="134" y="298" text-anchor="middle" class="edge-label">and producer count</text>
+  <g id="group-workers"><rect x="294" y="32" width="220" height="318" rx="21" fill="#F4F7FB" stroke="#CCD9E6" stroke-width="1.2"/><text x="318" y="67" class="label" font-size="21">W worker owners</text></g>
+  <g id="node-worker" data-panel="true">
+    <rect x="314" y="112" width="180" height="100" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="329" y="132" width="4" height="60" rx="2" fill="#73B9E2"/>
+    <text x="404" y="144" text-anchor="middle" class="label" font-size="22">Bounded inbox</text>
+    <text x="404" y="171" text-anchor="middle" class="subtitle">One per worker</text>
+  </g>
+  <text x="404" y="270" text-anchor="middle" class="edge-label">Private state</text>
+  <text x="404" y="298" text-anchor="middle" class="edge-label">Event / deadline wait</text>
+  <g id="group-collector"><rect x="564" y="32" width="212" height="318" rx="21" fill="#F4F7FB" stroke="#CCD9E6" stroke-width="1.2"/><text x="588" y="67" class="label" font-size="21">One collector</text></g>
+  <g id="node-collector" data-panel="true">
+    <rect x="580" y="112" width="180" height="100" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="595" y="132" width="4" height="60" rx="2" fill="#F08A4B"/>
+    <text x="670" y="144" text-anchor="middle" class="label" font-size="22">Bounded inbox</text>
+    <text x="670" y="171" text-anchor="middle" class="subtitle">Collected results</text>
+  </g>
+  <text x="670" y="270" text-anchor="middle" class="edge-label">Private state</text>
+  <text x="670" y="298" text-anchor="middle" class="edge-label">Completion counts</text>
+  <path id="edge-producer-worker" data-from="producer" data-to="worker" d="M224 162 H312" class="edge"/>
+  <path id="edge-worker-collector" data-from="worker" data-to="collector" d="M494 162 H578" class="edge"/>
+  <text x="400" y="394" text-anchor="middle" class="edge-label">Both boundaries: try_send · drop newest when full · count each rejection</text>
+  <text x="400" y="424" text-anchor="middle" class="edge-label">Queue capacity is bounded separately for each worker and the collector.</text>
+
+</svg>

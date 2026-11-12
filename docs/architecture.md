@@ -14,6 +14,14 @@ transport and target-specific performance retain explicit qualification
 boundaries. The [std channel performance analysis](std-channel-performance.md)
 explains the current evidence for the bounded single-inbox path.
 
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-architecture-dark.svg">
+    <img src="assets/nxrs-architecture.svg" alt="Platform profiles configure reusable Rust applications, services, capability HALs and chip drivers. Ordinary Rust std and peripheral-wrapper paths both lead to NuttX and the MCU." loading="lazy">
+  </picture>
+  <figcaption>Profiles select build-time configuration. Runtime code uses the interfaces appropriate to each operation. <a href="assets/nxrs-architecture.svg">Open SVG</a>.</figcaption>
+</figure>
+
 ## Accepted device and build direction
 
 The [declarative build and static device decision](static-device-composition.md)
@@ -22,9 +30,12 @@ records the accepted follow-up to composition v1. It is tracked in
 canonical instances with direct device accessors and aliases.
 
 HAL crates retain runtime contracts/implementations, native ABI source and
-declarative support metadata. Shared build tooling will own configuration
-generation and native compilation orchestration. Ordinary additive Cargo
-features enable implementations, and profiles define physical devices and aliases.
+declarative support metadata. Shared tooling in `tools/build-support` and the
+controller in `tools/build` own configuration generation and native preparation,
+with tooling-owned Cargo adapters selected by package manifests. Ordinary
+additive Cargo features enable implementations, and profiles define physical
+devices and aliases. See the [build reference](build-system.md) for the current
+prepared-input and consumed-package boundaries.
 Each active IMU or GNSS device has one canonical static opaque object
 with private instance state and an exclusive acquisition lease. Multiple aliases
 can refer to that same object; multiple devices can use the same implementation.
@@ -49,11 +60,8 @@ require every application composition to be `no_std`. APIs and shared HAL
 behavior follow the stricter implementation boundaries in the normative HAL
 document, with platform selection confined to wiring and factories.
 
-The default dependency shape is:
-
-~~~text
-app -> service -> HAL capability facade
-~~~
+An application normally composes reusable services, and those services consume
+capability HAL interfaces. Each dependency remains an ordinary Cargo dependency.
 
 Applications and services are both portable layers. An app may access a
 capability facade or API directly when the app itself is the natural
@@ -101,15 +109,10 @@ application access to portable HAL abstractions.
 
 The navigation services are the first implementation of this rule:
 
-~~~text
-ImuService.start_on(devices::primary_imu())
-    -> HAL IMU acquisition
-    -> owner thread owns IMU for its lifetime
-
-GnssService.start_on(composition::gnss::primary_gnss())
-    -> HAL GNSS acquisition
-    -> owner thread owns GNSS for its lifetime
-~~~
+| Service construction | Acquired resource | Lifetime owner |
+| --- | --- | --- |
+| `imu.start_on(composition::imu::primary_imu())` | HAL IMU acquisition | The service owner retains the session through shutdown and join |
+| `gnss.start_on(composition::gnss::primary_gnss())` | HAL GNSS acquisition | The service owner retains the session through shutdown and join |
 
 Their public constructors contain only service configuration and service
 connections.
@@ -121,12 +124,13 @@ execution. `service/detection` owns bounded inference scheduling and typed alert
 policy. The detector is separate from the camera capability.
 `app/home-cam` can attach `SecurityDetection` before starting capture.
 
-~~~text
-camera HAL -> CameraService -> MJPEG service
-                    |
-                    +-> one owned JPEG -> worker -> detector HAL -> Monitor
-                                                           -> typed state/events
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-camera-pipeline-dark.svg">
+    <img src="assets/nxrs-camera-pipeline.svg" alt="CameraService supplies streaming while a separate bounded worker owns one JPEG for detector execution. Monitor converts results into typed state and events." loading="lazy">
+  </picture>
+  <figcaption>Streaming and inference have independent progress. One owned frame bounds the inference path; capture buffers are not borrowed across worker execution. <a href="assets/nxrs-camera-pipeline.svg">Open SVG</a>.</figcaption>
+</figure>
 
 The worker has exactly one reusable owned JPEG, including queued/returned work.
 It never borrows DMA/history storage across a camera poll. An occupied worker
@@ -168,34 +172,24 @@ between every processing stage. The
 acquisition, admission and lifecycle requirements, including separate queues
 where an owner needs independent capacity for different event classes.
 
-Active services use a **single-owner, single-inbox, run-to-completion** execution
-model built on Rust `std` synchronization primitives.
+The event-demo services use a **single-owner, single-inbox, run-to-completion**
+execution model built on Rust `std` synchronization primitives. Services that
+need independent admission capacity can use multiple bounded queues with one
+logical blocking selection point, as described in the communication guide.
 
-The canonical active entity is:
+The simple single-inbox owner is:
 
-~~~text
-many producers
-     |
-     | cloned Sender<Event>
-     v
-+-------------------------------+
-| one bounded Inbox<Event> |
-+---------------+---------------+
-                |
-         one blocking wait
-       recv / recv_timeout
-                |
-                v
-         handle one event
-         run to completion
-                |
-       emit bounded events
-                |
-                +----> same wait point
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-owner-event-loop-dark.svg">
+    <img src="assets/nxrs-owner-event-loop.svg" alt="Many producers share one bounded typed inbox. One owner waits, processes an event synchronously and submits bounded outputs before returning to the same wait." loading="lazy">
+  </picture>
+  <figcaption>Cloned senders share capacity; the receiver and mutable state belong to one owner. <a href="assets/nxrs-owner-event-loop.svg">Open SVG</a>.</figcaption>
+</figure>
 
-`shared/messaging` is the small shared implementation of this rule. It is only a
-thin ownership wrapper around `std::sync::mpsc::sync_channel`:
+`shared/messaging` owns generic typed delivery and rejection results. Its
+`channels` feature, enabled by default, adds a thin ownership wrapper around
+`std::sync::mpsc::sync_channel`:
 
 - `Sender<E>` is cloneable so any number of producers can fan into one
   entity;
@@ -213,13 +207,13 @@ domain methods.
 
 For example, Fusion has one private event type:
 
-~~~text
-ImuService  -- ImuSample --+
-                           |
-GnssService -- GnssFix ----+--> one Fusion inbox --> Fusion state
-                           |
-lifecycle -----------------+
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-event-communication-dark.svg">
+    <img src="assets/nxrs-event-communication.svg" alt="IMU, GNSS and lifecycle inputs share one sixteen-slot fusion inbox. The fusion owner waits, handles one event and returns to its wait with private state." loading="lazy">
+  </picture>
+  <figcaption>The navigation demo uses the default sixteen-slot fusion inbox. Source-specific input types map into its private event enum. <a href="assets/nxrs-event-communication.svg">Open SVG</a>.</figcaption>
+</figure>
 
 `ImuInput` and `GnssInput` are typed public endpoints, but both wrap clones
 of the same private Fusion event sender. Fusion therefore never has to select
@@ -232,19 +226,20 @@ point in its owner loop.
 
 The owner always calls the same operation:
 
-~~~text
-inbox.wait(None)                         # no internal deadline
-inbox.wait(Some(time_until_deadline))    # event or deadline
-~~~
+| Owner wait | Wake condition |
+| --- | --- |
+| `inbox.wait(None)` | Input or channel closure; no internal deadline |
+| `inbox.wait(Some(time_until_deadline))` | Input, channel closure or the current deadline |
 
-The wrapper uses std `recv` or `recv_timeout` underneath. A timeout is
-converted into a private timer event and dispatched through the same
-run-to-completion path. IMU and GNSS use this model for their acquisition
-deadlines; commands and timer expiry do not require separate waits.
+The wrapper uses std `recv` or `recv_timeout` underneath. An owner with an
+internal deadline can handle timeout expiry through its normal dispatch logic.
+The current IMU, GNSS and Fusion service loops use `inbox.wait(None)`; hardware
+readiness and acquisition deadlines belong to their HAL providers, not service
+polling timers.
 
-Future device readiness, callbacks, IRQ notifications, or browser completions
-must ultimately wake the same owner loop rather than mutate service state from a
-second execution context. Platform/HAL-specific readiness adaptation remains
+Device readiness, callbacks and IRQ notifications are adapted by the HAL before
+typed delivery wakes the service owner. They must not mutate service state from
+a second execution context. Platform-specific readiness and cancellation remain
 below the portable service boundary.
 
 ### Run to completion
@@ -329,12 +324,12 @@ Rust code imports its root namespace (`imu`, `camera`, and so on). The root
 reexports the contract and the selected provider's public types. Provider
 implementation modules remain private.
 
-~~~text
-hal/<capability>/Cargo.toml
-hal/<capability>/src/api.rs
-hal/<capability>/src/platform/<provider>/  # private Rust implementation
-hal/<capability>/src/platform/<provider>/ffi/ # provider-owned target ABI glue
-~~~
+| Path inside `hal/<capability>/` | Responsibility |
+| --- | --- |
+| `Cargo.toml` | Capability package and declared dependencies |
+| `src/api.rs` | Portable capability contract |
+| `src/platform/<provider>/` | Private Rust provider implementation |
+| `src/platform/<provider>/ffi/` | Provider-owned target ABI glue, only when needed |
 
 Portable app/service code depends on capability crates, not split API or
 implementation packages. HAL roots own provider selection and expose no
@@ -342,15 +337,14 @@ provider module as a public namespace.
 
 For example:
 
-~~~text
-ImuService -> imu                 # package nxrs-imu
-                -> private provider module selected by profile
+| Consumer | Public Rust namespace | Cargo package | Implementation |
+| --- | --- | --- | --- |
+| `ImuService` | `imu` | `nxrs-imu` | Private provider selected by the profile |
+| `app/home-cam` | `camera` | `nxrs-camera` | Private provider selected by the profile |
 
-app/home-cam -> camera            # package nxrs-camera
-                -> private provider module selected by profile
-~~~
-
-One `NXRS_PLATFORM` value selects the build's provider bindings. For example,
+For host/test Cargo invocations, one `NXRS_PLATFORM` value selects the profile's
+provider bindings. NuttX builds use `cargo nxrs build`, which supplies the
+validated `NXRS_RESOLVED_PROFILE` receipt and prepared native inputs. For example,
 `linux`, `macos` and `windows` select their OS providers. File replay,
 recording and UDP use shared Rust code enabled by Cargo features. `mock` selects mock IMU and
 GNSS; `host-imu` selects only a mock IMU. `std` is an environment, not a platform. The NuttX
@@ -358,9 +352,9 @@ profiles bind only capabilities with an implemented NuttX provider. There is
 no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
 no giant `Hal` object.
 
-With no `NXRS_PLATFORM`, portable contracts still compile and no mock is
-selected implicitly. Acquisition may report Unsupported when no implementation
-is bound.
+Without a selected profile or resolved-profile receipt, portable contracts still
+compile and no mock is selected implicitly. Acquisition reports its documented
+unavailable result when no implementation is bound.
 
 Ordinary `std::time` is not a HAL capability. Services use it directly where
 qualified; sensor timestamp domains remain explicit device/data contracts.
@@ -395,11 +389,15 @@ cross-linking, and physical qualification.
 
 ## platform/ directory
 
-platform/ is target/build integration, not the HAL abstraction:
+`platform/` owns product profiles and concrete device composition:
 
-- platform/nuttx contains board/build profiles and Rust/NuttX link integration;
-- it does not construct services;
-- it does not run the application through a second launcher.
+- `platform/<family>/` contains product profiles, while `platform/nuttx/` contains
+  BSP resource mappings and selected linker inputs;
+- the composition crate supplies portable named devices and concrete resource
+  construction;
+- host orchestration and Cargo adapters live under `tools/`;
+- platform code does not construct services or run the application through a
+  second launcher.
 
 Changes to dependency sources live separately in `upstream/`, grouped by
 dependency with their patches, revision pins and provenance. `external/`
@@ -407,17 +405,17 @@ remains the pinned upstream source; builds apply patches to archived copies.
 See [upstream patchsets](upstream-patchsets.md) for the active series and
 optional proposals.
 
-The Cargo firmware frontend connects:
+The Cargo firmware frontend combines these inputs through
+`cargo nxrs build --app <app> --platform <platform>`:
 
-~~~text
-application Cargo metadata
-one product platform
-~~~
+| Build input | Supplies |
+| --- | --- |
+| Application Cargo metadata | Firmware entry and application requirements |
+| One product platform | Target, board, OS and capability-provider bindings |
 
-through `cargo nxrs build --app <app> --platform <platform>`. The selected
-product platform supplies capability-provider bindings plus execution
-target/board/OS facts, while main() remains the sole source of service topology.
-There is no separate checked-in deployment graph.
+The selected product platform supplies capability-provider bindings and
+execution target/board/OS facts, while `main()` remains the source of service
+topology. There is no separate checked-in deployment graph.
 
 ## Enforced production dependencies
 
@@ -426,11 +424,12 @@ so optional, target-conditional and build edges cannot evade layer rules.
 
 | Source | Permitted production dependencies |
 | --- | --- |
-| app | services, capability facades/APIs |
-| service | services, capability facades/APIs |
-| HAL capability crate | its contract, private selected provider, required drivers/support |
-| driver | APIs and lower drivers |
-| platform/ build integration | lower layers, never apps |
+| app | services, capability facades/APIs, portable device catalogue and shared libraries |
+| service | services, capability facades/APIs and shared libraries |
+| HAL capability crate | its contract, private selected provider, required drivers/support and shared libraries |
+| driver | APIs, lower drivers and shared libraries |
+| platform composition crate | HALs, drivers and shared libraries, never apps |
+| host build tooling | shared build-support packages |
 | tests | production layers as required |
 
 New apps may use portable HAL capability facades/APIs when justified, but cannot
@@ -438,12 +437,16 @@ depend directly on concrete providers. In particular, app/event-demo cannot
 regain configured-imu/configured-gnss aliases that bypass the capability crate
 roots.
 
-HAL capability facades remain no_std and unsafe-free. Service libraries remain
-unsafe-free but may use std for qualified execution resources. App binaries own
-safe handwritten main() functions.
+HAL contracts and portable service behavior use safe Rust. HALs and peripheral
+drivers may use `std`; portability depends on clean OS and resource boundaries,
+not a blanket `no_std` requirement. Core-only qualification applies to packages
+that intentionally support it. Native ABI glue remains private to its owner.
+App binaries own safe handwritten `main()` functions.
 
-All Cargo packages are explicit workspace members. Target-only, destructive
-qualification packages remain out of default members.
+The root workspace explicitly lists its members and host-oriented default
+members. Target-only qualification packages stay outside that default set.
+Standalone tutorial and external application workspaces retain their own
+manifests and lockfiles.
 
 ## Event-demo boundary
 
@@ -451,22 +454,20 @@ app/event-demo is the reference implementation for the target architecture.
 
 Its production graph is:
 
-~~~text
-event-demo app
-     |
-navigation services
-     |
-nxrs-imu / nxrs-gnss
-     |
-build-selected capability providers
-~~~
+| Dependency boundary | Consumer and selected dependency |
+| --- | --- |
+| Application composition | `app/event-demo` uses navigation services |
+| Portable device access | Navigation services use `nxrs-imu` and `nxrs-gnss` |
+| Acquisition implementation | Each capability uses its build-selected provider |
 
 With `NXRS_PLATFORM=mock`, ImuService and GnssService acquire synthetic
 providers internally. The app source and manifest do not know that.
 
-Service tests also execute through the mock IMU/GNSS provider selection rather than injecting
-TestImu/TestGnss constructors. This keeps production ownership and test
-ownership aligned.
+Service tests exercise explicit mock providers and test-only session injection
+for controlled lifecycle failures. The private `start_with_test_device` helpers
+in the navigation services keep those injected sessions out of production
+construction. Production applications acquire their selected devices through
+the same public service lifecycle.
 
 The same app/service graph is qualified on:
 
@@ -485,10 +486,10 @@ See [event-driven-demo.md](event-driven-demo.md).
 There are now two distinct ordinary application binaries using
 `nxrs-navigation-services`:
 
-~~~text
-app/event-demo       -> IMU + GNSS + fusion
-app/dual-imu-demo    -> two independent IMU + fusion pipelines
-~~~
+| Application | Constructed services |
+| --- | --- |
+| `app/event-demo` | IMU, GNSS and fusion |
+| `app/dual-imu-demo` | Two independent IMU and fusion pipelines |
 
 Neither app depends on the other. The architecture checker continues to reject
 app-to-app production dependencies.
@@ -532,8 +533,10 @@ Configuration chooses:
 - application command/resource settings.
 
 The product platform owns HAL bindings, execution target/board, and
-target-specific configuration. Profile selection is through `NXRS_PLATFORM`,
-not per-HAL Cargo features.
+target-specific configuration. Firmware builds select it through the frontend's
+`--platform` or `--profile` argument; host/test Cargo invocations use
+`NXRS_PLATFORM`. Cargo features select optional software and driver code, not
+per-HAL operating-system providers.
 
 Handwritten Rust chooses service topology.
 

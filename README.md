@@ -100,8 +100,10 @@ The [user guide](website/guide/start-here.md) covers general firmware developmen
 | --- | --- |
 | Project background | [Why NXRS?](website/guide/motivation.md) |
 | Application development | [Getting started](website/guide/getting-started.md), [Your first application](website/guide/first-application.md) |
+| Design and interfaces | [Designing an application](website/guide/designing-applications.md), [Interfaces and APIs](website/guide/interfaces.md) |
 | Standard APIs and execution | [Standard library](website/guide/standard-library.md), [Services](website/guide/services.md) |
 | Hardware and configuration | [Drivers and HALs](website/guide/hardware.md), [Profiles](website/guide/profiles.md) |
+| Build workflow | [From inputs to firmware](website/guide/build-system.md) |
 | Communication and files | [Networking and storage](website/guide/io.md) |
 | Tests and debugging | [Testing guide](website/guide/testing.md), [Troubleshooting](website/guide/troubleshooting.md) |
 | Implementation details | [Engineering reference](docs/README.md) |
