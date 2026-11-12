@@ -719,11 +719,16 @@ fn contained_path(root: &Path, relative: &str) -> Result<PathBuf> {
             "package declaration must use a contained relative path: {relative:?}"
         ));
     }
+    // Cargo metadata may return an ordinary Windows path while canonicalize
+    // returns a verbatim path. Compare resolved identities on both sides.
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", root.display()))?;
     let path = root.join(path);
     let canonical = path
         .canonicalize()
         .map_err(|error| format!("{}: {error}", path.display()))?;
-    if !canonical.starts_with(root) {
+    if !canonical.starts_with(&canonical_root) {
         return Err(format!(
             "package declaration escapes its root: {}",
             path.display()
@@ -836,6 +841,25 @@ mod tests {
                 "{path:?}: {error}"
             );
         }
+    }
+
+    #[test]
+    fn declaration_containment_uses_canonical_root_identity() {
+        let temp = fixture(&metadata("bindings/catalog.toml"));
+        // Cargo metadata can return a different spelling of the same root
+        // (notably ordinary Windows paths versus canonical verbatim paths).
+        // The existing directory followed by .. reproduces that on every host.
+        let root = temp.0.join("bindings").join("..");
+        let source = input(&root, "Cargo.toml").unwrap();
+        assert_eq!(source.path, root.join("Cargo.toml"));
+        assert_eq!(
+            source.contents,
+            fs::read_to_string(temp.0.join("Cargo.toml")).unwrap()
+        );
+        assert_eq!(
+            contained_path(&root, "bindings/catalog.toml").unwrap(),
+            temp.0.join("bindings/catalog.toml").canonicalize().unwrap()
+        );
     }
 
     #[cfg(unix)]
@@ -1001,11 +1025,15 @@ mod tests {
 
         let package = Package::load_capability(&temp.0, "imu").unwrap();
         assert_eq!(package.drivers["vendor,sensor"].dependency, "chip");
-        assert_eq!(package.catalogs[0].path, driver.join("bindings.toml"));
+        assert_eq!(
+            package.catalogs[0].path,
+            driver.join("bindings.toml").canonicalize().unwrap()
+        );
+        let workspace_manifest = temp.0.join("Cargo.toml").canonicalize().unwrap();
         assert!(package
             .dependencies
             .iter()
-            .any(|input| input.path == temp.0.join("Cargo.toml")));
+            .any(|input| input.path.canonicalize().unwrap() == workspace_manifest));
         assert!(
             !temp.0.join("Cargo.lock").exists(),
             "discovery must not resolve or write a lockfile"
