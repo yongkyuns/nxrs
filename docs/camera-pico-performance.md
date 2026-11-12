@@ -106,11 +106,12 @@ throughout. Thread CPU accounting includes interrupt time attributed to that
 worker. This separates computation from time waiting while sharing the CPU with
 capture/networking; it is not an isolated inference-FPS claim.
 
-The factory's selected PICO budget is 750 ms with a 128 KiB worker stack. The VWW
-composition retains its separate two-second/512 KiB budget. The shared worker,
-HAL API and two-sample confirmation policy do not branch on model or platform.
-Faster sampling changes confirmation latency; static-image equivalence does not
-establish temporal false-alert reliability.
+The measurements below used a 750 ms PICO budget and a 128 KiB worker stack.
+The signed camera profile now defaults to 500 ms. The
+[500 ms endurance result](camera-smp.md#500-ms-sampling) applies to the unsigned
+SMP fixture. Throughput at 500 ms on the signed single-core image remains
+unmeasured. The VWW composition uses its own two-second budget and 512 KiB
+stack. Faster sampling also changes the timing of two-sample confirmation.
 
 ## Final production firmware on the physical camera
 
