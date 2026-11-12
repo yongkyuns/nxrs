@@ -182,7 +182,7 @@ class DeviceClosureTests(unittest.TestCase):
         handoff_name = "configuration/" + sha(handoff.encode()) + ".json"
         self.put(case, handoff_name, handoff)
         native = []
-        for name in ("nxrs-acquisition", "nxrs-gpio", "nxrs-i2c"):
+        for name in ("nxrs-acquisition", "nxrs-gnss", "nxrs-gpio", "nxrs-i2c"):
             path = self.put(case, "native-resources/" + name + ".a", "archive " + name + case)
             native.append({"package": packages[name], "archive": str(old / path.relative_to(out)), "sha256": CHECK.digest(path)})
         catalog = {"package": "nxrs-composition", "manifest": self.source_hash("platform/Cargo.toml"),
@@ -421,6 +421,17 @@ class DeviceClosureTests(unittest.TestCase):
         archive.write_bytes(before)
         self.put("bmi270", "native-resources/nxrs-i2c.a", "wrong native code")
         with self.assertRaisesRegex(ValueError, "stale or mismatched"):
+            self.check()
+
+    def test_consumed_gnss_native_archive_cannot_be_omitted(self):
+        path = self.outputs["bmi270"] / "provider-selection.json"
+        selection = read_json(path)
+        selection["native-resources"] = [
+            resource for resource in selection["native-resources"]
+            if not resource["package"].startswith("nxrs-gnss ")]
+        write_json(path, selection)
+        self.refresh_hash("bmi270", "provider-selection.json")
+        with self.assertRaisesRegex(ValueError, "wrong native resource closure"):
             self.check()
 
     def test_failed_cli_removes_old_success_report_and_success_is_published(self):

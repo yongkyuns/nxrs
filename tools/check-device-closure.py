@@ -365,7 +365,8 @@ def validate_preparation(e, case, composition):
         require(path.is_relative_to(e.recorded_out / "native-resources") and path.suffix == ".a",
                 "native resource archive belongs to another build")
         e.verified(path, resource["sha256"])
-    require(found == {"nxrs-acquisition", "nxrs-gpio", "nxrs-i2c"}, "wrong native resource closure")
+    require(found == {"nxrs-acquisition", "nxrs-gnss", "nxrs-gpio", "nxrs-i2c"},
+            "wrong native resource closure")
     return sorted(found)
 
 
