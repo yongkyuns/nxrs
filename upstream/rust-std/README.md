@@ -12,6 +12,22 @@ parking implementations below make separate choices about RTOS scheduling and
 handoff costs. Upstream [bounded channels](https://doc.rust-lang.org/std/sync/mpsc/)
 already provide a preallocated buffer of fixed size.
 
+## NuttX runtime entry
+
+The [main-thread identity patch](patches/0012-nuttx-main-thread-once.patch)
+publishes that image-wide identity once for `target_os = "nuttx"`. Flat NuttX
+builtins enter the same linked std runtime more than once; rewriting the ID
+can race readers on 32-bit targets. Per-builtin `sys::init` still runs, including
+descriptor sanitization, signal setup and argument initialization. Both pinned
+SDKs have the same checked runtime preimage; the SDK ledger records the patch
+and resulting source digest. Other targets keep the original initialization.
+
+This fixes the main-thread identity race only. It does not make std's image-wide
+argument pointers or buffered standard streams task-group-specific, and it does
+not qualify arbitrary concurrent or restarted Rust builtins. The
+[SSH fixture](../../tests/nuttx-std/ssh/README.md) uses serialized remote probes
+and separate owned files for its local console.
+
 ## Native NuttX channel and parking
 
 NuttX bounded channels use one Rust-owned transaction for the ring and FIFO

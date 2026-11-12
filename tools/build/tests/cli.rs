@@ -84,11 +84,15 @@ fn editor_switch_preserves_project_settings_on_invalid_build() {
     let settings: Value = serde_json::from_slice(&before).unwrap();
     assert!(settings["lsp"]["clangd"].is_object());
     assert_eq!(
-        settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"]["extraEnv"]["NXRS_PLATFORM"],
+        settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"]["extraEnv"]
+            ["NXRS_PLATFORM"],
         "host"
     );
     assert!(!editor(&["--build-dir", "missing"]).status.success());
-    assert_eq!(success(editor(&["status"])).trim(), "Zed Rust profile: host");
+    assert_eq!(
+        success(editor(&["status"])).trim(),
+        "Zed Rust profile: host"
+    );
     assert_eq!(fs::read(path).unwrap(), before);
 }
 
@@ -933,21 +937,26 @@ fn valid_application_metadata_and_qualification_fixture_keep_working() {
 fn dry_run_rejects_options_for_another_backend() {
     let root = fixture();
     for profile in ["host", "browser"] {
-        let error = failure(frontend(
-            &root.0,
-            &root.0,
-            &[
-                "build",
-                "--app",
-                "probe",
-                "--profile",
-                profile,
-                "--kconfig-enable",
-                "NSH_NETINIT",
-                "--dry-run",
-            ],
-        ));
-        assert!(error.contains("NuttX"), "{profile}: {error}");
+        for (option, value) in [
+            ("--kconfig-enable", "NSH_NETINIT"),
+            ("--kconfig-set", "DEFAULT_TASK_STACKSIZE=8192"),
+        ] {
+            let error = failure(frontend(
+                &root.0,
+                &root.0,
+                &[
+                    "build",
+                    "--app",
+                    "probe",
+                    "--profile",
+                    profile,
+                    option,
+                    value,
+                    "--dry-run",
+                ],
+            ));
+            assert!(error.contains("NuttX"), "{profile}: {error}");
+        }
     }
     for args in [
         vec!["--html", "template.html"],
@@ -961,6 +970,135 @@ fn dry_run_rejects_options_for_another_backend() {
             "{error}"
         );
     }
+    assert!(!root.0.join("target").exists());
+}
+
+#[test]
+fn malformed_and_conflicting_kconfig_requests_fail_before_reading_build_inputs() {
+    let root = fixture();
+    for assignment in [
+        "",
+        "PORT",
+        "=2222",
+        "lowercase=1",
+        "BAD-NAME=1",
+        "CONFIG_PORT=2222",
+        "PORT=",
+        "PORT= 2222",
+        "PORT=1\nCONFIG_NET=y",
+        "PORT=1\r",
+        "PORT=0x",
+        "PORT=0xzz",
+        "PORT=1.5",
+        "PORT=true",
+        "PATH=/etc/keys",
+        "PATH=\"unterminated",
+        "PATH=\"extra\"quotes\"",
+        "PATH=\"line\nbreak\"",
+        r#"PATH="unsupported\n""#,
+        r#"PATH="trailing\""#,
+    ] {
+        let error = failure(frontend(
+            &root.0,
+            &root.0,
+            &["build", "--kconfig-set", assignment],
+        ));
+        assert!(error.contains("Kconfig"), "{assignment:?}: {error}");
+        assert!(!error.contains("choose one --app"), "{error}");
+    }
+    // An OS argument vector cannot contain NUL; check programmatic callers too.
+    assert!(nxrs_build::build::Options {
+        set: vec!["PATH=\"null\0byte\"".into()],
+        ..nxrs_build::build::Options::default()
+    }
+    .validate()
+    .is_err());
+    let error = failure(frontend(&root.0, &root.0, &["build", "--kconfig-set"]));
+    assert!(error.contains("missing Kconfig assignment"), "{error}");
+    for options in [
+        ["--kconfig-set", "PORT=2222", "--kconfig-set", "PORT=2200"],
+        ["--kconfig-enable", "NET", "--kconfig-set", "NET=n"],
+        ["--kconfig-disable", "NET", "--kconfig-set", "NET=y"],
+        ["--kconfig-enable", "NET", "--kconfig-set", "NET=7"],
+    ] {
+        let args: Vec<_> = ["build"].into_iter().chain(options).collect();
+        let error = failure(frontend(&root.0, &root.0, &args));
+        assert!(error.contains("Conflicting Kconfig request:"), "{error}");
+    }
+    assert!(!root.0.join("target").exists());
+}
+
+#[test]
+fn native_dry_run_reports_literal_requests_and_preserves_required_configuration() {
+    let root = fixture();
+    fs::write(
+        root.0.join("tests/profiles/native-test.toml"),
+        "execution = \"nuttx\"\nboard = \"fixture:board\"\ntarget = \"thumbv8m.main-nuttx-eabi\"\n\
+         [hal]\n[kconfig]\nrequire = [\"CONFIG_REQUIRED_SIZE=4096\"]\n\
+         forbid-regex = \"^CONFIG_FORBIDDEN=y$\"\n",
+    )
+    .unwrap();
+    let base = [
+        "build",
+        "--app",
+        "probe",
+        "--profile",
+        "native-test",
+        "--out",
+        "artifacts",
+        "--dry-run",
+    ];
+    let request = [
+        "--kconfig-enable",
+        "NET_IPv4",
+        "--kconfig-set",
+        "NET_IPv4=y",
+        "--kconfig-set",
+        "PORT=2222",
+        "--kconfig-set",
+        "PORT=2222",
+        "--kconfig-set",
+        "OFFSET=0x20000",
+        "--kconfig-set",
+        "LIMIT=-1",
+        "--kconfig-set",
+        "MODULE=m",
+        "--kconfig-set",
+        "EMPTY=\"\"",
+        "--kconfig-set",
+        r#"BANNER="literal $value `text` = \"quoted\" \\ path""#,
+    ];
+    let args: Vec<_> = base.into_iter().chain(request).collect();
+    let plan: Value = serde_json::from_str(&success(frontend(&root.0, &root.0, &args))).unwrap();
+    assert_eq!(plan["backend"], "nuttx");
+    assert_eq!(plan["kconfig_overrides"]["PORT"], "2222");
+    assert_eq!(plan["kconfig_overrides"]["NET_IPv4"], "y");
+    assert_eq!(plan["kconfig_overrides"]["OFFSET"], "0x20000");
+    assert_eq!(plan["kconfig_overrides"]["LIMIT"], "-1");
+    assert_eq!(plan["kconfig_overrides"]["MODULE"], "m");
+    assert_eq!(plan["kconfig_overrides"]["EMPTY"], "\"\"");
+    assert_eq!(
+        plan["kconfig_overrides"]["BANNER"],
+        r#""literal $value `text` = \"quoted\" \\ path""#
+    );
+    for (option, assignment, diagnostic) in [
+        ("--kconfig-set", "TLS_NELEM=1", "builder requirement"),
+        ("--kconfig-set", "NSH_DISABLEBG=n", "builder requirement"),
+        ("--kconfig-disable", "DEV_URANDOM", "builder requirement"),
+        ("--kconfig-set", "SIG_DEFAULT=y", "builder requirement"),
+        ("--kconfig-set", "REQUIRED_SIZE=8192", "profile requirement"),
+        ("--kconfig-set", "FORBIDDEN=y", "forbidden by the profile"),
+    ] {
+        let args: Vec<_> = base.into_iter().chain([option, assignment]).collect();
+        let output = frontend(&root.0, &root.0, &args);
+        assert!(
+            output.stdout.is_empty(),
+            "do not publish a conflicting plan"
+        );
+        let error = failure(output);
+        assert!(error.contains(diagnostic), "{assignment}: {error}");
+    }
+    assert!(!root.0.join("artifacts").exists());
     assert!(!root.0.join("target").exists());
 }
 

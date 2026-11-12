@@ -96,7 +96,9 @@
       "0109-esp32s3-cores3-protected-memory-map.patch",
       "0110-esp32s3-protected-toolchain-libm.patch",
       "0111-esp32s3-devkit-configurable-imu-irq.patch",
-      "0112-i2c-scheduler-note-qualification.patch"
+      "0112-i2c-scheduler-note-qualification.patch",
+      "0113-pty-window-size-ioctls.patch",
+      "0114-tcp-reuseaddr-listener-recovery.patch"
     ]
   },
   "mcuboot": {
@@ -113,7 +115,8 @@
       "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
       "0002-nsh-dmesg-reset-options.patch",
       "0003-dhcpc-pad-option.patch",
-      "0004-mcuboot-current-helpers.patch"
+      "0004-mcuboot-current-helpers.patch",
+      "0005-dropbear-bounded-service.patch"
     ]
   },
   "esp-hal-3rdparty": {
@@ -123,7 +126,8 @@
       "0002-intr-alloc-pair-capability-allocators.patch",
       "0003-esp32s3-serialize-wifi-phy-state.patch",
       "0005-esp32s3-inherit-watchdog-clock.patch",
-      "0006-esp32s3-inherit-watchdog-user-handoff.patch"
+      "0006-esp32s3-inherit-watchdog-user-handoff.patch",
+      "0007-wpa-aes-symbol-prefix.patch"
     ]
   }
 }

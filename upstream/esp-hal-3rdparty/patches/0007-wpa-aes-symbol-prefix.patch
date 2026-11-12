@@ -1,0 +1,56 @@
+From: Felipe Moura <moura.fmo@gmail.com>
+Subject: [PATCH] components/wpa_supplicant: Prefix AES symbols on NuttX
+
+NuttX builds selected components into a shared flat symbol namespace.
+When the software cryptodev backend enables crypto/aes.c, its
+aes_encrypt() and aes_decrypt() symbols collide with the wpa_supplicant
+mbedTLS crypto wrapper.
+
+Prefix the wpa_supplicant AES block helpers when building for NuttX so
+the ESP Wi-Fi stack can coexist with NuttX's software crypto
+implementation.
+
+Signed-off-by: Felipe Moura <moura.fmo@gmail.com>
+
+Upstream: https://github.com/espressif/esp-hal-3rdparty/commit/1e9759ca6fbdd22fcadd7108aaab6f4daca1345f
+Upstream-PR: https://github.com/espressif/esp-hal-3rdparty/pull/13
+Base: b90b1837cb5ad24747deb4c895246037cc206ce5
+
+Exact upstream source diff; backported without changing the dependency pin.
+
+diff --git a/components/wpa_supplicant/src/crypto/aes.h b/components/wpa_supplicant/src/crypto/aes.h
+--- a/components/wpa_supplicant/src/crypto/aes.h
++++ b/components/wpa_supplicant/src/crypto/aes.h
+@@ -11,6 +11,12 @@
+ 
+ #ifdef __NuttX__
+ #include "utils/common.h"
++#define aes_encrypt_init esp_wpa_aes_encrypt_init
++#define aes_encrypt esp_wpa_aes_encrypt
++#define aes_encrypt_deinit esp_wpa_aes_encrypt_deinit
++#define aes_decrypt_init esp_wpa_aes_decrypt_init
++#define aes_decrypt esp_wpa_aes_decrypt
++#define aes_decrypt_deinit esp_wpa_aes_decrypt_deinit
+ #endif
+ 
+ #define AES_BLOCK_SIZE 16
+diff --git a/components/wpa_supplicant/src/crypto/crypto.h b/components/wpa_supplicant/src/crypto/crypto.h
+--- a/components/wpa_supplicant/src/crypto/crypto.h
++++ b/components/wpa_supplicant/src/crypto/crypto.h
+@@ -22,6 +22,15 @@
+ #define CRYPTO_H
+ #include "utils/common.h"
+ 
++#ifdef __NuttX__
++#define aes_encrypt_init esp_wpa_aes_encrypt_init
++#define aes_encrypt esp_wpa_aes_encrypt
++#define aes_encrypt_deinit esp_wpa_aes_encrypt_deinit
++#define aes_decrypt_init esp_wpa_aes_decrypt_init
++#define aes_decrypt esp_wpa_aes_decrypt
++#define aes_decrypt_deinit esp_wpa_aes_decrypt_deinit
++#endif
++
+ /**
+  * md4_vector - MD4 hash for data vector
+  * @num_elem: Number of elements in the data vector
+

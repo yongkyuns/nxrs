@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import tarfile
@@ -88,7 +89,38 @@ def scan(scanner):
         print(json.dumps({key: finding.get(key) for key in ("RuleID", "File", "StartLine", "Commit")}))
     if findings:
         raise ValueError(f"secret scan blocked: {len(findings)} findings; rotate real credentials privately")
-    print("Secret scan passed: all available Git history; zero findings after reviewed hash-field exclusions")
+    print("Secret scan passed: all available Git history; zero findings after reviewed exclusions")
+
+
+def reviewed_dropbear_preimages():
+    # The security checkout has no submodules. The immutable, complete Apps
+    # patch retains each original source byte, just as the native fixture does.
+    blob = "cb5117dc4027f9207b9e742cf2a5afbde3393443"
+    result = subprocess.run(["git", "cat-file", "blob", blob], cwd=ROOT,
+                            capture_output=True, check=False, timeout=10)
+    if result.returncode:
+        raise ControlFailure("dropbear-preimage-patch")
+    reviewed = [
+        ("netutils/dropbear/port/nuttx_auth.c",
+         "bf80ad81244d769c98a3888742d4c8d829fc475593573f262e505db1477a3936"),
+        ("netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch",
+         "47f56660a9a2ef7fe1c1d218079e952c73d0ddd520ad6fc8eb1d49238bb93c47"),
+    ]
+    sections = re.split(r"(?m)^diff --git ", result.stdout.decode())[1:]
+    for index, (field, digest) in enumerate(reviewed):
+        matches = [section.splitlines() for section in sections
+                   if "--- a/" + field in section.splitlines()]
+        if len(matches) != 1:
+            raise ControlFailure(f"dropbear-preimage-section-{index}")
+        lines = matches[0]
+        hunks = [offset for offset, line in enumerate(lines) if line.startswith("@@ ")]
+        if len(hunks) != 1 or not re.match(r"@@ -1,\d+ ", lines[hunks[0]]):
+            raise ControlFailure(f"dropbear-preimage-complete-{index}")
+        original = "\n".join(line[1:] for line in lines[hunks[0] + 1:]
+                             if line.startswith((" ", "-"))) + "\n"
+        if hashlib.sha256(original.encode()).hexdigest() != digest:
+            raise ControlFailure(f"dropbear-preimage-hash-{index}")
+    return reviewed
 
 
 def reviewed_hash_controls(scanner, source, config, token, alphabet):
@@ -106,12 +138,14 @@ def reviewed_hash_controls(scanner, source, config, token, alphabet):
         if result.returncode or hashlib.sha256(result.stdout).hexdigest() != digest:
             raise ControlFailure(f"reviewed-source-{index}")
     cases = [
-        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/build/build.json", imu),
-        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/runs/pass-3-ready-std-try/build.json", pthread),
-        ("tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-published/run/acceptance.json", pthread),
-        ("tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json", pthread),
+        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/build/build.json", imu[:2]),
+        ("tests/event-path-perf/results/2026-11-04-esp32s3/board/runs/pass-3-ready-std-try/build.json", pthread[:2]),
+        ("tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-published/run/acceptance.json", pthread[:2]),
+        ("tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json", pthread[:2]),
     ]
-    for index, (relative, (field, digest, _blob)) in enumerate(cases):
+    cases.extend(("tests/host/fixtures/dropbear-native/upstream.json", item)
+                 for item in reviewed_dropbear_preimages())
+    for index, (relative, (field, digest)) in enumerate(cases):
         path = source / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         line = '    ' + json.dumps(field) + ': ' + json.dumps(digest) + ',\n'
@@ -148,13 +182,50 @@ def reviewed_hash_controls(scanner, source, config, token, alphabet):
         outside.unlink()
 
 
+def reviewed_prose_controls(scanner, source, config, token, alphabet):
+    # This exact public prose was reported in 1d41476. Verify its immutable
+    # source before allowing only that whole line at its documented path.
+    result = subprocess.run(["git", "cat-file", "blob",
+                             "99905d0c3206804f7c5ffafb125a1d2629525571"],
+                            cwd=ROOT, capture_output=True, check=False, timeout=10)
+    rows = [line for line in result.stdout.splitlines()
+            if line.startswith(b"| Resource cost | ")]
+    if result.returncode or len(rows) != 1:
+        raise ControlFailure("reviewed-prose-source")
+    row = rows[0].decode("ascii")
+    path = source / "docs/dropbear-ssh.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for index, contents in enumerate((row + "\n", "\n" + row + "\n",
+                                      "\r\n" + row + "\r\n")):
+        path.write_bytes(contents.encode())
+        findings, _ = execute(scanner, "dir", source, config)
+        if findings:
+            raise ControlFailure(f"reviewed-prose-allow-{index}")
+    # Altered prose, added fields and actual-shaped tokens must still be
+    # detected, including tokens on the otherwise accepted line's next line.
+    for index, (contents, rule, secret) in enumerate([
+            (row.replace("post-stop", "post-stop changed"), "generic-api-key", None),
+            (row + ' api_key = "' + alphabet * 4 + '"', "generic-api-key", alphabet * 4),
+            (row + ' access_token = "' + token + '"', "github-pat", token),
+            (row + '\naccess_token = "' + token + '"', "github-pat", token)]):
+        path.write_text(contents + "\n")
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == rule for item in findings) or (secret and secret in output):
+            raise ControlFailure(f"reviewed-prose-reject-{index}")
+    path.unlink()
+    outside = source / "unreviewed.md"
+    outside.write_text(row + "\n")
+    findings, _ = execute(scanner, "dir", source, config)
+    if not any(item.get("RuleID") == "generic-api-key" for item in findings):
+        raise ControlFailure("reviewed-prose-path")
+    outside.unlink()
+
 
 def reviewed_dropbear_history_controls(scanner, source, config, alphabet):
     """Protect exact historical false positives without hiding new secrets."""
-    auth = "netutils/dropbear/port/nuttx_auth.c"
-    patch = "netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch"
-    digests = {auth: "bf80ad81244d769c98a3888742d4c8d829fc475593573f262e505db1477a3936", patch: "47f56660a9a2ef7fe1c1d218079e952c73d0ddd520ad6fc8eb1d49238bb93c47"}
-    doc_line = "| Resource cost | Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop |"
+    # Reuse independently verified source bytes instead of repeating their hashes.
+    digests = dict(reviewed_dropbear_preimages())
+    doc_line = None
     # Fail closed if any reviewed historical source changes or is unavailable.
     for idx, (blob, kind) in enumerate([
         ("0e459071db6015776f5852d1916ee62a494d4757", "fixture"),
@@ -168,8 +239,14 @@ def reviewed_dropbear_history_controls(scanner, source, config, alphabet):
             original = json.loads(result.stdout)["apps_preimages"]
             if any(original.get(k) != v for k, v in digests.items()):
                 raise ControlFailure("dropbear-hash-identity")
-        elif doc_line not in result.stdout.decode("utf-8").splitlines():
-            raise ControlFailure("dropbear-guide-identity")
+        else:
+            rows = [line for line in result.stdout.splitlines()
+                    if line.startswith(b"| Resource cost | ")]
+            if len(rows) != 1:
+                raise ControlFailure("dropbear-guide-identity")
+            doc_line = rows[0].decode("ascii")
+    if doc_line is None:
+        raise ControlFailure("dropbear-guide-identity")
     cases = [("tests/host/fixtures/dropbear-native/upstream.json",
               '    "' + k + '": "' + v + '",') for k, v in digests.items()]
     cases.append(("docs/dropbear-ssh.md", doc_line))
@@ -188,6 +265,7 @@ def reviewed_dropbear_history_controls(scanner, source, config, alphabet):
         if not any(f.get("RuleID") == "generic-api-key" for f in findings) or alphabet * 4 in output:
             raise ControlFailure(f"dropbear-reject-{index}")
         path.unlink()
+
 
 def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
@@ -220,6 +298,7 @@ def self_test(scanner):
                     raise ValueError("hash-field exclusion hides a token or redaction failed")
             path.write_text('{"description":"synthetic clean file"}\n')
         reviewed_hash_controls(scanner, source, config, token, alphabet)
+        reviewed_prose_controls(scanner, source, config, token, alphabet)
         reviewed_dropbear_history_controls(scanner, source, config, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:

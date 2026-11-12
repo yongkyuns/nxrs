@@ -69,6 +69,7 @@ NuttX qualification:
   --target-c-source <path>    Add a target C source; repeat as needed
   --kconfig-enable <symbol>   Enable a Kconfig symbol; repeat as needed
   --kconfig-disable <symbol>  Disable a Kconfig symbol; repeat as needed
+  --kconfig-set NAME=VALUE    Set a literal Kconfig value; repeat as needed
   --abi-profile <profile>     Select active or minimal ABI checks
   --size-optimized            Enable size qualification settings
   --trace-only-backtrace      Use trace-only backtraces
@@ -168,6 +169,9 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             "--kconfig-disable" => options
                 .disable
                 .push(args.next().ok_or("missing symbol")?.clone()),
+            "--kconfig-set" => options
+                .set
+                .push(args.next().ok_or("missing Kconfig assignment")?.clone()),
             "--abi-profile" => {
                 options.abi = Some(args.next().ok_or("missing ABI profile")?.clone())
             }
@@ -254,11 +258,9 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         env::consts::OS
     };
     options.validate_for_backend(os)?;
-    nxrs_build_support::nuttx_resources::validate_overrides(
-        &profile.data,
-        &options.enable,
-        &options.disable,
-    )?;
+    if os == "nuttx" {
+        nxrs_build::nuttx::validate_overrides(&profile, &app, &options)?;
+    }
     if os != "emscripten" && (html.is_some() || !web_fix) {
         return Err("browser switches require a web profile".into());
     }
@@ -269,7 +271,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             .join(profile.name())
     });
     if dry {
-        println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command})).unwrap());
+        println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command,"kconfig_overrides":options.kconfig()?})).unwrap());
         return Ok(ExitCode::SUCCESS);
     }
     match os {

@@ -6,6 +6,7 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -139,28 +140,58 @@ pub struct Options {
     pub helpers: Vec<PathBuf>,
     pub enable: Vec<String>,
     pub disable: Vec<String>,
+    pub set: Vec<String>,
     pub abi: Option<String>,
     pub size: bool,
     pub trace: bool,
     pub immediate: bool,
 }
 impl Options {
-    pub fn validate(&self) -> Result<()> {
-        for symbol in self.enable.iter().chain(&self.disable) {
+    /// Literal native Kconfig requests, shared by planning and the target build.
+    pub fn kconfig(&self) -> Result<BTreeMap<String, String>> {
+        let mut requested = BTreeMap::new();
+        let mut insert = |symbol: &str, value: &str| -> Result<()> {
             if !symbol
                 .as_bytes()
                 .first()
                 .is_some_and(u8::is_ascii_uppercase)
                 || !symbol
                     .bytes()
-                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                || symbol.starts_with("CONFIG_")
             {
                 return Err(format!("Invalid Kconfig symbol: {symbol}"));
             }
+            if requested
+                .insert(symbol.to_owned(), value.to_owned())
+                .is_some_and(|previous| previous != value)
+            {
+                return Err(format!("Conflicting Kconfig request: {symbol}"));
+            }
+            Ok(())
+        };
+        for symbol in &self.enable {
+            insert(symbol, "y")?;
         }
-        if let Some(symbol) = self.enable.iter().find(|s| self.disable.contains(s)) {
-            return Err(format!("Conflicting Kconfig request: {symbol}"));
+        for symbol in &self.disable {
+            insert(symbol, "n")?;
         }
+        for assignment in &self.set {
+            let (symbol, value) = assignment
+                .split_once('=')
+                .ok_or("Kconfig assignment must be NAME=VALUE")?;
+            if !kconfig_value(value) {
+                return Err(format!(
+                    "Invalid Kconfig value for {symbol}: use y, m, n, an integer, hex, or a quoted string"
+                ));
+            }
+            insert(symbol, value)?;
+        }
+        Ok(requested)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.kconfig()?;
         for feature in &self.features {
             if feature
                 .split('/')
@@ -200,6 +231,7 @@ impl Options {
             && (!self.helpers.is_empty()
                 || !self.enable.is_empty()
                 || !self.disable.is_empty()
+                || !self.set.is_empty()
                 || self.abi.is_some()
                 || self.size
                 || self.trace
@@ -222,6 +254,36 @@ impl Options {
         }
     }
 }
+
+fn kconfig_value(value: &str) -> bool {
+    if matches!(value, "y" | "m" | "n") {
+        return true;
+    }
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+        return true;
+    }
+    if let Some(hex) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        return !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit());
+    }
+    let Some(quoted) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) else {
+        return false;
+    };
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        if c.is_control() || c == '"' {
+            return false;
+        }
+        if c == '\\' && !matches!(chars.next(), Some('"' | '\\')) {
+            return false;
+        }
+    }
+    true
+}
+
 pub fn selection(
     root: &Path,
     platform: &str,

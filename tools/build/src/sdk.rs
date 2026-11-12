@@ -48,6 +48,7 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
         _ => return Err("unsupported NuttX Rust SDK".into()),
     };
     let files = [
+        ("std/src/rt.rs", "b3f3b301e3db6ff8596b8e637ebad49e22b44515"),
         ("std/src/sys/sync/thread_parking/mod.rs", parker_selector),
         (
             "std/src/sync/mpmc/mod.rs",
@@ -123,6 +124,10 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
             return Err("SDK source symlink escaped private copy".into());
         }
         let patches = match path {
+            "std/src/rt.rs" => vec![(
+                "0012-nuttx-main-thread-once.patch",
+                "std-main-thread-once.patch",
+            )],
             "std/src/sys/sync/thread_parking/mod.rs" => vec![
                 ("0002-nuttx-parker.patch", "std-parker.patch"),
                 (selector_patch, "std-parker-selection.patch"),
@@ -270,7 +275,7 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     }
     write_json(
         &out.join("std-patch.json"),
-        &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","sdk":sdk,"files":records,"bounded_channel_backend":"native-transaction-v1","native_sources":native_sources,"libc":{"libc_version":version,"crate_sha256":checksum,"source_blob":original_blob,"patched_blob":blob(&nuttx)?,"alignment":8,"open_flags_abi":"nuttx-13.1","path":format!("{LIBRARY}/libc-nuttx"),"pollfd_abi":"nuttx-13.1","directory_abi":"nuttx-13.1","patches":patches,"poll_sources":[{"path":"src/unix/mod.rs","original_blob":original_unix,"patched_blob":blob(&unix)?},{"path":"src/unix/nuttx/mod.rs","original_blob":flags_blob,"patched_blob":poll_blob}],"directory_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":poll_blob,"patched_blob":blob(&nuttx)?}]},"patchset_sha256":patchset,"startup_sig_ign":0,"libc_sockaddr_storage_alignment":8,"installed_toolchain_unchanged":true}),
+        &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","sdk":sdk,"files":records,"main_thread_initialization":"nuttx-image-once","bounded_channel_backend":"native-transaction-v1","native_sources":native_sources,"libc":{"libc_version":version,"crate_sha256":checksum,"source_blob":original_blob,"patched_blob":blob(&nuttx)?,"alignment":8,"open_flags_abi":"nuttx-13.1","path":format!("{LIBRARY}/libc-nuttx"),"pollfd_abi":"nuttx-13.1","directory_abi":"nuttx-13.1","patches":patches,"poll_sources":[{"path":"src/unix/mod.rs","original_blob":original_unix,"patched_blob":blob(&unix)?},{"path":"src/unix/nuttx/mod.rs","original_blob":flags_blob,"patched_blob":poll_blob}],"directory_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":poll_blob,"patched_blob":blob(&nuttx)?}]},"patchset_sha256":patchset,"startup_sig_ign":0,"libc_sockaddr_storage_alignment":8,"installed_toolchain_unchanged":true}),
     )?;
     Ok(destination)
 }
@@ -361,6 +366,128 @@ fn local_libc_lock(text: &str, version: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nuttx_main_identity_is_once_but_group_initialization_is_per_entry() {
+        // Apply the real patch, then compile its actual init function with
+        // observable OS/main-ID dependencies. The old source is a negative
+        // control; this is not a claim of target ABI qualification.
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let runtime = temp.0.join(LIBRARY).join("std/src/rt.rs");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        let original = r#"unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
+    #[cfg_attr(target_os = "teeos", allow(unused_unsafe))]
+    unsafe {
+        sys::init(argc, argv, sigpipe)
+    };
+
+    // Remember the main thread ID to give it the correct name.
+    // SAFETY: this is the only time and place where we call this function.
+    unsafe { main_thread::set(thread::current_id()) };
+}
+
+/// Clean up the thread-local runtime state. This *should* be run after all other
+"#;
+        fs::write(&runtime, original).unwrap();
+        let patch = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../upstream/rust-std/patches/0012-nuttx-main-thread-once.patch");
+        apply_dependency_patch(&temp.0, &patch, &temp.0, "std-main-thread-once.patch").unwrap();
+        assert_eq!(
+            hash(&patch).unwrap(),
+            hash(&temp.0.join("std-main-thread-once.patch")).unwrap()
+        );
+        assert!(source::patch(&temp.0, &patch).is_err());
+        let patched = read(&runtime).unwrap();
+        let function = regex::Regex::new(r"(?ms)^unsafe fn init\(.*?^\}").unwrap();
+        let dependencies = r#"
+use std::sync::Once;
+mod thread {
+    pub fn current_id() -> std::thread::ThreadId { std::thread::current().id() }
+}
+mod main_thread {
+    use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
+    pub static CALLS: AtomicUsize = AtomicUsize::new(0);
+    pub static ID: Mutex<Option<std::thread::ThreadId>> = Mutex::new(None);
+    pub unsafe fn set(id: std::thread::ThreadId) {
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        *ID.lock().unwrap() = Some(id);
+    }
+}
+mod sys {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    pub static CALLS: AtomicUsize = AtomicUsize::new(0);
+    pub unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
+        assert_eq!(argc, 0);
+        assert!(argv.is_null());
+        assert_eq!(sigpipe, 3);
+        CALLS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+fn main() {
+    use std::sync::atomic::Ordering;
+    unsafe { init(0, std::ptr::null(), 3) };
+    let first = *main_thread::ID.lock().unwrap();
+    let mut entries = 1;
+    if cfg!(target_os = "nuttx") {
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..16 {
+                        unsafe { init(0, std::ptr::null(), 3) };
+                    }
+                });
+            }
+        });
+        entries += 128;
+    }
+    assert_eq!(sys::CALLS.load(Ordering::Relaxed), entries,
+               "OS initialization must run for every builtin entry");
+    assert_eq!(main_thread::CALLS.load(Ordering::Relaxed), 1,
+               "image-wide main ID must be published exactly once");
+    assert_eq!(*main_thread::ID.lock().unwrap(), first);
+}
+"#;
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        for (name, runtime, nuttx, expected) in [
+            ("nuttx", patched.as_str(), true, true),
+            ("host", patched.as_str(), false, true),
+            ("regression", original, true, false),
+        ] {
+            let input = temp.0.join(format!("{name}.rs"));
+            let binary = temp
+                .0
+                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+            fs::write(
+                &input,
+                format!(
+                    "{dependencies}\n{}\n",
+                    function.find(runtime).unwrap().as_str()
+                ),
+            )
+            .unwrap();
+            let mut compiler = Command::new(&rustc);
+            compiler.arg(&input).args([
+                "--edition=2021",
+                "-Aunused_imports",
+                "-Aexplicit_builtin_cfgs_in_flags",
+            ]);
+            if nuttx {
+                compiler.args(["--cfg", "target_os=\"nuttx\""]);
+            }
+            crate::run(compiler.arg("-o").arg(&binary)).unwrap();
+            let result = Command::new(&binary).output().unwrap();
+            assert_eq!(
+                result.status.success(),
+                expected,
+                "{name}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            if !expected {
+                assert!(String::from_utf8_lossy(&result.stderr)
+                    .contains("image-wide main ID must be published exactly once"));
+            }
+        }
+    }
 
     #[test]
     fn channel_outlining_is_selected_only_for_nuttx() {
