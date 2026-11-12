@@ -3,6 +3,7 @@
 #include "controls.h"
 #include "hal.h"
 #include "saturation.h"
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 static uint32_t epoch, profile;
@@ -15,6 +16,9 @@ static struct {
   es_distribution io_duration;
   uint32_t io_jobs, yields, work_digest;
 } scheduling_extra;
+/* Allocation controls run outside timed traffic. Only this counter is shared
+ * by their parked workers; no worker performs allocation-report formatting. */
+static _Atomic unsigned allocation_worker_errors;
 uint32_t es_now(void) { return es_platform_cycles() - epoch; }
 uint32_t es_profile(void) { return profile; }
 struct es_state *es_runtime_state(unsigned id) {
@@ -146,11 +150,121 @@ static void *service_entry(void *argument) {
 #endif
   return NULL;
 }
+
+static void *allocation_waiter(void *argument) {
+  (void)argument;
+  if (es_platform_arrive()) atomic_fetch_add(&allocation_worker_errors, 1u);
+  return NULL;
+}
+
+static void allocation_event(struct es_event *event, unsigned destination,
+                              unsigned kind, unsigned sequence) {
+  struct es_release release = {.sequence = sequence, .count = 1, .kind = kind};
+  es_make_event(event, (destination + ES_SERVICES - 1u) % ES_SERVICES, 0,
+                &release, 0);
+}
+
+static unsigned allocation_queues(void) {
+  unsigned errors = 0;
+  es_platform_alloc_report("queues-empty", 0);
+  for (unsigned destination = 0; destination < ES_SERVICES; destination++) {
+    for (unsigned q = 0; q < ES_QUEUES_PER_SERVICE; q++) {
+      for (unsigned slot = 0; slot < ES_QUEUE_SLOTS; slot++) {
+        struct es_event event;
+        unsigned kind = ES_MAILBOX ? slot % ES_KINDS : q;
+        allocation_event(&event, destination, kind, slot);
+        if (es_platform_send(destination, kind, &event) != 0) ++errors;
+      }
+      unsigned kind = ES_MAILBOX ? 0 : q;
+      struct es_event overflow;
+      allocation_event(&overflow, destination, kind, UINT32_MAX);
+      if (es_platform_queue_depth(destination, kind) != ES_QUEUE_SLOTS ||
+          es_platform_send(destination, kind, &overflow) != 1 ||
+          es_platform_queue_depth(destination, kind) != ES_QUEUE_SLOTS) ++errors;
+    }
+  }
+  es_platform_alloc_report("queues-full", 0);
+  for (unsigned destination = 0; destination < ES_SERVICES; destination++) {
+    unsigned sequence[ES_KINDS] = {0};
+    for (unsigned slot = 0; slot < ES_QUEUES_PER_SERVICE * ES_QUEUE_SLOTS; slot++) {
+      struct es_event event, expected;
+      if (es_platform_wait(destination, 0, &event) != 1) {
+        ++errors;
+        continue;
+      }
+      unsigned kind = ES_MAILBOX ? slot % ES_KINDS : event.kind;
+      if (kind >= ES_KINDS) {
+        ++errors;
+        continue;
+      }
+      allocation_event(&expected, destination, kind,
+                        ES_MAILBOX ? slot : sequence[kind]++);
+      if (memcmp(&event, &expected, sizeof(event))) ++errors;
+    }
+    for (unsigned q = 0; q < ES_QUEUES_PER_SERVICE; q++)
+      if (es_platform_queue_depth(destination, q) != 0) ++errors;
+  }
+  es_platform_alloc_report("queues-drained", 0);
+  return errors;
+}
+
+static int run_allocation(const char *name) {
+  static const unsigned counts[] = {0, 1, 5, 10, 20};
+  static const char *const thread_profiles[] = {
+      "alloc-threads-0", "alloc-threads-1", "alloc-threads-5",
+      "alloc-threads-10", "alloc-threads-20"};
+  unsigned requested = 0, errors = 0;
+  int threads = 0, queues = !strcmp(name, "alloc-queues");
+  for (unsigned i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
+    if (!strcmp(name, thread_profiles[i])) {
+      requested = counts[i];
+      threads = 1;
+      break;
+    }
+  }
+  if (!queues && !threads && strcmp(name, "alloc-baseline")) return 1;
+  es_platform_alloc_report("baseline", requested);
+  if (threads) {
+    atomic_store(&allocation_worker_errors, 0);
+    if (es_platform_init_threads()) {
+      ++errors;
+    } else {
+      for (unsigned i = 0; i < requested; i++) {
+        if (es_platform_spawn(allocation_waiter)) {
+          ++errors;
+          break;
+        }
+      }
+      if (es_platform_wait_ready()) ++errors;
+      es_platform_alloc_report("threads", requested);
+      uint32_t epoch;
+      if (es_platform_release(&epoch)) ++errors;
+      if (es_platform_join()) ++errors;
+      errors += atomic_load(&allocation_worker_errors);
+      es_platform_alloc_report("threads-joined", requested);
+    }
+    es_platform_close();
+    es_platform_alloc_report("cleanup", requested);
+    es_platform_stack_report();
+  } else if (queues) {
+    if (es_platform_init()) ++errors;
+    else errors += allocation_queues();
+    es_platform_close();
+    es_platform_alloc_report("cleanup", 0);
+    es_platform_stack_report();
+  }
+  printf("ES_ALLOC_RESULT platform=%s profile=%s requested_workers=%u errors=%u\n",
+         es_platform_name(), name, requested, errors);
+  puts(errors ? "ES_FAIL stage=allocation" : "ES_PASS");
+  return errors ? 1 : 0;
+}
+
 int es_run_main(int argc, const char *const *argv) {
   if (argc != 2 || !argv || !argv[1])
     return 1;
   printf("ES_INSTRUMENTATION mode=%s histogram_bins=%u\n",
          ES_LEAN ? "lean" : "full", ES_LEAN ? 0u : ES_HIST_BINS);
+  if (!strncmp(argv[1], "alloc-", 6)) return run_allocation(argv[1]);
   if (!strcmp(argv[1], "saturation"))
     return es_run_saturation();
   if (!strcmp(argv[1], "normal"))
@@ -209,6 +323,7 @@ int es_run_main(int argc, const char *const *argv) {
     puts("ES_FAIL stage=join");
     return 1;
   }
+  es_platform_stack_report();
   uint32_t attempted = 0, accepted = 0, received = 0, rejected = 0, errors = 0,
            missed = 0;
   uint32_t finish = 0, worst_service_p99 = 0;

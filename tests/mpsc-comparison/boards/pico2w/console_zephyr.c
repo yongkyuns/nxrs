@@ -1,10 +1,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/uart.h>
-#include <zephyr/usb/usb_device.h>
 #include <pico/bootrom.h>
 void mp_console_init(void) {
  const struct device *uart=DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
- if(usb_enable(NULL))k_panic();
  uint32_t dtr=0;
  while(!dtr){uart_line_ctrl_get(uart,UART_LINE_CTRL_DTR,&dtr);k_sleep(K_MSEC(10));}
 }

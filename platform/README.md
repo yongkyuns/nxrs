@@ -12,11 +12,24 @@ let session = navigation::ImuService::new(inputs.imu)
     .start_on(composition::imu::primary_imu())?;
 ```
 
-The composition crate imports driver-owned binding declarations through normal
-Cargo dependencies. For NuttX profiles, `cargo nxrs build` enables the
-selected drivers and prepares the validated instance declarations. Each HAL owns acquisition, lifecycle and cleanup. The composition crate owns
-the typed constructors.
+To add a sensor on a supported bus, export its driver type and declare the
+compatible and bus in the driver's `bindings.toml`. Set its capability in
+`package.metadata.nxrs.device`. Register the driver once as a renamed optional
+path dependency in this crate's NuttX dependency table. Cargo uses that alias as
+the driver's feature. Then select the sensor and its resources in the board
+profile.
+
+```toml
+sensor = { package = "nxrs-sensor", path = "../driver/sensor", optional = true }
+```
+
+The exported type takes the bus adapter as its first type parameter. IMU drivers
+that store a delay provider declare `stores-delay = true` in their device
+metadata and take the delay type as a second parameter. The build generates the
+typed constructor reference. Each HAL owns acquisition, lifecycle and cleanup.
 
 Mock and simulation devices come from their HALs. With no profile, the primary
 accessors return unavailable devices. Use the explicit `probe` feature and
-`composition::probe` for physical IMU diagnostics.
+`composition::probe` for physical IMU diagnostics. Drivers that support the
+sensor-reference diagnostic declare `sensor-reference = true` and export
+`enable_sensor_reference`.

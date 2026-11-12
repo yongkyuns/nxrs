@@ -144,6 +144,16 @@ necessary. Saved service futures contain this workload's locals, not a fixed
 per-task tax. Console/runtime costs and transient stack use are not completely
 separable from testing without another controlled rebuild.
 
+### Fresh stack and allocation controls
+
+See [RAM.md](RAM.md) for configurable worker/shared stacks, opt-in stack
+observations, isolated thread/queue allocation controls, and the fresh
+`ram_matrix.py` collection protocol. These observations use a new source and
+instrumentation cohort. Historical RAM/timing JSON is preserved unchanged.
+The [ordinary Rust fixture](../ram-footprint-std/README.md) independently
+exercises `std::thread`, Nxrs inboxes and Crossbeam; the native C adapter here
+does not stand in for those APIs.
+
 ### Minimal NuttX configuration
 
 The current size comparison uses [`nuttx-minimal.conf`](nuttx-minimal.conf).

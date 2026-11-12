@@ -101,6 +101,25 @@ def qmp_quit(path):
                         break
 
 
+def write_command(fd, command, paced=False):
+    """Send one complete command; pace the ESP32-S3 emulated UART only."""
+    data = (command + '\n').encode()
+    if paced:
+        # An NSH prompt does not guarantee that QEMU's UART will retain a burst
+        # of host input. Use the same conservative transport intervals as the
+        # MPS2 runner: settle after the prompt, then deliver one byte at a time.
+        time.sleep(0.02)
+    chunks = (bytes((byte,)) for byte in data) if paced else (data,)
+    for chunk in chunks:
+        while chunk:
+            written = os.write(fd, chunk)
+            if written <= 0:
+                raise RuntimeError('NuttX console command write made no progress')
+            chunk = chunk[written:]
+        if paced:
+            time.sleep(0.01)
+
+
 def run(binary, log_path, image=None, cycles=2, require_std_main=False):
     with tempfile.TemporaryDirectory(prefix='nxrs-qmp-') as directory:
         monitor = Path(directory) / 'control.sock'
@@ -155,17 +174,15 @@ def run(binary, log_path, image=None, cycles=2, require_std_main=False):
         try:
             until('nsh>', seconds=60)
             def shell_command(value):
-                os.write(master, (value + '\n').encode())
+                write_command(master, value, paced=image is not None)
                 return until('nsh>')
             verify_identity(shell_command)
             for cycle in range(cycles):
-                os.write(master, b'nxrs_sim\n')
-                output = until('nsh>')
+                output = shell_command('nxrs_sim')
                 validate(output, require_std_main=require_std_main)
                 validate_target(output, 32 if image else 64)
                 print(f'\nPASS: NuttX invocation {cycle + 1}, target records, UDP and ABI verified')
-            os.write(master, b'nxrs_sim fail\n')
-            failure = until('nsh>')
+            failure = shell_command('nxrs_sim fail')
             assert 'RC_NUTTX_SIM FAIL injected' in failure and PASS not in failure, failure
             try:
                 validate(failure)
@@ -174,7 +191,7 @@ def run(binary, log_path, image=None, cycles=2, require_std_main=False):
             else:
                 raise AssertionError('oracle accepted the target failure injection')
             if image is None:
-                os.write(master, b'poweroff\n')
+                write_command(master, 'poweroff')
             else:
                 # ESP32-S3 has no host-process poweroff operation. The target
                 # must return to NSH after every test; then explicitly quit QEMU.

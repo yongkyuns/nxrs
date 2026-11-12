@@ -58,7 +58,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
              [features]\ndefault = [\"bmi270\", \"lsm6dso\"]\nbmi270=[]\nlsm6dso=[]\nprobe = [\"nxrs-acquisition/probe\"]\n[dependencies]\ncfg-if = \"=1.0.5\"\nnxrs-messaging = {{ path = {:?} }}\n\
              nxrs-acquisition = {{ path = {:?} }}\nnxrs-i2c = {{ path = {:?} }}\nnxrs-gpio = {{ path = {:?} }}\nnxrs-spi = {{ path = {:?} }}\n\
              nxrs-peripheral = {{ path = {:?} }}\n\
-             nxrs-bmi270 = {{ path = {:?} }}\nnxrs-lsm6dso = {{ path = {:?} }}\nembedded-hal = '=1.0.0'\n\
+             bmi270 = {{ package = \"nxrs-bmi270\", path = {:?} }}\nlsm6dso = {{ package = \"nxrs-lsm6dso\", path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
             source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
             source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("tools/build-support")
@@ -146,10 +146,10 @@ mod production {
     mod spi_resource { pub struct Config<'a> { pub path: &'a str, pub chip_select: u16, pub frequency: u32, pub mode: u8 } }
     mod resources {
         pub type I2cResource = (); pub type SpiResource = ();
+        pub type Bus = (); pub type Spi = (); pub type Delay = ();
         pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {}
         pub fn open_spi(_: super::spi_resource::Config<'_>, _: ()) -> SpiResource {}
     }
-    mod implementations { pub struct Bmi270; pub struct Lsm6dso; pub struct Bmi270Spi; pub struct Lsm6dsoSpi; }
     struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
     impl<S: Sync, R: Sync> crate::Device for Instance<S, R> {}
     macro_rules! declare_device {
@@ -242,7 +242,7 @@ fn verify_named() {
             .unwrap()
     };
     let original = [
-        "implementations::Bmi270,",
+        "::r#bmi270::Bmi270<resources::Bus, resources::Delay>,",
         "}, 104)",
         "path: \"/dev/i2c0\"",
         "\"/dev/ttyS1\", 38400",
@@ -253,7 +253,7 @@ fn verify_named() {
         (
             &[patch][..],
             [
-                "implementations::Bmi270,",
+                "::r#bmi270::Bmi270<resources::Bus, resources::Delay>,",
                 "}, 105)",
                 "path: \"/dev/i2c1\"",
                 "\"/dev/ttyS1\", 115200",
@@ -263,7 +263,7 @@ fn verify_named() {
         (
             &[replacement][..],
             [
-                "implementations::Lsm6dso,",
+                "::r#lsm6dso::Lsm6dso<resources::Bus>,",
                 "}, 106)",
                 "frequency: 100000",
                 "\"/dev/ttyS1\", 38400",
@@ -273,7 +273,7 @@ fn verify_named() {
         (
             &[bmi_spi][..],
             [
-                "implementations::Bmi270Spi,",
+                "::r#bmi270::Bmi270Spi<resources::Spi, resources::Delay>,",
                 "chip_select: 0",
                 "mode: 3",
                 "path: \"/dev/spi2\"",
@@ -283,7 +283,7 @@ fn verify_named() {
         (
             &[lsm_spi][..],
             [
-                "implementations::Lsm6dsoSpi,",
+                "::r#lsm6dso::Lsm6dsoSpi<resources::Spi>,",
                 "chip_select: 0",
                 "mode: 3",
                 "path: \"/dev/spi2\"",

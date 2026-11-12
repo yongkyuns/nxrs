@@ -284,7 +284,8 @@ def prepare_embassy(root, selected):
              "--manifest-path", manifest], cwd=manifest.parent, env=env)
 
 
-def build_command(platform_name, root, out, layout="three", instrumentation="full"):
+def build_command(platform_name, root, out, layout="three", instrumentation="full",
+                  worker_stack_bytes=4096, shared_stack_bytes=8192, stack_watermark=False):
     if platform_name not in ("zephyr", "embassy"):
         raise ValueError("build supports zephyr or embassy")
     argv = [sys.executable, HERE / "build.py", "--platform",
@@ -292,14 +293,18 @@ def build_command(platform_name, root, out, layout="three", instrumentation="ful
             "--layout", layout, "--timer-ms", "1", "--out", out,
             "--instrumentation", instrumentation]
     if platform_name == "zephyr":
+        argv += ["--worker-stack-bytes", str(worker_stack_bytes)]
         argv += ["--zephyr", root / "sources/zephyr", "--espressif", root / "sources/hal_espressif",
                  "--xtensa", root / "sources/hal_xtensa", "--sdk", sdk_path(root),
                  "--zephyr-python", root / "venv/bin/python", "--readelf",
                  sdk_path(root) / "gnu" / TRIPLE / "bin" / (TRIPLE + "-readelf")]
     else:
+        argv += ["--shared-stack-bytes", str(shared_stack_bytes)]
         argv += ["--espflash", root / "packages/espflash/espflash", "--readelf",
                  root / "packages/gcc/xtensa-esp-elf/bin/xtensa-esp32s3-elf-readelf",
                  "--cargo-target", root / "cargo-target", "--embassy-scheduling", "natural"]
+    if stack_watermark:
+        argv += ["--stack-watermark"]
     return list(map(str, argv))
 
 
@@ -331,6 +336,9 @@ def main(argv=None):
     parser.add_argument("--out", type=Path, help="fresh image directory (default: ROOT/images)")
     parser.add_argument("--layout", choices=("one", "three"), default="three")
     parser.add_argument("--instrumentation", choices=("full", "lean"), default="full")
+    parser.add_argument("--worker-stack-bytes", type=int, default=4096)
+    parser.add_argument("--shared-stack-bytes", type=int, default=8192)
+    parser.add_argument("--stack-watermark", action="store_true")
     args = parser.parse_args(argv)
     host = host_key(platform.system(), platform.machine())
     platforms = selected_platforms(args.platform)
@@ -341,7 +349,8 @@ def main(argv=None):
         print(json.dumps({"host": host, "root": str(root), "platforms": platforms,
                           "downloads": selected, "zephyr_revision": ZEPHYR_SHA,
                           "build_commands": [build_command(p, root, out / (("zephyr-c" if p == "zephyr" else p)
-                                                          + "-" + args.layout), args.layout, args.instrumentation)
+                                                          + "-" + args.layout), args.layout, args.instrumentation,
+                                                          args.worker_stack_bytes, args.shared_stack_bytes, args.stack_watermark)
                                              for p in platforms]}, indent=2))
         return
     if sys.version_info < (3, 12):
@@ -371,7 +380,8 @@ def main(argv=None):
             for name in platforms:
                 case = ("zephyr-c" if name == "zephyr" else name) + "-" + args.layout
                 try:
-                    run(build_command(name, root, out / case, args.layout, args.instrumentation),
+                    run(build_command(name, root, out / case, args.layout, args.instrumentation,
+                                      args.worker_stack_bytes, args.shared_stack_bytes, args.stack_watermark),
                         env=environment(root, name == "embassy"))
                 except subprocess.CalledProcessError as exc:
                     raise ValueError(f"{case} build failed; logs and provenance are in {out / case}") from exc

@@ -147,6 +147,54 @@ fn concurrent_owners_conserve_requested_bytes() {
 }
 
 #[test]
+fn concurrent_live_allocations_preserve_the_peak_after_release() {
+    let probe = Tracking::new(System);
+    let sizes = [32, 64, 128, 256];
+    let held_bytes: usize = sizes.iter().sum();
+    let gate = std::sync::Barrier::new(sizes.len() + 1);
+    std::thread::scope(|scope| {
+        for size in sizes {
+            let probe = &probe;
+            let gate = &gate;
+            scope.spawn(move || {
+                let layout = Layout::from_size_align(size, 8).unwrap();
+                // SAFETY: the owned allocation remains live until the coordinator
+                // samples all workers; it is then released with its exact layout.
+                unsafe {
+                    let pointer = probe.alloc(layout);
+                    assert!(!pointer.is_null());
+                    gate.wait();
+                    gate.wait();
+                    probe.dealloc(pointer, layout);
+                }
+            });
+        }
+        gate.wait();
+        let held = probe.snapshot();
+        assert_eq!(
+            (held.live, held.blocks, held.peak),
+            (held_bytes, 4, held_bytes)
+        );
+        gate.wait();
+    });
+    let released = probe.snapshot();
+    assert_eq!(
+        (released.live, released.blocks, released.peak),
+        (0, 0, held_bytes)
+    );
+    // A later lower request must not overwrite the concurrent high-water mark.
+    let small = Layout::from_size_align(16, 8).unwrap();
+    // SAFETY: one successful allocation is released with the same valid layout.
+    unsafe {
+        let pointer = probe.alloc(small);
+        assert!(!pointer.is_null());
+        assert_eq!(probe.snapshot().peak, held_bytes);
+        probe.dealloc(pointer, small);
+    }
+    assert_eq!(probe.snapshot().peak, held_bytes);
+}
+
+#[test]
 fn negative_controls_reject_activity_leaks_and_nonmonotonic_counters() {
     let before = Snapshot::default();
     let held = Snapshot {

@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "clock.h"
 #include "platform.h"
+#include "native_stack.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -18,10 +19,13 @@
 #include <unistd.h>
 
 #ifdef __NuttX__
+#include <nuttx/config.h>
+#include <nuttx/arch.h>
+#include <nuttx/sched.h>
+#include <nuttx/spinlock.h>
 #include <malloc.h>
 #endif
 
-#define ES_STACK_BYTES 4096u
 #define ES_HOST_STACK_BYTES 65536u
 
 _Static_assert(sizeof(struct es_event) == ES_EVENT_BYTES,
@@ -46,8 +50,13 @@ static sem_t go_gate;
 static int gates_ready;
 static unsigned ready_consumed;
 static int initialized;
+static int queues_ready;
 static int released;
 static int spawn_failed;
+static unsigned completed_workers;
+#if ES_STACK_WATERMARK
+static struct es_stack_sample stack_observations[ES_SERVICES];
+#endif
 static _Atomic unsigned queue_peak;
 static _Atomic unsigned invocation_id;
 
@@ -108,7 +117,7 @@ static void es_close_queues(void) {
   }
 }
 
-int es_platform_init(void) {
+static int es_initialize(int with_queues) {
 #ifdef __XTENSA__
   es_clock_prepare();
 #endif
@@ -122,6 +131,11 @@ int es_platform_init(void) {
   memset(ready_cursor, 0, sizeof(ready_cursor));
   memset(poll_sets, 0, sizeof(poll_sets));
   spawned = 0;
+  completed_workers = 0;
+  queues_ready = 0;
+#if ES_STACK_WATERMARK
+  memset(stack_observations, 0, sizeof(stack_observations));
+#endif
   ready_consumed = 0;
   released = 0;
   spawn_failed = 0;
@@ -135,6 +149,11 @@ int es_platform_init(void) {
     return -1;
   }
   gates_ready = 1;
+
+  if (!with_queues) {
+    initialized = 1;
+    return 0;
+  }
 
   unsigned invocation = atomic_fetch_add(&invocation_id, 1u);
   const char *platform = "nuttx-c";
@@ -172,9 +191,13 @@ int es_platform_init(void) {
           (struct pollfd){.fd = (int)queue_handles[s][q], .events = POLLIN};
     }
   }
+  queues_ready = 1;
   initialized = 1;
   return 0;
 }
+
+int es_platform_init(void) { return es_initialize(1); }
+int es_platform_init_threads(void) { return es_initialize(0); }
 
 void es_platform_close(void) {
   if (!initialized && !gates_ready) {
@@ -191,11 +214,12 @@ void es_platform_close(void) {
     gates_ready = 0;
   }
   initialized = 0;
+  queues_ready = 0;
 }
 
 int es_platform_send(unsigned destination, unsigned kind,
                      const struct es_event *event) {
-  if (!initialized || !event || destination >= ES_SERVICES ||
+  if (!initialized || !queues_ready || !event || destination >= ES_SERVICES ||
       kind >= ES_KINDS) {
     return -1;
   }
@@ -217,7 +241,7 @@ int es_platform_send(unsigned destination, unsigned kind,
 
 int es_platform_wait(unsigned service, uint32_t timeout_cycles,
                      struct es_event *event) {
-  if (!initialized || !event || service >= ES_SERVICES) {
+  if (!initialized || !queues_ready || !event || service >= ES_SERVICES) {
     return -1;
   }
   unsigned count = ES_QUEUES_PER_SERVICE;
@@ -264,6 +288,44 @@ uint32_t es_platform_cycles(void) {
 #endif
 }
 
+static size_t es_worker_stack_bytes(void) {
+  size_t stack_bytes = ES_STACK_BYTES;
+#ifndef __NuttX__
+  stack_bytes = ES_HOST_STACK_BYTES;
+#ifdef PTHREAD_STACK_MIN
+  if (stack_bytes < PTHREAD_STACK_MIN) {
+    stack_bytes = PTHREAD_STACK_MIN;
+  }
+#endif
+#endif
+  return stack_bytes;
+}
+
+#if ES_STACK_WATERMARK
+static struct es_stack_sample es_current_stack(void) {
+  struct es_stack_sample sample = es_stack_unknown(es_worker_stack_bytes());
+#if defined(__NuttX__) && defined(CONFIG_STACK_COLORATION)
+  struct tcb_s *tcb = nxsched_self();
+  if (tcb) {
+    sample = es_stack_observed(tcb->adj_stack_size,
+                              up_check_tcbstack(tcb, tcb->adj_stack_size));
+  }
+#endif
+  return sample;
+}
+#endif
+
+static void *es_thread_trampoline(void *argument) {
+  unsigned slot = (unsigned)(uintptr_t)argument;
+  void *result = roles[slot].entry(roles[slot].argument);
+#if ES_STACK_WATERMARK
+  /* The current TCB and stack are still alive. pthread_join may free both;
+   * publish only this slot, then rely on successful join before reading it. */
+  stack_observations[slot] = es_current_stack();
+#endif
+  return result;
+}
+
 int es_platform_spawn(void *(*entry)(void *)) {
   if (!initialized || !entry || spawned >= ES_SERVICES || released) {
     return -1;
@@ -276,18 +338,11 @@ int es_platform_spawn(void *(*entry)(void *)) {
     spawn_failed = 1;
     return -1;
   }
-  size_t stack_bytes = ES_STACK_BYTES;
-#ifndef __NuttX__
-  stack_bytes = ES_HOST_STACK_BYTES;
-#ifdef PTHREAD_STACK_MIN
-  if (stack_bytes < PTHREAD_STACK_MIN) {
-    stack_bytes = PTHREAD_STACK_MIN;
-  }
-#endif
-#endif
+  size_t stack_bytes = es_worker_stack_bytes();
   int rc = pthread_attr_setstacksize(&attr, stack_bytes);
   if (rc == 0) {
-    rc = pthread_create(&threads[slot], &attr, entry, roles[slot].argument);
+    rc = pthread_create(&threads[slot], &attr, es_thread_trampoline,
+                        (void *)(uintptr_t)slot);
   }
   (void)pthread_attr_destroy(&attr);
   if (rc != 0) {
@@ -351,6 +406,7 @@ int es_platform_join(void) {
     }
   }
   if (all_joined) {
+    if (spawned) completed_workers = spawned;
     spawned = 0;
   }
   return rc == 0 && !spawn_failed ? 0 : -1;
@@ -365,7 +421,7 @@ uint32_t es_platform_heap_used(void) {
 }
 
 int es_platform_queue_depth(unsigned destination, unsigned kind) {
-  if (!initialized || destination >= ES_SERVICES || kind >= ES_KINDS) {
+  if (!initialized || !queues_ready || destination >= ES_SERVICES || kind >= ES_KINDS) {
     return -1;
   }
   struct mq_attr attr;
@@ -378,23 +434,98 @@ int es_platform_queue_depth(unsigned destination, unsigned kind) {
 
 unsigned es_platform_queue_peak(void) { return atomic_load(&queue_peak); }
 
+static size_t es_stack_diagnostic_bytes(void) {
+  return sizeof(completed_workers)
+#if ES_STACK_WATERMARK
+      + sizeof(stack_observations)
+#endif
+      ;
+}
+
+void es_platform_stack_report(void) {
+  if (spawned) return; /* Never read an observation while its worker can write. */
+  struct es_stack_sample main_stack = es_stack_unknown(0);
+  struct es_stack_sample idle_stack = es_stack_unknown(0);
+  struct es_stack_sample irq_stack = es_stack_unknown(0);
+#ifdef __NuttX__
+#ifdef CONFIG_INIT_STACKSIZE
+  main_stack.reserved = CONFIG_INIT_STACKSIZE;
+#endif
+#ifdef CONFIG_IDLETHREAD_STACKSIZE
+  idle_stack.reserved = CONFIG_IDLETHREAD_STACKSIZE;
+#endif
+#ifdef CONFIG_ARCH_INTERRUPTSTACK
+  irq_stack.reserved = CONFIG_ARCH_INTERRUPTSTACK;
+#endif
+#if ES_STACK_WATERMARK && defined(CONFIG_STACK_COLORATION) && !defined(CONFIG_SMP)
+  /* The campaign is single-core. Keep non-current permanent stack snapshots
+   * stable without depending on a foreign TCB surviving an unlocked lookup. */
+  irqstate_t flags = enter_critical_section();
+  main_stack = es_current_stack();
+  struct tcb_s *idle = nxsched_get_tcb(0);
+  if (idle) {
+    idle_stack = es_stack_observed(idle->adj_stack_size,
+                                  up_check_tcbstack(idle, idle->adj_stack_size));
+  }
+#if defined(CONFIG_ARCH_INTERRUPTSTACK) && CONFIG_ARCH_INTERRUPTSTACK > 15
+  irq_stack = es_stack_observed(CONFIG_ARCH_INTERRUPTSTACK,
+                               up_check_intstack(0, CONFIG_ARCH_INTERRUPTSTACK));
+#endif
+  leave_critical_section(flags);
+#endif
+#endif
+  for (unsigned i = 0; i < completed_workers; i++) {
+    struct es_stack_sample sample = es_stack_unknown(es_worker_stack_bytes());
+#if ES_STACK_WATERMARK
+    sample = stack_observations[i];
+#endif
+    es_stack_print("worker", i, es_worker_stack_bytes(), sample,
+                   ES_STACK_WATERMARK ? "before_thread_return" : "disabled");
+  }
+  const char *coverage = ES_STACK_WATERMARK ? "report_snapshot" : "disabled";
+  es_stack_print("main", 0, 0, main_stack, coverage);
+  es_stack_print("idle", 0, 0, idle_stack, coverage);
+  es_stack_print("irq", 0, 0, irq_stack, coverage);
+  /* The native fixture does not own a stable public workqueue-task handle. */
+  es_stack_print("workqueue", 0, 0, es_stack_unknown(0), "unavailable");
+}
+
+void es_platform_alloc_report(const char *stage, unsigned requested_workers) {
+  size_t static_storage = sizeof(queue_handles) + sizeof(queue_names) +
+      sizeof(queue_opened) + sizeof(poll_sets) + sizeof(ready_cursor) +
+      sizeof(threads) + sizeof(roles) + sizeof(thread_joined) +
+      sizeof(ready_gate) + sizeof(go_gate) + sizeof(spawned) +
+      sizeof(gates_ready) + sizeof(ready_consumed) + sizeof(initialized) +
+      sizeof(queues_ready) + sizeof(released) + sizeof(spawn_failed) +
+      sizeof(queue_peak) + sizeof(invocation_id) + es_stack_diagnostic_bytes();
+  unsigned available = 0;
+#ifdef __NuttX__
+  available = 1;
+#endif
+  printf("ES_ALLOC stage=%s heap_used=%u available=%u requested_workers=%u "
+         "live_workers=%u worker_stack_requested=%zu worker_stack_reserved=0 "
+         "worker_stack_reservation_available=0 queue_payload_capacity=%u "
+         "static_storage=%zu diagnostics=%zu static_scope=adapter "
+         "active_queues=%u storage=dynamic\n",
+         stage, (unsigned)es_platform_heap_used(), available, requested_workers,
+         spawned, spawned * es_worker_stack_bytes(), queues_ready ? 30720u : 0u,
+         static_storage, es_stack_diagnostic_bytes(),
+         queues_ready ? ES_SERVICES * ES_QUEUES_PER_SERVICE : 0u);
+}
+
 void es_platform_resources(void) {
   size_t queue_objects = sizeof(queue_handles) + sizeof(queue_names) +
                          sizeof(queue_opened) + sizeof(poll_sets) +
                          sizeof(ready_cursor);
   size_t thread_objects = sizeof(threads) + sizeof(thread_joined);
-#ifdef __NuttX__
-  size_t stack_storage = (size_t)ES_SERVICES * ES_STACK_BYTES;
-#else
-  size_t stack_storage = (size_t)ES_SERVICES * ES_HOST_STACK_BYTES;
-#endif
+  size_t stack_storage = (size_t)ES_SERVICES * es_worker_stack_bytes();
   printf("ES_RESOURCES queue_buffers=30720 queue_objects=%zu "
          "thread_objects=%zu entry_storage=%zu stack_storage=%zu "
          "heap_allocated=%u "
-         "diagnostics_queue_peaks=%zu "
+         "diagnostics_queue_peaks=%zu diagnostics_stack=%zu "
          "note=queue_peak_observation_may_underestimate\n",
          queue_objects, thread_objects, sizeof(roles), stack_storage,
-         (unsigned)es_platform_heap_used(), sizeof(queue_peak));
+         (unsigned)es_platform_heap_used(), sizeof(queue_peak), es_stack_diagnostic_bytes());
 }
 
 const char *es_platform_name(void) {

@@ -1,5 +1,5 @@
 //! One measurement engine, compiled from the same Rust source for both OSes.
-use crate::{arrivals, check, line, platform as p, transport::Channel};
+use crate::{arrivals, check, irq_probe, line, platform as p, transport::Channel};
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering::*};
 
 pub const MAX: usize = 2240;
@@ -11,6 +11,45 @@ const WARMED: usize = 8;
 const RECEIVE: usize = 9;
 const RETIRE: usize = 10;
 const PROBE: usize = 15;
+// The native ABI uses MAX internally for unavailable observations. Never emit
+// that sentinel as a measured duration in the wire records.
+struct OptionalCounter(u64);
+impl core::fmt::Display for OptionalCounter {
+    fn fmt(&self, out: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.0 == u64::MAX {
+            out.write_str("null")
+        } else {
+            core::fmt::Display::fmt(&self.0, out)
+        }
+    }
+}
+
+fn cpu_counter_control() -> Option<(u32, u64)> {
+    if env!("MPSC_OBSERVER") != "cpu" {
+        return None;
+    }
+    // A short busy interval checks availability and gross unit errors against
+    // the independent wall counter. It precedes warmup and workload accounting.
+    let before = p::runtime(p::tid());
+    let start = p::clock();
+    while p::clock().wrapping_sub(start) < p::CLOCK_HZ / 50 {
+        core::hint::spin_loop();
+    }
+    let ticks = p::clock().wrapping_sub(start);
+    let after = p::runtime(p::tid());
+    check(
+        before != u64::MAX && after != u64::MAX && after >= before,
+        "cpu-counter-available",
+    );
+    let cpu_ns = after - before;
+    let wall_ns = u64::from(ticks) * 1_000_000_000 / u64::from(p::CLOCK_HZ);
+    check(
+        wall_ns <= 500_000_000 && cpu_ns >= wall_ns / 2 && cpu_ns <= wall_ns * 3 / 2,
+        "cpu-counter-units",
+    );
+    Some((ticks, cpu_ns))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Sustained,
@@ -123,13 +162,13 @@ fn enter(role: usize) {
     SHARED.roles[role].start_priority.store(priority, Release);
     SHARED.roles[role].start_policy.store(p::policy(), Release);
 }
-fn prove_senders(producers: usize) {
+fn prove_senders<C: Channel<W>, const W: usize>(producers: usize) {
     for _ in 0..producers {
         p::gate_wait(PROBE);
     }
     let guard = p::monotonic_ns();
     loop {
-        if (2..=producers + 1).all(|role| p::waiting(SHARED.roles[role].tid.load(Acquire))) {
+        if (2..=producers + 1).all(|role| C::waiting(SHARED.roles[role].tid.load(Acquire), true)) {
             return;
         }
         check(
@@ -139,9 +178,10 @@ fn prove_senders(producers: usize) {
         p::sleep_ns(1_000_000);
     }
 }
-fn prove_receiver() {
+fn prove_receiver<C: Channel<W>, const W: usize>() {
     let guard = p::monotonic_ns();
-    while !(SHARED.receiving.load(Acquire) && p::waiting(SHARED.roles[1].tid.load(Acquire))) {
+    while !(SHARED.receiving.load(Acquire) && C::waiting(SHARED.roles[1].tid.load(Acquire), false))
+    {
         check(
             p::monotonic_ns() - guard < 1_000_000_000,
             "empty-receiver-proof",
@@ -312,7 +352,9 @@ pub fn run<C: Channel<W>, const W: usize>(
         p::gate_init(i);
     }
     p::watchdog_start(60_000);
+    let cpu_control = cpu_counter_control();
     let before = p::heap();
+    irq_probe::prepare();
     let ctx = Context::<C, W> {
         channel: C::create(capacity, producers),
         mode,
@@ -335,19 +377,21 @@ pub fn run<C: Channel<W>, const W: usize>(
     for role in 2..=producers + 1 {
         p::gate_post(role - 1);
     }
-    prove_senders(producers);
+    prove_senders::<C, W>(producers);
     p::gate_post(0);
     for _ in 0..producers {
         p::gate_wait(PRODUCED);
     }
     p::gate_wait(WARMED);
     p::gate_post(RECEIVE);
-    prove_receiver();
+    prove_receiver::<C, W>();
+    irq_probe::start_idle();
     let idle_begin = p::clock();
     let owner_idle_before = p::runtime(SHARED.roles[1].tid.load(Acquire));
     p::sleep_ns(100_000_000);
     let idle_ticks = p::clock().wrapping_sub(idle_begin);
     let idle_end = p::runtime(SHARED.roles[1].tid.load(Acquire));
+    irq_probe::finish_idle();
     let owner_idle_ns = if idle_end == u64::MAX || owner_idle_before == u64::MAX {
         None
     } else {
@@ -378,7 +422,12 @@ pub fn run<C: Channel<W>, const W: usize>(
     // Exclude idle observation from the busy CPU interval.
     for (role, value) in cpu_before.iter_mut().enumerate().take(producers + 2) {
         *value = p::runtime(SHARED.roles[role].tid.load(Acquire));
+        check(
+            (*value != u64::MAX) == (env!("MPSC_OBSERVER") == "cpu"),
+            "cpu-observer-config",
+        );
     }
+    irq_probe::start();
     let begin = p::clock();
     let wall_begin = p::monotonic_ns();
     for role in 2..=producers + 1 {
@@ -388,7 +437,7 @@ pub fn run<C: Channel<W>, const W: usize>(
     let mut blocked = 0;
     let mut recovery = begin;
     if mode == Mode::Backpressure {
-        prove_senders(producers);
+        prove_senders::<C, W>(producers);
         blocked = producers;
         recovery = p::clock();
         p::gate_post(RECEIVE);
@@ -405,6 +454,7 @@ pub fn run<C: Channel<W>, const W: usize>(
     p::gate_wait(FINISHED);
     let end = p::clock();
     let wall_ns = p::monotonic_ns() - wall_begin;
+    irq_probe::finish();
     check(
         wall_ns < 8_000_000_000 && end.wrapping_sub(begin) < 1 << 31,
         "counter-window",
@@ -441,10 +491,13 @@ pub fn run<C: Channel<W>, const W: usize>(
     p::watchdog_stop();
     p::restore(original);
     line(format_args!(
-        "MPSC {{\"record\":\"metadata\",\"schema\":\"mpsc-comparison-v2\",\"build_id\":\"{}\",\"runtime\":\"{}\",\"backend\":\"{}\",\"mode\":\"{}\",\"producers\":{},\"payload_bytes\":{},\"capacity\":{},\"samples\":{},\"warmup\":128,\"warm_blocked_senders\":{},\"prefix\":{},\"clock_hz\":{},\"begin\":{},\"end\":{},\"last_received\":{},\"wall_ns\":{},\"blocked_senders\":{},\"recovery_begin\":{},\"joined_ticks\":{},\"idle_ticks\":{},\"idle_owner_ns\":{},\"source_groups\":{},\"sample_storage_bytes\":{},\"native\":{}}}",
+        "MPSC {{\"record\":\"metadata\",\"schema\":\"mpsc-comparison-v4\",\"build_id\":\"{}\",\"runtime\":\"{}\",\"backend\":\"{}\",\"observer\":\"{}\",\"cpu_scope\":\"{}\",\"wait_observer\":\"{}\",\"mode\":\"{}\",\"producers\":{},\"payload_bytes\":{},\"capacity\":{},\"samples\":{},\"warmup\":128,\"warm_blocked_senders\":{},\"prefix\":{},\"clock_hz\":{},\"begin\":{},\"end\":{},\"last_received\":{},\"wall_ns\":{},\"blocked_senders\":{},\"recovery_begin\":{},\"joined_ticks\":{},\"idle_ticks\":{},\"idle_owner_ns\":{},\"source_groups\":{},\"sample_storage_bytes\":{},\"native\":{}}}",
         env!("MPSC_BUILD_ID"),
         p::NAME,
         backend,
+        env!("MPSC_OBSERVER"),
+        env!("MPSC_CPU_SCOPE"),
+        C::WAIT_OBSERVER,
         mode.label(),
         producers,
         W * 4,
@@ -461,16 +514,33 @@ pub fn run<C: Channel<W>, const W: usize>(
         recovery,
         join_ticks,
         idle_ticks,
-        owner_idle_ns.unwrap_or(u64::MAX),
+        OptionalCounter(owner_idle_ns.unwrap_or(u64::MAX)),
         source_groups,
         core::mem::size_of_val(&SHARED.stamps),
         p::NATIVE
     ));
-    for (stage, h) in [("before", before), ("live", live), ("after", after)] {
+    if let Some((wall_ticks, cpu_ns)) = cpu_control {
         line(format_args!(
-            "MPSC {{\"record\":\"heap\",\"stage\":\"{stage}\",\"used\":{},\"peak_since_boot\":{},\"free\":{},\"largest_free\":{}}}",
-            h[0], h[1], h[2], h[3]
+            "MPSC {{\"record\":\"cpu-control\",\"wall_ticks\":{},\"cpu_ns\":{}}}",
+            wall_ticks, cpu_ns
         ));
+    }
+    irq_probe::emit();
+    for (stage, h) in [("before", before), ("live", live), ("after", after)] {
+        if let Some(h) = h {
+            line(format_args!(
+                "MPSC {{\"record\":\"heap\",\"stage\":\"{stage}\",\"available\":true,\"scope\":\"{}\",\"used\":{},\"peak_since_boot\":{},\"free\":{},\"largest_free\":{}}}",
+                p::HEAP_SCOPE,
+                h[0],
+                h[1],
+                h[2],
+                h[3]
+            ));
+        } else {
+            line(format_args!(
+                "MPSC {{\"record\":\"heap\",\"stage\":\"{stage}\",\"available\":false,\"scope\":\"unavailable\",\"used\":null,\"peak_since_boot\":null,\"free\":null,\"largest_free\":null}}"
+            ));
+        }
     }
     for role in 0..producers + 2 {
         let r = &SHARED.roles[role];
@@ -483,7 +553,7 @@ pub fn run<C: Channel<W>, const W: usize>(
             r.end_priority.load(Acquire),
             r.start_policy.load(Acquire),
             r.end_policy.load(Acquire),
-            cpu[role],
+            OptionalCounter(cpu[role]),
             s[0],
             s[1],
             s[2]

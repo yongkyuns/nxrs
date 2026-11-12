@@ -326,20 +326,16 @@ bus frequencies and readiness modes. IMU declarations live in each chip driver's
 Product profiles choose the actual bus, address and interrupt endpoint. NuttX
 owns physical pin assignment and device registration.
 
-Each package declares version 2 binding files in `package.metadata.nxrs.bindings`.
-The IMU platform catalogue imports its drivers' declarations with `{ dependency = "nxrs-bmi270", feature = "bmi270" }`
-and the corresponding LSM6DSO entry. Imports must name an existing normal Cargo
-dependency with an explicit path; target tables and dependency aliases are
-supported. Registry-only and workspace-inherited imports are not implemented.
-The loader follows declared inputs, records their manifests and binding files,
-and rejects cycles and ambiguous matches. It does not select Cargo dependencies.
-The composition crate imports UBX through its GNSS binding declaration.
-An import may name an additive Cargo feature declared by the catalogue; product
-builds activate it before target compilation when the catalogue is consumed.
+Drivers declare version 2 binding files in `package.metadata.nxrs.bindings`
+and their capability in `package.metadata.nxrs.device`. The composition crate
+registers each driver as a renamed optional NuttX path dependency. The
+loader records the declared manifests and binding files and rejects ambiguous
+matches. Product builds enable the dependency alias's Cargo feature for
+consumed devices. See the [driver registration example](../platform/README.md).
 
 Build-only resolution selects a checked-in constructor. Profiles cannot supply
 Rust paths or executable code. Unknown models and unsupported buses fail.
-One implementation ID names a checked-in Rust type; profiles do not name code.
+The implementation identifier names a type exported by the driver.
 Resolution loads those declarations for explicit `[hal]` capabilities, including
 `"none"` entries used to validate unselected devices. A physical device whose
 capability is absent from `[hal]` has no admitted catalog and fails validation.

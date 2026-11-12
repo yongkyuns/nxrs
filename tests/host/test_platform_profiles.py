@@ -51,6 +51,15 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
+    def test_native_ram_timer_profile_keeps_internal_memory_observation_controls(self):
+        profile = PLATFORM_CONFIG.resolve("esp32s3-ram-native-baseline")
+        self.assertEqual(profile["hal"], {})
+        required = set(profile["kconfig"]["require"])
+        self.assertTrue({"CONFIG_USEC_PER_TICK=1000", "CONFIG_RR_INTERVAL=10",
+                         "CONFIG_MQ_MAXMSGSIZE=248", "CONFIG_STACK_COLORATION=y",
+                         "CONFIG_ESP32S3_USBSERIAL=y", "CONFIG_BUILD_FLAT=y"} <= required)
+        self.assertTrue({"ESP32S3_SPIRAM", "SMP", "NET"} <= set(profile["kconfig"]["disable"]))
+
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
         for option, symbol in product(
                 ("--kconfig-enable", "--kconfig-disable"),
@@ -140,9 +149,12 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-devkit-imu-sensor-reference": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-protected-sensor-reference": {"imu": "nuttx"},
                             "esp32s3-service-footprint": {},
+                            "esp32s3-ram-footprint": {},
+                            "esp32s3-ram-native-baseline": {},
                             "esp32s3-sync-iram": {},
                             "esp32s3-mpsc": {},
                             "pico2w-mpsc": {},
+                            "pico2w-std-qualification": {},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
@@ -372,7 +384,8 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_usb_bootloader_trigger_is_limited_to_pico_development(self):
         for name, _ in firmware_profiles():
             config = PLATFORM_CONFIG.resolve(name)["kconfig"]
-            enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc")
+            enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc",
+                               "pico2w-std-qualification")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):

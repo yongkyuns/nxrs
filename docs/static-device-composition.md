@@ -62,8 +62,7 @@ does not introduce a new profile field or a runtime device registry.
 IMU and GNSS use one generator in shared build support. The composition crate
 imports version 2 binding declarations from each capability's chip drivers. Build support selects
 bindings by compatible and bus, then emits typed resource bindings, one
-instance per selected device, and alias accessors. The composition crate supplies the
-checked-in Rust constructors. This follows
+instance per selected device, and alias accessors. Build support instantiates the types exported by the selected drivers. This follows
 [Zephyr's devicetree instantiation pattern](https://docs.zephyrproject.org/latest/build/dts/howtos.html#write-device-drivers-using-devicetree-apis).
 Package discovery, receipts and Cargo rebuild tracking include the exact catalog
 bytes. The reusable I²C resource adapter now lives in `driver/i2c`; IMU owns only its
@@ -172,11 +171,11 @@ per-HAL host callbacks. Cargo features enable implementations through declared
 edges; they do not themselves name arbitrary Rust constructor paths.
 
 The SDK's `workspace.metadata.nxrs.device-catalogue` locates the composition
-crate. Its `package.metadata.nxrs.device-bindings` groups binding imports by
-capability feature. The resolver reads the declarations for capabilities in the
-profile and tracks the workspace manifest in receipts. Drivers declare binding
-files and resource constraints. Product profiles
-assign actual endpoints, addresses and aliases.
+crate. Its renamed optional NuttX path dependencies register drivers. The
+dependency alias supplies both the Rust crate name and the Cargo feature.
+The driver declares its capability and binding files. The generator qualifies
+the binding's exported type with that alias and supplies the resource adapter
+types. The [composition README](../platform/README.md) shows the registration.
 The production dependency closure must contain its declared inputs. Shared support must not
 embed another package's catalog using a hardcoded sibling `include_str!` path.
 Profiles contain data and supported identifiers, never executable source paths.

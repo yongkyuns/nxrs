@@ -2,6 +2,13 @@
 
 mod arrivals;
 mod engine;
+#[cfg(mpsc_irq_observer)]
+mod irq_probe;
+#[cfg(not(mpsc_irq_observer))]
+#[path = "irq_probe_disabled.rs"]
+mod irq_probe;
+#[cfg(mpsc_irq_observer)]
+mod irq_protocol;
 mod platform;
 mod transport;
 use core::fmt::{self, Write};

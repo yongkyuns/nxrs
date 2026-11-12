@@ -6,14 +6,12 @@
 #include <string.h>
 
 #define ES_SAT_CYCLES 3u
-#define ES_SAT_STACK_BYTES (ES_SERVICES * 4096u)
+#define ES_SAT_STACK_BYTES (ES_SERVICES * ES_STACK_BYTES)
 
 _Static_assert(sizeof(struct es_event) == ES_EVENT_BYTES,
                "event layout must occupy exactly 64 bytes");
 _Static_assert(ES_SERVICES * ES_QUEUES_PER_SERVICE * ES_QUEUE_SLOTS == 480,
                "both queue layouts must provide exactly 480 slots");
-_Static_assert(ES_SAT_STACK_BYTES == 81920,
-               "probe stacks must total exactly 81,920 bytes");
 
 static void *es_saturation_probe(void *argument) {
   (void)argument;
@@ -221,6 +219,7 @@ int es_run_saturation(void) {
   if (es_platform_join() != 0) {
     ++errors;
   }
+  es_platform_stack_report();
   if (initialized) {
     es_platform_close();
   }
