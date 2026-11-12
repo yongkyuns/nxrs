@@ -36,7 +36,7 @@ cargo nxrs build --app ao-stress --profile mps2-an521-mock
 ```
 
 Use the repository's existing pinned NuttX/toolchain prerequisite setup. Images
-remain under `target/firmware/<app>/<platform>/`. NSH commands are `std_demo` and
+are written under `target/build/<binary>/<profile>/`. NSH commands are `std_demo` and
 `ao_stress`, respectively. Existing platform profiles happen to select mock HAL
 packages for their other apps; these two app dependency graphs acquire none of
 them. A mock platform name is not an assertion of sensor or radio qualification.
