@@ -1,5 +1,5 @@
 # Presence-only comparison with the pure Rust VWW model.
-extends = "esp32s3-camera-stream"
+extends = "esp32s3-camera-stream-single-core"
 
 [detector]
 model = "vww"

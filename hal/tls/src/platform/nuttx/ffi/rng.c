@@ -21,7 +21,7 @@ bool tls_rng_admitted(void)
   return true;
 #elif defined(CONFIG_BUILD_FLAT) && defined(CONFIG_ARCH_CHIP_ESP32S3) && \
       defined(CONFIG_ESP32S3_RNG) && defined(CONFIG_DEV_RANDOM) && \
-      defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_SMP) && \
+      defined(CONFIG_ESPRESSIF_WIFI) && \
       !defined(CONFIG_PM) && !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && \
       !defined(CONFIG_ESP32S3_AUTO_SLEEP)
   return true;

@@ -5,11 +5,6 @@ hal = { boot = "nuttx", tls = "nuttx" }
 # Stable product/flash-format class, independent of release version.
 image-class = "36996798-de02-40d5-94f9-fca81322a7db"
 
-[detector]
-model = "pico"
-stack-bytes = 131072
-sample-ms = 500
-
 [mcuboot]
 flash-size = 0x1000000
 primary-offset = 0x20000

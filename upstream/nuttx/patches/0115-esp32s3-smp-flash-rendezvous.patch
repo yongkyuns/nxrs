@@ -1,0 +1,153 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: finish the SMP flash rendezvous before reuse
+
+Keep the initiating task on its CPU while the remote CPU is parked.
+Use the existing ready flag to acknowledge remote cache and interrupt
+restoration. The old completion wait read a per-CPU flag the remote
+worker never wrote.
+
+--- a/arch/xtensa/src/esp32s3/esp32s3_spiflash.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_spiflash.c
+@@ -23,6 +23,7 @@
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
++#include <nuttx/atomic.h>
+ 
+ #include <stdint.h>
+ #include <assert.h>
+@@ -294,10 +295,11 @@
+ static uint32_t s_flash_op_cache_state[CONFIG_SMP_NCPUS];
+ 
+ static rmutex_t g_flash_op_mutex;
+-static volatile bool g_flash_op_can_start = false;
+-static volatile bool g_flash_op_complete = false;
++#ifdef CONFIG_SMP
++static atomic_t g_flash_op_can_start;
++static atomic_t g_flash_op_complete;
++#endif
+ static volatile bool g_spi_flash_cache_suspended = false;
+-static volatile bool g_sched_suspended[CONFIG_SMP_NCPUS];
+ static volatile bool g_flash_chip_busy = false;
+ #ifdef CONFIG_SMP
+ static sem_t g_disable_non_iram_isr_on_core[CONFIG_SMP_NCPUS];
+@@ -344,12 +346,23 @@
+   int other_cpu;
+ #endif
+ 
+-  nxrmutex_lock(&g_flash_op_mutex);
++  int ret;
++
++  do
++    {
++      ret = nxrmutex_lock(&g_flash_op_mutex);
++    }
++  while (ret == -EINTR);
++
++  VERIFY(ret);
+ 
+   /* Temporary raise schedule priority */
+ 
+   nxsched_set_priority(tcb, SCHED_PRIORITY_MAX);
+ 
++  /* Keep the initiating task on this core through the rendezvous. */
++
++  sched_lock();
+   cpu = this_cpu();
+ #ifdef CONFIG_SMP
+   other_cpu = cpu == 1 ? 0 : 1;
+@@ -362,14 +367,9 @@
+   DEBUGASSERT(other_cpu != cpu);
+   if (OSINIT_OS_READY())
+     {
+-      g_flash_op_can_start = false;
+-
+-      cpu = this_cpu();
+-      other_cpu = cpu ? 0 : 1;
+-
+-      nxsem_post(&g_disable_non_iram_isr_on_core[other_cpu]);
+-
+-      while (!g_flash_op_can_start)
++      VERIFY(nxsem_post(&g_disable_non_iram_isr_on_core[other_cpu]));
++
++      while (!atomic_read_acquire(&g_flash_op_can_start))
+         {
+           /* Busy loop and wait for spi_flash_op_block_task to disable cache
+            * on the other CPU
+@@ -378,10 +378,6 @@
+     }
+ #endif
+ 
+-  g_sched_suspended[cpu] = true;
+-
+-  sched_lock();
+-
+   nxsched_set_priority(tcb, saved_priority);
+ 
+   esp_intr_noniram_disable();
+@@ -416,23 +412,22 @@
+ 
+   /* Signal to spi_flash_op_block_task that flash operation is complete */
+ 
+-  g_flash_op_complete = true;
++#ifdef CONFIG_SMP
++  atomic_set_release(&g_flash_op_complete, 1);
++#endif
+ 
+   esp_intr_noniram_enable();
+ 
++#ifdef CONFIG_SMP
++  while (atomic_read_acquire(&g_flash_op_can_start))
++    {
++      /* The other core must restore cache and interrupts before the next
++       * operation can enter this rendezvous.
++       */
++    }
++#endif
++
+   sched_unlock();
+-
+-  g_sched_suspended[cpu] = false;
+-
+-#ifdef CONFIG_SMP
+-  while (g_sched_suspended[other_cpu])
+-    {
+-      /* Busy loop and wait for spi_flash_op_block_task to properly finish
+-       * and resume scheduler
+-       */
+-    }
+-#endif
+-
+   nxrmutex_unlock(&g_flash_op_mutex);
+ }
+ 
+@@ -944,7 +939,7 @@
+        * core) being asked to disable its non-IRAM interrupts.
+        */
+ 
+-      nxsem_wait(&g_disable_non_iram_isr_on_core[cpu]);
++      VERIFY(nxsem_wait_uninterruptible(&g_disable_non_iram_isr_on_core[cpu]));
+ 
+       sched_lock();
+ 
+@@ -956,9 +951,9 @@
+        * amount of time).
+        */
+ 
+-      g_flash_op_complete = false;
+-      g_flash_op_can_start = true;
+-      while (!g_flash_op_complete)
++      atomic_set(&g_flash_op_complete, 0);
++      atomic_set_release(&g_flash_op_can_start, 1);
++      while (!atomic_read_acquire(&g_flash_op_complete))
+         {
+           /* Busy loop here and wait for the other CPU to finish the SPI
+            * flash operation.
+@@ -972,6 +967,7 @@
+       /* Restore interrupts that aren't located in IRAM */
+ 
+       esp_intr_noniram_enable();
++      atomic_set_release(&g_flash_op_can_start, 0);
+ 
+       sched_unlock();
+     }

@@ -80,8 +80,8 @@ remain in place.
 The 64 KiB cache consumes 32 KiB more internal SRAM than the previous layout.
 PSRAM speed, cache layout, flash speed and boot RAM testing belong to the product
 profile. They do not enter the common detector API, image algorithms, worker
-or alert policy. The provider remains single-core/flat NuttX only until another
-execution configuration is independently qualified.
+or alert policy. The provider uses a flat NuttX build with profile-selected CPU
+placement.
 
 ## Complete corpus and concurrent CPU measurements
 
@@ -107,10 +107,9 @@ worker. This separates computation from time waiting while sharing the CPU with
 capture/networking; it is not an isolated inference-FPS claim.
 
 The measurements below used a 750 ms PICO budget and a 128 KiB worker stack.
-The signed camera profile now defaults to 500 ms. The
+The signed and unsigned streaming profiles default to 500 ms. The
 [500 ms endurance result](camera-smp.md#500-ms-sampling) applies to the unsigned
-SMP fixture. Throughput at 500 ms on the signed single-core image remains
-unmeasured. The VWW composition uses its own two-second budget and 512 KiB
+SMP fixture. The VWW composition uses its own two-second budget and 512 KiB
 stack. Faster sampling also changes the timing of two-sample confirmation.
 
 ## Final production firmware on the physical camera

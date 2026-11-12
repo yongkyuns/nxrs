@@ -1,9 +1,9 @@
 # Detector SMP qualification
 
-`esp32s3-camera-stream-smp` is an explicit, unsigned experiment. It enables two
-NuttX CPUs and pins synchronous PICO numerical execution to core 1 through the
-profile's `compute-core` resource. Capture and detection use their existing
-Rust workers, and the profile defaults to a 500 ms observation interval.
+Signed WROOM builds and the unsigned `esp32s3-camera-stream` profile share two
+NuttX CPUs and a 500 ms observation interval. The profile's `compute-core`
+resource pins synchronous PICO numerical execution to core 1. Capture and
+detection use their existing Rust workers.
 
 The NuttX factory validates placement before enabling SIMD. Rust serializes
 numerical execution and restores SIMD state before restoring affinity, including
@@ -15,8 +15,9 @@ empty ready queue updated the mask without migrating the running task. Patch
 0105 corrects that condition; the host test executes the actual pinned function
 and reproduces the original failure. Rust still verifies the actual CPU.
 
-Build the existing stream fixture with `--platform esp32s3-camera-stream-smp
---probe`; use `esp32s3-camera-stream --probe` for the single-core control.
+Build the existing stream fixture with `--profile esp32s3-camera-stream
+--probe`; use `--profile esp32s3-camera-stream-single-core --probe` for the
+single-core control.
 SMP accounting uses the common 1 ms scheduler clock. Independent CCOUNT and
 overflow correction are disabled. Fixture CPU observations use `perf_convert`
 with the caller's current active slice, including attributed interrupts; CPU
@@ -64,7 +65,11 @@ about 17.8 FPS and median heap use stayed level. The longest gap between decoded
 frames was 5.21 seconds. The 500 ms runs used the fixture's interval override.
 Thermal and power behavior remain unqualified.
 
-The signed product remains single-core. TLS entropy and Wi-Fi shutdown/OTA are
-still unqualified on SMP and their admission gates remain closed. Physical
-trials restore and verify the original full flash and observe MCUboot startup;
-TLS recovery separately requires the saved gateway address to be reachable.
+## Signed firmware
+
+On ESP32-S3 with SMP and PSRAM enabled, NuttX atomic APIs, compiler atomic
+libcalls and the Rust bounded-channel gate use an internal-RAM spinlock. The
+kernel includes the upstream heap-lock fix for interrupted mutex waits. RF
+entropy requires active Wi-Fi. Signed updates wait for station shutdown before
+writing flash. Each flash operation waits for both CPUs to restore cache and
+interrupts.

@@ -929,6 +929,21 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         ] {
             spec[key] = value;
         }
+        // ESP32-S3 hardware CAS cannot address external PSRAM. Use the same
+        // NuttX libc atomics for Rust and C whenever that configuration is active.
+        if config
+            .lines()
+            .any(|line| line == "CONFIG_LIBC_ATOMIC_IRQ=y")
+            && config.lines().any(|line| line == "CONFIG_SMP=y")
+            && config.lines().any(|line| line == "CONFIG_ESP32S3_SPIRAM=y")
+        {
+            let features = spec["features"].as_str().unwrap_or_default();
+            spec["features"] = json!([features, "-s32c1i,-forced-atomics"]
+                .into_iter()
+                .filter(|feature| !feature.is_empty())
+                .collect::<Vec<_>>()
+                .join(","));
+        }
         for key in ["pre-link-args", "late-link-args", "post-link-args"] {
             spec.as_object_mut().unwrap().remove(key);
         }
