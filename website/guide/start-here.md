@@ -22,6 +22,7 @@ The first programs need no peripherals or application-specific libraries. Host e
 | Understand where my code belongs | [Architecture overview](overview.md) | Application, service, capability, driver, and platform responsibilities |
 | Find the interface for an operation | [Interfaces and APIs](interfaces.md) | Development commands, runtime interaction, and the Rust APIs exposed to applications |
 | Turn a small program into a structured application | [Designing an application](designing-applications.md) | State ownership, component boundaries, delivery policy, and shutdown |
+| Run a controller with an output and explicit command results | [Build a controller](controller.md) | Bounded admission, completion tickets, output state, and joined shutdown |
 | Understand a build or change its inputs | [Build workflow](build-system.md) | How application metadata, Cargo, profiles, native preparation, and artifacts fit together |
 | Move to another board or device instance | [Profiles and overlays](profiles.md) | Target configuration, bindings, resources, devices, and aliases |
 | Investigate a failed command or runtime problem | [Troubleshooting](troubleshooting.md) | Which evidence to collect and where to look next |

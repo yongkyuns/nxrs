@@ -2,7 +2,7 @@
 
 An NXRS application is the composition root: its ordinary `main()` creates resources, connects behavior and controls lifetime. This guide shows how to grow the [bounded worker](services.md) into a firmware design without giving every function a thread or exposing board wiring to reusable code.
 
-The worked design is a generic controller that accepts commands, controls an output, records selected events and optionally reports status over a network. It is a design exercise, not a claim that a new complete controller application is provided. Use the runnable examples linked at the end to exercise each building block.
+The worked design is a generic controller that accepts commands, controls an output, records selected events and optionally reports status over a network. [Build a controller](controller.md) implements the command, output and shutdown portion as a complete application. Recording and network reporting remain design extensions in this chapter.
 
 ## 1. Describe the behavior before the components
 
@@ -98,6 +98,7 @@ Use these existing programs and contracts as small building blocks:
 | Next step | Runnable or maintained source |
 | --- | --- |
 | Start a source project and run it | [Your first application](first-application.md) |
+| Follow commands from admission through output and joined shutdown | [Build a controller](controller.md) |
 | Add a worker, bounded messages and explicit join | [Services and concurrency](services.md#run-the-worker-in-your-application) |
 | Practice ownership, deadlines and synchronization | [Standard-library APIs](standard-library.md) |
 | Check actual file and socket behavior | [Networking and storage](io.md) |

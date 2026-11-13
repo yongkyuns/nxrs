@@ -271,6 +271,36 @@ function ownerLifecycle(p) {
 `);
 }
 
+function controllerCommand(p) {
+  return guideFigure(p, 'Controller command completion and joined shutdown',
+    'The application owns the only command sender. try_command attempts admission to an inbox with two waiting slots and returns a completion ticket when accepted. A single controller thread owns the LED and software-tracked state, handles each command synchronously, and sends one result to its ticket. Ticket.wait observes handling completion, not electrical readback. stop consumes the controller, drops its sole sender, drains accepted commands, requests the output off, and joins the worker. The returned Stopped object retains the output and final state even when the final off request fails. Synchronous Led.set has no cancellation or elapsed-time guarantee.', 944, `
+  ${group(p, 'command', 24, 24, 752, 448, 'Follow one command to its result')}
+  ${panel({ id: 'caller', x: 44, y: 88, w: 304, h: 112, title: 'Application caller', lines: ['Owns the sole sender', 'try_command(command)'] })}
+  ${panel({ id: 'inbox', x: 452, y: 88, w: 304, h: 112, title: 'Bounded inbox', lines: ['2 waiting commands', 'Reject when full'], accent: p.blue })}
+  ${panel({ id: 'ticket', x: 44, y: 288, w: 304, h: 112, title: 'Completion ticket', lines: ['Ticket::wait()', 'State or device error'], accent: p.blue })}
+  ${panel({ id: 'owner', x: 452, y: 288, w: 304, h: 112, title: 'Controller owner', lines: ['One thread · state + LED', 'Led::set(...) or Status'], accent: p.orange })}
+  ${edge('caller', 'inbox', 'M348 144 H450')}
+  ${label(400, 126, 'try_send')}
+  ${edge('inbox', 'owner', 'M604 200 V286')}
+  ${label(620, 248, 'recv()', 'start')}
+  ${edge('owner', 'ticket', 'M452 344 H350')}
+  ${label(400, 326, 'reply')}
+  ${edge('ticket', 'caller', 'M196 288 V202')}
+  ${label(212, 248, 'wait returns', 'start')}
+  ${label(400, 444, 'Status is software-tracked; it does not read the pin.')}
+
+  ${group(p, 'shutdown', 24, 508, 752, 376, 'stop() consumes the controller')}
+  ${panel({ id: 'close', x: 44, y: 568, w: 218, h: 112, title: 'Close admission', lines: ['Drop the sole sender', 'No stop message'], accent: p.orange })}
+  ${panel({ id: 'drain', x: 290, y: 568, w: 218, h: 112, title: 'Drain the inbox', lines: ['Finish admitted work', 'Then recv() disconnects'] })}
+  ${panel({ id: 'off', x: 536, y: 568, w: 218, h: 112, title: 'Request output off', lines: ['One final Led::set', 'Track its result'] })}
+  ${edge('close', 'drain', 'M262 624 H288')}
+  ${edge('drain', 'off', 'M508 624 H534')}
+  ${panel({ id: 'joined', x: 132, y: 744, w: 536, h: 112, title: 'join() returns Stopped<L>', lines: ['Output ownership returns after the worker ends', 'An off failure keeps the output and its error'], accent: p.blue })}
+  ${edge('off', 'joined', 'M645 680 V710 H400 V742')}
+  ${label(400, 920, 'A synchronous Led::set call has no shutdown deadline.')}
+`);
+}
+
 function navigationDataflow(p) {
   return guideFigure(p, 'Acquisition and service ownership in the navigation example',
     'IMU IRQ or HAL timer readiness wakes a HAL worker that drains the FIFO and produces typed samples. GNSS UART readiness wakes a HAL worker that reads and parses UBX into typed fixes. The corresponding sensor services each own an event inbox and forward normalized events to the fusion owner. Commands enter the service inboxes. No service handler runs inline in the acquisition producer or interrupt.', 756, `
@@ -429,6 +459,7 @@ const guideDiagrams = [
   ['nxrs-interface-boundaries', interfaceBoundaries],
   ['nxrs-owner-event-loop', ownerEventLoop],
   ['nxrs-owner-lifecycle', ownerLifecycle],
+  ['nxrs-controller-command', controllerCommand],
   ['nxrs-navigation-dataflow', navigationDataflow],
   ['nxrs-service-dependencies', serviceDependencies],
   ['nxrs-ao-stress', aoStress],

@@ -130,6 +130,8 @@ cargo test --locked --manifest-path website/examples/basic-firmware/Cargo.toml -
 
 The documentation checks ensure this program matches that source. Target CI also compiles it as your application's `src/main.rs` and runs it in NuttX/QEMU.
 
+[Build a controller](controller.md) adds a capability output and an explicit completion ticket to this progression. It also demonstrates shutdown by closing the only sender, so an occupied command inbox does not need another slot for a stop message.
+
 ## Choose delivery behavior
 
 A bounded queue needs an explicit full-queue policy. `send` waits for capacity; `try_send` returns the value when the queue is full or disconnected. Choose between backpressure, rejection, or a latest-state representation according to the operation. A command that must be acted on needs different handling from a replaceable status update.
