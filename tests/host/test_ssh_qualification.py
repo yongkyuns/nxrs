@@ -267,6 +267,20 @@ class SshQualificationTests(unittest.TestCase):
             self.assertEqual(evidence["evidence_class"], "host_control")
             self.assertTrue(evidence["pending"])
 
+    def test_status_reply_accepts_serial_carriage_return_expansion(self):
+        console = CONSOLE.SerialLab.__new__(CONSOLE.SerialLab)
+        console.api, console.guard = SSH, SSH.SecretGuard(())
+        console.pending, console.event_line = bytearray(), bytearray()
+        console.connection = Mock()
+        console.connection.read.return_value = (
+            b"dropbear: state=listening pid=12 result=0\r\n"
+            b"native network log\r\r\n"
+            b"NXRS_SSH_LAB_CONTROL action=status result=0\r\r\n"
+        )
+        console.send = Mock()
+        self.assertEqual(console.state(), "listening")
+        console.send.assert_called_once_with(b"status\n")
+
     def test_idle_deadline_requires_full_interval_after_terminal_activity(self):
         for elapsed, status, failure in (
             (60, 255, None),
