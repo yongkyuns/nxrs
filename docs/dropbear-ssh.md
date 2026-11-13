@@ -290,6 +290,12 @@ interval extended the session. A fresh pinned login succeeded on the same
 Dropbear process after the idle disconnect. The
 [focused deadline cases](../tests/nuttx-std/ssh/README.md) reproduce these checks.
 
+With the wrong-password limit set to three, the earlier image let OpenSSH
+submit a fourth password. The corrected NuttX port closed the connection
+after the third wrong password, before the 30-second authentication
+deadline. A fresh pinned login succeeded on the same Dropbear process.
+Use `--case auth-attempts` to repeat the check.
+
 ## Repeated SSH sessions on ESP32-S3
 
 After five warm-up sessions, the Freenove ESP32-S3 served 100 pinned OpenSSH
@@ -316,7 +322,7 @@ hardware identity, test commands and acceptance budgets before declaring a pass.
 
 | Area | Required device evidence |
 | --- | --- |
-| Authentication storage | Correct/wrong password, unknown user, empty/unprovisioned, corrupt and unreadable database; maximum-attempt and authentication deadlines |
+| Authentication storage | Unknown user, empty/unprovisioned, corrupt and unreadable database |
 | Identity | Correct native format; missing/invalid/unreadable key refusal; stable public fingerprint across restart/reboot and read-only mounts; no silent replacement |
 | Terminal/application behavior | NSH, partial input, resize, Ctrl-C, Rust stdin/stdout/stderr, ordinary threads, success/failure return, return to the owning shell and continuing local workload |
 | Admission | One transport and one channel, bounded incomplete handshakes and second requests, unavailable address/address-in-use, bounded listen retries |
