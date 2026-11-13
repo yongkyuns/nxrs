@@ -1,6 +1,8 @@
 name: Event-driven architecture demo (GitHub-hosted)
 
 on:
+  # Manual qualification checks the selected branch/tag at its fixed event SHA.
+  workflow_dispatch:
   push:
     branches:
       - 'refactor/**'
@@ -17,6 +19,7 @@ on:
       - 'platform/Cargo.toml'
       - 'platform/src/**'
       - 'platform/tests/**'
+      - 'platform/nuttx/resources/**'
       - 'driver/i2c/**'
       - 'driver/spi/**'
       - 'driver/gpio/**'
@@ -39,20 +42,27 @@ on:
       - 'tools/check-deployment.py'
       - 'tools/qualify-concurrent-builds.py'
       - 'tools/check-concurrent-builds.py'
+      - 'tools/check-device-closure.py'
+      - 'tools/check-hal-isolation.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/install-qemu-tools.sh'
       - 'tests/nuttx-std/**'
       - 'tests/host/test_architecture.py'
       - 'tests/host/test_deployment.py'
-      - 'tests/host/test_platform_profiles.py'
+      - 'tests/host/test_device_closure.py'
       - 'tests/host/test_concurrent_build_runner.py'
       - 'tests/host/test_concurrent_builds.py'
+      - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test-event-demo-nuttx.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx/**'
+      - 'upstream/build-patches.json'
+      - 'upstream/esp-hal-3rdparty/patches/**'
+      - 'upstream/rust-std/patches/**'
+      - 'upstream/libc/patches/**'
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
@@ -101,6 +111,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
+          python3 -m unittest discover -s tests/host -p test_device_closure.py -v
           python3 -m unittest discover -s tests/host -p 'test_concurrent_build*.py' -v
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
@@ -187,6 +198,13 @@ jobs:
           grep -q 'Imu HAL: Unsupported' \
             target/event-demo/dual-unconfigured.log
 
+      - name: Exercise composition matrix consumers with mock devices
+        run: |
+          NXRS_PLATFORM=mock cargo +1.90.0 run --locked --release \
+            -p nxrs-device-composition-imu
+          NXRS_PLATFORM=mock cargo +1.90.0 run --locked --release \
+            -p nxrs-device-composition-gnss
+
       - name: Qualify coordinated host simulation
         shell: bash
         run: |
@@ -216,8 +234,6 @@ jobs:
     needs: [demo]
     if: "!cancelled() && needs.demo.result == 'success' && github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'"
     runs-on: ubuntu-24.04
-    # Leave time around the witness's 20-minute deadline for setup, process-group
-    # cleanup, the existing QEMU/protected checks and retained diagnostics.
     timeout-minutes: 40
     steps:
       - name: Verify GitHub-hosted Linux runner
@@ -280,6 +296,17 @@ jobs:
             --out target/firmware/event-demo/concurrent-profiles \
             --revision "$(git rev-parse HEAD)"
 
+      - name: Verify selected devices in the linked CoreS3 images
+        shell: bash
+        run: |
+          set -euo pipefail
+          source target/qemu-tools/environment.sh
+          python3 tools/check-device-closure.py \
+            --bmi270-out target/firmware/event-demo/concurrent-profiles/bmi270 \
+            --lsm6dso-out target/firmware/event-demo/concurrent-profiles/lsm6dso \
+            --revision "$GITHUB_SHA" \
+            --report target/firmware/event-demo/device-closure.json
+
       - name: Cross-link the protected ESP32-S3 IMU ABI witness
         run: |
           source target/qemu-tools/environment.sh
@@ -335,6 +362,22 @@ jobs:
         with:
           name: event-demo-esp32s3-nuttx
           path: |
+            target/firmware/event-demo/device-closure.json
+            target/firmware/event-demo/concurrent-profiles/*/nuttx/nuttx
+            target/firmware/event-demo/concurrent-profiles/*/nuttx/nuttx.bin
+            target/firmware/event-demo/concurrent-profiles/*/nuttx/nuttx.map
+            target/firmware/event-demo/concurrent-profiles/*/cargo/xtensa-esp32s3-nuttx/release/event-demo
+            target/firmware/event-demo/concurrent-profiles/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*_config.rs
+            target/firmware/event-demo/concurrent-profiles/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*.configuration.json
+            target/firmware/event-demo/concurrent-profiles/*/*.elf
+            target/firmware/event-demo/concurrent-profiles/*/*.map
+            target/firmware/event-demo/concurrent-profiles/*/*.txt
+            target/firmware/event-demo/concurrent-profiles/*/*.json
+            target/firmware/event-demo/concurrent-profiles/*/*.jsonl
+            target/firmware/event-demo/concurrent-profiles/*/*.config
+            target/firmware/event-demo/concurrent-profiles/*/*.sha256
+            target/firmware/event-demo/concurrent-profiles/*/configuration/
+            target/firmware/event-demo/concurrent-profiles/*/native-resources/
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.map
@@ -364,6 +407,108 @@ jobs:
             target/firmware/event-demo/imu-wired-protected/*.sha256
           if-no-files-found: warn
 
+  nuttx-device-matrix:
+    needs: [demo]
+    if: "!cancelled() && needs.demo.result == 'success' && github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Verify GitHub-hosted Linux runner
+        run: |
+          set -eu
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: true
+          persist-credentials: false
+
+      - name: Install host dependencies and pinned Cargo
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison flex gperf kconfig-frontends genromfs xxd libncurses-dev \
+            zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
+            python3 python3-venv curl xz-utils build-essential
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install 1.90.0 --profile minimal
+          python3 -m venv target/device-composition-venv
+          target/device-composition-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/device-composition-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install hash-verified Xtensa Rust, GCC and QEMU
+        run: bash tools/install-qemu-tools.sh
+
+      - name: Cross-link two instances of the same IMU model
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/device-composition/imu/Cargo.toml
+          --platform cores3
+          --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml
+          --out target/firmware/device-composition/two-bmi270
+
+      - name: Cross-link two different IMU models
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/device-composition/imu/Cargo.toml
+          --platform cores3
+          --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml
+          --overlay tests/nuttx-std/device-composition/overlays/mixed-imu.toml
+          --out target/firmware/device-composition/mixed-imu
+
+      - name: Cross-link GNSS with both IMUs declared but unconsumed
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/device-composition/gnss/Cargo.toml
+          --platform cores3
+          --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml
+          --overlay tests/nuttx-std/device-composition/overlays/mixed-imu.toml
+          --out target/firmware/device-composition/gnss-only
+
+      - name: Verify instance identity and unconsumed capability pruning
+        shell: bash
+        run: |
+          set -euo pipefail
+          source target/qemu-tools/environment.sh
+          python3 tools/check-device-closure.py \
+            --same-model-out target/firmware/device-composition/two-bmi270 \
+            --mixed-out target/firmware/device-composition/mixed-imu \
+            --gnss-only-out target/firmware/device-composition/gnss-only \
+            --revision "$GITHUB_SHA" \
+            --report target/firmware/device-composition/device-matrix.json
+
+      - name: Retain composition matrix evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: device-composition-esp32s3-nuttx
+          path: |
+            target/firmware/device-composition/device-matrix.json
+            target/firmware/device-composition/*/nuttx/nuttx
+            target/firmware/device-composition/*/nuttx/nuttx.bin
+            target/firmware/device-composition/*/nuttx/nuttx.map
+            target/firmware/device-composition/*/cargo/xtensa-esp32s3-nuttx/release/device-composition-*
+            target/firmware/device-composition/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*_config.rs
+            target/firmware/device-composition/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*.configuration.json
+            target/firmware/device-composition/*/*.elf
+            target/firmware/device-composition/*/*.map
+            target/firmware/device-composition/*/*.txt
+            target/firmware/device-composition/*/*.json
+            target/firmware/device-composition/*/*.jsonl
+            target/firmware/device-composition/*/*.config
+            target/firmware/device-composition/*/*.sha256
+            target/firmware/device-composition/*/configuration/
+            target/firmware/device-composition/*/native-resources/
+          if-no-files-found: warn
 
   nuttx-armv8m:
     needs: demo
@@ -391,7 +536,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
-            qemu-system-arm gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev \
+            qemu-system-arm gdb-multiarch bison flex gperf kconfig-frontends genromfs xxd libncurses-dev \
             python3 python3-venv curl build-essential
           if ! command -v rustup >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \

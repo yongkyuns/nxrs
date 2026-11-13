@@ -57,6 +57,8 @@ members = [
     "tests/nuttx",
     "tests/browser-threads",
     "tests/nuttx-std/resources",
+    "tests/nuttx-std/device-composition/imu",
+    "tests/nuttx-std/device-composition/gnss",
     "tests/nuttx-std/imu-protected/runtime",
     "tests/nuttx-std/imu-qualification",
     "tests/nuttx-std/udp",
