@@ -78,7 +78,7 @@ if ((SSH)); then
     ARGS+=(--kconfig-set "$value")
   done
 fi
-ARGS+=("${EXTRA[@]}")
+if [[ ${EXTRA[0]+set} ]]; then ARGS+=("${EXTRA[@]}"); fi
 if ((DRY)); then ARGS+=(--dry-run); fi
 bash tools/build-nuttx-std-app.sh "${ARGS[@]}"
 if ((DRY)); then exit 0; fi
