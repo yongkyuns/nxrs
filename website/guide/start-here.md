@@ -21,6 +21,7 @@ The first programs need no peripherals or application-specific libraries. Host e
 | Decide whether this approach fits my project | [Why NXRS?](motivation.md) | The reasons for NuttX, Rust `std`, ordinary threads, and reusable components; costs and limits |
 | Understand where my code belongs | [Architecture overview](overview.md) | Application, service, capability, driver, and platform responsibilities |
 | Find the interface for an operation | [Interfaces and APIs](interfaces.md) | Development commands, runtime interaction, and the Rust APIs exposed to applications |
+| Look up a Rust type or method | [Rust API reference](../api.md) | Library catalog, signatures, symbol search, and source |
 | Turn a small program into a structured application | [Designing an application](designing-applications.md) | State ownership, component boundaries, delivery policy, and shutdown |
 | Run a controller with an output and explicit command results | [Build a controller](controller.md) | Bounded admission, completion tickets, output state, and joined shutdown |
 | Understand a build or change its inputs | [Build workflow](build-system.md) | How application metadata, Cargo, profiles, native preparation, and artifacts fit together |
@@ -69,6 +70,8 @@ Keep the distinction between a host test, a target build, an emulator run, and a
 The [architecture](overview.md), [interface](interfaces.md), and [build](build-system.md) guides connect these terms to actual source files and commands.
 
 ## Find a reference
+
+The [Rust API reference](../api.md) links generated documentation for capabilities, services, messaging contracts, and chip protocols. Use its library catalog and rustdoc symbol search when you need a type or method signature.
 
 The [engineering reference index](../../docs/README.md) links detailed design documents and evaluation reports. The website's **Reference** navigation also lists all published repository notes, grouped by subject. Use these when you need implementation contracts, target-specific setup, or the methodology behind a result.
 

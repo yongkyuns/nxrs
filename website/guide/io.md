@@ -4,6 +4,8 @@ Many firmware applications combine device control with communication and persist
 
 This chapter assumes you can run the [first application](first-application.md). The exercises below run on the host from the NXRS checkout. Target use additionally needs the selected profile's network and filesystem resources.
 
+The [Rust API reference](../api.md) includes `transport::udp`, `storage::recording`, and the related capability and service contracts. Use it to look up exact methods while working through these examples.
+
 ## Networking
 
 Use `std::net` for supported TCP and UDP data paths. Configure the network interface, addressing, and any radio connection before starting application traffic. Wi-Fi or Bluetooth control belongs to the relevant capability implementation rather than the socket code.

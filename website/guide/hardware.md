@@ -25,7 +25,7 @@ Device configuration, ioctls, cancellable readiness, and radio-control operation
 | Acquire a managed subsystem | Capability HAL | Concrete resource selection, callbacks and acquisition lifetime |
 | Decide what a device result means to the product | Application or reusable service | No board selection is needed here |
 
-The [interfaces guide](interfaces.md) links the concrete public APIs and explains feature selection.
+The [interfaces guide](interfaces.md) explains feature selection. The [Rust API reference](../api.md) provides public capability and chip-driver documentation, with explicit source links for the NuttX-only bus and GPIO resource types.
 
 ## Resource adapters and chip drivers
 

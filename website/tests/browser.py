@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 from playwright.sync_api import sync_playwright, expect
 
 
@@ -36,15 +36,20 @@ def run(site: Path, prefix: str, output: Path) -> dict:
     origin = f'http://127.0.0.1:{server.server_port}'
     url = origin + prefix
     report = {'checks': []}
-    errors, external_requests = [], []
+    errors, external_requests, failed_responses = [], [], []
     search = json.loads((site / 'search.json').read_text())
     guides = [item for item in search if item['section'] == 'User guide']
+    libraries = [item for item in search if item['section'] == 'Rust API']
 
     def observe_request(request):
         parsed = urlsplit(request.url)
         if parsed.scheme in ('http', 'https') and f'{parsed.scheme}://{parsed.netloc}' != origin:
             if request.resource_type in ('document', 'script', 'xhr', 'fetch'):
                 external_requests.append(request.url)
+
+    def observe_response(response):
+        if response.url.startswith(origin + '/') and response.status >= 400:
+            failed_responses.append({'url': response.url, 'status': response.status})
 
     try:
         with sync_playwright() as p:
@@ -55,6 +60,7 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             report['browser'] = browser.version
             context = browser.new_context(viewport={'width': 1440, 'height': 1000}, color_scheme='light')
             context.on('request', observe_request)
+            context.on('response', observe_response)
             page = context.new_page()
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(url, wait_until='networkidle')
@@ -90,7 +96,7 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             main_nav.get_by_role('link', name='User guide', exact=True).click()
             expect(page).to_have_url(url + 'guide/start-here/')
             expect(page.locator('h1')).to_have_text('Guide index')
-            expect(page.locator('#sidebar .nav-group')).to_have_count(7)
+            expect(page.locator('#sidebar .nav-group')).to_have_count(8)
             expect(page.locator('#sidebar .nav-heading').first).to_have_text('Getting started')
             for item in guides:
                 expect(page.locator(f'#sidebar a[href="{item["url"]}"]')).to_have_count(1)
@@ -169,14 +175,70 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             assert actual == expected, (actual, expected)
             report['checks'].append('categorized reference index retains every source exactly once')
 
+            main_nav.get_by_role('link', name='Rust API', exact=True).click()
+            expect(page.locator('h1')).to_have_text('Rust API reference')
+            expect(page.locator('.api-catalog tbody tr')).to_have_count(len(libraries))
+            expect(page.locator('#api-led')).to_contain_text('nxrs-led')
+            page.screenshot(path=str(output / 'api-catalog-desktop.png'), full_page=True)
+            page.keyboard.press('/')
+            page.locator('#search-input').fill('nxrs-led')
+            page.locator(f'#search-results a[href="{prefix}api/led/index.html"]').click()
+            expect(page).to_have_url(url + 'api/led/index.html')
+            expect(page.locator('h1')).to_contain_text('led')
+            page.locator('main a.trait[href="trait.Led.html"]').click()
+            expect(page.locator('[id="tymethod.set"]')).to_contain_text('fn set')
+            api_nav = page.get_by_role('navigation', name='NXRS documentation')
+            expect(api_nav.get_by_role('link', name='User guide', exact=True)).to_be_visible()
+            for theme in ('light', 'dark'):
+                page.emulate_media(color_scheme=theme)
+                expect(page.locator('html')).to_have_attribute('data-theme', theme)
+                page.screenshot(path=str(output / f'api-led-{theme}.png'), full_page=True)
+            page.emulate_media(color_scheme='light')
+            source_link = page.locator('[id="tymethod.set"] a.src')
+            source_url = urljoin(page.url, source_link.get_attribute('href'))
+            source_link.click()
+            expect(page).to_have_url(source_url)
+            expect(page.locator('pre.rust')).to_contain_text('fn set')
+            api_nav.get_by_role('link', name='NXRS API reference', exact=True).click()
+            expect(page).to_have_url(url + 'api/index.html')
+            expect(page.locator('h1')).to_have_text('Rust API reference')
+            report['checks'].append('API catalog, public trait and method, source link, return navigation and native themes')
+
+            # These modules are explicitly included by the API build configuration.
+            for route in ('camera/replay/', 'storage/recording/', 'transport/udp/'):
+                page.goto(url + 'api/' + route + 'index.html', wait_until='networkidle')
+                expect(page.locator('h1')).to_contain_text(route.rstrip('/').split('/')[-1])
+                expect(api_nav.get_by_role('link', name='NXRS API reference', exact=True)).to_be_visible()
+            report['checks'].append('documented replay, recording and UDP feature modules are readable')
+
+            page.goto(url + 'api/peripheral/imu/trait.Imu.html', wait_until='networkidle')
+            for crate in ('nxrs_bmi270', 'nxrs_lsm6dso'):
+                expect(page.locator(f'#implementors-list a[href$="{crate}/struct.Device.html"]').first).to_be_visible()
+            report['checks'].append('cross-crate chip implementations load into the peripheral contract')
+
+            page.goto(url + 'api/imu/index.html', wait_until='networkidle')
+            symbol_search = page.get_by_role('searchbox', name='Run search in the documentation')
+            symbol_search.click()
+            page.wait_for_function("() => typeof document.querySelector('.search-form')?.onsubmit === 'function'")
+            symbol_search.fill('led::LedSet')
+            symbol_search.press('Enter')
+            symbol = page.locator('#search .search-results.active a[href$="led/struct.LedSet.html"]').first
+            expect(symbol).to_be_visible()
+            symbol.click()
+            expect(page).to_have_url(url + 'api/led/struct.LedSet.html')
+            expect(page.locator('#main-content h1')).to_contain_text('LedSet')
+            api_nav.get_by_role('link', name='NXRS API reference', exact=True).click()
+            expect(page.locator('h1')).to_have_text('Rust API reference')
+            report['checks'].append('native rustdoc symbol search finds and opens an item in another crate')
+
             page.set_viewport_size({'width': 390, 'height': 844})
-            routes = ['', 'reference/'] + [item['url'][len(prefix):] for item in guides]
+            routes = ['', 'reference/', 'api/'] + [item['url'][len(prefix):] for item in guides]
             for route in routes:
                 page.goto(url + route, wait_until='networkidle')
                 width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
                 assert width['document'] <= width['viewport'] + 1, (route, width)
                 assert page.locator('iframe').count() == 0
-                for label in ('Getting started', 'User guide', 'Examples', 'Reference', 'GitHub ↗'):
+                for label in ('Getting started', 'User guide', 'Examples', 'Reference', 'Rust API', 'GitHub ↗'):
                     expect(main_nav.get_by_role('link', name=label, exact=True)).to_be_visible()
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')
             expect(page.locator('.mobile-toc')).to_be_visible()
@@ -201,8 +263,18 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             page.screenshot(path=str(output / 'home-mobile.png'), full_page=True)
             report['checks'].append(f'mobile layout without page overflow on {len(routes)} routes; visible primary links, menu, Escape and navigation')
 
+            page.goto(url + 'api/led/trait.Led.html', wait_until='networkidle')
+            width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
+            assert width['document'] <= width['viewport'] + 1, width
+            expect(api_nav.get_by_role('link', name='NXRS API reference', exact=True)).to_be_visible()
+            page.screenshot(path=str(output / 'api-led-mobile.png'), full_page=True)
+            api_nav.get_by_role('link', name='User guide', exact=True).click()
+            expect(page).to_have_url(url + 'guide/start-here/')
+            report['checks'].append('generated API mobile layout and return to the guide')
+
             no_js = browser.new_context(java_script_enabled=False, viewport={'width': 390, 'height': 844})
             no_js.on('request', observe_request)
+            no_js.on('response', observe_response)
             plain = no_js.new_page()
             plain.goto(url + 'guide/start-here/')
             expect(plain.locator('h1')).to_have_text('Guide index')
@@ -214,12 +286,20 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             plain.locator('#sidebar').get_by_role('link', name='NXRS examples', exact=True).click()
             expect(plain.locator('h1')).to_have_text('NXRS examples')
             assert plain.locator('iframe').count() == 0
+            plain.locator('#sidebar').get_by_role('link', name='Rust API reference', exact=True).click()
+            expect(plain.locator('h1')).to_have_text('Rust API reference')
+            plain.locator('#api-led a').click()
+            plain.locator('main a.trait[href="trait.Led.html"]').click()
+            expect(plain.locator('[id="tymethod.set"]')).to_contain_text('fn set')
+            plain.get_by_role('navigation', name='NXRS documentation').get_by_role('link', name='User guide', exact=True).click()
+            expect(plain.locator('h1')).to_have_text('Guide index')
             no_js.close()
-            report['checks'].append('mobile reading and grouped navigation without JavaScript')
+            report['checks'].append('mobile reading, grouped navigation and public API reading without JavaScript')
 
             assert not external_requests, external_requests
+            assert not failed_responses, failed_responses
             assert not errors, errors
-            report['checks'].append('no external application, script or fetch requests')
+            report['checks'].append('no failed local resources or external application, script or fetch requests')
             context.close()
             browser.close()
         report['result'] = 'passed'
@@ -228,6 +308,7 @@ def run(site: Path, prefix: str, output: Path) -> dict:
         server.server_close()
         report['page_errors'] = errors
         report['external_requests'] = external_requests
+        report['failed_responses'] = failed_responses
         (output / 'browser-report.json').write_text(json.dumps(report, indent=2) + '\n')
     return report
 

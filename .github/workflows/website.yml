@@ -3,9 +3,9 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['website/**', 'docs/**', 'README.md', 'app/std-demo/**', 'rust-toolchain.toml', '.github/workflows/website.yml']
+    paths: ['website/**', 'docs/**', 'README.md', 'app/std-demo/**', 'hal/**', 'service/**', 'shared/messaging/**', 'shared/simulation/**', 'driver/**', 'platform/**', 'tools/build-support/**', 'tools/detector-build-support/**', 'vendor/microflow/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/website.yml']
   pull_request:
-    paths: ['website/**', 'docs/**', 'README.md', 'app/std-demo/**', 'rust-toolchain.toml', '.github/workflows/website.yml']
+    paths: ['website/**', 'docs/**', 'README.md', 'app/std-demo/**', 'hal/**', 'service/**', 'shared/messaging/**', 'shared/simulation/**', 'driver/**', 'platform/**', 'tools/build-support/**', 'tools/detector-build-support/**', 'vendor/microflow/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/website.yml']
   workflow_dispatch:
 
 permissions:
@@ -48,11 +48,13 @@ jobs:
         run: |
           node --check docs/assets/render-architecture.mjs
           node docs/assets/render-architecture.mjs --check
+      - name: Generate the public Rust API reference
+        run: python website/build_api.py --out target/rust-api
       - name: Build complete guide and reference library
         run: |
-          python website/build.py --base-path /nxrs/ --out target/website
+          python website/build.py --api-docs target/rust-api --base-path /nxrs/ --out target/website
           python website/check.py target/website --base-path /nxrs/
-          python website/build.py --base-path / --out target/website-root
+          python website/build.py --api-docs target/rust-api --base-path / --out target/website-root
           python website/check.py target/website-root --base-path /
       - name: Browser behavior and responsive layout
         run: python website/tests/browser.py --site target/website --base-path /nxrs/
@@ -65,6 +67,7 @@ jobs:
             target/website
             target/website-browser
             target/website-examples.json
+            target/rust-api/manifest.json
           if-no-files-found: error
           retention-days: 14
       - name: Package Pages artifact

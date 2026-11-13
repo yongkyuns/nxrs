@@ -12,7 +12,7 @@ Run these from the NXRS checkout unless a guide says otherwise. Its Cargo config
 | Build a NuttX image from an application and profile | `cargo nxrs build` | [Building for NuttX](firmware.md) |
 | Inspect a profile or list platform families | `cargo nxrs profile`, `cargo nxrs platforms` | [Profiles and overlays](profiles.md) |
 | Understand build inputs and outputs | `cargo nxrs build --help` and a build's retained files | [Build system](build-system.md) |
-| Read a component's Rust API documentation | `cargo doc -p <package> --no-deps` | The package's public modules and source |
+| Look up a Rust type, function, or method | [Rust API reference](../api.md), or local `cargo doc` | The library catalog, symbol search, and source |
 
 The application is an ordinary Cargo package. `cargo nxrs` adds the target preparation and NuttX integration needed to produce firmware. It does not replace Cargo's dependency resolver or define a separate application programming language.
 
@@ -47,7 +47,7 @@ The [hardware guide](hardware.md) explains providers and drivers. The [services 
 
 ## Read the public API, not the provider layout
 
-These are current entry points, not a universal HAL template. The Cargo package name used with `-p` can differ from its Rust library name: for example, package `nxrs-transport` declares library `transport`.
+These are current entry points, not a universal HAL template. The [Rust API reference](../api.md) provides the generated library pages and symbol search. Its catalog distinguishes the Cargo package name used with `-p` from the Rust library name: for example, package `nxrs-transport` declares library `transport`.
 
 | Package / Rust library | Public contract or operation | Availability and meaning |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ Generate local Rust documentation for a small component with:
 cargo doc --locked -p nxrs-messaging --no-deps
 ```
 
-Cargo reports the output location. Larger hardware components may need a selected profile and prepared native inputs; use the owning component's instructions before generating target-specific docs.
+Cargo reports the output location. The published reference includes the explicit replay, recording, and UDP features described on its [coverage page](../api.md#coverage-and-features). Larger hardware components may need a selected profile and prepared native inputs; use the owning component's instructions before generating target-specific docs.
 
 ## Availability, features and acquisition
 
