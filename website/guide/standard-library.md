@@ -87,4 +87,4 @@ Keep dependencies in Cargo manifests. `std` provides a common API; the selected 
 
 Stay with a standard API when its contract matches the operation. Use a capability when acquisition, hardware control, delivery or lifecycle needs a stronger subsystem contract. Keep a pure parser, transformation or data structure independent of either.
 
-Continue with [Choose an interface](interfaces.md), [Services and concurrency](services.md), or [Networking and storage](io.md), depending on the next operation in your application.
+Continue with [Choose an interface](interfaces.md), [Services and concurrency](services.md), or [Networking and storage](io.md), depending on the next operation in your application. The [Rust API reference](../api.md) covers NXRS capability, messaging, service, and chip-driver APIs alongside this use of `std`.

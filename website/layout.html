@@ -23,6 +23,7 @@
       {% for target, label in [('guide/getting-started/', 'Getting started'), ('guide/start-here/', 'User guide'), ('guide/examples/', 'Examples'), ('reference/', 'Reference')] %}
       <a href="{{ url(target) }}"{% if route == target %} aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
+      {% if has_api %}<a href="{{ url('api/') }}"{% if kind == 'api-index' %} aria-current="page"{% endif %}>Rust API</a>{% endif %}
       <a href="{{ config.repository }}">GitHub ↗</a>
     </nav>
     <button class="search-open utility" type="button" aria-haspopup="dialog" aria-controls="search-dialog">Search <kbd>/</kbd></button>
@@ -53,7 +54,7 @@
       <a href="{{ url('guide/' + key + '/') }}"><h3>{{ heading }}</h3><p>{{ description }}</p></a>
       {% endfor %}
     </nav>
-    <p><a href="{{ url('guide/start-here/') }}">Full guide index</a> · <a href="{{ url('guide/examples/') }}">Examples</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p>
+    <p><a href="{{ url('guide/start-here/') }}">Full guide index</a> · <a href="{{ url('guide/examples/') }}">Examples</a>{% if has_api %} · <a href="{{ url('api/') }}">Rust API reference</a>{% endif %} · <a href="{{ url('reference/') }}">Engineering reference</a></p>
   </section>
   <section class="project-section" aria-labelledby="architecture-title">
     <h2 id="architecture-title">Architecture at a glance</h2>
@@ -75,6 +76,7 @@
 <main id="main" class="not-found" tabindex="-1"><p class="eyebrow">404</p><h1>Page not found</h1><p>This page may have moved or been removed.</p><p><a href="{{ url('guide/start-here/') }}">Guide index</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p></main>
 {% else %}
 {% set current = namespace(section='Engineering reference', entry='reference/', previous='', next='') %}
+{% if kind == 'api-index' %}{% set current.section = 'Rust API reference' %}{% set current.entry = 'api/' %}{% endif %}
 {% for section in config.sections %}
   {% for key in section.pages %}
     {% if route == 'guide/' ~ key ~ '/' %}
@@ -101,6 +103,7 @@
         {% endfor %}{% endfor %}
       </section>
       {% endfor %}
+      {% if has_api %}<section class="nav-group"><h2 class="nav-heading">Rust APIs</h2><a href="{{ url('api/') }}"{% if kind == 'api-index' %} aria-current="page"{% endif %}>Rust API reference</a></section>{% endif %}
       <section class="nav-group"><h2 class="nav-heading">Engineering reference</h2>
         <a href="{{ url('reference/') }}"{% if kind == 'reference-index' %} aria-current="page"{% endif %}>Reference index</a>
         {% for item in references %}<a href="{{ url(item.route) }}"{% if route == item.route %} aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}
@@ -108,9 +111,9 @@
     </nav>
   </aside>
   <main id="main" class="document" tabindex="-1">
-    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="{{ url() }}">Home</a><span aria-hidden="true">/</span><a href="{{ url(current.entry) }}">{{ current.section }}</a>{% if kind != 'reference-index' %}<span aria-hidden="true">/</span><span aria-current="page">{{ title }}</span>{% endif %}</nav>
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="{{ url() }}">Home</a><span aria-hidden="true">/</span><a href="{{ url(current.entry) }}">{{ current.section }}</a>{% if kind not in ['reference-index', 'api-index'] %}<span aria-hidden="true">/</span><span aria-current="page">{{ title }}</span>{% endif %}</nav>
     {% if kind == 'reference-index' %}
-    <article class="prose"><h1>Engineering reference</h1><p class="intro">Design documents, implementation notes and evaluation reports from the repository.</p><p>Use the <a href="{{ url('guide/start-here/') }}">user guide</a> for step-by-step development. These references provide the implementation detail.</p>
+    <article class="prose"><h1>Engineering reference</h1><p class="intro">Design documents, implementation notes and evaluation reports from the repository.</p><p>Use the <a href="{{ url('guide/start-here/') }}">user guide</a> for step-by-step development.{% if has_api %} The <a href="{{ url('api/') }}">Rust API reference</a> documents public types and functions.{% endif %} These references provide the implementation detail.</p>
       {% set grouped = namespace(sources=[]) %}
       {% for group in config.reference_groups %}
       <section class="reference-category"><h2 id="reference-group-{{ loop.index }}">{{ group.title }}</h2><div class="reference-list">
@@ -143,6 +146,6 @@
 </div>
 {% endif %}
 <footer class="footer"><a href="{{ url() }}">NXRS</a><p>An independent project built on NuttX.</p><a href="{{ config.repository }}/blob/{{ revision }}/LICENSE">MIT license</a></footer>
-<dialog id="search-dialog" aria-labelledby="search-title"><div class="search-heading"><h2 id="search-title">Search this site</h2><button class="utility" id="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div><label for="search-input">Search guides and engineering references</label><input id="search-input" type="search" autocomplete="off" placeholder="Try “profiles”, “shutdown”, or “memory”…"><p id="search-status" role="status">Type to search.</p><ol id="search-results"></ol></dialog>
+<dialog id="search-dialog" aria-labelledby="search-title"><div class="search-heading"><h2 id="search-title">Search this site</h2><button class="utility" id="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div><label for="search-input">Search guides, API libraries and engineering references</label><input id="search-input" type="search" autocomplete="off" placeholder="Try “profiles”, “shutdown”, or “memory”…"><p id="search-status" role="status">Type to search.</p><ol id="search-results"></ol></dialog>
 </body>
 </html>

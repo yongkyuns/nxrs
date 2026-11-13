@@ -1,0 +1,6 @@
+/* Return navigation only; rustdoc owns its typography, themes and symbol UI. */
+.nxrs-api-nav{display:flex;flex-wrap:wrap;gap:.6rem 1.4rem;margin:0 0 1.4rem;padding:.65rem .85rem;border:1px solid #8295a5;border-radius:8px;font-size:.9rem;line-height:1.5}
+.nxrs-api-nav a{font-weight:600;text-decoration:none}
+.nxrs-api-nav a:hover{text-decoration:underline}
+.nxrs-api-nav a:focus-visible{outline:2px solid currentColor;outline-offset:4px}
+@media print{.nxrs-api-nav{display:none}}

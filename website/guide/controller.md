@@ -6,6 +6,8 @@ Run a small controller, send typed commands to an output owner, and wait for eac
 
 This tutorial uses the existing LED capability with an explicit mock provider. It exercises the Rust application and target integration without needing a board. The reported state records command results; physical LED behavior needs a separately configured and tested device.
 
+The [Rust API reference](../api.md) links the `led` library's `Led`, `LedSet`, `DeviceError`, and `open` documentation. The application-specific controller types are defined in the source package below.
+
 ## Run the controller on your host
 
 The [controller package](../examples/controller/) is a standalone Cargo workspace inside the checkout. Its dependency on the LED capability is an ordinary relative path dependency.

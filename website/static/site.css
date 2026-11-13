@@ -93,6 +93,9 @@ html[data-theme=dark] .theme-dark{display:block!important}
 .reference-list>a{display:flex;flex-direction:column;text-decoration:none;color:var(--ink);padding:.85rem 1rem;border:1px solid var(--line);border-radius:9px}
 .reference-list>a:hover{border-color:var(--sky)}
 .reference-list span{font-size:.72rem;color:var(--muted);font-family:ui-monospace,monospace;margin-top:.3rem}
+.prose .api-catalog th[scope=row]{background:transparent;font-weight:500}
+.prose .api-catalog td:last-child{min-width:180px}
+.api-revision{color:var(--muted);font-size:.8rem}
 .page-footer{display:flex;flex-wrap:wrap;gap:1.2rem;margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--line);font-size:.76rem}
 .page-footer a{color:var(--muted)}
 .page-navigation{display:flex;justify-content:space-between;gap:1rem;margin-top:2rem}

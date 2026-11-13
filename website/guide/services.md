@@ -4,6 +4,8 @@ A service is reusable application behavior with a defined interface and lifecycl
 
 This chapter extends [Your first application](first-application.md) into a complete bounded worker, then explains the additional decisions needed for a long-running firmware service. You need the host setup from that tutorial; target execution also needs [Building for NuttX](firmware.md).
 
+For existing service and messaging types, use the [Rust API reference](../api.md). Check each service's admission, completion, and shutdown contract before connecting it to an owner.
+
 ## Start with ownership
 
 Keep mutable state with the code that updates it. When a component needs independent execution, give it one event loop and send typed commands to that loop. The application constructs the components, connects them, and controls startup and shutdown.

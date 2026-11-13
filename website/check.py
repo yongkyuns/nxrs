@@ -5,6 +5,7 @@ import argparse
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+import re
 from urllib.parse import unquote, urljoin, urlsplit
 
 
@@ -13,6 +14,7 @@ class Page(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.ids, self.links, self.images = set(), [], []
         self.main_count = self.h1_count = 0
+        self.redirect = None
         self.feed(text)
 
     def handle_starttag(self, tag, attrs):
@@ -21,6 +23,11 @@ class Page(HTMLParser):
             self.ids.add(attrs['id'])
         if tag == 'main': self.main_count += 1
         if tag == 'h1': self.h1_count += 1
+        if tag == 'meta' and attrs.get('http-equiv', '').lower() == 'refresh':
+            match = re.fullmatch(r'\s*0\s*;\s*url\s*=\s*(.+?)\s*', attrs.get('content', ''), re.I)
+            if match:
+                self.redirect = match[1].strip('"\'')
+                self.links.append(('redirect', self.redirect))
         for key in ('href', 'src'):
             if attrs.get(key): self.links.append((tag, attrs[key]))
         if attrs.get('srcset'):
@@ -34,7 +41,9 @@ def check(site: Path, prefix: str) -> dict:
              for p in sorted(site.rglob('*.html'))}
     errors, anchor_notes, checked = [], [], 0
     for name, page in pages.items():
-        if page.main_count != 1 or not page.h1_count:
+        rustdoc_source = name.startswith('api/src/')
+        rustdoc_redirect = name.startswith('api/') and page.redirect and page.main_count == 0
+        if not rustdoc_redirect and (page.main_count != 1 or (not page.h1_count and not rustdoc_source)):
             errors.append(f'{name}: expected one main and at least one h1')
         source_url = 'https://nxrs.test' + prefix + name
         for tag, href in page.links:
@@ -50,8 +59,19 @@ def check(site: Path, prefix: str) -> dict:
                 errors.append(f'{name}: missing local {tag} target: {href}'); continue
             checked += 1
             target_name = target.relative_to(site).as_posix()
-            fragment = unquote(resolved.fragment)
-            if fragment and target_name in pages and fragment not in pages[target_name].ids:
+            fragment = resolved.fragment
+            # Browsers first match a literal fragment, then its decoded form.
+            # Rustdoc uses percent-encoded generic types in both hrefs and IDs.
+            if (fragment and target_name in pages
+                    and fragment not in pages[target_name].ids
+                    and unquote(fragment) not in pages[target_name].ids):
+                # Rustdoc source links select inclusive ranges such as #12-24.
+                # Only this subtree uses range fragments; both endpoints must exist.
+                line_range = re.fullmatch(r'([1-9][0-9]*)-([1-9][0-9]*)', unquote(fragment))
+                if target_name.startswith('api/src/') and line_range:
+                    first, last = line_range.groups()
+                    if int(first) <= int(last) and {first, last} <= pages[target_name].ids:
+                        continue
                 message = f'{name}: missing anchor: {href}'
                 # Historical references retain their content. Report anchor drift,
                 # but enforce anchors in the new guide and site-owned navigation.

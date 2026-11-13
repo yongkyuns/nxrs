@@ -1,0 +1,12 @@
+{% for group in groups %}
+<section class="api-category" aria-labelledby="api-group-{{ group.id }}">
+  <h2 id="api-group-{{ group.id }}">{{ group.title }}</h2>
+  <table class="api-catalog">
+    <thead><tr><th scope="col">Rust library</th><th scope="col">Cargo package</th><th scope="col">Purpose</th></tr></thead>
+    <tbody>{% for package in group.packages %}
+      <tr id="api-{{ package.crate }}"><th scope="row"><a href="{{ url('api/' + package.crate + '/index.html') }}"><code>{{ package.crate }}</code></a></th><td><code>{{ package.package }}</code></td><td>{{ package.summary }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</section>
+{% endfor %}
+<p class="api-revision">Generated from <a href="{{ repository }}/commit/{{ manifest.revision }}"><code>{{ manifest.revision[:12] }}</code></a> with Rust {{ manifest.toolchain }}.{% if manifest.dirty %} This local preview includes uncommitted source changes.{% endif %}</p>
