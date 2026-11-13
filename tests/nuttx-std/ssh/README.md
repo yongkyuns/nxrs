@@ -148,12 +148,32 @@ manufacturing process.
 The host paces binary credentials in writes small enough for the ESP32-S3 USB
 serial receive ring and waits for each NSH command echo before reading its status.
 For focused device runs, add `--case auth-deadline`, `--case active-stop` or
-`--case pty` to the same command. The summary identifies the selected case.
-Omit `--case` for the complete campaign in its standard order.
+`--case pty` to the same command. Use `--case wifi-reconnect` to disassociate the
+station during an authenticated session and verify that the old server is reaped
+and a fresh pinned OpenSSH login can run the Rust stdio probe in the same boot.
+Use a reserved DHCP address because the fixture binds to one IPv4 address.
+Omit `--case` to run the standard campaign.
+
+Use `--case idle-deadline` to exercise the authenticated session timeout. Set
+`--idle-timeout` to match the flashed image if it differs from the recipe's
+60 seconds. The measurement requires a configured timeout of at least five
+seconds. With `--build-evidence` the runner checks the configured value. It
+disables OpenSSH keepalives, sends terminal input halfway through the timeout,
+then measures when the SSH client exits. The local console confirms that the
+listener returns.
+A fresh pinned login must succeed in the same server generation.
+
+Use `--case wifi-outage` from an interactive terminal to test an actual access
+point outage. Use a dedicated 2.4 GHz access point with the test host connected
+by a separate path. Keep the access point off until the runner confirms that
+the old server exited and TCP port 2222 is unreachable. The runner then prompts
+you to turn it back on, waits for the automatic restart, and checks a fresh
+pinned login and Rust terminal I/O.
 
 The local `ssh_probe lab` command reuses the existing Wi-Fi credential protocol,
-station/DHCP owner, explicit disconnect and worker join. It retains the addressed
-Wi-Fi connection throughout the SSH experiment. A mechanical test-only
+Wi-Fi HAL and connectivity service, with explicit disconnect and worker join.
+On link loss it stops and reaps the old server, then starts a new one once the
+station has an address. A mechanical test-only
 `exec_builtin()` bridge starts the native foreground server in its own task;
 Rust retains and reaps that child. `NSH_DISABLEBG=y` remains enforced. The recipe
 does not use `dropbear &`, a new application runtime, or the Wi-Fi echo test that
@@ -177,7 +197,7 @@ fixture conditions. The recipe enables kernel pipes for PTYs/session
 signaling and explicitly disables NSH command-pipeline syntax.
 
 The local lab console accepts `start`, `status`, `stop`, `snapshot`, `progress`,
-`provision` and `quit`. Do not run this owner through an SSH session. It is the
+`provision`, `reconnect` and `quit`. Do not run this owner through an SSH session. It is the
 independent maintenance path for stopping SSH and observing failure. A failed
 stop retains network/native ownership for recovery; it does not report successful
 teardown or release the network underneath a live server. Uncooperative foreground

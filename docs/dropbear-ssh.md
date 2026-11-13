@@ -264,18 +264,46 @@ records the configuration and commands. This run covers clean reboot and
 read-only use on the stated board. Interrupted provisioning and the remaining
 device cases are tracked in [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
-## Recovering after a Wi-Fi interface outage
+## Recovering after Wi-Fi loss
 
-On the Freenove ESP32-S3, an authenticated NSH session ran `ifdown wlan0`.
-The local fixture observed link loss, stopped and reaped Dropbear, and
-returned to local NSH. The host could not open an SSH connection before
-the restart. The board's uptime advanced across the outage. Starting the
-fixture again from local NSH brought Wi-Fi and Dropbear back in the same
-boot. OpenSSH accepted the original pinned host key and password from the
-mounted LittleFS volume, and the Rust stdio and joined shutdown checks
-passed. Both runs used the same reserved DHCP address. The lab owner
-requires a local restart after link loss. Access-point outages and automatic
-reconnection remain unqualified.
+The SSH lab uses the Wi-Fi connectivity service to rejoin. When the station
+loses its address, the local owner stops and reaps Dropbear. Once DHCP
+restores the address, the owner starts a new listener with the existing
+LittleFS host key and password database. Clients open a new SSH session
+using the pinned host key. The fixture uses a reserved IPv4 address.
+
+The [focused reconnect case](../tests/nuttx-std/ssh/README.md) exercises a
+controlled station disconnect and rejoin. The earlier Freenove ESP32-S3
+`ifdown wlan0` test verified same-boot recovery with a manual restart.
+The harness also offers `--case wifi-outage` for a dedicated access point
+that can be turned off independently. Physical access-point recovery
+remains unqualified.
+
+## Session deadlines on ESP32-S3
+
+On the Freenove ESP32-S3, the listener returned about 29 seconds after the
+local console confirmed a session waiting at the password prompt. The
+authentication deadline was configured for 30 seconds. The
+authenticated client exited about 61 seconds after its last terminal command
+with a 60-second idle setting. Terminal input halfway through the first idle
+interval extended the session. A fresh pinned login succeeded on the same
+Dropbear process after the idle disconnect. The
+[focused deadline cases](../tests/nuttx-std/ssh/README.md) reproduce these checks.
+
+## Repeated SSH sessions on ESP32-S3
+
+After five warm-up sessions, the Freenove ESP32-S3 served 100 pinned OpenSSH
+sessions with a terminal command and clean logout. It rejected ten wrong
+passwords interleaved across the run. All sessions used the same Dropbear
+process in one boot. The listening snapshots both showed 10 tasks and 43
+file descriptor rows. After active stop, restart and joined shutdown, the
+stopped snapshot matched its baseline of 9 tasks and 39 descriptor rows.
+
+This run used the existing reconnect harness with a local adjustment. It
+checked serial listener status every tenth session and waited 350 ms before
+other attempts. Every SSH attempt kept the normal checks. Earlier runs with
+per-session status checks timed out on the serial console after 65, 86 and
+89 authenticated logins. The serial failure remains open.
 
 ## Qualification still required on hardware
 
@@ -289,10 +317,10 @@ hardware identity, test commands and acceptance budgets before declaring a pass.
 | Identity | Correct native format; missing/invalid/unreadable key refusal; stable public fingerprint across restart/reboot and read-only mounts; no silent replacement |
 | Terminal/application behavior | NSH, partial input, resize, Ctrl-C, Rust stdin/stdout/stderr, ordinary threads, success/failure return, return to the owning shell and continuing local workload |
 | Admission | One transport and one channel, bounded incomplete handshakes and second requests, unavailable address/address-in-use, bounded listen retries |
-| Recovery | Abrupt client death, sustained output/backpressure, rekey, real network loss/recovery, idle deadline, idle and active stop, restart without reboot |
+| Recovery | Abrupt client death, sustained output/backpressure, rekey, physical access-point loss/recovery, idle and active stop, restart without reboot |
 | Negative controls | Deliberately failed login, missing output, changed identity, injected task/FD leak and incomplete shutdown must be detected; host controls do not replace device injection |
 | Resource cost | Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop |
-| Long runs | At least 100 reconnects after warm-up, including failed logins and active stop/restart in one boot; no hidden reset between samples |
+| Long runs | Repeat the 100-session campaign with reliable per-session serial status checks |
 | Coexistence | Independent firmware progress during authentication/output/rekey plus product-workload latency, missed deadlines, buffer pressure and recovery |
 
 Use `/proc/meminfo`, task status/stack coloration, descriptor/TCP/PTY observations

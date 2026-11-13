@@ -176,6 +176,50 @@ class SshQualificationTests(unittest.TestCase):
         with self.assertRaisesRegex(SSH.CheckFailure, "native_stop_failed:1"):
             console.stop()
 
+    def test_wifi_reconnect_accepts_loss_and_reap_in_either_order(self):
+        lost = b"NXRS_SSH_LAB_WIFI_LOST\r\n"
+        reaped = b"NXRS_SSH_LAB_SERVER_EXIT result=0\r\n"
+        restarted = b"NXRS_SSH_LAB_RESTARTED pid=12\r\n"
+        for first, second in ((lost, reaped), (reaped, lost)):
+            with self.subTest(first=first):
+                console = Mock()
+                console.progress.side_effect = [1, 2]
+                console.read_until.return_value = (first + second + restarted, ())
+                client = Mock()
+                old, fresh = Mock(), Mock()
+                client.login.side_effect = [old, fresh]
+                fresh.expect.return_value = (b"", ())
+                fresh.wait.return_value = 0
+                suite = SSH.Suite(client, None, console=console)
+                with patch.object(SSH, "require_stdio"), patch.object(SSH, "result_code"):
+                    self.assertTrue(suite.wifi_reconnect()["same_boot"])
+                console.send.assert_called_once_with(b"reconnect\n")
+                old.wait.assert_called_once_with(20)
+                self.assertEqual(console.wait_listening.call_count, 2)
+
+    def test_access_point_outage_requires_old_exit_and_unreachable_tcp(self):
+        for first in (b"WIFI_LOST", b"SERVER_EXIT"):
+            with self.subTest(first=first):
+                console = Mock(starts=1, server_exits=1)
+                console.read_until.side_effect = [(b"", (first,)), (b"", ())]
+                suite = SSH.Suite(Mock(), None, console=console)
+                with patch("builtins.input") as prompt, patch.object(
+                    SSH.socket, "create_connection", side_effect=TimeoutError
+                ):
+                    suite.wifi_outage()
+                self.assertEqual(prompt.call_count, 2)
+                expected = b"SERVER_EXIT" if first == b"WIFI_LOST" else b"WIFI_LOST"
+                self.assertIn(expected, console.read_until.call_args.args[0])
+                console.send.assert_not_called()
+
+        console = Mock(starts=1, server_exits=1)
+        console.read_until.side_effect = [(b"", (b"WIFI_LOST",)), (b"", ())]
+        suite = SSH.Suite(Mock(), None, console=console)
+        with patch("builtins.input") as prompt, patch.object(SSH.socket, "create_connection"):
+            with self.assertRaisesRegex(SSH.CheckFailure, "ssh_reachable_while_access_point_off"):
+                suite.wifi_outage()
+        self.assertEqual(prompt.call_count, 2)
+
     def test_secret_frame_fits_usb_receive_buffer(self):
         console = CONSOLE.SerialLab.__new__(CONSOLE.SerialLab)
         console.send = Mock()
@@ -222,6 +266,49 @@ class SshQualificationTests(unittest.TestCase):
             self.assertEqual(evidence["overall"], "failed")
             self.assertEqual(evidence["evidence_class"], "host_control")
             self.assertTrue(evidence["pending"])
+
+    def test_idle_deadline_requires_full_interval_after_terminal_activity(self):
+        for elapsed, status, failure in (
+            (60, 255, None),
+            (30, 255, "idle_session_ended_before_deadline"),
+            (60, -15, "idle_ssh_client_terminated_by_signal"),
+        ):
+            with self.subTest(elapsed=elapsed, status=status):
+                console = Mock(starts=1, server_exits=0)
+                client = Mock()
+                session, fresh = Mock(), Mock()
+                client.login.side_effect = [session, fresh]
+                session.wait.return_value = status
+                fresh.wait.return_value = 0
+                suite = SSH.Suite(client, None, console=console)
+                with patch.object(SSH.time, "sleep") as pause, patch.object(
+                    SSH.time, "monotonic", side_effect=[100, 100 + elapsed]
+                ):
+                    if failure:
+                        with self.assertRaisesRegex(SSH.CheckFailure, failure):
+                            suite.idle_deadline(60)
+                        self.assertEqual(client.login.call_count, 1)
+                    else:
+                        self.assertEqual(suite.idle_deadline(60)["observed_idle_seconds"], 60)
+                        self.assertEqual(client.login.call_count, 2)
+                session.wait.assert_called_once_with(65)
+                pause.assert_called_once_with(30)
+                self.assertEqual(client.login.call_args_list[0].kwargs, {"server_alive_interval": 0})
+                self.assertIn(b"echo NXRS_SSH_IDLE_", session.send.call_args.args[0])
+                session.close.assert_called_once()
+
+    def test_interrupted_outage_is_recorded_as_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = SSH.OpenSsh("127.0.0.1", 2222, "test", "/tmp/known_hosts", b"Fixture9!")
+            suite = SSH.Suite(client, Path(directory), console=Mock(), selected_case="wifi-outage")
+            suite.case("local_network_and_native_start", lambda: None)
+            with patch("builtins.input", side_effect=[KeyboardInterrupt, ""]) as prompt:
+                with self.assertRaises(KeyboardInterrupt):
+                    suite.case("access_point_outage_and_ssh_restart", suite.wifi_outage)
+            self.assertEqual(prompt.call_count, 2)
+            evidence = json.loads((Path(directory) / "summary.json").read_text())
+            self.assertEqual(evidence["overall"], "failed")
+            self.assertEqual(evidence["cases"][-1]["reason"], "operator_interrupted")
 
     def test_actual_controlling_pty_keeps_password_out_of_argv_and_output(self):
         # A local helper validates terminal mechanics only, not SSH or NuttX.
@@ -272,6 +359,9 @@ sys.exit(7)
         self.assertEqual(config["passwordauthentication"], "yes")
         self.assertEqual(config["identityagent"], "none")
         self.assertEqual(config["controlmaster"], "false")
+        idle = client.arguments(server_alive_interval=0)
+        result = subprocess.run([idle[0], "-G", *idle[1:]], capture_output=True, text=True, check=True)
+        self.assertIn("serveraliveinterval 0", result.stdout.splitlines())
 
     @unittest.skipUnless(shutil.which("ssh-keygen"), "OpenSSH key tool unavailable")
     def test_actual_public_key_fingerprint_validation_rejects_changed_identity(self):

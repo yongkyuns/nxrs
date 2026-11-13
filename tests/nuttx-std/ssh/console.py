@@ -71,6 +71,8 @@ class SerialLab:
                 self.event_line = bytearray(tail)
                 if b"NXRS_SSH_LAB_SERVER_EXIT result=" in line:
                     self.server_exits += 1
+                elif re.search(rb"NXRS_SSH_LAB_(?:STARTED|RESTARTED) pid=[0-9]+\b", line):
+                    self.starts += 1
             if len(self.event_line) > 16384 or len(self.pending) > 2 * 1024 * 1024:
                 raise self.api.CheckFailure("bounded_maintenance_output_exceeded")
 
@@ -130,7 +132,6 @@ class SerialLab:
     def start_server(self):
         self.send(b"start\n")
         self.read_until(rb"NXRS_SSH_LAB_STARTED pid=[0-9]+\r?\n")
-        self.starts += 1
         self.wait_listening()
 
     def state(self):
