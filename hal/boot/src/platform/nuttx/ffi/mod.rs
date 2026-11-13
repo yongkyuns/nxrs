@@ -39,7 +39,7 @@ unsafe extern "C" {
 }
 
 pub(super) fn reboot() -> Result<core::convert::Infallible, DeviceError> {
-    // SAFETY: NuttX's noreturn reset entry; the Rust owner admits Pending only.
+    // SAFETY: NuttX's noreturn reset entry; the owner checks the required boot state.
     unsafe { up_systemreset() }
 }
 
