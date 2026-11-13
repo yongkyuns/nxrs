@@ -37,12 +37,16 @@ on:
       - 'tools/platform_config.py'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
+      - 'tools/qualify-concurrent-builds.py'
+      - 'tools/check-concurrent-builds.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/install-qemu-tools.sh'
       - 'tests/nuttx-std/**'
       - 'tests/host/test_architecture.py'
       - 'tests/host/test_deployment.py'
       - 'tests/host/test_platform_profiles.py'
+      - 'tests/host/test_concurrent_build_runner.py'
+      - 'tests/host/test_concurrent_builds.py'
       - 'tests/host/test-event-demo-nuttx.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -97,6 +101,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
+          python3 -m unittest discover -s tests/host -p 'test_concurrent_build*.py' -v
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
             --app-manifest app/event-demo/Cargo.toml \
@@ -211,7 +216,9 @@ jobs:
     needs: [demo]
     if: "!cancelled() && needs.demo.result == 'success' && github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'"
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Leave time around the witness's 20-minute deadline for setup, process-group
+    # cleanup, the existing QEMU/protected checks and retained diagnostics.
+    timeout-minutes: 40
     steps:
       - name: Verify GitHub-hosted Linux runner
         run: |
@@ -265,14 +272,13 @@ jobs:
             --image target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
             --log target/firmware/event-demo/esp32s3-qemu-mock/console.log
 
-      - name: Cross-build the CoreS3 sensor deployment
-        run: cargo +1.90.0 nxrs build --app event-demo --platform cores3 --out target/firmware/event-demo/cores3
-
-      - name: Cross-build the replacement IMU overlay
-        run: >-
-          cargo +1.90.0 nxrs build --app event-demo --platform cores3
-          --overlay tests/host/fixtures/lsm6dso-overlay.toml
-          --out target/firmware/event-demo/cores3-lsm6dso
+      - name: Qualify concurrent CoreS3 profile builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/qualify-concurrent-builds.py \
+            --out target/firmware/event-demo/concurrent-profiles \
+            --revision "$(git rev-parse HEAD)"
 
       - name: Cross-link the protected ESP32-S3 IMU ABI witness
         run: |
@@ -308,6 +314,20 @@ jobs:
           --kconfig-enable DRIVERS_NOTERAM
           --kconfig-enable DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE
           --out target/firmware/event-demo/imu-wired-protected
+
+      - name: Retain concurrent-profile evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: event-demo-concurrent-profiles
+          # The finite checked bundle includes the output ownership receipt.
+          include-hidden-files: true
+          path: |
+            target/firmware/event-demo/concurrent-profiles/evidence/**
+            target/firmware/event-demo/concurrent-profiles/*.json
+            target/firmware/event-demo/concurrent-profiles/*.jsonl
+            target/firmware/event-demo/concurrent-profiles/*.log
+          if-no-files-found: warn
 
       - name: Retain deployment evidence
         if: always()
