@@ -229,7 +229,7 @@ class OpenSsh:
         self.known_hosts, self.password = Path(known_hosts), password
 
     def arguments(self, *, tty=True, user=None, known_hosts=None, control=None,
-                  master=False, command=(), extra=()):
+                  master=False, command=(), extra=(), server_alive_interval=5):
         options = {
             "UserKnownHostsFile": str(known_hosts or self.known_hosts),
             "GlobalKnownHostsFile": "/dev/null", "StrictHostKeyChecking": "yes",
@@ -239,7 +239,7 @@ class OpenSsh:
             "PasswordAuthentication": "yes", "PreferredAuthentications": "password",
             "NumberOfPasswordPrompts": "1", "IdentityAgent": "none",
             "IdentitiesOnly": "yes", "BatchMode": "no", "ConnectionAttempts": "1",
-            "ConnectTimeout": "10", "ServerAliveInterval": "5", "ServerAliveCountMax": "2",
+            "ConnectTimeout": "10", "ServerAliveInterval": str(server_alive_interval), "ServerAliveCountMax": "2",
             "ForwardAgent": "no", "ForwardX11": "no", "Compression": "no",
             "ControlMaster": "yes" if master else "no", "ControlPersist": "no",
             "ControlPath": str(control) if control else "none",
@@ -339,6 +339,9 @@ class Suite:
         return result["status"] == "passed"
 
     def save(self):
+        idle_qualified = self.evidence_class == "device" and any(
+            case["name"] == "idle_deadline" and case["status"] == "passed" for case in self.results
+        )
         evidence = {
             "schema": 1, "evidence_class": self.evidence_class,
             "transport": "real_openssh_controlling_pty" if self.evidence_class == "device" else "host_control",
@@ -355,7 +358,7 @@ class Suite:
                 "measured_heap_stack_tcp_pty_budgets_and_peak_handshake_cost",
                 "unavailable_bind_address_address_in_use_and_network_loss_recovery",
                 "explicit_maximum_authentication_attempt_limit",
-                "idle_timeout_on_device",
+                *([] if idle_qualified else ["idle_timeout_on_device"]),
                 "confirmed_output_backpressure_and_product_workload_latency",
                 "device_fault_injection_for_missing_output_resource_leaks_and_incomplete_shutdown",
             ] + ([] if self.console else ["independent_lifecycle_progress_and_resource_observations"]),
@@ -549,6 +552,42 @@ class Suite:
         self.wait_listening()
         return {"observed_reclamation_seconds": round(reclaimed - started, 3), "fresh_login": True}
 
+    def idle_deadline(self, timeout):
+        console = self.console
+        console.wait_listening()
+        generation = (console.starts, console.server_exits)
+        process = self.client.login(server_alive_interval=0)
+        try:
+            console.require_state("session")
+            # Send terminal activity halfway through the initial idle period.
+            # The session must get a full new idle interval after that input.
+            time.sleep(timeout / 2)
+            token = secrets.token_hex(12)
+            command(process, f"echo NXRS_SSH_IDLE_{token}")
+            process.expect(rb"[\r\n]NXRS_SSH_IDLE_" + token.encode("ascii") + rb"[\r\n]")
+            process.expect(PROMPT)
+            started = time.monotonic()
+            status = process.wait(timeout + 5)
+            elapsed = time.monotonic() - started
+            if status < 0:
+                raise CheckFailure("idle_ssh_client_terminated_by_signal")
+            if elapsed < timeout - 2:
+                raise CheckFailure("idle_session_ended_before_deadline")
+        finally:
+            process.close()
+        console.wait_listening()
+        process = self.client.login()
+        try:
+            logout(process)
+        finally:
+            process.close()
+        console.wait_listening()
+        if (console.starts, console.server_exits) != generation:
+            raise CheckFailure("idle_timeout_restarted_server")
+        return {"configured_seconds": timeout, "observed_idle_seconds": round(elapsed, 3),
+                "client_exit_status": status, "activity_reset_deadline": True,
+                "fresh_login_same_server": True}
+
     def reconnect(self, count):
         before = self.console.snapshot("before-reconnect") if self.console else None
         for index in range(count):
@@ -659,7 +698,10 @@ def main():
     parser.add_argument("--build-evidence", type=Path, help="ssh-build-evidence.json for the image the operator flashed")
     parser.add_argument("--reconnects", type=int, default=100)
     parser.add_argument("--auth-timeout", type=int, default=30)
-    parser.add_argument("--case", choices=("pty", "auth-deadline", "active-stop", "wifi-reconnect", "wifi-outage"),
+    parser.add_argument("--idle-timeout", type=int, default=60,
+                        help="idle timeout configured in the flashed image")
+    parser.add_argument("--case", choices=("pty", "auth-deadline", "idle-deadline", "active-stop",
+                                           "wifi-reconnect", "wifi-outage"),
                         help="run one focused device case with normal startup and shutdown checks")
     parser.add_argument("--serial-port", help="independent local maintenance console; requires pyserial")
     parser.add_argument("--ssid")
@@ -672,6 +714,8 @@ def main():
         parser.error("invalid port or reconnect count")
     if args.auth_timeout <= 0:
         parser.error("authentication timeout must be positive")
+    if args.case == "idle-deadline" and not 5 <= args.idle_timeout <= 3600:
+        parser.error("idle deadline measurement requires a configured timeout of 5 to 3600 seconds")
     if args.case and not args.serial_port:
         parser.error("focused device cases require an independent serial console")
     if args.case == "wifi-outage" and not sys.stdin.isatty():
@@ -684,6 +728,15 @@ def main():
     password = password_file(args.password_file) if args.password_file else getpass.getpass("Disposable SSH password: ").encode("ascii")
     if not 8 <= len(password) <= 256 or not all(32 <= value <= 126 for value in password):
         parser.error("password must be 8..256 printable ASCII bytes")
+    build = None
+    if args.build_evidence:
+        build = json.loads(args.build_evidence.read_text())
+        if build.get("evidence_class") != "crossbuild" or not build.get("ssh_enabled"):
+            parser.error("--build-evidence must describe an SSH-enabled cross-build")
+        if args.case == "idle-deadline":
+            configured = build.get("effective_ssh_config", {}).get("CONFIG_NETUTILS_DROPBEAR_IDLE_TIMEOUT")
+            if configured != str(args.idle_timeout):
+                parser.error("--idle-timeout must match the configured timeout in --build-evidence")
     out = args.out / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(4))
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     lookup = f"[{args.host}]:{args.port}" if args.port != 22 else args.host
@@ -692,10 +745,7 @@ def main():
     isolated.write_bytes(b"\n".join(line for line in records.splitlines() if line and not line.startswith(b"#")) + b"\n")
     isolated.chmod(0o600)
     trusted = verify_known_hosts(isolated, args.host, args.port, args.expected_fingerprint)
-    if args.build_evidence:
-        build = json.loads(args.build_evidence.read_text())
-        if build.get("evidence_class") != "crossbuild" or not build.get("ssh_enabled"):
-            parser.error("--build-evidence must describe an SSH-enabled cross-build")
+    if build:
         (out / "ssh-build-evidence.json").write_text(json.dumps(build, indent=2) + "\n")
     console = None
     client = OpenSsh(args.host, args.port, args.user, trusted, password)
@@ -718,6 +768,7 @@ def main():
         focused = {
             "pty": ("pty_rust_stdio_threads_resize_interrupt_rekey_channel_limits", suite.shell),
             "auth-deadline": ("authentication_deadline", lambda: suite.authentication_deadline(args.auth_timeout)),
+            "idle-deadline": ("idle_deadline", lambda: suite.idle_deadline(args.idle_timeout)),
             "active-stop": ("active_stop_and_restart", lambda: console.active_stop(client)),
             "wifi-reconnect": ("wifi_reconnect_and_ssh_restart", suite.wifi_reconnect),
             "wifi-outage": ("access_point_outage_and_ssh_restart", lambda: suite.wifi_reconnect(access_point=True)),

@@ -279,6 +279,17 @@ The harness also offers `--case wifi-outage` for a dedicated access point
 that can be turned off independently. Physical access-point recovery
 remains unqualified.
 
+## Session deadlines on ESP32-S3
+
+On the Freenove ESP32-S3, the listener returned about 29 seconds after the
+local console confirmed a session waiting at the password prompt. The
+authentication deadline was configured for 30 seconds. The
+authenticated client exited about 61 seconds after its last terminal command
+with a 60-second idle setting. Terminal input halfway through the first idle
+interval extended the session. A fresh pinned login succeeded on the same
+Dropbear process after the idle disconnect. The
+[focused deadline cases](../tests/nuttx-std/ssh/README.md) reproduce these checks.
+
 ## Qualification still required on hardware
 
 The automated fixture is a starting point for this matrix. Preserve failures and
@@ -291,7 +302,7 @@ hardware identity, test commands and acceptance budgets before declaring a pass.
 | Identity | Correct native format; missing/invalid/unreadable key refusal; stable public fingerprint across restart/reboot and read-only mounts; no silent replacement |
 | Terminal/application behavior | NSH, partial input, resize, Ctrl-C, Rust stdin/stdout/stderr, ordinary threads, success/failure return, return to the owning shell and continuing local workload |
 | Admission | One transport and one channel, bounded incomplete handshakes and second requests, unavailable address/address-in-use, bounded listen retries |
-| Recovery | Abrupt client death, sustained output/backpressure, rekey, real network loss/recovery, idle deadline, idle and active stop, restart without reboot |
+| Recovery | Abrupt client death, sustained output/backpressure, rekey, physical access-point loss/recovery, idle and active stop, restart without reboot |
 | Negative controls | Deliberately failed login, missing output, changed identity, injected task/FD leak and incomplete shutdown must be detected; host controls do not replace device injection |
 | Resource cost | Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop |
 | Long runs | At least 100 reconnects after warm-up, including failed logins and active stop/restart in one boot; no hidden reset between samples |

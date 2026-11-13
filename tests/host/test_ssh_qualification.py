@@ -267,6 +267,36 @@ class SshQualificationTests(unittest.TestCase):
             self.assertEqual(evidence["evidence_class"], "host_control")
             self.assertTrue(evidence["pending"])
 
+    def test_idle_deadline_requires_full_interval_after_terminal_activity(self):
+        for elapsed, status, failure in (
+            (60, 255, None),
+            (30, 255, "idle_session_ended_before_deadline"),
+            (60, -15, "idle_ssh_client_terminated_by_signal"),
+        ):
+            with self.subTest(elapsed=elapsed, status=status):
+                console = Mock(starts=1, server_exits=0)
+                client = Mock()
+                session, fresh = Mock(), Mock()
+                client.login.side_effect = [session, fresh]
+                session.wait.return_value = status
+                fresh.wait.return_value = 0
+                suite = SSH.Suite(client, None, console=console)
+                with patch.object(SSH.time, "sleep") as pause, patch.object(
+                    SSH.time, "monotonic", side_effect=[100, 100 + elapsed]
+                ):
+                    if failure:
+                        with self.assertRaisesRegex(SSH.CheckFailure, failure):
+                            suite.idle_deadline(60)
+                        self.assertEqual(client.login.call_count, 1)
+                    else:
+                        self.assertEqual(suite.idle_deadline(60)["observed_idle_seconds"], 60)
+                        self.assertEqual(client.login.call_count, 2)
+                session.wait.assert_called_once_with(65)
+                pause.assert_called_once_with(30)
+                self.assertEqual(client.login.call_args_list[0].kwargs, {"server_alive_interval": 0})
+                self.assertIn(b"echo NXRS_SSH_IDLE_", session.send.call_args.args[0])
+                session.close.assert_called_once()
+
     def test_interrupted_outage_is_recorded_as_failed(self):
         with tempfile.TemporaryDirectory() as directory:
             client = SSH.OpenSsh("127.0.0.1", 2222, "test", "/tmp/known_hosts", b"Fixture9!")
@@ -329,6 +359,9 @@ sys.exit(7)
         self.assertEqual(config["passwordauthentication"], "yes")
         self.assertEqual(config["identityagent"], "none")
         self.assertEqual(config["controlmaster"], "false")
+        idle = client.arguments(server_alive_interval=0)
+        result = subprocess.run([idle[0], "-G", *idle[1:]], capture_output=True, text=True, check=True)
+        self.assertIn("serveraliveinterval 0", result.stdout.splitlines())
 
     @unittest.skipUnless(shutil.which("ssh-keygen"), "OpenSSH key tool unavailable")
     def test_actual_public_key_fingerprint_validation_rejects_changed_identity(self):
