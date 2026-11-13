@@ -81,7 +81,7 @@ struct sshsession {
  struct dropbear_channel **channels; unsigned chansize,chancount;
 };
 struct serversession { char *addrstring; };
-struct svr_runopts { void *hostkey; int multiauthmethod; };
+struct svr_runopts { void *hostkey; int multiauthmethod; unsigned int maxauthtries; };
 struct runopts { unsigned recv_window; };
 extern struct sshsession ses;
 extern struct serversession svr_ses;

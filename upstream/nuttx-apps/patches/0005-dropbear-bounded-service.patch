@@ -753,7 +753,7 @@ diff --git a/netutils/dropbear/Makefile b/netutils/dropbear/Makefile
 diff --git a/netutils/dropbear/dropbear_main.c b/netutils/dropbear/dropbear_main.c
 --- a/netutils/dropbear/dropbear_main.c
 +++ b/netutils/dropbear/dropbear_main.c
-@@ -1,329 +1,435 @@
+@@ -1,329 +1,437 @@
  /****************************************************************************
   * apps/netutils/dropbear/dropbear_main.c
   *
@@ -1007,8 +1007,7 @@ diff --git a/netutils/dropbear/dropbear_main.c b/netutils/dropbear/dropbear_main
 -    CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH,
 -    NULL
 +    "dropbear", "-F", "-r", CONFIG_NETUTILS_DROPBEAR_HOSTKEY_PATH,
-+    "-I", STRINGIFY(CONFIG_NETUTILS_DROPBEAR_IDLE_TIMEOUT),
-+    "-T", STRINGIFY(CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES), NULL
++    "-I", STRINGIFY(CONFIG_NETUTILS_DROPBEAR_IDLE_TIMEOUT), NULL
    };
  
 -  _dropbear_exit = svr_dropbear_exit;
@@ -1019,7 +1018,10 @@ diff --git a/netutils/dropbear/dropbear_main.c b/netutils/dropbear/dropbear_main
 -
 -  disallow_core();
 -  svr_getopts(6, argv);
-+  svr_getopts(8, argv);
++  svr_getopts(6, argv);
++  /* Dropbear closes when the failure count exceeds maxauthtries. */
++
++  svr_opts.maxauthtries = CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES - 1;
    seedrandom();
    crypto_init();
 -
