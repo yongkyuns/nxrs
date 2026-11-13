@@ -264,6 +264,27 @@ records the configuration and commands. This run covers clean reboot and
 read-only use on the stated board. Interrupted provisioning and the remaining
 device cases are tracked in [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
+## Invalid credentials on ESP32-S3
+
+With provisioned credentials on LittleFS, the Freenove ESP32-S3 refused
+startup when the host key was missing, malformed, or a directory. It also
+refused startup when the password database was missing, empty, or a
+directory. Each rejected start exited, reported a native failure, and left
+the SSH port unreachable. Missing paths stayed absent.
+
+A nonempty malformed password record allowed the listener to start. NuttX
+rejected login with the original password when it read that record. An
+unknown username was also rejected with a valid database. Restoring both
+original files restored login with the same pinned host key and password.
+
+To reproduce on the disposable lab volume, stop the fixture before each
+change, move the original file aside, and introduce one bad input at a time.
+A short text file is a malformed host key. For the password database, use
+an empty file or a line containing the test username followed by
+`:invalid`. Check the local daemon status and whether the SSH port is open.
+Restore the original file before starting the next case. Permission and
+storage I/O errors still need separate device checks.
+
 ## Recovering after Wi-Fi loss
 
 The SSH lab uses the Wi-Fi connectivity service to rejoin. When the station
@@ -322,8 +343,8 @@ hardware identity, test commands and acceptance budgets before declaring a pass.
 
 | Area | Required device evidence |
 | --- | --- |
-| Authentication storage | Unknown user, empty/unprovisioned, corrupt and unreadable database |
-| Identity | Correct native format; missing/invalid/unreadable key refusal; stable public fingerprint across restart/reboot and read-only mounts; no silent replacement |
+| Authentication storage | Permission and storage I/O errors while opening or reading the password database |
+| Identity | Permission and storage I/O errors while opening or reading the host key |
 | Terminal/application behavior | NSH, partial input, resize, Ctrl-C, Rust stdin/stdout/stderr, ordinary threads, success/failure return, return to the owning shell and continuing local workload |
 | Admission | One transport and one channel, bounded incomplete handshakes and second requests, unavailable address/address-in-use, bounded listen retries |
 | Recovery | Abrupt client death, sustained output/backpressure, rekey, physical access-point loss/recovery, idle and active stop, restart without reboot |
