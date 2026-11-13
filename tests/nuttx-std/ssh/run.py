@@ -569,6 +569,40 @@ class Suite:
         return {"successful_sessions": count, "interleaved_failed_logins": count // 10,
                 "same_boot": self.console is not None}
 
+    def wifi_reconnect(self):
+        console = self.console
+        before = console.progress()
+        console.wait_listening()
+        old = self.client.login()
+        try:
+            console.require_state("session")
+            console.send(b"reconnect\n")
+            output, _ = console.read_until(rb"NXRS_SSH_LAB_RESTARTED pid=[0-9]+\r?\n", 60)
+            exits = re.findall(rb"NXRS_SSH_LAB_SERVER_EXIT result=(-?[0-9]+)\r?\n", output)
+            if output.count(b"NXRS_SSH_LAB_WIFI_LOST") != 1 or exits != [b"0"]:
+                raise CheckFailure("missing_link_loss_or_clean_previous_generation_exit")
+            old.wait(20)
+        finally:
+            old.close()
+
+        console.wait_listening()
+        process = self.client.login()
+        try:
+            token = secrets.token_hex(12)
+            command(process, f"ssh_probe stdio {token}")
+            process.expect(re.escape(marker("READY", token)))
+            process.send(f"input:{token}\n".encode("ascii"))
+            output, _ = process.expect(PROMPT)
+            require_stdio(output, token)
+            result_code(process, 0)
+            logout(process)
+        finally:
+            process.close()
+        if console.progress() <= before:
+            raise CheckFailure("independent_firmware_progress_stalled")
+        return {"station_rejoin": True, "previous_server_reaped": True, "same_boot": True,
+                "fresh_pinned_login_and_rust_stdio": True}
+
     def abrupt_disconnect(self):
         self.wait_listening()
         process = self.client.login()
@@ -593,7 +627,7 @@ def main():
     parser.add_argument("--build-evidence", type=Path, help="ssh-build-evidence.json for the image the operator flashed")
     parser.add_argument("--reconnects", type=int, default=100)
     parser.add_argument("--auth-timeout", type=int, default=30)
-    parser.add_argument("--case", choices=("pty", "auth-deadline", "active-stop"),
+    parser.add_argument("--case", choices=("pty", "auth-deadline", "active-stop", "wifi-reconnect"),
                         help="run one focused device case with normal startup and shutdown checks")
     parser.add_argument("--serial-port", help="independent local maintenance console; requires pyserial")
     parser.add_argument("--ssid")
@@ -651,6 +685,7 @@ def main():
             "pty": ("pty_rust_stdio_threads_resize_interrupt_rekey_channel_limits", suite.shell),
             "auth-deadline": ("authentication_deadline", lambda: suite.authentication_deadline(args.auth_timeout)),
             "active-stop": ("active_stop_and_restart", lambda: console.active_stop(client)),
+            "wifi-reconnect": ("wifi_reconnect_and_ssh_restart", suite.wifi_reconnect),
         }
         if args.case:
             suite.case(*focused[args.case])

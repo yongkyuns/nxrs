@@ -176,6 +176,27 @@ class SshQualificationTests(unittest.TestCase):
         with self.assertRaisesRegex(SSH.CheckFailure, "native_stop_failed:1"):
             console.stop()
 
+    def test_wifi_reconnect_accepts_loss_and_reap_in_either_order(self):
+        lost = b"NXRS_SSH_LAB_WIFI_LOST\r\n"
+        reaped = b"NXRS_SSH_LAB_SERVER_EXIT result=0\r\n"
+        restarted = b"NXRS_SSH_LAB_RESTARTED pid=12\r\n"
+        for first, second in ((lost, reaped), (reaped, lost)):
+            with self.subTest(first=first):
+                console = Mock()
+                console.progress.side_effect = [1, 2]
+                console.read_until.return_value = (first + second + restarted, ())
+                client = Mock()
+                old, fresh = Mock(), Mock()
+                client.login.side_effect = [old, fresh]
+                fresh.expect.return_value = (b"", ())
+                fresh.wait.return_value = 0
+                suite = SSH.Suite(client, None, console=console)
+                with patch.object(SSH, "require_stdio"), patch.object(SSH, "result_code"):
+                    self.assertTrue(suite.wifi_reconnect()["same_boot"])
+                console.send.assert_called_once_with(b"reconnect\n")
+                old.wait.assert_called_once_with(20)
+                self.assertEqual(console.wait_listening.call_count, 2)
+
     def test_secret_frame_fits_usb_receive_buffer(self):
         console = CONSOLE.SerialLab.__new__(CONSOLE.SerialLab)
         console.send = Mock()

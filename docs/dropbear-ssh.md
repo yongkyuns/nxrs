@@ -264,18 +264,18 @@ records the configuration and commands. This run covers clean reboot and
 read-only use on the stated board. Interrupted provisioning and the remaining
 device cases are tracked in [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
-## Recovering after a Wi-Fi interface outage
+## Recovering after Wi-Fi loss
 
-On the Freenove ESP32-S3, an authenticated NSH session ran `ifdown wlan0`.
-The local fixture observed link loss, stopped and reaped Dropbear, and
-returned to local NSH. The host could not open an SSH connection before
-the restart. The board's uptime advanced across the outage. Starting the
-fixture again from local NSH brought Wi-Fi and Dropbear back in the same
-boot. OpenSSH accepted the original pinned host key and password from the
-mounted LittleFS volume, and the Rust stdio and joined shutdown checks
-passed. Both runs used the same reserved DHCP address. The lab owner
-requires a local restart after link loss. Access-point outages and automatic
-reconnection remain unqualified.
+The SSH lab uses the Wi-Fi connectivity service to rejoin. When the station
+loses its address, the local owner stops and reaps Dropbear. Once DHCP
+restores the address, the owner starts a new listener with the existing
+LittleFS host key and password database. Clients open a new SSH session
+using the pinned host key. The fixture uses a reserved IPv4 address.
+
+The [focused reconnect case](../tests/nuttx-std/ssh/README.md) exercises a
+controlled station disconnect and rejoin. The earlier Freenove ESP32-S3
+`ifdown wlan0` test verified same-boot recovery with a manual restart.
+An access point going offline and returning remains unqualified.
 
 ## Qualification still required on hardware
 
