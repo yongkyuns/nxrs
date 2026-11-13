@@ -290,6 +290,21 @@ interval extended the session. A fresh pinned login succeeded on the same
 Dropbear process after the idle disconnect. The
 [focused deadline cases](../tests/nuttx-std/ssh/README.md) reproduce these checks.
 
+## Repeated SSH sessions on ESP32-S3
+
+After five warm-up sessions, the Freenove ESP32-S3 served 100 pinned OpenSSH
+sessions with a terminal command and clean logout. It rejected ten wrong
+passwords interleaved across the run. All sessions used the same Dropbear
+process in one boot. The listening snapshots both showed 10 tasks and 43
+file descriptor rows. After active stop, restart and joined shutdown, the
+stopped snapshot matched its baseline of 9 tasks and 39 descriptor rows.
+
+This run used the existing reconnect harness with a local adjustment. It
+checked serial listener status every tenth session and waited 350 ms before
+other attempts. Every SSH attempt kept the normal checks. Earlier runs with
+per-session status checks timed out on the serial console after 65, 86 and
+89 authenticated logins. The serial failure remains open.
+
 ## Qualification still required on hardware
 
 The automated fixture is a starting point for this matrix. Preserve failures and
@@ -305,7 +320,7 @@ hardware identity, test commands and acceptance budgets before declaring a pass.
 | Recovery | Abrupt client death, sustained output/backpressure, rekey, physical access-point loss/recovery, idle and active stop, restart without reboot |
 | Negative controls | Deliberately failed login, missing output, changed identity, injected task/FD leak and incomplete shutdown must be detected; host controls do not replace device injection |
 | Resource cost | Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop |
-| Long runs | At least 100 reconnects after warm-up, including failed logins and active stop/restart in one boot; no hidden reset between samples |
+| Long runs | Repeat the 100-session campaign with reliable per-session serial status checks |
 | Coexistence | Independent firmware progress during authentication/output/rekey plus product-workload latency, missed deadlines, buffer pressure and recovery |
 
 Use `/proc/meminfo`, task status/stack coloration, descriptor/TCP/PTY observations
