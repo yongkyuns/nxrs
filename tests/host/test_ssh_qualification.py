@@ -281,6 +281,34 @@ class SshQualificationTests(unittest.TestCase):
         self.assertEqual(console.state(), "listening")
         console.send.assert_called_once_with(b"status\n")
 
+    def test_authentication_attempt_limit_requires_the_peer_to_close(self):
+        closed = b"Connection closed by remote host"
+        for output, elapsed, failure in (
+            (closed, 2, None),
+            (b"Permission denied", 2, "auth_limit_peer_disconnect_missing"),
+            (closed, 29, "auth_limit_disconnect_overlaps_authentication_deadline"),
+        ):
+            with self.subTest(output=output, elapsed=elapsed), patch.object(
+                SSH.time, "monotonic", side_effect=[100, 100 + elapsed]
+            ):
+                console = Mock(starts=1, server_exits=0)
+                client = Mock()
+                process = Mock(pending=output)
+                process.wait.return_value = 255
+                client.process.return_value = process
+                client.login.return_value.wait.return_value = 0
+                suite = SSH.Suite(client, None, console=console)
+                if failure:
+                    with self.assertRaisesRegex(SSH.CheckFailure, failure):
+                        suite.authentication_attempt_limit(3, 30)
+                    client.login.assert_not_called()
+                else:
+                    self.assertEqual(suite.authentication_attempt_limit(3, 30)["rejected_password_submissions"], 3)
+                    client.login.assert_called_once()
+                client.process.assert_called_once_with(password_prompts=4)
+                self.assertEqual(client.password_prompt.call_count, 3)
+                process.close.assert_called_once()
+
     def test_idle_deadline_requires_full_interval_after_terminal_activity(self):
         for elapsed, status, failure in (
             (60, 255, None),

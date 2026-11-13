@@ -36,10 +36,15 @@ void svr_dropbear_log(int level,const char *format,va_list args)
 {(void)level;(void)format;(void)args;}
 void svr_getopts(int argc,char **argv)
 {
- assert(argc==8 && strcmp(argv[1],"-F")==0 && strcmp(argv[4],"-I")==0 && strcmp(argv[6],"-T")==0);
+ assert(argc==6 && strcmp(argv[1],"-F")==0 && strcmp(argv[4],"-I")==0 && argv[6]==NULL);
+ svr_opts.maxauthtries = CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES;
  setup_calls++;m_malloc(9); /* A real epoch-0 allocation, retired on every failure. */
 }
-void seedrandom(void){if(atomic_load(&seed_failure))dropbear_exit("entropy");}
+void seedrandom(void)
+{
+ assert(svr_opts.maxauthtries + 1 == CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES);
+ if(atomic_load(&seed_failure))dropbear_exit("entropy");
+}
 void crypto_init(void){}
 void dropbear_random_cleanup(void){}
 void load_all_hostkeys(void)
