@@ -154,6 +154,15 @@ and a fresh pinned OpenSSH login can run the Rust stdio probe in the same boot.
 Use a reserved DHCP address because the fixture binds to one IPv4 address.
 Omit `--case` to run the standard campaign.
 
+Use `--case idle-deadline` to exercise the authenticated session timeout. Set
+`--idle-timeout` to match the flashed image if it differs from the recipe's
+60 seconds. The measurement requires a configured timeout of at least five
+seconds. With `--build-evidence` the runner checks the configured value. It
+disables OpenSSH keepalives, sends terminal input halfway through the timeout,
+then measures when the SSH client exits. The local console confirms that the
+listener returns.
+A fresh pinned login must succeed in the same server generation.
+
 Use `--case wifi-outage` from an interactive terminal to test an actual access
 point outage. Use a dedicated 2.4 GHz access point with the test host connected
 by a separate path. Keep the access point off until the runner confirms that
