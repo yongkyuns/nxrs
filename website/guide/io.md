@@ -43,7 +43,81 @@ The [UDP API](../../hal/transport/src/udp.rs) accepts numeric addresses and repo
 
 ### Optional remote shell
 
-The native NuttX Dropbear utility can provide optional password-authenticated SSH access to an NSH terminal. It stays disabled by default and does not add an SSH runtime to Rust applications. See [Dropbear SSH integration](../../docs/dropbear-ssh.md) for ownership, provisioning, configured limits and the hardware qualification still required, and the [executable qualification procedure](../../tests/nuttx-std/ssh/README.md) for the ESP32-S3 Wi-Fi fixture.
+Use the ESP32-S3 Wi-Fi lab fixture to open an interactive NuttX Shell (NSH)
+over SSH and run a Rust command through it. SSH is off by default. The fixture
+builds a flat, single-core NuttX image. Dropbear binds to an explicit IPv4
+address on port 2222 and serves one password-authenticated terminal at a time.
+
+#### Build and run the example
+
+Follow the [NuttX tool setup](firmware.md), then build the fixture from the
+repository root. Replace the example IP with a DHCP reservation for your board
+on the same lab network as the host.
+
+```sh
+bash tests/nuttx-std/ssh/build.sh --out target/dropbear-ssh --bind 192.168.50.42
+```
+
+Use the [board flashing and credential setup](../../tests/nuttx-std/ssh/README.md)
+to flash the image and prepare a native Dropbear host key, a verified
+`known_hosts` entry, and disposable SSH and WPA2 password files. The host needs
+OpenSSH, `dropbearkey`, and Python with `pyserial`. Close other serial clients
+before the harness opens the board's local maintenance console.
+
+Run the terminal case from the host. Set `SSH_TEST_SECRETS` to the private
+directory from credential setup and substitute your serial port, SSID, IP
+address, and verified fingerprint.
+
+```sh
+python3 tests/nuttx-std/ssh/run.py \
+  --serial-port /dev/ttyACM0 --ssid nxrs-lab \
+  --wifi-password-file "$SSH_TEST_SECRETS/wifi-password" \
+  --host 192.168.50.42 --user nxrs_test \
+  --password-file "$SSH_TEST_SECRETS/ssh-password" \
+  --provision-key "$SSH_TEST_SECRETS/dropbear_ecdsa_host_key" \
+  --known-hosts "$SSH_TEST_SECRETS/known_hosts" \
+  --expected-fingerprint 'SHA256:REPLACE_WITH_VERIFIED_FINGERPRINT' \
+  --build-evidence target/dropbear-ssh/ssh-build-evidence.json \
+  --tmpfs --case pty
+```
+
+The harness connects Wi-Fi, provisions the empty lab filesystem over the local
+console, starts Dropbear, checks a real OpenSSH terminal, and shuts down the
+server and Wi-Fi. Look for `pty_rust_stdio_threads_resize_interrupt_rekey_channel_limits: passed`
+and `complete_local_shutdown: passed`. The `--tmpfs` run uses disposable
+credentials and does not test persistence across reboot.
+
+#### Open the terminal yourself
+
+With an already provisioned server reporting `state=listening` and the local
+owner still running, connect from another terminal. The automated case above
+stops the server when it finishes.
+
+```sh
+ssh -tt -p 2222 -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile="$SSH_TEST_SECRETS/known_hosts" nxrs_test@192.168.50.42
+```
+
+At the remote `nsh>` prompt, enter `ssh_probe stdio 0123456789abcdef01234567`.
+When it prints `NXRS_SSH_READY`, type `input:0123456789abcdef01234567`.
+The program prints markers for the joined Rust worker, stdout, and stderr,
+ending with `NXRS_SSH_SUCCESS` and the same token. Enter `exit` to close the session. Use the local
+console's `stop` and `quit` commands if you are running the lab owner
+interactively. The current port supports interactive NSH only. Remote exec,
+file transfer, and forwarding are disabled.
+
+#### How it fits the capability model
+
+SSH follows the same ownership and explicit-selection rules. The profile
+selects the board and Wi-Fi HAL. NuttX Kconfig enables the native maintenance
+service. The Wi-Fi HAL owns radio
+access, and Dropbear owns the listener, authentication, and NSH terminal. The
+Rust command uses ordinary `std::io` and `std::thread`. It has no SSH dependency
+or portable SSH HAL API. The lab fixture starts and joins the native server and
+keeps Wi-Fi available until shutdown completes.
+
+See the [Dropbear integration reference](../../docs/dropbear-ssh.md) for the
+supported profile, lifecycle, and remaining qualification.
 
 ## Files and storage
 
