@@ -154,6 +154,13 @@ and a fresh pinned OpenSSH login can run the Rust stdio probe in the same boot.
 Use a reserved DHCP address because the fixture binds to one IPv4 address.
 Omit `--case` to run the standard campaign.
 
+Use `--case wifi-outage` from an interactive terminal to test an actual access
+point outage. Use a dedicated 2.4 GHz access point with the test host connected
+by a separate path. Keep the access point off until the runner confirms that
+the old server exited and TCP port 2222 is unreachable. The runner then prompts
+you to turn it back on, waits for the automatic restart, and checks a fresh
+pinned login and Rust terminal I/O.
+
 The local `ssh_probe lab` command reuses the existing Wi-Fi credential protocol,
 Wi-Fi HAL and connectivity service, with explicit disconnect and worker join.
 On link loss it stops and reaps the old server, then starts a new one once the

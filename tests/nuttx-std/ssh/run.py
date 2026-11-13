@@ -324,6 +324,10 @@ class Suite:
         try:
             details = operation() or {}
             result = {"name": name, "status": "passed", "details": details}
+        except KeyboardInterrupt:
+            self.results.append({"name": name, "status": "failed", "reason": "operator_interrupted"})
+            self.save()
+            raise
         except Exception as error:
             # Exceptions are classified without including peer output or secrets.
             code = str(error) if isinstance(error, CheckFailure) else type(error).__name__
@@ -569,18 +573,45 @@ class Suite:
         return {"successful_sessions": count, "interleaved_failed_logins": count // 10,
                 "same_boot": self.console is not None}
 
-    def wifi_reconnect(self):
+    def wifi_outage(self):
+        console = self.console
+        generation = console.starts
+        try:
+            input("Turn off the dedicated access point, then press Enter. ")
+            _, (first,) = console.read_until(
+                rb"NXRS_SSH_LAB_(WIFI_LOST|SERVER_EXIT)(?: result=-?[0-9]+)?\r?\n", 60)
+            other = b"SERVER_EXIT result=-?[0-9]+" if first == b"WIFI_LOST" else b"WIFI_LOST"
+            console.read_until(rb"NXRS_SSH_LAB_" + other + rb"\r?\n", 30)
+            console.progress()
+            if console.starts != generation or console.server_exits != generation:
+                raise CheckFailure("old_generation_not_reaped_while_access_point_off")
+            try:
+                with socket.create_connection((self.client.host, self.client.port), 2):
+                    raise CheckFailure("ssh_reachable_while_access_point_off")
+            except TimeoutError:
+                pass
+            except OSError as error:
+                if error.errno not in (errno.ECONNREFUSED, errno.ECONNRESET, errno.EHOSTUNREACH, errno.EHOSTDOWN):
+                    raise
+        finally:
+            input("Turn the access point back on, then press Enter. ")
+
+    def wifi_reconnect(self, access_point=False):
         console = self.console
         before = console.progress()
         console.wait_listening()
         old = self.client.login()
         try:
             console.require_state("session")
-            console.send(b"reconnect\n")
-            output, _ = console.read_until(rb"NXRS_SSH_LAB_RESTARTED pid=[0-9]+\r?\n", 60)
-            exits = re.findall(rb"NXRS_SSH_LAB_SERVER_EXIT result=(-?[0-9]+)\r?\n", output)
-            if output.count(b"NXRS_SSH_LAB_WIFI_LOST") != 1 or exits != [b"0"]:
-                raise CheckFailure("missing_link_loss_or_clean_previous_generation_exit")
+            if access_point:
+                self.wifi_outage()
+                console.read_until(rb"NXRS_SSH_LAB_RESTARTED pid=[0-9]+\r?\n", 90)
+            else:
+                console.send(b"reconnect\n")
+                output, _ = console.read_until(rb"NXRS_SSH_LAB_RESTARTED pid=[0-9]+\r?\n", 60)
+                exits = re.findall(rb"NXRS_SSH_LAB_SERVER_EXIT result=(-?[0-9]+)\r?\n", output)
+                if output.count(b"NXRS_SSH_LAB_WIFI_LOST") != 1 or exits != [b"0"]:
+                    raise CheckFailure("missing_link_loss_or_clean_previous_generation_exit")
             old.wait(20)
         finally:
             old.close()
@@ -600,7 +631,8 @@ class Suite:
             process.close()
         if console.progress() <= before:
             raise CheckFailure("independent_firmware_progress_stalled")
-        return {"station_rejoin": True, "previous_server_reaped": True, "same_boot": True,
+        return {"outage": "access_point" if access_point else "controlled_station_disconnect",
+                "station_rejoin": True, "previous_server_reaped": True, "same_boot": True,
                 "fresh_pinned_login_and_rust_stdio": True}
 
     def abrupt_disconnect(self):
@@ -627,7 +659,7 @@ def main():
     parser.add_argument("--build-evidence", type=Path, help="ssh-build-evidence.json for the image the operator flashed")
     parser.add_argument("--reconnects", type=int, default=100)
     parser.add_argument("--auth-timeout", type=int, default=30)
-    parser.add_argument("--case", choices=("pty", "auth-deadline", "active-stop", "wifi-reconnect"),
+    parser.add_argument("--case", choices=("pty", "auth-deadline", "active-stop", "wifi-reconnect", "wifi-outage"),
                         help="run one focused device case with normal startup and shutdown checks")
     parser.add_argument("--serial-port", help="independent local maintenance console; requires pyserial")
     parser.add_argument("--ssid")
@@ -642,6 +674,8 @@ def main():
         parser.error("authentication timeout must be positive")
     if args.case and not args.serial_port:
         parser.error("focused device cases require an independent serial console")
+    if args.case == "wifi-outage" and not sys.stdin.isatty():
+        parser.error("wifi-outage requires a terminal for access point controls")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", args.user):
         parser.error("invalid username")
     trusted = verify_known_hosts(args.known_hosts, args.host, args.port, args.expected_fingerprint)
@@ -686,6 +720,7 @@ def main():
             "auth-deadline": ("authentication_deadline", lambda: suite.authentication_deadline(args.auth_timeout)),
             "active-stop": ("active_stop_and_restart", lambda: console.active_stop(client)),
             "wifi-reconnect": ("wifi_reconnect_and_ssh_restart", suite.wifi_reconnect),
+            "wifi-outage": ("access_point_outage_and_ssh_restart", lambda: suite.wifi_reconnect(access_point=True)),
         }
         if args.case:
             suite.case(*focused[args.case])

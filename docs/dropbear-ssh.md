@@ -275,7 +275,9 @@ using the pinned host key. The fixture uses a reserved IPv4 address.
 The [focused reconnect case](../tests/nuttx-std/ssh/README.md) exercises a
 controlled station disconnect and rejoin. The earlier Freenove ESP32-S3
 `ifdown wlan0` test verified same-boot recovery with a manual restart.
-An access point going offline and returning remains unqualified.
+The harness also offers `--case wifi-outage` for a dedicated access point
+that can be turned off independently. Physical access-point recovery
+remains unqualified.
 
 ## Qualification still required on hardware
 
