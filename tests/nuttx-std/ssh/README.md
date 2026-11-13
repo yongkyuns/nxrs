@@ -148,12 +148,16 @@ manufacturing process.
 The host paces binary credentials in writes small enough for the ESP32-S3 USB
 serial receive ring and waits for each NSH command echo before reading its status.
 For focused device runs, add `--case auth-deadline`, `--case active-stop` or
-`--case pty` to the same command. The summary identifies the selected case.
-Omit `--case` for the complete campaign in its standard order.
+`--case pty` to the same command. Use `--case wifi-reconnect` to disassociate the
+station during an authenticated session and verify that the old server is reaped
+and a fresh pinned OpenSSH login can run the Rust stdio probe in the same boot.
+Use a reserved DHCP address because the fixture binds to one IPv4 address.
+Omit `--case` to run the standard campaign.
 
 The local `ssh_probe lab` command reuses the existing Wi-Fi credential protocol,
-station/DHCP owner, explicit disconnect and worker join. It retains the addressed
-Wi-Fi connection throughout the SSH experiment. A mechanical test-only
+Wi-Fi HAL and connectivity service, with explicit disconnect and worker join.
+On link loss it stops and reaps the old server, then starts a new one once the
+station has an address. A mechanical test-only
 `exec_builtin()` bridge starts the native foreground server in its own task;
 Rust retains and reaps that child. `NSH_DISABLEBG=y` remains enforced. The recipe
 does not use `dropbear &`, a new application runtime, or the Wi-Fi echo test that
@@ -177,7 +181,7 @@ fixture conditions. The recipe enables kernel pipes for PTYs/session
 signaling and explicitly disables NSH command-pipeline syntax.
 
 The local lab console accepts `start`, `status`, `stop`, `snapshot`, `progress`,
-`provision` and `quit`. Do not run this owner through an SSH session. It is the
+`provision`, `reconnect` and `quit`. Do not run this owner through an SSH session. It is the
 independent maintenance path for stopping SSH and observing failure. A failed
 stop retains network/native ownership for recovery; it does not report successful
 teardown or release the network underneath a live server. Uncooperative foreground

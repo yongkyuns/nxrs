@@ -802,6 +802,7 @@ dependencies = [
 name = "nxrs-std-ssh"
 version = "0.1.0"
 dependencies = [
+ "nxrs-connectivity-service",
  "nxrs-std-wifi",
  "nxrs-wifi",
 ]

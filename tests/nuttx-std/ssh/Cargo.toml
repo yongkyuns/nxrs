@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-connectivity-service = { path = "../../../service/connectivity" }
 nxrs-std-wifi = { path = "../wifi" }
 nxrs-wifi = { path = "../../../hal/wifi" }
 

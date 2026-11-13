@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 mod local;
 use local::Console;
 
+#[path = "network.rs"]
+mod network;
+
 // A failed maintenance write cannot justify releasing a live native child.
 // Keep ownership and local input available; missing host markers fail the run.
 macro_rules! local_out {
@@ -170,31 +173,65 @@ fn snapshot(console: &mut Console, ticks: u64) -> io::Result<()> {
     console.output.flush()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Intent {
+    Idle,
+    Serve,
+    Restart,
+    Quit,
+}
+
+const STOP_RETRY_WINDOW: Duration = Duration::from_secs(5);
+const STOP_RETRY_INTERVAL: Duration = Duration::from_millis(250);
+
 pub fn lab() -> io::Result<()> {
     let mut console = Console::stdio()?;
-    wifi_scan_owner::station::with_connection_reactor(|_, poll_wifi| {
+    network::with_station(|poll_wifi| {
         let mut server = None;
-        let mut helper: Option<(i32, String)> = None;
-        let mut quit = false;
+        let mut helper: Option<(i32, &str)> = None;
+        let mut intent = Intent::Idle;
+        let mut stop_until = None;
+        let mut next_stop = Instant::now();
+        let mut losses = 0;
+        let mut reconnect = false;
         let mut fault = None;
         let mut ticks = 0u64;
         local_out!(
             console,
-            "NXRS_SSH_LAB_READY commands=start,status,stop,snapshot,progress,provision,quit"
+            "NXRS_SSH_LAB_READY commands=start,status,stop,snapshot,progress,provision,reconnect,quit"
         );
         loop {
             ticks = ticks.saturating_add(1);
-            if let Err(error) = poll_wifi() {
-                if fault.is_none() {
-                    local_error!(console, "NXRS_SSH_LAB_WIFI_FAIL error={error:?}");
-                    fault = Some(error);
-                    quit = true;
+            let now = Instant::now();
+            let online = match poll_wifi(std::mem::take(&mut reconnect)) {
+                Ok(state) => {
+                    if state.link_losses != losses {
+                        losses = state.link_losses;
+                        if intent == Intent::Serve {
+                            intent = Intent::Restart;
+                            stop_until = Some(now + STOP_RETRY_WINDOW);
+                        }
+                        local_out!(console, "NXRS_SSH_LAB_WIFI_LOST");
+                    }
+                    state.addressed
                 }
-            }
+                Err(error) => {
+                    if fault.is_none() {
+                        local_error!(console, "NXRS_SSH_LAB_WIFI_FAIL error={error:?}");
+                        fault = Some(error);
+                        intent = Intent::Quit;
+                        stop_until.get_or_insert(now + STOP_RETRY_WINDOW);
+                    }
+                    false
+                }
+            };
             if let Some(pid) = server {
                 match reaped(pid) {
                     Ok(Some(result)) => {
                         server = None;
+                        stop_until = None;
+                        // The listener can exit before Wi-Fi reports loss.
+                        // Keep serving intent until an explicit stop or quit.
                         local_out!(console, "NXRS_SSH_LAB_SERVER_EXIT result={result}");
                     }
                     Ok(None) => {}
@@ -205,16 +242,17 @@ pub fn lab() -> io::Result<()> {
                     }
                 }
             }
-            if let Some((pid, action)) = &helper {
-                match reaped(*pid) {
+            if let Some((pid, action)) = helper {
+                match reaped(pid) {
                     Ok(Some(result)) => {
                         local_out!(
                             console,
                             "NXRS_SSH_LAB_CONTROL action={action} result={result}"
                         );
                         helper = None;
-                        if result != 0 {
-                            quit = false;
+                        if action == "stop" && result != 0 {
+                            intent = Intent::Idle;
+                            stop_until = None;
                         }
                     }
                     Ok(None) => {}
@@ -223,15 +261,43 @@ pub fn lab() -> io::Result<()> {
                     }
                 }
             }
-            if quit && helper.is_none() {
-                if server.is_none() {
+            if helper.is_none() {
+                if intent == Intent::Quit && server.is_none() {
                     return fault.map_or(Ok(()), Err);
                 }
-                match spawn("stop") {
-                    Ok(pid) => helper = Some((pid, "stop".into())),
-                    Err(error) => {
-                        local_error!(console, "NXRS_SSH_LAB_SPAWN_FAIL action=stop error={error}");
-                        quit = false; // Keep local recovery control and network alive.
+                if let Some(until) = stop_until.filter(|_| server.is_some()) {
+                    // A successful native stop can precede the newly spawned
+                    // child's claim. Retry briefly until the child is reaped.
+                    if now >= until {
+                        local_error!(console, "NXRS_SSH_LAB_STOP_NOT_REAPED");
+                        intent = Intent::Idle;
+                        stop_until = None;
+                    } else if now >= next_stop {
+                        next_stop = now + STOP_RETRY_INTERVAL;
+                        match spawn("stop") {
+                            Ok(pid) => helper = Some((pid, "stop")),
+                            Err(error) => {
+                                local_error!(
+                                    console,
+                                    "NXRS_SSH_LAB_SPAWN_FAIL action=stop error={error}"
+                                );
+                                intent = Intent::Idle;
+                                stop_until = None;
+                            }
+                        }
+                    }
+                } else if intent == Intent::Restart && online && server.is_none() {
+                    intent = Intent::Idle;
+                    match spawn("start") {
+                        Ok(pid) => {
+                            server = Some(pid);
+                            intent = Intent::Serve;
+                            local_out!(console, "NXRS_SSH_LAB_RESTARTED pid={pid}");
+                        }
+                        Err(error) => local_error!(
+                            console,
+                            "NXRS_SSH_LAB_SPAWN_FAIL action=start error={error}"
+                        ),
                     }
                 }
             }
@@ -239,7 +305,10 @@ pub fn lab() -> io::Result<()> {
                 Ok(false) => continue,
                 Err(error) => {
                     local_error!(console, "NXRS_SSH_LAB_CONSOLE_FAIL error={error}");
-                    quit = true;
+                    if intent != Intent::Quit {
+                        stop_until.get_or_insert(now + STOP_RETRY_WINDOW);
+                    }
+                    intent = Intent::Quit;
                     std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
@@ -249,30 +318,49 @@ pub fn lab() -> io::Result<()> {
                 Ok(line) => line,
                 Err(error) => {
                     local_error!(console, "NXRS_SSH_LAB_CONSOLE_FAIL error={error}");
-                    quit = true;
+                    if intent != Intent::Quit {
+                        stop_until.get_or_insert(now + STOP_RETRY_WINDOW);
+                    }
+                    intent = Intent::Quit;
                     continue;
                 }
             };
             match line.trim() {
-                "start" if server.is_none() && helper.is_none() => match spawn("start") {
-                    Ok(pid) => {
-                        server = Some(pid);
-                        local_out!(console, "NXRS_SSH_LAB_STARTED pid={pid}");
+                "start"
+                    if online
+                        && matches!(intent, Intent::Idle | Intent::Serve)
+                        && server.is_none()
+                        && helper.is_none() =>
+                {
+                    match spawn("start") {
+                        Ok(pid) => {
+                            server = Some(pid);
+                            intent = Intent::Serve;
+                            local_out!(console, "NXRS_SSH_LAB_STARTED pid={pid}");
+                        }
+                        Err(error) => local_error!(
+                            console,
+                            "NXRS_SSH_LAB_SPAWN_FAIL action=start error={error}"
+                        ),
                     }
-                    Err(error) => local_error!(
-                        console,
-                        "NXRS_SSH_LAB_SPAWN_FAIL action=start error={error}"
-                    ),
-                },
-                action @ ("status" | "stop") if helper.is_none() => match spawn(action) {
-                    Ok(pid) => helper = Some((pid, action.into())),
-                    Err(error) => {
-                        local_error!(
+                }
+                action @ ("status" | "stop") if helper.is_none() => {
+                    let action = if action == "stop" {
+                        intent = Intent::Idle;
+                        stop_until = Some(now + STOP_RETRY_WINDOW);
+                        next_stop = now + STOP_RETRY_INTERVAL;
+                        "stop"
+                    } else {
+                        "status"
+                    };
+                    match spawn(action) {
+                        Ok(pid) => helper = Some((pid, action)),
+                        Err(error) => local_error!(
                             console,
                             "NXRS_SSH_LAB_SPAWN_FAIL action={action} error={error}"
-                        )
+                        ),
                     }
-                },
+                }
                 "snapshot" => {
                     if let Err(error) = snapshot(&mut console, ticks) {
                         local_error!(console, "NXRS_SSH_SNAPSHOT_FAIL error={error}");
@@ -284,14 +372,19 @@ pub fn lab() -> io::Result<()> {
                         local_error!(console, "NXRS_SSH_PROVISION_FAIL error={error}");
                     }
                 }
-                "quit" => quit = true,
+                "reconnect" if online && intent == Intent::Serve => reconnect = true,
+                "quit" => {
+                    if intent != Intent::Quit {
+                        stop_until.get_or_insert(now + STOP_RETRY_WINDOW);
+                    }
+                    intent = Intent::Quit;
+                }
                 "" => {}
                 _ => local_out!(console, "NXRS_SSH_LAB_REJECTED reason=invalid_or_busy"),
             }
             let _ = console.output.flush();
         }
-    })
-    .map_err(|error| io::Error::other(format!("Wi-Fi owner: {error:?}")))?;
+    })?;
     writeln!(
         console.output,
         "NXRS_SSH_LAB_DONE native=joined wifi=disconnected_and_joined"
