@@ -14,14 +14,18 @@ mod network;
 
 // A failed maintenance write cannot justify releasing a live native child.
 // Keep ownership and local input available; missing host markers fail the run.
+// Submit each full record to the serial driver together. NuttX can write
+// diagnostics to the same console between separate formatting writes.
 macro_rules! local_out {
     ($console:expr, $($argument:tt)*) => {{
-        let _ = writeln!($console.output, $($argument)*);
+        let line = format!("{}\n", format_args!($($argument)*));
+        let _ = $console.output.write_all(line.as_bytes());
     }};
 }
 macro_rules! local_error {
     ($console:expr, $($argument:tt)*) => {{
-        let _ = writeln!($console.error, $($argument)*);
+        let line = format!("{}\n", format_args!($($argument)*));
+        let _ = $console.error.write_all(line.as_bytes());
     }};
 }
 
