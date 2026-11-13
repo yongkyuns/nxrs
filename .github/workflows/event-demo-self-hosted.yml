@@ -1,6 +1,7 @@
 name: Event-driven architecture demo (GitHub-hosted)
 
 on:
+  # Manual qualification checks the selected branch/tag at its fixed event SHA.
   workflow_dispatch:
   push:
     branches:
