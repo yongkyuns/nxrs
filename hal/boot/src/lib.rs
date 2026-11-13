@@ -30,6 +30,10 @@ pub trait Control {
     fn reboot(&mut self) -> Result<core::convert::Infallible, DeviceError> {
         Err(DeviceError::Unsupported)
     }
+    /// Reset into the confirmed primary image only after reading Stable.
+    fn reboot_confirmed(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
     fn state(&mut self) -> Result<State, DeviceError>;
     /// Inactive-slot data capacity, excluding boot metadata; no erase or write.
     fn update_capacity(&mut self) -> Result<u32, DeviceError> {

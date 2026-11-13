@@ -126,10 +126,10 @@ any configured real-frame inference within five seconds. Consuming retirement
 joins TLS, camera and detection; the product then disconnects/stops/joins Wi-Fi,
 acquires its quiet owner, confirms and verifies Stable, resumes, and cancels the
 watchdog. Expired health or any failure prevents cancellation. A resume failure
-after confirmation cannot undo Stable metadata. Successful completion recreates
-the pipeline using the retained bound TCP listener; its TLS worker joins before
-Wi-Fi quiescence. Retention avoids NuttX's `AddrInUse` failure on immediate
-rebinding. Later recreation failures are outside the trial watchdog window.
+after confirmation cannot undo Stable metadata. After confirmation, the product
+reboots once into the verified Stable image. Normal startup then loads saved
+Wi-Fi settings, renews TLS enrollment and starts a fresh listener and camera
+pipeline. This avoids carrying network and capture state across confirmation.
 The startup profile has a separate signed-image class to exclude legacy
 candidates that cancel the deadline. Reversible unprotected ESP32-S3 qualification
 has passed Stable autostart and a changed-code Trial: joined confirmation, fresh

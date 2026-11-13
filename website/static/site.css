@@ -94,6 +94,7 @@ html[data-theme=dark] .theme-dark{display:block!important}
 .reference-list>a:hover{border-color:var(--sky)}
 .reference-list span{font-size:.72rem;color:var(--muted);font-family:ui-monospace,monospace;margin-top:.3rem}
 .prose .api-catalog th[scope=row]{background:transparent;font-weight:500}
+.prose .api-catalog th[scope=row] code,.prose .api-catalog td:nth-child(2) code{white-space:nowrap}
 .prose .api-catalog td:last-child{min-width:180px}
 .api-revision{color:var(--muted);font-size:.8rem}
 .page-footer{display:flex;flex-wrap:wrap;gap:1.2rem;margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--line);font-size:.76rem}

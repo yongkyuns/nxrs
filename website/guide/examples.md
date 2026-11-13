@@ -12,6 +12,7 @@ Use the small examples to learn a particular API or pattern. Larger applications
 | Rust collections, ownership, channels, and deadlines | `std-demo` recipes | Yes |
 | Overload, owner progress, and repeated lifetimes | `ao-stress` | Yes; host measurements describe the host |
 | Existing replay, recording, and UDP implementations | Feature-selected package examples and tests | Yes, subject to their file/network prerequisites |
+| Open a maintenance shell and run a Rust command over SSH | [Dropbear and NSH](io.md#optional-remote-shell) | The ESP32-S3 terminal example needs a board |
 | Several services connected by an application | `event-demo` | Yes with its documented mock or simulation setup |
 | Named physical instances sharing a bus | `dual-imu-demo` | Build inspection is local; acquisition needs the configured devices |
 | A larger connected camera application | `home-cam` | Parts run on the host; full capture and delivery need the relevant hardware/services |

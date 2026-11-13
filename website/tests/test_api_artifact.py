@@ -95,8 +95,9 @@ class ApiArtifactTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / 'repo'
-        self.artifact = Path(self.temp.name) / 'api'
+        self.temp_root = Path(self.temp.name).resolve()
+        self.root = self.temp_root / 'repo'
+        self.artifact = self.temp_root / 'api'
         self.report = make_api_fixture(self.root, self.artifact)
 
     def test_catalog_and_receipt_keep_public_metadata(self):
@@ -177,7 +178,7 @@ class ApiArtifactTests(unittest.TestCase):
             api.validate_artifact(self.root, self.artifact, 'b' * 40)
 
     def test_linked_artifact_or_content_is_rejected(self):
-        linked = Path(self.temp.name) / 'linked'
+        linked = self.temp_root / 'linked'
         linked.symlink_to(self.artifact, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, 'linked'):
             api.validate_artifact(self.root, linked)
@@ -185,7 +186,7 @@ class ApiArtifactTests(unittest.TestCase):
                      self.root / 'hal/demo/Cargo.toml']:
             with self.subTest(path=path):
                 content = path.read_bytes()
-                target = Path(self.temp.name) / 'link-target'
+                target = self.temp_root / 'link-target'
                 target.write_bytes(content)
                 path.unlink()
                 path.symlink_to(target)
@@ -195,7 +196,7 @@ class ApiArtifactTests(unittest.TestCase):
                 path.write_bytes(content)
 
     def test_output_ownership_and_safe_location_precede_any_commands(self):
-        unowned = Path(self.temp.name) / 'unowned'
+        unowned = self.temp_root / 'unowned'
         unowned.mkdir()
         sentinel = unowned / 'keep.txt'
         sentinel.write_text('keep')
@@ -208,7 +209,7 @@ class ApiArtifactTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(), 'keep')
 
     def test_linked_ownership_marker_does_not_authorize_replacement(self):
-        path = Path(self.temp.name) / 'output'
+        path = self.temp_root / 'output'
         path.mkdir()
         (path / api.MARKER).symlink_to(self.artifact / api.MARKER)
         with self.assertRaisesRegex(ValueError, 'linked'):
@@ -243,7 +244,7 @@ class ApiArtifactTests(unittest.TestCase):
         self.assertEqual(env['RUSTDOCFLAGS'], api.DOC_FLAGS)
 
     def test_cargo_config_cannot_restore_profile_or_compiler_flags(self):
-        home = Path(self.temp.name) / 'cargo-home'
+        home = self.temp_root / 'cargo-home'
         home.mkdir()
         config = home / 'config.toml'
         for name in ['NXRS_PLATFORM', 'NXRS_RESOLVED_PROFILE', 'CARGO_FEATURE_PICO_MODEL',

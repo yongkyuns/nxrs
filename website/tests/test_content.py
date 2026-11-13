@@ -95,8 +95,9 @@ class ContentTests(unittest.TestCase):
         source = (ROOT / 'app/std-demo/src/main.rs').read_text()
         cases = set(re.findall(r'\("([a-z]+)", (?:collections|concurrency)::', source))
         self.assertIn('channels', cases)
+        command = r'(?:cargo [^\n`]* -p nxrs-std-demo|std_demo)\b[^\n`]* --case ([a-z]+)'
         for guide in (ROOT / 'website/guide').glob('*.md'):
-            for case in re.findall(r'--case ([a-z]+)', guide.read_text()):
+            for case in re.findall(command, guide.read_text()):
                 self.assertIn(case, cases | {'all'}, (guide.name, case))
 
     def test_site_has_no_embedded_application(self):

@@ -17,7 +17,9 @@ build = site_fixtures.build
 class ApiSiteTests(unittest.TestCase):
     def setUp(self):
         site_fixtures.WebsiteBuildTests.setUp(self)
-        self.artifact = Path(self.temp.name) / 'rust-api'
+        self.root = self.root.resolve()
+        self.out = self.out.resolve()
+        self.artifact = Path(self.temp.name).resolve() / 'rust-api'
         api_fixtures.make_api_fixture(self.root, self.artifact)
         config_path = self.root / 'website/site.json'
         config = json.loads(config_path.read_text())
