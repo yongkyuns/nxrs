@@ -348,12 +348,18 @@ pub(crate) fn run() -> Result<(), String> {
                 settings.save_wifi = false;
             }
             Outcome::Healthy(health) => {
+                use boot::Control;
                 let startup = trial.take().ok_or("missing trial owner")?;
                 let mut quiet = wifi::open_for_quiescence()
                     .map_err(|e| format!("confirmation maintenance {e:?}"))?;
                 startup
                     .complete(health, &mut quiet, || now(origin))
                     .map_err(|e| format!("trial confirmation {e:?}"))?;
+                drop(quiet);
+                let mut boot = boot::open().map_err(|e| format!("confirmed boot {e:?}"))?;
+                match boot
+                    .reboot_confirmed()
+                    .map_err(|e| format!("confirmed reboot {e:?}"))? {}
             }
             Outcome::Update => {
                 use boot::Control;
