@@ -5,9 +5,10 @@ OpenSSH client. It is tracked in [issue #327](https://github.com/yongkyuns/nxrs/
 The [integration reference](../../../docs/dropbear-ssh.md) describes ownership,
 configuration, security boundaries and the remaining qualification gates.
 
-**Hardware qualification is pending.** Host unit tests, compiled native controls
-and a successful target cross-build are separate evidence classes. This directory
-does not contain a captured physical SSH success or a measured memory budget.
+The [device persistence result](../../../docs/dropbear-ssh.md#persistent-identity-on-esp32-s3)
+covers clean reboot and read-only login on the ESP32-S3. Host tests and target
+cross-builds are separate evidence. Full device qualification and measured
+resource budgets remain open.
 
 ## Build the matched images
 
@@ -187,6 +188,51 @@ For an already provisioned and independently controlled server, omit all serial
 and Wi-Fi/provisioning options. The SSH checks still execute, but local lifecycle,
 authentication-deadline, same-boot ownership and resource measurements remain
 unverified. A client reconnect loop alone is not leak evidence.
+
+## Verify persistence on ESP32-S3
+
+Use an unprotected 16 MiB Freenove lab board with secure boot and flash
+encryption disabled. This layout uses a spare, erased 64 KiB region at
+`0xF00000`. Confirm it is outside every image and data partition and verify
+a full flash backup before installing the fixture. Use the board's reserved IP.
+
+```sh
+bash tests/nuttx-std/ssh/build.sh --out target/dropbear-ssh --bind 192.168.50.42 -- \
+  --kconfig-enable ESP32S3_SPIFLASH --kconfig-enable ESP32S3_MTD \
+  --kconfig-enable FS_LITTLEFS --kconfig-disable ESP32S3_SPIFLASH_AUTO_BRINGUP \
+  --kconfig-set ESP32S3_STORAGE_MTD_OFFSET=0xF00000 \
+  --kconfig-set ESP32S3_STORAGE_MTD_SIZE=0x10000
+```
+
+After flashing, use the local NSH console. The first mount formats the verified
+empty lab region. It creates the filesystem that holds both SSH files.
+
+```text
+mkdir /mnt
+mkdir /mnt/ssh
+mount -t littlefs -o forceformat /dev/mtdblock0 /mnt/ssh
+```
+
+Require the mount to succeed before provisioning. Close the local serial
+client and run the physical experiment with `--case pty` and `--provision-key`.
+Omit `--tmpfs`. The PTY case extends the recorded login and Rust stdio check
+with resize, interrupt, rekey and channel-limit tests. After the harness reports
+`complete_local_shutdown: passed`, reconnect the serial client, run
+`umount /mnt/ssh`, and reset the board. Recreate the mount point and mount
+the existing filesystem read-only.
+
+```text
+mkdir /mnt
+mkdir /mnt/ssh
+mount -t littlefs -o ro /dev/mtdblock0 /mnt/ssh
+```
+
+Require this mount to succeed, then run `mkdir /mnt/ssh/readonly-witness`. The
+directory creation must fail. Close the serial client and repeat the terminal
+case with the original `known_hosts`, expected fingerprint and password.
+Omit both `--tmpfs` and `--provision-key`. Require a successful login and
+joined shutdown. Restore the original flash contents after the experiment and
+verify the full flash against the backup.
 
 ## What the automated cases establish
 

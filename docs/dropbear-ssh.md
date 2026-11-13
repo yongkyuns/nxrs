@@ -6,13 +6,10 @@ I/O, networking and threads; there is no mandatory SSH HAL, Rust protocol wrappe
 broker, launcher or executor. The implementation and qualification plan is
 [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
-**Physical qualification remains pending.** Configuration resolution, host/native
-controls and target compilation support implementation review. They do not
-establish reliable device access, safe per-product memory budgets, entropy quality
-or persistence. The executable
-[qualification procedure](../tests/nuttx-std/ssh/README.md) records these evidence
-classes separately and never converts a simulated or host result into a device
-success.
+The ESP32-S3 lab verified that a provisioned host key and password database
+survive reboot on LittleFS, including login from a read-only mount. Broader
+device acceptance remains open. The [qualification procedure](../tests/nuttx-std/ssh/README.md)
+separates host, cross-build and device results.
 
 ## Ownership and supported scope
 
@@ -250,6 +247,22 @@ The harness reads private owned mode-0600 files outside the repository or uses a
 terminal prompt. Its OpenSSH child gets the password only through a verified
 no-echo controlling terminal. Public fingerprints and host-key records may be
 retained as evidence.
+
+## Persistent identity on ESP32-S3
+
+A Freenove ESP32-S3 N16R8 lab build from `e5b0ab4a` used NuttX's native SPI
+flash MTD and LittleFS on a 64 KiB partition. The fixture provisioned the
+ECDSA host key and password database once, verified a pinned OpenSSH login
+and Rust terminal I/O, then stopped and joined the server and Wi-Fi and
+unmounted the volume. After a hardware reset, it mounted the same volume
+read-only. A directory creation attempt failed, and OpenSSH accepted the
+original pinned host key and password again without reprovisioning. The
+second terminal and joined shutdown checks passed.
+
+The [LittleFS procedure](../tests/nuttx-std/ssh/README.md#verify-persistence-on-esp32-s3)
+records the configuration and commands. This run covers clean reboot and
+read-only use on the stated board. Interrupted provisioning and the remaining
+device cases are tracked in [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
 ## Qualification still required on hardware
 
