@@ -137,6 +137,20 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             report['checks'].append('neutral onboarding, new subsystem guides, code controls and source-backed example')
             report['checks'].append('guide pagination crosses section boundaries')
 
+            page.locator('#sidebar').get_by_role('link', name='Build a controller', exact=True).click()
+            expect(page).to_have_url(url + 'guide/controller/')
+            expect(page.locator('h1')).to_have_text('Build a controller')
+            controller_figure = page.locator('.architecture-art').first
+            controller_figure.scroll_into_view_if_needed()
+            for theme in ('light', 'dark'):
+                controller_image = controller_figure.locator(f'img.theme-{theme}')
+                expect(controller_image).to_be_visible()
+                expect(controller_image).to_have_js_property('complete', True)
+                assert controller_image.evaluate('(img) => img.naturalWidth > 0')
+                controller_figure.screenshot(path=str(output / f'controller-{theme}.png'))
+                page.locator('#theme-toggle').click()
+            report['checks'].append('controller guide navigation and loaded command-flow SVG in both themes')
+
             page.goto(url + 'reference/architecture/', wait_until='networkidle')
             expect(page.locator('.reference-note a')).to_have_text('Architecture overview')
             reference_picture = page.locator('.prose picture').first.locator('img')

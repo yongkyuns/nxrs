@@ -97,4 +97,4 @@ Before calling an unfamiliar API, answer these questions from its contract:
 
 Similar error variant names across capabilities do not make their contracts identical. For example, a recorder's `Busy` can mean that its caller should retry a flush later, while an acquisition's `Busy` can mean another owner holds the resource. Keep those meanings visible in the caller.
 
-Continue with [Designing an application](designing-applications.md) to put the interfaces together, or go directly to the owning component's linked reference.
+Continue with [Designing an application](designing-applications.md) to choose the boundaries, then [Build a controller](controller.md) to run a complete command, output and shutdown path. The controller's completion tickets demonstrate the distinction between admission and a handled result using the existing LED contract.

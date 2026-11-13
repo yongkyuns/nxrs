@@ -51,7 +51,7 @@ Symbol table '.symtab' contains 7 entries:
 """
 
 
-class DeviceClosureTests(unittest.TestCase):
+class DeviceClosureFixture(unittest.TestCase):
     """Producer-shaped JSON with injected binutils output for admission tests.
 
     A separate test invokes actual host binutils. Fabricated target-shaped
@@ -93,7 +93,8 @@ class DeviceClosureTests(unittest.TestCase):
         return path
 
     def recorded_out(self, case):
-        return RECORDED / "target/firmware/event-demo" / case
+        group = "event-demo" if case in ("bmi270", "lsm6dso") else "device-composition"
+        return RECORDED / "target/firmware" / group / case
 
     def source_hash(self, name):
         return {"path": str(RECORDED / name), "sha256": CHECK.digest(self.root / name)}
@@ -113,7 +114,18 @@ class DeviceClosureTests(unittest.TestCase):
     def make_case(self, case):
         out, old = self.outputs[case], self.recorded_out(case)
         out.mkdir(parents=True)
-        bmi = case == "bmi270"
+        matrix = case in ("two-bmi270", "mixed-imu", "gnss-only")
+        bmi = case != "lsm6dso"
+        caps = {"imu", "gnss"} if not matrix else {"gnss" if case == "gnss-only" else "imu"}
+        consumer = "gnss" if case == "gnss-only" else "imu"
+        app_package = "nxrs-device-composition-" + consumer if matrix else "nxrs-event-demo"
+        app_bin = "device-composition-" + consumer if matrix else "event-demo"
+        app_path = "tests/nuttx-std/device-composition/" + consumer if matrix else "app/event-demo"
+        drivers = {"bmi270" if bmi else "lsm6dso"}
+        if case == "mixed-imu":
+            drivers.add("lsm6dso")
+        if case == "gnss-only":
+            drivers = set()
         imu = {"compatible": "bosch,bmi270" if bmi else "st,lsm6dso",
                "bus": "sensor_bus" if bmi else "alternate_i2c", "address": 104 if bmi else 106,
                "wake": {"kind": "periodic"}}
@@ -126,31 +138,45 @@ class DeviceClosureTests(unittest.TestCase):
             "resources": resources, "aliases": {"imu": "imu", "gnss": "navigation"},
             "stack_bytes": 16384, "gnss_stack_bytes": 16384,
             "imu_implementation": "Bmi270" if bmi else "Lsm6dso", "gnss_implementation": "NeoM9n"}
+        if matrix:
+            graph["devices"]["secondary"] = {
+                "compatible": "bosch,bmi270" if case == "two-bmi270" else "st,lsm6dso",
+                "bus": "sensor_bus", "address": 105 if case == "two-bmi270" else 106,
+                "wake": {"kind": "periodic"}}
+            graph["aliases"].update(imu_primary_alias="imu", imu_secondary="secondary", gnss_primary_alias="navigation")
         data = {"board": "esp32s3-m5-cores3:nsh", "target": TARGET, "build": {"size-optimized": True},
                 "resolved-nuttx-resources": {"fixture_bus": imu["bus"]}}
         semantic = CHECK.json_digest({"graph": graph, "target": TARGET,
                                       "nuttx-resources": data["resolved-nuttx-resources"]})
         overlay = [] if bmi else ["tests/host/fixtures/lsm6dso-overlay.toml"]
-        dependencies = [self.source_hash(name) for name in self.sources + overlay]
-        manifest = str(RECORDED / "app/event-demo/Cargo.toml")
+        if matrix:
+            overlay = ["tests/nuttx-std/device-composition/overlays/two-bmi270.toml"]
+            if case != "two-bmi270":
+                overlay.append("tests/nuttx-std/device-composition/overlays/mixed-imu.toml")
+        source_names = [name for name in self.sources if name != "app/event-demo/Cargo.toml"] + [app_path + "/Cargo.toml"]
+        dependencies = [self.source_hash(name) for name in source_names + overlay]
+        manifest = str(RECORDED / app_path / "Cargo.toml")
         receipt = {"version": 1, "workspace": str(RECORDED), "profile": "m5stack-cores3-gnss",
                    "target": TARGET, "os": "nuttx", "cli_overlays": overlay,
                    "product_manifest": manifest, "data": data, "graph": graph, "semantic_digest": semantic,
                    "raw_fingerprint": sha(case.encode()), "dependencies": dependencies}
         write_json(out / "resolved-profile.json", receipt)
-        sources = {"nxrs-event-demo": "app/event-demo", "nxrs-composition": "platform",
-                   "nxrs-imu": "hal/imu", "nxrs-gnss": "hal/gnss", "nxrs-i2c": "driver/i2c",
-                   "nxrs-ubx-driver": "driver/ubx", "nxrs-acquisition": "hal/acquisition",
-                   "nxrs-gpio": "driver/gpio", "nxrs-" + case: "driver/" + case}
+        sources = {app_package: app_path, "nxrs-composition": "platform", "nxrs-acquisition": "hal/acquisition"}
+        if "imu" in caps:
+            sources.update({"nxrs-imu": "hal/imu", "nxrs-i2c": "driver/i2c", "nxrs-gpio": "driver/gpio"})
+        if "gnss" in caps:
+            sources.update({"nxrs-gnss": "hal/gnss", "nxrs-ubx-driver": "driver/ubx"})
+        sources.update({"nxrs-" + driver: "driver/" + driver for driver in drivers})
         packages = {name: f"{name} v0.1.0 ({RECORDED / source})" for name, source in sources.items()}
         artifacts = [self.artifact(case, name, RECORDED / source) for name, source in sources.items()]
-        app = next(a for a in artifacts if "nxrs-event-demo@" in a["package_id"])
-        app["target"].update(name="event-demo", kind=["bin"], crate_types=["bin"])
-        executable = str(old / "cargo" / TARGET / "release/event-demo")
+        app = next(a for a in artifacts if app_package + "@" in a["package_id"])
+        app["target"].update(name=app_bin, kind=["bin"], crate_types=["bin"])
+        executable = str(old / "cargo" / TARGET / "release" / app_bin)
         app.update(executable=executable, filenames=[executable])
         composition = next(a for a in artifacts if "nxrs-composition@" in a["package_id"])
         composition["target"]["name"] = "composition"
-        composition["features"] = [case, "i2c", "ubx", "imu", "gnss"]
+        features = drivers | ({"i2c"} if "imu" in caps else set()) | ({"ubx"} if "gnss" in caps else set())
+        composition["features"] = sorted(features | caps)
         artifacts.append(self.artifact(case, "nxrs-build-support", RECORDED / "tools/build-support", "host"))
         artifacts.append(self.artifact(case, "nxrs-composition", RECORDED / "platform", "host", "custom-build"))
         std_root = old / "toolchain/lib/rustlib/src/rust/library/std"
@@ -171,10 +197,23 @@ class DeviceClosureTests(unittest.TestCase):
                     'frequency: 100000 }, 106), None, 16384, true);'),
             "gnss": 'declare_device!(PRIMARY_DEVICE, "navigation", ::r#ubx::NeoM9n<Serial>, '
                     '"/dev/ttyS1", 38400, 16384, false);'}
+        accessors = {"imu": {"imu": "PRIMARY_DEVICE", "primary_imu": "PRIMARY_DEVICE"},
+                     "gnss": {"navigation": "PRIMARY_DEVICE", "primary_gnss": "PRIMARY_DEVICE"}}
+        if matrix:
+            secondary = declarations["imu"].replace('PRIMARY_DEVICE, "imu"', 'DEVICE_1, "secondary"')
+            if case == "two-bmi270":
+                secondary = secondary.replace("104)", "105)")
+            else:
+                secondary = secondary.replace("bmi270::Bmi270<resources::Bus, resources::Delay>", "lsm6dso::Lsm6dso<resources::Bus>").replace("104)", "106)")
+            declarations["imu"] += "\n" + secondary
+            accessors["imu"].update(primary_alias="PRIMARY_DEVICE", secondary="DEVICE_1")
+            accessors["gnss"]["primary_alias"] = "PRIMARY_DEVICE"
         prepared = {}
-        for cap, declaration in declarations.items():
+        for cap in sorted(caps):
             identity = sha((case + cap).encode())
-            text = "// Generated canonical device instances.\n" + declaration + "\n"
+            text = "// Generated canonical device instances.\n" + declarations[cap] + "\npub mod devices {\n"
+            text += "".join(f"pub fn r#{name}() -> &'static impl super::Device {{ &super::{symbol} }}\n"
+                            for name, symbol in sorted(accessors[cap].items())) + "}\n"
             self.put(case, f"configuration/{identity}/{cap}_config.rs", text)
             self.put(case, copied.relative_to(old) / f"{cap}_config.rs", text)
             prepared[cap] = {"identity": identity, "output": {"file": cap + "_config.rs", "sha256": sha(text.encode())}}
@@ -182,15 +221,17 @@ class DeviceClosureTests(unittest.TestCase):
         handoff_name = "configuration/" + sha(handoff.encode()) + ".json"
         self.put(case, handoff_name, handoff)
         native = []
-        for name in ("nxrs-acquisition", "nxrs-gnss", "nxrs-gpio", "nxrs-i2c"):
+        native_packages = {"nxrs-acquisition"} | ({"nxrs-gpio", "nxrs-i2c"} if "imu" in caps else set())
+        native_packages |= {"nxrs-gnss"} if "gnss" in caps else set()
+        for name in sorted(native_packages):
             path = self.put(case, "native-resources/" + name + ".a", "archive " + name + case)
             native.append({"package": packages[name], "archive": str(old / path.relative_to(out)), "sha256": CHECK.digest(path)})
         catalog = {"package": "nxrs-composition", "manifest": self.source_hash("platform/Cargo.toml"),
                    "dependencies": [self.source_hash(f"driver/{driver}/Cargo.toml") for driver in ("bmi270", "lsm6dso", "ubx")]}
         binding_inputs = {cap: {**catalog, "bindings": [self.source_hash(f"driver/{driver}/bindings.toml") for driver in drivers]}
                           for cap, drivers in (("imu", ("bmi270", "lsm6dso")), ("gnss", ("ubx",)))}
-        features = ["nxrs-composition/" + f for f in (case, "i2c", "ubx")]
-        selection = {"app_manifest": manifest, "app_package": "nxrs-event-demo", "platform": "m5stack-cores3-gnss",
+        features = ["nxrs-composition/" + f for f in sorted(features)]
+        selection = {"app_manifest": manifest, "app_package": app_package, "platform": "m5stack-cores3-gnss",
                      "target_os": "nuttx", "nuttx-build-mode": "flat", "configuration": str(old / handoff_name),
                      "providers": [{"capability": c, "implementation": "nuttx", "package": "nxrs-" + c} for c in ("gnss", "imu")],
                      "profiles": [self.source_hash(n) for n in ("platform/cores3/profile.toml", "platform/nuttx/resources/esp32s3-m5-cores3.toml", *overlay)],
@@ -203,9 +244,9 @@ class DeviceClosureTests(unittest.TestCase):
         self.put(case, "resolved.config", "CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y\n")
         write_json(out / (TARGET + ".json"), {"arch": "xtensa", "os": "nuttx", "target-pointer-width": "32"})
         provenance = {"nxrs": REVISION, "nxrs_dirty": "no", "nuttx": "b" * 40, "apps": "c" * 40,
-                      "app_package": "nxrs-event-demo", "app_bin": "event-demo", "platform": "m5stack-cores3-gnss",
+                      "app_package": app_package, "app_bin": app_bin, "platform": "m5stack-cores3-gnss",
                       "target": TARGET, "board": "esp32s3-m5-cores3:nsh", "nuttx_build_mode": "flat",
-                      "size_optimized": "1", "app_command": "event_demo"}
+                      "size_optimized": "1", "app_command": app_bin.replace("-", "_")}
         compiler = ["rustc 1.90.0-nightly (fixture)", "commit-hash: " + "d" * 40, "commit-date: 2025-09-16",
                     "host: x86_64-unknown-linux-gnu", "release: 1.90.0-nightly", "LLVM version: 20.1.1",
                     "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20241119) 14.2.0"]
@@ -216,6 +257,18 @@ class DeviceClosureTests(unittest.TestCase):
         self.put(case, "nuttx/nuttx.map", "fixture map; never a driver inclusion oracle")
         self.elf_output[str(rust)] = elf_text("REL", 144 if bmi else 168)
         self.elf_output[str(final)] = elf_text("EXEC", 144 if bmi else 168)
+        if matrix:
+            for path in (rust, final):
+                text = self.elf_output[str(path)].replace("event_demo_main", app_bin.replace("-", "_") + "_main")
+                if "imu" in caps:
+                    size = 144 if case == "two-bmi270" else 168
+                    text = text.replace("3fc90200 48 OBJECT LOCAL DEFAULT 2 composition::gnss_factory::PRIMARY_DEVICE",
+                                        f"3fc90200 {size} OBJECT LOCAL DEFAULT 2 composition::imu_factory::DEVICE_1")
+                else:
+                    text = text.replace("  1: 3fc90000 144 OBJECT LOCAL DEFAULT 2 composition::imu_factory::PRIMARY_DEVICE\n", "")
+                    text = text.replace("i2c_resource_transfer", "gnss_serial_configure")
+                    text += " 7: 42000040 16 FUNC GLOBAL DEFAULT 1 gnss_serial_restore\n"
+                self.elf_output[str(path)] = text
         write_json(out / "link-reuse.json", {"reused": False, "artifact_sha256": CHECK.digest(rust)})
         write_json(out / "rust-symbol-pruning.json", {"after_sha256": CHECK.digest(rust), "removed_local_undefined": []})
         write_json(out / "rust-link.json", {"linker": str(RECORDED / "target/qemu-tools/gcc/bin/xtensa-esp32s3-elf-ld"),
@@ -246,7 +299,8 @@ class DeviceClosureTests(unittest.TestCase):
             return "GNU " + Path(args[0]).name + " fixture\n"
         if Path(args[0]).name.endswith("readelf"):
             return self.elf_output[str(args[-1])]
-        return "\n".join("42000000 T " + name for name in ("i2c_resource_transfer", "main", "event_demo_main", "nx_start"))
+        return "\n".join("42000000 T " + name for name in ("i2c_resource_transfer", "main", "event_demo_main", "nx_start",
+            "device_composition_imu_main", "device_composition_gnss_main", "gnss_serial_configure", "gnss_serial_restore"))
 
     def git(self, args, cwd=None):
         if args[1:] == ["rev-parse", "HEAD"]:
@@ -260,6 +314,8 @@ class DeviceClosureTests(unittest.TestCase):
             return CHECK.check_pair(self.outputs["bmi270"], self.outputs["lsm6dso"], REVISION,
                                     root=self.root, run=self.binutils)
 
+
+class DeviceClosureTests(DeviceClosureFixture):
     def test_complete_relocated_pair_counts_static_storage_without_driver_method_names(self):
         report = self.check()
         self.assertEqual(report["static_object_bytes_delta_lsm6dso_minus_bmi270"], 24)
@@ -489,6 +545,258 @@ class DeviceClosureTests(unittest.TestCase):
         self.assertFalse(list(report.parent.glob(report.name + ".*.tmp")))
 
 
+class DeviceMatrixTests(DeviceClosureFixture):
+    def setUp(self):
+        super().setUp()
+        for name in ("imu/Cargo.toml", "gnss/Cargo.toml", "overlays/two-bmi270.toml", "overlays/mixed-imu.toml"):
+            path = self.root / "tests/nuttx-std/device-composition" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture source: " + name)
+        for case in ("two-bmi270", "mixed-imu", "gnss-only"):
+            self.outputs[case] = self.root / "builds" / case
+            self.make_case(case)
+
+    def check(self):
+        with patch.object(CHECK, "command", side_effect=self.git):
+            return CHECK.check_matrix(*(self.outputs[case] for case in ("two-bmi270", "mixed-imu", "gnss-only")),
+                                      REVISION, root=self.root, run=self.binutils)
+
+    def rewrite_selection(self, case, selection):
+        write_json(self.outputs[case] / "provider-selection.json", selection)
+        self.refresh_hash(case, "provider-selection.json")
+
+    def rewrite_handoff(self, case, change):
+        out, old = self.outputs[case], self.recorded_out(case)
+        selection = read_json(out / "provider-selection.json")
+        selected = read_json(out / Path(selection["configuration"]).relative_to(old))
+        change(selected[str(RECORDED / "platform")])
+        text = json.dumps(selected, sort_keys=True, separators=(",", ":"))
+        name = "configuration/" + sha(text.encode()) + ".json"
+        self.put(case, name, text)
+        selection["configuration"] = str(old / name)
+        self.rewrite_selection(case, selection)
+
+    def test_matrix_proves_declared_devices_and_exact_consumed_storage(self):
+        report = self.check()
+        self.assertEqual(set(report["cases"]), {"two-bmi270", "mixed-imu", "gnss-only"})
+        for case, count, total, caps, native in (
+            ("two-bmi270", 2, 288, ["imu"], ["nxrs-acquisition", "nxrs-gpio", "nxrs-i2c"]),
+            ("mixed-imu", 2, 312, ["imu"], ["nxrs-acquisition", "nxrs-gpio", "nxrs-i2c"]),
+            ("gnss-only", 1, 48, ["gnss"], ["nxrs-acquisition", "nxrs-gnss"]),
+        ):
+            with self.subTest(case=case):
+                result = report["cases"][case]
+                self.assertEqual(result["declared_device_count"], 3)
+                self.assertEqual(result["consumed_device_count"], count)
+                self.assertEqual(result["consumed_capabilities"], caps)
+                self.assertEqual(result["native_resources"], native)
+                self.assertEqual(result["final_elf"]["static_object_count"], count)
+                self.assertEqual(result["final_elf"]["static_object_bytes"], total)
+                self.assertEqual(result["final_elf"]["named_driver_symbol_count"], 0)
+                for capability in {"imu", "gnss"} - set(caps):
+                    self.assertNotIn("nxrs-" + capability, result["cargo_packages"]["target"])
+        same, mixed, gnss = (report["cases"][name] for name in ("two-bmi270", "mixed-imu", "gnss-only"))
+        self.assertNotIn("nxrs-lsm6dso", same["cargo_packages"]["target"])
+        self.assertIn("nxrs-lsm6dso", mixed["cargo_packages"]["target"])
+        self.assertEqual(gnss["driver_features"], ["nxrs-composition/ubx"])
+        self.assertEqual(mixed["semantic_digest"], gnss["semantic_digest"])
+
+    def test_second_selected_driver_must_be_a_target_library(self):
+        records = self.records("mixed-imu")
+        selected = next(r for r in records if "nxrs-lsm6dso@" in r.get("package_id", ""))
+        selected["filenames"] = self.artifact("mixed-imu", "nxrs-lsm6dso", RECORDED / "driver/lsm6dso", "host")["filenames"]
+        self.write_records("mixed-imu", records)
+        with self.assertRaisesRegex(ValueError, "missing from target artifacts"):
+            self.check()
+
+    def test_declared_unconsumed_libraries_are_allowed_only_on_host(self):
+        for case, package, source in (("two-bmi270", "nxrs-gnss", "hal/gnss"),
+                                      ("gnss-only", "nxrs-bmi270", "driver/bmi270")):
+            records = self.records(case)
+            records.insert(-1, self.artifact(case, package, RECORDED / source, "host"))
+            self.write_records(case, records)
+            self.check()
+            records[-2] = self.artifact(case, package, RECORDED / source)
+            self.write_records(case, records)
+            with self.assertRaisesRegex(ValueError, "target contamination"):
+                self.check()
+            self.write_records(case, records[:-2] + records[-1:])
+
+    def test_declared_unconsumed_packages_cannot_enter_the_normal_graph(self):
+        for case, package, source in (("two-bmi270", "nxrs-ubx-driver", "driver/ubx"),
+                                      ("gnss-only", "nxrs-i2c", "driver/i2c")):
+            path = self.outputs[case] / "provider-selection.json"
+            original = read_json(path)
+            selection = read_json(path)
+            selection["dependency_resolution"]["packages"].append(f"{package} v0.1.0 ({RECORDED / source})")
+            self.rewrite_selection(case, selection)
+            with self.assertRaisesRegex(ValueError, "wrong selected/unselected driver or resource"):
+                self.check()
+            self.rewrite_selection(case, original)
+
+    def test_unconsumed_capability_cannot_activate_features_or_preparation(self):
+        case = "gnss-only"
+        path = self.outputs[case] / "provider-selection.json"
+        original = read_json(path)
+        selection = read_json(path)
+        for value in (selection, selection["dependency_resolution"]):
+            value["driver_features"].append("nxrs-composition/i2c")
+        self.rewrite_selection(case, selection)
+        with self.assertRaisesRegex(ValueError, "derived driver/resource features"):
+            self.check()
+        self.rewrite_selection(case, original)
+        self.rewrite_handoff(case, lambda selected: selected.update(imu=selected["gnss"]))
+        with self.assertRaisesRegex(ValueError, "prepared catalogue/capabilities"):
+            self.check()
+
+    def test_extra_or_missing_native_helper_is_rejected(self):
+        case = "gnss-only"
+        selection = read_json(self.outputs[case] / "provider-selection.json")
+        removed = selection["native-resources"].pop()
+        self.rewrite_selection(case, selection)
+        with self.assertRaisesRegex(ValueError, "native resource closure"):
+            self.check()
+        selection["native-resources"].append(removed)
+        description = f"fixture-extra-native v0.1.0 ({RECORDED / 'fixture-extra-native'})"
+        selection["dependency_resolution"]["packages"].append(description)
+        path = self.put(case, "native-resources/extra.a", "unconsumed native helper")
+        selection["native-resources"].append({"package": description, "archive": str(self.recorded_out(case) / path.relative_to(self.outputs[case])),
+                                               "sha256": CHECK.digest(path)})
+        self.rewrite_selection(case, selection)
+        with self.assertRaisesRegex(ValueError, "native resource closure"):
+            self.check()
+
+    def test_alias_redirect_with_consistent_preparation_hashes_is_rejected(self):
+        case = "mixed-imu"
+        def redirect(selected):
+            prepared = selected["imu"]
+            name = "configuration/" + prepared["identity"] + "/imu_config.rs"
+            text = (self.outputs[case] / name).read_text().replace(
+                "r#primary_alias() -> &'static impl super::Device { &super::PRIMARY_DEVICE }",
+                "r#primary_alias() -> &'static impl super::Device { &super::DEVICE_1 }")
+            self.put(case, name, text)
+            self.put(case, "cargo/" + TARGET + "/release/build/nxrs-composition-f1/out/imu_config.rs", text)
+            prepared["output"]["sha256"] = sha(text.encode())
+        self.rewrite_handoff(case, redirect)
+        with self.assertRaisesRegex(ValueError, "canonical aliases"):
+            self.check()
+
+    def test_missing_second_or_extra_unconsumed_object_is_rejected(self):
+        path = str(self.outputs["mixed-imu"] / "nuttx/nuttx")
+        before = self.elf_output[path]
+        for text in (before.replace("::imu_factory::DEVICE_1", "::unrelated::DEVICE_1"),
+                     before + " 8: 3fc90300 48 OBJECT LOCAL DEFAULT 2 composition::gnss_factory::PRIMARY_DEVICE\n"):
+            self.elf_output[path] = text
+            with self.assertRaisesRegex(ValueError, "linked primary device objects"):
+                self.check()
+
+    def test_retained_gnss_helpers_match_the_consumed_capability(self):
+        path = str(self.outputs["gnss-only"] / "nuttx/nuttx")
+        before = self.elf_output[path]
+        for helper in ("gnss_serial_configure", "gnss_serial_restore"):
+            self.elf_output[path] = before.replace(helper, "unrelated_helper")
+            with self.assertRaisesRegex(ValueError, "missing retained native helper"):
+                self.check()
+        self.elf_output[path] = before
+        path = str(self.outputs["two-bmi270"] / "nuttx/nuttx")
+        self.elf_output[path] += " 8: 42000040 16 FUNC GLOBAL DEFAULT 1 gnss_serial_configure\n"
+        with self.assertRaisesRegex(ValueError, "unexpected retained driver"):
+            self.check()
+
+    def test_per_instance_sizes_cannot_be_swapped_between_rust_and_final_elf(self):
+        path = str(self.outputs["mixed-imu"] / "nuttx/nuttx")
+        self.elf_output[path] = self.elf_output[path].replace("PRIMARY_DEVICE", "SWAP").replace("DEVICE_1", "PRIMARY_DEVICE").replace("SWAP", "DEVICE_1")
+        with self.assertRaisesRegex(ValueError, "Rust and final linked device storage differ"):
+            self.check()
+
+    def test_final_objects_must_not_overlap_or_exceed_their_section(self):
+        path = str(self.outputs["mixed-imu"] / "nuttx/nuttx")
+        before = self.elf_output[path]
+        for text, message in ((before.replace("3fc90200 168", "3fc90040 168"), "overlapping"),
+                              (before.replace("3fc90200 168", "3fc90400 168"), "outside its allocated section"),
+                              (before.replace("3fc90200 168", "3fc90200 2048"), "outside its allocated section")):
+            with self.subTest(message=message):
+                self.elf_output[path] = text
+                with self.assertRaisesRegex(ValueError, message):
+                    self.check()
+
+    def test_relocatable_device_sections_may_share_zero_offset(self):
+        path = str(self.outputs["mixed-imu"] / "rust-input.elf")
+        text = self.elf_output[path].replace(".data PROGBITS 3fc90000", ".data PROGBITS 00000000")
+        text = text.replace("Symbol table", "  [ 3] .data.secondary PROGBITS 00000000 000600 000400 00 WA 0 0 4\nSymbol table")
+        text = text.replace("3fc90000 144 OBJECT", "00000000 144 OBJECT")
+        self.elf_output[path] = text.replace("3fc90200 168 OBJECT LOCAL DEFAULT 2", "00000000 168 OBJECT LOCAL DEFAULT 3")
+        self.check()
+
+    def test_same_concrete_type_has_equal_storage_across_instances_and_cases(self):
+        for name in ("rust-input.elf", "nuttx/nuttx"):
+            path = str(self.outputs["two-bmi270"] / name)
+            self.elf_output[path] = self.elf_output[path].replace("3fc90200 144", "3fc90200 168")
+        with self.assertRaisesRegex(ValueError, "same concrete BMI270"):
+            self.check()
+
+    def test_matrix_rejects_overlay_reordering_and_case_substitution(self):
+        path = self.outputs["mixed-imu"] / "resolved-profile.json"
+        receipt = read_json(path)
+        receipt["cli_overlays"].reverse()
+        write_json(path, receipt)
+        with self.assertRaisesRegex(ValueError, "overlay receipt"):
+            self.check()
+        receipt["cli_overlays"].reverse()
+        write_json(path, receipt)
+        self.outputs["two-bmi270"], self.outputs["mixed-imu"] = self.outputs["mixed-imu"], self.outputs["two-bmi270"]
+        with self.assertRaisesRegex(ValueError, "wrong two-bmi270 device model"):
+            self.check()
+
+    def test_matrix_does_not_admit_other_source_input_differences(self):
+        case = "gnss-only"
+        for name, message in (("tests/nuttx-std/device-composition/imu/Cargo.toml", "wrong fixture manifest"),
+                              ("unexpected.toml", "differ beyond")):
+            with self.subTest(name=name):
+                source = self.root / name
+                if not source.exists():
+                    source.write_text("unapproved source")
+                path = self.outputs[case] / "resolved-profile.json"
+                before = path.read_bytes()
+                receipt = read_json(path)
+                receipt["dependencies"].append(self.source_hash(name))
+                write_json(path, receipt)
+                hashes = self.outputs[case] / "binaries.sha256"
+                prior_hashes = hashes.read_text()
+                hashes.write_text(prior_hashes + CHECK.digest(source) + "  " + str(RECORDED / name) + "\n")
+                with self.assertRaisesRegex(ValueError, message):
+                    self.check()
+                path.write_bytes(before)
+                hashes.write_text(prior_hashes)
+
+    def test_matrix_verifies_common_compiler_and_binds_final_elf_hash(self):
+        path = self.outputs["gnss-only"] / "provenance.txt"
+        before = path.read_text()
+        path.write_text(before.replace("LLVM version: 20.1.1", "LLVM version: 20.1.2"))
+        with self.assertRaisesRegex(ValueError, "different compiler provenance"):
+            self.check()
+        path.write_text(before)
+        (self.outputs["gnss-only"] / "nuttx/nuttx").write_bytes((self.outputs["mixed-imu"] / "nuttx/nuttx").read_bytes())
+        with self.assertRaisesRegex(ValueError, "stale or mismatched"):
+            self.check()
+
+    def test_matrix_cli_requires_exact_complete_group_and_publishes_only_success(self):
+        report = self.root / "device-matrix.json"
+        common = ["--revision", REVISION, "--report", str(report)]
+        trio = ["--same-model-out", str(self.outputs["two-bmi270"]), "--mixed-out", str(self.outputs["mixed-imu"]),
+                "--gnss-only-out", str(self.outputs["gnss-only"])]
+        for options in ([], trio[:2], trio[:4], [*trio, "--bmi270-out", str(self.outputs["bmi270"])]):
+            report.write_text('{"stale":true}')
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(CHECK.main(common + options), 1)
+            self.assertFalse(report.exists())
+        with patch.object(CHECK, "check_matrix", return_value={"matrix_verified": True}) as check, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(CHECK.main(common + trio), 0)
+            check.assert_called_once_with(self.outputs["two-bmi270"], self.outputs["mixed-imu"], self.outputs["gnss-only"], REVISION)
+        self.assertEqual(read_json(report), {"matrix_verified": True})
+        self.assertFalse(list(report.parent.glob(report.name + ".*.tmp")))
+
+
 @unittest.skipUnless(all(shutil.which(tool) for tool in ("cc", "readelf", "nm")), "host C/binutils unavailable")
 class RealElfParserTests(unittest.TestCase):
     def test_real_host_relocatable_object_sizes_and_native_symbols(self):
@@ -534,4 +842,3 @@ main:
 
 if __name__ == "__main__":
     unittest.main()
-

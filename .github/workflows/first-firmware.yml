@@ -3,9 +3,9 @@ name: First firmware tutorial
 on:
   push:
     branches: [main]
-    paths: ['website/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+    paths: ['website/**', 'hal/led/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-led-mock.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
   pull_request:
-    paths: ['website/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+    paths: ['website/**', 'hal/led/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-led-mock.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
   workflow_dispatch:
 
 permissions:
@@ -59,9 +59,13 @@ jobs:
       - name: Install and verify compiler and emulator tools
         run: bash tools/install-qemu-tools.sh
       - name: Console and source-workflow regression tests
-        run: python3 -m unittest discover -s website/tests -p test_first_firmware.py -v
+        run: |
+          python3 -m unittest discover -s website/tests -p test_first_firmware.py -v
+          python3 -m unittest discover -s website/tests -p test_controller_example.py -v
       - name: Build, boot, edit, rebuild and extend the source application
         run: python3 website/tests/first_firmware.py
+      - name: Build and execute the controller tutorial
+        run: python3 website/tests/controller_example.py --target
       - name: Retain source identities, build records and console transcripts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -71,5 +75,8 @@ jobs:
             target/first-firmware/
             target/build/hello/esp32s3-qemu-mock/*.json
             target/build/hello/esp32s3-qemu-mock/*.config
+            target/controller-tutorial/
+            target/build/controller/esp32s3-qemu-led-mock/*.json
+            target/build/controller/esp32s3-qemu-led-mock/*.config
           if-no-files-found: warn
           retention-days: 14

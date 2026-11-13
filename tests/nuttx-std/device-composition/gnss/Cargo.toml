@@ -1,0 +1,24 @@
+[package]
+name = "nxrs-device-composition-gnss"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["gnss"]
+
+[package.metadata.nxrs.firmware]
+bin = "device-composition-gnss"
+command = "device_composition_gnss"
+priority = 100
+stack-size = 8192
+
+[dependencies]
+nxrs-composition = { path = "../../../../platform", features = ["gnss"] }
+nxrs-gnss = { path = "../../../../hal/gnss" }
+
+[[bin]]
+name = "device-composition-gnss"
+path = "src/main.rs"
+bench = false

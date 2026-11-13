@@ -303,8 +303,42 @@ it does not treat absent symbol names as sufficient driver-exclusion evidence.
 Evidence from both build directories and the report is retained in the
 `event-demo-esp32s3-nuttx` CI artifact. See the
 [D5 evidence scope](peripheral-composition-plan.md#paired-cores3-linked-device-evidence)
-for the remaining multi-instance, unconsumed-capability, allocation and physical
-qualification work.
+for the limits of this paired witness.
+
+A separate job in the same workflow builds a finite composition matrix using
+the qualification-only consumers under
+[`tests/nuttx-std/device-composition`](../tests/nuttx-std/device-composition/README.md).
+Every case declares two IMUs and one GNSS receiver. The two IMU-only builds use
+two BMI270 instances and a BMI270/LSM6DSO pair respectively; the GNSS-only build
+uses the mixed profile with the IMU capability unconsumed. Separate packages
+keep the normal Cargo dependency graph specific to each capability.
+
+After the three builds, the same checker accepts the complete matrix as an
+alternative to its original pair:
+
+```sh
+source target/qemu-tools/environment.sh
+python3 tools/check-device-closure.py \
+  --same-model-out target/firmware/device-composition/two-bmi270 \
+  --mixed-out target/firmware/device-composition/mixed-imu \
+  --gnss-only-out target/firmware/device-composition/gnss-only \
+  --revision "$(git rev-parse HEAD)" \
+  --report target/firmware/device-composition/device-matrix.json
+```
+
+The matrix checks the exact selected driver packages and native helpers, alias
+accessors, and per-instance objects in both Rust and final NuttX ELFs. Final
+objects must occupy distinct, non-overlapping address ranges. An unconsumed
+capability must contribute no NXRS target packages, native helpers or device
+objects, even though its devices remain in the resolved profile. The CoreS3
+profile still configures native NuttX I2C/GPIO facilities; this check makes no
+claim that those OS facilities are removed.
+
+The `device-composition-esp32s3-nuttx` artifact retains all three evidence bundles
+and `device-matrix.json`. These sequential cross-links establish linked
+composition and storage evidence. Physical acquisition, complete allocation
+accounting and simultaneous builds using different profiles retain their
+separate qualification requirements.
 
 ## Incremental builds and evidence
 

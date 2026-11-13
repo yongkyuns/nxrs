@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the two existing CoreS3 event-demo builds, without building or resolving Cargo.
+"""Check finite CoreS3 linked-device qualifications, without building or resolving Cargo.
 
 This is a finite qualification contract, not a general driver registry. Cargo's
 normal target graph and compiler artifacts establish selection/exclusion; a
@@ -26,6 +26,9 @@ BIN = "event-demo"
 BASE = "platform/cores3/profile.toml"
 OVERLAY = "tests/host/fixtures/lsm6dso-overlay.toml"
 BSP = "platform/nuttx/resources/esp32s3-m5-cores3.toml"
+MATRIX_ROOT = "tests/nuttx-std/device-composition"
+TWO_IMUS = MATRIX_ROOT + "/overlays/two-bmi270.toml"
+MIXED_IMUS = MATRIX_ROOT + "/overlays/mixed-imu.toml"
 CASES = {
     "bmi270": {"compatible": "bosch,bmi270", "implementation": "Bmi270",
                "bus": "sensor_bus", "path": "/dev/i2c0", "frequency": 400000,
@@ -33,6 +36,11 @@ CASES = {
     "lsm6dso": {"compatible": "st,lsm6dso", "implementation": "Lsm6dso",
                 "bus": "alternate_i2c", "path": "/dev/i2c1", "frequency": 100000,
                 "address": 106, "other": "bmi270"},
+}
+MATRIX_CASES = {
+    "two-bmi270": {"consumer": "imu", "secondary": "bmi270", "overlays": (TWO_IMUS,)},
+    "mixed-imu": {"consumer": "imu", "secondary": "lsm6dso", "overlays": (TWO_IMUS, MIXED_IMUS)},
+    "gnss-only": {"consumer": "gnss", "secondary": "lsm6dso", "overlays": (TWO_IMUS, MIXED_IMUS)},
 }
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 OBJECT = re.compile(
@@ -43,6 +51,84 @@ OBJECT = re.compile(
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def expected_case(case):
+    """Fixed test contracts, independent of every receipt being checked.
+
+    This is deliberately limited to the original pair and three qualification
+    fixtures. It does not resolve profiles, discover capabilities or load policy
+    from a build's output.
+    """
+    require(case in CASES or case in MATRIX_CASES, f"unknown qualification case: {case}")
+    app = {"package": APP, "bin": BIN, "manifest": "app/event-demo/Cargo.toml", "command": "event_demo"}
+    capabilities = {"gnss", "imu"}
+    aliases = {"gnss": "navigation", "imu": "imu"}
+    resources = {"receiver_uart": {"kind": "uart", "device": "/dev/ttyS1", "baud": 38400},
+                 "sensor_bus": {"kind": "i2c", "device": "/dev/i2c0", "frequency": 400000}}
+    if case in CASES:
+        imus = [("imu", "PRIMARY_DEVICE", case, CASES[case])]
+        overlays = (OVERLAY,) if case == "lsm6dso" else ()
+        if case == "lsm6dso":
+            resources["alternate_i2c"] = {"kind": "i2c", "device": "/dev/i2c1", "frequency": 100000}
+    else:
+        matrix = MATRIX_CASES[case]
+        cap, secondary = matrix["consumer"], matrix["secondary"]
+        app = {"package": "nxrs-device-composition-" + cap, "bin": "device-composition-" + cap,
+               "manifest": MATRIX_ROOT + "/" + cap + "/Cargo.toml", "command": "device_composition_" + cap}
+        capabilities, overlays = {cap}, matrix["overlays"]
+        imus = [("imu", "PRIMARY_DEVICE", "bmi270", CASES["bmi270"]),
+                ("secondary", "DEVICE_1", secondary,
+                 {**CASES[secondary], "bus": "sensor_bus", "path": "/dev/i2c0", "frequency": 400000,
+                  "address": 105 if secondary == "bmi270" else 106})]
+        aliases |= {"imu_primary_alias": "imu", "imu_secondary": "secondary", "gnss_primary_alias": "navigation"}
+    devices = {"navigation": {"compatible": "u-blox,neo-m9n", "bus": "receiver_uart"}}
+    declarations = {}
+    for identifier, instance, driver, model in imus:
+        devices[identifier] = {"compatible": model["compatible"], "bus": model["bus"],
+                               "address": model["address"], "wake": {"kind": "periodic"}}
+        delay = ", resources::Delay" if driver == "bmi270" else ""
+        declarations.setdefault("imu", []).append(
+            f'declare_device!({instance}, "{identifier}", ::r#{driver}::{model["implementation"]}'
+            f'<resources::Bus{delay}>, resources::I2cResource, resources::open_i2c, '
+            f'(resource::Config {{ path: "{model["path"]}", frequency: {model["frequency"]} }}, '
+            f'{model["address"]}), None, 16384, true);')
+    declarations["gnss"] = ['declare_device!(PRIMARY_DEVICE, "navigation", ::r#ubx::NeoM9n<Serial>, '
+                            '"/dev/ttyS1", 38400, 16384, false);']
+    accessors = {"imu": {"imu": "PRIMARY_DEVICE", "primary_imu": "PRIMARY_DEVICE"},
+                 "gnss": {"navigation": "PRIMARY_DEVICE", "primary_gnss": "PRIMARY_DEVICE"}}
+    if case in MATRIX_CASES:
+        accessors["imu"] |= {"primary_alias": "PRIMARY_DEVICE", "secondary": "DEVICE_1"}
+        accessors["gnss"]["primary_alias"] = "PRIMARY_DEVICE"
+    generated = {cap: "// Generated canonical device instances.\n" + "\n".join(declarations[cap])
+                 + "\npub mod devices {\n" + "".join(
+                     f"pub fn r#{name}() -> &'static impl super::Device {{ &super::{instance} }}\n"
+                     for name, instance in sorted(accessors[cap].items())) + "}\n"
+                 for cap in capabilities}
+    drivers = {driver for _, _, driver, _ in imus} if "imu" in capabilities else set()
+    features = drivers | ({"i2c"} if "imu" in capabilities else set()) | ({"ubx"} if "gnss" in capabilities else set())
+    required = {app["package"], "nxrs-composition", "nxrs-acquisition"} | {"nxrs-" + cap for cap in capabilities}
+    required |= {"nxrs-" + driver for driver in drivers}
+    required |= {"nxrs-i2c", "nxrs-gpio"} if "imu" in capabilities else set()
+    if "gnss" in capabilities:
+        required.add("nxrs-ubx-driver")
+    forbidden = {"nxrs-spi"} | {"nxrs-" + driver for driver in {"bmi270", "lsm6dso"} - drivers}
+    if "bmi270" not in drivers:
+        forbidden |= {"bmi2", "fixedvec"}
+    if "gnss" not in capabilities:
+        forbidden |= {"nxrs-gnss", "nxrs-ubx-driver", "kinavis-ubx", "kinavis-kernel"}
+    if "imu" not in capabilities:
+        forbidden |= {"nxrs-imu", "nxrs-i2c", "nxrs-gpio"}
+    native = {"nxrs-acquisition"} | ({"nxrs-gpio", "nxrs-i2c"} if "imu" in capabilities else set())
+    native |= {"nxrs-gnss"} if "gnss" in capabilities else set()
+    objects = [("imu", instance) for _, instance, _, _ in imus] if "imu" in capabilities else []
+    if "gnss" in capabilities:
+        objects.append(("gnss", "PRIMARY_DEVICE"))
+    helpers = {"i2c_resource_transfer"} if "imu" in capabilities else {"gnss_serial_configure", "gnss_serial_restore"}
+    return {"app": app, "capabilities": capabilities, "devices": devices, "aliases": aliases,
+            "resources": resources, "overlays": overlays, "features": features, "drivers": drivers,
+            "required": required, "forbidden": forbidden, "native": native, "generated": generated,
+            "objects": sorted(objects), "helpers": helpers}
 
 
 def digest(path):
@@ -124,8 +210,10 @@ def artifact_scopes(records, names, recorded_out, out):
 
 
 class Evidence:
-    def __init__(self, out, root):
+    def __init__(self, out, root, case="bmi270"):
         self.out, self.root = Path(out).resolve(), Path(root).resolve()
+        self.expected = expected_case(case)
+        app = self.expected["app"]
         self.hashes = {}
         self.receipt = self.read_json("resolved-profile.json")
         self.workspace = Path(self.receipt["workspace"])
@@ -136,16 +224,16 @@ class Evidence:
         require(self.records and self.records[-1] == {"reason": "build-finished", "success": True},
                 "missing successful final Cargo build-finished record")
         self.artifacts = [r for r in self.records if r.get("reason") == "compiler-artifact"]
-        apps = [r for r in self.artifacts if package_name(r) == APP
-                and r["target"]["kind"] == ["bin"] and r["target"]["name"] == BIN]
-        require(len(apps) == 1, "expected exactly one event-demo executable artifact")
+        apps = [r for r in self.artifacts if package_name(r) == app["package"]
+                and r["target"]["kind"] == ["bin"] and r["target"]["name"] == app["bin"]]
+        require(len(apps) == 1, f"expected exactly one {app['bin']} executable artifact")
         self.app = apps[0]
         executable = Path(self.app["executable"])
         require(executable.is_absolute() and len(executable.parents) >= 4,
                 "invalid Cargo executable path")
         self.recorded_out = executable.parents[3]
-        require(executable == self.recorded_out / "cargo" / TARGET / "release" / BIN,
-                "event-demo artifact is not in the selected target release directory")
+        require(executable == self.recorded_out / "cargo" / TARGET / "release" / app["bin"],
+                "application artifact is not in the selected target release directory")
         require(self.app["filenames"] == [str(executable)], "inconsistent executable artifact")
         self.success = hash_list(self.read("binaries.sha256"))
 
@@ -186,14 +274,15 @@ class Evidence:
 
 
 def validate_selection(evidence, case, revision):
-    e, expected = evidence, CASES[case]
+    e, expected = evidence, evidence.expected
+    app = expected["app"]
     r, s = e.receipt, e.selection
     require(r["version"] == 1 and r["profile"] == PLATFORM and r["target"] == TARGET
             and r["os"] == "nuttx", "wrong resolved profile/target receipt")
-    require(s["app_package"] == APP and s["platform"] == PLATFORM
+    require(s["app_package"] == app["package"] and s["platform"] == PLATFORM
             and s["target_os"] == "nuttx" and s["nuttx-build-mode"] == "flat",
             "wrong application/platform/provider selection")
-    manifest = str(e.workspace / "app/event-demo/Cargo.toml")
+    manifest = str(e.workspace / app["manifest"])
     require(s["app_manifest"] == manifest == r["product_manifest"] == e.app["manifest_path"],
             "application manifest differs across evidence")
     require(r["data"]["board"] == "esp32s3-m5-cores3:nsh"
@@ -201,7 +290,7 @@ def validate_selection(evidence, case, revision):
             "wrong board or optimization profile")
     require(s["providers"] == [
         {"capability": c, "implementation": "nuttx", "package": "nxrs-" + c}
-        for c in ("gnss", "imu")], "wrong consumed capability providers")
+        for c in ("gnss", "imu")], "wrong declared capability providers")
     composition = s["resolved-composition"]
     graph = r["graph"]
     require(composition["graph"] == graph, "provider/receipt composition mismatch")
@@ -211,17 +300,10 @@ def validate_selection(evidence, case, revision):
     require(composition["input-fingerprint"] == r["raw_fingerprint"]
             and SHA.fullmatch(r["raw_fingerprint"]), "input fingerprint mismatch")
     require(graph["version"] == 1 and graph["mode"] == "hardware", "wrong composition mode")
-    require(graph["devices"] == {
-        "imu": {"compatible": expected["compatible"], "bus": expected["bus"],
-                "address": expected["address"], "wake": {"kind": "periodic"}},
-        "navigation": {"compatible": "u-blox,neo-m9n", "bus": "receiver_uart"}},
+    require(graph["devices"] == expected["devices"],
         f"wrong {case} device model, bus or endpoint")
-    require(graph["aliases"] == {"gnss": "navigation", "imu": "imu"}, "wrong primary aliases")
-    resources = {"receiver_uart": {"kind": "uart", "device": "/dev/ttyS1", "baud": 38400},
-                 "sensor_bus": {"kind": "i2c", "device": "/dev/i2c0", "frequency": 400000}}
-    if case == "lsm6dso":
-        resources["alternate_i2c"] = {"kind": "i2c", "device": "/dev/i2c1", "frequency": 100000}
-    require(graph["resources"] == resources, "unexpected declared resource graph")
+    require(graph["aliases"] == expected["aliases"], "wrong primary aliases")
+    require(graph["resources"] == expected["resources"], "unexpected declared resource graph")
     require(graph["stack_bytes"] == graph["gnss_stack_bytes"] == 16384,
             "unexpected acquisition stack configuration")
     # Receipts preserve CLI spelling; the resolver interprets relative overlays
@@ -238,8 +320,8 @@ def validate_selection(evidence, case, revision):
         local = (e.root / recorded.relative_to(e.workspace)).resolve()
         require(local.is_relative_to(e.root), "overlay escapes the mapped workspace")
         cli_overlays.append(local)
-    overlays = [str(e.workspace / OVERLAY)] if case == "lsm6dso" else []
-    expected_overlays = [(e.root / OVERLAY).resolve()] if overlays else []
+    overlays = [str(e.workspace / name) for name in expected["overlays"]]
+    expected_overlays = [(e.root / name).resolve() for name in expected["overlays"]]
     require(cli_overlays == expected_overlays, "wrong overlay receipt")
     profiles = {str(e.workspace / name) for name in (BASE, BSP)} | set(overlays)
     require({p["path"] for p in s["profiles"]} == profiles, "wrong profile source set")
@@ -253,6 +335,7 @@ def validate_selection(evidence, case, revision):
             "receipt omits required profile/product inputs")
     for item in s["profiles"]:
         require(dependencies.get(item["path"]) == item["sha256"], "profile source hash mismatch")
+    require(set(composition["binding-inputs"]) == {"imu", "gnss"}, "wrong declared capability catalogues")
     for cap in ("imu", "gnss"):
         catalog = composition["binding-inputs"][cap]
         require(catalog["package"] == "nxrs-composition"
@@ -272,10 +355,10 @@ def validate_selection(evidence, case, revision):
         if sep and re.fullmatch(r"[a-z_]+", key) and not key.startswith("kconfig_") and key != "target_c_source":
             require(key not in fields, f"duplicate provenance field: {key}")
             fields[key] = value
-    for key, value in {"nxrs": revision, "nxrs_dirty": "no", "app_package": APP,
-                       "app_bin": BIN, "platform": PLATFORM, "target": TARGET,
+    for key, value in {"nxrs": revision, "nxrs_dirty": "no", "app_package": app["package"],
+                       "app_bin": app["bin"], "platform": PLATFORM, "target": TARGET,
                        "board": "esp32s3-m5-cores3:nsh", "nuttx_build_mode": "flat",
-                       "size_optimized": "1", "app_command": "event_demo"}.items():
+                       "size_optimized": "1", "app_command": app["command"]}.items():
         require(fields.get(key) == value, f"wrong/stale provenance {key}")
     compiler = [line for line in provenance.splitlines() if line.startswith((
         "rustc ", "commit-hash: ", "commit-date: ", "host: ", "release: ",
@@ -287,14 +370,11 @@ def validate_selection(evidence, case, revision):
 
 def validate_cargo(e, case):
     normal = normal_packages(e.selection)
-    required = {APP, "nxrs-composition", "nxrs-imu", "nxrs-gnss", "nxrs-i2c",
-                "nxrs-ubx-driver", "nxrs-" + case}
-    forbidden = {"nxrs-" + CASES[case]["other"], "nxrs-spi"}
-    if case == "lsm6dso":
-        forbidden |= {"bmi2", "fixedvec"}
+    expected = e.expected
+    required, forbidden = expected["required"], expected["forbidden"]
     require(required <= normal.keys() and not forbidden.intersection(normal),
             "wrong selected/unselected driver or resource in normal Cargo graph")
-    features = {"nxrs-composition/" + f for f in (case, "i2c", "ubx")}
+    features = {"nxrs-composition/" + f for f in expected["features"]}
     for value in (e.selection, e.selection["dependency_resolution"]):
         require(set(value["driver_features"]) == features and value["model_features"] == [],
                 "wrong derived driver/resource features")
@@ -322,7 +402,7 @@ def validate_cargo(e, case):
     require(set(by_name) == {name for name in normal if name.startswith("nxrs-")},
             "normal Nxrs target graph and compiler artifacts differ")
     composition = by_name["nxrs-composition"]
-    require(set(composition["features"]) == {case, "i2c", "ubx", "imu", "gnss"},
+    require(set(composition["features"]) == expected["features"] | expected["capabilities"],
             "compiled composition has wrong driver/resource features")
     require(e.app["profile"]["test"] is False and e.app["profile"]["opt_level"] == "z"
             and e.app["profile"]["debuginfo"] == 0, "not the expected optimized application build")
@@ -336,13 +416,14 @@ def validate_cargo(e, case):
 
 
 def validate_preparation(e, case, composition):
+    expected = e.expected
     handoff = Path(e.selection["configuration"])
     require(handoff.parent == e.recorded_out / "configuration", "handoff belongs to another output")
     local = e.mapped(handoff)
     require(SHA.fullmatch(handoff.stem) and digest(local) == handoff.stem, "stale configuration handoff")
     selected = e.read_json(str(local.relative_to(e.out)))
     catalogue = str(e.workspace / "platform")
-    require(set(selected) == {catalogue} and set(selected[catalogue]) == {"imu", "gnss"},
+    require(set(selected) == {catalogue} and set(selected[catalogue]) == expected["capabilities"],
             "wrong prepared catalogue/capabilities")
     scripts = [r for r in e.records if r.get("reason") == "build-script-executed"
                and r["package_id"] == composition["package_id"]]
@@ -350,24 +431,14 @@ def validate_preparation(e, case, composition):
     out_dir = Path(scripts[0]["out_dir"])
     require(out_dir.is_relative_to(e.recorded_out / "cargo" / TARGET / "release/build"),
             "composition was not prepared for the target build")
-    expected = CASES[case]
-    delay = ", resources::Delay" if case == "bmi270" else ""
-    declarations = {
-        "imu": f'declare_device!(PRIMARY_DEVICE, "imu", ::r#{case}::{expected["implementation"]}'
-               f'<resources::Bus{delay}>, resources::I2cResource, resources::open_i2c, '
-               f'(resource::Config {{ path: "{expected["path"]}", frequency: {expected["frequency"]} }}, '
-               f'{expected["address"]}), None, 16384, true);',
-        "gnss": 'declare_device!(PRIMARY_DEVICE, "navigation", ::r#ubx::NeoM9n<Serial>, '
-                '"/dev/ttyS1", 38400, 16384, false);',
-    }
     for cap, prepared in selected[catalogue].items():
         require(SHA.fullmatch(prepared["identity"]), "invalid prepared identity")
         output = prepared["output"]
         require(output["file"] == cap + "_config.rs", "wrong prepared output name")
         generated = handoff.parent / prepared["identity"] / output["file"]
         source = e.verified(generated, output["sha256"]).read_text()
-        lines = [line for line in source.splitlines() if line.startswith("declare_device!(")]
-        require(lines == [declarations[cap]], f"wrong generated {cap} typed construction")
+        require(source == expected["generated"][cap],
+                f"wrong generated {cap} typed construction or canonical aliases")
         e.verified(out_dir / output["file"], output["sha256"])
     native = e.selection["native-resources"]
     packages = normal_packages(e.selection)
@@ -380,8 +451,7 @@ def validate_preparation(e, case, composition):
         require(path.is_relative_to(e.recorded_out / "native-resources") and path.suffix == ".a",
                 "native resource archive belongs to another build")
         e.verified(path, resource["sha256"])
-    require(found == {"nxrs-acquisition", "nxrs-gnss", "nxrs-gpio", "nxrs-i2c"},
-            "wrong native resource closure")
+    require(found == expected["native"], "wrong native resource closure")
     return sorted(found)
 
 
@@ -434,6 +504,7 @@ def elf_tables(text):
 
 
 def inspect_elf(path, tools, kind, case, run=command, machine="Tensilica Xtensa Processor", elf_class="ELF32"):
+    expected = expected_case(case)
     require(path.read_bytes()[:4] == b"\x7fELF", f"not an ELF: {path}")
     text = run([tools["readelf"], "-W", "-h", "-S", "-s", "--demangle", path])
     for field, value in (("Type", kind), ("Class", elf_class), ("Machine", machine)):
@@ -446,31 +517,49 @@ def inspect_elf(path, tools, kind, case, run=command, machine="Tensilica Xtensa 
     for symbol in live:
         match = OBJECT.fullmatch(symbol["name"])
         if match:
+            section = sections[symbol["section_index"]]
             require(symbol["type"] == "OBJECT" and symbol["size"] > 0
-                    and "X" not in sections[symbol["section_index"]]["flags"],
+                    and "X" not in section["flags"],
                     "primary device symbol is not nonzero static data")
+            require(section["address"] <= symbol["address"]
+                    and symbol["address"] + symbol["size"] <= section["address"] + section["size"],
+                    "linked device object lies outside its allocated section")
             objects.append({"capability": match[1], "instance": match[2], "symbol": symbol["name"],
                             "address": hex(symbol["address"]), "size": symbol["size"],
                             "section": sections[symbol["section_index"]]["name"]})
-    require(sorted((o["capability"], o["instance"]) for o in objects)
-            == [("gnss", "PRIMARY_DEVICE"), ("imu", "PRIMARY_DEVICE")],
+    require(sorted((o["capability"], o["instance"]) for o in objects) == expected["objects"],
             "missing/duplicate/unexpected linked primary device objects")
-    required = {"i2c_resource_transfer", "main"} if kind == "REL" else {
-        "i2c_resource_transfer", "event_demo_main", "nx_start"}
+    # Relocatable sections can each start at zero. Final device addresses must
+    # prove distinct storage even when two objects use the same concrete type.
+    if kind == "EXEC":
+        ranges = sorted((int(o["address"], 16), o["size"]) for o in objects)
+        require(all(address > 0 for address, _ in ranges)
+                and all(address + size <= following for (address, size), (following, _) in zip(ranges, ranges[1:])),
+                "overlapping or zero-address final device objects")
+    required = expected["helpers"] | ({"main"} if kind == "REL" else {
+        expected["app"]["command"] + "_main", "nx_start"})
     functions = {s["name"] for s in live if s["type"] == "FUNC"
                  and "X" in sections[s["section_index"]]["flags"]}
-    require(required <= functions, "missing retained I2C helper or application entry")
+    require(required <= functions, "missing retained native helper or application entry")
     # nm independently confirms the defined-symbol view; no saved text is trusted.
     nm = run([tools["nm"], "--defined-only", "--demangle", path])
     nm_names = {line.split(None, 2)[2] for line in nm.splitlines() if len(line.split(None, 2)) == 3}
     require(required <= nm_names, "nm/readelf disagree on retained native/application functions")
-    other = CASES[case]["other"]
-    unexpected = [s["name"] for s in live if "nxrs_" + other + "::" in s["name"]
-                  or s["name"] == "spi_resource_transfer"]
+    prefixes = {"nxrs_" + driver + "::" for driver in {"bmi270", "lsm6dso"} - expected["drivers"]}
+    excluded_helpers = {"spi_resource_transfer"}
+    if "gnss" not in expected["capabilities"]:
+        prefixes |= {"gnss::", "nxrs_ubx_driver::"}
+        excluded_helpers |= {"gnss_serial_" + name for name in ("nonblocking_flag", "capture", "configure", "restore")}
+    if "imu" not in expected["capabilities"]:
+        prefixes.add("imu::")
+        excluded_helpers.add("i2c_resource_transfer")
+    unexpected = [s["name"] for s in live if any(prefix in s["name"] for prefix in prefixes)
+                  or s["name"] in excluded_helpers]
     require(not unexpected, f"unexpected retained driver/SPI symbol: {unexpected[:3]}")
-    observed = sorted({s["name"] for s in live if "nxrs_" + case + "::" in s["name"]})
+    selected = expected["drivers"] | ({"ubx_driver"} if case in MATRIX_CASES and "gnss" in expected["capabilities"] else set())
+    observed = sorted({s["name"] for s in live if any("nxrs_" + driver + "::" in s["name"] for driver in selected)})
     return {"sha256": digest(path), "type": kind, "class": elf_class, "machine": machine,
-            "static_objects": sorted(objects, key=lambda o: o["capability"]),
+            "static_objects": sorted(objects, key=lambda o: (o["capability"], o["instance"])),
             "static_object_count": len(objects), "static_object_bytes": sum(o["size"] for o in objects),
             "retained_functions": sorted(required), "named_driver_symbol_count": len(observed),
             "named_driver_symbol_examples": observed[:8],
@@ -479,7 +568,7 @@ def inspect_elf(path, tools, kind, case, run=command, machine="Tensilica Xtensa 
 
 
 def check_case(out, root, case, revision, run=command):
-    e = Evidence(out, root)
+    e = Evidence(out, root, case)
     provenance = validate_selection(e, case, revision)
     artifacts, scopes = validate_cargo(e, case)
     native = validate_preparation(e, case, artifacts["nxrs-composition"])
@@ -488,7 +577,7 @@ def check_case(out, root, case, revision, run=command):
     require(isinstance(rust_hash, str) and SHA.fullmatch(rust_hash), "missing Cargo executable success hash")
     rust = e.verified(e.recorded_out / "rust-input.elf", rust_hash)
     # Cargo's release executable is a second name for the copied Rust input.
-    if (e.out / "cargo" / TARGET / "release" / BIN).is_file():
+    if (e.out / "cargo" / TARGET / "release" / e.expected["app"]["bin"]).is_file():
         e.verified(e.app["executable"])
     reuse = e.read_json("link-reuse.json")
     pruning = e.read_json("rust-symbol-pruning.json")
@@ -501,32 +590,51 @@ def check_case(out, root, case, revision, run=command):
         require(e.read(name).strip(), f"empty retained map: {name}")
     rust_report = inspect_elf(rust, tools, "REL", case, run)
     final_report = inspect_elf(final, tools, "EXEC", case, run)
-    require([(s["capability"], s["size"]) for s in rust_report["static_objects"]]
-            == [(s["capability"], s["size"]) for s in final_report["static_objects"]],
+    require([(s["capability"], s["instance"], s["size"]) for s in rust_report["static_objects"]]
+            == [(s["capability"], s["instance"], s["size"]) for s in final_report["static_objects"]],
             "Rust and final linked device storage differ")
-    return {"compatible": CASES[case]["compatible"], "output": str(e.out),
+    result = {"output": str(e.out),
             "semantic_digest": e.receipt["semantic_digest"], "provenance": provenance,
             "cargo_packages": scopes, "driver_features": e.selection["driver_features"],
             "native_resources": native, "tools": identities, "rust_elf": rust_report,
             "final_elf": final_report, "evidence_sha256": dict(sorted(e.hashes.items()))}
+    if case in CASES:
+        result["compatible"] = CASES[case]["compatible"]
+    else:
+        result |= {"application": e.expected["app"]["package"],
+                   "consumed_capabilities": sorted(e.expected["capabilities"]),
+                   "declared_devices": e.expected["devices"],
+                   "declared_device_count": len(e.expected["devices"]),
+                   "consumed_device_count": len(e.expected["objects"])}
+    return result
 
 
-def check_pair(bmi270_out, lsm6dso_out, revision, root=ROOT, run=command):
-    root = Path(root).resolve()
+def validate_checkout(root, revision):
     require(re.fullmatch(r"[0-9a-f]{40}", revision), "expected a full checkout revision")
     require(command(["git", "rev-parse", "HEAD"], root).strip() == revision, "checkout revision mismatch")
     require(not command(["git", "status", "--porcelain", "--untracked-files=no"], root).strip(),
             "tracked checkout is dirty")
+
+
+def validate_common(cases, root, label):
+    first, *others = cases.values()
+    for other in others:
+        for field in ("nuttx", "apps", "compiler"):
+            require(first["provenance"][field] == other["provenance"][field], f"{label} has different {field} provenance")
+        require(first["tools"] == other["tools"], f"{label} uses different inspection tool identities")
+    for key, submodule in (("nuttx", "nuttx"), ("apps", "nuttx-apps")):
+        require(first["provenance"][key] == command(["git", "rev-parse", ":external/" + submodule], root).strip(),
+                f"wrong pinned {key} source revision")
+
+
+def check_pair(bmi270_out, lsm6dso_out, revision, root=ROOT, run=command):
+    root = Path(root).resolve()
+    validate_checkout(root, revision)
     require(Path(bmi270_out).resolve() != Path(lsm6dso_out).resolve(), "pair requires distinct build outputs")
     cases = {name: check_case(out, root, name, revision, run)
              for name, out in (("bmi270", bmi270_out), ("lsm6dso", lsm6dso_out))}
     a, b = (cases[name] for name in CASES)
-    for field in ("nuttx", "apps", "compiler"):
-        require(a["provenance"][field] == b["provenance"][field], f"pair has different {field} provenance")
-    for key, submodule in (("nuttx", "nuttx"), ("apps", "nuttx-apps")):
-        require(a["provenance"][key] == command(["git", "rev-parse", ":external/" + submodule], root).strip(),
-                f"wrong pinned {key} source revision")
-    require(a["tools"] == b["tools"], "pair uses different inspection tool identities")
+    validate_common(cases, root, "pair")
     b_sources = dict(b["provenance"]["source_inputs"])
     require(b_sources.pop(OVERLAY, None) is not None and b_sources == a["provenance"]["source_inputs"],
             "pair source inputs differ beyond the declared overlay")
@@ -542,16 +650,58 @@ def check_pair(bmi270_out, lsm6dso_out, revision, root=ROOT, run=command):
                 b["final_elf"]["static_object_bytes"] - a["final_elf"]["static_object_bytes"]}
 
 
+def check_matrix(same_model_out, mixed_out, gnss_only_out, revision, root=ROOT, run=command):
+    root = Path(root).resolve()
+    validate_checkout(root, revision)
+    outputs = dict(zip(MATRIX_CASES, (same_model_out, mixed_out, gnss_only_out)))
+    require(len({Path(out).resolve() for out in outputs.values()}) == 3, "matrix requires distinct build outputs")
+    cases = {name: check_case(out, root, name, revision, run) for name, out in outputs.items()}
+    validate_common(cases, root, "matrix")
+    fixture_inputs = {MATRIX_ROOT + "/" + cap + "/Cargo.toml" for cap in ("imu", "gnss")} | {TWO_IMUS, MIXED_IMUS}
+    common_inputs = []
+    for case, result in cases.items():
+        sources = result["provenance"]["source_inputs"]
+        expected = expected_case(case)
+        require(sources.keys() & fixture_inputs == {expected["app"]["manifest"], *expected["overlays"]},
+                "matrix source inputs have wrong fixture manifest or overlays")
+        common_inputs.append({p: h for p, h in sources.items() if p not in fixture_inputs})
+    require(all(inputs == common_inputs[0] for inputs in common_inputs[1:]),
+            "matrix source inputs differ beyond the declared fixture manifests and overlays")
+    same, mixed, gnss = (cases[name] for name in MATRIX_CASES)
+    require(same["semantic_digest"] != mixed["semantic_digest"] == gnss["semantic_digest"],
+            "matrix declared device graphs do not match the fixed overlay contracts")
+    for kind in ("rust_elf", "final_elf"):
+        require(len({case[kind]["sha256"] for case in cases.values()}) == 3,
+                "matrix reuses identical case evidence")
+    sizes = {name: {(obj["capability"], obj["instance"]): obj["size"] for obj in result["final_elf"]["static_objects"]}
+             for name, result in cases.items()}
+    require(sizes["two-bmi270"][("imu", "PRIMARY_DEVICE")] == sizes["two-bmi270"][("imu", "DEVICE_1")]
+            == sizes["mixed-imu"][("imu", "PRIMARY_DEVICE")], "same concrete BMI270 device type has inconsistent storage")
+    return {"version": 1, "revision": revision, "target": TARGET, "platform": PLATFORM,
+            "scope": "Three qualification-only CoreS3 images; same-model and mixed IMU instances, canonical aliases, "
+                     "and declared unconsumed capabilities. Cargo target selection, verified typed factories and observed "
+                     "linked static objects establish closure; missing symbols alone do not prove exclusion. "
+                     "Object bytes exclude worker stacks, queues, heap and OS allocations; no total-RAM or physical claim.",
+            "cases": cases}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bmi270-out", required=True, type=Path)
-    parser.add_argument("--lsm6dso-out", required=True, type=Path)
+    parser.add_argument("--bmi270-out", type=Path)
+    parser.add_argument("--lsm6dso-out", type=Path)
+    parser.add_argument("--same-model-out", type=Path)
+    parser.add_argument("--mixed-out", type=Path)
+    parser.add_argument("--gnss-only-out", type=Path)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--report", required=True, type=Path)
     args = parser.parse_args(argv)
     args.report.unlink(missing_ok=True)
     try:
-        report = check_pair(args.bmi270_out, args.lsm6dso_out, args.revision)
+        pair = [args.bmi270_out, args.lsm6dso_out]
+        matrix = [args.same_model_out, args.mixed_out, args.gnss_only_out]
+        require((all(pair) and not any(matrix)) or (all(matrix) and not any(pair)),
+                "supply either the complete original pair or the complete three-case matrix")
+        report = check_pair(*pair, args.revision) if all(pair) else check_matrix(*matrix, args.revision)
         args.report.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(mode="w", dir=args.report.parent, prefix=args.report.name + ".",
                                          suffix=".tmp", delete=False) as stream:
@@ -565,7 +715,7 @@ def main(argv=None):
                 os.replace(temporary, args.report)
             finally:
                 temporary.unlink(missing_ok=True)
-        print(f"PASS: paired CoreS3 linked device evidence: {args.report}")
+        print(f"PASS: {'paired' if all(pair) else 'matrix'} CoreS3 linked device evidence: {args.report}")
         return 0
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
         print(f"FAIL: device closure: {error}", file=sys.stderr)

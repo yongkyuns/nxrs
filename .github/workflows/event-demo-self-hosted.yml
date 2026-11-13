@@ -193,6 +193,13 @@ jobs:
           grep -q 'Imu HAL: Unsupported' \
             target/event-demo/dual-unconfigured.log
 
+      - name: Exercise composition matrix consumers with mock devices
+        run: |
+          NXRS_PLATFORM=mock cargo +1.90.0 run --locked --release \
+            -p nxrs-device-composition-imu
+          NXRS_PLATFORM=mock cargo +1.90.0 run --locked --release \
+            -p nxrs-device-composition-gnss
+
       - name: Qualify coordinated host simulation
         shell: bash
         run: |
@@ -382,6 +389,108 @@ jobs:
             target/firmware/event-demo/imu-wired-protected/*.sha256
           if-no-files-found: warn
 
+  nuttx-device-matrix:
+    needs: [demo]
+    if: "!cancelled() && needs.demo.result == 'success' && github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Verify GitHub-hosted Linux runner
+        run: |
+          set -eu
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: true
+          persist-credentials: false
+
+      - name: Install host dependencies and pinned Cargo
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison flex gperf kconfig-frontends genromfs libncurses-dev \
+            zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
+            python3 python3-venv curl xz-utils build-essential
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install 1.90.0 --profile minimal
+          python3 -m venv target/device-composition-venv
+          target/device-composition-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/device-composition-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install hash-verified Xtensa Rust, GCC and QEMU
+        run: bash tools/install-qemu-tools.sh
+
+      - name: Cross-link two instances of the same IMU model
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/device-composition/imu/Cargo.toml
+          --platform cores3
+          --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml
+          --out target/firmware/device-composition/two-bmi270
+
+      - name: Cross-link two different IMU models
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/device-composition/imu/Cargo.toml
+          --platform cores3
+          --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml
+          --overlay tests/nuttx-std/device-composition/overlays/mixed-imu.toml
+          --out target/firmware/device-composition/mixed-imu
+
+      - name: Cross-link GNSS with both IMUs declared but unconsumed
+        run: >-
+          cargo +1.90.0 nxrs build
+          --manifest-path tests/nuttx-std/device-composition/gnss/Cargo.toml
+          --platform cores3
+          --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml
+          --overlay tests/nuttx-std/device-composition/overlays/mixed-imu.toml
+          --out target/firmware/device-composition/gnss-only
+
+      - name: Verify instance identity and unconsumed capability pruning
+        shell: bash
+        run: |
+          set -euo pipefail
+          source target/qemu-tools/environment.sh
+          python3 tools/check-device-closure.py \
+            --same-model-out target/firmware/device-composition/two-bmi270 \
+            --mixed-out target/firmware/device-composition/mixed-imu \
+            --gnss-only-out target/firmware/device-composition/gnss-only \
+            --revision "$GITHUB_SHA" \
+            --report target/firmware/device-composition/device-matrix.json
+
+      - name: Retain composition matrix evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: device-composition-esp32s3-nuttx
+          path: |
+            target/firmware/device-composition/device-matrix.json
+            target/firmware/device-composition/*/nuttx/nuttx
+            target/firmware/device-composition/*/nuttx/nuttx.bin
+            target/firmware/device-composition/*/nuttx/nuttx.map
+            target/firmware/device-composition/*/cargo/xtensa-esp32s3-nuttx/release/device-composition-*
+            target/firmware/device-composition/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*_config.rs
+            target/firmware/device-composition/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*.configuration.json
+            target/firmware/device-composition/*/*.elf
+            target/firmware/device-composition/*/*.map
+            target/firmware/device-composition/*/*.txt
+            target/firmware/device-composition/*/*.json
+            target/firmware/device-composition/*/*.jsonl
+            target/firmware/device-composition/*/*.config
+            target/firmware/device-composition/*/*.sha256
+            target/firmware/device-composition/*/configuration/
+            target/firmware/device-composition/*/native-resources/
+          if-no-files-found: warn
 
   nuttx-armv8m:
     needs: demo

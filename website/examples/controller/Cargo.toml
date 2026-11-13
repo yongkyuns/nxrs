@@ -1,0 +1,22 @@
+[package]
+name = "nxrs-controller-demo"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[[bin]]
+name = "controller"
+path = "src/main.rs"
+
+[package.metadata.nxrs]
+required-capabilities = ["led"]
+
+[package.metadata.nxrs.firmware]
+bin = "controller"
+command = "controller"
+priority = 100
+stack-size = 65536
+
+[dependencies]
+nxrs-led = { path = "../../../hal/led" }

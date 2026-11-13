@@ -35,6 +35,7 @@ parses correctly can still contain overlapping text or ambiguous connections.
 | [Profile composition](nxrs-profile-composition.svg) | Resources, physical devices, canonical instances and aliases |
 | [Owner event loop](nxrs-owner-event-loop.svg) | Bounded input, one wait, private state and synchronous handling |
 | [Owner lifecycle](nxrs-owner-lifecycle.svg) | Startup, cancellation, joined cleanup and retained failure ownership |
+| [Controller commands and shutdown](nxrs-controller-command.svg) | Bounded admission, completion tickets, and closing, draining and joining one command owner |
 | [Acquisition boundary](nxrs-acquisition-boundary.svg) | Device acquisition and typed task-context admission |
 | [Independent inbox capacities](nxrs-priority-inboxes.svg) | Stop, important and ordinary queues feeding one selection point |
 | [NuttX device access](nxrs-device-access.svg) | Qualified std operations and private native controls reaching VFS drivers |

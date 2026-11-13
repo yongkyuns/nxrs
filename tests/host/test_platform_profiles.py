@@ -155,6 +155,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-mpsc": {},
                             "pico2w-mpsc": {},
                             "pico2w-std-qualification": {},
+                            "esp32s3-qemu-led-mock": {"imu": "mock", "gnss": "mock", "led": "mock"},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
