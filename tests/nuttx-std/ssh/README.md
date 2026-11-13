@@ -191,10 +191,10 @@ unverified. A client reconnect loop alone is not leak evidence.
 
 ## Verify persistence on ESP32-S3
 
-This lab layout uses a spare, erased 64 KiB region at `0xF00000` on the
-16 MiB Freenove board. Confirm the region is outside every image and data
-partition on your device and verify a full flash backup before installing the
-fixture. Use the board's own reserved address.
+Use an unprotected 16 MiB Freenove lab board with secure boot and flash
+encryption disabled. This layout uses a spare, erased 64 KiB region at
+`0xF00000`. Confirm it is outside every image and data partition and verify
+a full flash backup before installing the fixture. Use the board's reserved IP.
 
 ```sh
 bash tests/nuttx-std/ssh/build.sh --out target/dropbear-ssh --bind 192.168.50.42 -- \
@@ -213,8 +213,10 @@ mkdir /mnt/ssh
 mount -t littlefs -o forceformat /dev/mtdblock0 /mnt/ssh
 ```
 
-Close the local serial client and run the physical experiment with `--case pty`
-and `--provision-key`. Omit `--tmpfs`. After the harness reports
+Require the mount to succeed before provisioning. Close the local serial
+client and run the physical experiment with `--case pty` and `--provision-key`.
+Omit `--tmpfs`. The PTY case extends the recorded login and Rust stdio check
+with resize, interrupt, rekey and channel-limit tests. After the harness reports
 `complete_local_shutdown: passed`, reconnect the serial client, run
 `umount /mnt/ssh`, and reset the board. Recreate the mount point and mount
 the existing filesystem read-only.
@@ -223,10 +225,10 @@ the existing filesystem read-only.
 mkdir /mnt
 mkdir /mnt/ssh
 mount -t littlefs -o ro /dev/mtdblock0 /mnt/ssh
-mkdir /mnt/ssh/readonly-witness
 ```
 
-The last command must fail. Close the serial client and repeat the terminal
+Require this mount to succeed, then run `mkdir /mnt/ssh/readonly-witness`. The
+directory creation must fail. Close the serial client and repeat the terminal
 case with the original `known_hosts`, expected fingerprint and password.
 Omit both `--tmpfs` and `--provision-key`. Require a successful login and
 joined shutdown. Restore the original flash contents after the experiment and
