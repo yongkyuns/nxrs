@@ -303,7 +303,8 @@ it does not treat absent symbol names as sufficient driver-exclusion evidence.
 Evidence from both build directories and the report is retained in the
 `event-demo-esp32s3-nuttx` CI artifact. See the
 [D5 evidence scope](peripheral-composition-plan.md#paired-cores3-linked-device-evidence)
-for the remaining mixed-device, allocation and physical qualification work.
+for the remaining multi-instance, unconsumed-capability, allocation and physical
+qualification work.
 
 ## Incremental builds and evidence
 

@@ -132,8 +132,12 @@ int main(void)
 """
 
 
-def source_preimage(patch_text, target=SOURCE, *, expected_lines=42):
-    """Rebuild a complete source or sparse preimage from unified diff hunks."""
+def source_preimage(patch_text, target=SOURCE, *, expected_lines=42, preimage=""):
+    """Merge original hunk context into a complete source or sparse preimage.
+
+    An existing preimage must use the same original line positions. Conflicting
+    context is rejected rather than overwritten.
+    """
     lines = patch_text.splitlines()
     target_header = f"+++ b/{target}"
     try:
@@ -142,7 +146,7 @@ def source_preimage(patch_text, target=SOURCE, *, expected_lines=42):
         raise AssertionError(f"patch does not modify {target}") from error
     while index < len(lines) and not lines[index].startswith("@@"):
         index += 1
-    original = []
+    original = preimage.splitlines()
     while index < len(lines) and lines[index].startswith("@@"):
         match = re.match(r"@@ -(\d+)(?:,(\d+))? ", lines[index])
         if not match:
@@ -188,12 +192,17 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         phy_source = self.source_root / 'components/esp_phy/src/phy_init.c'
         phy_source.parent.mkdir(parents=True, exist_ok=True)
         phy_patch = ROOT/'upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch'
-        phy_source.write_text(source_preimage(phy_patch.read_text(),
-                                             'components/esp_phy/src/phy_init.c', expected_lines=None))
+        rng_patch = ROOT/'upstream/esp-hal-3rdparty/patches/0008-esp32s3-smp-rng.patch'
+        phy_preimage = source_preimage(phy_patch.read_text(),
+                                      'components/esp_phy/src/phy_init.c', expected_lines=None)
+        phy_source.write_text(source_preimage(rng_patch.read_text(),
+                                             'components/esp_phy/src/phy_init.c',
+                                             expected_lines=None, preimage=phy_preimage))
         originals = [source, intr_source, phy_source]
         for name, relative in (
                 ("0005-esp32s3-inherit-watchdog-clock.patch", "components/esp_system/port/soc/esp32s3/clk.c"),
-                ("0006-esp32s3-inherit-watchdog-user-handoff.patch", "nuttx/esp32s3/include/sdkconfig.h")):
+                ("0006-esp32s3-inherit-watchdog-user-handoff.patch", "nuttx/esp32s3/include/sdkconfig.h"),
+                ("0008-esp32s3-smp-rng.patch", "components/esp_hw_support/hw_random.c")):
             path = self.source_root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             patch = ROOT / "upstream/esp-hal-3rdparty/patches" / name

@@ -1,6 +1,7 @@
 name: Event-driven architecture demo (GitHub-hosted)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - 'refactor/**'

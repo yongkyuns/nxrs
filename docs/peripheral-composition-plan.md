@@ -641,10 +641,12 @@ revision and image hashes. A failed check removes any previous report, so a
 stale success cannot be published by a repeated invocation.
 
 This paired witness narrows D5's implementation-selection and permanent-state
-evidence gap. A current mixed-device image, complete allocation accounting and
-an explicit simultaneous different-profile/separate-output build witness remain
-separate items. Same-output locking and sequential profile-switch tests already
-cover their respective concurrency and freshness cases. Physical S8 behavior
+evidence gap. Remaining final-image cases cover two same-model instances, a
+mixed-model pair and a declared but unconsumed capability. Complete allocation
+accounting and an explicit simultaneous different-profile/separate-output build
+witness also remain separate items. Same-output locking and sequential
+profile-switch tests already cover their respective concurrency and freshness
+cases. Physical S8 behavior
 and any performance or whole-system memory claims require their own evidence.
 
 Update architecture docs, HAL READMEs and AGENTS rules to the implemented state,
