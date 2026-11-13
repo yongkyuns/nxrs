@@ -8,6 +8,7 @@ Use the small examples to learn a particular API or pattern. Larger applications
 | --- | --- | --- |
 | The application/source/build workflow | `basic-firmware` greeting | Yes, as host Rust and in the firmware tutorial |
 | A bounded worker and joined shutdown | `basic-firmware` worker | Yes, using the same tutorial workspace |
+| Command admission, completion and output ownership | `controller` tutorial | Yes, with the explicit LED mock on the host and in QEMU |
 | Rust collections, ownership, channels, and deadlines | `std-demo` recipes | Yes |
 | Overload, owner progress, and repeated lifetimes | `ao-stress` | Yes; host measurements describe the host |
 | Existing replay, recording, and UDP implementations | Feature-selected package examples and tests | Yes, subject to their file/network prerequisites |
@@ -29,6 +30,12 @@ cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --
 `hello` prints a greeting. `worker` sends typed commands to a bounded inbox and joins the worker after shutdown. It uses no hardware-specific service or driver.
 
 Expected final output is `Hello from NXRS` for `hello` and `Processed total: 6` for `worker`. The checked-in package is useful for running the examples directly; the tutorial teaches you to create your own source package with the same behavior.
+
+## Controller application
+
+[Build a controller](controller.md) takes the next step from a counter worker to an application that accepts `on`, `off` and `status` commands through a bounded inbox. A completion ticket reports the handled result. `stop` closes the sole sender, drains accepted commands, requests the output off and joins the owner.
+
+The [controller package](../examples/controller/) uses the existing LED capability and an explicit mock binding for its host and QEMU exercises. Its reported state tracks command results; it does not measure a physical LED. The tutorial includes the complete entry point, source-checked library excerpts, target commands and failure tests.
 
 ## Standard-library recipes
 

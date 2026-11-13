@@ -12,6 +12,7 @@
     ["overview", "Architecture overview", "NuttX, Rust and component responsibilities"],
     ["interfaces", "Interfaces and APIs", "Choose development commands and Rust component APIs"],
     ["designing-applications", "Designing an application", "Connect owners, define delivery and manage lifetimes"],
+    ["controller", "Build a controller", "Run typed commands, observe completion and join shutdown"],
     ["standard-library", "Standard-library APIs", "Threads, time, collections, files and sockets"],
     ["services", "Services and concurrency", "Typed commands, event loops and shutdown"],
     ["hardware", "Drivers and HALs", "Resources, devices and capability interfaces"],
@@ -27,7 +28,7 @@
   "sections": [
     {"title": "Getting started", "pages": ["start-here", "getting-started", "first-application", "firmware"]},
     {"title": "Understand NXRS", "pages": ["motivation", "overview", "interfaces"]},
-    {"title": "Develop firmware", "pages": ["designing-applications", "standard-library", "services", "hardware", "io"]},
+    {"title": "Develop firmware", "pages": ["designing-applications", "controller", "standard-library", "services", "hardware", "io"]},
     {"title": "Configure and build", "pages": ["build-system", "profiles"]},
     {"title": "Test and debug", "pages": ["testing", "performance", "troubleshooting"]},
     {"title": "Examples and status", "pages": ["examples", "status"]}

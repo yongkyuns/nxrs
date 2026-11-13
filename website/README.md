@@ -9,6 +9,7 @@ The website is static HTML, CSS, and JavaScript generated from the guide and rep
 - `layout.html`: shared homepage and documentation layouts.
 - `static/`: local styles, search, theme, and navigation behavior.
 - `examples/basic-firmware/`: a dependency-free Cargo workspace used by the introductory guides.
+- `examples/controller/`: the runnable command/output controller, with bounded admission, completion tickets, and explicit shutdown.
 - `../docs/`: maintained engineering references, rendered from their original Markdown sources.
 
 See [EDITORIAL.md](EDITORIAL.md) for the documentation structure and the external projects reviewed when organizing it. Retain a plain technical tone, concrete instructions, and links to implementation and tests.
@@ -49,6 +50,14 @@ python website/tests/check_examples.py
 ```
 
 This runs the guide's `cargo new` command outside the checkout, writes its published manifest and source, and executes the greeting, edited greeting, and worker revisions. It also checks the external application's firmware plan, runs the source worker's unit tests, and executes the documented `std-demo` commands on the real checkout. Results are written to `target/website-examples.json`. This test covers host execution and build planning; target builds remain in the firmware test workflows.
+
+Run the controller guide's source checks, Rust behavior tests, and host CLI cases with:
+
+```sh
+python website/tests/controller_example.py
+```
+
+After the [firmware guide](guide/firmware.md) tool setup, add `--target` to build the same package and execute its command and shutdown paths on NuttX/QEMU. The First firmware tutorial workflow runs both application tutorials and retains build records and console transcripts. Controller results are written to `target/controller-tutorial/`. Its target profile explicitly uses the LED mock; this checks the Rust/NuttX execution path without claiming physical LED behavior.
 
 For browser tests:
 

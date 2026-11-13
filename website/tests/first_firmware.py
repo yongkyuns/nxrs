@@ -146,7 +146,8 @@ def boot(qemu: Path, image: Path, expected: str, log: Path) -> dict:
             'console_log': str(log.relative_to(ROOT)), 'result': 'passed'}
 
 
-def build(args: list[str], env: dict[str, str], log: Path) -> None:
+def build(args: list[str], env: dict[str, str], log: Path, *,
+          expected_image: Path | None = None) -> None:
     print('$ ' + shlex.join(args), flush=True)
     with log.open('w') as stream:
         process = subprocess.Popen(args, cwd=ROOT, env=env, stdout=stream,
@@ -159,8 +160,9 @@ def build(args: list[str], env: dict[str, str], log: Path) -> None:
     if status != 0:
         print(log.read_text(errors='replace')[-16000:], flush=True)
         raise subprocess.CalledProcessError(status, args)
-    if not IMAGE.is_file():
-        raise FileNotFoundError(f'build did not produce {IMAGE}')
+    image = IMAGE if expected_image is None else expected_image
+    if not image.is_file():
+        raise FileNotFoundError(f'build did not produce {image}')
 
 
 def main() -> None:
