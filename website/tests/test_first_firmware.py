@@ -21,7 +21,7 @@ if os.name == 'posix':
 class SourceWorkflowTests(unittest.TestCase):
     def test_create_command_is_cargo_new_not_binary_copy(self):
         with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory) / 'my-firmware'
+            project = Path(directory).resolve() / 'my-firmware'
             args = command('first-application.md', 'create', project)
             self.assertEqual(args[:2], ['cargo', 'new'])
             self.assertIn('--bin', args)
@@ -51,7 +51,7 @@ class SourceWorkflowTests(unittest.TestCase):
         self.assertEqual(len({expected for _, _, expected in cases}), 3)
 
     def test_target_command_builds_external_source_without_dry_run(self):
-        project = Path('/tmp/my-firmware')
+        project = Path(tempfile.gettempdir()).resolve() / 'my-firmware'
         args = command('firmware.md', 'build', project)
         self.assertEqual(args, ['cargo', 'nxrs', 'build', '--manifest-path',
                                str(project / 'Cargo.toml'), '--profile', 'esp32s3-qemu-mock'])
