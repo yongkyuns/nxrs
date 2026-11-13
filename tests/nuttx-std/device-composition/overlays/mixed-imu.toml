@@ -1,0 +1,10 @@
+# Apply after two-bmi270.toml. Device records are replaced as a unit, so repeat
+# the same bus/wake while changing only the second chip/address. Both IMU records
+# and the navigation receiver remain in the resolved profile.
+[devices.secondary]
+compatible = "st,lsm6dso"
+bus = "sensor_bus"
+address = 0x6a
+
+[devices.secondary.wake]
+kind = "periodic"

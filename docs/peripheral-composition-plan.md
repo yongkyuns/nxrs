@@ -617,6 +617,68 @@ not proof of driver inclusion/exclusion. Cross-link the affected NuttX paths
 with their pinned ABI witnesses. Run physical S8 checks only when the required
 hardware is available and authorized, and label pending cases.
 
+#### Paired CoreS3 linked-device evidence
+
+The event-demo workflow checks its existing CoreS3 BMI270 build and replacement
+LSM6DSO overlay build with `tools/check-device-closure.py`. Each image also
+consumes the configured UBX GNSS device. This is a comparison of two
+single-IMU images; it does not qualify a mixed-IMU image.
+
+The checker connects the selected production packages and target Cargo
+artifacts to the prepared configuration, build receipts, and actual Rust and
+final NuttX ELFs. It rejects a wrong model, target or revision, missing or changed
+inputs, and evidence that tries to satisfy a target-driver requirement using
+only a host artifact. Symbol inspection supplements the package and artifact
+checks; absence of a name after optimization is not sufficient evidence that a
+driver was excluded. Observed permanent device objects are reported with their
+symbol sizes, separately from worker stacks, queues, transient/session state,
+native descriptors and other runtime allocations.
+
+The `event-demo-esp32s3-nuttx` artifact retains both images, link maps, generated
+configuration, native-helper archives, Cargo messages, provenance, input hashes
+and the successful `device-closure.json` report. The report records the exact
+revision and image hashes. A failed check removes any previous report, so a
+stale success cannot be published by a repeated invocation.
+
+#### Finite CoreS3 composition matrix
+
+The same workflow has a separate `nuttx-device-matrix` job for the three
+qualification cases described in
+[`tests/nuttx-std/device-composition`](../tests/nuttx-std/device-composition/README.md).
+All three cases retain the full declared device graph; only the selected
+consumer and ordered overlays vary.
+
+| Case | Declared devices | Consumed capability | Expected linked device objects |
+| --- | --- | --- | --- |
+| `two-bmi270` | Two BMI270 IMUs and one UBX GNSS receiver | IMU | Two independent BMI270 objects; one implementation package |
+| `mixed-imu` | One BMI270, one LSM6DSO and one UBX GNSS receiver | IMU | One object per IMU; both implementation packages |
+| `gnss-only` | Same mixed device graph | GNSS | One GNSS object; no IMU implementation packages or IMU objects |
+
+`tools/check-device-closure.py` checks each case against its fixed expected
+consumer, full device graph, aliases, selected production package closure,
+native helper set and generated declarations. It compares capability, instance
+identity and object size between the Rust and final ELFs, and rejects overlapping
+final object ranges. Generated alias accessors must select the canonical
+objects without adding storage. In each case the unconsumed capability must
+contribute no NXRS target packages, helper archives or static device objects.
+The unchanged full CoreS3 profile can still enable NuttX I2C/GPIO facilities;
+their system-wide removal is outside this claim.
+
+The `device-composition-esp32s3-nuttx` artifact retains all three images and their
+maps, generated configuration, helper archives, Cargo messages, provenance,
+input hashes and successful `device-matrix.json` report. The original two-image
+checker interface and report remain available. Both modes reject a partial or
+mixed input set and remove stale reports before checking new evidence.
+
+These finite target-image checks address the same-model, mixed-model and
+unconsumed-capability cases in D5's implementation-selection and permanent-state
+evidence. They do not execute physical device sessions. Complete allocation
+accounting and an explicit simultaneous different-profile/separate-output build
+witness remain separate items. Same-output locking and sequential profile-switch
+tests already cover their respective concurrency and freshness cases. Physical
+S8 behavior and any performance or whole-system memory claims require their own
+evidence.
+
 Update architecture docs, HAL READMEs and AGENTS rules to the implemented state,
 remove superseded migration guidance and retain source/qualification provenance.
 A documentation-only PR references #246; it does not close this implementation

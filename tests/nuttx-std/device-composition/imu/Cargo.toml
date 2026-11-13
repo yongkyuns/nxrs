@@ -1,0 +1,24 @@
+[package]
+name = "nxrs-device-composition-imu"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["imu"]
+
+[package.metadata.nxrs.firmware]
+bin = "device-composition-imu"
+command = "device_composition_imu"
+priority = 100
+stack-size = 8192
+
+[dependencies]
+nxrs-composition = { path = "../../../../platform", features = ["imu"] }
+nxrs-imu = { path = "../../../../hal/imu" }
+
+[[bin]]
+name = "device-composition-imu"
+path = "src/main.rs"
+bench = false
