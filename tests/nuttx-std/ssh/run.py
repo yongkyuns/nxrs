@@ -572,6 +572,7 @@ class Suite:
     def wifi_reconnect(self):
         console = self.console
         before = console.progress()
+        console.wait_listening()
         old = self.client.login()
         try:
             console.require_state("session")
