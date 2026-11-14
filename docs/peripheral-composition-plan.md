@@ -610,6 +610,15 @@ The implementation acceptance matrix is:
 | Native and memory evidence | Selected helper/ABI checks, final map/code/data inspection, static state versus remaining allocation inventory |
 | Portability | The same application/service policy and normal entry points work across selected sensor implementations |
 
+The [acquisition memory witness](memory-qualification.md#acquisition-lifetime-witness)
+separates construction, completed first wait, stop/join and session drop for one
+and two workers, then repeats each lifecycle eight times. Its Linux Rust-allocator
+measurements and ownership inventory complement linked static-object evidence;
+they do not measure native NuttX heap/descriptor costs, stack high-water marks or
+physical sensor execution. Joined sessions still own cancellation/state allocations
+until dropped. Keep those two reclamation boundaries distinct in future target
+measurements and in the remaining D5 allocation accounting.
+
 Run the relevant existing commands above, build-support/build tests, boundary
 regressions and external-consumer suites. Inspect actual target Cargo artifacts
 and the final linked image; Cargo.lock presence or total binary size alone is
