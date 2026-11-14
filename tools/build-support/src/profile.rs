@@ -30,9 +30,10 @@ pub const CAPABILITIES: &[&str] = &[
     "watchdog",
     "rtc",
     "flash",
+    "display",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
-const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi", "rtc", "flash"];
+const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi", "rtc", "flash", "display"];
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub data: Value,
@@ -968,7 +969,9 @@ impl Profile {
                         .into(),
                 );
             }
-            "camera" | "watchdog" | "rtc" | "flash" if self.binding(capability) == "nuttx" => {
+            "camera" | "watchdog" | "rtc" | "flash" | "display"
+                if self.binding(capability) == "nuttx" =>
+            {
                 env(
                     &format!("{}_DEVICE", capability.to_uppercase()),
                     self.data[capability]["device"]
@@ -1045,6 +1048,7 @@ mod tests {
             ("wifi", "interface", "WIFI_INTERFACE", "wlan1"),
             ("rtc", "device", "RTC_DEVICE", "/dev/rtc0"),
             ("flash", "device", "FLASH_DEVICE", "/dev/mtdblock0"),
+            ("display", "device", "DISPLAY_DEVICE", "/dev/spi2"),
         ] {
             let mut profile = base.clone();
             profile.data["hal"][capability] = json!("nuttx");

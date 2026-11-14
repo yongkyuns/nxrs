@@ -26,6 +26,7 @@
         {"package": "nxrs-config", "crate": "config", "path": "hal/config", "summary": "Small persistent product records with explicit capacity and errors."},
         {"package": "nxrs-boot", "crate": "boot", "path": "hal/boot", "summary": "Reset diagnostics, image staging, trial requests, confirmation, and reboot control."},
         {"package": "nxrs-watchdog", "crate": "watchdog", "path": "hal/watchdog", "summary": "Inherited watchdog cancellation and explicit runtime watchdog control."},
+        {"package": "nxrs-display", "crate": "display", "path": "hal/display", "summary": "Exclusive display ownership and synchronous RGB565 rectangle output."},
         {"package": "nxrs-execution", "crate": "execution", "path": "hal/execution", "summary": "Configured scheduling policy for the calling thread."}
       ]
     },

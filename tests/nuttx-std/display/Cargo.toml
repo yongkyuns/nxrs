@@ -1,0 +1,16 @@
+[package]
+name = "nxrs-display-qualification"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-display = { path = "../../../hal/display" }
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["display"]
+
+[package.metadata.nxrs.firmware]
+command = "display_qualification"
+stack-size = 8192

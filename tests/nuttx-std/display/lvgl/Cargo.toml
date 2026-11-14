@@ -1,0 +1,18 @@
+[package]
+name = "nxrs-lvgl-qualification"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-display = { path = "../../../../hal/display" }
+
+[features]
+framebuffer = []
+
+[package.metadata.nxrs]
+qualification-only = true
+
+[package.metadata.nxrs.firmware]
+command = "lvgl_qualification"
+stack-size = 8192

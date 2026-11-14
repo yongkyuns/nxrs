@@ -142,6 +142,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
+                            "m5stack-cores3-display": {"display": "nuttx"},
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},

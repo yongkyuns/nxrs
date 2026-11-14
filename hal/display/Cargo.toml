@@ -1,0 +1,21 @@
+[package]
+name = "nxrs-display"
+version.workspace = true
+edition.workspace = true
+build = "../../tools/build-support/cargo/hal.rs"
+
+[lib]
+name = "display"
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["nuttx"]
+
+[dependencies]
+cfg-if = "=1.0.5"
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-ili9342c = { path = "../../driver/ili9342c" }
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }
