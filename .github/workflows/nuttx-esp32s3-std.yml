@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/nuttx-std/**'
+      - 'tests/host/test_nuttx_config.py'
+      - 'tests/host/fixtures/kconfig/**'
       - 'tests/browser-threads/src/main.rs'
       - 'tests/browser-threads/Cargo.toml'
       - 'tools/install-qemu-tools.sh'
@@ -79,6 +81,8 @@ jobs:
       - name: Check oracle and SDK isolation controls
         run: |
           source target/qemu-tools/environment.sh
+          cargo build --locked -p nxrs-build
+          NXRS_CONFIG_CLI="$GITHUB_WORKSPACE/target/debug/nxrs-build" python3 tests/host/test_nuttx_config.py -v
           python3 -m unittest discover -s tests/host -p test_mcuboot_image.py -v
           python3 -m unittest discover -s tests/host -p test_mcuboot_build.py -v
           python3 tests/host/test_netdev_lifecycle.py -v

@@ -42,8 +42,16 @@ pub struct Profile {
     catalogs: Catalogs,
     sdk_root: Option<PathBuf>,
     origins: overlay::Origins,
+    native_config: Option<NativeConfig>,
     pub(crate) cli_overlays: Vec<PathBuf>,
     pub(crate) product_manifest: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeConfig {
+    pub declared_in: PathBuf,
+    pub path: PathBuf,
+    pub contents: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +68,7 @@ enum InputKind {
     DeclaredOverlay,
     CommandLineOverlay,
     BspResources,
+    NativeConfig,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detector {
@@ -77,11 +86,16 @@ fn parse_manifest(path: &Path, input: &str) -> Result<Value> {
         toml::from_str(input).map_err(|e| format!("{}: {e}", path.display()))?;
     serde_json::to_value(value).map_err(|e| e.to_string())
 }
-fn read_input(path: PathBuf, kind: InputKind) -> Result<(Value, Input)> {
+pub type SourceEdits = BTreeMap<PathBuf, String>;
+
+fn read_input(path: PathBuf, kind: InputKind, edits: &SourceEdits) -> Result<(Value, Input)> {
     if path.to_str().is_none_or(|s| s.contains(['\r', '\n'])) {
         return Err(format!("invalid profile input path {}", path.display()));
     }
-    let contents = read(&path)?;
+    let contents = match edits.get(&path) {
+        Some(contents) => contents.clone(),
+        None => read(&path)?,
+    };
     let data = parse_manifest(&path, &contents)?;
     let sha256 = hash_bytes(contents.as_bytes());
     Ok((data, Input { path, kind, sha256 }))
@@ -271,6 +285,7 @@ impl Profile {
             catalogs: Catalogs::default(),
             sdk_root: None,
             origins,
+            native_config: None,
             cli_overlays: Vec::new(),
             product_manifest: None,
         }
@@ -361,9 +376,22 @@ impl Profile {
         cli: &[PathBuf],
         product_manifest: Option<&Path>,
     ) -> Result<Self> {
+        Self::resolve_with_source_edits(root, name, cli, product_manifest, &SourceEdits::new())
+    }
+
+    /// Resolve candidate source bytes through the same inheritance and BSP validation
+    /// as a saved profile. Keys are canonical paths or new names under a canonical parent.
+    pub fn resolve_with_source_edits(
+        root: &Path,
+        name: &str,
+        cli: &[PathBuf],
+        product_manifest: Option<&Path>,
+        edits: &SourceEdits,
+    ) -> Result<Self> {
+        crate::source_transaction::check(root)?;
         let mut declared = Vec::new();
         let profiles = ProfileFiles::read(root)?;
-        let mut profile = Self::inherit(root, &profiles, name, &[], &mut declared)?;
+        let mut profile = Self::inherit(root, &profiles, name, &[], &mut declared, edits)?;
         profile.cli_overlays = cli.to_vec();
         profile.product_manifest = product_manifest
             .map(|path| {
@@ -388,7 +416,7 @@ impl Profile {
             let canonical = path
                 .canonicalize()
                 .map_err(|error| format!("overlay {}: {error}", path.display()))?;
-            let (patch, input) = read_input(canonical, kind)?;
+            let (patch, input) = read_input(canonical, kind, edits)?;
             overlay::merge(
                 &mut profile.data,
                 &patch,
@@ -398,10 +426,64 @@ impl Profile {
             )?;
             profile.inputs.push(input);
         }
+        profile.load_native_config(edits)?;
         profile.load_catalogs(root)?;
         profile.resolve_nuttx_resources(root)?;
         profile.validate_resources()?;
+        crate::source_transaction::check(root)?;
+        for input in &profile.inputs {
+            if !edits.contains_key(&input.path) && crate::hash(&input.path)? != input.sha256 {
+                return Err(format!("{} changed while resolving the profile; reload", input.path.display()));
+            }
+        }
         Ok(profile)
+    }
+
+    fn load_native_config(&mut self, edits: &SourceEdits) -> Result<()> {
+        let Some(reference) = self.data.get("nuttx-config") else {
+            return Ok(());
+        };
+        let declared_in = self.origins.get("nuttx-config").ok_or("missing nuttx-config source")?;
+        if self.data.get("board").is_none() {
+            return Err(format!("{}: nuttx-config requires a NuttX board", declared_in.display()));
+        }
+        let relative = reference
+            .as_str()
+            .filter(|s| !s.is_empty() && !s.contains(['\0', '\r', '\n']))
+            .map(Path::new)
+            .filter(|path| path.is_relative())
+            .ok_or_else(|| format!("{}: nuttx-config must be a relative file path", declared_in.display()))?;
+        let path = declared_in.parent().unwrap().join(relative);
+        let path = if edits.contains_key(&path) {
+            path
+        } else {
+            path.canonicalize().map_err(|error| format!("{}: {error}", path.display()))?
+        };
+        let contents = match edits.get(&path) {
+            Some(contents) => contents.clone(),
+            None => read(&path)?,
+        };
+        self.inputs.push(Input {
+            path: path.clone(),
+            kind: InputKind::NativeConfig,
+            sha256: hash_bytes(contents.as_bytes()),
+        });
+        self.native_config = Some(NativeConfig { declared_in: declared_in.clone(), path, contents });
+        Ok(())
+    }
+
+    pub fn native_config(&self) -> Option<&NativeConfig> {
+        self.native_config.as_ref()
+    }
+
+    pub fn source_of(&self, field: &str) -> Option<&Path> {
+        self.origins.get(field).map(PathBuf::as_path)
+    }
+
+    pub fn with_source_edits(&self, root: &Path, edits: &SourceEdits) -> Result<Self> {
+        Self::resolve_with_source_edits(
+            root, self.name(), &self.cli_overlays, self.product_manifest.as_deref(), edits,
+        )
     }
 
     fn resolve_nuttx_resources(&mut self, root: &Path) -> Result<()> {
@@ -425,7 +507,7 @@ impl Profile {
             .join(format!("{board}.toml"))
             .canonicalize()
             .map_err(|e| format!("BSP resource mapping for {board}: {e}"))?;
-        let (_, input) = read_input(path, InputKind::BspResources)?;
+        let (_, input) = read_input(path, InputKind::BspResources, &SourceEdits::new())?;
         crate::nuttx_resources::resolve(&mut self.data, &input.path)?;
         self.inputs.push(input);
         Ok(())
@@ -437,12 +519,13 @@ impl Profile {
         name: &str,
         chain: &[String],
         declared: &mut Vec<PathBuf>,
+        edits: &SourceEdits,
     ) -> Result<Self> {
         if chain.len() >= 16 || chain.iter().any(|s| s == name) {
             return Err(format!("platform inheritance cycle/depth: {name}"));
         }
         let path = profiles.path(name)?;
-        let (mut child, input) = read_input(path.clone(), InputKind::Profile)?;
+        let (mut child, input) = read_input(path.clone(), InputKind::Profile, edits)?;
         child.as_object_mut().unwrap().remove("name");
         if child.get("hal-features").is_some() {
             return Err("retired hal-features; platform must own [hal] bindings".into());
@@ -452,7 +535,7 @@ impl Profile {
             let parent = parent.as_str().ok_or("extends must name one platform")?;
             let mut chain = chain.to_vec();
             chain.push(name.into());
-            Self::inherit(root, profiles, parent, &chain, declared)?
+            Self::inherit(root, profiles, parent, &chain, declared, edits)?
         } else {
             Self::from_data(json!({"hal":{}}), Vec::new())
         };
@@ -500,7 +583,7 @@ impl Profile {
                 }
                 _ => {
                     resolved.data[k] = v.clone();
-                    if matches!(k.as_str(), "composition" | "imu") {
+                    if matches!(k.as_str(), "composition" | "imu" | "kconfig" | "nuttx-config") {
                         resolved.origins.insert(k.clone(), path.clone());
                     }
                 }
@@ -1037,6 +1120,38 @@ mod tests {
             .join("../..")
             .canonicalize()
             .unwrap()
+    }
+
+    #[test]
+    fn native_config_reference_is_relative_to_its_declaring_profile() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temporary.0.canonicalize().unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        let platform = root.join("platform/board");
+        let variants = platform.join("profiles");
+        fs::create_dir_all(&variants).unwrap();
+        let parent = platform.join("profile.toml");
+        let parent_fragment = platform.join("native.conf");
+        let child = variants.join("variant.toml");
+        let child_fragment = variants.join("native.conf");
+        fs::write(&parent, "name='board'\nboard='test:nsh'\nnuttx-config='native.conf'\n[kconfig]\nenable=['DEBUG_FEATURES']\n").unwrap();
+        fs::write(&parent_fragment, "CONFIG_DEBUG_ASSERTIONS=y\n").unwrap();
+        fs::write(&child, "extends='board'\n").unwrap();
+        let inherited = Profile::resolve(&root, "variant").unwrap();
+        assert_eq!(inherited.native_config().unwrap().declared_in, parent);
+        assert_eq!(inherited.native_config().unwrap().path, parent_fragment);
+        assert!(inherited.source_paths().any(|path| path == &parent_fragment));
+        fs::write(&parent_fragment, "# CONFIG_DEBUG_ASSERTIONS is not set\n").unwrap();
+        let changed = Profile::resolve(&root, "variant").unwrap();
+        assert_ne!(changed.input_fingerprint(), inherited.input_fingerprint());
+
+        fs::write(&child, "extends='board'\nnuttx-config='native.conf'\n").unwrap();
+        fs::write(&child_fragment, "# child override\n").unwrap();
+        let replaced = Profile::resolve(&root, "variant").unwrap();
+        assert_eq!(replaced.native_config().unwrap().declared_in, child);
+        assert_eq!(replaced.native_config().unwrap().path, child_fragment);
+        assert!(!replaced.source_paths().any(|path| path == &parent_fragment));
+        assert_eq!(replaced.data["kconfig"], inherited.data["kconfig"]);
     }
     #[test]
     fn registered_endpoints_are_explicit_validated_profile_inputs() {

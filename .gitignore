@@ -1,5 +1,6 @@
 # Rust build output
 /target/
+/.nxrs-config/
 
 # Node dependencies
 /node_modules/

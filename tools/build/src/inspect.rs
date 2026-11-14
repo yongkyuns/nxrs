@@ -119,7 +119,7 @@ pub fn query(request: Value) -> Result<Value> {
                 })
                 .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
             let path = Path::new(request["path"].as_str().ok_or("missing Kconfig path")?);
-            crate::nuttx::configure(path, &values)?;
+            crate::nuttx_config::configure(path, &values)?;
             let required = request["requirements"]
                 .as_array()
                 .ok_or("requirements must be an array")?
@@ -130,7 +130,7 @@ pub fn query(request: Value) -> Result<Value> {
                         .ok_or("invalid requirement".into())
                 })
                 .collect::<Result<Vec<_>>>()?;
-            crate::nuttx::required(&crate::read(path)?, &required, "")?;
+            crate::nuttx_config::required(&crate::read(path)?, &required, "")?;
             Ok(Value::Null)
         }
         "release-version" => Ok(json!(crate::source::release_version(
