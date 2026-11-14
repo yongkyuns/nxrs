@@ -57,6 +57,13 @@ pub(crate) fn assignment(text: &str) -> Option<(&str, &str)> {
 struct Request {
     value: String,
     source: String,
+    command_line: bool,
+}
+
+impl Request {
+    fn json(&self) -> Value {
+        json!({"value":self.value,"source":self.source,"command_line":self.command_line})
+    }
 }
 
 fn explicit_requests(
@@ -98,6 +105,7 @@ fn explicit_requests(
             entries.push(Request {
                 value: value.into(),
                 source,
+                command_line: false,
             });
         }
     }
@@ -105,12 +113,21 @@ fn explicit_requests(
         history.entry(key).or_default().push(Request {
             value,
             source: "command line".into(),
+            command_line: true,
         });
     }
     Ok(history)
 }
 
 pub fn configure(path: &Path, values: &BTreeMap<String, String>) -> Result<()> {
+    configure_in_order(path, values, &BTreeMap::new())
+}
+
+fn configure_in_order(
+    path: &Path,
+    values: &BTreeMap<String, String>,
+    requests: &BTreeMap<String, Vec<Request>>,
+) -> Result<()> {
     for (key, value) in values {
         if !key
             .bytes()
@@ -130,9 +147,19 @@ pub fn configure(path: &Path, values: &BTreeMap<String, String>) -> Result<()> {
             result.push('\n');
         }
     }
-    for (key, value) in values {
-        result.push_str(&line(key, value));
-        result.push('\n');
+    // Kconfiglib picks the last enabled member of a choice. Write ordinary
+    // requests after defaults so the result does not depend on symbol names.
+    for priority in 0..=2 {
+        for (key, value) in values.iter().filter(|(key, _)| {
+            requests
+                .get(*key)
+                .and_then(|entries| entries.last())
+                .map_or(0, |request| 1 + u8::from(request.command_line))
+                == priority
+        }) {
+            result.push_str(&line(key, value));
+            result.push('\n');
+        }
     }
     fs::write(path, result).map_err(|e| e.to_string())
 }
@@ -509,7 +536,7 @@ impl Configuration {
     pub fn evidence(&self, config: &Finalized) -> Value {
         let effective: BTreeMap<_, _> = config.config.lines().filter_map(assignment).collect();
         let requests: serde_json::Map<_, _> = self.requests.iter().map(|(name, entries)| {
-            let history = entries.iter().map(|request| json!({"value":request.value,"source":request.source})).collect::<Vec<_>>();
+            let history = entries.iter().map(Request::json).collect::<Vec<_>>();
             (name.clone(), json!({"history":history,"effective":effective.get(name.as_str()).copied().unwrap_or("n")}))
         }).collect();
         json!({"effective_config_sha256":config.effective_config_sha256,"requests":requests})
@@ -562,10 +589,7 @@ pub(crate) fn resolve(
         .requests
         .iter()
         .map(|(name, history)| {
-            let history = history
-                .iter()
-                .map(|request| json!({"value":request.value, "source":request.source}))
-                .collect::<Vec<_>>();
+            let history = history.iter().map(Request::json).collect::<Vec<_>>();
             (name.clone(), json!(history))
         })
         .collect::<serde_json::Map<_, _>>();
@@ -575,7 +599,11 @@ pub(crate) fn resolve(
         .to_str()
         .ok_or("Kconfig adapter path must be UTF-8")?;
     fs::write(nuttx.join(".config"), seed).map_err(|e| e.to_string())?;
-    configure(&nuttx.join(".config"), &configuration.values)?;
+    configure_in_order(
+        &nuttx.join(".config"),
+        &configuration.values,
+        &configuration.requests,
+    )?;
     // Set the recipe operation only. Keep NuttX's KCONFIG_ENV and
     // apps_preconfig so the adapter sees the same tree as olddefconfig.
     let output = command("make")

@@ -14,14 +14,15 @@ ADAPTER = ROOT / "tools/build/nuttx/kconfig.py"
 
 
 class NativeModelTest(unittest.TestCase):
-    def resolve(self, seed, requests):
+    def resolve(self, seed, requests, cli=()):
         with tempfile.TemporaryDirectory() as name:
             stage = Path(name)
             shutil.copyfile(FIXTURE, stage / "Kconfig")
             (stage / ".config").write_text(seed)
             (stage / "requests.json").write_text(json.dumps({
                 "catalog": True,
-                "requests": {name: [{"value": value, "source": "fixture:1"}]
+                "requests": {name: [{"value": value, "source": "fixture:1",
+                                    "command_line": name in cli}]
                              for name, value in requests.items()},
             }))
             subprocess.run([sys.executable, ADAPTER], cwd=stage, check=True, capture_output=True,
@@ -70,6 +71,14 @@ class NativeModelTest(unittest.TestCase):
         self.assertIn("being y-selected", problems)
         self.assertIn("active range 1–4", problems)
 
+    def test_cli_can_replace_a_fragment_choice_and_same_layer_conflicts_fail(self):
+        seed = "CONFIG_GATE=y\nCONFIG_LOCAL=y\nCONFIG_SERIAL=y\n"
+        report, _ = self.resolve(seed, {"LOCAL": "y", "SERIAL": "y"}, cli=("SERIAL",))
+        self.assertEqual(report["symbols"]["LOCAL"]["choice"]["selected"], "SERIAL")
+        self.assertFalse(report["problems"])
+        report, _ = self.resolve(seed, {"LOCAL": "y", "SERIAL": "y"})
+        self.assertTrue(any("CONFIG_LOCAL requested" in problem for problem in report["problems"]))
+
 
 class CoreS3Test(unittest.TestCase):
     @unittest.skipUnless(os.getenv("NXRS_CONFIG_CLI"), "set NXRS_CONFIG_CLI to the built CLI")
@@ -86,6 +95,11 @@ class CoreS3Test(unittest.TestCase):
                             for row in symbols["I2C"]["enabled_by"]))
         self.assertEqual(symbols["ESP32S3_I2C0_SDAPIN"]["ownership"]["owner"],
                          "resources.sensor_bus.kconfig.ESP32S3_I2C0_SDAPIN")
+        choice = subprocess.run(args + ["--kconfig-enable", "ESP32S3_DEFAULT_CPU_FREQ_160"],
+                                cwd=ROOT, check=True, capture_output=True, text=True)
+        symbols = json.loads(choice.stdout)["symbols"]
+        self.assertEqual(symbols["ESP32S3_DEFAULT_CPU_FREQ_160"]["choice"]["selected"],
+                         "ESP32S3_DEFAULT_CPU_FREQ_160")
 
 
 if __name__ == "__main__":

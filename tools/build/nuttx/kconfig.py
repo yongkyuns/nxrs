@@ -1,5 +1,6 @@
 """Inspect the pinned NuttX Kconfig model in Make's olddefconfig environment."""
 import json
+from functools import lru_cache
 import os
 from pathlib import Path
 import subprocess
@@ -52,6 +53,11 @@ def condition(expr):
     return {"expression": kc.expr_str(expr, symbol_name), "value": kc.TRI_TO_STR[kc.expr_value(expr)]}
 
 
+@lru_cache(maxsize=1)
+def apps_root():
+    return Path(os.environ.get("APPSDIR", "../apps")).resolve()
+
+
 def locations(symbol):
     for node in symbol.nodes:
         ancestors = []
@@ -60,8 +66,11 @@ def locations(symbol):
             if parent.prompt:
                 ancestors.append(parent.prompt[0])
             parent = parent.parent
+        filename = Path(node.filename)
+        if filename.is_absolute() and filename.is_relative_to(apps_root()):
+            filename = Path("apps") / filename.relative_to(apps_root())
         yield {
-            "file": node.filename,
+            "file": str(filename),
             "line": node.linenr,
             "menu": list(reversed(ancestors)),
             "prompt": node.prompt[0] if node.prompt else None,
@@ -119,6 +128,11 @@ def sources(symbols, property_name):
 
 def check_requests(model, requests):
     problems = []
+    promoted_choices = {
+        symbol.choice for name, history in requests.items()
+        if (symbol := model.syms.get(name)) and symbol.choice
+        and history[-1].get("command_line") and history[-1]["value"] == "y"
+    }
     for name, history in requests.items():
         symbol = model.syms.get(name)
         for index, request in enumerate(history):
@@ -128,6 +142,10 @@ def check_requests(model, requests):
                 error = "unknown symbol"
             elif decode(symbol, value) is None:
                 error = f"invalid {kc.TYPE_TO_STR[symbol.type]} value"
+            elif (not request.get("command_line") and value == "y"
+                  and symbol.choice in promoted_choices):
+                # CLI assignment replaces the fragment selection of this choice.
+                continue
             elif index == len(history) - 1:
                 current = symbol.str_value
                 if symbol.orig_type == kc.STRING:
