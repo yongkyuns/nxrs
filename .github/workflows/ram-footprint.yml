@@ -136,6 +136,20 @@ jobs:
                   if not re.search(r'(?m)^\s*[0-9a-fA-F]+\s+[TtWw]\s+' + symbol + r'$', defined):
                       raise SystemExit('missing final thread implementation: ' + symbol)
           PY
+      - name: Check linked flash, image and static RAM budgets
+        run: |
+          set -o pipefail
+          source target/qemu-tools/environment.sh
+          # Byte ceilings from the lean-panic baseline, rounded up for build variation.
+          case "$RAM_BINARY" in
+            ram-baseline)         flash=217088; ram=58368 ;;
+            ram-threads)          flash=231424; ram=58368 ;;
+            ram-std-inbox)        flash=251904; ram=58368 ;;
+            ram-crossbeam-select) flash=267264; ram=62464 ;;
+            *) exit 1 ;;
+          esac
+          PYTHONPATH=tests python3 -m rtos_harness.footprint_budget "target/ram-footprint-target/$RAM_BINARY" \
+            --linked-flash "$flash" --image 308224 --static-ram "$ram" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Retain target build evidence without source worktrees
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

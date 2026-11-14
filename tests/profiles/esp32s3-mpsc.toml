@@ -10,6 +10,7 @@ iram-layout = "platform/nuttx/linker/esp32s3-mpsc.ld"
 
 [build]
 trace-only-backtrace = true
+panic-immediate-abort = false
 
 [init]
 args = []

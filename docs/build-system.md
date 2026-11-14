@@ -215,6 +215,17 @@ Application discovery reports malformed app manifests instead of hiding them.
 
 ## Native qualification settings
 
+NuttX builds default to trace-only backtraces and size-optimized std.
+Panics abort immediately without a formatted Rust report. Use
+`cargo nxrs build --panic-diagnostics ...` to build with formatted panic
+reports and full backtraces when debugging. Qualification profiles can retain
+panic messages with `build.panic-immediate-abort = false`. The effective
+backtrace and abort settings are recorded in the build provenance.
+
+The existing ESP32-S3 RAM controls and CoreS3 sensor build check linked flash,
+unpadded image size, and static RAM in CI. Review intended growth against those
+byte limits. Heap use and worker stacks need runtime measurements.
+
 Use `cargo nxrs config --app event-demo --platform cores3` to inspect the
 CoreS3 project. Install the [NuttX host tools](https://nuttx.apache.org/docs/latest/quickstart/install.html)
 and use the pinned `kconfiglib==14.1.0` in the same Python environment as
