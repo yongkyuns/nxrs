@@ -9,8 +9,6 @@ hal = { boot = "nuttx", rtc = "nuttx", watchdog = "nuttx", flash = "nuttx" }
 
 [build]
 size-optimized = true
-trace-only-backtrace = true
-panic-immediate-abort = true
 
 [kconfig]
 enable = [

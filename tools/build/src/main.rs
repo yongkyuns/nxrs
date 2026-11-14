@@ -72,8 +72,9 @@ NuttX qualification:
   --kconfig-set NAME=VALUE    Set a literal Kconfig value; repeat as needed
   --abi-profile <profile>     Select active or minimal ABI checks
   --size-optimized            Enable size qualification settings
-  --trace-only-backtrace      Use trace-only backtraces
-  --panic-immediate-abort     Abort immediately; requires --trace-only-backtrace
+  --panic-diagnostics        Enable formatted panic reports and full backtraces
+  --trace-only-backtrace      Compatibility spelling for the lean default
+  --panic-immediate-abort     Compatibility spelling for the lean default
   --app-package <package>     Check the selected package name
   --command <command>         Override the firmware command name
   --priority <priority>       Override the firmware task priority
@@ -135,8 +136,8 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             "--unmodified-browser-std" => web_fix = false,
             "--dry-run" => dry = true,
             "--size-optimized" => options.size = true,
-            "--trace-only-backtrace" => options.trace = true,
-            "--panic-immediate-abort" => options.immediate = true,
+            "--trace-only-backtrace" | "--panic-immediate-abort" => options.lean_panic = true,
+            "--panic-diagnostics" => options.panic_diagnostics = true,
             "--app" => app = Some(args.next().ok_or("missing --app")?.clone()),
             "--manifest-path" | "--app-manifest" => {
                 manifest = Some(PathBuf::from(args.next().ok_or("missing manifest path")?))

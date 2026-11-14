@@ -1,12 +1,40 @@
 """Pure regressions for shared ESP32-S3 ELF and image helpers."""
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rtos_harness.images import (assert_stack_section, esp_idf_section_accounting,
                                  image_header, parse_sections, section_accounting)
+from rtos_harness import footprint_budget
+
+
+class FootprintBudgetTests(unittest.TestCase):
+    def test_each_limit_fails_independently_and_exact_limits_pass(self):
+        elf = """Type: EXEC (Executable file)
+Machine: Tensilica Xtensa Processor
+  [ 1] .flash.text PROGBITS 42001000 001000 000040 00 AX 0 0 16
+  [ 2] .dram0.bss  NOBITS   3fc80000 001040 000020 00 WA 0 0  4
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            nuttx = Path(directory) / "nuttx"
+            nuttx.mkdir()
+            (nuttx / "nuttx.bin").write_bytes(bytes(128))
+            for flash, image, ram, result in (
+                (64, 128, 32, 0), (63, 128, 32, 1), (64, 127, 32, 1), (64, 128, 31, 1)
+            ):
+                with (
+                    self.subTest(flash=flash, image=image, ram=ram),
+                    patch.object(subprocess, "check_output", return_value=elf),
+                    patch.object(sys, "argv", ["budget", directory, "--linked-flash", str(flash),
+                                               "--image", str(image), "--static-ram", str(ram)]),
+                    patch("builtins.print"),
+                ):
+                    self.assertEqual(footprint_budget.main(), result)
 
 
 class ImageSectionTests(unittest.TestCase):

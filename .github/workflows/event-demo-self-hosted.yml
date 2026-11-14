@@ -50,6 +50,8 @@ on:
       - 'tests/host/test_device_closure.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test-event-demo-nuttx.py'
+      - 'tests/rtos_harness/footprint_budget.py'
+      - 'tests/rtos_harness/images.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'external/nuttx'
@@ -285,6 +287,12 @@ jobs:
 
       - name: Cross-build the CoreS3 sensor deployment
         run: cargo +1.90.0 nxrs build --app event-demo --platform cores3 --out target/firmware/event-demo/cores3
+      - name: Check CoreS3 sensor deployment footprint
+        run: |
+          set -o pipefail
+          source target/qemu-tools/environment.sh
+          PYTHONPATH=tests python3 -m rtos_harness.footprint_budget target/firmware/event-demo/cores3 \
+            --linked-flash 368640 --image 393216 --static-ram 64512 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Cross-build the replacement IMU overlay
         run: >-

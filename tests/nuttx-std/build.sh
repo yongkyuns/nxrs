@@ -308,6 +308,7 @@ fi
 export RUSTFLAGS="-C panic=abort ${CODE_MODEL[*]} -C linker=$ROOT/tests/nuttx-std/link.py ${KEEP_LINK[*]}"
 "$CARGO_BIN" build --locked --release "${CARGO_ARGS[@]}" \
   --bin "$BIN" --target "$TARGET_ARG" -Zbuild-std=std,panic_abort \
+  -Zbuild-std-features=backtrace-trace-only,optimize_for_size,panic_immediate_abort \
   --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
 # A patched file alone is not evidence that Cargo compiled it. Check the actual
 # std compiler-artifact source path before accepting the kernel integration.

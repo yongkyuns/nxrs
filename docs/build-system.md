@@ -215,6 +215,17 @@ Application discovery reports malformed app manifests instead of hiding them.
 
 ## Native qualification settings
 
+NuttX builds default to trace-only backtraces and size-optimized std.
+Panics abort immediately without a formatted Rust report. Use
+`cargo nxrs build --panic-diagnostics ...` to build with formatted panic
+reports and full backtraces when debugging. Qualification profiles can retain
+panic messages with `build.panic-immediate-abort = false`. The effective
+backtrace and abort settings are recorded in the build provenance.
+
+The existing ESP32-S3 RAM controls and CoreS3 sensor build check linked flash,
+unpadded image size, and static RAM in CI. Review intended growth against those
+byte limits. Heap use and worker stacks need runtime measurements.
+
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
 symbol names without the `CONFIG_` prefix. Values are literal Kconfig booleans

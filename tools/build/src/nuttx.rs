@@ -547,6 +547,28 @@ impl Tools {
         crate::find_program_on_path(name, &self.path)
     }
 }
+fn build_flag(settings: &Value, key: &str, default: bool) -> Result<bool> {
+    match settings.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| format!("build.{key} must be boolean")),
+    }
+}
+
+fn panic_policy(settings: &Value, diagnostics: bool) -> Result<(bool, bool)> {
+    let trace = build_flag(settings, "trace-only-backtrace", true)?;
+    let immediate = build_flag(settings, "panic-immediate-abort", trace)?;
+    if immediate && !trace {
+        return Err("immediate abort requires trace-only backtrace".into());
+    }
+    Ok(if diagnostics {
+        (false, false)
+    } else {
+        (trace, immediate)
+    })
+}
+
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
     options.validate_for_backend("nuttx")?;
     validate_overrides(p, app, options)?;
@@ -574,18 +596,8 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     {
         return Err("invalid platform build settings".into());
     }
-    let flag = |key: &str, default| match settings.get(key) {
-        None => Ok(default),
-        Some(v) => v
-            .as_bool()
-            .ok_or_else(|| format!("build.{key} must be boolean")),
-    };
-    let size = flag("size-optimized", options.size)?;
-    let trace = flag("trace-only-backtrace", options.trace)?;
-    let immediate = flag("panic-immediate-abort", options.immediate)?;
-    if immediate && !trace {
-        return Err("immediate abort requires trace-only backtrace".into());
-    }
+    let size = build_flag(settings, "size-optimized", options.size)?;
+    let (trace, immediate) = panic_policy(settings, options.panic_diagnostics)?;
     let abi = match settings.get("abi-profile") {
         Some(value) => value.as_str().ok_or("build.abi-profile must be a string")?,
         None => options.abi.as_deref().unwrap_or("active"),
@@ -1714,6 +1726,29 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panic_policy_defaults_to_lean_and_honors_diagnostic_overrides() {
+        assert_eq!(panic_policy(&Value::Null, false).unwrap(), (true, true));
+        assert_eq!(
+            panic_policy(
+                &json!({"trace-only-backtrace": true, "panic-immediate-abort": false}),
+                false
+            )
+            .unwrap(),
+            (true, false)
+        );
+        assert_eq!(
+            panic_policy(&json!({"panic-immediate-abort": true}), true).unwrap(),
+            (false, false)
+        );
+        assert!(panic_policy(
+            &json!({"trace-only-backtrace": false, "panic-immediate-abort": true}),
+            false
+        )
+        .is_err());
+    }
+
     #[test]
     fn minimal_application_does_not_require_runtime_calls() {
         let symbols = "00000000 T main\n         U puts\n";
