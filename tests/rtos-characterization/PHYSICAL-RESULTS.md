@@ -60,7 +60,31 @@ accounting combines resident sections with observed heap high water. Zephyr
 and Embassy count resident sections, including reserved stacks. The stack
 observations qualify the exercised workload and settings.
 
-## Build provenance
+## Supplemental board checks
+
+These November 10, 2026 checks used separate firmware and are outside the
+campaign census above.
+
+- **Pico 2 W timer to Rust worker.** A flat, single-core NuttX fixture used the
+  RP2350 hardware timer to wake a blocked Rust thread. All 600 alarms reached
+  the worker. In each of the three loaded batches of 100, the ISR interrupted
+  the lower-priority task on every alarm. Each loaded batch had a 6 µs median
+  from alarm deadline to the worker's first counter read. The three observed
+  maxima were 32, 26 and 22 µs. Timing uses the nominal on-chip counter.
+  The fixture image SHA-256 is
+  `953b4039f94f57b5ec1de9b32f77d0d736c49c10f816f780aaca7eb1d79e12eb`.
+  Physical IMU IRQ-to-sample timing still needs the
+  [wired BMI270 fixture](../nuttx-std/imu-qualification/README.md) and the
+  external timing reference in the
+  [S8 plan](../../docs/peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines).
+- **WROOM camera read recovery.** The signed camera diagnostic recovered in
+  the same boot and Wi-Fi session after an injected read error on the mutual
+  TLS path. The reconnecting RTSP viewer observed a 7.83 s gap between decoded
+  frames, and the gateway detection viewer received fresh PICO metadata 4.87 s
+  after the fault. See the [camera trial](https://github.com/yongkyuns/nxrs/pull/323)
+  and the separate [watchdog and update evidence](../../docs/firmware-updates.md).
+
+## Campaign build provenance
 
 The starting fixture revision was `797c00ca`. The physical reruns used the
 Pico flash-resident reset helpers and owned Zephyr USB transfers, the NuttX

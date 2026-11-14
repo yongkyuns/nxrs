@@ -4,6 +4,9 @@ For the broader comparison of OS behavior, the ordinary NXRS application model,
 resource costs, progress, recovery and portability, see
 [Characterizing Zephyr, NuttX and NXRS](rtos-characterization.md). This page
 retains the historical native-adapter experiments and their measurement scope.
+Later [physical characterization results](../tests/rtos-characterization/PHYSICAL-RESULTS.md)
+cover ordinary Rust messaging, interrupt response and camera recovery on
+the Pico 2 W and ESP32-S3 WROOM.
 
 Twenty services and sixty bounded queues run correctly on all four tested
 implementations. Native Rust on NuttX adds little over matched C. Embassy saves
@@ -201,8 +204,7 @@ checks. No Zephyr/Embassy comparison or IRQ-latency qualification applies there.
 | Embassy Rust | Much lower execution RAM, bounded channels/tasks, naturally suspending I/O | Async drivers and bounded synchronous work; no in-handler preemption on this executor |
 
 Rust on NuttX remains viable; async execution deserves consideration for tight
-RAM budgets and mostly-waiting services. Next, qualify interrupt-driven I/O
-under concurrent traffic, with deadlines and a full driver/buffer budget.
+RAM budgets and mostly-waiting services.
 
 ## Evidence and reproduction
 
