@@ -36,8 +36,10 @@ pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Re
     let diagnostics = crate::TempDir::new(&std::env::temp_dir())?;
     let stderr_path = diagnostics.0.join("git-archive.stderr");
     let stderr = fs::File::create(&stderr_path).map_err(|e| e.to_string())?;
+    // Archive the committed bytes, not a host-dependent worktree conversion.
+    // With core.autocrlf=true Git otherwise emits CRLF for text on Windows.
     let mut child = git(source)
-        .args(["archive", revision])
+        .args(["-c", "core.autocrlf=false", "archive", revision])
         .stdout(Stdio::piped())
         .stderr(stderr)
         .spawn()
@@ -300,6 +302,9 @@ mod tests {
         let source = temporary.0.join("source");
         fs::create_dir(&source).unwrap();
         output(git(&source).args(["init", "--quiet"])).unwrap();
+        // Reproduce the Windows default even on Unix: archive bytes must not
+        // inherit checkout line-ending conversion from the Git configuration.
+        output(git(&source).args(["config", "core.autocrlf", "true"])).unwrap();
         fs::write(source.join("input.txt"), "review fixture\n").unwrap();
         output(git(&source).args(["add", "input.txt"])).unwrap();
         output(git(&source).args([
