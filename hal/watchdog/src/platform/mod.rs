@@ -9,4 +9,4 @@ cfg_if::cfg_if! {
     }
 }
 
-pub use selected::adopt;
+pub use selected::{adopt, arm};

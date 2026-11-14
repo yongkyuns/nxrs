@@ -45,6 +45,16 @@ An unconfirmed trial may still revert. Confirmation retains the newer image and
 its counter for subsequent admissions. This uses authenticated image state, not
 an eFuse counter; it does not prevent replay of an entire external-flash snapshot.
 
+In the single-core, unencrypted WROOM campaign, four pending images were
+rejected for a wrong signing key, a corrupted payload, a wrong signed image
+class, and a signed
+security counter of 6 against the confirmed image's 7. In each case the
+confirmed camera reached commissioning, its signed primary bytes and
+confirmation flag verified, and the secondary header and trailer were erased.
+The same candidate payload with the trusted key, matching class and counter 8
+booted as an unconfirmed trial. The test seeded pending images over USB to
+exercise MCUboot admission. The original 16 MiB flash was restored and verified.
+
 MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
 `state`, `stage_update`, `request_trial` and `confirm`. Shared Rust admits staging
 only from a stable image, stable-to-pending trial requests, and trial-to-confirmed
@@ -136,10 +146,12 @@ has passed Stable autostart and a changed-code Trial: joined confirmation, fresh
 TLS enrollment, camera/inference reacquisition and 200 seconds of sampled
 progress, with confirmed primary-image readback. A credential-input failure also
 led to restart and reversion to the previous confirmed image, verified by primary
-readback and 200 seconds of recovered TLS/inference progress. That observation
-included one USB reopen and no explicit host reset command; the reset cause was
-not measured. A separate attribution witness observed USB reset causes and failed
-the RTC-watchdog check; it does not establish physical watchdog causation.
+readback and 200 seconds of recovered TLS/inference progress. A single-core
+WROOM follow-up left commissioning incomplete with a 70-second test watchdog
+budget. With USB serial closed, a test loader recorded reset code `0x10`
+(RTC watchdog system reset) at entry to the first boot after the trial and
+recorded selection of the confirmed baseline. Primary flash readback verified
+the full signed baseline and its confirmation flag.
 Separately, after joining camera/TLS/detection and stopping Wi-Fi,
 the unprotected target staged a 2,000,000-byte prefix of its own signed image
 from the primary device into the inactive slot. Pending readback, subsequent
@@ -148,8 +160,21 @@ TLS/inference progress passed. A reset after one completed 256-byte staging
 write and readback left the rest of the checked prefix and trailer erased and
 the confirmed primary unchanged; TLS/inference recovered. Full 16 MiB restoration,
 digest verification and ordinary-camera recovery passed after each experiment.
-These tests do not qualify network delivery, changed-code staging, physical bus
-quiescence, torn writes, power loss or encrypted-write timing.
+In the single-core, unencrypted WROOM campaign, a test MCUboot build
+injected one software reset during the forward swap and one during reversion. Each
+reset followed the primary-slot erase for the second 256 KiB swap block and
+preceded the copy from scratch. Both swaps resumed from the primary trailer. The bootloader
+selected trial `0.0.2` after the forward swap and confirmed `0.0.1` after
+reversion. Flash readback verified both signed images and the primary
+confirmation flag. The original 16 MiB flash was restored and verified.
+Two USB hub cycles at the erase trigger recorded erase completion and
+`USB_UART_CHIP_RESET`. A separate ROM diagnostic left the hub port off for
+12 seconds. The WROOM's RTC counter advanced by 13.44 seconds over 13.43
+seconds of host time, including reconnect. This setup kept the RTC domain
+powered despite the hub reporting the port off. Testing interrupted erase or
+programming requires a switch on the board's actual power supply and a
+measured rail drop. Physical bus quiescence and encrypted-write timing also
+remain unqualified.
 The separate `joined-update` qualification binary reuses the camera composition,
 then stages a complete externally supplied image after successful resource
 retirement. Build it with the startup profile and `build.sh --bin joined-update`;
@@ -175,6 +200,23 @@ After the sender acknowledges receipt, the camera joins capture, TLS, detection
 and Wi-Fi, quiesces the radio, stages through `hal/boot`, requests a trial and
 checks Pending. MCUboot authenticates the image after reset. A failed transfer
 does not request a trial; an unauthentic image is rejected by MCUboot.
+
+On the single-core, unencrypted WROOM, the gateway committed a 1,832,836-byte
+signed `home-cam` update over mutual TLS with an initially erased secondary slot.
+The candidate changed JPEG quality from 81 to 65. The test decoded camera
+frames directly over mutual TLS and observed fresh PICO results during trial,
+after confirmation, and after a separate reboot. The new JPEG quantization
+tables persisted across the reboot. Flash readback verified signed `0.0.2`
+and its primary confirmation flag before and after reboot. The original
+16 MiB flash was restored and verified.
+
+The WROOM also recovered from mutual-TLS disconnects after the sender sent
+64 KiB of the image and after the camera returned `NXOK` for the full image
+but before `CMIT`. Video and PICO observations advanced in the same boot
+after each disconnect. Full-slot readback matched the confirmed primary and
+an erased secondary. After the reboot used for readback, a fresh upload
+confirmed signed `0.0.2` and resumed video and PICO observations. The original
+16 MiB flash was restored and verified.
 
 The default startup profile uses network enrollment below. Stop and join the
 normal ingest owner, then run `nxrs-camera-ingest INGEST_JSON --require-camera-tls
@@ -326,8 +368,8 @@ The pre-activation software and bounded qualification milestone is complete.
 Protected runtime admission and a shipping startup cohort remain deferred pending
 separate configuration review and physical qualification. ROM enforcement,
 encrypted torn-write/power-loss recovery, cache/AES timing, a comprehensive
-DMA/MSPI fence and physical watchdog attribution remain unproved. Hardware
-protections remain OFF; no permanent device setting has been changed.
+DMA/MSPI fence and watchdog attribution on protected hardware remain unproved.
+Hardware protections remain OFF; no permanent device setting has been changed.
 
 Prepare those files offline from the protected boot build and a confirmed
 factory application:

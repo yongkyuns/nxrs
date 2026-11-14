@@ -1,0 +1,24 @@
+[package]
+name = "nxrs-peripheral-qualification"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+embedded-hal = "=1.0.0"
+nxrs-acquisition = { path = "../../../hal/acquisition" }
+nxrs-adc = { path = "../../../driver/adc" }
+nxrs-boot = { path = "../../../hal/boot" }
+nxrs-flash = { path = "../../../hal/flash" }
+nxrs-gpio = { path = "../../../driver/gpio" }
+nxrs-pwm = { path = "../../../driver/pwm" }
+nxrs-rtc = { path = "../../../hal/rtc" }
+nxrs-watchdog = { path = "../../../hal/watchdog" }
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["boot", "flash", "rtc", "watchdog"]
+
+[package.metadata.nxrs.firmware]
+command = "peripheral_qualification"
+stack-size = 16384

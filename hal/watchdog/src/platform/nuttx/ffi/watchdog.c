@@ -1,4 +1,5 @@
-/* Native header layouts/constants only. Never arm, feed or restart a timer. */
+/* Native header layouts and individual watchdog ioctls. */
+#include <errno.h>
 #include <nuttx/config.h>
 #include <nuttx/timers/watchdog.h>
 #include <stdbool.h>
@@ -22,4 +23,20 @@ int watchdog_reset_status(int fd, bool *active, bool *reset)
 int watchdog_disarm(int fd)
 {
   return ioctl(fd, WDIOC_STOP, 0);
+}
+
+int watchdog_set_timeout(int fd, uint32_t ms)
+{
+  int result = ioctl(fd, WDIOC_SETTIMEOUT, (unsigned long)ms);
+  return result < 0 && (errno == EINVAL || errno == ERANGE) ? 1 : result;
+}
+
+int watchdog_start(int fd)
+{
+  return ioctl(fd, WDIOC_START, 0);
+}
+
+int watchdog_feed(int fd)
+{
+  return ioctl(fd, WDIOC_KEEPALIVE, 0);
 }

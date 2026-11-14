@@ -28,9 +28,11 @@ pub const CAPABILITIES: &[&str] = &[
     "tls",
     "boot",
     "watchdog",
+    "rtc",
+    "flash",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
-const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi"];
+const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi", "rtc", "flash"];
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub data: Value,
@@ -802,8 +804,19 @@ impl Profile {
                 } else {
                     device(&value[field])
                 };
-                if !keys(value, &[field], &[]) || !valid {
+                let optional: &[&str] = if capability == "watchdog" {
+                    &["mode"]
+                } else {
+                    &[]
+                };
+                if !keys(value, &[field], optional) || !valid {
                     return Err(format!("{capability} requires a valid profile {field}"));
+                }
+                if capability == "watchdog"
+                    && value.get("mode").is_some()
+                    && !matches!(value["mode"].as_str(), Some("inherited" | "runtime"))
+                {
+                    return Err("watchdog mode must be inherited or runtime".into());
                 }
             } else if !value.is_null() {
                 return Err(format!("{capability} resource requires its NuttX binding"));
@@ -834,6 +847,12 @@ impl Profile {
         }
         Ok(())
     }
+    pub fn watchdog_mode(&self) -> &str {
+        self.data["watchdog"]["mode"]
+            .as_str()
+            .unwrap_or("inherited")
+    }
+
     pub fn network_initialization(&self) -> Result<&str> {
         let Some(init) = self.data.get("init") else {
             return Ok("external");
@@ -929,6 +948,9 @@ impl Profile {
         let mut env =
             |name: &str, value: String| output.push(format!("cargo:rustc-env={name}={value}"));
         match capability {
+            "boot" if self.binding(capability) == "nuttx" && self.data.get("mcuboot").is_some() => {
+                env("BOOT_UPDATE_CONTROL", "1".into());
+            }
             "detector" => {
                 if let Some(c) = self.detector()? {
                     if let Some(core) = c.compute_core {
@@ -946,7 +968,7 @@ impl Profile {
                         .into(),
                 );
             }
-            "camera" | "watchdog" if self.binding(capability) == "nuttx" => {
+            "camera" | "watchdog" | "rtc" | "flash" if self.binding(capability) == "nuttx" => {
                 env(
                     &format!("{}_DEVICE", capability.to_uppercase()),
                     self.data[capability]["device"]
@@ -954,6 +976,9 @@ impl Profile {
                         .ok_or("missing device path")?
                         .into(),
                 );
+                if capability == "watchdog" {
+                    env("WATCHDOG_MODE", self.watchdog_mode().into());
+                }
             }
             "console" if self.binding(capability) != "none" => env(
                 "CONSOLE_DEVICE",
@@ -1018,8 +1043,11 @@ mod tests {
             ("camera", "device", "CAMERA_DEVICE", "/dev/video1"),
             ("watchdog", "device", "WATCHDOG_DEVICE", "/dev/watchdog0"),
             ("wifi", "interface", "WIFI_INTERFACE", "wlan1"),
+            ("rtc", "device", "RTC_DEVICE", "/dev/rtc0"),
+            ("flash", "device", "FLASH_DEVICE", "/dev/mtdblock0"),
         ] {
             let mut profile = base.clone();
+            profile.data["hal"][capability] = json!("nuttx");
             profile.data[capability][field] = json!(value);
             profile.validate_resources().unwrap();
             assert!(profile
@@ -1031,6 +1059,16 @@ mod tests {
                 assert!(profile.validate_resources().is_err());
             }
         }
+        let mut profile = base;
+        assert_eq!(profile.watchdog_mode(), "inherited");
+        profile.data["watchdog"]["mode"] = json!("runtime");
+        profile.validate_resources().unwrap();
+        assert!(profile
+            .cargo_output(&root, "watchdog", "nuttx")
+            .unwrap()
+            .contains(&"cargo:rustc-env=WATCHDOG_MODE=runtime".into()));
+        profile.data["watchdog"]["mode"] = json!("auto");
+        assert!(profile.validate_resources().is_err());
     }
 
     #[test]

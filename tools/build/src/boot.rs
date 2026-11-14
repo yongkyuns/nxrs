@@ -112,6 +112,7 @@ pub fn protected(p: &Profile) -> Result<bool> {
 pub fn application_config(p: &Profile) -> Result<BTreeMap<String, String>> {
     let b = Layout::parse(&p.data["mcuboot"])?;
     image_class(p)?;
+    watchdog_timeout(p)?;
     let protected = protected(p)?;
     if p.data["target"] != "xtensa-esp32s3-nuttx" {
         return Err("MCUboot build wiring is not qualified for this NuttX target".into());
@@ -183,7 +184,7 @@ pub fn application_config(p: &Profile) -> Result<BTreeMap<String, String>> {
             v.insert(k.into(), value.into());
         }
     }
-    if p.binding("watchdog") == "nuttx" {
+    if p.binding("watchdog") == "nuttx" && p.watchdog_mode() == "inherited" {
         if p.binding("boot") != "nuttx" {
             return Err("inherited watchdog requires boot control".into());
         }
@@ -198,11 +199,16 @@ pub fn application_config(p: &Profile) -> Result<BTreeMap<String, String>> {
     Ok(v)
 }
 pub fn watchdog_timeout(p: &Profile) -> Result<u64> {
-    p.data.get("boot-watchdog-ms").map_or(Ok(9000), |v| {
-        v.as_u64()
-            .filter(|v| (1..=300000).contains(v))
-            .ok_or("invalid boot-watchdog-ms".into())
-    })
+    let Some(timeout) = p.data.get("boot-watchdog-ms") else {
+        return Ok(9000);
+    };
+    if p.watchdog_mode() == "runtime" {
+        return Err("inherited boot watchdog budget conflicts with runtime watchdog mode".into());
+    }
+    timeout
+        .as_u64()
+        .filter(|v| (1..=300000).contains(v))
+        .ok_or("invalid boot-watchdog-ms".into())
 }
 pub fn init_config(
     p: &Profile,
@@ -210,6 +216,14 @@ pub fn init_config(
     priority: u64,
     stack: u64,
 ) -> Result<BTreeMap<String, String>> {
+    watchdog_timeout(p)?;
+    if p.data.get("boot-watchdog-ms").is_some()
+        && (p.data.get("mcuboot").is_none()
+            || p.binding("boot") != "nuttx"
+            || p.binding("watchdog") != "nuttx")
+    {
+        return Err("inherited boot watchdog requires MCUboot and boot/watchdog control".into());
+    }
     let Some(init) = p.data.get("init") else {
         return Ok(BTreeMap::new());
     };
@@ -275,13 +289,6 @@ pub fn init_config(
         }
         v.insert("UART0_SERIAL_CONSOLE".into(), "y".into());
         v.insert("OTHER_SERIAL_CONSOLE".into(), "n".into());
-    }
-    if p.data.get("boot-watchdog-ms").is_some()
-        && (p.data.get("mcuboot").is_none()
-            || p.binding("boot") != "nuttx"
-            || p.binding("watchdog") != "nuttx")
-    {
-        return Err("inherited boot watchdog requires MCUboot and boot/watchdog control".into());
     }
     if let Some(network) = init.get("network") {
         if !["external", "on-acquire"].iter().any(|s| network == *s) {

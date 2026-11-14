@@ -1,4 +1,9 @@
-use crate::{Control, DeviceError, State};
+use crate::{Control, DeviceError, ResetCause, State};
+
+pub fn reset_cause() -> Result<ResetCause, DeviceError> {
+    Err(DeviceError::Unsupported)
+}
+
 pub fn open() -> Result<impl Control, DeviceError> {
     struct Unavailable;
     impl Control for Unavailable {

@@ -2,6 +2,16 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "driver/pwm/src/platform/nuttx/ffi/pwm.c"
+kind = "abi"
+reason = "NuttX single-channel PWM layout and individual configure, start and stop ioctls."
+
+[[bridge]]
+path = "driver/adc/src/platform/nuttx/ffi/adc.c"
+kind = "abi"
+reason = "NuttX nonblocking open flag and ADC trigger and FIFO ioctls. Rust reads and decodes records through File."
+
+[[bridge]]
 path = "driver/spi/src/platform/nuttx/ffi/spi.c"
 kind = "abi"
 reason = "NuttX synchronous SPI sequence layout and ioctl; Rust owns configuration and transaction buffers."
@@ -17,9 +27,24 @@ kind = "abi"
 reason = "Target O_NONBLOCK and termios representation/control translation. Rust owns the UART descriptor, restoration order, exclusive admission, bounded reads and all receiver protocol decoding."
 
 [[bridge]]
+path = "hal/boot/src/platform/nuttx/ffi/reset.c"
+kind = "abi"
+reason = "NuttX boardctl reset-cause structure and enum translation; firmware update ownership stays in Rust."
+
+[[bridge]]
 path = "hal/watchdog/src/platform/nuttx/ffi/watchdog.c"
 kind = "abi"
-reason = "Target watchdog status fields and individual GETSTATUS/STOP ioctls. Rust owns descriptor admission, cancellation verification and sticky failure; the bridge never arms or feeds."
+reason = "Target watchdog status fields and individual watchdog ioctls. Rust owns descriptor admission, arming and feeding policy, cancellation verification and sticky failure."
+
+[[bridge]]
+path = "hal/rtc/src/platform/nuttx/ffi/rtc.c"
+kind = "abi"
+reason = "Target RTC ioctls and calendar ABI conversion through NuttX libc. Rust owns the descriptor, time validation and clock contract."
+
+[[bridge]]
+path = "hal/flash/src/platform/nuttx/ffi/flash.c"
+kind = "abi"
+reason = "Target direct-open flags and MTD geometry, erase and cache ioctls. Rust owns the descriptor, geometry/range validation and std data transfers."
 
 [[bridge]]
 path = "hal/tls/src/platform/linux/ffi/rng.c"
