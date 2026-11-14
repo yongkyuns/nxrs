@@ -1,0 +1,23 @@
+[package]
+name = "nxrs-pulse"
+version.workspace = true
+edition.workspace = true
+build = "../../tools/build-support/cargo/hal.rs"
+
+[lib]
+name = "pulse"
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["mock", "nuttx"]
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }
+
+[dependencies]
+cfg-if = "=1.0.5"
+nxrs-acquisition = { path = "../acquisition" }
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-gpio = { path = "../../driver/gpio" }
+nxrs-pwm = { path = "../../driver/pwm" }

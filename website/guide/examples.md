@@ -8,7 +8,7 @@ Use the small examples to learn a particular API or pattern. Larger applications
 | --- | --- | --- |
 | The application/source/build workflow | `basic-firmware` greeting | Yes, as host Rust and in the firmware tutorial |
 | A bounded worker and joined shutdown | `basic-firmware` worker | Yes, using the same tutorial workspace |
-| Command admission, completion and output ownership | `controller` tutorial | Yes, with the explicit LED mock on the host and in QEMU |
+| Command completion, pulse observations and acquisition shutdown | `controller` tutorial | Yes, with explicit mock pulses on the host and in QEMU; the same source also targets WROOM and Pico 2 W |
 | Rust collections, ownership, channels, and deadlines | `std-demo` recipes | Yes |
 | Overload, owner progress, and repeated lifetimes | `ao-stress` | Yes; host measurements describe the host |
 | Existing replay, recording, and UDP implementations | Feature-selected package examples and tests | Yes, subject to their file/network prerequisites |
@@ -34,9 +34,9 @@ Expected final output is `Hello from NXRS` for `hello` and `Processed total: 6` 
 
 ## Controller application
 
-[Build a controller](controller.md) takes the next step from a counter worker to an application that accepts `on`, `off` and `status` commands through a bounded inbox. A completion ticket reports the handled result. `stop` closes the sole sender, drains accepted commands, requests the output off and joins the owner.
+[Build a controller](controller.md) takes the next step from a counter worker to an application that accepts `on`, `off`, `set`, `status` and `stats` commands alongside task-context pulse observations through one bounded inbox. A completion ticket reports the handled result. `stop` closes persistent admission, drains accepted work, stops output and acquisition, and joins the owner.
 
-The [controller package](../examples/controller/) uses the existing LED capability and an explicit mock binding for its host and QEMU exercises. Its reported state tracks command results; it does not measure a physical LED. The tutorial includes the complete entry point, source-checked library excerpts, target commands and failure tests.
+The [controller package](../examples/controller/) is the single source for host, QEMU, ESP32-S3 WROOM and Pico 2 W. The pulse capability uses the existing PWM/GPIO/acquisition adapters; hardware profiles observe output on the same pad without an external sensor or jumper. Reported state tracks completed requests, while observation statistics describe task-context notification delivery. The tutorial links the canonical source, checks its short excerpts, and provides the shared board procedure and failure tests.
 
 ## Standard-library recipes
 

@@ -1,391 +1,253 @@
 # Build a controller
 
-Run a small controller, send typed commands to an output owner, and wait for each command's result. Then close admission, finish accepted work, switch the output off and join the worker. The same ordinary Rust application runs on your host and on NuttX in QEMU.
+Use one portable application to control a PWM output, receive observations through a bounded inbox, inspect progress, and stop with joined cleanup. Start with an explicit mock on your host, run the same source on NuttX in QEMU, then select the hardware profile for an ESP32-S3 WROOM or Raspberry Pi Pico 2 W.
 
-**Before you start:** complete [Your first application](first-application.md) and the [bounded worker](services.md#run-the-worker-in-your-application). Target execution also needs the Ubuntu tool setup in [Building for NuttX](firmware.md). Run the commands in this chapter from the NXRS checkout.
+**Before you start:** complete [Your first application](first-application.md) and the [bounded worker](services.md#run-the-worker-in-your-application). Target execution needs the tools in [Building for NuttX](firmware.md); the Pico additionally needs the ARM setup below. Run the commands below from the NXRS checkout.
 
-This tutorial uses the existing LED capability with an explicit mock provider. It exercises the Rust application and target integration without needing a board. The reported state records command results; physical LED behavior needs a separately configured and tested device.
+The [controller package](../examples/controller/) is the canonical application throughout this chapter. Its `pulse` capability combines output ownership with a managed observation stream using the existing PWM, GPIO and acquisition adapters. The two board profiles sense the PWM on the same pad, so this exercise needs no external sensor or jumper.
 
-The [Rust API reference](../api.md) links the `led` library's `Led`, `LedSet`, `DeviceError`, and `open` documentation. The application-specific controller types are defined in the source package below.
-
-## Run the controller on your host
-
-The [controller package](../examples/controller/) is a standalone Cargo workspace inside the checkout. Its dependency on the LED capability is an ordinary relative path dependency.
+## Run and inspect on your host
 
 <!-- tutorial:controller-host -->
 ```sh
 NXRS_PLATFORM=mock cargo run --locked --manifest-path website/examples/controller/Cargo.toml --bin controller
 ```
 
-After Cargo's build messages, the program prints:
+After Cargo's build messages, the default sequence prints:
 
 <!-- tutorial:controller-output -->
 ```text
 ready: off
-on: on
-status: on
+on: on (25 Hz, 25%)
+status: on (25 Hz, 25%)
 off: off
 stopped: off
 ```
 
-Startup validates LED index `0` and requests it off before starting the worker. With no arguments, the entry point sends `on`, `status` and `off`, waiting for each result before sending the next command. Finally, it stops and joins the owner. The `ready` and `stopped` lines describe successful off requests through the provider.
+Startup acquires the pulse session and establishes stopped output. With no arguments, the entry point sends `on`, `status` and `off`, waits for each result, and then stops and joins the owner. `NXRS_PLATFORM=mock` selects a synthetic source for that host command; leave it as a command prefix.
 
-`NXRS_PLATFORM=mock` selects the explicit host test binding for this command only. Keep it as a command prefix. The NuttX build below selects its LED mock through a named profile.
-
-## Choose a command sequence
-
-Supply positional arguments after Cargo's `--`:
+Allow acquisition to run before inspecting its counters:
 
 ```sh
-NXRS_PLATFORM=mock cargo run --locked --manifest-path website/examples/controller/Cargo.toml --bin controller -- on status off stop
+NXRS_PLATFORM=mock cargo run --locked --manifest-path website/examples/controller/Cargo.toml --bin controller -- on wait 300 stats off
 ```
 
-This produces the same five application lines. `stop` must be the final argument; reaching the end of the arguments also stops the application. The program runs a finite sequence and returns to your shell.
+`stats` prints `observed`, `rejected`, `processed`, `gaps`, `max_dispatch_us`, `last_interval_us`, `fault`, and `watchdog_fault`. The counts and times vary between runs. A successful observation run has `processed > 0`, consistent counts and both fault fields `none`, followed by `off: off` and `stopped: off`. The mock exercises delivery and ownership; its timer does not establish physical pulse accuracy.
 
-| Argument | Operation | Result printed after completion |
-| --- | --- | --- |
-| `on` | Request `Led::set(0, true)` | `on: on` on success |
-| `off` | Request `Led::set(0, false)` | `off: off` on success |
-| `status` | Read the owner's software-tracked state | For example, `status: on` |
-| `stop` | End command submission, drain and join | `stopped: off` when the final off request succeeds |
+| Command | Operation |
+| --- | --- |
+| `on` | Start the remembered waveform, initially 25 Hz at 25% duty |
+| `set HZ DUTY` | Validate and start a waveform: 10–100 Hz, 1–99% duty |
+| `off` | Stop output; already queued observations can still arrive |
+| `status` | Report the last completed output request |
+| `stats` | Report source accounting and application dispatch observations |
+| `wait MS` | Pause the command client for 0–60000 ms while acquisition and the owner continue |
+| `stop` | End submission, drain accepted work, stop acquisition and join; must be last |
 
-Try an invalid command after a valid one:
+For a persistent command session, append `-- --interactive` to the host command. Enter one command per `controller>` prompt. `stop`, end of input, malformed input and provider errors all reach explicit cleanup after successful startup. The console accepts LF or CRLF line endings and bounds each line to 128 bytes. A batch ends and cleans up when its last argument completes.
 
-```sh
-NXRS_PLATFORM=mock cargo run --locked --manifest-path website/examples/controller/Cargo.toml --bin controller -- on invalid
-```
+The state `on (25 Hz, 25%)` records a successful output request. It is not electrical readback. GPIO observations provide a separate activity signal. Their timestamps are captured when the source worker receives a notification, so `last_interval_us` measures task-context receipt spacing and `max_dispatch_us` measures receipt-to-owner dispatch delay. Neither measures ISR latency, electrical duty accuracy or every physical edge; native notifications can coalesce.
 
-This intentionally exits with status `1`. The application prints `ready: off`, `on: on` and `stopped: off`, and reports the unknown command on standard error. Input is checked as the sequence executes: the earlier `on` command has already completed. Cleanup still runs after that input error.
-
-The CLI waits for each ticket, so this sequential exercise does not fill the inbox. The tests later in this chapter pause an output operation to exercise saturation deterministically.
-
-## Read the source package
+## Read the one source package
 
 | File | Responsibility |
 | --- | --- |
-| [Cargo.toml](../examples/controller/Cargo.toml) | Declared dependency, independent workspace and NuttX entry metadata |
-| [Cargo.lock](../examples/controller/Cargo.lock) | Resolved dependencies used by the locked commands |
-| [src/main.rs](../examples/controller/src/main.rs) | Acquire the output, parse arguments, submit commands, print results and always attempt joined cleanup |
-| [src/lib.rs](../examples/controller/src/lib.rs) | Typed commands, completion tickets and the output owner's lifetime |
-| [tests/behaviour.rs](../examples/controller/tests/behaviour.rs) | Controlled output fixtures and failure/lifecycle checks |
-| [LED mock profile](../../tests/profiles/esp32s3-qemu-led-mock.toml) | Reuse the ESP32-S3 QEMU setup and bind the LED capability explicitly |
+| [Cargo.toml](../examples/controller/Cargo.toml) | Ordinary dependencies, independent workspace and NuttX command metadata |
+| [Cargo.lock](../examples/controller/Cargo.lock) | Dependencies pinned for the locked commands |
+| [src/main.rs](../examples/controller/src/main.rs) | Console and batch input, completion reporting and cleanup on every exit path |
+| [src/lib.rs](../examples/controller/src/lib.rs) | Typed commands, bounded admission, observation accounting and session lifetime |
+| [src/supervision.rs](../examples/controller/src/supervision.rs) | Optional watchdog health, feed and shutdown policy on the existing owner |
+| [tests/behaviour.rs](../examples/controller/tests/behaviour.rs) | Controlled session fixtures for overload, failure and joined cleanup |
+| [Pulse capability](../../hal/pulse/README.md) | Portable waveform, observation and shutdown contracts |
 
-The complete manifest is:
+The manifest requires the `pulse` capability and registers `controller` as both the binary and NSH command. The profile supplies the provider and native endpoints; application source contains no board paths or platform branches. The package is a standalone Cargo workspace. An external product can use the same ordinary dependency arrangement described in [the build-system guide](build-system.md#keep-an-application-outside-the-sdk).
 
-<!-- tutorial:controller-manifest -->
-```toml
-[package]
-name = "nxrs-controller-demo"
-version = "0.1.0"
-edition = "2024"
+The following short excerpts are checked against the linked library. Keep the complete canonical files when adapting the application.
 
-[workspace]
-
-[[bin]]
-name = "controller"
-path = "src/main.rs"
-
-[package.metadata.nxrs]
-required-capabilities = ["led"]
-
-[package.metadata.nxrs.firmware]
-bin = "controller"
-command = "controller"
-priority = 100
-stack-size = 65536
-
-[dependencies]
-nxrs-led = { path = "../../../hal/led" }
-```
-
-`required-capabilities = ["led"]` makes the target builder reject an unbound LED configuration. The dependency adds software; the selected profile supplies its provider. `controller` is both the binary and the command registered in NSH. The entry stack and priority are explicit tutorial settings, not recommended values for every product.
-
-The following library excerpts come from the linked `src/lib.rs`. Source checks keep them aligned with that file. Keep the complete file when running or adapting the application; each excerpt explains one part of it.
-
-## Define commands and observable state
-
-The application translates the command-line words into this small typed interface:
+### Define commands and state
 
 <!-- tutorial:controller-commands -->
 ```rust
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
-    Set(bool),
+    On,
+    Off,
+    Set(Waveform),
     Status,
+    Stats,
 }
 
-/// Last successfully commanded value, never electrical readback.
-/// A failed write can have changed the output, so its value becomes unknown.
+/// Last successfully requested output state, not electrical readback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Off,
-    On,
-    Unknown(DeviceError),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ParseError;
-
-pub fn parse_command(text: &str) -> Result<Command, ParseError> {
-    match text.trim() {
-        "on" => Ok(Command::Set(true)),
-        "off" => Ok(Command::Set(false)),
-        "status" => Ok(Command::Status),
-        _ => Err(ParseError),
-    }
+    Running(Waveform),
+    Unknown(Error),
 }
 ```
 
-`stop` is handled by the entry point as a lifetime operation. It is never inserted into the command inbox.
+A failed operation sets `Unknown(error)`: failure can follow a partial device effect. A retained acquisition fault prevents restarting the output. `status` reports the stored request state; `stats` exposes the source's independently retained fault even when a fault event could not enter the full inbox.
 
-`Off` and `On` mean that the corresponding output request succeeded. A failed write sets `Unknown(error)` because an operation can report failure after affecting the device. A later `status` returns that stored state; it does not read a physical pin. A subsequent successful write establishes the newly commanded state.
+### Own commands and observations together
 
-## Separate admission from completion
+<!-- tutorial:controller-start -->
+```rust
+let (sender, incoming) = mpsc::sync_channel(INBOX_CAPACITY);
+let commands = Arc::new(sender);
+let source = Arc::downgrade(&commands);
+let session = open(Box::new(move |event| {
+    source
+        .upgrade()
+        .is_some_and(|sender| sender.try_send(Message::Source(event)).is_ok())
+}))
+.map_err(StartError::Device)?;
+```
+
+This is the shared admission setup inside `Controller::start_with_watchdog`; `Controller::start(pulse::open)` selects the same lifetime without supervision. The controller has one persistent sender and one owner thread. Commands and source observations share 16 waiting slots. The source callback runs in acquisition task context, attempts one nonblocking admission and returns its result. It holds a weak reference so it cannot keep its own receiving owner alive after the controller closes admission. GPIO interrupt handling stays inside the native driver and HAL readiness path.
 
 <figure class="architecture-art">
-  <img class="theme-light" src="../../docs/assets/nxrs-controller-command.svg" alt="The caller admits a command to a two-slot inbox and receives a completion ticket. One owner handles the command and replies. To stop, close the sole sender, drain accepted commands, request output off and join; the returned object retains the output and any off error." loading="lazy">
-  <img class="theme-dark" src="../../docs/assets/nxrs-controller-command-dark.svg" alt="The caller admits a command to a two-slot inbox and receives a completion ticket. One owner handles the command and replies. To stop, close the sole sender, drain accepted commands, request output off and join; the returned object retains the output and any off error." loading="lazy">
-  <figcaption>Admission returns a ticket; the owner completes it after handling the command. Shutdown closes the existing input path and joins the same owner. A synchronous output call must return for shutdown to finish. <a href="../../docs/assets/nxrs-controller-command.svg">Open SVG</a>.</figcaption>
+  <img class="theme-light" src="../../docs/assets/nxrs-controller-command.svg" alt="Commands and task-context pulse observations enter one bounded inbox. Command tickets report handling completion. Stop closes persistent admission, drains accepted work, shuts down acquisition and joins the owner, retaining cleanup errors." loading="lazy">
+  <img class="theme-dark" src="../../docs/assets/nxrs-controller-command-dark.svg" alt="Commands and task-context pulse observations enter one bounded inbox. Command tickets report handling completion. Stop closes persistent admission, drains accepted work, shuts down acquisition and joins the owner, retaining cleanup errors." loading="lazy">
+  <figcaption>The same owner handles commands and observations. Admission, command completion and joined source shutdown are distinct events. <a href="../../docs/assets/nxrs-controller-command.svg">Open SVG</a>.</figcaption>
 </figure>
 
-The controller keeps one `SyncSender` for a `std::sync::mpsc::sync_channel` with `COMMAND_CAPACITY = 2`. Callers use this method rather than obtaining or cloning that sender:
+### Separate admission from completion
 
 <!-- tutorial:controller-admit -->
 ```rust
 pub fn try_command(&self, command: Command) -> Result<Ticket, SubmitError> {
     let (reply, completion) = mpsc::sync_channel(1);
-    match self.commands.try_send(Request { command, reply }) {
+    match self
+        .commands
+        .try_send(Message::Command(Request { command, reply }))
+    {
         Ok(()) => Ok(Ticket(completion)),
-        Err(TrySendError::Full(request)) => Err(SubmitError::Full(request.command)),
-        Err(TrySendError::Disconnected(request)) => {
+        Err(TrySendError::Full(Message::Command(request))) => {
+            Err(SubmitError::Full(request.command))
+        }
+        Err(TrySendError::Disconnected(Message::Command(request))) => {
             Err(SubmitError::Disconnected(request.command))
         }
+        _ => unreachable!("only the submitted command can be returned"),
     }
 }
 ```
 
-| API result | What it establishes | Caller action |
-| --- | --- | --- |
-| `try_command` returns `Ok(ticket)` | The owner has accepted responsibility for this request | Wait for completion or deliberately discard the ticket |
-| `SubmitError::Full(command)` | The request was not admitted because the waiting slots were occupied | Retain, reject or retry the returned command according to application policy |
-| `SubmitError::Disconnected(command)` | The receiving owner is unavailable | Report the failure and finish lifecycle handling |
-| `ticket.wait()` returns `Ok(Ok(state))` | The owner handled the command and returned its state | Use the command's stated meaning of completion |
-| `ticket.wait()` returns `Ok(Err(error))` | The output operation reported a device error | Handle the provider error; do not report success |
-| `ticket.wait()` returns `Err(...)` | The reply path closed without a result | Report the missing completion, for example after a worker panic |
+`Ok(ticket)` means the request entered the inbox. `ticket.wait()` waits for the owner and returns its completed status or device error. `Full(command)` and `Disconnected(command)` return an unadmitted command to the caller. The CLI submits sequentially, so controlled behavior tests exercise saturation instead of relying on timing guesses.
 
-`try_command` does not wait for queue capacity. `Ticket::wait` does wait for the owner, including any synchronous output call ahead of that request. Neither method provides a hardware deadline.
+The source makes one attempt per observation. A rejected edge increments `rejected`; skipped source sequence numbers become application `gaps`. At a snapshot, some accepted observations can still be queued or in flight, so `observed - rejected` can exceed `processed`. These counters describe delivered notifications, not missed electrical pulses. Completion tickets have one result slot, and discarded tickets cannot block the owner. Consume or discard tickets promptly: inbox capacity alone does not bound memory retained by callers.
 
-The two inbox slots bound **waiting requests**, with one more request possibly being handled. Each accepted request also has a one-slot completion channel. Callers can retain completed tickets, so the inbox capacity alone does not bound all application memory. Consume or discard tickets promptly and measure the worker stack and other allocations for the target.
-
-## Handle commands with one output owner
-
-The worker owns the LED and mutable state. It receives one request, performs the synchronous operation, and deposits one result before receiving another:
-
-<!-- tutorial:controller-owner -->
-```rust
-fn own_output<L: Led>(mut output: L, index: u8, incoming: Receiver<Request>) -> Stopped<L> {
-    let mut state = State::Off;
-    while let Ok(request) = incoming.recv() {
-        let result = match request.command {
-            Command::Status => Ok(state),
-            Command::Set(on) => match output.set(index, on) {
-                Ok(()) => {
-                    state = if on { State::On } else { State::Off };
-                    Ok(state)
-                }
-                Err(error) => {
-                    state = State::Unknown(error);
-                    Err(error)
-                }
-            },
-        };
-        // One result, one slot. A caller discarding a ticket cannot block us.
-        let _ = request.reply.try_send(result);
-    }
-    let shutdown = output.set(index, false);
-    state = match shutdown {
-        Ok(()) => State::Off,
-        Err(error) => State::Unknown(error),
-    };
-    Stopped {
-        output,
-        state,
-        shutdown,
-    }
-}
-```
-
-A caller can drop its ticket without cancelling the accepted command. The reply uses `try_send`, so an abandoned completion receiver cannot hold the owner waiting for the caller. Command execution and the final off request still depend on `Led::set` returning.
-
-Only this thread touches the output after startup. The entry point owns the `Controller` handle and its unique sender, while each `Ticket` owns the receiver for one result. These are application types built from the LED contract and standard-library channels and threads.
-
-## Close admission, drain and join
-
-The controller handle is consumed by `stop`:
+### Close admission and join
 
 <!-- tutorial:controller-stop -->
 ```rust
-/// Drain admitted commands, attempt output-off, and join. This depends on
-/// synchronous Led::set calls returning; it is not a shutdown deadline.
-pub fn stop(self) -> thread::Result<Stopped<L>> {
+/// Close admission, drain accepted commands/observations, stop acquisition,
+/// and join. Native operations must return; this is not a hard time bound.
+pub fn stop(self) -> thread::Result<Stopped> {
     drop(self.commands);
     self.worker.join()
 }
 ```
 
-Closing the only sender lets `recv()` finish all queued requests and then report disconnection. The owner attempts one final off request and returns `Stopped<L>`; `join()` waits for that thread to end. A full inbox needs no extra slot for shutdown.
+Dropping the persistent sender lets the owner drain admitted work and observe disconnection. It then stops output, requests cancellation, joins acquisition and returns `Stopped`. Check the outer join result, `Stopped::shutdown` and `Stopped::watchdog`. A failed pulse shutdown leaves the final state unknown. A retained source fault also makes shutdown return an error even when cleanup completed, so that error alone does not describe which cleanup step failed. Native cleanup uncertainty can keep resources quarantined until reboot. There is no extra stop message requiring an inbox slot and no hard shutdown deadline for native operations.
 
-Check both levels of the result. A successful join establishes that the worker ended. `Stopped::shutdown` says whether its final off request succeeded, and `Stopped::state` is `Unknown(error)` if it failed. `Stopped` still owns the output, so library callers can inspect the error and choose recovery before releasing the resource. Startup validation or initial off failures similarly return the output through `StartError::Output`; a failed thread spawn starts no worker.
+Call `stop` explicitly. Dropping the controller closes admission and detaches its standard-library join handle, so the caller has not observed cleanup completion. The entry point collects input or command failures, performs explicit shutdown, and only then reports errors and exits with status 1.
 
-The entry point below reports a shutdown error and releases the returned output after joining. It does not retry a failed off request or claim the output is off. A product with a recovery requirement must choose and implement that policy.
+## Run the same application on NuttX/QEMU
 
-`Led::set` is synchronous and has no cancellation or deadline parameter. Closing the inbox wakes an idle receiver, but it cannot interrupt an output call already in progress. The example proves the close/drain/join protocol under the exercised provider behavior; it does not establish a maximum physical shutdown time.
-
-Call `stop` explicitly. Dropping `Controller` closes its sender but drops the standard `JoinHandle`, which detaches the thread; that does not observe cleanup completion or its result.
-
-## Keep orchestration in main
-
-This is the complete entry point. It collects any command error, performs explicit shutdown, and then reports the command and cleanup results:
-
-<!-- tutorial:controller-main -->
-```rust
-use led::Led;
-use nxrs_controller_demo::{Controller, SubmitError, parse_command};
-
-fn execute<L, I, S>(controller: &Controller<L>, input: I) -> Result<(), String>
-where
-    L: Led + Send + 'static,
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    let mut input = input.into_iter().peekable();
-    while let Some(text) = input.next() {
-        let text = text.as_ref();
-        if text.trim() == "stop" {
-            return if input.peek().is_none() {
-                Ok(())
-            } else {
-                Err("stop must be the last command".into())
-            };
-        }
-        let command = parse_command(text)
-            .map_err(|_| format!("unknown command {text:?} (use on, off, status, stop)"))?;
-        let ticket = controller
-            .try_command(command)
-            .map_err(|error| match error {
-                SubmitError::Full(_) => "command queue is full".to_owned(),
-                SubmitError::Disconnected(_) => "controller worker is unavailable".to_owned(),
-            })?;
-        let state = ticket
-            .wait()
-            .map_err(|_| "controller disappeared before completion".to_owned())?
-            .map_err(|error| format!("output command failed: {error:?}"))?;
-        println!("{command}: {state}");
-    }
-    Ok(())
-}
-
-fn run() -> Result<(), String> {
-    let output = led::open().map_err(|error| format!("cannot acquire LED output: {error:?}"))?;
-    let controller = Controller::start(output, 0).map_err(|error| error.to_string())?;
-    println!("ready: off");
-
-    let mut input = std::env::args().skip(1).peekable();
-    let commands = if input.peek().is_none() {
-        execute(&controller, ["on", "status", "off"])
-    } else {
-        execute(&controller, input)
-    };
-
-    // Even rejected input or a failed output operation reaches explicit cleanup.
-    let stopped = controller
-        .stop()
-        .map_err(|_| "controller worker panicked during shutdown".to_owned())?;
-    println!("stopped: {}", stopped.state);
-    let shutdown = stopped
-        .shutdown
-        .map_err(|error| format!("cannot switch output off: {error:?}"));
-    drop(stopped.output);
-    match (commands, shutdown) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(command), Err(shutdown)) => Err(format!("{command}; {shutdown}")),
-    }
-}
-
-fn main() {
-    if let Err(error) = run() {
-        eprintln!("controller: {error}");
-        std::process::exit(1);
-    }
-}
-```
-
-The `execute` function waits after every admitted command, so a printed command result always follows that command's handling. `run` reaches `stop` after invalid input or an output error once startup has succeeded. Acquiring the capability, deciding how errors are presented, and selecting recovery remain application responsibilities.
-
-## Build and boot on NuttX
-
-Reuse the Ubuntu x86-64 tool setup and active Python environment from [Building for NuttX](firmware.md#prepare-ubuntu). The [controller profile](../../tests/profiles/esp32s3-qemu-led-mock.toml) extends `esp32s3-qemu-mock` and selects `hal.led = "mock"`. It is a qualification configuration for this tutorial.
+The [QEMU profile](../../tests/profiles/esp32s3-qemu-pulse-mock.toml) extends `esp32s3-qemu-mock` and explicitly binds `pulse` to `mock`.
 
 <!-- tutorial:controller-build -->
 ```sh
-cargo nxrs build --manifest-path website/examples/controller/Cargo.toml --profile esp32s3-qemu-led-mock
+cargo nxrs build --manifest-path website/examples/controller/Cargo.toml --profile esp32s3-qemu-pulse-mock
 ```
-
-The build compiles this application's source, its dependencies, Rust standard-library integration and NuttX. The outputs are under `target/build/controller/esp32s3-qemu-led-mock/`. Boot that build's flash image:
 
 <!-- tutorial:controller-qemu -->
 ```sh
 (
   source target/qemu-tools/environment.sh
   qemu-system-xtensa -nographic -machine esp32s3 -nic none -no-reboot -snapshot \
-    -drive file=target/build/controller/esp32s3-qemu-led-mock/nuttx/nuttx.merged.bin,if=mtd,format=raw
+    -drive file=target/build/controller/esp32s3-qemu-pulse-mock/nuttx/nuttx.merged.bin,if=mtd,format=raw
 )
 ```
 
-At `nsh>`, enter:
+At `nsh>`, run `controller`, then `echo $?`; require the default output above and status `0`. Run `controller on wait 300 stats off` to observe acquisition, then `controller` again in the same boot. Exit QEMU with **Ctrl+A, then X**. Keep the emulator environment in the shown subshell so it does not affect subsequent host builds.
 
-```text
-nsh> controller
-ready: off
-on: on
-status: on
-off: off
-stopped: off
-nsh> echo $?
-0
+This checks the application, Rust threads/channels and NuttX integration using synthetic pulses. Physical PWM/GPIO operation requires the board run below.
+
+## Select either physical board
+
+Both hardware profiles inherit their existing peripheral configuration and choose ordinary hardware application admission. The underlying qualification profiles remain restricted to qualification packages.
+
+On Ubuntu, add the pinned ARM Rust toolchain and GNU ARM/newlib packages before building Pico 2 W:
+
+```sh
+rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
 ```
 
-Run `controller` again in the same boot to exercise a fresh lifetime. You can also enter `controller on status stop` to choose a shorter sequence. Exit QEMU with **Ctrl+A, then X**. Keep the emulator environment inside the shown subshell so it does not select the target compiler for subsequent host builds.
+| Board | Profile | PWM endpoint | Rising-edge input | Shared pad | Source stack request |
+| --- | --- | --- | --- | --- | --- |
+| ESP32-S3 WROOM | [`wroom-pulse`](../../platform/wroom/profiles/wroom-pulse.toml) | `/dev/pwm0` | `/dev/gpio2` | GPIO14 | 16384 bytes |
+| Raspberry Pi Pico 2 W | [`pico2w-pulse`](../../platform/pico2w/profiles/pico2w-pulse.toml) | `/dev/pwm7` | `/dev/gpio14` | GP14 | 8192 bytes |
 
-This run exercises Rust threads, channels, the configured mock capability and the NuttX application entry path. The mock has no physical LED. A physical profile needs a supported LED provider, a valid output index and separate hardware tests; do not infer those from the QEMU result. Consult [Drivers and HALs](hardware.md) and [Profiles and overlays](profiles.md) when selecting that integration.
+The WROOM profile inherits the `ARCH_CHIP_ESP32S3WROOM2N16R8V` module selection and a 16 MiB flash configuration. Confirm that the module marking and flash capacity match before using this profile.
 
-## Exercise failures and cleanup
+Select one profile and use the same inspection/build sequence:
 
-Run the example's host tests with the same explicit binding:
+```sh
+profile=wroom-pulse
+cargo nxrs profile --platform "$profile" --manifest-path website/examples/controller/Cargo.toml
+cargo nxrs config check --manifest-path website/examples/controller/Cargo.toml --profile "$profile"
+cargo nxrs build --manifest-path website/examples/controller/Cargo.toml --profile "$profile" --out "target/controller-$profile"
+sha256sum "target/controller-$profile/nuttx/nuttx" "target/controller-$profile/nuttx/nuttx.bin"
+```
+
+For Pico 2 W, set `profile=pico2w-pulse`. Retain the source commit, dirty diff if present, resolved profile, effective `.config`, image hashes and console transcript together. The stack values are requests to measure on the board, not demonstrated headroom.
+
+Install the selected image using the board's verified identity and backup/restore procedure. WROOM uses the simple-boot `nuttx.bin`; Pico can load the ELF `nuttx/nuttx` with picotool after entering BOOTSEL. The [existing peripheral qualification](../../tests/nuttx-std/peripherals/README.md) records the native path and previous physical evidence. [Pico USB recovery](../../tests/nuttx-std/wifi/README.md#usb-recovery) describes the existing bootloader-entry helper. This controller does not write the scratch flash partition or require Wi-Fi.
+
+On the board's serial console, enter the following commands in order. On Pico, send three newlines to establish the USB NSH session. Read `echo $?` immediately after each application invocation:
+
+```text
+uname
+controller on wait 300 stats off
+echo $?
+controller set 25 50 wait 300 stats off
+echo $?
+controller --watchdog 3000 on wait 1000 stats off
+echo $?
+controller --reset-cause
+echo $?
+controller on invalid
+echo $?
+controller
+echo $?
+free
+ps
+```
+
+The first three runs must report positive processed observations, consistent counts, both fault fields `none`, `off: off`, `stopped: off`, and status `0`. The reconfiguration must report `set 25 50: on (25 Hz, 50%)`; `--reset-cause` reports the current boot's cause without starting output. The invalid command must still print `stopped: off` and return `1`; the subsequent default invocation must succeed with status `0`, establishing reacquisition after error cleanup. Repeat start/stop while recording heap and task/stack output to detect retained resources. Recover to the saved image and verify its identity and normal behavior when ending the hardware trial.
+
+`--watchdog MS` is optional and accepts 1000–60000 ms. It arms the existing runtime watchdog on the controller owner, which wakes every 100 ms to assess health and feed. While output runs, health requires recent source progress within two requested periods plus 250 ms; repeating `on` or `set` does not extend that grace. Off and healthy is a valid idle state. A retained source fault, stalled observations or watchdog error stops feeding. Normal shutdown disarms only after pulse shutdown succeeds; a retained terminal source fault deliberately leaves the watchdog armed even after cleanup completes. Watchdog arm failure can also leave hardware armed under the existing HAL contract. After an unexpected reboot, capture `controller --reset-cause` and the previous transcript before restarting the trial. Host/QEMU mocks have no watchdog or reset-cause provider and explicitly reject those options.
+
+A successful cross-build or historical native peripheral run does not qualify this integrated controller. Record each board's actual results separately. Exact electrical frequency, duty and stop level require an independent pin measurement; task-receipt statistics alone cannot establish them.
+
+## Check failures and source drift
 
 <!-- tutorial:controller-test -->
 ```sh
 NXRS_PLATFORM=mock cargo test --locked --manifest-path website/examples/controller/Cargo.toml
 ```
 
-The [behavior tests](../examples/controller/tests/behaviour.rs) inject controlled implementations of the existing `Led` trait. They can pause an output operation or return an error at a chosen point without depending on timing guesses or a physical device.
+Controlled session fixtures cover full admission, dropped replies, retained faults under saturation, failed output changes, failed shutdown and repeated lifetimes. The console tests cover bounded lines. The guide runner also exercises invalid input followed by successful reacquisition:
 
-| Situation to verify | Required observation |
-| --- | --- |
-| Normal command sequence | Ordered state changes and a result for each accepted command |
-| Paused handler and two waiting commands | A further command returns `Full` with its value |
-| Stop while work is queued | Accepted work completes before the final off request and join |
-| Caller discards a completion ticket | The owner still handles the admitted command and can stop |
-| Invalid output index or initial off failure | Startup fails without launching an owner; output/error ownership is visible |
-| Output write failure | The completion reports failure and status becomes unknown |
-| Final off failure | The joined result retains the output, unknown state and shutdown error |
-| Repeated start/stop | Each lifetime starts with an off request and ends with a joined owner |
+```sh
+python3 website/tests/controller_example.py
+```
 
-The repository's [First firmware tutorial workflow](../../.github/workflows/first-firmware.yml) preserves the hello and worker exercises and adds this controller's host checks and target run. It checks the guide's source against the package, retains source/build identities and console output, and verifies repeated invocations and error exits. Host fixtures establish the specified application behavior; the QEMU run establishes integration with that exact target configuration.
+Add `--target` after installing the pinned QEMU tools to build and boot that same package. The runner checks these excerpts against the canonical source, validates command/output drift, parses observation statistics, requires error exit status and cleanup, and runs a detached temporary copy whose source and lockfile hashes match. Only dependency paths change in that copy, with `NXRS_SDK_ROOT` selecting the same SDK. There is no second checked-in application.
 
-## Adapt the application
+The [First firmware workflow](../../.github/workflows/first-firmware.yml) runs host/QEMU checks and cross-builds WROOM. The [Pico workflow](../../.github/workflows/nuttx-pico2.yml) cross-builds the same package for Pico 2 W. Reports live under `target/controller-tutorial/`; CI retains build records and console evidence. Physical acceptance remains the recorded board procedure above.
 
-Start with the command and state definitions when adding behavior. Keep output effects in the owner, give every new command an explicit result, and decide how failures affect subsequent commands. If the application needs recording or networking, define those operations' completion and capacity contracts before introducing another owner.
-
-[Designing an application](designing-applications.md) covers those choices. [Networking and storage](io.md) links the existing I/O contracts, and [Testing and debugging](testing.md) explains how to move from controlled fixtures to target and physical-device evidence.
+When extending the application, keep output effects in the owner, define each command's completion and failure behavior, and preserve source cancellation and join. [Designing an application](designing-applications.md), [Networking and storage](io.md) and [Testing and debugging](testing.md) cover the next decisions without requiring another controller example.

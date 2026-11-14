@@ -1017,6 +1017,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-pulse"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-acquisition",
+ "nxrs-build-support",
+ "nxrs-gpio",
+ "nxrs-pwm",
+]
+
+[[package]]
 name = "nxrs-pwm"
 version = "0.1.0"
 dependencies = [

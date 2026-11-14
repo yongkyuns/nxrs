@@ -11,7 +11,7 @@ The website is static HTML, CSS, and JavaScript generated from the guide and rep
 - `layout.html`: shared homepage and documentation layouts.
 - `static/`: local styles, search, theme, and navigation behavior.
 - `examples/basic-firmware/`: a dependency-free Cargo workspace used by the introductory guides.
-- `examples/controller/`: the runnable command/output controller, with bounded admission, completion tickets, and explicit shutdown.
+- `examples/controller/`: the canonical pulse controller, with bounded command/observation admission, completion tickets, and joined acquisition shutdown.
 - `../docs/`: maintained engineering references, rendered from their original Markdown sources.
 
 See [EDITORIAL.md](EDITORIAL.md) for the documentation structure and the external projects reviewed when organizing it. Retain a plain technical tone, concrete instructions, and links to implementation and tests.
@@ -67,7 +67,7 @@ Run the controller guide's source checks, Rust behavior tests, and host CLI case
 python website/tests/controller_example.py
 ```
 
-After the [firmware guide](guide/firmware.md) tool setup, add `--target` to build the same package and execute its command and shutdown paths on NuttX/QEMU. The First firmware tutorial workflow runs both application tutorials and retains build records and console transcripts. Controller results are written to `target/controller-tutorial/`. Its target profile explicitly uses the LED mock; this checks the Rust/NuttX execution path without claiming physical LED behavior.
+After the [firmware guide](guide/firmware.md) tool setup, add `--target` to build the same package and execute its command, observation and shutdown paths on NuttX/QEMU. The runner also relocates that canonical source into a temporary external workspace, rewrites only SDK dependency paths, and checks identical source/lock hashes before and after execution. The First firmware tutorial workflow runs both application tutorials and cross-builds WROOM; the existing Pico workflow cross-builds the same controller for Pico 2 W. Build records and console transcripts are retained, with controller results in `target/controller-tutorial/`. QEMU explicitly uses synthetic pulses; the guide's separate board procedure establishes physical execution evidence.
 
 For browser tests:
 

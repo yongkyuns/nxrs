@@ -10,7 +10,7 @@ name = "controller"
 path = "src/main.rs"
 
 [package.metadata.nxrs]
-required-capabilities = ["led"]
+required-capabilities = ["pulse"]
 
 [package.metadata.nxrs.firmware]
 bin = "controller"
@@ -19,4 +19,6 @@ priority = 100
 stack-size = 65536
 
 [dependencies]
-nxrs-led = { path = "../../../hal/led" }
+nxrs-pulse = { path = "../../../hal/pulse" }
+nxrs-watchdog = { path = "../../../hal/watchdog" }
+nxrs-boot = { path = "../../../hal/boot" }

@@ -21,6 +21,7 @@ pub const CAPABILITIES: &[&str] = &[
     "storage",
     "transport",
     "led",
+    "pulse",
     "imu",
     "gnss",
     "wifi",
@@ -560,7 +561,7 @@ impl Profile {
             .unwrap_or(json!({}));
         let bindings = bindings.as_object().ok_or("[hal] must be a table")?;
         for (k, v) in bindings {
-            if NUTTX_ENDPOINTS.contains(&k.as_str())
+            if (NUTTX_ENDPOINTS.contains(&k.as_str()) || k == "pulse")
                 && resolved.data["hal"][k] == "nuttx"
                 && v != "nuttx"
             {
@@ -869,6 +870,21 @@ impl Profile {
                 return Err("LED device configuration requires a valid NuttX device path".into());
             }
         }
+        let pulse = &self.data["pulse"];
+        if self.binding("pulse") == "nuttx" {
+            if !keys(pulse, &["pwm-device", "input-device", "stack-bytes"], &[])
+                || !device(&pulse["pwm-device"])
+                || !device(&pulse["input-device"])
+                || pulse["pwm-device"] == pulse["input-device"]
+                || !integer(&pulse["stack-bytes"], 8192, 262144)
+            {
+                return Err(
+                    "pulse requires distinct PWM and input device paths and stack-bytes between 8192 and 262144".into(),
+                );
+            }
+        } else if !pulse.is_null() {
+            return Err("pulse resource configuration requires its NuttX binding".into());
+        }
         self.network_initialization()?;
         for &capability in NUTTX_ENDPOINTS {
             let field = if capability == "wifi" {
@@ -1077,6 +1093,24 @@ impl Profile {
                     .unwrap_or("/dev/userleds")
                     .into(),
             ),
+            "pulse" if self.binding(capability) == "nuttx" => {
+                for (field, variable) in [
+                    ("pwm-device", "NXRS_PULSE_PWM_DEVICE"),
+                    ("input-device", "NXRS_PULSE_INPUT_DEVICE"),
+                ] {
+                    env(
+                        variable,
+                        self.data["pulse"][field]
+                            .as_str()
+                            .ok_or("missing pulse device path")?
+                            .into(),
+                    );
+                }
+                env(
+                    "NXRS_PULSE_STACK_BYTES",
+                    self.data["pulse"]["stack-bytes"].to_string(),
+                );
+            }
             "execution" if self.binding(capability) != "none" => {
                 for key in ["background", "normal"] {
                     env(
@@ -1290,6 +1324,128 @@ mod tests {
         wrong_provider.data["hal"]["led"] = json!("mock");
         assert!(wrong_provider.validate_resources().is_err());
     }
+
+    #[test]
+    fn pulse_profiles_supply_distinct_endpoints_and_an_explicit_worker_stack() {
+        let root = root();
+        for (name, pwm, input, stack) in [
+            ("esp32s3-peripherals", "/dev/pwm0", "/dev/gpio2", 16384),
+            ("pico2w-peripherals", "/dev/pwm7", "/dev/gpio14", 8192),
+            ("wroom-pulse", "/dev/pwm0", "/dev/gpio2", 16384),
+            ("pico2w-pulse", "/dev/pwm7", "/dev/gpio14", 8192),
+        ] {
+            let profile = Profile::resolve(&root, name).unwrap();
+            assert_eq!(profile.binding("pulse"), "nuttx");
+            assert_eq!(
+                profile.data["pulse"],
+                json!({"pwm-device": pwm, "input-device": input, "stack-bytes": stack}),
+            );
+            let output = profile.cargo_output(&root, "pulse", "nuttx").unwrap();
+            for expected in [
+                format!("cargo:rustc-env=NXRS_PULSE_PWM_DEVICE={pwm}"),
+                format!("cargo:rustc-env=NXRS_PULSE_INPUT_DEVICE={input}"),
+                format!("cargo:rustc-env=NXRS_PULSE_STACK_BYTES={stack}"),
+                "cargo:rustc-cfg=platform=\"nuttx\"".into(),
+            ] {
+                assert!(output.contains(&expected), "{name}: missing {expected}");
+            }
+        }
+        for (name, os) in [("mock", "linux"), ("esp32s3-qemu-pulse-mock", "nuttx")] {
+            let profile = Profile::resolve(&root, name).unwrap();
+            let output = profile.cargo_output(&root, "pulse", os).unwrap();
+            assert!(output.contains(&"cargo:rustc-cfg=platform=\"mock\"".into()));
+            assert!(!output
+                .iter()
+                .any(|line| line.starts_with("cargo:rustc-env=")));
+        }
+    }
+
+    #[test]
+    fn pulse_resources_reject_missing_invalid_and_mismatched_bindings() {
+        let base = Profile::resolve(&root(), "pico2w-peripherals").unwrap();
+        for field in ["pwm-device", "input-device", "stack-bytes"] {
+            let mut profile = base.clone();
+            profile.data["pulse"].as_object_mut().unwrap().remove(field);
+            assert!(profile.validate_resources().is_err(), "missing {field}");
+        }
+        let mut missing = base.clone();
+        missing.data.as_object_mut().unwrap().remove("pulse");
+        assert!(missing.validate_resources().is_err());
+        for field in ["pwm-device", "input-device"] {
+            for invalid in [
+                json!(null),
+                json!(false),
+                json!(""),
+                json!("/tmp/pwm0"),
+                json!("/dev/../pwm0"),
+                json!("/dev/pwm0\ninvalid"),
+            ] {
+                let mut profile = base.clone();
+                profile.data["pulse"][field] = invalid;
+                assert!(profile.validate_resources().is_err(), "invalid {field}");
+            }
+        }
+        for invalid in [
+            json!(null),
+            json!(true),
+            json!(8191),
+            json!(262145),
+            json!(8192.5),
+        ] {
+            let mut profile = base.clone();
+            profile.data["pulse"]["stack-bytes"] = invalid;
+            assert!(profile.validate_resources().is_err());
+        }
+        let mut same_endpoint = base.clone();
+        same_endpoint.data["pulse"]["input-device"] = base.data["pulse"]["pwm-device"].clone();
+        assert!(same_endpoint.validate_resources().is_err());
+        let mut unexpected = base.clone();
+        unexpected.data["pulse"]["frequency"] = json!(25);
+        assert!(unexpected.validate_resources().is_err());
+        for provider in ["none", "mock", "linux"] {
+            let mut profile = base.clone();
+            profile.data["hal"]["pulse"] = json!(provider);
+            assert!(profile.validate_resources().is_err());
+        }
+    }
+
+    #[test]
+    fn pulse_inheritance_removes_native_inputs_when_the_provider_changes() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = &temp.0;
+        let profiles = root.join("tests/profiles");
+        let pulse = root.join("hal/pulse");
+        fs::create_dir_all(&profiles).unwrap();
+        fs::create_dir_all(&pulse).unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        fs::write(
+            pulse.join("Cargo.toml"),
+            "[package]\nname='nxrs-pulse'\n[package.metadata.nxrs]\nplatforms=['nuttx','mock']\n",
+        )
+        .unwrap();
+        let resources =
+            "[pulse]\npwm-device='/dev/pwm7'\ninput-device='/dev/gpio14'\nstack-bytes=8192\n";
+        fs::write(
+            profiles.join("base.toml"),
+            format!("[hal]\npulse='nuttx'\n{resources}"),
+        )
+        .unwrap();
+        for provider in ["none", "mock"] {
+            let contents = format!("extends='base'\n[hal]\npulse='{provider}'\n");
+            let child = profiles.join("child.toml");
+            fs::write(&child, &contents).unwrap();
+            let profile = Profile::resolve(root, "child").unwrap();
+            assert_eq!(profile.binding("pulse"), provider);
+            assert!(profile.data.get("pulse").is_none());
+            fs::write(&child, format!("{contents}{resources}")).unwrap();
+            assert!(Profile::resolve(root, "child").is_err());
+        }
+        fs::write(profiles.join("child.toml"), "[hal]\npulse='linux'\n").unwrap();
+        assert!(Profile::resolve(root, "child")
+            .unwrap_err()
+            .contains("unsupported pulse implementation"));
+    }
+
     #[test]
     fn every_tracked_profile_resolves() {
         let root = root();

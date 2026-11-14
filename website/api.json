@@ -13,6 +13,7 @@
       "title": "Capability APIs",
       "packages": [
         {"package": "nxrs-led", "crate": "led", "path": "hal/led", "summary": "Synchronous LED controls, supported indices, and configured acquisition."},
+        {"package": "nxrs-pulse", "crate": "pulse", "path": "hal/pulse", "summary": "Configured PWM output with bounded task-context GPIO observations and joined acquisition shutdown."},
         {"package": "nxrs-console", "crate": "console", "path": "hal/console", "summary": "An exclusively owned commissioning byte stream."},
         {"package": "nxrs-storage", "crate": "storage", "path": "hal/storage", "summary": "Frame storage, explicit file recording, and configured record-file acquisition."},
         {"package": "nxrs-transport", "crate": "transport", "path": "hal/transport", "summary": "Whole-packet output and explicit UDP socket transport."},
