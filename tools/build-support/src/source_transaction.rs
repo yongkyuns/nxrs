@@ -107,6 +107,13 @@ fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 fn sync(path: &Path) -> Result<()> {
+    // Windows' standard File::open refuses directories (ERROR_ACCESS_DENIED).
+    // Retain file-data durability, but do not require a directory fsync that
+    // std cannot perform on Windows. Unix still syncs renamed directories.
+    #[cfg(windows)]
+    if path.is_dir() {
+        return Ok(());
+    }
     File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|e| format!("{}: {e}", path.display()))
