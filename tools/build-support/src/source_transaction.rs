@@ -240,7 +240,9 @@ pub fn recover(root: &Path) -> Result<()> {
     finish(root, &journal, &edits)
 }
 
-#[cfg(test)]
+// NuttX runs its native configuration toolchain on POSIX hosts. The reader
+// guard still runs during portable profile resolution on Windows.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
