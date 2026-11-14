@@ -35,11 +35,16 @@ cargo nxrs config --app event-demo --platform cores3
 
 With no arguments, the terminal command offers application and NuttX platform choices. From inside `app/<name>/`, it infers the application. Use the same `--manifest-path`, `--profile`, and ordered `--overlay` arguments as your build for an external application or product variant. `cargo nxrs config --help` lists selections and examples.
 
-1. Press `/` and search by prompt text, such as `debug assertions`, or by native symbol, such as `CONFIG_DEBUG_ASSERTIONS`. Press Enter for details. **Requires** shows conditions such as `CONFIG_DEBUG_FEATURES`; press `p` to inspect a prerequisite and Escape to return.
-2. Press Space to edit. NuttX evaluates dependencies and permitted values; a requested value that cannot take effect appears as a problem. **Owned by** identifies settings supplied by build requirements or resources. Required settings stay read-only. Supported I2C and UART pin edits update their owning resource field in the profile or overlay.
-3. Press `r` to review the source destinations, your explicit edits, resulting native changes, and any problems. Press uppercase `S` to save and sync. After success, continue editing: the saved configuration becomes the new baseline. Firmware compilation is a separate step.
+1. **Find a setting.** Press `g` to choose a native menu group: type to filter the groups, move with the arrow keys, then press Enter. Use `/` to search all settings by prompt text, such as `debug assertions`, or by native symbol, such as `CONFIG_DEBUG_ASSERTIONS`. Submitting a search clears the group and Changed filters. In the settings list, press Enter to open details.
+2. **Understand its state.** The summary shows the current value and any restriction on editing. Press `p` to inspect a prerequisite and Escape to return. Press `t` to show or hide technical details, including native expressions, defaults, and source locations.
+3. **Make an edit.** Press Space to change the value. NuttX evaluates dependencies and permitted values; a requested value that cannot take effect appears as a problem. Edited settings are marked in the list. Press `c` to toggle the Changed filter for settings requested in the current draft.
+4. **Review and save.** Press `r` or uppercase `S` to review. The summary counts source edits, resulting native changes, and problems; blocking problems appear first. Check the destination files and the complete changes, then press `S` in Review to save and sync. After success, continue editing: the saved configuration becomes the new baseline. Firmware compilation is a separate step.
 
-Use `d` to remove an ordinary fragment override; for a resource pin, it discards that pin's unsaved edit. Press `q` to leave and discard unsaved changes. Previously saved edits remain.
+**Location** shows where NuttX organizes a setting in its menus. **Requires** shows the conditions that restrict it; **Enabled by** identifies other settings currently selecting its value. These relationships are separate: a menu name alone does not explain why a setting is unavailable. The technical view preserves the full native conditions. **Owned by** identifies values supplied by build requirements or resources. Required settings stay read-only. Supported I2C and UART pin edits update their owning resource field in the profile or overlay.
+
+Tab switches between Settings and Detail; the active pane is emphasized. Escape closes a popup, returns from a detail or prerequisite, or clears a list filter. It never quits the editor. Use `d` to remove an ordinary fragment override; for a resource pin, it discards that pin's unsaved edit. Press `q` or Ctrl-C to quit; unsaved edits require confirmation before being discarded. Previously saved edits remain.
+
+The Changed filter tracks your draft requests. Review also shows effective native changes caused by dependency resolution, so it can contain additional settings. During resolution, the UI labels any displayed values from the last resolved configuration; wait for completion before making another edit or saving.
 
 ### Where settings are saved
 

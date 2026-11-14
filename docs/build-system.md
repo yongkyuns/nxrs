@@ -218,11 +218,12 @@ Application discovery reports malformed app manifests instead of hiding them.
 
 Use `cargo nxrs config --app event-demo --platform cores3` to edit the native
 configuration for a selected build. The [configuration guide](../website/guide/profiles.md#configure-nuttx)
-documents prerequisites, search and dependency navigation, source ownership,
-repeat saves, and failure recovery. `config check`, `config show`, and
-`config explain CONFIG_SYMBOL` use the same native `olddefconfig` resolution
-with the same selection flags. Preparation validates the subsequent Make
-context, and the build checks configuration and header identities after linking.
+documents prerequisites, native group browsing, search and dependency navigation,
+review, source ownership, repeat saves, and failure recovery. `config check`,
+`config show`, and `config explain CONFIG_SYMBOL` use the same native
+`olddefconfig` resolution with the same selection flags. Preparation validates
+the subsequent Make context, and the build checks configuration and header
+identities after linking.
 
 A profile's optional top-level `nuttx-config = "nuttx.conf"` points to a
 native fragment relative to the profile that declares it. An inherited
