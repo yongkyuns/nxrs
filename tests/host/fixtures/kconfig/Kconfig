@@ -1,0 +1,65 @@
+mainmenu "NXRS configuration test"
+
+config GATE
+    bool "Enable the enclosing menu"
+
+config BLOCKED
+    bool "Block the feature"
+
+config LIMIT
+    int "Limit"
+    range 1 10
+    default 5
+
+config ALT
+    bool "Alternate prerequisite"
+
+if GATE
+
+menu "Inherited menu"
+    depends on !BLOCKED
+
+config FEATURE
+    bool "Feature"
+    depends on LIMIT >= 4 || ALT
+    select SELECTED
+    imply IMPLIED
+    help
+      Enable the fixture feature.
+
+config BUFFER
+    int "Buffer size"
+    range 1 8 if ALT
+    range 1 4
+    default 3 if FEATURE
+
+choice
+    prompt "Transport"
+
+config LOCAL
+    bool "Local"
+
+config SERIAL
+    bool "Serial"
+
+endchoice
+
+endmenu
+
+endif
+
+config SELECTED
+    bool
+    depends on ALT
+
+config IMPLIED
+    bool "Implied setting"
+    depends on ALT
+
+config OTHERWISE
+    bool "Defined outside the menu"
+    depends on BLOCKED
+
+config OTHERWISE
+    bool "Another definition"
+    depends on GATE

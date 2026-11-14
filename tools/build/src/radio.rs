@@ -96,26 +96,18 @@ fn atomic(path: &Path, data: &[u8]) -> Result<()> {
     fs::write(&file, data).map_err(|e| e.to_string())?;
     fs::rename(file, path).map_err(|e| e.to_string())
 }
-pub fn prepare(root: &Path, out: &Path, kind: &str) -> Result<(PathBuf, usize, Option<PathBuf>)> {
-    prepare_cached(
-        &root.join("target/radio-deps/cyw43439"),
-        Some(&out.join("radio-firmware.json")),
-        kind,
-        &env::var("NXRS_PICO_RADIO_RELEASE").unwrap_or("pico-sdk-2.3.1".into()),
-    )
+fn bluetooth_enabled(kind: &str) -> Result<bool> {
+    match kind {
+        "cyw43439" => Ok(false),
+        "cyw43439-bluetooth" => Ok(true),
+        _ => Err("unsupported radio-firmware".into()),
+    }
 }
-pub fn prepare_cached(
-    cache_base: &Path,
-    record_path: Option<&Path>,
-    kind: &str,
+
+fn radio_release(
     release: &str,
-) -> Result<(PathBuf, usize, Option<PathBuf>)> {
-    let bt = match kind {
-        "cyw43439" => false,
-        "cyw43439-bluetooth" => true,
-        _ => return Err("unsupported radio-firmware".into()),
-    };
-    let (sdk, revision, bt_hash, bt_size, bt_length) = match release {
+) -> Result<(&'static str, &'static str, &'static str, u64, usize)> {
+    Ok(match release {
         "pico-sdk-2.3.1" => (
             "2.3.1",
             "055d64274b014dd7b1c2fc94d26e8a18face7124",
@@ -131,23 +123,59 @@ pub fn prepare_cached(
             6164,
         ),
         _ => return Err("unknown radio asset release".into()),
-    };
+    })
+}
+
+fn config_values(cache: &Path, bt: bool) -> (PathBuf, usize, Option<PathBuf>) {
+    if bt {
+        (
+            cache.join("cyw43439-wb.bin"),
+            231077,
+            Some(cache.join("cyw43439-bt.bin")),
+        )
+    } else {
+        (cache.join("cyw43439.bin"), 224190, None)
+    }
+}
+
+pub fn inspect(root: &Path, kind: &str) -> Result<(PathBuf, usize, Option<PathBuf>)> {
+    let release = env::var("NXRS_PICO_RADIO_RELEASE").unwrap_or("pico-sdk-2.3.1".into());
+    let (_, revision, _, _, _) = radio_release(&release)?;
+    let cache = root.join("target/radio-deps/cyw43439").join(revision);
+    Ok(config_values(&cache, bluetooth_enabled(kind)?))
+}
+
+pub fn prepare(root: &Path, out: &Path, kind: &str) -> Result<(PathBuf, usize, Option<PathBuf>)> {
+    prepare_cached(
+        &root.join("target/radio-deps/cyw43439"),
+        Some(&out.join("radio-firmware.json")),
+        kind,
+        &env::var("NXRS_PICO_RADIO_RELEASE").unwrap_or("pico-sdk-2.3.1".into()),
+    )
+}
+pub fn prepare_cached(
+    cache_base: &Path,
+    record_path: Option<&Path>,
+    kind: &str,
+    release: &str,
+) -> Result<(PathBuf, usize, Option<PathBuf>)> {
+    let bt = bluetooth_enabled(kind)?;
+    let (sdk, revision, bt_hash, bt_size, bt_length) = radio_release(release)?;
     let cache = cache_base.join(revision);
+    let (binary, length, bt_binary) = config_values(&cache, bt);
     let default_record = cache.join("firmware.json");
     let record_path = record_path.unwrap_or(&default_record);
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     let base = format!("https://raw.githubusercontent.com/georgerobotics/cyw43-driver/{revision}");
-    let (name, digest, length) = if bt {
+    let (name, digest) = if bt {
         (
             "wb43439A0_7_95_49_00_combined",
             "6b4b9a717c3c5d669b56a3bc38b58df3901f63e3a7363ccf5d74706460762176",
-            231077,
         )
     } else {
         (
             "w43439A0_7_95_49_00_combined",
             "120bb63db1c5cf42cd44cf9a057d6f14601038a9413badf5a3b737f6552bc9ea",
-            224190,
         )
     };
     let header = cache.join(format!("{name}.h"));
@@ -160,25 +188,16 @@ pub fn prepare_cached(
         None,
         &cache.join("LICENSE.RP"),
     )?;
-    let binary = cache.join(if bt {
-        "cyw43439-wb.bin"
-    } else {
-        "cyw43439.bin"
-    });
     atomic(&binary, &wifi(&read(&header)?, name, length)?)?;
     let mut record = json!({"schema":1,"revision":revision,"sdk_release":sdk,"source":url,"header_sha256":digest,"binary":binary,"binary_sha256":hash(&binary)?,"wifi_length":length,"clm_offset":(length+511)&!511,"clm_length":984,"wifi_bluetooth":bt,"license":cache.join("LICENSE.RP"),"license_sha256":LICENSE});
-    let bt_binary = if bt {
+    if let Some(path) = &bt_binary {
         let header = cache.join("cyw43_btfw_43439.h");
         let url = format!("{base}/firmware/cyw43_btfw_43439.h");
         fetch_bounded(&url, bt_hash, 2_000_000, Some(bt_size), &header)?;
         let blob = bluetooth(&read(&header)?, bt_length)?;
-        let path = cache.join("cyw43439-bt.bin");
-        atomic(&path, &blob)?;
+        atomic(path, &blob)?;
         record["bluetooth"] = json!({"source":url,"header_sha256":bt_hash,"header_length":bt_size,"binary":path,"binary_sha256":hash(&path)?,"binary_length":blob.len(),"version":std::str::from_utf8(&blob[1..blob[0] as usize]).map_err(|e|e.to_string())?});
-        Some(path)
-    } else {
-        None
-    };
+    }
     fs::create_dir_all(record_path.parent().ok_or("radio record needs a parent")?)
         .map_err(|e| e.to_string())?;
     write_json(record_path, &record)?;

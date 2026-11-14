@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct App {
     pub manifest: PathBuf,
     pub package: String,
@@ -132,7 +132,7 @@ mod descriptor_tests {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Options {
     pub clean: bool,
     pub features: Vec<String>,
@@ -255,7 +255,7 @@ impl Options {
     }
 }
 
-fn kconfig_value(value: &str) -> bool {
+pub(crate) fn kconfig_value(value: &str) -> bool {
     if matches!(value, "y" | "m" | "n") {
         return true;
     }

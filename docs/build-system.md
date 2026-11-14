@@ -226,6 +226,45 @@ The existing ESP32-S3 RAM controls and CoreS3 sensor build check linked flash,
 unpadded image size, and static RAM in CI. Review intended growth against those
 byte limits. Heap use and worker stacks need runtime measurements.
 
+Use `cargo nxrs config --app event-demo --platform cores3` to inspect the
+CoreS3 project. Install the [NuttX host tools](https://nuttx.apache.org/docs/latest/quickstart/install.html)
+and use the pinned `kconfiglib==14.1.0` in the same Python environment as
+`olddefconfig`. View and check settings with the host tools alone. Save & sync
+also uses the board's compilers and SDK to prepare headers, Rust inputs, and
+editor context. Firmware compilation and flashing are separate.
+
+1. Press `/`, search for `CONFIG_DEBUG_ASSERTIONS`, and open its detail with
+   Enter. **Requires** shows the enclosing `CONFIG_DEBUG_FEATURES` condition.
+   Use `p` to inspect a prerequisite and Escape to return.
+2. Press Space to change a value. For an I2C or UART pin, search for its native
+   symbol and edit the value shown under **Owned by**. This updates the owning
+   resource field in its profile or overlay. The usual BSP validation still applies.
+3. Press `r` to review source edits, resulting native changes, and any problems.
+   Press uppercase `S` in review to save and sync. Use `d` to remove an explicit
+   override. Quit with `q` to discard the draft.
+4. Reopen the same selection or run
+   `cargo nxrs config check --app event-demo --platform cores3`. Use
+   `config show` for JSON and `config explain CONFIG_DEBUG_ASSERTIONS` for the
+   same explanation as the terminal. These commands report native
+   `olddefconfig` results. Preparation validates the subsequent Make context,
+   and the build checks the same configuration and header identities after linking.
+
+A profile's optional top-level `nuttx-config = "nuttx.conf"` points to a
+native fragment relative to the profile that declares it. An inherited
+reference keeps that location unless the child replaces it. If there is no
+reference, the review shows the new fragment and reference in the selected
+profile. The fragment stores explicit assignments such as
+`CONFIG_DEBUG_ASSERTIONS=y` or `# CONFIG_DEBUG_ASSERTIONS is not set`.
+Legacy `[kconfig]` settings supply defaults. The fragment overrides defaults
+and ordinary CLI requests override the fragment. Mandatory settings and
+BSP resources retain their ownership.
+
+External changes during editing require a reload. An interrupted source
+publication blocks resolution until `cargo nxrs config recover` finishes it.
+**Saved; sync failed** means the source edits are already present. After fixing
+the reported preparation error, press `S` again in review to retry. A no-op
+save leaves the sources and existing build cache untouched.
+
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
 symbol names without the `CONFIG_` prefix. Values are literal Kconfig booleans
