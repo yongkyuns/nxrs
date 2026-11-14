@@ -188,3 +188,8 @@ reason = "Target pollfd layout and pipe2 flags only. Shared Rust readiness owns 
 path = "driver/gpio/src/platform/nuttx/ffi/gpio.c"
 kind = "abi"
 reason = "Individual GPIO interrupt ioctls only. NuttX owns ISR notifications; the Rust GPIO resource owns registration and rollback and reports cleanup uncertainty to its owner."
+
+[[bridge]]
+path = "hal/display/src/platform/nuttx/ffi/spi.c"
+kind = "abi"
+reason = "Translate a borrowed command and bytes into the NuttX SPI command/data sequence."

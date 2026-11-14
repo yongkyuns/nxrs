@@ -105,7 +105,9 @@
       "0118-esp32s3-smp-psram-atomics.patch",
       "0119-esp32s3-board-reset-cause.patch",
       "0120-rp23xx-peripheral-device-controls.patch",
-      "0121-espressif-ledc-gpio-readback.patch"
+      "0121-espressif-ledc-gpio-readback.patch",
+      "0122-esp32s3-spi-write-only-pio.patch",
+      "0123-esp32s3-cores3-display-resources.patch"
     ]
   },
   "mcuboot": {

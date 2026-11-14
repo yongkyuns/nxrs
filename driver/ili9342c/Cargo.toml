@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-ili9342c"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ili9342c"
