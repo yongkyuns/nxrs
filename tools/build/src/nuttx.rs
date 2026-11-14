@@ -1514,6 +1514,21 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
             .nth(1)
             .ok_or("invalid submodule status")?;
         let module = destination.join(path);
+        // A source cache may initialize only the SDK components this target
+        // uses. An absent checkout has no Git metadata or build outputs to clean.
+        if line.starts_with('-') {
+            match module.symlink_metadata() {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(metadata)
+                    if metadata.is_dir()
+                        && fs::read_dir(&module).map_err(|e| e.to_string())?.next().is_none() => {}
+                _ => return Err("uninitialized Espressif HAL cache submodule contains files".into()),
+            };
+            continue;
+        }
+        if !line.starts_with(' ') {
+            return Err("Espressif HAL cache submodule differs from its pinned revision".into());
+        }
         let metadata = PathBuf::from(
             output(source::git(&module).args(["rev-parse", "--absolute-git-dir"]))?.trim(),
         );
@@ -1680,6 +1695,51 @@ mod tests {
         let error = copy_hal_cache(&cache, &temp.0.join("escaped"), revision.trim()).unwrap_err();
         assert!(error.contains("escapes build checkout"));
         assert!(cache.join("keep").exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn copied_hal_cache_accepts_uninitialized_optional_submodules() {
+        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+        let cache = temp.0.join("cache");
+        fs::create_dir(&cache).unwrap();
+        run(source::git(&cache).args(["init", "--quiet"])).unwrap();
+        fs::write(
+            cache.join(".gitmodules"),
+            "[submodule \"optional\"]\n\tpath = optional\n\turl = ../optional\n",
+        )
+        .unwrap();
+        run(source::git(&cache).args(["add", ".gitmodules"])).unwrap();
+        run(source::git(&cache).args([
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000,1111111111111111111111111111111111111111,optional",
+        ]))
+        .unwrap();
+        run(source::git(&cache).args([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ]))
+        .unwrap();
+        fs::create_dir(cache.join("optional")).unwrap();
+        fs::write(cache.join("cache_utils.o"), "single-core object").unwrap();
+        let revision = output(source::git(&cache).args(["rev-parse", "HEAD"])).unwrap();
+        let clean = temp.0.join("clean");
+        copy_hal_cache(&cache, &clean, revision.trim()).unwrap();
+        assert!(!clean.join("cache_utils.o").exists());
+        assert!(cache.join("cache_utils.o").exists());
+        fs::write(cache.join("optional/cache_utils.o"), "stale object").unwrap();
+        let error = copy_hal_cache(&cache, &temp.0.join("stale"), revision.trim()).unwrap_err();
+        assert!(error.contains("uninitialized Espressif HAL cache submodule"));
+        assert!(cache.join("optional/cache_utils.o").exists());
     }
     #[test]
     fn literal_config_and_resolution() {
