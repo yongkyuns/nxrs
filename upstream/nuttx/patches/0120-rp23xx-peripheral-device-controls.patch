@@ -1,0 +1,260 @@
+Subject: [PATCH] rp23xx: expose configured peripheral device controls
+
+Use the existing GPIO, watchdog, flash and RTC drivers. The RTC device
+backports the clock operations from Apache NuttX PR #20490
+(3437c926c245092a06b5d8fe111f6386990fe857), with alarms out of scope.
+
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+@@ -4,6 +4,16 @@
+ #
+ 
+ if ARCH_BOARD_RASPBERRYPI_PICO_2
++
++config RASPBERRYPI_PICO_2_GPIO_OUTPUT_PIN
++	int "GPIO character driver output pin"
++	depends on DEV_GPIO && !GPIO_LOWER_HALF
++	range 0 29
++	default 25
++
++config RASPBERRYPI_PICO_2_GPIO_IRQ_RISING
++	bool "Use a rising edge for the GPIO interrupt input"
++	depends on DEV_GPIO && !GPIO_LOWER_HALF
+ 
+ config ARCH_LEDS
+ 	depends on !RP23XX_INFINEON_CYW43439
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_gpio.c b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_gpio.c
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_gpio.c
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_gpio.c
+@@ -44,7 +44,7 @@
+ /* Output pins. GPIO25 is onboard LED any other outputs could be used.
+  */
+ 
+-#define GPIO_OUT1     25
++#define GPIO_OUT1     CONFIG_RASPBERRYPI_PICO_2_GPIO_OUTPUT_PIN
+ 
+ /* Input pins.
+  */
+@@ -55,6 +55,14 @@
+  */
+ 
+ #define GPIO_IRQPIN1  14
++
++#ifdef CONFIG_RASPBERRYPI_PICO_2_GPIO_IRQ_RISING
++#  define GPIO_IRQ_EDGE RP23XX_GPIO_INTR_EDGE_HIGH
++#  define GPIO_IRQ_TYPE GPIO_INTERRUPT_RISING_PIN
++#else
++#  define GPIO_IRQ_EDGE RP23XX_GPIO_INTR_EDGE_LOW
++#  define GPIO_IRQ_TYPE GPIO_INTERRUPT_PIN
++#endif
+ 
+ /****************************************************************************
+  * Private Types
+@@ -265,7 +273,7 @@
+ 
+   rp23xx_gpio_disable_irq(irq);
+   ret = rp23xx_gpio_irq_attach(irq,
+-                               RP23XX_GPIO_INTR_EDGE_LOW,
++                               GPIO_IRQ_EDGE,
+                                rp23xxgpio_interrupt,
+                                &g_gpint[rp23xxgpint->rp23xxgpio.id]);
+   if (ret < 0)
+@@ -370,7 +378,7 @@
+     {
+       /* Setup and register the GPIO pin */
+ 
+-      g_gpint[i].rp23xxgpio.gpio.gp_pintype = GPIO_INTERRUPT_PIN;
++      g_gpint[i].rp23xxgpio.gpio.gp_pintype = GPIO_IRQ_TYPE;
+       g_gpint[i].rp23xxgpio.gpio.gp_ops     = &gpint_ops;
+       g_gpint[i].rp23xxgpio.id              = i;
+       gpio_pin_register(&g_gpint[i].rp23xxgpio.gpio, g_gpiointinputs[i]);
+diff --git a/arch/arm/src/rp23xx/rp23xx_wdt.c b/arch/arm/src/rp23xx/rp23xx_wdt.c
+--- a/arch/arm/src/rp23xx/rp23xx_wdt.c
++++ b/arch/arm/src/rp23xx/rp23xx_wdt.c
+@@ -189,8 +189,11 @@
+ 
+   wdinfo("Entry\n");
+ 
+-  status->flags    =  (ctrl & RP23XX_WATCHDOG_CTRL_ENABLE) ? WDFLAGS_ACTIVE
+-                                                           : 0;
++  status->flags    = WDFLAGS_RESET;
++  if (ctrl & RP23XX_WATCHDOG_CTRL_ENABLE)
++    {
++      status->flags |= WDFLAGS_ACTIVE;
++    }
+ 
+   status->timeout  =  priv->timeout;
+ 
+diff --git a/arch/arm/src/rp23xx/rp23xx_flash_mtd.c b/arch/arm/src/rp23xx/rp23xx_flash_mtd.c
+--- a/arch/arm/src/rp23xx/rp23xx_flash_mtd.c
++++ b/arch/arm/src/rp23xx/rp23xx_flash_mtd.c
+@@ -656,6 +656,20 @@
+         }
+         break;
+ 
++      case MTDIOC_ERASESECTORS:
++        {
++          const struct mtd_erase_s *erase = (const struct mtd_erase_s *)arg;
++
++          if (erase == NULL || erase->startblock > FS_SECTORS ||
++              erase->nblocks > FS_SECTORS - erase->startblock)
++            {
++              return -EINVAL;
++            }
++
++          ret = rp23xx_flash_erase(dev, erase->startblock, erase->nblocks);
++        }
++        break;
++
+       case MTDIOC_BULKERASE:
+         ret = rp23xx_flash_erase(dev, 0, FS_SECTORS);
+         if (ret >= 0)
+diff --git a/boards/arm/rp23xx/common/src/rp23xx_reset.c b/boards/arm/rp23xx/common/src/rp23xx_reset.c
+--- a/boards/arm/rp23xx/common/src/rp23xx_reset.c
++++ b/boards/arm/rp23xx/common/src/rp23xx_reset.c
+@@ -29,6 +29,21 @@
+ 
+ #include "rp23xx_rom.h"
+ 
++#ifdef CONFIG_BOARDCTL_RESET_CAUSE
++#  include "arm_internal.h"
++#  include "hardware/rp23xx_watchdog.h"
++#  include <sys/boardctl.h>
++
++int board_reset_cause(struct boardioc_reset_cause_s *cause)
++{
++  uint32_t reason = getreg32(RP23XX_WATCHDOG_REASON);
++  cause->flag = 0;
++  cause->cause = (reason & RP23XX_WATCHDOG_REASON_TIMER) != 0
++                 ? BOARDIOC_RESETCAUSE_CORE_MWDT
++                 : BOARDIOC_RESETCAUSE_UNKOWN;
++  return 0;
++}
++#endif
+ #if defined(CONFIG_BOARDCTL_RESET) || defined(CONFIG_BOARD_USBDEV_BOOTLOADER)
+ 
+ /****************************************************************************
+diff --git a/boards/arm/rp23xx/common/src/Make.defs b/boards/arm/rp23xx/common/src/Make.defs
+--- a/boards/arm/rp23xx/common/src/Make.defs
++++ b/boards/arm/rp23xx/common/src/Make.defs
+@@ -29,7 +29,7 @@
+ CSRCS += rp23xx_common_bringup.c
+ CSRCS += rp23xx_common_initialize.c
+ 
+-ifneq ($(filter y,$(CONFIG_BOARDCTL_RESET) $(CONFIG_BOARD_USBDEV_BOOTLOADER)),)
++ifneq ($(filter y,$(CONFIG_BOARDCTL_RESET) $(CONFIG_BOARDCTL_RESET_CAUSE) $(CONFIG_BOARD_USBDEV_BOOTLOADER)),)
+ CSRCS += rp23xx_reset.c
+ endif
+ 
+diff --git a/boards/arm/rp23xx/common/src/CMakeLists.txt b/boards/arm/rp23xx/common/src/CMakeLists.txt
+--- a/boards/arm/rp23xx/common/src/CMakeLists.txt
++++ b/boards/arm/rp23xx/common/src/CMakeLists.txt
+@@ -26,7 +26,7 @@
+ 
+   list(APPEND SRCS rp23xx_common_bringup.c rp23xx_common_initialize.c)
+ 
+-  if(CONFIG_BOARDCTL_RESET OR CONFIG_BOARD_USBDEV_BOOTLOADER)
++  if(CONFIG_BOARDCTL_RESET OR CONFIG_BOARDCTL_RESET_CAUSE OR CONFIG_BOARD_USBDEV_BOOTLOADER)
+     list(APPEND SRCS rp23xx_reset.c)
+   endif()
+ 
+diff --git a/arch/arm/src/rp23xx/rp23xx_rtc.c b/arch/arm/src/rp23xx/rp23xx_rtc.c
+--- a/arch/arm/src/rp23xx/rp23xx_rtc.c
++++ b/arch/arm/src/rp23xx/rp23xx_rtc.c
+@@ -47,6 +47,7 @@
+ 
+ #include <nuttx/arch.h>
+ #include <nuttx/irq.h>
++#include <nuttx/timers/rtc.h>
+ 
+ #include "arm_internal.h"
+ #include "hardware/rp23xx_powman.h"
+@@ -228,4 +229,46 @@
+   return OK;
+ }
+ 
++/* Expose the same POWMAN clock through the NuttX RTC upper half.
++ * Read, set and availability follow upstream NuttX PR #20490.
++ */
++
++#ifdef CONFIG_RTC_DRIVER
++static int rp23xx_rdtime(struct rtc_lowerhalf_s *lower,
++                         struct rtc_time *rtctime)
++{
++  time_t secs = up_rtc_time();
++  return gmtime_r(&secs, (struct tm *)rtctime) == NULL ? -EINVAL : OK;
++}
++
++static int rp23xx_settime(struct rtc_lowerhalf_s *lower,
++                         const struct rtc_time *rtctime)
++{
++  struct tm tm = *(const struct tm *)rtctime;
++  struct timespec ts = { .tv_sec = timegm(&tm) };
++  return up_rtc_settime(&ts);
++}
++
++static bool rp23xx_havesettime(struct rtc_lowerhalf_s *lower)
++{
++  /* POWMAN reports a running counter, with no flag for a user-set epoch. */
++
++  return g_rtc_enabled;
++}
++
++static const struct rtc_ops_s g_rtc_ops =
++{
++  .rdtime = rp23xx_rdtime,
++  .settime = rp23xx_settime,
++  .havesettime = rp23xx_havesettime,
++};
++
++static struct rtc_lowerhalf_s g_rtc_lower = { .ops = &g_rtc_ops };
++
++int rp23xx_rtc_register(void)
++{
++  return rtc_initialize(0, &g_rtc_lower);
++}
++#endif
++
+ #endif /* CONFIG_RTC */
+diff --git a/boards/arm/rp23xx/common/src/rp23xx_common_bringup.c b/boards/arm/rp23xx/common/src/rp23xx_common_bringup.c
+--- a/boards/arm/rp23xx/common/src/rp23xx_common_bringup.c
++++ b/boards/arm/rp23xx/common/src/rp23xx_common_bringup.c
+@@ -75,6 +75,10 @@
+ #endif /* CONFIG_WS2812_HAS_WHITE */
+ #endif
+ 
++#if defined(CONFIG_RP23XX_RTC) && defined(CONFIG_RTC_DRIVER)
++int rp23xx_rtc_register(void);
++#endif
++
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+@@ -86,6 +90,14 @@
+ int rp23xx_common_bringup(void)
+ {
+   int ret = 0;
++
++#if defined(CONFIG_RP23XX_RTC) && defined(CONFIG_RTC_DRIVER)
++  ret = rp23xx_rtc_register();
++  if (ret < 0)
++    {
++      syslog(LOG_ERR, "Failed to bind /dev/rtc0: %d\n", ret);
++    }
++#endif
+ 
+ #ifdef CONFIG_RP23XX_I2C_DRIVER
+   #ifdef CONFIG_RP23XX_I2C0
+diff --git a/arch/arm/src/rp23xx/rp23xx_adc.c b/arch/arm/src/rp23xx/rp23xx_adc.c
+--- a/arch/arm/src/rp23xx/rp23xx_adc.c
++++ b/arch/arm/src/rp23xx/rp23xx_adc.c
+@@ -476,7 +476,7 @@
+       if (a_gpio >= 0)
+         {
+           rp23xx_gpio_setdir(a_gpio, false);
+-          rp23xx_gpio_set_function(a_gpio, GPIO_FUNC_NULL);
++          rp23xx_gpio_set_function(a_gpio, RP23XX_GPIO_FUNC_NULL);
+           rp23xx_gpio_set_pulls(a_gpio, false, false);
+         }
+     }

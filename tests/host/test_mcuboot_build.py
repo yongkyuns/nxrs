@@ -51,6 +51,13 @@ class BootWiringTests(unittest.TestCase):
         for capability in ("boot", "watchdog"):
             with self.subTest(capability=capability), self.assertRaises(ValueError):
                 configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "home_cam", 100, 32768)
+        runtime = {**profile, "watchdog": {**profile["watchdog"], "mode": "runtime"}}
+        with self.assertRaisesRegex(ValueError, "inherited boot watchdog"):
+            configure(runtime, "home_cam", 100, 32768)
+        with self.assertRaisesRegex(ValueError, "inherited boot watchdog"):
+            BOOT.bootloader_config(runtime, "/private/tmp/test-root.pem")
+        runtime.pop("boot-watchdog-ms")
+        self.assertNotIn("ESP32S3_RWDT_INHERIT", BOOT.application_config(runtime))
         for args in (None, "boot-tls", [True], ["x"] * 17, ["x" * 129], ['a"b'], ['a\\b'], ["a\nb"]):
             with self.subTest(args=args), self.assertRaises(ValueError):
                 configure({**profile, "init": {"args": args}}, "home_cam", 100, 32768)

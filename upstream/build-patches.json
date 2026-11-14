@@ -102,7 +102,10 @@
       "0115-esp32s3-smp-flash-rendezvous.patch",
       "0116-xtensa-serialize-wifi-reconnect.patch",
       "0117-mm-heap-propagate-lock-failure.patch",
-      "0118-esp32s3-smp-psram-atomics.patch"
+      "0118-esp32s3-smp-psram-atomics.patch",
+      "0119-esp32s3-board-reset-cause.patch",
+      "0120-rp23xx-peripheral-device-controls.patch",
+      "0121-espressif-ledc-gpio-readback.patch"
     ]
   },
   "mcuboot": {

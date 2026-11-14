@@ -156,7 +156,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "pico2w-mpsc": {},
                             "pico2w-std-qualification": {},
                             "esp32s3-qemu-led-mock": {"imu": "mock", "gnss": "mock", "led": "mock"},
+                            "pico2w-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
+                            "esp32s3-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
@@ -389,7 +391,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for name, _ in firmware_profiles():
             config = PLATFORM_CONFIG.resolve(name)["kconfig"]
             enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc",
-                               "pico2w-std-qualification")
+                               "pico2w-std-qualification", "pico2w-peripherals")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):

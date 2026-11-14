@@ -1,0 +1,77 @@
+Subject: [PATCH] esp32s3: expose reset cause through boardctl
+
+Translate the existing PRO CPU reset reason into the NuttX board reset
+cause contract. The chip reset code is shared by power-on and other
+sources, so it cannot distinguish every reset.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_reset_reasons.c b/arch/xtensa/src/esp32s3/esp32s3_reset_reasons.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_reset_reasons.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_reset_reasons.c
+@@ -69,3 +69,67 @@
+ 
+   return (regval & regmask) >> regshift;
+ }
++
++#ifdef CONFIG_BOARDCTL_RESET_CAUSE
++int board_reset_cause(struct boardioc_reset_cause_s *cause)
++{
++  cause->flag = 0;
++
++  switch (esp32s3_reset_reasons(0))
++    {
++      case RESET_REASON_CHIP_POWER_ON:
++        cause->cause = BOARDIOC_RESETCAUSE_SYS_CHIPPOR;
++        break;
++
++      case RESET_REASON_SYS_BROWN_OUT:
++        cause->cause = BOARDIOC_RESETCAUSE_SYS_BOR;
++        break;
++
++      case RESET_REASON_CORE_SW:
++        cause->cause = BOARDIOC_RESETCAUSE_CORE_SOFT;
++        break;
++
++      case RESET_REASON_CPU0_SW:
++        cause->cause = BOARDIOC_RESETCAUSE_CPU_SOFT;
++        break;
++
++      case RESET_REASON_CORE_DEEP_SLEEP:
++        cause->cause = BOARDIOC_RESETCAUSE_CORE_DPSP;
++        break;
++
++      case RESET_REASON_CORE_MWDT1:
++        cause->flag = 1;
++        /* fall through */
++
++      case RESET_REASON_CORE_MWDT0:
++        cause->cause = BOARDIOC_RESETCAUSE_CORE_MWDT;
++        break;
++
++      case RESET_REASON_CPU0_MWDT1:
++        cause->flag = 1;
++        /* fall through */
++
++      case RESET_REASON_CPU0_MWDT0:
++        cause->cause = BOARDIOC_RESETCAUSE_CPU_MWDT;
++        break;
++
++      case RESET_REASON_SYS_RTC_WDT:
++        cause->cause = BOARDIOC_RESETCAUSE_SYS_RWDT;
++        break;
++
++      case RESET_REASON_CORE_RTC_WDT:
++        cause->cause = BOARDIOC_RESETCAUSE_CORE_RWDT;
++        break;
++
++      case RESET_REASON_CPU0_RTC_WDT:
++        cause->cause = BOARDIOC_RESETCAUSE_CPU_RWDT;
++        break;
++
++      default:
++        cause->cause = BOARDIOC_RESETCAUSE_UNKOWN;
++        break;
++    }
++
++  return 0;
++}
++#endif

@@ -1,0 +1,18 @@
+[package]
+name = "nxrs-flash"
+version.workspace = true
+edition.workspace = true
+build = "../../tools/build-support/cargo/hal.rs"
+
+[lib]
+name = "flash"
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["nuttx"]
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }
+
+[dependencies]
+cfg-if = "=1.0.5"

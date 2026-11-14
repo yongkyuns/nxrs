@@ -821,8 +821,9 @@ adapters revalidate the same construction. The SDK catalogue remains the default
 See the [composition guide](../platform/README.md) for the declaration contract
 and current source limitations.
 
-NuttX profiles explicitly supply `[camera].device`, `[watchdog].device` and
-`[wifi].interface`, alongside existing console and LED configuration. These are
+NuttX profiles explicitly supply `[camera].device`, `[watchdog].device`,
+`[rtc].device`, `[flash].device` and `[wifi].interface` for selected capabilities,
+alongside console and LED configuration. These are
 registered OS resources, not new sensor drivers or pin descriptions. The build
 validates their form and emits private constants; NuttX still owns registration.
 A derived profile that switches away from a NuttX provider drops its inherited

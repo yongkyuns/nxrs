@@ -339,6 +339,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-adc"
+version = "0.1.0"
+dependencies = [
+ "nxrs-build-support",
+]
+
+[[package]]
 name = "nxrs-allocation-probe"
 version = "0.1.0"
 
@@ -568,6 +575,14 @@ name = "nxrs-firmware-update"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-flash"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
+]
+
+[[package]]
 name = "nxrs-footprint-demo"
 version = "0.1.0"
 dependencies = [
@@ -732,10 +747,33 @@ name = "nxrs-peripheral"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-peripheral-qualification"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-acquisition",
+ "nxrs-adc",
+ "nxrs-boot",
+ "nxrs-flash",
+ "nxrs-gpio",
+ "nxrs-pwm",
+ "nxrs-rtc",
+ "nxrs-watchdog",
+]
+
+[[package]]
 name = "nxrs-protected-runtime-witness"
 version = "0.1.0"
 dependencies = [
  "nxrs-acquisition",
+]
+
+[[package]]
+name = "nxrs-pwm"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-build-support",
 ]
 
 [[package]]
@@ -750,6 +788,14 @@ name = "nxrs-rt-bench"
 version = "0.1.0"
 dependencies = [
  "nxrs-messaging",
+]
+
+[[package]]
+name = "nxrs-rtc"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
 ]
 
 [[package]]

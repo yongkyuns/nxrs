@@ -88,7 +88,12 @@ int main(void) {
             (work / "nuttx/ioexpander").mkdir(parents=True)
             (work / "nuttx/config.h").write_text("#define CONFIG_DEV_GPIO 1\n")
             (work / "nuttx/ioexpander/gpio.h").write_text("""
- enum gpio_pintype_e { GPIO_OUTPUT_PIN, GPIO_INTERRUPT_RISING_PIN };
+ enum gpio_pintype_e {
+   GPIO_INPUT_PIN, GPIO_INPUT_PIN_PULLUP, GPIO_INPUT_PIN_PULLDOWN,
+   GPIO_OUTPUT_PIN, GPIO_OUTPUT_PIN_OPENDRAIN, GPIO_INTERRUPT_PIN,
+   GPIO_INTERRUPT_HIGH_PIN, GPIO_INTERRUPT_LOW_PIN, GPIO_INTERRUPT_RISING_PIN,
+   GPIO_NPINTYPES
+ };
  #define GPIOC_READ 1001
  #define GPIOC_PINTYPE 1002
  #define GPIOC_REGISTER 1003
@@ -111,6 +116,7 @@ int main(void) {
 int acquisition_event_pipe(int[2]);
 int acquisition_event_wait(int, int);
 int acquisition_event_tick(int, int);
+int gpio_check_pin(int, bool);
 int gpio_resource_irq_check(int);
 int gpio_resource_irq_register(int);
 int gpio_resource_irq_unregister(int);
@@ -171,8 +177,16 @@ int main(void) {
   assert(acquisition_event_tick(timer[0], 0) == 0); /* cancellation wins expiry */
   close(timer[0]); close(timer[1]);
   assert(gpio_resource_irq_check(42) == 0);
+  assert(gpio_check_pin(42, false) == 0);
+  assert(gpio_check_pin(42, true) == -1 && errno == EINVAL);
   type = GPIO_OUTPUT_PIN;
   assert(gpio_resource_irq_check(42) == -1 && errno == EINVAL);
+  assert(gpio_check_pin(42, true) == 0);
+  assert(gpio_check_pin(42, false) == -1 && errno == EINVAL);
+  type = GPIO_OUTPUT_PIN_OPENDRAIN;
+  assert(gpio_check_pin(42, true) == 0);
+  type = GPIO_INPUT_PIN_PULLUP;
+  assert(gpio_check_pin(42, false) == 0);
   assert(gpio_resource_irq_register(42) == 0 && registered == 1);
   assert(gpio_resource_irq_read(42) == 1);
   assert(gpio_resource_irq_unregister(42) == 0 && registered == 0);

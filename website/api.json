@@ -24,8 +24,8 @@
         {"package": "nxrs-gnss", "crate": "gnss", "path": "hal/gnss", "summary": "GNSS devices, fixes, events, and acquisition sessions."},
         {"package": "nxrs-tls", "crate": "tls", "path": "hal/tls", "summary": "Device TLS identity, certificates, time leases, and connection ownership."},
         {"package": "nxrs-config", "crate": "config", "path": "hal/config", "summary": "Small persistent product records with explicit capacity and errors."},
-        {"package": "nxrs-boot", "crate": "boot", "path": "hal/boot", "summary": "Image staging, trial requests, confirmation, and reboot control."},
-        {"package": "nxrs-watchdog", "crate": "watchdog", "path": "hal/watchdog", "summary": "Ownership and explicit cancellation of an inherited reset watchdog."},
+        {"package": "nxrs-boot", "crate": "boot", "path": "hal/boot", "summary": "Reset diagnostics, image staging, trial requests, confirmation, and reboot control."},
+        {"package": "nxrs-watchdog", "crate": "watchdog", "path": "hal/watchdog", "summary": "Inherited watchdog cancellation and explicit runtime watchdog control."},
         {"package": "nxrs-execution", "crate": "execution", "path": "hal/execution", "summary": "Configured scheduling policy for the calling thread."}
       ]
     },

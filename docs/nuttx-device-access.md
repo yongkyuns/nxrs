@@ -379,8 +379,49 @@ See [HAL capability architecture](hal-platform-architecture.md),
 [architecture](architecture.md), [NuttX std qualification](nuttx-std.md), and
 [NuttX descriptor ownership](nuttx-ownership.md).
 
-NuttX camera/watchdog device paths and the Wi-Fi interface name are explicit
-profile values (`camera.device`, `watchdog.device`, `wifi.interface`). They select
+NuttX camera, RTC, watchdog and flash device paths and the Wi-Fi interface name
+are explicit profile values (`camera.device`, `rtc.device`, `watchdog.device`,
+`flash.device`, `wifi.interface`). They select
 existing BSP registrations; declaring a path does not create a driver or endpoint.
 GNSS device catalogues supply UART bindings and concrete protocol constructors;
 the HAL retains descriptor ownership, termios rollback and per-receiver faults.
+
+## RTC, watchdog and raw NOR
+
+- Use `SystemTime::now()` for OS wall time and `Instant` for elapsed time.
+  `rtc::open()` accesses the hardware clock directly when an application needs
+  to check whether it was set or set it from a trusted source. It exchanges
+  `SystemTime` values at whole-second resolution. NuttX updates its system clock
+  after a successful set.
+- Use `watchdog::arm(Duration)` with a runtime watchdog binding. The owner
+  explicitly feeds the timer after verifying health and calls `disarm` to stop
+  it. Closing the descriptor leaves it running. Inherited bindings use
+  `watchdog::adopt()` and provide only cancellation. Existing profiles default
+  to inherited mode.
+- `boot::reset_cause()` reports the preceding reset on boards that implement
+  NuttX's reset-cause query. It works without an update slot or a boot-control
+  owner. A chip-wide reset code may have several hardware causes.
+- Use `std::fs` for filesystem-backed storage and `config::Store` for product
+  records. `flash::open()` gives an exclusive Nxrs lease on a dedicated,
+  unmounted NOR partition. It uses `File` for seek, read and synchronous direct
+  programming. Geometry, erase and cache invalidation use target ioctls. The
+  partition must be separate from firmware slots, boot metadata, and other
+  consumers. Respect the reported program and erase sizes. The flash operation
+  can stall other work while the chip is busy.
+
+The [peripheral fixture](../tests/nuttx-std/peripherals/README.md) uses
+the WROOM and Pico 2 W BSP registrations and dedicated scratch partitions.
+
+## GPIO, PWM and ADC resources
+
+`driver/gpio` implements the embedded-hal pin traits over NuttX GPIO
+descriptors. Digital levels use standard file reads and writes. A rising-edge
+registration uses the existing cancellable task-context wait and cleanup
+contract. The BSP configures the pin and edge.
+
+`driver/pwm` implements embedded-hal duty control for a single-output timer.
+`driver/adc` reads one native ADC record at a time through a nonblocking
+`File`. Use the trigger operation with a software-triggered endpoint and
+plain reads with a streaming endpoint. Sample values use the lower half's
+units. A consumer that needs voltage supplies the device-specific conversion.
+Native timer and ADC controls stay private to each driver.

@@ -1,0 +1,14 @@
+[package]
+name = "nxrs-adc"
+version.workspace = true
+edition.workspace = true
+build = "../../tools/build-support/cargo/resource.rs"
+
+[package.metadata.nxrs]
+kind = "native-resource"
+
+[lib]
+name = "adc"
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }
