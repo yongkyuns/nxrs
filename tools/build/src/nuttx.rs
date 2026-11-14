@@ -2,7 +2,10 @@
 use crate::{
     boot,
     build::{self, App, Options},
-    deployment, find_program, hash, output,
+    deployment, find_program, hash,
+    nuttx_config::{self, required, Configuration, Finalized,
+        ESP32S3_KERNEL_OFFSET, ESP32S3_KERNEL_SIZE, ESP32S3_USERSPACE},
+    output,
     profile::Profile,
     read, reuse, run, sdk, source, write_json, Result,
 };
@@ -18,22 +21,6 @@ fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
         .as_str()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("missing nonempty {key}"))
-}
-fn array(value: &Value, key: &str) -> Result<Vec<String>> {
-    match value.get(key) {
-        None => Ok(vec![]),
-        Some(v) => v
-            .as_array()
-            .ok_or_else(|| format!("{key} must be an array"))?
-            .iter()
-            .map(|v| {
-                v.as_str()
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
-                    .ok_or_else(|| format!("{key} requires nonempty strings"))
-            })
-            .collect(),
-    }
 }
 fn iram_layout_source(root: &Path, profile: &Profile) -> Result<Option<PathBuf>> {
     let Some(layout) = profile.data.get("iram-layout") else {
@@ -66,213 +53,6 @@ fn stage_iram_layout(source: &Path, nuttx: &Path) -> Result<Vec<PathBuf>> {
     reuse::copy_if_changed(source, &destination)?;
     Ok(vec![source.to_path_buf(), destination])
 }
-fn line(key: &str, value: &str) -> String {
-    if value == "n" {
-        format!("# CONFIG_{key} is not set")
-    } else {
-        format!("CONFIG_{key}={value}")
-    }
-}
-pub fn configure(path: &Path, values: &BTreeMap<String, String>) -> Result<()> {
-    for (key, value) in values {
-        if !key
-            .bytes()
-            .all(|b| b.is_ascii_alphabetic() || b.is_ascii_digit() || b == b'_')
-            || key.is_empty()
-            || value.contains(['\n', '\r', '\0'])
-        {
-            return Err(format!("invalid Kconfig assignment for {key}"));
-        }
-    }
-    let text = read(path)?;
-    let mut result = String::new();
-    for current in text.lines() {
-        let key = current
-            .strip_prefix("CONFIG_")
-            .and_then(|s| s.split_once('='))
-            .map(|(k, _)| k)
-            .or_else(|| {
-                current
-                    .strip_prefix("# CONFIG_")
-                    .and_then(|s| s.strip_suffix(" is not set"))
-            });
-        if !key.is_some_and(|k| values.contains_key(k)) {
-            result.push_str(current);
-            result.push('\n');
-        }
-    }
-    for (key, value) in values {
-        result.push_str(&line(key, value));
-        result.push('\n');
-    }
-    fs::write(path, result).map_err(|e| e.to_string())
-}
-pub fn required(config: &str, requirements: &[String], forbid: &str) -> Result<()> {
-    for value in requirements {
-        if !config.lines().any(|line| line == value) {
-            return Err(format!("unresolved NuttX requirement: {value}"));
-        }
-    }
-    if !forbid.is_empty() {
-        let regex = regex::RegexBuilder::new(forbid)
-            .multi_line(true)
-            .build()
-            .map_err(|e| e.to_string())?;
-        if regex.is_match(config) {
-            return Err("forbidden NuttX option enabled".into());
-        }
-    }
-    Ok(())
-}
-const ESP32S3_KERNEL_OFFSET: u64 = 0x10000;
-const ESP32S3_KERNEL_SIZE: u64 = 0x80000;
-// Match the pinned ESP32-S3 PREBUILD formula before compiling Rust helpers.
-const ESP32S3_USERSPACE: u64 = 0x3c000030 + ESP32S3_KERNEL_SIZE;
-
-fn standard(profile: &Profile, protected: bool) -> BTreeMap<String, String> {
-    let mut v = BTreeMap::new();
-    for key in [
-        "EXAMPLES_NXRS_STD_APP",
-        "FS_LARGEFILE",
-        "DEV_URANDOM",
-        "SCHED_WAITPID",
-        "SCHED_HAVE_PARENT",
-        "SCHED_CHILD_STATUS",
-    ] {
-        v.insert(key.into(), "y".into());
-    }
-    if !protected {
-        v.insert("TLS_GLOBAL_KEYS".into(), "y".into());
-    }
-    if profile.data.get("init").is_none() {
-        for key in ["NSH_DISABLEBG", "NSH_ARGCAT"] {
-            v.insert(key.into(), "y".into());
-        }
-    }
-    for (key, value) in [
-        ("TLS_NELEM", "16"),
-        ("TLS_DTOR_ITERATIONS", "4"),
-        ("TLS_NCLEANUP", "16"),
-        ("RR_INTERVAL", "10"),
-    ] {
-        v.insert(key.into(), value.into());
-    }
-    v
-}
-
-fn protected_config() -> BTreeMap<String, String> {
-    BTreeMap::from([
-        ("BUILD_PROTECTED".into(), "y".into()),
-        ("ESP32S3_WCL".into(), "y".into()),
-        ("ESP32S3_APP_FORMAT_LEGACY".into(), "y".into()),
-        ("RAW_BINARY".into(), "y".into()),
-        (
-            "ESP32S3_KERNEL_OFFSET".into(),
-            format!("{ESP32S3_KERNEL_OFFSET:#x}"),
-        ),
-        (
-            "ESP32S3_KERNEL_IMAGE_SIZE".into(),
-            format!("{ESP32S3_KERNEL_SIZE:#x}"),
-        ),
-        ("NUTTX_USERSPACE".into(), format!("{ESP32S3_USERSPACE:#x}")),
-        (
-            "PASS1_BUILDIR".into(),
-            "\"boards/xtensa/esp32s3/common/kernel\"".into(),
-        ),
-    ])
-}
-
-/// Reject qualification requests that contradict native wiring or required build settings.
-/// This is also used by dry runs, before preparing an output directory or an SDK.
-pub fn validate_overrides(profile: &Profile, app: &App, options: &Options) -> Result<()> {
-    let requested = options.kconfig()?;
-    if requested.is_empty() {
-        return Ok(());
-    }
-    let check = |key: &str, expected: &str, owner: &str| -> Result<()> {
-        if requested.get(key).is_some_and(|value| value != expected) {
-            return Err(format!(
-                "Kconfig override for {key} conflicts with {owner} requirement {}",
-                line(key, expected)
-            ));
-        }
-        Ok(())
-    };
-    let protected = profile.data.pointer("/build/protected-runtime") == Some(&json!(true));
-    for (key, value) in standard(profile, protected) {
-        check(&key, &value, "builder")?;
-    }
-    check("SIG_DEFAULT", "n", "builder")?;
-    if protected {
-        for (key, value) in protected_config() {
-            check(&key, &value, "protected build")?;
-        }
-        for key in ["BUILD_2PASS", "ARCH_USE_MPU"] {
-            check(key, "y", "protected build")?;
-        }
-        check("TLS_GLOBAL_KEYS", "n", "protected build")?;
-    } else {
-        check("BUILD_FLAT", "y", "builder")?;
-    }
-    for (key, value) in
-        boot::init_config(profile, &app.command, app.priority.into(), app.stack.into())?
-    {
-        check(&key, &value, "application init")?;
-    }
-    if profile.data.get("mcuboot").is_some() {
-        check("ESP32S3_APP_FORMAT_MCUBOOT", "y", "signed build")?;
-        check("ESP32S3_FLASH_16M", "y", "signed build")?;
-        for (key, value) in boot::application_config(profile)? {
-            check(&key, &value, "signed build")?;
-        }
-    }
-    if let Some(settings) = profile
-        .data
-        .pointer("/resolved-nuttx-resources/kconfig")
-        .and_then(Value::as_object)
-    {
-        for (key, value) in settings {
-            check(
-                key,
-                value.as_str().ok_or("invalid BSP setting")?,
-                "BSP resource",
-            )?;
-        }
-    }
-    let config = profile.data.get("kconfig").unwrap_or(&Value::Null);
-    for requirement in array(config, "require")? {
-        let (key, value) = if let Some(key) = requirement
-            .strip_prefix("# CONFIG_")
-            .and_then(|s| s.strip_suffix(" is not set"))
-        {
-            (key, "n")
-        } else {
-            requirement
-                .strip_prefix("CONFIG_")
-                .and_then(|s| s.split_once('='))
-                .ok_or("invalid profile Kconfig requirement")?
-        };
-        check(key, value, "profile")?;
-    }
-    if let Some(forbid) = config.get("forbid-regex") {
-        let forbid = forbid.as_str().ok_or("forbid-regex must be a string")?;
-        if !forbid.is_empty() {
-            let regex = regex::RegexBuilder::new(forbid)
-                .multi_line(true)
-                .build()
-                .map_err(|e| e.to_string())?;
-            for (key, value) in &requested {
-                if regex.is_match(&line(key, value)) {
-                    return Err(format!(
-                        "Kconfig override for {key} is forbidden by the profile"
-                    ));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 fn protected_images(out: &Path, nuttx: &Path, config: &str) -> Result<Vec<PathBuf>> {
     let flash_mib = [4u64, 8, 16, 32]
         .into_iter()
@@ -454,7 +234,7 @@ fn bin_directories(root: &Path, depth: usize, tool: &str, paths: &mut Vec<PathBu
     Ok(())
 }
 impl Tools {
-    fn select(root: &Path, target: &str, profile: &Profile) -> Result<Self> {
+    fn select(root: &Path, target: &str, profile: &Profile, firmware: bool) -> Result<Self> {
         let esp = target == "xtensa-esp32s3-nuttx";
         if !esp && target != "thumbv8m.main-nuttx-eabi" {
             return Err("unsupported NuttX std target".into());
@@ -514,10 +294,15 @@ impl Tools {
         for tool in ["git", "make", "rustup"] {
             find_program(tool)?;
         }
-        for suffix in ["gcc", "ld", "objcopy", "readelf", "nm", "size"] {
+        let required: &[_] = if firmware {
+            &["gcc", "ld", "objcopy", "readelf", "nm", "size"]
+        } else {
+            &["gcc", "ld", "ar"]
+        };
+        for suffix in required {
             crate::find_program_on_path(&format!("{prefix}{suffix}"), &path)?;
         }
-        if esp {
+        if esp && firmware {
             crate::find_program_on_path("esptool.py", &path)?;
             if qemu {
                 crate::find_program_on_path("qemu-system-xtensa", &path)?;
@@ -547,9 +332,130 @@ impl Tools {
         crate::find_program_on_path(name, &self.path)
     }
 }
+fn stage_sources(root: &Path, out: &Path) -> Result<()> {
+    let nuttx = out.join("nuttx");
+    let apps = out.join("apps");
+    for (component, dest) in [("nuttx", &nuttx), ("nuttx-apps", &apps)] {
+        let rev = source::revision(root, component)?;
+        source::archive_revision(&root.join("external").join(component), &rev, dest)?;
+        source::apply_series(
+            root,
+            dest,
+            component,
+            &rev,
+            &out.join(format!("{component}-patches.json")),
+            false,
+        )?;
+    }
+    source::stamp(root, &nuttx, &source::revision(root, "nuttx")?)?;
+    Ok(())
+}
+
+fn stage_application(root: &Path, out: &Path) -> Result<PathBuf> {
+    let entry = out.join("apps/examples/nxrs_std_app");
+    fs::create_dir_all(&entry).map_err(|e| e.to_string())?;
+    for file in fs::read_dir(root.join("tools/build/nuttx/std-app")).map_err(|e| e.to_string())? {
+        let file = file.map_err(|e| e.to_string())?;
+        reuse::copy_if_changed(&file.path(), &entry.join(file.file_name()))?;
+    }
+    Ok(entry)
+}
+
+pub struct Inspection(Option<(crate::TempDir, String, String)>);
+
+impl Inspection {
+    pub fn new() -> Self {
+        Self(None)
+    }
+
+    pub fn inspect(&mut self, root: &Path, app: &App, p: &Profile, options: &Options) -> Result<Value> {
+        let deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
+        let protected = deployment["nuttx-build-mode"] == "protected";
+        let board = string(&p.data, "board")?;
+        let mut configuration = Configuration::assemble(p, app, protected, options)?;
+        let command = |name: &str| {
+            let mut command = Command::new(name);
+            command.env("LC_ALL", "C");
+            command
+        };
+        if self.0.as_ref().is_none_or(|(_, previous, _)| previous != board) {
+            let parent = env::temp_dir().canonicalize().map_err(|e| e.to_string())?;
+            let temp = crate::TempDir::new(&parent)?;
+            stage_sources(root, &temp.0)?;
+            stage_application(root, &temp.0)?;
+            if let Some(layout) = iram_layout_source(root, p)? {
+                stage_iram_layout(&layout, &temp.0.join("nuttx"))?;
+            }
+            let seed = nuttx_config::seed(&temp.0.join("nuttx"), board, command)?;
+            self.0 = Some((temp, board.to_owned(), seed));
+        }
+        let (temp, _, seed) = self.0.as_ref().ok_or("missing native inspection inputs")?;
+        let out = &temp.0;
+        if let Some(radio) = p.data.get("radio-firmware") {
+            let radio = radio.as_str().ok_or("radio-firmware must be a string")?;
+            configure_radio(root, out, radio, &mut configuration)?;
+        }
+        let nuttx = out.join("nuttx");
+        let mut report = nuttx_config::resolve(root, &nuttx, out, seed, &configuration, true, command)?;
+        let config = read(&nuttx.join(".config"))?;
+        if let Err(error) = configuration.validate(p, &config) {
+            report["problems"].as_array_mut().ok_or("missing configuration diagnostics")?.push(json!(error));
+        }
+        configuration.add_provenance(p, &mut report)?;
+        report["stage"] = json!("native olddefconfig");
+        report["board"] = json!(board);
+        report["profile"] = json!(p.name());
+        report["application"] = json!(app.bin);
+        report["config"] = json!(config);
+        Ok(report)
+    }
+}
+
+pub fn inspect_config(root: &Path, app: &App, p: &Profile, options: &Options) -> Result<Value> {
+    Inspection::new().inspect(root, app, p, options)
+}
+
+fn configure_radio(root: &Path, out: &Path, radio: &str, configuration: &mut Configuration) -> Result<Vec<PathBuf>> {
+    if radio.is_empty() {
+        return Ok(vec![]);
+    }
+    let (wifi, length, bt) = crate::radio::prepare(root, out, radio)?;
+    let mut inputs = vec![out.join("radio-firmware.json"), wifi.clone()];
+    configuration.values.insert("CYW43439_FIRMWARE_BIN_PATH".into(), format!("\"{}\"", wifi.display()));
+    configuration.values.insert("CYW43439_FIRMWARE_LEN".into(), length.to_string());
+    if let Some(bt) = bt {
+        configuration.values.insert("CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH".into(), format!("\"{}\"", bt.display()));
+        inputs.push(bt);
+    }
+    Ok(inputs)
+}
+
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
+    build_or_prepare(root, app, p, out, options, None)
+}
+
+/// Refresh the same preparation the build consumes, stopping before firmware compilation.
+pub fn prepare_config(
+    root: &Path,
+    app: &App,
+    p: &Profile,
+    out: &Path,
+    options: &Options,
+    preview: &str,
+) -> Result<()> {
+    build_or_prepare(root, app, p, out, options, Some(preview))
+}
+
+fn build_or_prepare(
+    root: &Path,
+    app: &App,
+    p: &Profile,
+    out: &Path,
+    options: &Options,
+    preview: Option<&str>,
+) -> Result<()> {
+    let firmware = preview.is_none();
     options.validate_for_backend("nuttx")?;
-    validate_overrides(p, app, options)?;
     let requested = options.kconfig()?;
     let mut deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
     let protected = deployment["nuttx-build-mode"] == "protected";
@@ -594,83 +500,19 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         return Err("invalid ABI profile".into());
     }
     let signed = p.data.get("mcuboot").is_some();
-    let signing = if signed {
+    let signing = if signed && firmware {
         Some(boot::Signing::environment()?)
     } else {
         None
     };
-    let mut values = BTreeMap::new();
-    for key in [
-        "EXAMPLES_HELLO",
-        "TESTING_OSTEST",
-        "TESTING_GETPRIME",
-        "ARCH_FPU",
-        "SIG_DEFAULT",
-    ] {
-        values.insert(key.into(), "n".into());
-    }
-    let k = p
-        .data
-        .get("kconfig")
-        .filter(|k| k.is_object())
-        .ok_or("missing kconfig table")?;
-    for (key, value) in [("enable", "y"), ("disable", "n")] {
-        for symbol in array(k, key)? {
-            values.insert(symbol, value.into());
-        }
-    }
-    for item in array(k, "set")? {
-        let (key, value) = item
-            .split_once('=')
-            .ok_or("invalid Kconfig set assignment")?;
-        values.insert(key.into(), value.into());
-    }
-    let mut requirements = array(k, "require")?;
-    if signed {
-        values.insert("ESP32S3_APP_FORMAT_MCUBOOT".into(), "y".into());
-        requirements.extend([
-            "CONFIG_ESP32S3_APP_FORMAT_MCUBOOT=y".into(),
-            "CONFIG_ESP32S3_FLASH_16M=y".into(),
-        ]);
-        let v = boot::application_config(p)?;
-        requirements.extend(v.iter().map(|(k, v)| line(k, v)));
-        values.extend(v);
-    }
-    let init = boot::init_config(p, &app.command, app.priority.into(), app.stack.into())?;
-    requirements.extend(init.iter().map(|(k, v)| line(k, v)));
-    values.extend(init);
-    for (key, value) in &requested {
-        values.insert(key.clone(), value.clone());
-        requirements.push(line(key, value));
-    }
-    let standard = standard(p, protected);
-    requirements.extend(standard.iter().map(|(k, v)| line(k, v)));
-    if protected {
-        let mode = protected_config();
-        requirements.extend(mode.iter().map(|(k, v)| line(k, v)));
-        requirements.extend([
-            "CONFIG_BUILD_2PASS=y".into(),
-            "CONFIG_ARCH_USE_MPU=y".into(),
-        ]);
-        values.extend(mode);
-    } else {
-        requirements.push("CONFIG_BUILD_FLAT=y".into());
-    }
-    values.extend(standard);
-    let forbid = match k.get("forbid-regex") {
-        None => "",
-        Some(v) => v.as_str().ok_or("forbid-regex must be a string")?,
-    };
-    if !forbid.is_empty() {
-        regex::Regex::new(forbid).map_err(|e| e.to_string())?;
-    }
+    let mut configuration = Configuration::assemble(p, app, protected, options)?;
     let jobs = env::var("NXRS_NUTTX_BUILD_JOBS")
         .unwrap_or("4".into())
         .parse::<usize>()
         .ok()
         .filter(|n| *n > 0 && *n <= 128)
         .ok_or("build jobs must be between 1 and 128")?;
-    let tools = Tools::select(root, target, p)?;
+    let tools = Tools::select(root, target, p, firmware)?;
     let mut sources: Vec<_> = options
         .helpers
         .iter()
@@ -698,6 +540,7 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         format!("NuttX build output {}: {error}", out.display())
     })?;
     for input in std::iter::once(&app.manifest)
+        .chain(p.source_paths())
         .chain(sources.iter())
         .chain(iram_layout.iter())
         .chain(signing.iter().flat_map(|s| [&s.key, &s.root]))
@@ -739,14 +582,14 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         .collect::<Result<Vec<_>>>()?;
     let cache_inputs = json!({
         "profile":p.data,"profile_input_fingerprint":p.input_fingerprint(),
-        "configuration":values,"application":app.manifest,
+        "configuration":configuration.values,"application":app.manifest,
         "kconfig_overrides":requested,
         "iram_layout":iram_layout.as_ref().map(|source| hash(source)).transpose()?,
         "entry":[app.command.clone(),app.priority.to_string(),app.stack.to_string()],
         "features":options.features,"no_default_features":options.no_default_features,
         "size":size,"trace":trace,"immediate":immediate,"abi":abi,
         "nuttx":source::revision(root,"nuttx")?,"apps":source::revision(root,"nuttx-apps")?,
-        "build_inputs":reuse::snapshot(root,&["upstream","tools/build/nuttx/std-app"])?,
+        "build_inputs":reuse::snapshot(root,&["upstream","tools/build/nuttx"])?,
         "sdk":sdk_input,"sdk_inputs":reuse::sdk_snapshot(sdk_input)?,
         "compiler":hash(&tools.rustc)?,"native_compiler":hash(&tools.program(&format!("{}gcc",tools.prefix))?)?,
         "controller":hash(&env::current_exe().map_err(|e|e.to_string())?)?,"helpers":helper_inputs,
@@ -774,96 +617,41 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     let nuttx = out.join("nuttx");
     let apps = out.join("apps");
     if !reused {
-        for (component, dest) in [("nuttx", &nuttx), ("nuttx-apps", &apps)] {
-            let rev = source::revision(root, component)?;
-            source::archive_revision(&root.join("external").join(component), &rev, dest)?;
-            source::apply_series(
-                root,
-                dest,
-                component,
-                &rev,
-                &out.join(format!("{component}-patches.json")),
-                false,
-            )?;
-        }
-        source::stamp(root, &nuttx, &source::revision(root, "nuttx")?)?;
+        stage_sources(root, &out)?;
     }
     let iram_inputs = match iram_layout {
         Some(source) => stage_iram_layout(&source, &nuttx)?,
         None => vec![],
     };
-    let entry = apps.join("examples/nxrs_std_app");
-    fs::create_dir_all(&entry).map_err(|e| e.to_string())?;
-    for file in fs::read_dir(root.join("tools/build/nuttx/std-app")).map_err(|e| e.to_string())? {
-        let file = file.map_err(|e| e.to_string())?;
-        reuse::copy_if_changed(&file.path(), &entry.join(file.file_name()))?;
-    }
-    let mut radio_inputs = Vec::new();
-    if !radio.is_empty() {
-        let (wifi, length, bt) = crate::radio::prepare(root, &out, radio)?;
-        radio_inputs.extend([out.join("radio-firmware.json"), wifi.clone()]);
-        values.insert(
-            "CYW43439_FIRMWARE_BIN_PATH".into(),
-            format!("\"{}\"", wifi.display()),
-        );
-        values.insert("CYW43439_FIRMWARE_LEN".into(), length.to_string());
-        if let Some(bt) = bt {
-            radio_inputs.push(bt.clone());
-            values.insert(
-                "CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH".into(),
-                format!("\"{}\"", bt.display()),
-            );
-        }
-    }
+    let entry = stage_application(root, &out)?;
+    let radio_inputs = configure_radio(root, &out, radio, &mut configuration)?;
     if !reused {
-        run(tools
-            .command("bash")
-            .current_dir(&nuttx)
-            .arg("tools/configure.sh")
-            .args(["-l", board]))?;
-        configure(&nuttx.join(".config"), &values)?;
-        run(tools
-            .command("make")
-            .current_dir(&nuttx)
-            .arg("olddefconfig"))?;
+        let seed = nuttx_config::seed(&nuttx, board, |name| tools.command(name))?;
+        let report = nuttx_config::resolve(root, &nuttx, &out, &seed, &configuration, false, |name| {
+            tools.command(name)
+        })?;
+        nuttx_config::check_report(&report)?;
     }
     let config = read(&nuttx.join(".config"))?;
-    required(&config, &requirements, forbid)?;
-    nxrs_build_support::nuttx_resources::validate_config(&p.data, &config)?;
-    if protected
-        && config
-            .lines()
-            .any(|line| line == "CONFIG_TLS_GLOBAL_KEYS=y")
-    {
-        return Err("protected direct-init qualification requires group-local pthread keys".into());
-    }
-    if config.lines().any(|line| line == "CONFIG_ETC_ROMFS=y") {
+    configuration.validate(p, &config)?;
+    if firmware && config.lines().any(|line| line == "CONFIG_ETC_ROMFS=y") {
         tools.program("genromfs")?;
-    }
-    if config.lines().any(|s| s == "CONFIG_SIG_DEFAULT=y") {
-        return Err("unqualified SIG_DEFAULT configuration".into());
     }
     // The pinned hook would rewrite the userspace address already resolved above.
     let prebuild = protected.then_some("PREBUILD=");
-    run(tools
-        .command("make")
+    let mut context = tools.command("make");
+    context
         .current_dir(&nuttx)
         .args([
             "include/nuttx/config.h",
             &format!("CROSSDEV={}", tools.prefix),
         ])
-        .args(prebuild))?;
-    if protected {
-        required(
-            &read(&nuttx.join("include/nuttx/config.h"))?,
-            &[format!(
-                "#define CONFIG_NUTTX_USERSPACE {ESP32S3_USERSPACE:#x}"
-            )],
-            "",
-        )?;
+        .args(prebuild);
+    if firmware {
+        run(&mut context)?;
+    } else {
+        output(&mut context)?;
     }
-    fs::copy(nuttx.join(".config"), out.join("resolved.config")).map_err(|e| e.to_string())?;
-    write_json(&out.join("provider-selection.json"), &deployment)?;
     let sysroot = if let Some(shared) = shared_sysroot {
         let shared = shared.canonicalize().map_err(|e| e.to_string())?;
         if !shared.join("bin/rustc").is_file() {
@@ -891,6 +679,92 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     sources.extend(sdk::native_sources(&sysroot, &out.join("std-patch.json"))?);
     let (sources, objects) = stage_helpers(&sources, &entry)?;
     let rustc = sysroot.join("bin/rustc");
+    let target_dir = env::var_os("NXRS_SHARED_CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| out.join("cargo"));
+    let elf = target_dir.join(target).join("release").join(&app.bin);
+    if !reused {
+        // A shared Cargo directory may still contain a fresh executable after a
+        // failed native build. Require a new root link when its evidence was reset.
+        crate::remove_file(&elf)?;
+    }
+    let mut make_args = vec![
+        format!("CROSSDEV={}", tools.prefix),
+        format!("NXRS_STD_ELF={}", elf.display()),
+        format!("NXRS_APP_COMMAND={}", app.command),
+        format!("NXRS_APP_PRIORITY={}", app.priority),
+        format!("NXRS_APP_STACKSIZE={}", app.stack),
+    ];
+    if !objects.is_empty() {
+        make_args.push(format!("NXRS_TARGET_C_SOURCE={}", objects.join(" ")));
+    }
+    make_args.extend(prebuild.map(str::to_owned));
+    if tools.esp {
+        make_args.push("ESPTOOL_BINDIR=.".into());
+        if !reused {
+            if let Some(cache) = env::var_os("NXRS_ESP_HAL_3RDPARTY_CACHE") {
+                let cache = PathBuf::from(cache);
+                let revision = output(source::git(&cache).args(["rev-parse", "HEAD"]))?;
+                if env::var("NXRS_ESP_HAL_3RDPARTY_REVISION").is_ok_and(|s| s != revision.trim()) {
+                    return Err("unexpected Espressif HAL cache revision".into());
+                }
+                copy_hal_cache(
+                    &cache,
+                    &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"),
+                    revision.trim(),
+                )?;
+            }
+        }
+    }
+    let mut context = tools.command("make");
+    context.arg("-C").arg(&nuttx).arg("context").args(&make_args);
+    if firmware {
+        run(&mut context)?;
+    } else {
+        output(&mut context)?;
+    }
+    if !reused
+        && signed
+        && read(&nuttx.join(".config"))?
+            .lines()
+            .any(|s| s == "CONFIG_BOOT_MCUBOOT=y")
+    {
+        source::apply_series(
+            root,
+            &apps.join("boot/mcuboot/mcuboot"),
+            "mcuboot",
+            boot::MCUBOOT_REVISION,
+            &out.join("mcuboot-patches.json"),
+            false,
+        )?;
+    }
+    if !reused && tools.esp {
+        let hal = isolated_hal(&nuttx, &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"))?;
+        let rev = output(source::git(&hal).args(["rev-parse", "HEAD"]))?;
+        source::apply_series(
+            root,
+            &hal,
+            "esp-hal-3rdparty",
+            rev.trim(),
+            &out.join("esp-hal-patches.json"),
+            true,
+        )?;
+    }
+    let (native_config, finalized) = native_context(&tools, &nuttx, &entry, &out, target, &make_args)?;
+    configuration.validate(p, &finalized.config)?;
+    configuration.validate_context(&config, &finalized.config)?;
+    if let Some(preview) = preview {
+        nuttx_config::verify_preview(preview, &finalized.config)?;
+    }
+    if protected {
+        required(
+            &read(&nuttx.join("include/nuttx/config.h"))?,
+            &[format!("#define CONFIG_NUTTX_USERSPACE {ESP32S3_USERSPACE:#x}")],
+            "",
+        )?;
+    }
+    reuse::write_if_changed(&out.join("resolved.config"), finalized.config.as_bytes())?;
+    write_json(&out.join("kconfig-requests.json"), &configuration.evidence(&finalized))?;
     let mut target_arg = PathBuf::from(target);
     if tools.esp {
         let bare = output(
@@ -931,11 +805,11 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         }
         // ESP32-S3 hardware CAS cannot address external PSRAM. Use the same
         // NuttX libc atomics for Rust and C whenever that configuration is active.
-        if config
+        if finalized.config
             .lines()
             .any(|line| line == "CONFIG_LIBC_ATOMIC_IRQ=y")
-            && config.lines().any(|line| line == "CONFIG_SMP=y")
-            && config.lines().any(|line| line == "CONFIG_ESP32S3_SPIRAM=y")
+            && finalized.config.lines().any(|line| line == "CONFIG_SMP=y")
+            && finalized.config.lines().any(|line| line == "CONFIG_ESP32S3_SPIRAM=y")
         {
             let features = spec["features"].as_str().unwrap_or_default();
             spec["features"] = json!([features, "-s32c1i,-forced-atomics"]
@@ -958,79 +832,10 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("target/qemu-tools"))
             .join("downloads.sha256");
-        fs::copy(downloads, out.join("downloads.sha256")).map_err(|e| e.to_string())?;
-    }
-    let target_dir = env::var_os("NXRS_SHARED_CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| out.join("cargo"));
-    let elf = target_dir.join(target).join("release").join(&app.bin);
-    if !reused {
-        // A shared Cargo directory may still contain a fresh executable after a
-        // failed native build. Require a new root link when its evidence was reset.
-        crate::remove_file(&elf)?;
-    }
-    let mut make_args = vec![
-        format!("CROSSDEV={}", tools.prefix),
-        format!("NXRS_STD_ELF={}", elf.display()),
-        format!("NXRS_APP_COMMAND={}", app.command),
-        format!("NXRS_APP_PRIORITY={}", app.priority),
-        format!("NXRS_APP_STACKSIZE={}", app.stack),
-    ];
-    if !objects.is_empty() {
-        make_args.push(format!("NXRS_TARGET_C_SOURCE={}", objects.join(" ")));
-    }
-    make_args.extend(prebuild.map(str::to_owned));
-    if tools.esp {
-        make_args.push("ESPTOOL_BINDIR=.".into());
-        if !reused {
-            if let Some(cache) = env::var_os("NXRS_ESP_HAL_3RDPARTY_CACHE") {
-                let cache = PathBuf::from(cache);
-                let revision = output(source::git(&cache).args(["rev-parse", "HEAD"]))?;
-                if env::var("NXRS_ESP_HAL_3RDPARTY_REVISION").is_ok_and(|s| s != revision.trim()) {
-                    return Err("unexpected Espressif HAL cache revision".into());
-                }
-                copy_hal_cache(
-                    &cache,
-                    &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"),
-                    revision.trim(),
-                )?;
-            }
+        if firmware {
+            fs::copy(downloads, out.join("downloads.sha256")).map_err(|e| e.to_string())?;
         }
     }
-    run(tools
-        .command("make")
-        .arg("-C")
-        .arg(&nuttx)
-        .arg("context")
-        .args(&make_args))?;
-    if !reused
-        && signed
-        && read(&nuttx.join(".config"))?
-            .lines()
-            .any(|s| s == "CONFIG_BOOT_MCUBOOT=y")
-    {
-        source::apply_series(
-            root,
-            &apps.join("boot/mcuboot/mcuboot"),
-            "mcuboot",
-            boot::MCUBOOT_REVISION,
-            &out.join("mcuboot-patches.json"),
-            false,
-        )?;
-    }
-    if !reused && tools.esp {
-        let hal = isolated_hal(&nuttx, &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"))?;
-        let rev = output(source::git(&hal).args(["rev-parse", "HEAD"]))?;
-        source::apply_series(
-            root,
-            &hal,
-            "esp-hal-3rdparty",
-            rev.trim(),
-            &out.join("esp-hal-patches.json"),
-            true,
-        )?;
-    }
-    let native_config = native_context(&tools, &nuttx, &entry, &out, target, &make_args)?;
     let linker = out.join("nxrs-nuttx-link");
     reuse::copy_if_changed(&env::current_exe().map_err(|e| e.to_string())?, &linker)?;
     #[cfg(unix)]
@@ -1140,6 +945,16 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     });
     write_json(&out.join("provider-selection.json"), &deployment)?;
     write_json(&out.join(".editor-cargo.json"), &editor)?;
+    if !firmware {
+        // The editor consumes the prepared std source and will select it
+        // when Cargo metadata or check next runs.
+        let expected = sysroot.join("lib/rustlib/src/rust/library/std/src/lib.rs")
+            .canonicalize().map_err(|e| e.to_string())?;
+        write_json(&out.join("std-source.json"), &json!({
+            "expected_source": expected, "rustc": rustc,
+        }))?;
+        return Ok(());
+    }
     build::cargo_messages(&mut cargo, &out.join("cargo-messages.jsonl"))?;
     restore_link_evidence(&out, &elf)?;
     build::std_source(&out.join("cargo-messages.jsonl"), &sysroot, &rustc, &out)?;
@@ -1188,19 +1003,16 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
     if tools.esp {
         check.arg("--target-spec").arg(&target_arg);
     }
-    run(&mut check)?;
     run(tools
         .command("make")
         .arg("-C")
         .arg(&nuttx)
         .arg(format!("-j{jobs}"))
         .args(&make_args))?;
-    let config = read(&nuttx.join(".config"))?;
-    if protected {
-        required(&config, &requirements, forbid)?;
-        nxrs_build_support::nuttx_resources::validate_config(&p.data, &config)?;
-    }
-    fs::copy(nuttx.join(".config"), out.join("resolved.config")).map_err(|e| e.to_string())?;
+    let linked = finalized.verify(&nuttx)?;
+    configuration.validate(p, &linked.config)?;
+    check.arg("--require-finalized-context");
+    run(&mut check)?;
     if let Some(signing) = signing {
         signing.sign(
             p,
@@ -1360,10 +1172,13 @@ pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options)
         elf.clone(),
         app.manifest.clone(),
         out.join("resolved.config"),
+        out.join("kconfig-requests.json"),
+        native_config,
+        nuttx.join("include/nuttx/config.h"),
         out.join("provider-selection.json"),
     ];
     if protected {
-        inputs.extend(protected_images(&out, &nuttx, &config)?);
+        inputs.extend(protected_images(&out, &nuttx, &finalized.config)?);
     }
     inputs.extend(p.source_paths().cloned());
     inputs.extend(iram_inputs);
@@ -1464,9 +1279,9 @@ fn native_context(
     out: &Path,
     target: &str,
     make_args: &[String],
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, Finalized)> {
     let temporary = crate::TempDir::new(out)?;
-    run(tools
+    output(tools
         .command("make")
         .arg("--no-print-directory")
         .arg("-C")
@@ -1489,9 +1304,11 @@ fn native_context(
             .ok_or("native tool path UTF-8")?
             .to_owned();
     }
+    let finalized = Finalized::capture(nuttx)?;
     let context = json!({"schema":1,"target":target,"directory":entry,
-        "include":nuttx.join("include"),"config_sha256":hash(&nuttx.join("include/nuttx/config.h"))?,
-        "headers_sha256":crate::hash_bytes(&serde_json::to_vec(&reuse::snapshot(nuttx,&["include"])?).map_err(|e|e.to_string())?),
+        "include":nuttx.join("include"),"config_sha256":finalized.config_header_sha256,
+        "effective_config_sha256":finalized.effective_config_sha256,
+        "headers_sha256":finalized.headers_sha256,
         "cc":cc,"ar":ar,"cflags":words("cflags")?});
     let path = out.join("native-context.json");
     reuse::write_if_changed(
@@ -1500,7 +1317,7 @@ fn native_context(
             .map_err(|e| e.to_string())?
             .as_bytes(),
     )?;
-    Ok(path)
+    Ok((path, finalized))
 }
 
 const LINK_EVIDENCE: &[&str] = &[
@@ -1714,6 +1531,7 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nuttx_config::{configure, line, validate_overrides};
     #[test]
     fn minimal_application_does_not_require_runtime_calls() {
         let symbols = "00000000 T main\n         U puts\n";
@@ -1771,17 +1589,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn direct_application_init_does_not_require_a_shell() {
-        let mut profile = Profile::from_data(json!({}), vec![]);
-        assert_eq!(standard(&profile, false)["NSH_ARGCAT"], "y");
-        profile.data["init"] = json!({});
-        let settings = standard(&profile, false);
-        assert!(!settings.contains_key("NSH_ARGCAT"));
-        assert!(!settings.contains_key("NSH_DISABLEBG"));
-        assert_eq!(settings["TLS_GLOBAL_KEYS"], "y");
-        assert!(!standard(&profile, true).contains_key("TLS_GLOBAL_KEYS"));
-    }
     #[test]
     fn protected_image_pair_records_both_regions_and_rejects_overlap() {
         let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
@@ -2151,6 +1958,7 @@ mod rebuild_tests {
         let entry = apps.join("examples/nxrs_std_app");
         fs::create_dir_all(nuttx.join("include/nuttx")).unwrap();
         fs::create_dir_all(&entry).unwrap();
+        fs::write(nuttx.join(".config"), "CONFIG_DEVICE=y\n").unwrap();
         fs::write(nuttx.join("include/nuttx/config.h"), "#define DEVICE 1\n").unwrap();
         fs::write(
             apps.join("Make.defs"),
@@ -2171,7 +1979,8 @@ mod rebuild_tests {
             esp: false,
             path: env::var_os("PATH").unwrap(),
         };
-        let path = native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        let (path, finalized) = native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
+        assert_eq!(finalized.config, "CONFIG_DEVICE=y\n");
         let data = crate::read_json(&path).unwrap();
         assert_eq!(data["target"], "fixture-nuttx");
         assert_eq!(

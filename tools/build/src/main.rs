@@ -1,5 +1,6 @@
 //! One host-only entry for Nxrs build orchestration.
 #![forbid(unsafe_code)]
+mod config_tui;
 mod editor;
 
 use nxrs_build::{
@@ -31,6 +32,7 @@ fn usage() -> &'static str {
     "usage:
   cargo nxrs build --app <app> --platform <platform> [--profile <profile>] [--out <path>] [--dry-run]
   cargo nxrs build --manifest-path <path> --profile <qualification-profile> [--bin <bin>]
+  cargo nxrs config [check | show | explain CONFIG_SYMBOL] [build selection flags]
   cargo nxrs platforms
   cargo nxrs apps
   cargo nxrs profile --platform <profile> [--target-os <os>]
@@ -116,7 +118,37 @@ fn applications(root: &Path) -> Result<()> {
     }
     Ok(())
 }
+enum Operation<'a> {
+    Build,
+    Config,
+    Check,
+    Show,
+    Explain(&'a str),
+}
+
 fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
+    project_command(root, args, Operation::Build)
+}
+
+fn config_command(root: &Path, args: &[String]) -> Result<ExitCode> {
+    let (operation, flags) = match args {
+        [action, flags @ ..] if action == "check" => (Operation::Check, flags),
+        [action, flags @ ..] if action == "show" => (Operation::Show, flags),
+        [action, symbol, flags @ ..] if action == "explain" => (Operation::Explain(symbol), flags),
+        [action] if action == "--help" || action == "-h" => {
+            println!("usage: cargo nxrs config [check | show | explain CONFIG_SYMBOL | recover] [build selection flags]");
+            return Ok(ExitCode::SUCCESS);
+        }
+        [action] if action == "recover" => {
+            nxrs_build_support::source_transaction::recover(root)?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        _ => (Operation::Config, args),
+    };
+    project_command(root, flags, operation)
+}
+
+fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Result<ExitCode> {
     let (mut app, mut manifest, mut platform, mut profile, mut out, mut bin) =
         (None, None, None, None, None, None);
     let mut options = Options::default();
@@ -199,6 +231,34 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         }
     }
     options.validate()?;
+    if !matches!(operation, Operation::Build) {
+        if app.is_none() && manifest.is_none() {
+            let cwd = env::current_dir().map_err(|e| e.to_string())?;
+            if let Ok(app_path) = cwd.strip_prefix(root.join("app")) {
+                if let Some(entry) = app_path.components().next() {
+                    app = entry.as_os_str().to_str().map(str::to_owned);
+                }
+            }
+            if app.is_none() {
+                let mut choices = fs::read_dir(root.join("app")).map_err(|e| e.to_string())?
+                    .filter_map(|entry| entry.ok())
+                    .filter(|entry| entry.path().join("Cargo.toml").is_file())
+                    .filter_map(|entry| entry.file_name().into_string().ok())
+                    .collect::<Vec<_>>();
+                choices.sort();
+                app = Some(config_tui::select("application", &choices, matches!(operation, Operation::Config))?);
+            }
+        }
+        if platform.is_none() && profile.is_none() {
+            let choices = platform_defaults(root)?.into_keys()
+                .filter(|name| nxrs_build::profile::platform_default(root, name)
+                    .and_then(|profile| nxrs_build::profile::profile_path(root, &profile))
+                    .and_then(|path| nxrs_build::profile::manifest(&path))
+                    .is_ok_and(|data| data.get("board").is_some()))
+                .collect::<Vec<_>>();
+            platform = Some(config_tui::select("platform", &choices, matches!(operation, Operation::Config))?);
+        }
+    }
     let path = match (app, manifest) {
         (Some(name), None) if build::name(&name) => root.join("app").join(name).join("Cargo.toml"),
         (None, Some(p)) => {
@@ -259,7 +319,7 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
     };
     options.validate_for_backend(os)?;
     if os == "nuttx" {
-        nxrs_build::nuttx::validate_overrides(&profile, &app, &options)?;
+        nxrs_build::nuttx_config::validate_overrides(&profile, &app, &options)?;
     }
     if os != "emscripten" && (html.is_some() || !web_fix) {
         return Err("browser switches require a web profile".into());
@@ -270,6 +330,35 @@ fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
             .join(&app.bin)
             .join(profile.name())
     });
+    if !matches!(operation, Operation::Build) {
+        if os != "nuttx" || dry {
+            return Err("config requires a NuttX profile and native resolution".into());
+        }
+        if matches!(operation, Operation::Config) {
+            let session = nxrs_build::config_edit::Session::new(root.to_path_buf(), app, profile, out, options)?;
+            config_tui::run(session, |session| editor::refresh(&session.root, &session.out))?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        let report = nxrs_build::nuttx::inspect_config(root, &app, &profile, &options)?;
+        match operation {
+            Operation::Check => {
+                nxrs_build::nuttx_config::check_report(&report)?;
+                println!("{}: {} passes native olddefconfig ({})", app.bin, profile.name(), report["backend"].as_str().unwrap_or("Kconfig"));
+            }
+            Operation::Show => {
+                println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
+                nxrs_build::nuttx_config::check_report(&report)?;
+            }
+            Operation::Explain(name) => {
+                let key = name.strip_prefix("CONFIG_").unwrap_or(name);
+                let symbol = report["symbols"].get(key).ok_or_else(|| format!("unknown Kconfig symbol {name}"))?;
+                println!("{}", config_tui::describe(key, symbol));
+                nxrs_build::nuttx_config::check_report(&report)?;
+            }
+            Operation::Build | Operation::Config => unreachable!(),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     if dry {
         println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command,"kconfig_overrides":options.kconfig()?})).unwrap());
         return Ok(ExitCode::SUCCESS);
@@ -390,6 +479,7 @@ fn run() -> Result<ExitCode> {
         "profile" => return profile_command(&root, &raw[1..]),
         "editor" => editor::select(&root, &raw[1..])?,
         "build" => return build_command(&root, &raw[1..]),
+        "config" => return config_command(&root, &raw[1..]),
         "nuttx-build" => {
             let args: Vec<_> = raw[1..]
                 .iter()

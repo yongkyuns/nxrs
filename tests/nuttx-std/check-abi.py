@@ -184,9 +184,16 @@ def self_test():
     print('PASS: complete native poll layout/constant rejection controls; ppoll remains blocked')
 
 
-def run(out, target=TARGET, target_spec=None):
+def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
     prefix, c_flags = TARGETS[target]
     out = out.resolve()
+    config_hash = hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest()
+    if require_finalized_context:
+        context = json.loads((out / 'native-context.json').read_text())
+        assert context['target'] == target, 'native context target mismatch'
+        assert context['effective_config_sha256'] == config_hash, 'native configuration identity mismatch'
+        config_header_hash = hashlib.sha256((out / 'nuttx/include/nuttx/config.h').read_bytes()).hexdigest()
+        assert context['config_sha256'] == config_header_hash, 'native configuration header identity mismatch'
     target_arg = target
     if target == 'xtensa-esp32s3-nuttx':
         assert target_spec is not None, 'Xtensa needs the exact build target spec'
@@ -267,8 +274,10 @@ def run(out, target=TARGET, target_spec=None):
     result.update(target=target, rust_imports=imports,
                   libc_package=libs[0]['package_id'], libc_source=str(src),
                   libc_rlib_sha256=hashlib.sha256(library.read_bytes()).hexdigest(),
-                  config_sha256=hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest(),
+                  config_sha256=config_hash,
                   commands=commands)
+    if require_finalized_context:
+        result.update(config_header_sha256=config_header_hash, headers_sha256=context['headers_sha256'])
     if target_spec is not None:
         result['target_spec_sha256'] = hashlib.sha256(target_spec.read_bytes()).hexdigest()
     (out / 'abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
@@ -283,6 +292,7 @@ if __name__ == '__main__':
     parser.add_argument('--out', type=Path)
     parser.add_argument('--target', choices=TARGETS, default=TARGET)
     parser.add_argument('--target-spec', type=Path)
+    parser.add_argument('--require-finalized-context', action='store_true')
     args = parser.parse_args()
     if args.self_test:
         self_test()
@@ -292,4 +302,4 @@ if __name__ == '__main__':
     else:
         if args.out is None:
             parser.error('--out is required')
-        run(args.out, args.target, args.target_spec)
+        run(args.out, args.target, args.target_spec, args.require_finalized_context)

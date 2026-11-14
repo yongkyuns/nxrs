@@ -5,7 +5,37 @@ use std::{env, fs, path::Path, process::Command};
 
 const DEFAULT_SETTINGS: &str = include_str!("../../../.zed/settings.default.json");
 
+/// Refresh an editor already bound to this output. Other open projects keep
+/// their selected context. The new prepared receipts are available either way.
+pub fn refresh(root: &Path, out: &Path) -> Result<()> {
+    let settings = root.join(".zed/settings.json");
+    if !settings.try_exists().map_err(|e| e.to_string())? {
+        return Ok(());
+    }
+    let data = read_json(&settings)?;
+    let previous = data
+        .pointer("/lsp/rust-analyzer/initialization_options/cargo/extraEnv/NXRS_RESOLVED_PROFILE")
+        .and_then(Value::as_str)
+        .and_then(|path| Path::new(path).parent());
+    let out = out.canonicalize().map_err(|e| e.to_string())?;
+    if previous.is_some_and(|path| path == out) {
+        apply(
+            root,
+            &[
+                "--build-dir".into(),
+                out.to_str().ok_or("invalid editor output path")?.into(),
+            ],
+            false,
+        )?;
+    }
+    Ok(())
+}
+
 pub fn select(root: &Path, args: &[String]) -> Result<()> {
+    apply(root, args, true)
+}
+
+fn apply(root: &Path, args: &[String], announce: bool) -> Result<()> {
     let directory = root.join(".zed");
     let path = directory.join("settings.json");
     let (cargo, check_on_save) = match args {
@@ -78,7 +108,9 @@ pub fn select(root: &Path, args: &[String]) -> Result<()> {
     if fs::read(&path).ok() != fs::read(&candidate).ok() {
         fs::rename(&candidate, &path).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    show_profile(&settings);
+    if announce {
+        show_profile(&settings);
+    }
     Ok(())
 }
 
