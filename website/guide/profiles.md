@@ -25,6 +25,56 @@ The same application can be built with a different profile without adding board 
 
 An NXRS profile selects platform inputs; it is unrelated to Cargo's `dev` and `release` optimization profiles. A name ending in `mock` describes the selected test inputs, not the implementation of every dependency in the image.
 
+## Configure NuttX
+
+Use `cargo nxrs config` to edit the native settings for the application and profile you intend to build. Run it from the NXRS checkout, with its pinned NuttX sources initialized. Inspection needs the [NuttX host tools](https://nuttx.apache.org/docs/latest/quickstart/install.html) and `kconfiglib==14.1.0` installed in the Python environment used by `olddefconfig`. **Save & sync also needs the target's compiler and SDK** to prepare build inputs. The [firmware setup](firmware.md#prepare-ubuntu) supplies both for the ESP32-S3 tutorial.
+
+```sh
+cargo nxrs config --app event-demo --platform cores3
+```
+
+With no arguments, the terminal command offers application and NuttX platform choices. From inside `app/<name>/`, it infers the application. Use the same `--manifest-path`, `--profile`, and ordered `--overlay` arguments as your build for an external application or product variant. `cargo nxrs config --help` lists selections and examples.
+
+1. Press `/` and search by prompt text, such as `debug assertions`, or by native symbol, such as `CONFIG_DEBUG_ASSERTIONS`. Press Enter for details. **Requires** shows conditions such as `CONFIG_DEBUG_FEATURES`; press `p` to inspect a prerequisite and Escape to return.
+2. Press Space to edit. NuttX evaluates dependencies and permitted values; a requested value that cannot take effect appears as a problem. **Owned by** identifies settings supplied by build requirements or resources. Required settings stay read-only. Supported I2C and UART pin edits update their owning resource field in the profile or overlay.
+3. Press `r` to review the source destinations, your explicit edits, resulting native changes, and any problems. Press uppercase `S` to save and sync. After success, continue editing: the saved configuration becomes the new baseline. Firmware compilation is a separate step.
+
+Use `d` to remove an ordinary fragment override; for a resource pin, it discards that pin's unsaved edit. Press `q` to leave and discard unsaved changes. Previously saved edits remain.
+
+### Where settings are saved
+
+Ordinary settings go into a native `.conf` fragment referenced by the profile:
+
+```toml
+nuttx-config = "nuttx.conf"
+```
+
+The path is relative to the profile that declares it. The fragment contains ordinary NuttX assignments:
+
+```text
+CONFIG_DEBUG_FEATURES=y
+CONFIG_DEBUG_ASSERTIONS=y
+```
+
+Disabled boolean settings use `# CONFIG_SYMBOL is not set`. Existing `[kconfig]` settings supply defaults; the fragment stores explicit choices. Mandatory build requirements and BSP resource settings retain their ownership.
+
+An inherited fragment keeps its original owner, so editing it affects every profile that uses it. Review the destination before saving. To give a variant its own settings, copy the shared fragment and declare the new path in that variant first. A child `nuttx-config` **replaces** the inherited reference; fragments are not automatically combined. When no fragment exists, review shows the new fragment and reference to be added to the selected profile.
+
+### Check, build, and recover
+
+Scripts use explicit selections and the same native resolution as the editor:
+
+```sh
+cargo nxrs config check --app event-demo --platform cores3
+cargo nxrs config show --app event-demo --platform cores3
+cargo nxrs config explain CONFIG_DEBUG_ASSERTIONS --app event-demo --platform cores3
+cargo nxrs build --app event-demo --platform cores3
+```
+
+`check` reports configuration problems; `show` prints JSON; `explain` describes one setting's dependencies and ownership. The ordinary build consumes the saved fragment and resource inputs. Save & sync refreshes prepared inputs and any [Zed context](../../docs/editor-setup.md) already bound to that output directory; select that context once with `cargo nxrs editor --build-dir <path>`.
+
+**Saved; sync failed** means the source edits are already present. Fix the reported compiler, SDK, or preparation problem, then press `S` again in review to retry. External source edits require reopening the selection before publishing another draft. If a source publication was interrupted, run `cargo nxrs config recover` before reopening. A save with no changes leaves sources and the existing build cache untouched.
+
 ## Portable development with Cargo
 
 For host code using profile-selected HALs, `NXRS_PLATFORM` selects the profile. For example, check the storage package with the Linux host integration:
@@ -51,6 +101,7 @@ NuttX firmware and qualification builds use `cargo nxrs build`; their Cargo adap
 | Application firmware metadata | Binary, NuttX command, entry priority, and stack |
 | Platform profile | OS, board, devices, resources, and implementation bindings |
 | Overlay | An ordered change to a base profile |
+| Profile's `nuttx-config` fragment | Explicit native settings checked by NuttX |
 | NuttX BSP and Kconfig | Native pin/controller configuration and device registration |
 
 A reusable driver implements a device protocol. The profile selects its physical instance and resource bindings. A service receives the resulting capability, while the application chooses how that service participates in the firmware.
@@ -113,8 +164,9 @@ The composition schema is implemented for the device families listed in the [com
    before applying the registered patches.
 2. Create `platform/<family>/profile.toml`. Give it a unique `name`, select
    `board = "<board>:<defconfig>"`, and set `target`, `crossdev`, `machine`,
-   and `image`. Set the capability bindings in `hal` and the NuttX settings in
-   `[kconfig]`. Use a checked-in profile for the same supported target as a
+   and `image`. Set the capability bindings in `hal` and BSP defaults in
+   `[kconfig]`. Use the [configuration editor](#configure-nuttx) for explicit
+   product settings. Use a checked-in profile for the same supported target as a
    reference. A new target or OS needs build support and the providers for the
    capabilities you intend to use.
 3. For composed peripherals, add or extend
@@ -173,9 +225,9 @@ Read the output in this order:
 2. Check capability bindings. Availability here does not prove the application actually depends on that capability.
 3. For a composed device, inspect its resource, address or endpoint, wake settings, and aliases.
 4. Check the source list and composition provenance to see which profile or overlay supplied the final value.
-5. After a real NuttX build, compare the effective `resolved.config` with the requested native settings.
+5. Use `cargo nxrs config check` with the same application and profile selections to check native Kconfig resolution. After a real NuttX build, inspect the effective `resolved.config` retained with the image.
 
-Profile inspection uses `--platform` even when the argument is an explicit profile name. Use `cargo nxrs profile --help` for inspection options and `cargo nxrs build --help` for build options. A dry run validates selection; compilation and physical acquisition remain later checks.
+Profile inspection uses `--platform` even when the argument is an explicit profile name. Use `cargo nxrs profile --help` for profile inspection, `cargo nxrs config --help` for native settings, and `cargo nxrs build --help` for builds. A dry run validates selection; native resolution, compilation, and physical acquisition are separate checks.
 
 ## Apply an overlay
 

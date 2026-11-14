@@ -61,7 +61,7 @@ enum Resolved {
     Save {
         revision: u64,
         preview: Preview,
-        result: Result<()>,
+        result: Result<Arc<Session>>,
         published: bool,
     },
 }
@@ -74,25 +74,26 @@ struct Screen {
     pending: bool,
     saving: bool,
     retry: bool,
-    saved: bool,
     preview: Option<Preview>,
     baseline: Option<Value>,
+    last_resolved: Option<Value>,
     filter: String,
     selected: usize,
     pane: Pane,
     editor: Option<Editor>,
     input: String,
     message: String,
+    save_error: Option<String>,
     scroll: u16,
-    history: Vec<(String, usize)>,
+    history: Vec<(String, String)>,
 }
 
-pub fn select(kind: &str, choices: &[String], interactive: bool) -> Result<String> {
+pub fn select(kind: &str, flag: &str, choices: &[String], interactive: bool) -> Result<String> {
     if let [choice] = choices {
         return Ok(choice.clone());
     }
     if !interactive || !io::stdin().is_terminal() || !io::stderr().is_terminal() {
-        return Err(format!("select --{kind} ({})", choices.join(", ")));
+        return Err(format!("select {flag} ({})", choices.join(", ")));
     }
     use std::io::Write;
     eprintln!("Choose {kind}");
@@ -126,7 +127,7 @@ pub fn run(session: Session, sync_editor: impl Fn(&Session) -> Result<()> + Send
     let session = Arc::new(session);
     let (sender, work) = mpsc::channel();
     let (results, receiver) = mpsc::channel();
-    let worker_session = Arc::clone(&session);
+    let mut worker_session = Arc::clone(&session);
     thread::scope(|scope| {
         scope.spawn(move || {
             let mut inspection = nxrs_build::nuttx::Inspection::new();
@@ -153,13 +154,18 @@ pub fn run(session: Session, sync_editor: impl Fn(&Session) -> Result<()> + Send
                         } else {
                             worker_session.publish(&preview)
                         } {
-                            Ok(true) => (
-                                worker_session
+                            Ok(true) => {
+                                let result = worker_session
                                     .sync(&preview, &mut inspection)
-                                    .and_then(|_| sync_editor(&worker_session)),
-                                true,
-                            ),
-                            Ok(false) => (Ok(()), false),
+                                    .and_then(|_| sync_editor(&worker_session))
+                                    .and_then(|_| worker_session.refresh(&preview))
+                                    .map(Arc::new);
+                                if let Ok(session) = &result {
+                                    worker_session = Arc::clone(session);
+                                }
+                                (result, true)
+                            }
+                            Ok(false) => (Ok(Arc::clone(&worker_session)), false),
                             Err(error) => (Err(error), false),
                         };
                         Resolved::Save {
@@ -183,15 +189,16 @@ pub fn run(session: Session, sync_editor: impl Fn(&Session) -> Result<()> + Send
             pending: false,
             saving: false,
             retry: false,
-            saved: false,
             preview: None,
             baseline: None,
+            last_resolved: None,
             filter: String::new(),
             selected: 0,
             pane: Pane::List,
             editor: None,
             input: String::new(),
             message: String::new(),
+            save_error: None,
             scroll: 0,
             history: Vec::new(),
         };
@@ -210,8 +217,15 @@ pub fn run(session: Session, sync_editor: impl Fn(&Session) -> Result<()> + Send
             let mut terminal =
                 Terminal::new(CrosstermBackend::new(io::stdout())).map_err(|e| e.to_string())?;
             loop {
+                let mut completed = false;
                 while let Ok(done) = receiver.try_recv() {
                     screen.accept(done);
+                    completed = true;
+                }
+                if completed {
+                    // Native preparation may write progress to the terminal.
+                    // Repaint after it finishes instead of retaining stale cells.
+                    terminal.clear().map_err(|e| e.to_string())?;
                 }
                 terminal
                     .draw(|frame| screen.render(frame))
@@ -237,6 +251,8 @@ impl Screen {
     fn resolve(&mut self) -> Result<()> {
         self.revision += 1;
         self.pending = true;
+        self.message.clear();
+        self.save_error = None;
         self.sender
             .send(Work::Preview(self.revision, self.draft.clone()))
             .map_err(|e| e.to_string())
@@ -245,26 +261,40 @@ impl Screen {
     fn accept(&mut self, done: Resolved) {
         match done {
             Resolved::Preview(revision, preview) if revision == self.revision => {
+                let selected = self.selected_name();
                 self.pending = false;
-                if self.baseline.is_none() && preview.report["symbols"].is_object() {
-                    self.baseline = Some(preview.report.clone());
+                self.message.clear();
+                if preview.report["symbols"].is_object() {
+                    if self.baseline.is_none() {
+                        self.baseline = Some(preview.report.clone());
+                    }
+                    self.last_resolved = Some(preview.report["symbols"].clone());
                 }
                 self.preview = Some(preview);
-                self.selected = self.selected.min(self.names().len().saturating_sub(1));
+                self.preserve_selection(selected.as_deref());
+                if self.last_resolved.is_none() && !self.problems().is_empty() {
+                    self.pane = Pane::Detail;
+                }
             }
             Resolved::Save {
                 revision,
-                preview,
+                mut preview,
                 result,
                 published,
             } if revision == self.revision => {
                 self.saving = false;
                 match result {
-                    Ok(()) => {
+                    Ok(session) => {
+                        self.session = session;
                         self.retry = false;
-                        self.saved = published;
+                        self.save_error = None;
+                        self.draft = Draft::default();
+                        self.baseline = Some(preview.report.clone());
+                        self.last_resolved = Some(preview.report["symbols"].clone());
+                        preview.edits.clear();
+                        preview.authored.clear();
                         self.message = if published {
-                            "Synced. Reopen to make further edits."
+                            "Synced. Continue editing with Tab or Escape."
                         } else {
                             "No source changes."
                         }
@@ -272,9 +302,14 @@ impl Screen {
                     }
                     Err(error) if published => {
                         self.retry = true;
-                        self.message = format!("Saved; sync failed. Press S to retry. {error}");
+                        self.save_error = Some(error);
+                        self.message =
+                            "Saved; sync failed. Review the error, then press S to retry.".into();
                     }
-                    Err(error) => self.message = error,
+                    Err(error) => {
+                        self.save_error = Some(error);
+                        self.message = "Save failed. Review the error below.".into();
+                    }
                 }
                 self.preview = Some(preview);
             }
@@ -287,8 +322,53 @@ impl Screen {
             .as_ref()
             .filter(|p| p.report["symbols"].is_object())
             .map(|p| &p.report["symbols"])
-            .or_else(|| self.baseline.as_ref().map(|value| &value["symbols"]))
+            .or(self.last_resolved.as_ref())
             .unwrap_or(&Value::Null)
+    }
+
+    fn problems(&self) -> &[Value] {
+        self.preview
+            .as_ref()
+            .and_then(|preview| preview.report["problems"].as_array())
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    fn stale_catalog(&self) -> bool {
+        self.last_resolved.is_some()
+            && !self.saving
+            && (self.pending
+                || self
+                    .preview
+                    .as_ref()
+                    .is_none_or(|preview| !preview.report["symbols"].is_object()))
+    }
+
+    fn selected_name(&self) -> Option<String> {
+        self.names()
+            .get(self.selected)
+            .map(|name| (*name).to_owned())
+    }
+
+    fn preserve_selection(&mut self, selected: Option<&str>) {
+        let Some(name) = selected else {
+            self.selected = self.selected.min(self.names().len().saturating_sub(1));
+            return;
+        };
+        if let Some(index) = self.names().iter().position(|candidate| *candidate == name) {
+            self.selected = index;
+        } else if self.catalog().get(name).is_some() {
+            // An edited prerequisite can hide the current row. Keep its detail
+            // visible so the next key cannot silently operate on another setting.
+            self.history.push((self.filter.clone(), name.to_owned()));
+            self.filter = format!("CONFIG_{name}");
+            self.selected = 0;
+            self.pane = Pane::Detail;
+            self.scroll = 0;
+            self.message = "This setting is now unavailable. Escape returns to the list.".into();
+        } else {
+            self.selected = self.selected.min(self.names().len().saturating_sub(1));
+        }
     }
 
     fn names(&self) -> Vec<&str> {
@@ -321,7 +401,7 @@ impl Screen {
             self.message = "Review the edits, then press S to save and sync.".into();
             return Ok(());
         }
-        if self.pending || self.saving || self.saved {
+        if self.pending || self.saving {
             return Ok(());
         }
         let Some(preview) = self.preview.take() else {
@@ -343,7 +423,12 @@ impl Screen {
     }
 
     fn edit(&mut self, name: String, pin: bool) -> Result<()> {
-        if self.saving || self.saved || self.retry || self.baseline.is_none() {
+        if self.pending {
+            self.message =
+                "Wait for the current edit to resolve; navigation is still available.".into();
+            return Ok(());
+        }
+        if self.saving || self.retry || self.baseline.is_none() {
             return Ok(());
         }
         let symbol = &self.catalog()[&name];
@@ -415,10 +500,13 @@ impl Screen {
                 if key.code == KeyCode::Enter {
                     if let Some(name) = options.get(selected) {
                         if prerequisite {
-                            self.history.push((self.filter.clone(), self.selected));
+                            if let Some(current) = self.selected_name() {
+                                self.history.push((self.filter.clone(), current));
+                            }
                             self.filter = format!("CONFIG_{name}");
                             self.selected = 0;
                             self.pane = Pane::Detail;
+                            self.scroll = 0;
                         } else {
                             if self.catalog()[name]["choice"]["selected"] == name.as_str() {
                                 return Ok(());
@@ -512,9 +600,18 @@ impl Screen {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(true),
             KeyCode::Esc => {
-                if let Some((filter, selected)) = self.history.pop() {
+                if matches!(self.pane, Pane::Review) {
+                    self.pane = Pane::Detail;
+                } else if let Some((filter, selected)) = self.history.pop() {
                     self.filter = filter;
-                    self.selected = selected;
+                    self.selected = self
+                        .names()
+                        .iter()
+                        .position(|name| *name == selected)
+                        .unwrap_or(0);
+                    if !self.names().iter().any(|name| *name == selected) {
+                        self.pane = Pane::List;
+                    }
                 } else if !matches!(self.pane, Pane::List) {
                     self.pane = Pane::List;
                 } else {
@@ -556,7 +653,7 @@ impl Screen {
                 }
             }
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('d') | KeyCode::Char('p')
-                if !self.saved && !self.retry =>
+                if !self.retry && !matches!(self.pane, Pane::Review) =>
             {
                 if let Some(name) = self
                     .names()
@@ -568,13 +665,18 @@ impl Screen {
                             self.pane = Pane::Detail;
                             self.scroll = 0;
                         }
-                        KeyCode::Char('d') if !self.pending => {
-                            if self.session.pin_owner(&name).is_ok() {
-                                self.draft.pins.remove(&name);
+                        KeyCode::Char('d') => {
+                            if self.pending {
+                                self.message =
+                                    "Wait for the current edit to resolve before resetting.".into();
                             } else {
-                                self.draft.symbols.insert(name, None);
+                                if self.session.pin_owner(&name).is_ok() {
+                                    self.draft.pins.remove(&name);
+                                } else {
+                                    self.draft.symbols.insert(name, None);
+                                }
+                                self.resolve()?;
                             }
-                            self.resolve()?;
                         }
                         KeyCode::Char('p') => {
                             let options = self.catalog()[&name]["prerequisites"]
@@ -607,7 +709,7 @@ impl Screen {
         Ok(false)
     }
 
-    fn render(&self, frame: &mut Frame) {
+    fn render(&mut self, frame: &mut Frame) {
         let areas = Layout::vertical([
             Constraint::Length(2),
             Constraint::Min(5),
@@ -618,11 +720,23 @@ impl Screen {
         let status = if self.saving {
             "Saving and preparing"
         } else if self.pending {
-            "Resolving draft"
+            if self.last_resolved.is_some() {
+                "Resolving draft · showing last resolved values"
+            } else {
+                "Resolving configuration"
+            }
         } else if self.retry {
             "Saved; sync failed"
-        } else if self.saved {
-            "Synced"
+        } else if self.save_error.is_some() {
+            "Save failed · r Review problems"
+        } else if !self.problems().is_empty() {
+            if self.stale_catalog() {
+                "Resolution failed · showing last resolved values · r Review"
+            } else if self.last_resolved.is_none() {
+                "Configuration unavailable · r Review problems"
+            } else {
+                "Draft invalid · r Review problems"
+            }
         } else if self.draft.symbols.is_empty() && self.draft.pins.is_empty() {
             "No pending edits"
         } else {
@@ -637,7 +751,20 @@ impl Screen {
             areas[0],
         );
         let body = areas[1];
-        if matches!(self.pane, Pane::Review) {
+        let detail_title = if self.stale_catalog() {
+            "Setting · last resolved values"
+        } else {
+            "Setting"
+        };
+        if self.last_resolved.is_none() && !self.problems().is_empty() {
+            let problems = self
+                .problems()
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            self.paragraph(frame, body, "Configuration unavailable", problems);
+        } else if matches!(self.pane, Pane::Review) {
             self.paragraph(frame, body, "Review", self.review());
         } else if frame.area().width >= 105 {
             let columns = Layout::default()
@@ -645,14 +772,26 @@ impl Screen {
                 .constraints([Constraint::Percentage(43), Constraint::Percentage(57)])
                 .split(body);
             self.list(frame, columns[0]);
-            self.paragraph(frame, columns[1], "Setting", self.detail());
+            self.paragraph(frame, columns[1], detail_title, self.detail());
         } else if matches!(self.pane, Pane::List) {
             self.list(frame, body);
         } else {
-            self.paragraph(frame, body, "Setting", self.detail());
+            self.paragraph(frame, body, detail_title, self.detail());
         }
-        let status = self.message.lines().next().unwrap_or("");
-        frame.render_widget(Paragraph::new(format!("/ Search  ↑↓ Move  Enter Detail  Space Edit  p Prerequisites\nTab Pane  d Reset  r Review  S Save & sync  Esc Back  q Exit\n{status}")), areas[2]);
+        let shortcuts = match self.pane {
+            Pane::List => "/ Search  ↑↓ Move  Enter Detail  Space Edit  p Prerequisites\nTab Pane  d Reset  r Review  S Save & sync  Esc Back  q Exit",
+            Pane::Detail => "↑↓ Scroll  Enter/Space Edit  p Prerequisites  / Search\nTab Pane  d Reset  r Review  S Save & sync  Esc Back  q Exit",
+            Pane::Review if self.retry => "↑↓ Scroll  S Retry sync\nTab Settings  Esc Back  q Exit",
+            Pane::Review => "↑↓ Scroll  S Save & sync\nTab Settings  Esc Back  q Exit",
+        };
+        let status = self
+            .message
+            .lines()
+            .next()
+            .filter(|line| !line.is_empty())
+            .or_else(|| self.problems().iter().find_map(Value::as_str))
+            .unwrap_or("");
+        frame.render_widget(Paragraph::new(format!("{shortcuts}\n{status}")), areas[2]);
         if let Some(editor) = &self.editor {
             let width = body.width.saturating_sub(8).min(74);
             let height = body.height.min(12);
@@ -684,11 +823,21 @@ impl Screen {
                         .enumerate()
                         .skip(selected.saturating_sub(4))
                         .map(|(index, name)| {
+                            let symbol = &self.catalog()[name];
+                            let state = if symbol.get("ownership").is_some() {
+                                " · owned"
+                            } else if symbol["visibility"] == "n" {
+                                " · unavailable"
+                            } else {
+                                ""
+                            };
                             format!(
-                                "{} {}  {}",
+                                "{} [{}{}] {} · CONFIG_{}",
                                 if index == *selected { ">" } else { " " },
+                                value_string(&symbol["effective"]),
+                                state,
+                                prompt(symbol),
                                 name,
-                                prompt(&self.catalog()[name])
                             )
                         })
                         .collect::<Vec<_>>()
@@ -724,7 +873,7 @@ impl Screen {
                 };
                 let label = prompt(symbol);
                 let row = Line::raw(format!(
-                    "{marker} [{effective}{disposition}] {name}  {label}",
+                    "{marker} [{effective}{disposition}] {label} · CONFIG_{name}",
                     effective = value_string(&symbol["effective"])
                 ));
                 if index == self.selected {
@@ -734,28 +883,31 @@ impl Screen {
                 }
             })
             .collect::<Vec<_>>();
-        let title = if self.filter.is_empty() {
+        let mut title = if self.filter.is_empty() {
             format!("Settings ({})", names.len())
         } else {
             format!("Search {} ({})", self.filter, names.len())
         };
+        if self.stale_catalog() {
+            title.push_str(" · last resolved");
+        }
         frame.render_widget(
             List::new(rows).block(Block::default().title(title).borders(Borders::ALL)),
             area,
         );
     }
 
-    fn paragraph(&self, frame: &mut Frame, area: Rect, title: &str, body: String) {
-        let scroll = self
-            .scroll
-            .min(body.lines().count().saturating_sub(1) as u16);
-        frame.render_widget(
-            Paragraph::new(body)
-                .wrap(Wrap { trim: false })
-                .scroll((scroll, 0))
-                .block(Block::default().title(title).borders(Borders::ALL)),
-            area,
-        );
+    fn paragraph(&mut self, frame: &mut Frame, area: Rect, title: &str, body: String) {
+        let block = Block::default().title(title).borders(Borders::ALL);
+        let inner = block.inner(area);
+        let paragraph = Paragraph::new(body).wrap(Wrap { trim: false });
+        // Measure without the block using its inner width, so borders are
+        // accounted for exactly once and scroll is in wrapped display rows.
+        let maximum = paragraph
+            .line_count(inner.width)
+            .saturating_sub(inner.height as usize);
+        self.scroll = self.scroll.min(maximum.min(u16::MAX as usize) as u16);
+        frame.render_widget(paragraph.scroll((self.scroll, 0)).block(block), area);
     }
 
     fn detail(&self) -> String {
@@ -791,7 +943,9 @@ impl Screen {
                 }
             }
         }
-        if count == 0 {
+        if !preview.report["symbols"].is_object() {
+            rows.push("  Unavailable until this draft resolves.".into());
+        } else if count == 0 {
             rows.push("  None".into());
         }
         rows.push("\nProblems to resolve".into());
@@ -799,7 +953,7 @@ impl Screen {
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
-        if problems.is_empty() {
+        if problems.is_empty() && self.save_error.is_none() {
             rows.push("  None".into());
         }
         rows.extend(
@@ -808,6 +962,9 @@ impl Screen {
                 .filter_map(Value::as_str)
                 .map(|problem| format!("  {problem}")),
         );
+        if let Some(error) = &self.save_error {
+            rows.push(format!("  {error}"));
+        }
         rows.join("\n")
     }
 }
@@ -868,60 +1025,36 @@ pub fn describe(name: &str, symbol: &Value) -> String {
             value_string(&symbol["ownership"]["source"])
         ));
     }
-    if let Some(provenance) = symbol["provenance"].as_array() {
-        for (index, row) in provenance.iter().enumerate() {
-            lines.push(format!(
-                "{} {} · {}{}",
-                value_string(&row["kind"]),
-                value_string(&row["value"]),
-                value_string(&row["source"]),
-                if index + 1 < provenance.len() {
-                    " (superseded)"
-                } else {
-                    ""
-                }
-            ));
-        }
-    }
-    if let Some(nodes) = symbol["locations"].as_array() {
-        for node in nodes {
-            let menu = node["menu"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(" › ");
-            lines.push(format!(
-                "Location {menu}  ({}:{})",
-                value_string(&node["file"]),
-                node["line"]
-            ));
-            if let Some(help) = node["help"].as_str() {
-                lines.push(help.into());
-            }
-            if let Some(prompt_condition) = node["prompt_condition"]["expression"].as_str() {
-                if node["prompt_condition"] != symbol["requires"] {
-                    lines.push(format!(
-                        "Prompt visible when {prompt_condition} ({})",
-                        value_string(&node["prompt_condition"]["value"])
-                    ));
-                }
-            }
-        }
-    }
     let requires = &symbol["requires"];
-    lines.push(format!(
-        "Requires {} ({})",
-        value_string(&requires["expression"]),
-        value_string(&requires["value"])
-    ));
-    for (field, label) in [("enabled_by", "Enabled by"), ("implied_by", "Suggested by")] {
+    if requires["expression"] == "y" {
+        lines.push("Requires no additional conditions".into());
+    } else {
+        lines.push(format!(
+            "Requires {} ({})",
+            value_string(&requires["expression"]),
+            value_string(&requires["value"])
+        ));
+    }
+    let mut potential = Vec::new();
+    for (field, label, inactive_label) in [
+        ("enabled_by", "Enabled by", "Potential selectors (inactive)"),
+        (
+            "implied_by",
+            "Suggested by",
+            "Potential suggestions (inactive)",
+        ),
+    ] {
         if let Some(entries) = symbol[field].as_array() {
-            let mut inactive = 0;
+            let mut inactive = Vec::new();
             for entry in entries {
-                if entry["when"]["value"] == "n" {
-                    inactive += 1;
+                let active = |value: &Value| matches!(value.as_str(), Some("m" | "y"));
+                if !active(&entry["value"]) || !active(&entry["when"]["value"]) {
+                    inactive.push(format!(
+                        "CONFIG_{} ({}; condition {})",
+                        value_string(&entry["symbol"]),
+                        value_string(&entry["value"]),
+                        value_string(&entry["when"]["value"])
+                    ));
                 } else {
                     lines.push(format!(
                         "{label} CONFIG_{} ({}) when {} ({})",
@@ -932,8 +1065,8 @@ pub fn describe(name: &str, symbol: &Value) -> String {
                     ));
                 }
             }
-            if inactive != 0 {
-                lines.push(format!("{label} {inactive} conditional entries inactive"));
+            if !inactive.is_empty() {
+                potential.push(format!("{inactive_label}: {}", inactive.join(", ")));
             }
         }
     }
@@ -972,32 +1105,440 @@ pub fn describe(name: &str, symbol: &Value) -> String {
             value_string(&choice["selected"])
         ));
     }
+    if let Some(provenance) = symbol["provenance"].as_array() {
+        for (index, row) in provenance.iter().enumerate() {
+            lines.push(format!(
+                "{} {} · {}{}",
+                value_string(&row["kind"]),
+                value_string(&row["value"]),
+                value_string(&row["source"]),
+                if index + 1 < provenance.len() {
+                    " (superseded)"
+                } else {
+                    ""
+                }
+            ));
+        }
+    }
+    let mut help = Vec::new();
+    if let Some(nodes) = symbol["locations"].as_array() {
+        for node in nodes {
+            let menu = node["menu"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" › ");
+            lines.push(format!(
+                "Location {menu}  ({}:{})",
+                value_string(&node["file"]),
+                node["line"]
+            ));
+            if let Some(prompt_condition) = node["prompt_condition"]["expression"].as_str() {
+                if node["prompt_condition"] != symbol["requires"] {
+                    lines.push(format!(
+                        "Prompt visible when {prompt_condition} ({})",
+                        value_string(&node["prompt_condition"]["value"])
+                    ));
+                }
+            }
+            if let Some(text) = node["help"].as_str() {
+                help.push(text);
+            }
+        }
+    }
+    lines.extend(potential);
+    for text in help {
+        lines.push(format!("\nHelp\n{text}"));
+    }
     lines.join("\n")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nxrs_build::{
+        build::{App, Options},
+        profile::Profile,
+        TempDir,
+    };
+    use ratatui::backend::TestBackend;
     use serde_json::json;
+
+    fn screen() -> (Screen, mpsc::Receiver<Work>, TempDir) {
+        let temp = TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temp.0.clone();
+        let source = root.join("profile.toml");
+        std::fs::write(&source, "name = \"fixture\"\nboard = \"sim:nsh\"\n").unwrap();
+        let manifest = root.join("Cargo.toml");
+        std::fs::write(
+            &manifest,
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let app = App::load(&manifest, None).unwrap();
+        let profile = Profile::from_data(json!({"name":"fixture","board":"sim:nsh"}), vec![source]);
+        let session = Session::new(
+            root.clone(),
+            app,
+            profile,
+            root.join("out"),
+            Options::default(),
+        )
+        .unwrap();
+        let (sender, receiver) = mpsc::channel();
+        (
+            Screen {
+                session: Arc::new(session),
+                sender,
+                draft: Draft::default(),
+                revision: 1,
+                pending: true,
+                saving: false,
+                retry: false,
+                preview: None,
+                baseline: None,
+                last_resolved: None,
+                filter: String::new(),
+                selected: 0,
+                pane: Pane::List,
+                editor: None,
+                input: String::new(),
+                message: String::new(),
+                save_error: None,
+                scroll: 0,
+                history: Vec::new(),
+            },
+            receiver,
+            temp,
+        )
+    }
+
+    fn symbol(prompt: &str, effective: &str, visibility: &str) -> Value {
+        json!({
+            "type":"bool", "effective":effective, "visibility":visibility,
+            "assignable":["n","y"],
+            "locations":[{"prompt":prompt,"menu":[],"file":"Kconfig","line":1}],
+            "requires":{"expression":"y","value":"y"}, "prerequisites":[]
+        })
+    }
+
+    fn preview(symbols: Value) -> Preview {
+        let mut preview = problem(String::new());
+        preview.report = json!({"symbols":symbols,"problems":[]});
+        preview
+    }
+
+    fn render(screen: &mut Screen, width: u16, height: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| screen.render(frame)).unwrap();
+        terminal.backend().to_string()
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn resolution_preserves_symbol_identity_when_the_visible_list_changes() {
+        let (mut screen, requests, _temp) = screen();
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({
+                "A":symbol("Dependent A","y","y"),
+                "B":symbol("Parent B","y","y"), "C":symbol("Unrelated C","n","y")
+            })),
+        ));
+        screen.selected = 1;
+        screen.edit("B".into(), false).unwrap();
+        assert!(matches!(requests.try_recv().unwrap(), Work::Preview(2, _)));
+        screen.accept(Resolved::Preview(
+            2,
+            preview(json!({
+                "A":symbol("Dependent A","n","n"),
+                "B":symbol("Parent B","n","y"), "C":symbol("Unrelated C","n","y")
+            })),
+        ));
+        assert_eq!(screen.selected_name().as_deref(), Some("B"));
+        assert_eq!(screen.selected, 0);
+
+        // If the focused item itself disappears, keep its unavailable detail.
+        screen.accept(Resolved::Preview(
+            2,
+            preview(json!({
+                "A":symbol("Dependent A","y","y"), "B":symbol("Parent B","y","y")
+            })),
+        ));
+        screen.selected = 0;
+        screen.accept(Resolved::Preview(
+            2,
+            preview(json!({
+                "A":symbol("Dependent A","n","n"), "B":symbol("Parent B","n","y")
+            })),
+        ));
+        assert_eq!(screen.selected_name().as_deref(), Some("A"));
+        assert!(matches!(screen.pane, Pane::Detail));
+        assert!(screen.message.contains("now unavailable"));
+        screen.key(key(KeyCode::Esc)).unwrap();
+        assert!(screen.filter.is_empty());
+        assert!(matches!(screen.pane, Pane::List));
+    }
+
+    #[test]
+    fn initial_errors_are_visible_and_later_errors_label_the_last_resolved_values() {
+        let (mut screen, _requests, _temp) = screen();
+        screen.accept(Resolved::Preview(
+            1,
+            problem("missing required tool: olddefconfig".into()),
+        ));
+        for (width, height) in [(80, 24), (126, 34)] {
+            let rendered = render(&mut screen, width, height);
+            assert!(rendered.contains("Configuration unavailable"));
+            assert!(rendered.contains("missing required tool: olddefconfig"));
+            assert!(!rendered.contains("No pending edits"));
+        }
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"B":symbol("Parent B","y","y")})),
+        ));
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"B":symbol("Parent B","n","y")})),
+        ));
+        screen.accept(Resolved::Preview(
+            1,
+            problem("invalid pin collision".into()),
+        ));
+        let rendered = render(&mut screen, 80, 24);
+        assert!(rendered.contains("Resolution failed"));
+        assert!(rendered.contains("last resolved values"));
+        assert!(rendered.contains("invalid pin collision"));
+        assert_eq!(screen.catalog()["B"]["effective"], "n");
+        assert_eq!(
+            screen.baseline.as_ref().unwrap()["symbols"]["B"]["effective"],
+            "y"
+        );
+    }
+
+    #[test]
+    fn inactive_selectors_and_implications_are_potential_relationships() {
+        let mut selected = symbol("Derived target", "n", "n");
+        selected["enabled_by"] = json!([
+            {"symbol":"OFF","value":"n","when":{"expression":"y","value":"y"}},
+            {"symbol":"BLOCKED","value":"y","when":{"expression":"CONFIG_GATE","value":"n"}},
+            {"symbol":"ON","value":"y","when":{"expression":"y","value":"y"}}
+        ]);
+        selected["implied_by"] = json!([
+            {"symbol":"SUGGESTION","value":"n","when":{"expression":"y","value":"y"}}
+        ]);
+        let detail = describe("TARGET", &selected);
+        assert!(detail.contains("Enabled by CONFIG_ON (y)"));
+        assert!(!detail.contains("Enabled by CONFIG_OFF"));
+        assert!(!detail.contains("Enabled by CONFIG_BLOCKED"));
+        assert!(!detail.contains("Suggested by CONFIG_SUGGESTION"));
+        assert!(detail.contains("Potential selectors (inactive): CONFIG_OFF (n; condition y)"));
+        assert!(detail.contains("Potential suggestions (inactive): CONFIG_SUGGESTION"));
+    }
+
+    #[test]
+    fn scrolling_reaches_wrapped_help_and_review_at_both_layout_widths() {
+        let (mut screen, _requests, _temp) = screen();
+        // Ordinary help lines wrap in the split view. A final marker verifies
+        // reachability without reproducing the widget's wrapping algorithm.
+        let help = format!("{}\nEND OF HELP", "An ordinary help line explains board initialization and dependency behavior in detail.\n".repeat(40));
+        let mut setting = symbol("Long native help", "n", "y");
+        setting["locations"][0]["help"] = json!(help);
+        screen.accept(Resolved::Preview(1, preview(json!({"LONG":setting}))));
+        screen.pane = Pane::Detail;
+        for (width, height) in [(80, 24), (105, 24), (126, 34)] {
+            screen.scroll = u16::MAX;
+            assert!(render(&mut screen, width, height).contains("END OF HELP"));
+            let bottom = screen.scroll;
+            assert!(bottom > 0 && bottom < u16::MAX);
+            screen.key(key(KeyCode::Up)).unwrap();
+            render(&mut screen, width, height);
+            assert_eq!(screen.scroll, bottom - 1);
+        }
+        screen.pane = Pane::Review;
+        screen.save_error = Some(format!("{}\nEND OF ERROR", "A long native diagnostic includes source paths, requested values, dependencies and effective values.\n".repeat(30)));
+        screen.scroll = u16::MAX;
+        assert!(render(&mut screen, 80, 24).contains("END OF ERROR"));
+    }
+
+    #[test]
+    fn save_refreshes_the_session_and_baseline_before_the_next_edit() {
+        let (mut screen, requests, _temp) = screen();
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"B":symbol("Parent B","y","y")})),
+        ));
+        screen.draft.symbols.insert("B".into(), Some("n".into()));
+        let mut saved = preview(json!({"B":symbol("Parent B","n","y")}));
+        saved.authored.push("saved source edit".into());
+        saved.edits.insert(
+            screen.session.root.join("fixture.conf"),
+            "CONFIG_B=n\n".into(),
+        );
+        let refreshed = Arc::new(
+            Session::new(
+                screen.session.root.clone(),
+                screen.session.app.clone(),
+                screen.session.profile.clone(),
+                screen.session.out.clone(),
+                screen.session.options.clone(),
+            )
+            .unwrap(),
+        );
+        screen.accept(Resolved::Save {
+            revision: 1,
+            preview: saved,
+            result: Ok(Arc::clone(&refreshed)),
+            published: true,
+        });
+        assert!(Arc::ptr_eq(&screen.session, &refreshed));
+        assert!(screen.draft.symbols.is_empty());
+        assert!(screen.preview.as_ref().unwrap().edits.is_empty());
+        assert!(screen.preview.as_ref().unwrap().authored.is_empty());
+        assert_eq!(
+            screen.baseline.as_ref().unwrap()["symbols"]["B"]["effective"],
+            "n"
+        );
+        screen.edit("B".into(), false).unwrap();
+        assert_eq!(screen.draft.symbols["B"].as_deref(), Some("y"));
+        assert!(matches!(requests.try_recv().unwrap(), Work::Preview(2, _)));
+    }
+
+    #[test]
+    fn sync_failure_preserves_the_reviewed_draft_and_session_for_retry() {
+        let (mut screen, _requests, _temp) = screen();
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"B":symbol("Parent B","n","y")})),
+        ));
+        let original = Arc::clone(&screen.session);
+        screen.draft.symbols.insert("B".into(), Some("n".into()));
+        let mut pending = screen.preview.take().unwrap();
+        pending.authored.push("reviewed source edit".into());
+        screen.accept(Resolved::Save {
+            revision: 1,
+            preview: pending,
+            result: Err("preparation failed".into()),
+            published: true,
+        });
+        assert!(Arc::ptr_eq(&original, &screen.session));
+        assert!(screen.retry);
+        assert_eq!(
+            screen.preview.as_ref().unwrap().authored,
+            ["reviewed source edit"]
+        );
+        assert!(screen.review().contains("preparation failed"));
+        screen.edit("B".into(), false).unwrap();
+        assert_eq!(screen.draft.symbols["B"].as_deref(), Some("n"));
+    }
+
+    #[test]
+    fn repeated_toggles_wait_for_the_current_resolution() {
+        let (mut screen, requests, _temp) = screen();
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"B":symbol("Parent B","y","y")})),
+        ));
+        screen.edit("B".into(), false).unwrap();
+        screen.edit("B".into(), false).unwrap();
+        assert_eq!(screen.revision, 2);
+        assert!(matches!(requests.try_recv().unwrap(), Work::Preview(2, _)));
+        assert!(requests.try_recv().is_err());
+        assert!(screen.message.contains("Wait for the current edit"));
+        screen.accept(Resolved::Preview(
+            2,
+            preview(json!({"B":symbol("Parent B","n","y")})),
+        ));
+        screen.edit("B".into(), false).unwrap();
+        assert_eq!(screen.draft.symbols["B"].as_deref(), Some("y"));
+    }
+
+    #[test]
+    fn escape_leaves_review_before_returning_through_prerequisite_history() {
+        let (mut screen, _requests, _temp) = screen();
+        let mut dependent = symbol("Dependent A", "n", "y");
+        dependent["prerequisites"] = json!(["B"]);
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"A":dependent,"B":symbol("Parent B","n","y")})),
+        ));
+        screen.key(key(KeyCode::Char('p'))).unwrap();
+        screen.key(key(KeyCode::Enter)).unwrap();
+        assert_eq!(screen.selected_name().as_deref(), Some("B"));
+        assert_eq!(screen.history.len(), 1);
+        screen.key(key(KeyCode::Char('r'))).unwrap();
+        assert!(matches!(screen.pane, Pane::Review));
+
+        screen.key(key(KeyCode::Esc)).unwrap();
+        assert!(matches!(screen.pane, Pane::Detail));
+        assert_eq!(screen.selected_name().as_deref(), Some("B"));
+        assert_eq!(screen.filter, "CONFIG_B");
+        assert_eq!(screen.history.len(), 1);
+
+        screen.key(key(KeyCode::Esc)).unwrap();
+        assert_eq!(screen.selected_name().as_deref(), Some("A"));
+        assert!(screen.filter.is_empty());
+        assert!(screen.history.is_empty());
+    }
+
+    #[test]
+    fn prompts_and_prerequisite_state_are_visible_before_raw_names() {
+        let (mut screen, _requests, _temp) = screen();
+        let mut parent = symbol("Parent subsystem", "n", "y");
+        parent["ownership"] = json!({"owner":"resources.bus","source":"profile.toml"});
+        screen.accept(Resolved::Preview(
+            1,
+            preview(json!({"LONG_NATIVE_SYMBOL_NAME":parent})),
+        ));
+        let list = render(&mut screen, 80, 24);
+        assert!(
+            list.find("Parent subsystem").unwrap()
+                < list.find("CONFIG_LONG_NATIVE_SYMBOL_NAME").unwrap()
+        );
+        screen.editor = Some(Editor::Choose {
+            options: vec!["LONG_NATIVE_SYMBOL_NAME".into()],
+            selected: 0,
+            prerequisite: true,
+        });
+        let popup = render(&mut screen, 80, 24);
+        assert!(popup.contains("[n · owned] Parent subsystem"));
+    }
+
+    #[test]
+    fn headless_selection_uses_the_supported_flag() {
+        let error = select(
+            "application",
+            "--app",
+            &["first".into(), "second".into()],
+            false,
+        )
+        .unwrap_err();
+        assert!(error.starts_with("select --app ("));
+        assert!(!error.contains("--application"));
+    }
 
     #[test]
     fn detail_explains_an_unavailable_setting_at_both_terminal_sizes() {
-        let symbol = json!({
+        let setting = json!({
             "type":"bool", "effective":"n", "visibility":"n",
-            "locations":[{"prompt":"Fixture"}],
+            "locations":[{"prompt":"Fixture","help":"Long explanatory help comes after the blocker."}],
             "requires":{"expression":"CONFIG_A || CONFIG_B","value":"n"}
         });
+        let detail = describe("FIXTURE", &setting);
+        assert!(detail.find("Requires").unwrap() < detail.find("Long explanatory help").unwrap());
+        let (mut screen, _requests, _temp) = screen();
+        screen.accept(Resolved::Preview(1, preview(json!({"FIXTURE":setting}))));
+        screen.filter = "CONFIG_FIXTURE".into();
+        screen.pane = Pane::Detail;
         for (width, height) in [(80, 24), (126, 34)] {
-            let backend = ratatui::backend::TestBackend::new(width, height);
-            let mut terminal = Terminal::new(backend).unwrap();
-            terminal
-                .draw(|frame| {
-                    frame.render_widget(Paragraph::new(describe("FIXTURE", &symbol)), frame.area());
-                })
-                .unwrap();
-            let screen = terminal.backend().to_string();
-            assert!(screen.contains("no visible prompt"));
-            assert!(screen.contains("Requires CONFIG_A || CONFIG_B (n)"));
+            let rendered = render(&mut screen, width, height);
+            assert!(rendered.contains("no visible prompt"));
+            assert!(rendered.contains("Requires CONFIG_A || CONFIG_B (n)"));
         }
     }
 }
