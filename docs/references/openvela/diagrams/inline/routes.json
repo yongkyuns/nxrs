@@ -1,0 +1,444 @@
+{
+  "renderer": "D2 v0.9.0 / TALA; explicit geometry + declared ports",
+  "reading_width": 800,
+  "diagrams": {
+    "overview": [
+      {
+        "source": "n0",
+        "target": "n1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "n1",
+        "target": "n2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "languages": [
+      {
+        "source": "c",
+        "target": "abi",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": -12
+      },
+      {
+        "source": "cpp",
+        "target": "abi",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 12
+      },
+      {
+        "source": "abi",
+        "target": "rt",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "apis": [
+      {
+        "source": "open",
+        "target": "fd",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "ioctl",
+        "target": "led",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "fd",
+        "target": "ioctl",
+        "from": [
+          "w",
+          0.7
+        ],
+        "to": [
+          "n",
+          0.8
+        ],
+        "mode": "waypoints",
+        "waypoints": [
+          [
+            455,
+            141
+          ],
+          [
+            455,
+            215
+          ],
+          [
+            304,
+            215
+          ]
+        ],
+        "label": [
+          442,
+          198,
+          "end"
+        ]
+      }
+    ],
+    "execution": [
+      {
+        "source": "n0",
+        "target": "n1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "n1",
+        "target": "n2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "memory": [
+      {
+        "source": "flat.apps",
+        "target": "flat.os",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "protected.user",
+        "target": "protected.os",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "data-flow": [
+      {
+        "source": "producer",
+        "target": "ring",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "ring",
+        "target": "reader1",
+        "from": [
+          "e",
+          0.25
+        ],
+        "to": [
+          "w",
+          0.25
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "ring",
+        "target": "notify",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "notify",
+        "target": "reader2",
+        "from": [
+          "e",
+          0.8
+        ],
+        "to": [
+          "w",
+          0.8
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "ring",
+        "target": "reader2",
+        "from": [
+          "e",
+          0.8
+        ],
+        "to": [
+          "w",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_offset": [
+          0,
+          -9
+        ]
+      }
+    ],
+    "sensor-data": [
+      {
+        "source": "n0",
+        "target": "n1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "n1",
+        "target": "n2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "samples",
+        "target": "transfer",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "lifecycle": [
+      {
+        "source": "a0",
+        "target": "a1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a1",
+        "target": "a2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a2",
+        "target": "a3",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "b0",
+        "target": "b1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "b1",
+        "target": "b2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "b2",
+        "target": "b3",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "debugging": [
+      {
+        "source": "os",
+        "target": "join",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": -12
+      },
+      {
+        "source": "data",
+        "target": "join",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 12
+      }
+    ],
+    "nxrs-lessons": [
+      {
+        "source": "n0",
+        "target": "n1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "n1",
+        "target": "n2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ]
+  }
+}

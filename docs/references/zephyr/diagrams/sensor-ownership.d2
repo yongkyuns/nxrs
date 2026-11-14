@@ -1,0 +1,20 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "Zephyr sensors: acquisition APIs have different memory contracts" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+fetch: "A · Fetch/Get: one synchronized owner across both calls" {class: execution; label.near: top-left; left: 0; top: 125; width: 1460; height: 245
+  caller: "Calling thread\nsensor_sample_fetch() blocks\nserialize other fetch/get users" {class: code; left: 0; top: 10; width: 320; height: 120}
+  cache: "Driver-private sample cache\nfetch acquires + stores data\nnot owned by the client" {class: storage; left: 510; top: 10; width: 320; height: 120}
+  value: "sensor_channel_get()\ncopy/convert cached channels\ncaller receives sensor_value" {class: storage; left: 1020; top: 10; width: 320; height: 120}
+}
+read: "B · Read/Decode: explicit buffer lifetime, RTIO-capable path" {class: memory; label.near: top-left; left: 0; top: 420; width: 1460; height: 245
+  submit: "Submit acquisition request\nprovide/request buffer storage\nkeep request state valid" {class: code; left: 0; top: 10; width: 320; height: 120}
+  driver: "RTIO + supported driver\nrequest → completion\nasync behavior is backend-specific" {class: code; left: 510; top: 10; width: 320; height: 120}
+  buffer: "Completed encoded buffer\ndecode without device I/O\nrecycle only after consumers finish" {class: storage; left: 1020; top: 10; width: 320; height: 120}
+}
+subtitle: "Z3 · Fetch/Get and Read/Decode are alternative client models · driver and bus support still matter" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+fetch.caller -> fetch.cache: "fetch()" {class: call}
+fetch.cache -> fetch.value: "cached data" {class: data}
+read.submit -> read.driver: "submit" {class: call}
+read.driver -> read.buffer: "complete" {class: data}
+lesson: "Trigger callbacks run in a configured workqueue or driver thread, not user mode. A trigger is not a portable timestamp or a sample queue." {class: caution; left: 0; top: 740; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 835; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

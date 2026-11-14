@@ -1,0 +1,13 @@
+...@material.d2
+# Section 9: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Topic rate alone cannot tell you sample-to-output latency" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+sample: "Sample\nt0" {class: os; left: 0; top: 84; width: 185; height: 90}
+pub: "Publish\nt1" {class: data; left: 225; top: 84; width: 185; height: 90}
+run: "Consumer Run\nt2" {class: code; left: 450; top: 84; width: 185; height: 90}
+out: "Output\nt3" {class: data; left: 675; top: 84; width: 185; height: 90}
+observe: "top / work_queue status: who ran?\nuorb top / listener + timestamps: which data reached the consumer?" {class: note; left: 0; top: 231; width: 860; height: 102}
+sample -> pub {class: payload}
+pub -> run {class: payload}
+run -> out {class: payload}
+caption: "Trace plan: correlate one timebase, sequence/generation gaps and execution events." {shape: text; left: 0; top: 367; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

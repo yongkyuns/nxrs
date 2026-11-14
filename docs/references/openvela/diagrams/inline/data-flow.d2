@@ -1,0 +1,15 @@
+...@material.d2
+# Section 6: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Retained samples and reader wakeups are different" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+producer: "Lower half\npush_event(...)" {class: code; left: 0; top: 82; width: 240; height: 108}
+ring: "Upper-half ring\nbounded retention" {class: data; left: 310; top: 82; width: 240; height: 108}
+reader1: "Reader A\ncaller-owned buffer" {class: data; left: 620; top: 82; width: 240; height: 108}
+reader2: "Reader B\ncaller-owned buffer" {class: data; left: 620; top: 285; width: 240; height: 86}
+notify: "Readiness\nnotification" {class: note; left: 310; top: 285; width: 240; height: 86}
+producer -> ring: "copy" {class: payload}
+ring -> reader1: "read" {class: payload}
+ring -> notify {class: wake}
+notify -> reader2: "wake" {class: wake}
+ring -> reader2: "read" {class: payload}
+caption: "Readers track their own progress. A slow reader can miss overwritten history." {shape: text; left: 0; top: 405; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

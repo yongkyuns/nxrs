@@ -1,0 +1,13 @@
+...@material.d2
+# Section 2: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "A module can own and call an ordinary algorithm object" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+module: "Within a C++ rate-control module" {
+  class: region; left: 0; top: 75; width: 860; height: 225; label.near: top-left
+  input: "Input record" {class: data; left: 0; top: 37; width: 190; height: 88}
+  controller: "Owned controller\nordinary method call" {class: code; left: 250; top: 37; width: 250; height: 88}
+  output: "Output record" {class: data; left: 560; top: 37; width: 190; height: 88}
+}
+module.input -> module.controller: "read" {class: payload}
+module.controller -> module.output: "write" {class: payload}
+caption: "C++ ownership and direct calls already exist here; no extra message hop is needed." {shape: text; left: 0; top: 366; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

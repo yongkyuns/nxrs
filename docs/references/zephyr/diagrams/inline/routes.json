@@ -1,0 +1,526 @@
+{
+  "renderer": "D2 v0.9.0 / TALA; explicit geometry + declared ports",
+  "reading_width": 800,
+  "diagrams": {
+    "overview": [
+      {
+        "source": "s0",
+        "target": "s1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "s1",
+        "target": "s2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "k0",
+        "target": "k1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "k1",
+        "target": "k2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "languages": [
+      {
+        "source": "native",
+        "target": "api",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": -10
+      },
+      {
+        "source": "rust",
+        "target": "api",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 10
+      }
+    ],
+    "apis": [],
+    "execution": [
+      {
+        "source": "irq",
+        "target": "queue",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "queue",
+        "target": "thread",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a",
+        "target": "b",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "memory": [
+      {
+        "source": "user",
+        "target": "object",
+        "from": [
+          "e",
+          0.25
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": -12
+      },
+      {
+        "source": "user",
+        "target": "ram",
+        "from": [
+          "e",
+          0.75
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 12
+      },
+      {
+        "source": "object",
+        "target": "impl",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": -12
+      },
+      {
+        "source": "ram",
+        "target": "impl",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 12
+      }
+    ],
+    "data-flow": [
+      {
+        "source": "m0",
+        "target": "m1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "m1",
+        "target": "m2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "f0",
+        "target": "f1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "f1",
+        "target": "f2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "w0",
+        "target": "w1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "w1",
+        "target": "w2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "sensor-data": [
+      {
+        "source": "f0",
+        "target": "f1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "f1",
+        "target": "f2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "r0",
+        "target": "r1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "r1",
+        "target": "r2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "lifecycle": [
+      {
+        "source": "a0",
+        "target": "a1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a1",
+        "target": "a2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a2",
+        "target": "a3",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "b0",
+        "target": "b1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "b1",
+        "target": "b2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "b2",
+        "target": "b3",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "debugging": [],
+    "nxrs-lessons": [
+      {
+        "source": "a0",
+        "target": "b0",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a1",
+        "target": "b1",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "a2",
+        "target": "b2",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "pubsub": [
+      {
+        "source": "publish",
+        "target": "listener",
+        "from": [
+          "s",
+          0.13953488372093023
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "publish",
+        "target": "reference",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "publish",
+        "target": "copy",
+        "from": [
+          "s",
+          0.8604651162790697
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "listener",
+        "target": "l_result",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "reference",
+        "target": "r_result",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "copy",
+        "target": "c_result",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ]
+  }
+}

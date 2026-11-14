@@ -1,0 +1,13 @@
+...@material.d2
+# Illustrative complete history from an already-subscribed reader's cursor.
+# Reader does not run until all three writes complete. These are not real rates.
+direction: right
+writes: "Publish A, B, C\nReader is delayed" { class: application; width: 206; height: 92 }
+latest: "Depth 1\nOnly C retained" { class: contract; width: 202; height: 92 }
+history: "Depth 4 example\nA, B, C retained" { class: contract; width: 202; height: 92 }
+read_latest: "Reader gets C\nA and B are lost" { class: implementation; width: 226; height: 92 }
+read_history: "Reader drains A-B-C\nIf still retained" { class: implementation; width: 226; height: 92 }
+writes -> latest
+writes -> history
+latest -> read_latest
+history -> read_history

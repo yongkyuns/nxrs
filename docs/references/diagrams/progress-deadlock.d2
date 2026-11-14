@@ -1,0 +1,12 @@
+...@material.d2
+# Explanatory model. See the linked reading guide for assumptions and sources.
+title: "Why shutdown can hang with a separate stop queue" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; font-color: "#17324D"}}
+join: "Service waits in join\nNo normal dispatch" {class: gate; left: 0; top: 100; width: 280; height: 96}
+producer: "Provider must exit\nIts send is blocked" {class: code; left: 580; top: 100; width: 280; height: 96}
+space: "Full queue needs space\nProvider cannot finish send" {class: data; left: 580; top: 350; width: 280; height: 96}
+drain: "Service must drain\nBut it is waiting in join" {class: gate; left: 0; top: 350; width: 280; height: 96}
+join -> producer: "waits for exit" {class: config}
+producer -> space: "needs space" {class: config}
+space -> drain: "needs drain" {class: config}
+drain -> join: "join must return" {class: config}
+caption: "Arrows mean “cannot finish until”, not data flow. Break the wait cycle:\nmake delivery cancellable/nonblocking, or coordinate draining before join." {shape: text; left: 0; top: 494; width: 860; height: 76; style: {font-size: 19; font-color: "#17324D"}}

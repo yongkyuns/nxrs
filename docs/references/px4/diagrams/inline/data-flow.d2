@@ -1,0 +1,15 @@
+...@material.d2
+# Section 6: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Publication stores data; a callback schedules later work" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+pub: "Publisher" {class: code; left: 0; top: 80; width: 240; height: 88}
+topic: "uORB write()\nretained payload" {class: data; left: 310; top: 80; width: 240; height: 88}
+run: "Consumer Run()\nreads topic data" {class: code; left: 620; top: 80; width: 240; height: 88}
+callback: "Work-item callback\npublisher context" {class: code; left: 310; top: 260; width: 240; height: 88}
+pending: "Pending work\ncoalescing item list" {class: data; left: 620; top: 260; width: 240; height: 88}
+pub -> topic: "copy" {class: payload}
+topic -> run: "copy" {class: payload}
+topic -> callback: "inline call" {class: call}
+callback -> pending: "schedule" {class: wake}
+pending -> run: "later run" {class: wake}
+caption: "The work-item callback runs on the publisher’s stack, not the consumer’s." {shape: text; left: 0; top: 382; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

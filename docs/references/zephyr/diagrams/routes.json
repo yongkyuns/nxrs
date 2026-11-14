@@ -1,0 +1,900 @@
+{
+  "renderer": "D2 v0.9.0 / bundled TALA",
+  "reading_width": 1400,
+  "diagrams": {
+    "nxrs-direction": [
+      {
+        "source": "product.service",
+        "target": "product.contract",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.choice",
+        "target": "provider.impl",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "product.contract",
+        "target": "provider.impl",
+        "from": [
+          "e",
+          0.3
+        ],
+        "to": [
+          "w",
+          0.3
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.impl",
+        "target": "product.contract",
+        "from": [
+          "w",
+          0.75
+        ],
+        "to": [
+          "e",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.impl",
+        "target": "provider.acquire",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.acquire",
+        "target": "product.events",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "e",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "product.events",
+        "target": "product.service",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "outside-left",
+        "offset": 30,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.choice",
+        "target": "runtime.entry",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "runtime.entry",
+        "target": "runtime.targets",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "runtime.targets",
+        "target": "runtime.proof",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "zephyr-abstractions": [
+      {
+        "source": "app.native",
+        "target": "api.kernel",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "app.posix",
+        "target": "api.calls",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "app.sensor",
+        "target": "api.device",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "api.calls",
+        "target": "api.kernel",
+        "from": [
+          "n",
+          0.5
+        ],
+        "to": [
+          "s",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "api.device",
+        "target": "impl.device",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "impl.device",
+        "target": "impl.driver",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "impl.driver",
+        "target": "impl.hw",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "memory-protection": [
+      {
+        "source": "user.thread",
+        "target": "gate.entry",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "gate.entry",
+        "target": "gate.verify",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "gate.verify",
+        "target": "kernel.impl",
+        "from": [
+          "e",
+          0.35
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "kernel.impl",
+        "target": "kernel.objects",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "user.ram",
+        "target": "gate.verify",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "user.handle",
+        "target": "gate.policy",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "gate.policy",
+        "target": "kernel.mapping",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "sensor-ownership": [
+      {
+        "source": "fetch.caller",
+        "target": "fetch.cache",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "fetch.cache",
+        "target": "fetch.value",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "read.submit",
+        "target": "read.driver",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "read.driver",
+        "target": "read.buffer",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "zephyr-build-selection": [
+      {
+        "source": "input.dt",
+        "target": "build.dt",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "input.kconfig",
+        "target": "build.objects",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "input.client",
+        "target": "build.image",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "build.dt",
+        "target": "build.objects",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "build.objects",
+        "target": "build.image",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "build.image",
+        "target": "run.init",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "run.init",
+        "target": "run.ready",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "run.ready",
+        "target": "run.use",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "queue-contracts": [
+      {
+        "source": "msg.src",
+        "target": "msg.queue",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "msg.queue",
+        "target": "msg.dst",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "fifo.src",
+        "target": "fifo.queue",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "fifo.queue",
+        "target": "fifo.dst",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "work.src",
+        "target": "work.queue",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "wake",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "work.queue",
+        "target": "work.dst",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "wake",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ]
+  }
+}

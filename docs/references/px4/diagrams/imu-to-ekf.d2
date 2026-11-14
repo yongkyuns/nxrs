@@ -1,0 +1,40 @@
+# PX4 IMU -> EKF scheduling/data path. Source: PX4 b798249a.
+# Concrete single-estimator example: NuttX flat build, SENS_IMU_MODE=1, one SPI IMU.
+vars: { d2-config: { layout-engine: elk; theme-id: 0 } }
+grid-columns: 1
+vertical-gap: 14
+style: { fill: "#FAFAFA"; font-size: 20 }
+classes: {
+  hw: { width: 260; height: 150; style: { fill: "#ECEFF1"; stroke: "#546E7A"; font-color: "#263238"; border-radius: 10; font-size: 20 } }
+  worker: { width: 300; height: 175; style: { fill: "#E3F2FD"; stroke: "#1565C0"; font-color: "#0D47A1"; border-radius: 10; font-size: 20 } }
+  ins: { width: 310; height: 175; style: { fill: "#E8EAF6"; stroke: "#3949AB"; font-color: "#1A237E"; border-radius: 10; font-size: 20 } }
+  nav: { width: 300; height: 175; style: { fill: "#FFF3E0"; stroke: "#EF6C00"; font-color: "#6D3800"; border-radius: 10; font-size: 20 } }
+  topic: { width: 240; height: 125; style: { fill: "#E0F2F1"; stroke: "#00796B"; font-color: "#004D40"; border-radius: 10; font-size: 20 } }
+}
+
+title: "PX4 IMU -> EKF: execution contexts and wakeups" { shape: text; style: { font-size: 28; bold: true; font-color: "#163047" } }
+subtitle: "Dashed orange = schedule/wake | Teal = retained uORB data | Grey = device I/O\nOne DRDY interrupt is not one main EKF step." { shape: text; style: { font-size: 20; font-color: "#455A64" } }
+
+r1: "" { grid-columns: 4; horizontal-gap: 26; style.opacity: 0
+  irq: "1  IMU DRDY ISR\ninterrupt context\nrecord timestamp\nScheduleNow(driver)" { class: hw }
+  spi: "2  A | wq:SPIx\nWorkQueue::Run()\nICM42688P::RunImpl()\nread FIFO via SPI\npublish accel + gyro" { class: worker }
+  raw: "3  uORB\nsensor_accel\nsensor_gyro\nretained samples\n+ subscriber callbacks" { class: topic }
+  vimu: "4  B | wq:INS0\nVehicleIMU::Run()\ndrain accel/gyro\ncalibrate + integrate\npublish vehicle_imu\nwhen window ready" { class: ins }
+}
+
+r2: "" { grid-columns: 4; horizontal-gap: 26; style.opacity: 0
+  vtopic: "5  uORB\nvehicle_imu\nintegrated delta angle\n+ delta velocity" { class: topic }
+  sensors: "6  C | wq:nav_and_controllers\nSensors::Run()\nvote/select IMU\npublish sensor_combined" { class: nav }
+  combined: "7  uORB\nsensor_combined\nselected inertial input" { class: topic }
+  ekf: "8  B | wq:INS0\nEKF2::Run()\nread sensor_combined\nsetIMUData()\nupdate() when downsample ready\npredict + fuse eligible data" { class: ins }
+}
+
+r1.irq -> r1.spi: "wake" { style: { stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 18 } }
+r1.spi -> r1.raw: "publish" { style: { stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 18 } }
+r1.raw -> r1.vimu: "gyro wake" { style: { stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 18 } }
+r1.vimu -> r2.vtopic: "publish" { style: { stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 18 } }
+r2.vtopic -> r2.sensors: "wake" { style: { stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 18 } }
+r2.sensors -> r2.combined: "publish" { style: { stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 18 } }
+r2.combined -> r2.ekf: "wake" { style: { stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 18 } }
+
+note: "Inside EKF2, setIMUData() advances the output predictor for each ingested IMU report.\nThe main EKF state/covariance prediction and fusion are gated by the EKF's own IMU downsampler.\nFIFO batching, VehicleIMU integration, and pending-work coalescing further separate DRDY rate from EKF update rate.\nIn multi-EKF mode (SENS_IMU_MODE=0), an EKF instance can consume vehicle_imu directly on its INSx queue." { width: 1450; style: { fill: "#FFFDE7"; stroke: "#F9A825"; font-color: "#5D4037"; border-radius: 10; font-size: 19 } }

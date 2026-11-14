@@ -1,0 +1,96 @@
+{
+  "chromium": "144.0.7559.96",
+  "method": "embedded fonts loaded; actual glyph bounds (Canvas ascent/descent, SVG positions); 3px centerline clearance",
+  "diagrams": [
+    {
+      "diagram": "overview",
+      "width": 910,
+      "height": 312,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 13,
+      "errors": []
+    },
+    {
+      "diagram": "languages",
+      "width": 920,
+      "height": 474,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.65,
+      "text_lines": 9,
+      "errors": []
+    },
+    {
+      "diagram": "apis",
+      "width": 910,
+      "height": 469,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 12,
+      "errors": []
+    },
+    {
+      "diagram": "execution",
+      "width": 940,
+      "height": 484,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.32,
+      "text_lines": 11,
+      "errors": []
+    },
+    {
+      "diagram": "memory",
+      "width": 910,
+      "height": 476,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 14,
+      "errors": []
+    },
+    {
+      "diagram": "data-flow",
+      "width": 910,
+      "height": 490,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 16,
+      "errors": []
+    },
+    {
+      "diagram": "sensor-data",
+      "width": 910,
+      "height": 490,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 16,
+      "errors": []
+    },
+    {
+      "diagram": "lifecycle",
+      "width": 910,
+      "height": 490,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 16.7,
+      "text_lines": 20,
+      "errors": []
+    },
+    {
+      "diagram": "debugging",
+      "width": 910,
+      "height": 475,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 16.7,
+      "text_lines": 12,
+      "errors": []
+    },
+    {
+      "diagram": "nxrs-lessons",
+      "width": 910,
+      "height": 530,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 14,
+      "errors": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+...@material.d2
+# Section 3: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Familiar file calls; a NuttX-specific device contract" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+open: "open(\"/dev/userleds\", ...)" {class: code; left: 0; top: 85; width: 380; height: 80}
+fd: "A file descriptor\nfor this device instance" {class: data; left: 490; top: 85; width: 370; height: 80}
+ioctl: "ioctl(fd, ULEDIOC_SETALL, ...)" {class: code; left: 0; top: 255; width: 380; height: 80}
+led: "NuttX LED contract\nuserled_set_t + command" {class: os; left: 490; top: 255; width: 370; height: 80}
+open -> fd: "returns" {class: call}
+ioctl -> led: "requests" {class: call}
+fd -> ioctl: "fd" {class: call}
+caption: "The path, command constants and record types still belong to the device API." {shape: text; left: 0; top: 369; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

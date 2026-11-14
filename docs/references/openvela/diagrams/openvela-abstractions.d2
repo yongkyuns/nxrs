@@ -1,0 +1,30 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "OpenVela / NuttX: where each contract lives" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+client: "Application / framework" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 635
+  logic: "Product logic\napplication-owned state\nthread / service policy" {class: code; left: 0; top: 20; width: 320; height: 120}
+  framework: "Optional domain framework\nsensor-class example here\nsubsystem-specific API" {class: code; left: 0; top: 230; width: 320; height: 120}
+  buffer: "Application sample buffer\nrecord copy after read()\ncaller owns its lifetime" {class: storage; left: 0; top: 440; width: 320; height: 120}
+}
+os: "Public OS + class contract" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 635
+  posix: "POSIX + NuttX extensions\nopen / read / ioctl / poll\npthreads, timers, IPC" {class: code; left: 0; top: 20; width: 320; height: 120}
+  upper: "VFS + sensor upper half\nfile_operations + SNIOC_*\nring + per-open reader state" {class: storage; left: 0; top: 230; width: 320; height: 120}
+  contract: "NuttX sensor record ABI\nunits, timestamp, control IDs\nnot standardized by POSIX" {class: caution; left: 0; top: 440; width: 320; height: 120}
+}
+driver: "Hardware implementation" {class: logical; label.near: top-left; left: 1020; top: 125; width: 440; height: 635
+  lower: "Lower-half operations\nactivate / set_interval\nhardware-specific driver" {class: code; left: 0; top: 20; width: 320; height: 120}
+  bus: "Board + SoC bus support\nI2C / SPI transfer, IRQ setup\nregistration selects instance" {class: hardware; left: 0; top: 230; width: 320; height: 120}
+  chip: "Physical device\nregisters / FIFO / DRDY\nwire-level representation" {class: hardware; left: 0; top: 440; width: 320; height: 120}
+}
+subtitle: "OV1 · Representative local device path · flat-build interpretation; protection variants are in OV2" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+client.logic -> os.posix: "call" {class: call}
+client.framework -> os.upper: "class API" {class: call}
+os.posix -> os.upper: "dispatch" {class: call}
+os.upper -> driver.lower: "control" {class: call}
+driver.lower -> driver.bus: "bus API" {class: call}
+driver.bus -> driver.chip: "transfer" {class: call}
+driver.lower -> os.upper: "push_event" {class: data}
+os.upper -> client.buffer: "read copy" {class: data}
+os.contract -> client.buffer: "layout / units" {class: config}
+lesson: "A POSIX-shaped call is not a portable device protocol. These columns are responsibilities, NOT process or protection boundaries." {class: caution; left: 0; top: 833; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 928; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

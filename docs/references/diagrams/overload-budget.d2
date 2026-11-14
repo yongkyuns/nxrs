@@ -1,0 +1,9 @@
+...@material.d2
+# Explanatory model. See the linked reading guide for assumptions and sources.
+title: "Enough storage does not mean a timely answer" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; font-color: "#17324D"}}
+input: "Example: 100 records/s + 4-record burst\nConsumer cannot drain for 50 ms; queue initially empty" {class: os; left: 0; top: 70; width: 860; height: 82}
+storage: "Retention requirement\n4 + ceil(100 × 0.050) = 9 slots\n64 bytes/record → 576 payload bytes" {class: data; left: 0; top: 230; width: 390; height: 116}
+deadline: "Response-time requirement\n20 ms deadline < 50 ms blackout\nAlready late, before processing" {class: gate; left: 470; top: 230; width: 390; height: 116}
+input -> storage: "bound arrivals" {class: config}
+input -> deadline: "check age" {class: config}
+caption: "Nine slots cover this blackout only. Metadata, in-flight data and stacks add cost.\nFix the stall to meet the deadline; enlarging the queue cannot remove it." {shape: text; left: 0; top: 399; width: 860; height: 78; style: {font-size: 19; font-color: "#17324D"}}

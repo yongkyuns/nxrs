@@ -1,0 +1,72 @@
+[
+  {
+    "name": "overview",
+    "section": 1,
+    "title": "PX4 is a flight stack above an operating system",
+    "caption": "The arrows show dependencies. Modules can also use OS facilities directly; not every call or bus transfer goes through middleware.",
+    "evidence": "[PX4 architecture][architecture] \u00b7 [Component model](architecture-atlas.md#2-a-module-is-not-an-os-process)"
+  },
+  {
+    "name": "languages",
+    "section": 2,
+    "title": "A module can own and call an ordinary algorithm object",
+    "caption": "The rate-control module owns its controller object. This is local composition, not three independently scheduled components.",
+    "evidence": "[Rate-control source][rate] \u00b7 [EKF2 source][ekf]"
+  },
+  {
+    "name": "apis",
+    "section": 3,
+    "title": "Device access and application reports are different APIs",
+    "caption": "The IMU driver uses bus/register facilities and publishes sensor reports. NuttX underneath does not require every sensor to use a generic file-descriptor path.",
+    "evidence": "[IMU driver][icm] \u00b7 [uORB interface][uorb]"
+  },
+  {
+    "name": "execution",
+    "section": 4,
+    "title": "Shared workers and dedicated tasks coexist",
+    "caption": "The two regions are actual execution contexts. Work items share the worker\u2019s stack; a dedicated GPS task owns its blocking loop. The picture is not an exhaustive thread list.",
+    "evidence": "[Worker implementation][worker] \u00b7 [GPS loop][gps]"
+  },
+  {
+    "name": "memory",
+    "section": 5,
+    "title": "Topic payloads and pending work use different storage",
+    "caption": "Teal arrows copy payloads; the lower path schedules a work-item identity. The runnable queue is not a queue of sensor measurements.",
+    "evidence": "[Topic storage][node] \u00b7 [Subscriber copies][node-copy] \u00b7 [Worker queue][worker]"
+  },
+  {
+    "name": "data-flow",
+    "section": 6,
+    "title": "Publication stores data; a callback schedules later work",
+    "caption": "This is the local work-item callback path. Teal transfers data; blue invokes the callback inline; orange schedules later execution. Pending notifications can coalesce.",
+    "evidence": "[Publication][node] \u00b7 [Work-item callback][callback] \u00b7 [Worker][worker]"
+  },
+  {
+    "name": "sensor-data",
+    "section": 7,
+    "title": "IMU drives the shown EKF2 path; GNSS is supporting input",
+    "caption": "The orange edge is the main wakeup. EKF2 reads available GNSS data during its run; a new GNSS report is not another full-EKF trigger in this illustrated path.",
+    "evidence": "[EKF2 source][ekf] \u00b7 [GPS source][gps] \u00b7 [Full path](architecture-atlas.md#6-gnss-and-estimator-coordination)"
+  },
+  {
+    "name": "lifecycle",
+    "section": 8,
+    "title": "Compiled modules still need startup and safe shutdown",
+    "caption": "The lower row is a lifecycle review sequence, not proof that every PX4 module implements complete restart safety. Task-join limitations remain relevant.",
+    "evidence": "[Startup][startup] \u00b7 [Angular-velocity lifecycle][angular] \u00b7 [Worker][worker] \u00b7 [Task wrapper][tasks]"
+  },
+  {
+    "name": "debugging",
+    "section": 9,
+    "title": "Topic rate alone cannot tell you sample-to-output latency",
+    "caption": "These are proposed measurement points, not measured timings. Split acquisition delay, worker wait and execution cost rather than inferring latency from publication rate.",
+    "evidence": "[Diagnostics][architecture] \u00b7 [Driver counters][icm] \u00b7 [nxrs timing tests][nxrs-events]"
+  },
+  {
+    "name": "nxrs-lessons",
+    "section": 10,
+    "title": "Keep messages between owners; keep local math local",
+    "caption": "Separate capacity protects admission classes. One service owns its state and directly calls tightly coupled processing; importing a global topic graph is not required.",
+    "evidence": "[nxrs concurrency proposal][nxrs-events] \u00b7 [Detailed lessons](nxrs-design-notes.md)"
+  }
+]

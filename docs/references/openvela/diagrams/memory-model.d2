@@ -1,0 +1,29 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "OpenVela memory model: the build changes the boundary" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+flat: "CONFIG_BUILD_FLAT" {class: logical; label.near: top-left; left: 0; top: 125; width: 440; height: 685
+  user: "Application tasks + pthreads\nstacks / globals / heap\nshared address space" {class: code; left: 0; top: 20; width: 320; height: 130}
+  gate: "Ordinary function calls\nno syscall privilege gate\nno hardware-enforced split" {class: caution; left: 0; top: 235; width: 320; height: 100}
+  kernel: "NuttX + drivers + application\ncan address the same memory\nlogical modules only" {class: storage; left: 0; top: 430; width: 320; height: 130}
+}
+mpu: "CONFIG_BUILD_PROTECTED" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 685
+  user: "Unprivileged user image\nuser data / stacks / heap\nnot per-task process isolation" {class: code; left: 0; top: 20; width: 320; height: 130}
+  gate: "Syscall proxy → trap → stub\nMPU denies user access\nto protected kernel regions" {class: gate; left: 0; top: 235; width: 320; height: 100}
+  kernel: "Privileged kernel image\nprotected code / kernel data\nheap policy is configurable" {class: storage; left: 0; top: 430; width: 320; height: 130}
+}
+mmu: "CONFIG_BUILD_KERNEL" {class: logical; label.near: top-left; left: 1020; top: 125; width: 440; height: 685
+  a: "App A\nprivate\naddress space" {class: storage; left: 0; top: 20; width: 150; height: 130}
+  b: "App B\nprivate\naddress space" {class: storage; left: 170; top: 20; width: 150; height: 130}
+  gate: "Syscalls + MMU mappings\nrequires ARCH_ADDRENV\nloadable-program support" {class: gate; left: 0; top: 235; width: 320; height: 100}
+  kernel: "Separately linked kernel\nMMU + address environments\nnot the flat-build model" {class: storage; left: 0; top: 430; width: 320; height: 130}
+}
+subtitle: "OV2 · NuttX configuration options, not a claim that every OpenVela board supports all three" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+mmu.a -> mmu.gate: "syscall" {class: call}
+mmu.b -> mmu.gate: "syscall" {class: call}
+mmu.gate -> mmu.kernel: "execute" {class: call}
+flat.user -> flat.gate: "call" {class: call}
+flat.gate -> flat.kernel: "execute" {class: call}
+mpu.user -> mpu.gate: "call" {class: call}
+mpu.gate -> mpu.kernel: "execute" {class: call}
+lesson: "A separate stack is NOT memory isolation. Protected build separates user from kernel; kernel build adds MMU address environments." {class: caution; left: 0; top: 840; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 935; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

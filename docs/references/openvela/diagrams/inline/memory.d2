@@ -1,0 +1,23 @@
+...@material.d2
+# Section 5: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Three build choices, not three runtime layers" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+flat: "FLAT" {
+  class: region; left: 0; top: 75; width: 260; height: 300; label.near: top-left
+  apps: "Applications" {class: code; left: 0; top: 22; width: 170; height: 65}
+  os: "NuttX" {class: os; left: 0; top: 150; width: 170; height: 65}
+}
+protected: "PROTECTED / MPU" {
+  class: region; left: 300; top: 75; width: 260; height: 300; label.near: top-left
+  user: "User image" {class: code; left: 0; top: 22; width: 170; height: 65}
+  os: "Kernel image" {class: gate; left: 0; top: 150; width: 170; height: 65}
+}
+kernel: "KERNEL / MMU" {
+  class: region; left: 600; top: 75; width: 260; height: 300; label.near: top-left
+  a: "App A" {class: code; left: 0; top: 22; width: 170; height: 50}
+  b: "App B" {class: code; left: 0; top: 92; width: 170; height: 50}
+  os: "Kernel image" {class: gate; left: 0; top: 164; width: 170; height: 50}
+}
+flat.apps -> flat.os: "ordinary call" {class: call}
+protected.user -> protected.os: "syscall" {class: call}
+caption: "Availability depends on the CPU, board support and selected configuration." {shape: text; left: 0; top: 441; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

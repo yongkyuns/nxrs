@@ -1,0 +1,11 @@
+...@material.d2
+# Section 10: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Reuse drivers; make the product boundary explicit" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "NuttX driver\nexisting device access" {class: os; left: 0; top: 82; width: 240; height: 88}
+n1: "nxrs provider\nI/O + normalization" {class: code; left: 310; top: 82; width: 240; height: 88}
+n2: "nxrs service\ncalibration + fusion" {class: code; left: 620; top: 82; width: 240; height: 88}
+rule: "Specify units, time, loss, ownership and cancellation at the boundary.\nNo generic extra POSIX wrapper or imported framework is required." {class: note; left: 0; top: 225; width: 860; height: 102}
+n0 -> n1: "records" {class: payload}
+n1 -> n2: "typed" {class: payload}
+caption: "Design direction for nxrs on NuttX—not a new OpenVela deployment target." {shape: text; left: 0; top: 361; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

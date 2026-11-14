@@ -1,0 +1,125 @@
+# PX4 single-estimator execution map, authored entirely in D2.
+# Source snapshot: b798249a61af32c355d95decd2805a6ab4e9d9f1.
+# NuttX flat build, SENS_IMU_MODE=1, one SPI IMU and one UART GNSS.
+# A compact grid keeps the four loop columns aligned; invisible anchor cells
+# route straight connections; route_svg.py places labels above the arrows.
+# IMU and GNSS paths are independent, not a single global event ordering.
+vars: {d2-config: {layout-engine: elk; theme-id: 0}}
+grid-rows: 4
+vertical-gap: 12
+style: {fill: "#FFFFFF"; font-size: 24; bold: false}
+classes: {
+  data: {style: {stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 24; italic: false}}
+  wake: {style: {stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 24; italic: false}}
+  device: {style: {stroke: "#546E7A"; font-color: "#37474F"; stroke-width: 2; font-size: 24; italic: false}}
+  actor: {width: 300; height: 150; style: {fill: "#E3F2FD"; stroke: "#B0BEC5"; border-radius: 10; font-size: 24; bold: false}}
+  slot: {width: 300; height: 82; style.opacity: 0}
+  point: {width: 1; height: 1; style.opacity: 0}
+}
+title: "PX4: four execution loops" {
+  shape: text
+  style: {font-size: 32; bold: true; font-color: "#163047"}
+}
+boundary: "Single estimator | SENS_IMU_MODE=1 | one SPI IMU + one UART GNSS | source b798249a\nNuttX flat build: shared address space; responsibility boundary, NOT memory protection.\nPX4 wq:* workers are NOT NuttX HPWORK / LPWORK; no kernel-worker relay in this IMU path." {
+  style: {fill: "#FFF3E0"; stroke: "#FFB74D"; border-radius: 10; font-size: 24; bold: false; font-color: "#163047"}
+}
+map: "" {
+  grid-rows: 10
+  grid-columns: 5
+  horizontal-gap: 20
+  vertical-gap: 0
+  style: {fill: "#FAFAFA"; stroke-width: 0}
+  os: "IRQ / OS services\nNuttX + PX4 ISR\nSPI / UART support\nNOT a worker loop" {class: actor; style.fill: "#ECEFF1"}
+  spi: "A | wq:SPIx\nWorkQueue::Run()\ncalls IMU driver\nICM42688P::RunImpl()" {class: actor; style.fill: "#E3F2FD"}
+  ins: "B | wq:INS0\nWorkQueue::Run()\nVehicleIMU::Run()\nEKF2::Run()" {class: actor; style.fill: "#E8EAF6"}
+  nav: "C | wq:nav_and_\ncontrollers\nWorkQueue::Run()\nSensors::Run()\nVehicleGPSPosition::Run()" {class: actor; style.fill: "#FFF3E0"}
+  gps: "D | GPS task\nGPS::run() owns loop\nreceive / parse\npublish / repeat" {class: actor; style.fill: "#F3E5F5"}
+
+  # drdy: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  drdy_os: "" {class: slot; height: 118; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  drdy_spi: "" {class: slot; height: 118; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  drdy_ins: "" {class: slot; height: 118; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  drdy_nav: "" {class: slot; height: 118; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  drdy_gps: "" {class: slot; height: 118; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # spi_io: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  spi_io_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  spi_io_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  spi_io_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  spi_io_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  spi_io_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # raw: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  raw_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  raw_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  raw_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  raw_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  raw_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # integrated: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  integrated_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  integrated_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  integrated_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  integrated_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  integrated_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # selected: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  selected_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  selected_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  selected_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  selected_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  selected_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # split: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  split_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  split_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  split_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  split_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  split_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # uart: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  uart_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  uart_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  uart_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  uart_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  uart_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # gnss_raw: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  gnss_raw_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_raw_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_raw_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_raw_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_raw_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+
+  # gnss_selected: OS | SPI worker | INS0 worker | navigation worker | GPS task
+  gnss_selected_os: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_selected_spi: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_selected_ins: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_selected_nav: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  gnss_selected_gps: "" {class: slot; grid-rows: 3; grid-gap: 14; pad: "" { width: 1; height: 22; style.opacity: 0 }; p: "" {class: point}; wake: "" {class: point}}
+  os -- gnss_selected_os.p: {style: {stroke: "#CBD5DC"; stroke-dash: 3; stroke-width: 2}}
+  spi -- gnss_selected_spi.p: {style: {stroke: "#CBD5DC"; stroke-dash: 3; stroke-width: 2}}
+  ins -- gnss_selected_ins.p: {style: {stroke: "#CBD5DC"; stroke-dash: 3; stroke-width: 2}}
+  nav -- gnss_selected_nav.p: {style: {stroke: "#CBD5DC"; stroke-dash: 3; stroke-width: 2}}
+  gps -- gnss_selected_gps.p: {style: {stroke: "#CBD5DC"; stroke-dash: 3; stroke-width: 2}}
+  # The vertical divider is logical ONLY; it does not depict an MPU/syscall boundary.
+  # Transfer arrows summarize the call/return on the SAME bus-worker stack.
+  drdy_os.p -> drdy_spi.p: "1  DRDY ISR\ntimestamp + ScheduleNow()" {class: wake}
+  spi_io_spi.p <-> spi_io_os.p: "2  SPI transfer call\nFIFO bytes return" {class: device}
+  raw_spi.p -> raw_ins.p: "3  sensor_accel / sensor_gyro\ngyro wake; VehicleIMU reads" {class: data}
+  raw_spi.wake -> raw_ins.wake: {class: wake}
+  integrated_ins.p -> integrated_nav.p: "4  vehicle_imu\nSensors voter reads" {class: data}
+  integrated_ins.wake -> integrated_nav.wake: {class: wake}
+  selected_nav.p -> selected_ins.p: "5  sensor_combined\nEKF2 reads" {class: data}
+  selected_nav.wake -> selected_ins.wake: {class: wake}
+  split_os.p -- split_gps.p: "GNSS path: independent arrivals, not a global event order" {
+    style: {stroke: "#B2DFDB"; stroke-width: 3; font-color: "#163047"; font-size: 24; italic: false}
+  }
+  uart_os.p -> uart_gps.p: "6  UART RX -> NuttX byte buffer -> read/poll wakes GPS task" {class: device}
+  gnss_raw_gps.p -> gnss_raw_nav.p: "7  sensor_gnss\nVehicleGPSPosition reads" {class: data}
+  gnss_raw_gps.wake -> gnss_raw_nav.wake: {class: wake}
+  gnss_selected_nav.p -> gnss_selected_ins.p: "8  vehicle_gnss\nread on IMU run; NO wake" {class: data}
+}
+legend: "TEAL: retained uORB data -> consumer reads. ORANGE DASHED: schedule / wake, NOT inline Run().\nGREY: device I/O / call-return, not another worker. Paired arrows separate data and notifications.\nA-C: wait -> dequeue -> Run() -> repeat. D: blocking receive loop. uORB is NOT a thread or broker.\nB: VehicleIMU integrates; later EKF2 propagates output and predicts / fuses when ready.\nOther firmware threads, timers and the work-queue manager are omitted." {
+  style: {fill: "#E0F2F1"; stroke: "#80CBC4"; border-radius: 10; font-size: 24; bold: false; font-color: "#163047"}
+}

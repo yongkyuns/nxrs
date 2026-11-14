@@ -1,0 +1,12 @@
+...@material.d2
+# Dependency overview, not sample flow or one execution thread.
+direction: right
+flight: "Flight modules\nEstimate / control" { class: application; width: 190; height: 86 }
+drivers: "Drivers + links\nSensors / telemetry" { class: implementation; width: 190; height: 86 }
+px4: "PX4 infrastructure\nuORB / execution" { class: contract; width: 204; height: 86 }
+os: "OS + board port\nNuttX / native" { class: adaptation; width: 194; height: 86 }
+target: "Execution target\nBoard / simulator" { class: hardware; width: 194; height: 86 }
+flight -> px4
+drivers -> px4
+px4 -> os
+os -> target

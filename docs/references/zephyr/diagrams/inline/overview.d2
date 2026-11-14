@@ -1,0 +1,15 @@
+...@material.d2
+# Section 1: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Device APIs and kernel APIs serve different needs" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+s0: "Sensor client" {class: code; left: 0; top: 82; width: 240; height: 88}
+s1: "Device-class API" {class: code; left: 310; top: 82; width: 240; height: 88}
+s2: "Driver + bus" {class: os; left: 620; top: 82; width: 240; height: 88}
+k0: "Concurrent application" {class: code; left: 0; top: 248; width: 240; height: 88}
+k1: "Kernel API" {class: code; left: 310; top: 248; width: 240; height: 88}
+k2: "Threads + queues" {class: os; left: 620; top: 248; width: 240; height: 88}
+s0 -> s1: "calls" {class: call}
+s1 -> s2: "calls" {class: call}
+k0 -> k1: "calls" {class: call}
+k1 -> k2: "operates" {class: call}
+caption: "Both paths use the same configured Zephyr system; the rows are not processes." {shape: text; left: 0; top: 370; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

@@ -1,0 +1,13 @@
+...@material.d2
+# Concrete example: ICM42688P. First edge schedules; others are data flow.
+# Hardware FIFO batches, topic messages and executions are different counts.
+direction: right
+irq: "Data-ready ISR\nTimestamp / defer" { class: hardware; width: 188; height: 92 }
+driver: "Bus worker\nRead / check FIFO" { class: implementation; width: 194; height: 92 }
+topics: "Accel / gyro topics\nSamples + FIFO" { class: contract; width: 212; height: 92 }
+imu: "VehicleIMU\nIntegrate deltas" { class: application; width: 198; height: 92 }
+gyro: "Gyro processing\nCorrect / filter" { class: application; width: 198; height: 92 }
+irq -> driver: { style.stroke-dash: 4 }
+driver -> topics
+topics -> imu
+topics -> gyro

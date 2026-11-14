@@ -1,0 +1,16 @@
+...@material.d2
+# First three columns execute in the publication/notification path.
+# Dashed arrows wake/schedule consumers, never pass a payload through Run().
+# Consumers copy from the topic storage, not from the runnable-work queue.
+direction: right
+pub: "Publisher\npublish(data)" { class: application; width: 170; height: 86 }
+buffer: "Topic storage\nCopy + generation" { class: contract; width: 196; height: 86 }
+cb: "uORB callback\nScheduleNow()" { class: adaptation; width: 194; height: 86 }
+poll: "Poll notification\nWake a waiter" { class: adaptation; width: 194; height: 86 }
+worker: "Worker context\nRun() reads topic" { class: implementation; width: 206; height: 86 }
+task: "Task context\npoll() then copy" { class: implementation; width: 206; height: 86 }
+pub -> buffer
+buffer -> cb
+buffer -> poll
+cb -> worker: { style.stroke-dash: 4 }
+poll -> task: { style.stroke-dash: 4 }

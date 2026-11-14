@@ -1,0 +1,12 @@
+...@material.d2
+# Section 2: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Different languages can use the same C device ABI" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+c: "C application" {class: code; left: 0; top: 78; width: 240; height: 74}
+cpp: "Configured C++\napplication" {class: code; left: 0; top: 232; width: 240; height: 82}
+abi: "C device ABI\nhandles + callbacks" {class: code; left: 310; top: 155; width: 240; height: 88}
+rt: "NuttX tasks / threads\nand driver contexts" {class: os; left: 620; top: 155; width: 240; height: 88}
+c -> abi {class: call}
+cpp -> abi {class: call}
+abi -> rt: "executes" {class: call}
+caption: "The caller and driver must agree on buffer lifetime and callback completion." {shape: text; left: 0; top: 348; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

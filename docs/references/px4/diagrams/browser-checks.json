@@ -1,0 +1,30 @@
+{
+  "chromium_version": "143.0.7499.4",
+  "clearance_px": 2,
+  "diagrams": [
+    {
+      "name": "sensor-to-ekf-execution-map",
+      "text_lines_checked": 112,
+      "masked_decorative_lifeline_intersections": 0,
+      "text_outside_node": [],
+      "overlapping_text": [],
+      "text_wire": []
+    },
+    {
+      "name": "execution-loops-data-flow",
+      "text_lines_checked": 141,
+      "masked_decorative_lifeline_intersections": 0,
+      "text_outside_node": [],
+      "overlapping_text": [],
+      "text_wire": []
+    },
+    {
+      "name": "execution-map",
+      "text_lines_checked": 46,
+      "masked_decorative_lifeline_intersections": 2,
+      "text_outside_node": [],
+      "overlapping_text": [],
+      "text_wire": []
+    }
+  ]
+}
