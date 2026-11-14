@@ -373,6 +373,67 @@ and detector checks, including changed symlinked architecture headers. These are
 build ownership tests; target libc ABI and physical device behavior retain their
 separate qualification gates.
 
+### Concurrent profile qualification
+
+`tools/qualify-concurrent-builds.py` exercises two different resolved CoreS3
+configurations through the normal build frontend. The base profile selects a
+BMI270 at address `0x68` on `/dev/i2c0` at 400 kHz. The existing LSM6DSO overlay
+selects address `0x6a` on `/dev/i2c1` at 100 kHz. Both retain the UBX GNSS on
+`/dev/ttyS1` at 38400 baud. The firmware application and service code is identical.
+
+Prepare the pinned toolchain and NuttX submodules before starting the witness,
+using the prerequisites of the existing ESP32-S3 CI job. Run from a clean Linux
+x86-64 checkout at the revision to be qualified:
+
+```sh
+python3 tools/qualify-concurrent-builds.py \
+  --out target/firmware/event-demo/concurrent-profiles \
+  --revision "$(git rev-parse HEAD)"
+```
+
+The output parent must be fresh, ignored by Git and below this checkout's
+`target/`. The runner first compiles one source-bound frontend with native
+Rust/Cargo 1.90.0, then launches both builds with two Cargo jobs and two NuttX
+jobs per build. Each child owns its NuttX/apps trees, patched Rust SDK, generated
+configuration, native helpers, Cargo output and firmware. The installed tool
+bundle and pinned upstream source remain shared inputs. Shared Cargo-target and
+patched-sysroot overrides are rejected. Install or update tools before the pair,
+never while either child is running.
+
+Qualification requires both child processes to remain alive before and after a
+complete observation of both prepared input sets. The checker compares each
+resolved graph and generated construction against fixed case expectations,
+checks native bus/pin configuration and helper ownership, and requires the
+observed inputs to remain unchanged after both builds succeed. It also checks the configuration actually
+consumed by Cargo, selected and excluded target drivers, private SDK and linker
+paths, source provenance, final ELF types and artifact digests. A shared path,
+wrong-profile configuration, early child exit, build failure or deadline expiry
+fails the witness. Failed or interrupted orchestration retires both process
+groups and retains logs plus an incomplete diagnostic record.
+
+Successful runs publish `concurrent-builds.json` and a finite `evidence/` bundle
+only after the checker has replayed a copy of that bundle. The bundle contains
+the required receipts, generated and consumed configurations, native archives,
+referenced native inputs, frontend, logs and final firmware. It excludes the
+full SDK and Cargo intermediates. To replay a downloaded or moved bundle, use a
+clean checkout of the report's exact source revision and give both relocated
+output roots:
+
+```sh
+python3 tools/check-concurrent-builds.py \
+  --report /path/to/evidence/concurrent-builds.json \
+  --repo "$PWD" \
+  --bmi270-out /path/to/evidence/bmi270 \
+  --lsm6dso-out /path/to/evidence/lsm6dso
+```
+
+The event-demo ESP32-S3 CI job runs this pair in place of its two sequential
+CoreS3 builds and retains `event-demo-concurrent-profiles`, including hidden
+ownership receipts. This gate establishes overlapping live build lifetimes with
+isolated prepared inputs and completed target links. It does not measure CPU
+parallelism or speedup, canonical static-object sizes, runtime allocation, or
+physical sensor concurrency; those retain their separate D5 and S8 evidence.
+
 ## Native helper ownership
 
 The NuttX controller configures Make and generates target headers before invoking

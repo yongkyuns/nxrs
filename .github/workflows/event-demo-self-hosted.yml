@@ -40,6 +40,8 @@ on:
       - 'tools/platform_config.py'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
+      - 'tools/qualify-concurrent-builds.py'
+      - 'tools/check-concurrent-builds.py'
       - 'tools/check-device-closure.py'
       - 'tools/check-hal-isolation.py'
       - 'tools/build-nuttx-std-app.sh'
@@ -48,6 +50,8 @@ on:
       - 'tests/host/test_architecture.py'
       - 'tests/host/test_deployment.py'
       - 'tests/host/test_device_closure.py'
+      - 'tests/host/test_concurrent_build_runner.py'
+      - 'tests/host/test_concurrent_builds.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test-event-demo-nuttx.py'
       - 'Cargo.toml'
@@ -108,6 +112,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 -m unittest discover -s tests/host -p test_device_closure.py -v
+          python3 -m unittest discover -s tests/host -p 'test_concurrent_build*.py' -v
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
             --app-manifest app/event-demo/Cargo.toml \
@@ -229,7 +234,7 @@ jobs:
     needs: [demo]
     if: "!cancelled() && needs.demo.result == 'success' && github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'"
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Verify GitHub-hosted Linux runner
         run: |
@@ -249,7 +254,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bison flex gperf kconfig-frontends genromfs libncurses-dev \
+            bison flex gperf kconfig-frontends genromfs xxd libncurses-dev \
             zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
             python3 python3-venv curl xz-utils build-essential
           if ! command -v rustup >/dev/null 2>&1; then
@@ -283,14 +288,13 @@ jobs:
             --image target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
             --log target/firmware/event-demo/esp32s3-qemu-mock/console.log
 
-      - name: Cross-build the CoreS3 sensor deployment
-        run: cargo +1.90.0 nxrs build --app event-demo --platform cores3 --out target/firmware/event-demo/cores3
-
-      - name: Cross-build the replacement IMU overlay
-        run: >-
-          cargo +1.90.0 nxrs build --app event-demo --platform cores3
-          --overlay tests/host/fixtures/lsm6dso-overlay.toml
-          --out target/firmware/event-demo/cores3-lsm6dso
+      - name: Qualify concurrent CoreS3 profile builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/qualify-concurrent-builds.py \
+            --out target/firmware/event-demo/concurrent-profiles \
+            --revision "$(git rev-parse HEAD)"
 
       - name: Verify selected devices in the linked CoreS3 images
         shell: bash
@@ -298,8 +302,8 @@ jobs:
           set -euo pipefail
           source target/qemu-tools/environment.sh
           python3 tools/check-device-closure.py \
-            --bmi270-out target/firmware/event-demo/cores3 \
-            --lsm6dso-out target/firmware/event-demo/cores3-lsm6dso \
+            --bmi270-out target/firmware/event-demo/concurrent-profiles/bmi270 \
+            --lsm6dso-out target/firmware/event-demo/concurrent-profiles/lsm6dso \
             --revision "$GITHUB_SHA" \
             --report target/firmware/event-demo/device-closure.json
 
@@ -338,6 +342,20 @@ jobs:
           --kconfig-enable DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE
           --out target/firmware/event-demo/imu-wired-protected
 
+      - name: Retain concurrent-profile evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: event-demo-concurrent-profiles
+          # The finite checked bundle includes the output ownership receipt.
+          include-hidden-files: true
+          path: |
+            target/firmware/event-demo/concurrent-profiles/evidence/**
+            target/firmware/event-demo/concurrent-profiles/*.json
+            target/firmware/event-demo/concurrent-profiles/*.jsonl
+            target/firmware/event-demo/concurrent-profiles/*.log
+          if-no-files-found: warn
+
       - name: Retain deployment evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -345,21 +363,21 @@ jobs:
           name: event-demo-esp32s3-nuttx
           path: |
             target/firmware/event-demo/device-closure.json
-            target/firmware/event-demo/cores3*/nuttx/nuttx
-            target/firmware/event-demo/cores3*/nuttx/nuttx.bin
-            target/firmware/event-demo/cores3*/nuttx/nuttx.map
-            target/firmware/event-demo/cores3*/cargo/xtensa-esp32s3-nuttx/release/event-demo
-            target/firmware/event-demo/cores3*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*_config.rs
-            target/firmware/event-demo/cores3*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*.configuration.json
-            target/firmware/event-demo/cores3*/*.elf
-            target/firmware/event-demo/cores3*/*.map
-            target/firmware/event-demo/cores3*/*.txt
-            target/firmware/event-demo/cores3*/*.json
-            target/firmware/event-demo/cores3*/*.jsonl
-            target/firmware/event-demo/cores3*/*.config
-            target/firmware/event-demo/cores3*/*.sha256
-            target/firmware/event-demo/cores3*/configuration/
-            target/firmware/event-demo/cores3*/native-resources/
+            target/firmware/event-demo/concurrent-profiles/*/nuttx/nuttx
+            target/firmware/event-demo/concurrent-profiles/*/nuttx/nuttx.bin
+            target/firmware/event-demo/concurrent-profiles/*/nuttx/nuttx.map
+            target/firmware/event-demo/concurrent-profiles/*/cargo/xtensa-esp32s3-nuttx/release/event-demo
+            target/firmware/event-demo/concurrent-profiles/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*_config.rs
+            target/firmware/event-demo/concurrent-profiles/*/cargo/xtensa-esp32s3-nuttx/release/build/nxrs-composition-*/out/*.configuration.json
+            target/firmware/event-demo/concurrent-profiles/*/*.elf
+            target/firmware/event-demo/concurrent-profiles/*/*.map
+            target/firmware/event-demo/concurrent-profiles/*/*.txt
+            target/firmware/event-demo/concurrent-profiles/*/*.json
+            target/firmware/event-demo/concurrent-profiles/*/*.jsonl
+            target/firmware/event-demo/concurrent-profiles/*/*.config
+            target/firmware/event-demo/concurrent-profiles/*/*.sha256
+            target/firmware/event-demo/concurrent-profiles/*/configuration/
+            target/firmware/event-demo/concurrent-profiles/*/native-resources/
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
             target/firmware/event-demo/esp32s3-qemu-mock/nuttx/nuttx.map
@@ -413,7 +431,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bison flex gperf kconfig-frontends genromfs libncurses-dev \
+            bison flex gperf kconfig-frontends genromfs xxd libncurses-dev \
             zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
             python3 python3-venv curl xz-utils build-essential
           if ! command -v rustup >/dev/null 2>&1; then
@@ -518,7 +536,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
-            qemu-system-arm gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev \
+            qemu-system-arm gdb-multiarch bison flex gperf kconfig-frontends genromfs xxd libncurses-dev \
             python3 python3-venv curl build-essential
           if ! command -v rustup >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
