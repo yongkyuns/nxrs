@@ -91,13 +91,20 @@ impl Session {
 
     pub fn preview(&self, draft: &Draft, inspection: &mut nuttx::Inspection) -> Result<Preview> {
         let (edits, authored) = self.source_edits(draft)?;
-        let profile = self.profile.with_source_edits(&self.root, &edits)?;
-        let report = inspection.inspect(&self.root, &self.app, &profile, &self.options)?;
+        let resolved = self
+            .profile
+            .with_source_edits(&self.root, &edits)
+            .and_then(|profile| {
+                let report = inspection.inspect(&self.root, &self.app, &profile, &self.options)?;
+                Ok((report, profile.input_fingerprint()))
+            });
+        let (report, profile_fingerprint) =
+            resolved.unwrap_or_else(|error| (json!({"problems":[error]}), None));
         Ok(Preview {
             edits,
             authored,
             report,
-            profile_fingerprint: profile.input_fingerprint(),
+            profile_fingerprint,
         })
     }
 

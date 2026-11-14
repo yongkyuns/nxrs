@@ -958,8 +958,7 @@ pub fn describe(name: &str, symbol: &Value) -> String {
             ));
         }
     }
-    if let Some(choice) = symbol["choice"].as_object() {
-        let choice = &Value::Object(choice.clone());
+    if let Some(choice) = symbol.get("choice") {
         let names = choice["alternatives"]
             .as_array()
             .into_iter()
@@ -974,4 +973,31 @@ pub fn describe(name: &str, symbol: &Value) -> String {
         ));
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn detail_explains_an_unavailable_setting_at_both_terminal_sizes() {
+        let symbol = json!({
+            "type":"bool", "effective":"n", "visibility":"n",
+            "locations":[{"prompt":"Fixture"}],
+            "requires":{"expression":"CONFIG_A || CONFIG_B","value":"n"}
+        });
+        for (width, height) in [(80, 24), (126, 34)] {
+            let backend = ratatui::backend::TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|frame| {
+                    frame.render_widget(Paragraph::new(describe("FIXTURE", &symbol)), frame.area());
+                })
+                .unwrap();
+            let screen = terminal.backend().to_string();
+            assert!(screen.contains("no visible prompt"));
+            assert!(screen.contains("Requires CONFIG_A || CONFIG_B (n)"));
+        }
+    }
 }
