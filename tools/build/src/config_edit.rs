@@ -59,6 +59,12 @@ impl Session {
                 Ok((PathBuf::from(path), Some(digest.to_owned())))
             })
             .collect::<Result<_>>()?;
+        // App includes the opening metadata and CLI overrides. Do not pair it
+        // with a newer manifest when another draft reloads the profile.
+        observations.insert(
+            app.manifest.clone(),
+            Some(hash_bytes(read(&app.manifest)?.as_bytes())),
+        );
         let (fragment, reference) = if let Some(fragment) = profile.native_config() {
             (fragment.path.clone(), None)
         } else {
@@ -90,6 +96,7 @@ impl Session {
     }
 
     pub fn preview(&self, draft: &Draft, inspection: &mut nuttx::Inspection) -> Result<Preview> {
+        self.observed_source(&self.app.manifest)?;
         let (edits, authored) = self.source_edits(draft)?;
         let resolved = self
             .profile
@@ -98,6 +105,7 @@ impl Session {
                 let report = inspection.inspect(&self.root, &self.app, &profile, &self.options)?;
                 Ok((report, profile.input_fingerprint()))
             });
+        self.observed_source(&self.app.manifest)?;
         let (report, profile_fingerprint) =
             resolved.unwrap_or_else(|error| (json!({"problems":[error]}), None));
         Ok(Preview {
@@ -227,16 +235,46 @@ impl Session {
 
     pub fn publish(&self, preview: &Preview) -> Result<bool> {
         check_report(&preview.report)?;
+        self.observed_source(&self.app.manifest)?;
         source_transaction::publish(&self.root, &self.observations, &preview.edits)
     }
 
-    pub fn sync(&self, preview: &Preview, inspection: &mut nuttx::Inspection) -> Result<()> {
+    fn saved_profile(&self, preview: &Preview) -> Result<Profile> {
+        check_report(&preview.report)?;
+        self.observed_source(&self.app.manifest)?;
         let resolved = self
             .profile
             .with_source_edits(&self.root, &SourceEdits::new())?;
         if resolved.input_fingerprint() != preview.profile_fingerprint {
             return Err("configuration sources differ from the reviewed draft; reopen to sync current sources".into());
         }
+        self.observed_source(&self.app.manifest)?;
+        Ok(resolved)
+    }
+
+    /// Rebase the next draft on the reviewed sources after Save & sync succeeds.
+    /// Keep the CLI-resolved application and options for the entire session.
+    pub fn refresh(&self, preview: &Preview) -> Result<Self> {
+        let refreshed = Self::new(
+            self.root.clone(),
+            self.app.clone(),
+            self.saved_profile(preview)?,
+            self.out.clone(),
+            self.options.clone(),
+        )?;
+        if refreshed.observations.get(&self.app.manifest)
+            != self.observations.get(&self.app.manifest)
+        {
+            return Err(format!(
+                "{} changed while the draft was open; reopen before saving",
+                self.app.manifest.display()
+            ));
+        }
+        Ok(refreshed)
+    }
+
+    pub fn sync(&self, preview: &Preview, inspection: &mut nuttx::Inspection) -> Result<()> {
+        let resolved = self.saved_profile(preview)?;
         let saved = inspection.inspect(&self.root, &self.app, &resolved, &self.options)?;
         check_report(&saved)?;
         let config = |report: &Value| {
@@ -254,6 +292,7 @@ impl Session {
             &self.options,
             &config(&saved)?,
         )?;
+        self.observed_source(&self.app.manifest)?;
         Ok(())
     }
 }
@@ -309,6 +348,198 @@ pub fn problem(message: String) -> Preview {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn session(fragment: Option<&str>) -> (crate::TempDir, Session) {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temporary.0.canonicalize().unwrap();
+        let platform = root.join("platform/board");
+        fs::create_dir_all(&platform).unwrap();
+        fs::create_dir_all(root.join("app/probe")).unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        let mut source = "# profile notes\nname='board'\nboard='test:nsh'\n".to_owned();
+        if let Some(contents) = fragment {
+            source.push_str("nuttx-config='native.conf'\n");
+            fs::write(platform.join("native.conf"), contents).unwrap();
+        }
+        source.push_str("[hal]\n");
+        fs::write(platform.join("profile.toml"), source).unwrap();
+        let manifest = root.join("app/probe/Cargo.toml");
+        fs::write(
+            &manifest,
+            "[package]\nname='probe'\nversion='0.1.0'\n\
+             [package.metadata.nxrs.firmware]\ncommand='probe'\npriority=100\nstack-size=4096\n",
+        )
+        .unwrap();
+        let app = App::load(&manifest, None).unwrap();
+        let profile = Profile::resolve(&root, "board").unwrap();
+        let out = root.join("target/config");
+        let session = Session::new(root, app, profile, out, Options::default()).unwrap();
+        (temporary, session)
+    }
+
+    // Exercise source publication and refresh without staging a native SDK.
+    // Native inspection and effective configuration validation have their own tests.
+    fn source_preview(session: &Session, draft: &Draft) -> Preview {
+        let (edits, authored) = session.source_edits(draft).unwrap();
+        let profile = session
+            .profile
+            .with_source_edits(&session.root, &edits)
+            .unwrap();
+        Preview {
+            report: json!({"problems": []}),
+            edits,
+            authored,
+            profile_fingerprint: profile.input_fingerprint(),
+        }
+    }
+
+    fn symbol(name: &str, value: Option<&str>) -> Draft {
+        Draft {
+            symbols: BTreeMap::from([(name.into(), value.map(str::to_owned))]),
+            ..Draft::default()
+        }
+    }
+
+    #[test]
+    fn refreshed_session_publishes_again_and_preserves_cli_selection() {
+        let (_temporary, mut original) = session(None);
+        original.app.bin = "selected-bin".into();
+        original.app.command = "cli_command".into();
+        original.app.priority = 120;
+        original.app.stack = 8192;
+        original.options.features = vec!["extra".into()];
+        original.options.no_default_features = true;
+        original.options.set = vec!["PRIORITY=123".into()];
+        let profile_path = original.profile.sources.last().unwrap().clone();
+        let profile_source = read(&profile_path).unwrap();
+        let first = source_preview(&original, &symbol("FIRST", Some("y")));
+        assert_eq!(first.edits.len(), 2);
+        assert!(original.publish(&first).unwrap());
+
+        let refreshed = original.refresh(&first).unwrap();
+        assert!(refreshed.reference.is_none());
+        assert_eq!(
+            refreshed.profile.native_config().unwrap().contents,
+            "CONFIG_FIRST=y\n"
+        );
+        assert_eq!(
+            read(&profile_path).unwrap(),
+            format!("nuttx-config = \"board.conf\"\n{profile_source}")
+        );
+        assert_eq!(refreshed.app.manifest, original.app.manifest);
+        assert_eq!(refreshed.app.bin, "selected-bin");
+        assert_eq!(refreshed.app.command, "cli_command");
+        assert_eq!(refreshed.app.priority, 120);
+        assert_eq!(refreshed.app.stack, 8192);
+        assert_eq!(refreshed.options.features, ["extra"]);
+        assert!(refreshed.options.no_default_features);
+        assert_eq!(refreshed.options.set, ["PRIORITY=123"]);
+        assert_eq!(refreshed.out, original.out);
+        assert_eq!(
+            refreshed.observations[&refreshed.app.manifest],
+            original.observations[&original.app.manifest]
+        );
+
+        let second = source_preview(&refreshed, &symbol("FIRST", Some("n")));
+        assert_eq!(second.edits.len(), 1);
+        assert!(second.edits.contains_key(&refreshed.fragment));
+        assert!(refreshed.publish(&second).unwrap());
+        let refreshed = refreshed.refresh(&second).unwrap();
+        assert_eq!(
+            refreshed.profile.native_config().unwrap().contents,
+            "# CONFIG_FIRST is not set\n"
+        );
+        assert_eq!(
+            refreshed.observations[&refreshed.fragment],
+            Some(hash_bytes(read(&refreshed.fragment).unwrap().as_bytes()))
+        );
+    }
+
+    #[test]
+    fn no_op_refresh_preserves_comments_without_publication() {
+        let contents = "# owner notes\r\nCONFIG_FIRST=y\r\n# CONFIG_SECOND is not set\r\n";
+        let (_temporary, original) = session(Some(contents));
+        let profile_path = original.profile.sources.last().unwrap();
+        let profile_source = read(profile_path).unwrap();
+        let preview = source_preview(&original, &symbol("FIRST", Some("y")));
+        assert!(preview.edits.is_empty());
+        assert!(preview.authored.is_empty());
+        assert!(!original.publish(&preview).unwrap());
+        let refreshed = original.refresh(&preview).unwrap();
+        assert_eq!(
+            refreshed.profile.input_fingerprint(),
+            original.profile.input_fingerprint()
+        );
+        assert_eq!(read(profile_path).unwrap(), profile_source);
+        assert_eq!(read(&refreshed.fragment).unwrap(), contents);
+        assert!(!refreshed.root.join(".nxrs-config").exists());
+        assert!(!refreshed.out.exists());
+
+        let reset = source_preview(&refreshed, &symbol("FIRST", None));
+        assert!(refreshed.publish(&reset).unwrap());
+        let refreshed = refreshed.refresh(&reset).unwrap();
+        assert_eq!(
+            read(&refreshed.fragment).unwrap(),
+            "# owner notes\r\n# CONFIG_SECOND is not set\r\n"
+        );
+    }
+
+    #[test]
+    fn refresh_requires_the_exact_reviewed_source_bytes() {
+        let (_temporary, original) = session(Some("CONFIG_FIRST=y\n"));
+        let preview = source_preview(&original, &symbol("FIRST", Some("n")));
+        assert!(original
+            .refresh(&preview)
+            .err()
+            .unwrap()
+            .contains("differ from the reviewed draft"));
+        assert!(original.publish(&preview).unwrap());
+        fs::write(
+            &original.fragment,
+            "# externally added comment\n# CONFIG_FIRST is not set\n",
+        )
+        .unwrap();
+        assert!(original
+            .refresh(&preview)
+            .err()
+            .unwrap()
+            .contains("differ from the reviewed draft"));
+    }
+
+    #[test]
+    fn app_manifest_change_is_rejected_before_another_preview_or_save() {
+        let (_temporary, original) = session(Some("CONFIG_FIRST=y\n"));
+        let draft = symbol("FIRST", Some("n"));
+        let preview = source_preview(&original, &draft);
+        let no_op = source_preview(&original, &Draft::default());
+        let source = read(&original.app.manifest).unwrap();
+        fs::write(
+            &original.app.manifest,
+            source.replace("stack-size=4096", "stack-size=8192"),
+        )
+        .unwrap();
+        let mut inspection = nuttx::Inspection::new();
+        for error in [
+            original.preview(&draft, &mut inspection).err().unwrap(),
+            original.publish(&preview).err().unwrap(),
+            original.publish(&no_op).err().unwrap(),
+            original.sync(&preview, &mut inspection).err().unwrap(),
+            original.refresh(&preview).err().unwrap(),
+        ] {
+            assert!(
+                error.contains(&original.app.manifest.display().to_string()),
+                "{error}"
+            );
+            assert!(
+                error.contains("changed while the draft was open"),
+                "{error}"
+            );
+        }
+        assert_eq!(read(&original.fragment).unwrap(), "CONFIG_FIRST=y\n");
+        assert!(!original.root.join(".nxrs-config").exists());
+        assert!(!original.out.exists());
+    }
 
     #[test]
     fn reset_preserves_unrelated_assignments_and_comments() {

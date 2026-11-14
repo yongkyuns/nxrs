@@ -30,9 +30,16 @@ pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Re
         ));
     }
     fs::create_dir(destination).map_err(|e| e.to_string())?;
+    // Configuration inspection runs beside the terminal renderer. Keep Git's
+    // diagnostic in the returned error instead of writing into the live screen.
+    // A file keeps diagnostics from blocking the streamed archive.
+    let diagnostics = crate::TempDir::new(&std::env::temp_dir())?;
+    let stderr_path = diagnostics.0.join("git-archive.stderr");
+    let stderr = fs::File::create(&stderr_path).map_err(|e| e.to_string())?;
     let mut child = git(source)
         .args(["archive", revision])
         .stdout(Stdio::piped())
+        .stderr(stderr)
         .spawn()
         .map_err(|e| e.to_string())?;
     let result = archive::source_tree(
@@ -47,7 +54,12 @@ pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Re
     let status = child.wait().map_err(|e| e.to_string())?;
     result?;
     if !status.success() {
-        return Err(format!("git archive failed: {status}"));
+        let stderr = fs::read(&stderr_path).map_err(|e| e.to_string())?;
+        return Err(format!(
+            "git archive failed for {}: {status}\n{}",
+            source.display(),
+            String::from_utf8_lossy(&stderr).trim()
+        ));
     }
     Ok(())
 }
@@ -276,4 +288,47 @@ pub fn prepare_inventory(
     write_json(&staged.join("prepared.json"), &identity)?;
     verify_inventory(ledger, &staged)?;
     fs::rename(staged, destination).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_archive_preserves_contents_and_returns_git_diagnostics() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let source = temporary.0.join("source");
+        fs::create_dir(&source).unwrap();
+        output(git(&source).args(["init", "--quiet"])).unwrap();
+        fs::write(source.join("input.txt"), "review fixture\n").unwrap();
+        output(git(&source).args(["add", "input.txt"])).unwrap();
+        output(git(&source).args([
+            "-c",
+            "user.name=NXRS test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ]))
+        .unwrap();
+
+        let archive = temporary.0.join("archive");
+        archive_revision(&source, "HEAD", &archive).unwrap();
+        assert_eq!(
+            fs::read_to_string(archive.join("input.txt")).unwrap(),
+            "review fixture\n"
+        );
+        let error = archive_revision(
+            &source,
+            "missing-review-revision",
+            &temporary.0.join("missing"),
+        )
+        .unwrap_err();
+        assert!(error.contains("git archive failed"), "{error}");
+        assert!(error.contains("missing-review-revision"), "{error}");
+    }
 }
