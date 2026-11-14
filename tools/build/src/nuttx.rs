@@ -393,7 +393,10 @@ impl Inspection {
         let out = &temp.0;
         if let Some(radio) = p.data.get("radio-firmware") {
             let radio = radio.as_str().ok_or("radio-firmware must be a string")?;
-            configure_radio(root, out, radio, &mut configuration)?;
+            if !radio.is_empty() {
+                let (wifi, length, bt) = crate::radio::inspect(root, radio)?;
+                apply_radio_config(&mut configuration, &wifi, length, bt.as_deref());
+            }
         }
         let nuttx = out.join("nuttx");
         let mut report = nuttx_config::resolve(root, &nuttx, out, seed, &configuration, true, command)?;
@@ -420,14 +423,18 @@ fn configure_radio(root: &Path, out: &Path, radio: &str, configuration: &mut Con
         return Ok(vec![]);
     }
     let (wifi, length, bt) = crate::radio::prepare(root, out, radio)?;
-    let mut inputs = vec![out.join("radio-firmware.json"), wifi.clone()];
+    apply_radio_config(configuration, &wifi, length, bt.as_deref());
+    let mut inputs = vec![out.join("radio-firmware.json"), wifi];
+    inputs.extend(bt);
+    Ok(inputs)
+}
+
+fn apply_radio_config(configuration: &mut Configuration, wifi: &Path, length: usize, bt: Option<&Path>) {
     configuration.values.insert("CYW43439_FIRMWARE_BIN_PATH".into(), format!("\"{}\"", wifi.display()));
     configuration.values.insert("CYW43439_FIRMWARE_LEN".into(), length.to_string());
     if let Some(bt) = bt {
         configuration.values.insert("CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH".into(), format!("\"{}\"", bt.display()));
-        inputs.push(bt);
     }
-    Ok(inputs)
 }
 
 pub fn build(root: &Path, app: &App, p: &Profile, out: &Path, options: &Options) -> Result<()> {
