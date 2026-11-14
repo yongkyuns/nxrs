@@ -318,10 +318,11 @@ mod tests {
 
         let archive = temporary.0.join("archive");
         archive_revision(&source, "HEAD", &archive).unwrap();
-        assert_eq!(
-            fs::read_to_string(archive.join("input.txt")).unwrap(),
-            "review fixture\n"
-        );
+        // Git may normalize line endings when staging on Windows. The
+        // archive must preserve the committed blob, not assume that checkout
+        // and index bytes match on every host.
+        let committed = crate::output_bytes(git(&source).args(["show", "HEAD:input.txt"])).unwrap();
+        assert_eq!(fs::read(archive.join("input.txt")).unwrap(), committed);
         let error = archive_revision(
             &source,
             "missing-review-revision",
