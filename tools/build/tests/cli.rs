@@ -958,6 +958,26 @@ fn dry_run_rejects_options_for_another_backend() {
             assert!(error.contains("NuttX"), "{profile}: {error}");
         }
     }
+    let error = failure(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "build",
+            "--app",
+            "probe",
+            "--profile",
+            "host",
+            "--panic-diagnostics",
+            "--dry-run",
+        ],
+    ));
+    assert!(error.contains("NuttX"), "{error}");
+    let error = failure(frontend(
+        &root.0,
+        &root.0,
+        &["build", "--panic-diagnostics", "--panic-immediate-abort"],
+    ));
+    assert!(error.contains("--panic-diagnostics conflicts"), "{error}");
     for args in [
         vec!["--html", "template.html"],
         vec!["--unmodified-browser-std"],
