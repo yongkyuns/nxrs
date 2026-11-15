@@ -83,6 +83,16 @@ campaign census above.
   frames, and the gateway detection viewer received fresh PICO metadata 4.87 s
   after the fault. See the [camera trial](https://github.com/yongkyuns/nxrs/pull/323)
   and the separate [watchdog and update evidence](../../docs/firmware-updates.md).
+- **Pico 2 W mutex contention.** In three trials with priority inheritance,
+  the mutex holder inherited priority 150 from the waiter and released the
+  mutex before the medium-priority task ran. In three controls with inheritance
+  disabled, the waiter waited through that task's 120 ms CPU burst.
+- **Wi-Fi owner progress.** In a separate nine-trial Pico campaign with a
+  synthetic provider, the Wi-Fi owner serviced ordinary work after at most eight
+  important dispatches, handled the configured 40 ms deadline, accepted stop
+  with full queues, and kept the provider's terminal fault observable. On the
+  WROOM, the camera continued capturing while joining a native Wi-Fi scan took
+  up to 2.43 s. See the [owner qualification scope](https://github.com/yongkyuns/nxrs/issues/265).
 
 ## Campaign build provenance
 
