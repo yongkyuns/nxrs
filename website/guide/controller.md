@@ -205,7 +205,15 @@ sha256sum "target/controller-$profile/nuttx/nuttx" "target/controller-$profile/n
 
 For Pico 2 W, set `profile=pico2w-pulse`. Retain the source commit, dirty diff if present, resolved profile, effective `.config`, image hashes and console transcript together. The stack values are requests to measure on the board, not demonstrated headroom.
 
-Install the selected image using the board's verified identity and backup/restore procedure. WROOM uses the simple-boot `nuttx.bin`; Pico can load the ELF `nuttx/nuttx` with picotool after entering BOOTSEL. The [existing peripheral qualification](../../tests/nuttx-std/peripherals/README.md) records the native path and previous physical evidence. [Pico USB recovery](../../tests/nuttx-std/wifi/README.md#usb-recovery) describes the existing bootloader-entry helper. This controller does not write the scratch flash partition or require Wi-Fi.
+Install the selected image using the board's verified identity and backup/restore procedure. WROOM uses the simple-boot `nuttx.bin`. After the Pico enters BOOTSEL, pass `-t elf` to picotool because `nuttx/nuttx` has no extension:
+
+```sh
+image=target/controller-pico2w-pulse/nuttx/nuttx
+picotool load -v "$image" -t elf --ser "$chip_serial"
+picotool verify "$image" -t elf --ser "$chip_serial"
+```
+
+Use the Pico chip serial confirmed during backup. The [existing peripheral qualification](../../tests/nuttx-std/peripherals/README.md) records the native path and previous physical evidence. [Pico USB recovery](../../tests/nuttx-std/wifi/README.md#usb-recovery) describes the bootloader-entry helper. The exercise works offline over USB.
 
 ### Run the serial acceptance checks
 
