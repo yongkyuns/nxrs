@@ -207,29 +207,33 @@ For Pico 2 W, set `profile=pico2w-pulse`. Retain the source commit, dirty diff i
 
 Install the selected image using the board's verified identity and backup/restore procedure. WROOM uses the simple-boot `nuttx.bin`; Pico can load the ELF `nuttx/nuttx` with picotool after entering BOOTSEL. The [existing peripheral qualification](../../tests/nuttx-std/peripherals/README.md) records the native path and previous physical evidence. [Pico USB recovery](../../tests/nuttx-std/wifi/README.md#usb-recovery) describes the existing bootloader-entry helper. This controller does not write the scratch flash partition or require Wi-Fi.
 
-On the board's serial console, enter the following commands in order. On Pico, send three newlines to establish the USB NSH session. Read `echo $?` immediately after each application invocation:
+### Run the serial acceptance checks
 
-```text
-uname
-controller on wait 300 stats off
-echo $?
-controller set 25 50 wait 300 stats off
-echo $?
-controller --watchdog 3000 on wait 1000 stats off
-echo $?
-controller --reset-cause
-echo $?
-controller on invalid
-echo $?
-controller
-echo $?
-free
-ps
+Close other programs using the board's console. On the connected computer, install the serial dependency and find the actual port:
+
+```sh
+python3 -m pip install pyserial==3.5
+python3 -m serial.tools.list_ports
 ```
 
-The first three runs must report positive processed observations, consistent counts, both fault fields `none`, `off: off`, `stopped: off`, and status `0`. The reconfiguration must report `set 25 50: on (25 Hz, 50%)`; `--reset-cause` reports the current boot's cause without starting output. The invalid command must still print `stopped: off` and return `1`; the subsequent default invocation must succeed with status `0`, establishing reacquisition after error cleanup. Repeat start/stop while recording heap and task/stack output to detect retained resources. Recover to the saved image and verify its identity and normal behavior when ending the hardware trial.
+Use the same runner with that port and the complete build directory from the selected profile. Replace `/dev/ttyACM0` with the listed port, such as `/dev/ttyUSB0`, `/dev/cu.usbmodem...` or `COM5`, and use `target/controller-pico2w-pulse` for the Pico build above:
 
-`--watchdog MS` is optional and accepts 1000–60000 ms. It arms the existing runtime watchdog on the controller owner, which wakes every 100 ms to assess health and feed. While output runs, health requires recent source progress within two requested periods plus 250 ms; repeating `on` or `set` does not extend that grace. Off and healthy is a valid idle state. A retained source fault, stalled observations or watchdog error stops feeding. Normal shutdown disarms only after pulse shutdown succeeds; a retained terminal source fault deliberately leaves the watchdog armed even after cleanup completes. Watchdog arm failure can also leave hardware armed under the existing HAL contract. After an unexpected reboot, capture `controller --reset-cause` and the previous transcript before restarting the trial. Host/QEMU mocks have no watchdog or reset-cause provider and explicitly reject those options.
+```sh
+python3 website/tests/controller_example.py --serial-port /dev/ttyACM0 \
+  --build-dir target/controller-wroom-pulse --repeat 10
+```
+
+Serial mode runs against an already installed image and needs Python 3.11 or newer plus pyserial; it does not invoke Cargo or a cross compiler. The build directory can be copied from the build machine or extracted from a CI artifact. Keep its relative layout and the JSON, configuration, hash and provenance records beside `nuttx/nuttx` and `nuttx/nuttx.bin`. The runner checks the controller package, hardware pulse binding, coherent configuration and ABI receipts, and candidate image hashes before opening the port. It opens at 115200 baud with DTR and RTS disabled, synchronizes with NSH, and checks a fresh `uname` response.
+
+The run reuses the QEMU command sequence, checks reconfiguration to 25 Hz at 50% duty, reads the current boot's reset cause, and repeats acquisition and cleanup. Each invocation must return the expected output, fault-free and consistent observation counts where requested, and the immediate `echo $?` status. The invalid command must complete cleanup and return `1`; the following invocation must reacquire successfully. A warm-up precedes the `free` and `ps` snapshots around the repeated runs. Those snapshots are retained for inspection; they are not automatic heap-leak or stack-headroom qualification. `--repeat` accepts 1–100 and defaults to 10. Add `--watchdog` to include a supervised run with a 3000 ms timeout.
+
+The runner writes a JSON result and raw console transcript to a unique serial run directory under `target/controller-tutorial/`, including on timeout, disconnect or validation failure. `--out DIR` selects a new output directory. The result records the candidate build separately from observed serial execution: matching local files and a NuttX response do not prove which image is installed on the board. Record the installation and any independent image verification alongside the report. Recover to the saved image and verify its identity and normal behavior when ending the hardware trial.
+
+### Watchdog behavior
+
+The application's `--watchdog MS` option admits 1000–60000 ms, and the selected watchdog must also support the requested timeout. The pinned Pico 2 W driver accepts at most 16777 ms. It arms the existing runtime watchdog on the controller owner, which wakes every 100 ms to assess health and feed. While output runs, health requires recent source progress within two requested periods plus 250 ms; repeating `on` or `set` does not extend that grace. Off and healthy is a valid idle state.
+
+A retained source fault, stalled observations or watchdog error stops feeding. Normal shutdown disarms only after pulse shutdown succeeds; a retained terminal source fault deliberately leaves the watchdog armed even after cleanup completes. Watchdog arm failure can also leave hardware armed under the existing HAL contract. After an unexpected reboot, capture `controller --reset-cause` and the previous transcript before restarting the trial. Host/QEMU mocks have no watchdog or reset-cause provider and explicitly reject those options.
 
 A successful cross-build or historical native peripheral run does not qualify this integrated controller. Record each board's actual results separately. Exact electrical frequency, duty and stop level require an independent pin measurement; task-receipt statistics alone cannot establish them.
 
@@ -248,6 +252,6 @@ python3 website/tests/controller_example.py
 
 Add `--target` after installing the pinned QEMU tools to build and boot that same package. The runner checks these excerpts against the canonical source, validates command/output drift, parses observation statistics, requires error exit status and cleanup, and runs a detached temporary copy whose source and lockfile hashes match. Only dependency paths change in that copy, with `NXRS_SDK_ROOT` selecting the same SDK. There is no second checked-in application.
 
-The [First firmware workflow](../../.github/workflows/first-firmware.yml) runs host/QEMU checks and cross-builds WROOM. The [Pico workflow](../../.github/workflows/nuttx-pico2.yml) cross-builds the same package for Pico 2 W. Reports live under `target/controller-tutorial/`; CI retains build records and console evidence. Physical acceptance remains the recorded board procedure above.
+The [First firmware workflow](../../.github/workflows/first-firmware.yml) runs host/QEMU checks and cross-builds WROOM. The [Pico workflow](../../.github/workflows/nuttx-pico2.yml) cross-builds the same package for Pico 2 W. Reports live under `target/controller-tutorial/`; CI retains build records and console evidence. Use the same runner's [serial mode](#run-the-serial-acceptance-checks) to record a connected board's results.
 
 When extending the application, keep output effects in the owner, define each command's completion and failure behavior, and preserve source cancellation and join. [Designing an application](designing-applications.md), [Networking and storage](io.md) and [Testing and debugging](testing.md) cover the next decisions without requiring another controller example.

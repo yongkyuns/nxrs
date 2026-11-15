@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Execute the controller guide's source, commands, and NuttX/QEMU lifecycle."""
+"""Exercise the canonical controller on the host, QEMU, or an existing serial image."""
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import tomllib
@@ -38,6 +40,27 @@ INTERACTIVE_INPUT = 'set 25 50\nwait 300\nstats\noff\nstop\n'
 INVALID_ERROR = ('controller: unknown command "invalid" '
                  '(use on, off, set HZ DUTY, status, stats, wait MS, stop)')
 UNBOUND_ERROR = 'controller: cannot acquire pulse device: Unsupported'
+CONSOLE_CASES = [
+    ('controller', DEFAULT_OUTPUT, 0),
+    ('controller on status stop', STOP_OUTPUT, 0),
+    ('controller ' + ' '.join(OBSERVATION_COMMANDS), OBSERVATION_OUTPUT, 0),
+    ('controller on invalid', INVALID_OUTPUT + [INVALID_ERROR], 1),
+    ('controller', DEFAULT_OUTPUT, 0),
+]
+RECONFIGURE_CASE = ('controller set 25 50 wait 300 stats',
+                    ['ready: off', 'set 25 50: on (25 Hz, 50%)', STATS_MARKER, 'stopped: off'], 0)
+WATCHDOG_CASE = ('controller --watchdog 3000 on wait 1000 stats',
+                 DEFAULT_OUTPUT[:2] + [STATS_MARKER, 'stopped: off'], 0)
+HARDWARE_PROFILES = {
+    'wroom-pulse': ('xtensa-esp32s3-nuttx', 'esp32s3-devkit:nsh'),
+    'pico2w-pulse': ('thumbv8m.main-nuttx-eabi', 'raspberrypi-pico-2:usbnsh'),
+}
+CANDIDATE_FILES = ('nuttx/nuttx', 'nuttx/nuttx.bin', 'resolved.config',
+                   'kconfig-requests.json', 'native-context.json', 'provider-selection.json')
+RECEIPT_FILES = ('resolved-profile.json', 'abi-report.json', 'provenance.txt', 'binaries.sha256')
+RESET_CAUSES = {'ChipReset', 'Brownout', 'Software', 'ExternalPin', 'LowPower',
+                'MainWatchdog', 'RtcWatchdog', 'Unknown'}
+FATAL = re.compile(rb'panic|assertion failed|guru meditation', re.I)
 
 
 def source_region(source: str, tag: str) -> str:
@@ -274,7 +297,7 @@ def detached_check(env: dict[str, str]) -> dict:
                 'statistics': stats, 'exit_status': result.returncode, 'result': 'passed'}
 
 
-def validate_console_response(text: str, sent: str, expected: list[str]) -> dict | None:
+def console_lines(text: str, sent: str) -> list[str]:
     """Require all complete lines and the returning prompt, excluding only exact echo."""
     lines = [line.strip() for line in text.replace('\r', '').splitlines() if line.strip()]
     if not lines or lines[-1] != 'nsh>':
@@ -282,7 +305,31 @@ def validate_console_response(text: str, sent: str, expected: list[str]) -> dict
     lines.pop()
     if lines and lines[0] in (sent, '\x1b[K' + sent):
         lines.pop(0)
-    return check_output(lines, expected)
+    return lines
+
+
+def validate_console_response(text: str, sent: str, expected: list[str]) -> dict | None:
+    return check_output(console_lines(text, sent), expected)
+
+
+def console_cases(console, cases: list[tuple], results: list[dict]) -> None:
+    """Use the same strict command, cleanup and exit checks for both transports."""
+    for command, expected, status in cases:
+        if FATAL.search(console.raw):
+            raise RuntimeError('guest reported a fatal error')
+        case = {'command': command, 'result': 'failed'}
+        results.append(case)
+        response = case['console'] = console.shell(command)
+        if expected is None:
+            if not console_lines(response, command):
+                raise ValueError(f'{command}: missing diagnostic output')
+        else:
+            case['statistics'] = validate_console_response(response, command, expected)
+        exit_response = case['exit_console'] = console.shell('echo $?')
+        validate_console_response(exit_response, 'echo $?', [str(status)])
+        if FATAL.search(console.raw):
+            raise RuntimeError('guest reported a fatal error')
+        case.update(exit_status=status, result='passed')
 
 
 def boot(qemu: Path, image: Path, log: Path) -> dict:
@@ -295,25 +342,11 @@ def boot(qemu: Path, image: Path, log: Path) -> dict:
             '-no-reboot', '-snapshot',
             '-drive', f'file={image.resolve()},if=mtd,format=raw']
     console = Console(args, log)
-    cases = [
-        ('controller', DEFAULT_OUTPUT, 0),
-        ('controller on status stop', STOP_OUTPUT, 0),
-        ('controller ' + ' '.join(OBSERVATION_COMMANDS), OBSERVATION_OUTPUT, 0),
-        ('controller on invalid', INVALID_OUTPUT + [INVALID_ERROR], 1),
-        ('controller', DEFAULT_OUTPUT, 0),
-    ]
     results = []
     try:
         console.until('nsh>', 60)
         verify_identity(console.shell)
-        for command, expected, status in cases:
-            response = console.shell(command)
-            stats = validate_console_response(response, command, expected)
-            validate_console_response(console.shell('echo $?'), 'echo $?', [str(status)])
-            results.append({'command': command, 'console': response, 'statistics': stats,
-                            'exit_status': status, 'result': 'passed'})
-        if re.search(rb'panic|assertion failed|guru meditation', console.raw, re.I):
-            raise RuntimeError('guest reported a fatal error')
+        console_cases(console, CONSOLE_CASES, results)
         if console.process.poll() is not None:
             raise RuntimeError('emulator exited before test cleanup')
     finally:
@@ -322,6 +355,234 @@ def boot(qemu: Path, image: Path, log: Path) -> dict:
         raise RuntimeError('QEMU changed the build image despite snapshot mode')
     return {'qemu_command': args, 'image_sha256': before, 'invocations': results,
             'uname': 'NuttX', 'console_log': str(log.relative_to(ROOT)), 'result': 'passed'}
+
+
+def file_receipt(path: Path) -> dict:
+    with path.open('rb') as source:
+        digest = hashlib.file_digest(source, 'sha256').hexdigest()
+    return {'sha256': digest, 'bytes': path.stat().st_size}
+
+
+def validate_device_build(build_dir: Path, installed_image_sha256: str | None = None) -> dict:
+    """Check a local candidate, including relocated CI artifacts, before serial I/O.
+
+    Recorded absolute paths are identity labels, never paths to open. Only the
+    fixed files below the supplied build directory and the canonical checkout's
+    manifest are read. These receipts do not establish what a board has flashed.
+    """
+    build_dir = build_dir.resolve(strict=True)
+    files = {}
+    for name in CANDIDATE_FILES + RECEIPT_FILES:
+        path = (build_dir / name).resolve(strict=True)
+        if not path.is_relative_to(build_dir) or not path.is_file():
+            raise ValueError(f'candidate file escapes the build directory: {name}')
+        files[name] = file_receipt(path)
+
+    ledger = {}
+    for line in (build_dir / 'binaries.sha256').read_text().splitlines():
+        match = re.fullmatch(r'([0-9a-f]{64})  (.+)', line)
+        if match is None:
+            raise ValueError('malformed binaries.sha256 entry')
+        digest, recorded = match.groups()
+        path = PurePosixPath(recorded)
+        if not path.is_absolute() or '..' in path.parts or '\0' in recorded:
+            raise ValueError('noncanonical path in binaries.sha256')
+        if path in ledger and ledger[path] != digest:
+            raise ValueError('conflicting duplicate in binaries.sha256')
+        ledger[path] = digest
+
+    origins = set()
+    for name in CANDIDATE_FILES:
+        suffix = PurePosixPath(name).parts
+        matches = [path for path in ledger if path.parts[-len(suffix):] == suffix]
+        if len(matches) != 1:
+            raise ValueError(f'missing or ambiguous candidate hash: {name}')
+        recorded = matches[0]
+        origins.add(PurePosixPath(*recorded.parts[:-len(suffix)]))
+        if ledger[recorded] != files[name]['sha256']:
+            raise ValueError(f'candidate hash mismatch: {name}')
+    if len(origins) != 1:
+        raise ValueError('candidate hashes come from different build directories')
+    origin = origins.pop()
+
+    resolved = json.loads((build_dir / 'resolved-profile.json').read_text())
+    provider = json.loads((build_dir / 'provider-selection.json').read_text())
+    native = json.loads((build_dir / 'native-context.json').read_text())
+    abi = json.loads((build_dir / 'abi-report.json').read_text())
+    requests = json.loads((build_dir / 'kconfig-requests.json').read_text())
+    profile = resolved.get('profile')
+    if profile not in HARDWARE_PROFILES:
+        raise ValueError('serial acceptance requires wroom-pulse or pico2w-pulse')
+    target, board = HARDWARE_PROFILES[profile]
+    data = resolved.get('data', {})
+    composition = provider.get('resolved-composition', {})
+    workspace = PurePosixPath(resolved.get('workspace', ''))
+    manifest = str(workspace / MANIFEST)
+    if not workspace.is_absolute() or '..' in workspace.parts \
+            or resolved.get('product_manifest') != manifest \
+            or provider.get('app_manifest') != manifest \
+            or provider.get('app_package') != 'nxrs-controller-demo':
+        raise ValueError('candidate does not identify the canonical controller package')
+    manifest_receipt = file_receipt(PROJECT / 'Cargo.toml')
+    # Git may check this text file out as CRLF on a Windows serial-testing host.
+    # Only this checkout comparison tolerates that conversion; candidate image,
+    # config and receipt hashes remain exact bytes from the downloaded build.
+    normalized_manifest_hash = hashlib.sha256(
+        (PROJECT / 'Cargo.toml').read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+    build_manifest_hash = ledger.get(PurePosixPath(manifest))
+    if build_manifest_hash not in (manifest_receipt['sha256'], normalized_manifest_hash):
+        raise ValueError('candidate manifest differs from the canonical controller manifest')
+    if resolved.get('version') != 1 or resolved.get('os') != 'nuttx' \
+            or resolved.get('target') != target or data.get('target') != target \
+            or data.get('name') != profile or data.get('board') != board \
+            or data.get('image') != 'nuttx.bin' or data.get('requires-qemu') is not False \
+            or provider.get('platform') != profile or provider.get('target_os') != 'nuttx' \
+            or provider.get('nuttx-build-mode') != 'flat' \
+            or provider.get('dependency_resolution', {}).get('status') != 'resolved':
+        raise ValueError('candidate profile, target or provider selection is inconsistent')
+    if data.get('composition', {}).get('mode') != 'hardware' \
+            or composition.get('graph', {}).get('mode') != 'hardware':
+        raise ValueError('serial acceptance requires resolved hardware composition')
+    for resolved_key, provider_key in (('semantic_digest', 'semantic-digest'),
+                                       ('raw_fingerprint', 'input-fingerprint')):
+        value = resolved.get(resolved_key, '')
+        if not re.fullmatch(r'[0-9a-f]{64}', value) or composition.get(provider_key) != value:
+            raise ValueError('resolved profile does not match the provider receipt')
+    for capability in ('pulse', 'boot', 'watchdog'):
+        bindings = [entry for entry in provider.get('providers', [])
+                    if entry.get('capability') == capability]
+        if data.get('hal', {}).get(capability) != 'nuttx' or bindings != [{
+                'capability': capability, 'implementation': 'nuttx', 'package': f'nxrs-{capability}'}]:
+            raise ValueError(f'candidate must select the native {capability} provider')
+
+    config_hash = files['resolved.config']['sha256']
+    header_hash = ledger.get(origin / 'nuttx/include/nuttx/config.h')
+    headers_hash = native.get('headers_sha256', '')
+    if native.get('schema') != 1 or native.get('target') != target \
+            or native.get('effective_config_sha256') != config_hash \
+            or requests.get('effective_config_sha256') != config_hash \
+            or abi.get('target') != target or abi.get('config_sha256') != config_hash \
+            or header_hash is None or native.get('config_sha256') != header_hash \
+            or abi.get('config_header_sha256') != header_hash \
+            or not re.fullmatch(r'[0-9a-f]{64}', headers_hash) \
+            or abi.get('headers_sha256') != headers_hash:
+        raise ValueError('candidate configuration and native/ABI receipts do not match')
+    if abi.get('errors') != [] or abi.get('probe_abi_compatible') is not True \
+            or abi.get('poll_abi_compatible') is not True or not abi.get('checks'):
+        raise ValueError('candidate ABI gates did not pass')
+    for check in abi['checks']:
+        if check.get('status') != 'compatible' and not (
+                check.get('name') == 'SIG_IGN' and check.get('status') == 'known-unsupported-SIG_IGN'):
+            raise ValueError('candidate ABI check disagrees with the reported gate results')
+    config = (build_dir / 'resolved.config').read_text()
+    required = data.get('kconfig', {}).get('require', [])
+    forbidden = data.get('kconfig', {}).get('forbid-regex')
+    if not required or any(line not in config.splitlines() for line in required) \
+            or (forbidden and re.search(forbidden, config, re.M)):
+        raise ValueError('candidate effective configuration violates its profile gates')
+    arguments = re.findall(r'^CONFIG_NSH_MAXARGUMENTS=([0-9]+)$', config, re.M)
+    if len(arguments) != 1 or int(arguments[0]) < 7:
+        raise ValueError('candidate NSH argument budget is too small for the controller cases')
+
+    provenance = {}
+    keys = {'app_package', 'app_bin', 'app_command', 'platform', 'target', 'board',
+            'nxrs', 'nxrs_dirty', 'abi_profile', 'nuttx_build_mode'}
+    for line in (build_dir / 'provenance.txt').read_text().splitlines():
+        key, separator, value = line.partition('=')
+        if separator and key in keys:
+            if key in provenance:
+                raise ValueError(f'duplicate provenance value: {key}')
+            provenance[key] = value
+    expected = {'app_package': 'nxrs-controller-demo', 'app_bin': 'controller',
+                'app_command': 'controller', 'platform': profile, 'target': target,
+                'board': board, 'abi_profile': 'active', 'nuttx_build_mode': 'flat'}
+    if any(provenance.get(key) != value for key, value in expected.items()):
+        raise ValueError('candidate provenance does not match its profile or controller command')
+    if not re.fullmatch(r'[0-9a-f]{40}', provenance.get('nxrs', '')) \
+            or provenance.get('nxrs_dirty') not in ('yes', 'no'):
+        raise ValueError('candidate provenance is missing its build revision or dirty state')
+
+    declared = None
+    if installed_image_sha256 is not None:
+        declared = installed_image_sha256.lower()
+        if not re.fullmatch(r'[0-9a-f]{64}', declared) or declared not in (
+                files['nuttx/nuttx']['sha256'], files['nuttx/nuttx.bin']['sha256']):
+            raise ValueError('declared installed-image hash does not match the local ELF or binary')
+    return {'directory': str(build_dir), 'profile': profile, 'target': target, 'board': board,
+            'files': files, 'manifest': manifest_receipt, 'build_manifest_sha256': build_manifest_hash,
+            'build_provenance': provenance,
+            'declared_installed_image_sha256': declared,
+            'installed_image_verified': False,
+            'current_checkout_sources': project_hashes(PROJECT),
+            'compiled_source_identity_verified': False}
+
+
+def serial_checks(port: str, build_dir: Path, *, repeat: int = 10, watchdog: bool = False,
+                  out: Path | None = None, installed_image_sha256: str | None = None,
+                  console_factory=None) -> dict:
+    """Run an already flashed controller; never flash, reset or change candidates."""
+    if not isinstance(port, str) or not port.strip() or any(char in port for char in '\r\n\0'):
+        raise ValueError('serial port must be a nonempty device name')
+    if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= 100:
+        raise ValueError('repeat must be between 1 and 100')
+    build_dir = build_dir.resolve()
+    parent = REPORT.resolve() if out is None else out.resolve()
+    if parent.is_relative_to(build_dir):
+        raise ValueError('serial reports must be outside the candidate build directory')
+    if out is None:
+        parent.mkdir(parents=True, exist_ok=True)
+        out = Path(tempfile.mkdtemp(prefix='serial-', dir=parent))
+    else:
+        out = parent
+        out.mkdir(parents=True, exist_ok=False)
+    result_path = out / 'report.json'
+    log = out / 'console.log'
+    log.write_bytes(b'')
+    report = {'result': 'failed', 'scope': 'serial-console acceptance',
+              'started_at': datetime.now(timezone.utc).isoformat(), 'port': port,
+              'repeat': repeat, 'watchdog_requested': watchdog,
+              'installed_image_verified': False, 'console_log': str(log),
+              'invocations': [], 'resources': {'assessment': 'captured; no heap or stack threshold'}}
+    try:
+        report['local_candidate'] = validate_device_build(build_dir, installed_image_sha256)
+        # Do not import the Unix PTY/QEMU harness, pyserial, or a compiler during
+        # candidate validation. This branch also works with copied CI artifacts.
+        sys.path.insert(0, str(ROOT / 'tests'))
+        from rtos_harness.nuttx import verify_identity
+        if console_factory is None:
+            from rtos_harness.serial_console import SerialConsole
+            console_factory = SerialConsole
+        with console_factory(port, log, timeout=20.0) as console:
+            console.synchronize()
+            report['uname_console'] = verify_identity(console.shell)
+            console_cases(console, CONSOLE_CASES + [RECONFIGURE_CASE], report['invocations'])
+            if watchdog:
+                console_cases(console, [WATCHDOG_CASE], report['invocations'])
+            reset = report['reset_cause'] = []
+            console_cases(console, [('controller --reset-cause', None, 0)], reset)
+            lines = console_lines(reset[0]['console'], 'controller --reset-cause')
+            if len(lines) != 1 or not lines[0].startswith('reset cause: ') \
+                    or lines[0].removeprefix('reset cause: ') not in RESET_CAUSES:
+                reset[0]['result'] = 'failed'
+                raise ValueError('missing or malformed reset cause')
+            for phase in ('after_warmup', 'after_repeats'):
+                snapshot = report['resources'][phase] = []
+                console_cases(console, [('free', None, 0), ('ps', None, 0)], snapshot)
+                if phase == 'after_warmup':
+                    console_cases(console, [CONSOLE_CASES[2]] * repeat, report['invocations'])
+            if FATAL.search(console.raw):
+                raise RuntimeError('guest reported a fatal error')
+        if validate_device_build(build_dir, installed_image_sha256) != report['local_candidate']:
+            raise RuntimeError('local candidate or checkout changed during serial acceptance')
+        report['result'] = 'passed'
+    except BaseException as error:
+        report['error'] = f'{type(error).__name__}: {error}'
+        raise
+    finally:
+        report['finished_at'] = datetime.now(timezone.utc).isoformat()
+        result_path.write_text(json.dumps(report, indent=2) + '\n')
+        print(f'Controller serial report: {result_path}', flush=True)
+    return report
 
 
 def target_checks(env: dict[str, str]) -> dict:
@@ -342,10 +603,28 @@ def target_checks(env: dict[str, str]) -> dict:
     return result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--target', action='store_true', help='also build and execute NuttX/QEMU')
-    args = parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--target', action='store_true', help='also build and execute NuttX/QEMU')
+    mode.add_argument('--serial-port', help='test an already flashed physical controller at 115200 baud')
+    parser.add_argument('--build-dir', type=Path, help='physical controller build artifacts to validate')
+    parser.add_argument('--repeat', type=int, help='serial observation cycles after warm-up (1..100; default 10)')
+    parser.add_argument('--watchdog', action='store_true', help='also exercise a 3000 ms runtime watchdog')
+    parser.add_argument('--out', type=Path, help='new serial report directory; must not exist')
+    parser.add_argument('--installed-image-sha256', help='optional operator-declared ELF/bin hash; not device verification')
+    args = parser.parse_args(argv)
+    if args.serial_port is not None:
+        if args.build_dir is None:
+            parser.error('--serial-port requires --build-dir')
+        serial_checks(args.serial_port, args.build_dir, repeat=10 if args.repeat is None else args.repeat,
+                      watchdog=args.watchdog, out=args.out,
+                      installed_image_sha256=args.installed_image_sha256)
+        print('CONTROLLER_SERIAL PASS installed_image_verified=false', flush=True)
+        return
+    if any(value is not None for value in (args.build_dir, args.repeat, args.out,
+                                          args.installed_image_sha256)) or args.watchdog:
+        parser.error('--build-dir, --repeat, --watchdog, --out and --installed-image-sha256 require --serial-port')
     env = environment()
     REPORT.mkdir(parents=True, exist_ok=True)
     result_path = REPORT / ('report.json' if args.target else 'host-report.json')

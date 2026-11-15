@@ -1,13 +1,19 @@
 """Reject drifted source and false controller completion claims without firmware."""
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+import hashlib
+import io
+import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
 import tempfile
 import tomllib
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import controller_example as controller
 
@@ -309,6 +315,393 @@ class BootRejectionTests(unittest.TestCase):
                         {'changed_image': True}, {'exited': True}):
             with self.subTest(options=options), self.assertRaises((ValueError, RuntimeError)):
                 self.boot_with_console(**options)
+
+
+def write_json(path, value):
+    path.write_text(json.dumps(value) + '\n')
+
+
+def candidate_ledger(directory):
+    """Model the build receipt's old Linux paths, including legal duplicates."""
+    original = '/old/ci/nxrs/target/controller'
+    lines = [hashlib.sha256((directory / name).read_bytes()).hexdigest()
+             + '  ' + original + '/' + name for name in controller.CANDIDATE_FILES]
+    manifest = (hashlib.sha256((controller.PROJECT / 'Cargo.toml').read_bytes()).hexdigest()
+                + '  /old/ci/nxrs/' + controller.MANIFEST)
+    lines += [manifest, manifest, 'a' * 64 + '  ' + original + '/nuttx/include/nuttx/config.h',
+              'b' * 64 + '  /not/available/cargo/release/controller']
+    (directory / 'binaries.sha256').write_text('\n'.join(lines) + '\n')
+
+
+def candidate_fixture(directory, profile='wroom-pulse'):
+    """A retained CI layout: no NuttX source tree, compiler or copied application."""
+    (directory / 'nuttx').mkdir(parents=True)
+    (directory / 'nuttx/nuttx').write_bytes(b'candidate ELF')
+    (directory / 'nuttx/nuttx.bin').write_bytes(b'candidate binary')
+    config = b'CONFIG_DEV_GPIO=y\nCONFIG_NSH_MAXARGUMENTS=7\n'
+    (directory / 'resolved.config').write_bytes(config)
+    config_hash = hashlib.sha256(config).hexdigest()
+    target, board = controller.HARDWARE_PROFILES[profile]
+    manifest = '/old/ci/nxrs/' + controller.MANIFEST
+    resolved = {
+        'version': 1, 'workspace': '/old/ci/nxrs', 'product_manifest': manifest,
+        'profile': profile, 'os': 'nuttx', 'target': target,
+        'semantic_digest': 'c' * 64, 'raw_fingerprint': 'd' * 64,
+        'data': {'name': profile, 'target': target, 'board': board, 'image': 'nuttx.bin',
+                 'requires-qemu': False, 'composition': {'mode': 'hardware', 'version': 1},
+                 'hal': {name: 'nuttx' for name in ('pulse', 'boot', 'watchdog')},
+                 'kconfig': {'require': ['CONFIG_DEV_GPIO=y'],
+                             'forbid-regex': '^CONFIG_SMP=y$'}},
+    }
+    provider = {
+        'app_manifest': manifest, 'app_package': 'nxrs-controller-demo', 'platform': profile,
+        'target_os': 'nuttx', 'nuttx-build-mode': 'flat',
+        'dependency_resolution': {'status': 'resolved'},
+        'providers': [{'capability': name, 'implementation': 'nuttx', 'package': f'nxrs-{name}'}
+                      for name in ('pulse', 'boot', 'watchdog')],
+        'resolved-composition': {'graph': {'mode': 'hardware', 'version': 1},
+                                 'semantic-digest': 'c' * 64, 'input-fingerprint': 'd' * 64},
+    }
+    abi = {'errors': [], 'probe_abi_compatible': True, 'poll_abi_compatible': True,
+           'general_signal_api_qualified': False,
+           'checks': [{'name': 'int.size', 'status': 'compatible'},
+                      {'name': 'SIG_IGN', 'status': 'known-unsupported-SIG_IGN'}],
+           'target': target, 'config_sha256': config_hash, 'config_header_sha256': 'a' * 64,
+           'headers_sha256': '9' * 64}
+    native = {'schema': 1, 'target': target, 'effective_config_sha256': config_hash,
+              'config_sha256': 'a' * 64, 'headers_sha256': '9' * 64}
+    for name, value in (('resolved-profile.json', resolved), ('provider-selection.json', provider),
+                        ('abi-report.json', abi), ('native-context.json', native),
+                        ('kconfig-requests.json', {'effective_config_sha256': config_hash})):
+        write_json(directory / name, value)
+    (directory / 'provenance.txt').write_text(
+        f'app_package=nxrs-controller-demo\napp_bin=controller\napp_command=controller\n'
+        f'platform={profile}\ntarget={target}\nboard={board}\nabi_profile=active\n'
+        'nuttx_build_mode=flat\nnxrs=' + 'e' * 40 + '\nnxrs_dirty=yes\n')
+    candidate_ledger(directory)
+    return directory
+
+
+class SerialBuildTests(unittest.TestCase):
+    def test_both_native_profiles_and_relocated_ci_layout_pass_without_original_paths(self):
+        for profile in controller.HARDWARE_PROFILES:
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                original = candidate_fixture(root / 'original', profile)
+                relocated = root / 'download'
+                shutil.copytree(original, relocated)
+                shutil.rmtree(original)
+                result = controller.validate_device_build(relocated)
+                self.assertEqual(result['profile'], profile)
+                self.assertFalse(result['installed_image_verified'])
+                self.assertFalse(result['compiled_source_identity_verified'])
+                self.assertEqual(result['build_provenance']['nxrs_dirty'], 'yes')
+                self.assertIn('src/main.rs', result['current_checkout_sources'])
+                self.assertFalse((relocated / 'nuttx/include/nuttx/config.h').exists())
+
+    def test_declared_elf_or_binary_hash_matches_only_candidate_and_remains_unverified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build = candidate_fixture(Path(directory) / 'build')
+            for name in ('nuttx/nuttx', 'nuttx/nuttx.bin'):
+                digest = hashlib.sha256((build / name).read_bytes()).hexdigest()
+                result = controller.validate_device_build(build, digest.upper())
+                self.assertEqual(result['declared_installed_image_sha256'], digest)
+                self.assertFalse(result['installed_image_verified'])
+            for wrong in ('f' * 64, 'invalid'):
+                with self.assertRaisesRegex(ValueError, 'declared installed-image hash'):
+                    controller.validate_device_build(build, wrong)
+
+    def test_checkout_crlf_conversion_is_allowed_without_normalizing_candidate_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = candidate_fixture(root / 'build')
+            checkout = root / 'checkout'
+            checkout.mkdir()
+            original = (controller.PROJECT / 'Cargo.toml').read_bytes()
+            (checkout / 'Cargo.toml').write_bytes(original.replace(b'\n', b'\r\n'))
+            with patch('controller_example.PROJECT', checkout):
+                result = controller.validate_device_build(build)
+                self.assertNotEqual(result['manifest']['sha256'], result['build_manifest_sha256'])
+                (build / 'resolved.config').write_bytes(
+                    (build / 'resolved.config').read_bytes().replace(b'\n', b'\r\n'))
+                with self.assertRaisesRegex(ValueError, 'candidate hash mismatch'):
+                    controller.validate_device_build(build)
+
+    def test_invalid_provenance_is_rejected_before_open_with_failure_report(self):
+        mutations = [
+            ('resolved-profile.json', lambda x: x.update(profile='esp32s3-qemu-pulse-mock')),
+            ('resolved-profile.json', lambda x: x.update(product_manifest='/other/Cargo.toml')),
+            ('resolved-profile.json', lambda x: x['data']['composition'].update(mode='qualification')),
+            ('resolved-profile.json', lambda x: x['data'].update(target='other-target')),
+            ('resolved-profile.json', lambda x: x.update(semantic_digest='f' * 64)),
+            ('resolved-profile.json', lambda x: x['data']['kconfig'].update(require=['CONFIG_ABSENT=y'])),
+            ('provider-selection.json', lambda x: x.update(app_package='nxrs-another-app')),
+            ('provider-selection.json', lambda x: x['providers'][0].update(implementation='mock')),
+            ('provider-selection.json', lambda x: x['resolved-composition']['graph'].update(mode='mock')),
+            ('provider-selection.json', lambda x: x['dependency_resolution'].update(status='failed')),
+            ('native-context.json', lambda x: x.update(effective_config_sha256='f' * 64)),
+            ('native-context.json', lambda x: x.update(config_sha256='f' * 64)),
+            ('native-context.json', lambda x: x.update(headers_sha256='f' * 64)),
+            ('abi-report.json', lambda x: x.update(probe_abi_compatible=False)),
+            ('abi-report.json', lambda x: x.update(poll_abi_compatible='true')),
+            ('abi-report.json', lambda x: x.update(errors=['mismatch'])),
+            ('abi-report.json', lambda x: x.update(config_header_sha256='f' * 64)),
+            ('abi-report.json', lambda x: x['checks'][0].update(status='incompatible')),
+            ('abi-report.json', lambda x: x['checks'][0].pop('status')),
+            ('abi-report.json', lambda x: x['checks'][0].update(status='known-unsupported-SIG_IGN')),
+            ('abi-report.json', lambda x: x['checks'][1].update(name='some-other-symbol')),
+            ('abi-report.json', lambda x: x.update(headers_sha256='f' * 64)),
+            ('kconfig-requests.json', lambda x: x.update(effective_config_sha256='f' * 64)),
+        ]
+        for name, mutate in mutations:
+            with self.subTest(name=name, mutate=mutate), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                build = candidate_fixture(root / 'build')
+                value = json.loads((build / name).read_text())
+                mutate(value)
+                write_json(build / name, value)
+                candidate_ledger(build)  # Test semantic checks independently of hash mismatches.
+                factory = Mock(side_effect=AssertionError('invalid candidate must not open serial'))
+                with redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                    controller.serial_checks('COM5', build, out=root / 'report', console_factory=factory)
+                factory.assert_not_called()
+                report = json.loads((root / 'report/report.json').read_text())
+                self.assertEqual(report['result'], 'failed')
+                self.assertEqual(report['invocations'], [])
+                self.assertEqual((root / 'report/console.log').read_bytes(), b'')
+
+    def test_corrupt_missing_ambiguous_or_mixed_root_artifacts_fail(self):
+        def corrupt(build):
+            (build / 'nuttx/nuttx.bin').write_bytes(b'changed image')
+        def missing(build):
+            (build / 'native-context.json').unlink()
+        def conflict(build):
+            with (build / 'binaries.sha256').open('a') as ledger:
+                ledger.write('f' * 64 + '  /old/ci/nxrs/' + controller.MANIFEST + '\n')
+        def ambiguous(build):
+            with (build / 'binaries.sha256').open('a') as ledger:
+                ledger.write('f' * 64 + '  /other/build/nuttx/nuttx.bin\n')
+        def mixed(build):
+            path = build / 'binaries.sha256'
+            path.write_text(path.read_text().replace('/old/ci/nxrs/target/controller/nuttx/nuttx.bin',
+                                                    '/other/build/nuttx/nuttx.bin'))
+        def provenance(build):
+            with (build / 'provenance.txt').open('a') as value:
+                value.write('app_command=other\n')
+        def missing_revision(build):
+            path = build / 'provenance.txt'
+            path.write_text(path.read_text().replace('nxrs=' + 'e' * 40, 'nxrs='))
+        def missing_dirty(build):
+            path = build / 'provenance.txt'
+            path.write_text(path.read_text().replace('nxrs_dirty=yes', 'nxrs_dirty=unknown'))
+        for mutate in (corrupt, missing, conflict, ambiguous, mixed, provenance, missing_revision, missing_dirty):
+            with self.subTest(mutate=mutate), tempfile.TemporaryDirectory() as directory:
+                build = candidate_fixture(Path(directory) / 'build')
+                mutate(build)
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    controller.validate_device_build(build)
+
+    @unittest.skipUnless(os.name == 'posix', 'symlink fixture requires Unix')
+    def test_candidate_symlink_cannot_escape_the_allowed_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = candidate_fixture(root / 'build')
+            image = build / 'nuttx/nuttx.bin'
+            outside = root / 'image.bin'
+            image.rename(outside)
+            image.symlink_to(outside)
+            with self.assertRaisesRegex(ValueError, 'escapes the build directory'):
+                controller.validate_device_build(build)
+
+
+class ControlledSerial:
+    """Protocol fixture; the separate shared-helper tests cover actual byte I/O."""
+    def __init__(self, port, log, *, timeout, transform=None, close_action=None):
+        self.log, self.timeout = log, timeout
+        self.transform, self.close_action = transform, close_action
+        self.raw = bytearray()
+        self.commands = []
+        self.closed = 0
+        self.last_status = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.closed += 1
+        self.log.write_bytes(self.raw)
+        if self.close_action:
+            self.close_action()
+
+    def synchronize(self):
+        self.raw.extend(b'nsh>')
+
+    def shell(self, command):
+        self.commands.append(command)
+        self.raw.extend((command + '\r\n').encode())
+        if command == 'echo $?':
+            lines = [str(self.last_status)]
+        elif len(shlex.split(command)) > 7:
+            self.last_status = 1
+            lines = ['nsh: too many arguments']
+        else:
+            self.last_status = 1 if command == 'controller on invalid' else 0
+            lines = {
+                'uname': ['NuttX'],
+                'controller': controller.DEFAULT_OUTPUT,
+                'controller on status stop': controller.STOP_OUTPUT,
+                'controller on wait 300 stats off': observed_output(),
+                'controller on invalid': controller.INVALID_OUTPUT + [controller.INVALID_ERROR],
+                'controller set 25 50 wait 300 stats': [
+                    'ready: off', 'set 25 50: on (25 Hz, 50%)', STATS_LINE, 'stopped: off'],
+                'controller --watchdog 3000 on wait 1000 stats': [
+                    'ready: off', 'on: on (25 Hz, 25%)', STATS_LINE, 'stopped: off'],
+                'controller --reset-cause': ['reset cause: Unknown'],
+                'free': ['total used free largest', '4096 1024 3072 2048'],
+                'ps': ['PID PRI POLICY TYPE SIZE STKUSED COMMAND', '0 0 FIFO Kthread 1024 400 idle'],
+            }[command]
+        response = command + '\r\n' + '\r\n'.join(lines) + '\r\nnsh>'
+        if self.transform:
+            response = self.transform(command, response)
+        self.raw.extend(response.encode())
+        return response
+
+
+class SerialSessionTests(unittest.TestCase):
+    def run_serial(self, root, *, repeat=2, watchdog=False, transform=None, close_action=None, out=None):
+        build = candidate_fixture(root / 'build')
+        consoles = []
+        def factory(*args, **kwargs):
+            console = ControlledSerial(*args, **kwargs, transform=transform, close_action=close_action)
+            consoles.append(console)
+            return console
+        try:
+            with redirect_stdout(io.StringIO()):
+                report = controller.serial_checks('COM5', build, repeat=repeat, watchdog=watchdog,
+                                                   out=out or root / 'report', console_factory=factory)
+        finally:
+            self.assertEqual(len(consoles), 1)
+            self.assertEqual(consoles[0].closed, 1, 'every session exit must close the console')
+            self.assertEqual((root / 'report/console.log').read_bytes(), consoles[0].raw)
+        return report, consoles[0]
+
+    def test_success_records_candidate_observations_repetition_and_resource_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report, console = self.run_serial(root, repeat=3, watchdog=True)
+            self.assertEqual(report['result'], 'passed')
+            self.assertEqual(report['scope'], 'serial-console acceptance')
+            self.assertFalse(report['installed_image_verified'])
+            self.assertEqual(len(report['invocations']), 10)
+            self.assertEqual(console.commands.count('controller on wait 300 stats off'), 4)
+            self.assertEqual(console.commands.count('controller'), 2)
+            self.assertEqual(console.commands.count('free'), 2)
+            self.assertEqual(console.commands.count('ps'), 2)
+            self.assertEqual(console.commands[0], 'uname')
+            self.assertEqual(report['invocations'][3]['exit_status'], 1)
+            self.assertEqual(report['invocations'][5]['statistics']['processed'], 7)
+            self.assertIn('no heap or stack threshold', report['resources']['assessment'])
+            self.assertEqual(json.loads((root / 'report/report.json').read_text()), report)
+
+    def test_optional_watchdog_and_all_cases_fit_the_real_nsh_argument_limit(self):
+        for command, _, _ in controller.CONSOLE_CASES + [controller.RECONFIGURE_CASE,
+                                                        controller.WATCHDOG_CASE]:
+            self.assertLessEqual(len(shlex.split(command)), 7, command)
+        with tempfile.TemporaryDirectory() as directory:
+            _, console = self.run_serial(Path(directory))
+            self.assertFalse(any('--watchdog' in command for command in console.commands))
+
+    def test_bad_output_status_statistics_fatal_reset_or_timeout_preserves_failure_and_closes(self):
+        def replace(command, old, new):
+            return lambda sent, response: response.replace(old, new) if sent == command else response
+        def timeout(sent, response):
+            if sent == 'controller on wait 300 stats off':
+                raise TimeoutError('injected serial timeout')
+            return response
+        transforms = [
+            replace('uname', 'NuttX', 'echo NuttX'),
+            replace('controller', 'status: on', 'status: off'),
+            replace('controller on invalid', 'stopped: off\r\n', ''),
+            replace('echo $?', '\r\n1\r\n', '\r\n0\r\n'),
+            replace('controller on wait 300 stats off', 'processed=7', 'processed=0'),
+            replace('controller on wait 300 stats off', 'nsh>', ''),
+            replace('free', 'total used free largest', 'panic'),
+            replace('controller --reset-cause', 'Unknown', 'InventedCause'),
+            timeout,
+        ]
+        for transform in transforms:
+            with self.subTest(transform=transform), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                with self.assertRaises((ValueError, RuntimeError, TimeoutError)):
+                    self.run_serial(root, transform=transform)
+                report = json.loads((root / 'report/report.json').read_text())
+                self.assertEqual(report['result'], 'failed')
+                self.assertIn('error', report)
+                self.assertGreater((root / 'report/console.log').stat().st_size, 0)
+
+    def test_close_failure_and_candidate_mutation_cannot_report_success(self):
+        for change in ('close-error', 'image'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                def close_action():
+                    if change == 'close-error':
+                        raise RuntimeError('injected close failure')
+                    (root / 'build/nuttx/nuttx.bin').write_bytes(b'changed after execution')
+                with self.assertRaises((ValueError, RuntimeError)):
+                    self.run_serial(root, close_action=close_action)
+                self.assertEqual(json.loads((root / 'report/report.json').read_text())['result'], 'failed')
+
+    def test_bad_options_existing_output_and_build_output_collision_fail_before_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = candidate_fixture(root / 'build')
+            existing = root / 'existing'
+            existing.mkdir()
+            marker = existing / 'keep'
+            marker.write_text('retained')
+            factory = Mock(side_effect=AssertionError('input validation must precede opening'))
+            cases = [{'repeat': 0}, {'repeat': 101}, {'repeat': True}, {'port': ''},
+                     {'out': existing}, {'out': build / 'report'}]
+            for options in cases:
+                kwargs = {'port': 'COM5', 'build_dir': build, 'out': root / 'report',
+                          'console_factory': factory, **options}
+                with self.subTest(options=options), self.assertRaises((ValueError, FileExistsError)):
+                    controller.serial_checks(**kwargs)
+            factory.assert_not_called()
+            self.assertEqual(marker.read_text(), 'retained')
+            self.assertFalse((build / 'report').exists())
+
+    def test_default_output_directory_is_unique_and_no_toolchain_is_used(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = candidate_fixture(root / 'build')
+            with patch('controller_example.REPORT', root / 'reports'), \
+                 patch('controller_example.environment', side_effect=AssertionError('no toolchain')), \
+                 patch('controller_example.invoke', side_effect=AssertionError('no Cargo')), \
+                 redirect_stdout(io.StringIO()):
+                for _ in range(2):
+                    controller.serial_checks('COM5', build, repeat=1, console_factory=ControlledSerial)
+            reports = list((root / 'reports').glob('serial-*/report.json'))
+            self.assertEqual(len(reports), 2)
+            self.assertTrue(all(json.loads(path.read_text())['result'] == 'passed' for path in reports))
+
+
+class SerialCliTests(unittest.TestCase):
+    def test_serial_dispatch_skips_host_source_and_cargo_workflows(self):
+        with patch('controller_example.serial_checks') as serial, \
+             patch('controller_example.environment', side_effect=AssertionError('no toolchain')), \
+             patch('controller_example.check_sources', side_effect=AssertionError('no host checks')), \
+             redirect_stdout(io.StringIO()):
+            controller.main(['--serial-port', 'COM5', '--build-dir', 'download', '--watchdog'])
+        serial.assert_called_once_with('COM5', Path('download'), repeat=10, watchdog=True,
+                                       out=None, installed_image_sha256=None)
+
+    def test_serial_only_options_and_conflicting_modes_are_rejected(self):
+        for args in (['--serial-port', 'COM5'], ['--build-dir', 'download'], ['--watchdog'],
+                     ['--repeat', '10'], ['--out', 'report'],
+                     ['--target', '--serial-port', 'COM5']):
+            with self.subTest(args=args), patch('sys.stderr', io.StringIO()), self.assertRaises(SystemExit):
+                controller.main(args)
 
 
 if __name__ == '__main__':

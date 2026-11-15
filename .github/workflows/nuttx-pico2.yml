@@ -107,6 +107,8 @@ jobs:
             target/nuttx-pico2/nuttx/nuttx.map
             target/controller-pico2w/*.json
             target/controller-pico2w/*.config
+            target/controller-pico2w/*.sha256
+            target/controller-pico2w/provenance.txt
             target/controller-pico2w/nuttx/nuttx
             target/controller-pico2w/nuttx/nuttx.bin
             target/controller-pico2w/nuttx/nuttx.map

@@ -67,7 +67,15 @@ Run the controller guide's source checks, Rust behavior tests, and host CLI case
 python website/tests/controller_example.py
 ```
 
-After the [firmware guide](guide/firmware.md) tool setup, add `--target` to build the same package and execute its command, observation and shutdown paths on NuttX/QEMU. The runner also relocates that canonical source into a temporary external workspace, rewrites only SDK dependency paths, and checks identical source/lock hashes before and after execution. The First firmware tutorial workflow runs both application tutorials and cross-builds WROOM; the existing Pico workflow cross-builds the same controller for Pico 2 W. Build records and console transcripts are retained, with controller results in `target/controller-tutorial/`. QEMU explicitly uses synthetic pulses; the guide's separate board procedure establishes physical execution evidence.
+After the [firmware guide](guide/firmware.md) tool setup, add `--target` to build the same package and execute its command, observation and shutdown paths on NuttX/QEMU. The runner also relocates that canonical source into a temporary external workspace, rewrites only SDK dependency paths, and checks identical source/lock hashes before and after execution. The First firmware tutorial workflow runs both application tutorials and cross-builds WROOM; the existing Pico workflow cross-builds the same controller for Pico 2 W. Build records and console transcripts are retained, with controller results in `target/controller-tutorial/`. QEMU explicitly uses synthetic pulses.
+
+For an already-flashed WROOM or Pico 2 W, use the same runner's `--serial-port PORT --build-dir DIR` mode described in the [controller guide](guide/controller.md#run-the-serial-acceptance-checks). It checks build receipts before opening the console, reuses the command/output validators, and records reconfiguration, error cleanup, repeated lifetimes, reset cause and resource snapshots. `--watchdog` adds a supervised run. This mode needs Python 3.11 or newer and pyserial 3.5, with no Cargo or cross compiler. Each run retains its JSON report and raw transcript in a new output directory. Candidate image identity is recorded separately from console acceptance; local hashes and `uname` do not verify the installed image, electrical timing, peak memory or stack headroom.
+
+The serial transport's hardware-free regression suite runs separately from the website tests:
+
+```sh
+python -m unittest discover -s tests/rtos_harness -p test_serial_console.py -v
+```
 
 For browser tests:
 

@@ -3,9 +3,9 @@ name: First firmware tutorial
 on:
   push:
     branches: [main]
-    paths: ['website/**', 'hal/pulse/**', 'hal/acquisition/**', 'hal/boot/**', 'hal/watchdog/**', 'driver/gpio/**', 'driver/pwm/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-pulse-mock.toml', 'tests/profiles/esp32s3-peripherals.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+    paths: ['website/**', 'hal/pulse/**', 'hal/acquisition/**', 'hal/boot/**', 'hal/watchdog/**', 'driver/gpio/**', 'driver/pwm/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-pulse-mock.toml', 'tests/profiles/esp32s3-peripherals.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
   pull_request:
-    paths: ['website/**', 'hal/pulse/**', 'hal/acquisition/**', 'hal/boot/**', 'hal/watchdog/**', 'driver/gpio/**', 'driver/pwm/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-pulse-mock.toml', 'tests/profiles/esp32s3-peripherals.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+    paths: ['website/**', 'hal/pulse/**', 'hal/acquisition/**', 'hal/boot/**', 'hal/watchdog/**', 'driver/gpio/**', 'driver/pwm/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-pulse-mock.toml', 'tests/profiles/esp32s3-peripherals.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
   workflow_dispatch:
 
 permissions:
@@ -62,6 +62,7 @@ jobs:
         run: |
           python3 -m unittest discover -s website/tests -p test_first_firmware.py -v
           python3 -m unittest discover -s website/tests -p test_controller_example.py -v
+          python3 -m unittest discover -s tests/rtos_harness -p test_serial_console.py -v
       - name: Pulse lifecycle and PWM duty regressions
         run: |
           cargo test --locked -p nxrs-pwm
@@ -88,6 +89,8 @@ jobs:
             target/build/controller/esp32s3-qemu-pulse-mock/*.config
             target/controller-wroom/*.json
             target/controller-wroom/*.config
+            target/controller-wroom/*.sha256
+            target/controller-wroom/provenance.txt
             target/controller-wroom/nuttx/nuttx
             target/controller-wroom/nuttx/nuttx.bin
             target/controller-wroom/nuttx/nuttx.map
