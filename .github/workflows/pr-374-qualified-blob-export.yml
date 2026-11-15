@@ -1,0 +1,54 @@
+name: Export already-qualified PR 374 Cargo lock blob
+on:
+  push:
+    branches: [work/pr-374-lock-export]
+permissions:
+  actions: read
+  contents: write
+jobs:
+  export:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Validate successful isolated qualification and publish Git blob only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: yongkyuns/nxrs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "work/pr-374-lock-export"
+          test "$(gh api "repos/$GH_REPO/actions/runs/43704204671" --jq '.head_sha')" = "95e5b3a356d86100f311e1ccc8595f42919910e0"
+          test "$(gh api "repos/$GH_REPO/actions/runs/43704204671" --jq '.conclusion')" = "success"
+          gh run download 43704204671 --repo "$GH_REPO" --name pr-374-tui-security-43704204671 --dir qualified
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, hashlib, tomllib, subprocess
+          base = Path("qualified")
+          e = json.loads((base / "evidence.json").read_text())
+          assert e["original_head"] == "33463981d96971ce79b8204976d216b07ffa1f22"
+          assert e["workflow_head"] == "95e5b3a356d86100f311e1ccc8595f42919910e0"
+          assert e["run_id"] == "43704204671"
+          assert e["native_build_tool_tests"] == "passed"
+          assert e["architecture_checker"] == "passed"
+          assert e["original_lockfile_refused_both_lru_advisories"] is True
+          assert e["root_and_gateway_audits_deny_unsound"] == "passed"
+          for name, digest in e["sha256"].items():
+              path = base / "candidate" / name
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, name
+          lock = base / "candidate" / "Cargo.lock"
+          packages = tomllib.loads(lock.read_text())["package"]
+          assert [(p["name"],p["version"]) for p in packages if p["name"]=="lru"] == [("lru","0.18.5")]
+          assert [(p["name"],p["version"]) for p in packages if p["name"]=="crossterm"] == [("crossterm","0.29.0")]
+          assert [(p["name"],p["version"]) for p in packages if p["name"]=="ratatui"] == [("ratatui","0.30.2")]
+          content = lock.read_bytes()
+          expect = "acc46c8198794a406b50f0c5bc5ee533f8965dec"
+          blob = hashlib.sha1(b"blob " + str(len(content)).encode() + b"\x00" + content).hexdigest()
+          assert blob == expect
+          request = Path("request.json")
+          request.write_text(json.dumps({"content":content.decode("utf-8"),"encoding":"utf-8"}))
+          output = subprocess.check_output(["gh","api","--method","POST","repos/yongkyuns/nxrs/git/blobs","--input",str(request)],text=True)
+          got = json.loads(output)["sha"]
+          assert got == expect, (got,expect)
+          print("PUBLISHED_VERIFIED_CARGO_LOCK_BLOB="+got)
+          PY
