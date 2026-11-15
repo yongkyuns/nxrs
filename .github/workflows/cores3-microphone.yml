@@ -1,0 +1,147 @@
+name: CoreS3 microphone qualification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cores3-microphone.yml'
+      - '.github/scripts/install-ubuntu-packages.sh'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'platform/cores3/**'
+      - 'tests/profiles/cores3-microphone.toml'
+      - 'tests/host/*cores3*'
+      - 'tests/host/test_es7210_startup.py'
+      - 'tools/**'
+      - 'tests/nuttx-std/**'
+      - 'app/std-demo/**'
+      - 'app/event-demo/**'
+      - 'hal/**'
+      - 'driver/**'
+      - 'service/**'
+      - 'shared/**'
+      - '.cargo/**'
+      - '.gitmodules'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cores3-microphone.yml'
+      - 'upstream/nuttx/**'
+      - 'upstream/nuttx-apps/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'platform/cores3/**'
+      - 'tests/profiles/cores3-microphone.toml'
+      - 'tests/host/*cores3*'
+      - 'tests/host/test_es7210_startup.py'
+      - 'tools/**'
+      - 'tests/nuttx-std/**'
+      - 'app/std-demo/**'
+      - 'app/event-demo/**'
+      - 'hal/**'
+      - 'driver/**'
+      - 'service/**'
+      - 'shared/**'
+      - '.cargo/**'
+      - '.gitmodules'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cores3-microphone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firmware:
+    name: Build and inspect ${{ matrix.profile }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: cores3-microphone
+            application: std-demo
+          - profile: m5stack-cores3-gnss
+            application: event-demo
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PROFILE: ${{ matrix.profile }}
+      APPLICATION: ${{ matrix.application }}
+      OUT: target/cores3-audio/${{ matrix.profile }}
+      NUTTX_STD_COMPAT_FIXES: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          submodules: true
+      - name: Install pinned build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          rustup toolchain install 1.90.0 --profile minimal
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev xxd zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          python3 -m venv target/audio-venv
+          target/audio-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
+          echo "$GITHUB_WORKSPACE/target/audio-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Install hash-verified Xtensa tools
+        run: bash tools/install-qemu-tools.sh
+      - name: Check board rollback, codec startup and evidence failure controls
+        shell: bash
+        env:
+          NXRS_NUTTX_SOURCE: ${{ github.workspace }}/external/nuttx
+          NXRS_REQUIRE_ES7210_SOURCE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p target/cores3-audio
+          python3 -m unittest discover -s tests/host -p test_cores3_microphone.py -v 2>&1 | tee target/cores3-audio/board-tests.log
+          python3 -m unittest discover -s tests/host -p test_es7210_startup.py -v 2>&1 | tee target/cores3-audio/codec-tests.log
+          python3 -m unittest discover -s tests/host -p test_cores3_audio_build.py -v 2>&1 | tee target/cores3-audio/evidence-tests.log
+          python3 tools/check-architecture.py
+      - name: Build through the normal profile and complete SDK patch path
+        shell: bash
+        run: |
+          set -euo pipefail
+          source target/qemu-tools/environment.sh
+          cargo nxrs build --app "$APPLICATION" --platform cores3 --profile "$PROFILE" --out "$OUT" 2>&1 | tee "target/cores3-audio/$PROFILE-build.log"
+      - name: Independently verify effective config, linked symbols and image hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source target/qemu-tools/environment.sh
+          python3 tests/host/check_cores3_audio_build.py --out "$OUT" --profile "$PROFILE" --source-sha "$SOURCE_SHA"
+      - name: Retain exact-head build evidence, including failed build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cores3-audio-${{ matrix.profile }}-${{ env.SOURCE_SHA }}
+          include-hidden-files: true
+          path: |
+            target/cores3-audio/*.log
+            ${{ env.OUT }}/*.json
+            ${{ env.OUT }}/*.config
+            ${{ env.OUT }}/*.log
+            ${{ env.OUT }}/*.txt
+            ${{ env.OUT }}/*.sha256
+            ${{ env.OUT }}/nuttx/.config
+            ${{ env.OUT }}/nuttx/nuttx
+            ${{ env.OUT }}/nuttx/nuttx.bin
+            ${{ env.OUT }}/nuttx/nuttx.map
+            target/qemu-tools/downloads.sha256
+          if-no-files-found: warn
+          retention-days: 14

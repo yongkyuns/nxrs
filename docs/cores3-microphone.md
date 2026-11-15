@@ -53,11 +53,14 @@ cargo nxrs build --app std-demo --platform cores3 \
   --profile cores3-microphone --out target/cores3-microphone
 ```
 
-Use the [CoreS3 flashing procedure](m5stack-cores3.md) for the produced image.
+Use the [CoreS3 board guide](m5stack-cores3.md) for board details and the
+repository's firmware flashing workflow for the produced image.
 The new profile keeps Wi-Fi, BLE, speaker transmission, LCD and PSRAM disabled
 to isolate initial audio qualification. It uses internal RAM and includes tmpfs.
 Verify the resolved `.config` requirements, not merely the TOML requests, before
 claiming the firmware build passed. A dropped microphone option is a build error.
+Debug symbols and a link map are requested for post-link qualification; verbose
+audio logging is not enabled by the profile.
 
 First check that boot has no microphone registration error and that
 `/dev/audio/pcm_in0` exists. Then exercise start/stop without retaining audio:
@@ -109,19 +112,66 @@ ffmpeg -f s16le -ar 16000 -ac 2 -i mic.pcm mic.wav
 Delete the RAM recording before repeating. Do not claim channel identity or
 independent microphone response from identical/nonzero buffers alone.
 
-## Qualification gates
+## Startup errors and firmware qualification
 
-The added host test compiles the actual C source extracted from the patch using
-mock native declarations. It exercises 10 bring-up scenarios and 14 I2C failure
-cases, including writes which reach the PMIC but return an error. It also checks
-profile constraints and rejects a wrong MCLK pin or enabled TX at compile time.
-These tests do not validate the NuttX ABI, Kconfig resolution, DMA, scheduling,
-physical power, acoustic response, or long-running recording.
+The boot probe cannot establish codec availability at the time recording starts.
+`0125-es7210-startup-errors.patch` makes gain/reset programming return at the first
+failed I2C write and makes stream start propagate that error before entering I2S
+or submitting capture buffers. It clears the running flag and retains the error.
+A later start attempts the complete reset again. Register values, write order,
+and successful-path delays are unchanged.
+
+The native startup witness extracts the actual startup routines, applies patch
+0125 in an isolated copy, and compiles the routines with fault-injected native
+calls. Its independent oracle checks all 30 register writes. It covers 240
+write-failure/retry cases across both session signatures, two error values and
+zero/positive successful I2C return conventions. Eight success controls compare
+the original and patched sequences; two negative controls require the original
+driver to fail the same error oracle. This does not test the audio upper-half
+state machine, I2S implementation, DMA, or target ABI.
+
+Run against the **pristine pinned submodule**, not an already-patched build tree:
+
+```sh
+NXRS_REQUIRE_ES7210_SOURCE=1 \
+  python3 -m unittest discover -s tests/host -p test_es7210_startup.py -v
+python3 -m unittest discover -s tests/host -p test_cores3_audio_build.py -v
+```
+
+`NXRS_NUTTX_SOURCE` can select another source directory. The required-source mode
+checks the complete pinned ES7210 source blob and fails rather than skipping if
+it is absent or different. Ordinary host-only test discovery may skip this one
+suite when the optional NuttX submodule is unavailable.
+
+The `CoreS3 microphone qualification` workflow builds two exact-head images
+through `cargo nxrs build`: `std-demo` with `cores3-microphone`, and `event-demo`
+with the unchanged `m5stack-cores3-gnss` profile. Separate matrix jobs retain
+results independently. The normal build applies the complete SDK patch series
+and resolves actual Kconfig. Post-link checks independently require the correct
+pins, RX-only mode, buffer settings, ELF/binary/map and microphone symbols;
+the navigation control must contain neither microphone enablement nor linked
+microphone/ES7210 initialization symbols.
+
+Artifacts retain the effective `.config` (including hidden files), firmware,
+map, test/build logs, tool archive hashes and an `audio-build-evidence.json`
+record tied to the checked-out source SHA. The record hashes the four native
+artifacts and explicitly reports `physical_capture_verified: false`. Missing
+artifacts or contradictory configuration fail validation; a queued workflow is
+not a successful firmware build.
+
+## Remaining qualification gates
+
+The original board host test compiles the C source extracted from patch 0124
+using mock native declarations. It exercises 10 bring-up scenarios and 14 I2C
+failure cases, including writes which reach the PMIC but return an error. It
+also checks profile constraints and rejects a wrong MCLK pin or enabled TX.
+Neither board nor codec host tests validate the NuttX ABI, Kconfig resolution,
+DMA, physical power, acoustic response or long-running recording.
 
 Before promoting this path from draft/bring-up support, retain evidence for:
 
-1. The exact-head firmware build and resolved `.config`, map and image; also
-   build the unchanged default navigation profile to verify audio stays absent.
+1. Both exact-head firmware jobs, their resolved configurations, maps, images
+   and post-link evidence. Merely adding the workflow does not satisfy this gate.
 2. Cold boot and warm reset on CoreS3, with microphone endpoint registration,
    correct power and I2S clocks, and no speaker output.
 3. Real PCM with frame-aligned length, meaningful per-channel level changes,
@@ -130,21 +180,26 @@ Before promoting this path from draft/bring-up support, retain evidence for:
 4. Repeated record/stop and restart, bounded stop latency, stable free memory,
    and timeout/fault behavior. Test a second attempted recorder session.
 
-The pinned upstream ES7210 reset routine ignores some register-write failures;
-a successful boot-time probe does not repair runtime failure reporting. Its
-channel/format capability claims also exceed this board's two-microphone,
-16-bit qualification scope. Do not expose broader claims through a Rust HAL
-without fixing and testing the corresponding native behavior.
+Patch 0125 fixes codec reset/gain write error propagation, not the full native
+streaming lifecycle. I2S setup/receive failure reporting, asynchronous DMA error
+delivery, stop/callback quiescence and broader channel/format capability claims
+still need qualification or correction before a production Rust audio HAL.
 
-### Evidence for this change
+### Evidence recorded during implementation
 
-Executed locally: the four host unittest methods (24 runtime scenarios plus
-two expected compile failures), strict host C compilation, TOML parsing and
-patch application against the reconstructed post-0123 CoreS3 board files. The
-three reconstructed existing board files match the postimage Git hashes from
-patch 0123. No Rust/Xtensa toolchain or connected CoreS3 was available in that
-environment. Full SDK patch-series application, profile resolution, firmware
-linking, CI qualification and physical recording remain unverified.
+The initial bring-up recorded four passing board-host test methods and patch
+application against reconstructed post-0123 CoreS3 board files. The startup-error
+follow-up locally passed three codec test methods (250 process executions,
+including negative controls) and seven post-link-validator test methods. Local
+codec tests used retrieved startup-function excerpts and register definitions,
+not a complete SDK checkout; their log explicitly reports that distinction.
+The new CI job requires the full pinned source before running the same witness.
+Python syntax, workflow structure, action pins and shell syntax were checked.
+
+The local environment has no Rust/Xtensa toolchain, outbound Git access or
+connected CoreS3. Full patch-series application, actual configuration resolution,
+firmware linking and physical capture are not claimed by these local results.
+Use completed CI artifacts and hardware transcripts for those gates.
 
 ### Primary references
 

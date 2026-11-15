@@ -1,0 +1,326 @@
+Subject: [PATCH] audio: propagate ES7210 gain and reset write failures
+
+Keep the register sequence and successful startup behavior unchanged. Return
+at the first failed codec write, and reject stream start before entering I2S
+when reset was incomplete. The normal next start performs a complete reset.
+
+This does not qualify I2S configuration, DMA error delivery or stop quiescence.
+
+diff --git a/drivers/audio/es7210.c b/drivers/audio/es7210.c
+--- a/drivers/audio/es7210.c
++++ b/drivers/audio/es7210.c
+@@ -35,19 +35,41 @@
+ 
+ static int es7210_setmicgain(FAR struct es7210_dev_s *priv, uint8_t gain)
+ {
++  int ret;
++
+   /* ES7210_ADC_PGA_POWER_ON (bit 4) must be set or the analog
+    * front-end amplifier stays off and the ADC reads near-zero.
+    * Reference: ESP-IDF driver writes (gain | 0x10) for all channels.
+    */
+ 
+-  es7210_writereg(priv, ES7210_ADC1_GAIN_REG43,
+-                  gain | ES7210_ADC_PGA_POWER_ON);
+-  es7210_writereg(priv, ES7210_ADC2_GAIN_REG44,
+-                  gain | ES7210_ADC_PGA_POWER_ON);
+-  es7210_writereg(priv, ES7210_ADC3_GAIN_REG45,
+-                  gain | ES7210_ADC_PGA_POWER_ON);
+-  es7210_writereg(priv, ES7210_ADC4_GAIN_REG46,
+-                  gain | ES7210_ADC_PGA_POWER_ON);
++  ret = es7210_writereg(priv, ES7210_ADC1_GAIN_REG43,
++                        gain | ES7210_ADC_PGA_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC2_GAIN_REG44,
++                        gain | ES7210_ADC_PGA_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC3_GAIN_REG45,
++                        gain | ES7210_ADC_PGA_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC4_GAIN_REG46,
++                        gain | ES7210_ADC_PGA_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
+   return OK;
+ }
+ 
+@@ -58,26 +80,64 @@
+ static int es7210_reset(FAR struct es7210_dev_s *priv)
+ {
+   uint16_t lrck_div = ES7210_MCLK_MULTIPLE;
++  int ret;
+ 
+   audinfo("ES7210 reset\n");
+ 
+   /* Software reset */
+ 
+-  es7210_writereg(priv, ES7210_RESET_REG00, ES7210_RESET_CMD);
++  ret = es7210_writereg(priv, ES7210_RESET_REG00, ES7210_RESET_CMD);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
+   up_mdelay(10);  /* 10ms for ES7210 to complete reset */
+-  es7210_writereg(priv, ES7210_RESET_REG00, ES7210_RESET_NORMAL);
++  ret = es7210_writereg(priv, ES7210_RESET_REG00, ES7210_RESET_NORMAL);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Set the initialization time when device powers up */
+ 
+-  es7210_writereg(priv, ES7210_TCT0_CHPINI_REG09, 0x30);
+-  es7210_writereg(priv, ES7210_TCT1_CHPINI_REG0A, 0x30);
++  ret = es7210_writereg(priv, ES7210_TCT0_CHPINI_REG09, 0x30);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_TCT1_CHPINI_REG0A, 0x30);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Configure HPF for ADC1-4 */
+ 
+-  es7210_writereg(priv, ES7210_ADC4_HPF_REG23, 0x2a);
+-  es7210_writereg(priv, ES7210_ADC3_HPF_REG22, 0x0a);
+-  es7210_writereg(priv, ES7210_ADC2_HPF_REG21, 0x2a);
+-  es7210_writereg(priv, ES7210_ADC1_HPF_REG20, 0x0a);
++  ret = es7210_writereg(priv, ES7210_ADC4_HPF_REG23, 0x2a);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC3_HPF_REG22, 0x0a);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC2_HPF_REG21, 0x2a);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC1_HPF_REG20, 0x0a);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Set SDP: I2S format, 16-bit, normal I2S (no TDM).
+    * REG11=0x60: I2S format, 16-bit word length
+@@ -88,28 +148,73 @@
+    * support TDM — so we must use normal I2S here.
+    */
+ 
+-  es7210_writereg(priv, ES7210_SDP_CFG1_REG11, ES7210_SDP_I2S_16BIT);
+-  es7210_writereg(priv, ES7210_SDP_CFG2_REG12, ES7210_SDP_NORMAL);
++  ret = es7210_writereg(priv, ES7210_SDP_CFG1_REG11, ES7210_SDP_I2S_16BIT);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_SDP_CFG2_REG12, ES7210_SDP_NORMAL);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Configure analog power: VMID voltage selection */
+ 
+-  es7210_writereg(priv, ES7210_ANALOG_SYS_REG40, ES7210_VMID_SELECT);
++  ret = es7210_writereg(priv, ES7210_ANALOG_SYS_REG40, ES7210_VMID_SELECT);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Set MIC bias to 2.87V */
+ 
+-  es7210_writereg(priv, ES7210_MICBIAS12_REG41, ES7210_MICBIAS_2V87);
+-  es7210_writereg(priv, ES7210_MICBIAS34_REG42, ES7210_MICBIAS_2V87);
++  ret = es7210_writereg(priv, ES7210_MICBIAS12_REG41, ES7210_MICBIAS_2V87);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MICBIAS34_REG42, ES7210_MICBIAS_2V87);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Set MIC gain (30dB) */
+ 
+-  es7210_setmicgain(priv, ES7210_MIC_GAIN_30DB);
++  ret = es7210_setmicgain(priv, ES7210_MIC_GAIN_30DB);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Power on individual MIC1-4 */
+ 
+-  es7210_writereg(priv, ES7210_ADC12_MUTE_REG47, ES7210_MIC_POWER_ON);
+-  es7210_writereg(priv, ES7210_ADC34_MUTE_REG48, ES7210_MIC_POWER_ON);
+-  es7210_writereg(priv, ES7210_MIC3_CTL_REG49, ES7210_MIC_POWER_ON);
+-  es7210_writereg(priv, ES7210_MIC4_CTL_REG4A, ES7210_MIC_POWER_ON);
++  ret = es7210_writereg(priv, ES7210_ADC12_MUTE_REG47, ES7210_MIC_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_ADC34_MUTE_REG48, ES7210_MIC_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MIC3_CTL_REG49, ES7210_MIC_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MIC4_CTL_REG4A, ES7210_MIC_POWER_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Set sample rate: LRCK divider = MCLK / FS = MCLK_MULTIPLE.
+    * With MCLK = ES7210_MCLK_MULTIPLE * FS, the divider is constant
+@@ -117,26 +222,67 @@
+    * defined multiple rather than hard-coding 48 kHz values.
+    */
+ 
+-  es7210_writereg(priv, ES7210_ADC_OSR_REG07, 0x20);
+-  es7210_writereg(priv, ES7210_MCLK_CTL_REG02, ES7210_MCLK_ADC_DIV1_DLL);
+-  es7210_writereg(priv, ES7210_MST_LRCDIVH_REG04,
+-                 (uint8_t)((lrck_div >> 8) & 0xff));
+-  es7210_writereg(priv, ES7210_MST_LRCDIVL_REG05,
+-                 (uint8_t)(lrck_div & 0xff));
++  ret = es7210_writereg(priv, ES7210_ADC_OSR_REG07, 0x20);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MCLK_CTL_REG02, ES7210_MCLK_ADC_DIV1_DLL);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MST_LRCDIVH_REG04,
++                       (uint8_t)((lrck_div >> 8) & 0xff));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MST_LRCDIVL_REG05,
++                       (uint8_t)(lrck_div & 0xff));
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Power down DLL */
+ 
+-  es7210_writereg(priv, ES7210_DIGITAL_PDN_REG06, ES7210_DLL_POWER_DOWN);
++  ret = es7210_writereg(priv, ES7210_DIGITAL_PDN_REG06, ES7210_DLL_POWER_DOWN);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Power on MIC1-4 bias & ADC1-4 & PGA1-4 */
+ 
+-  es7210_writereg(priv, ES7210_MIC12_POWER_REG4B, ES7210_MIC_ADC_PGA_ON);
+-  es7210_writereg(priv, ES7210_MIC34_POWER_REG4C, ES7210_MIC_ADC_PGA_ON);
++  ret = es7210_writereg(priv, ES7210_MIC12_POWER_REG4B, ES7210_MIC_ADC_PGA_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_MIC34_POWER_REG4C, ES7210_MIC_ADC_PGA_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   /* Enable device */
+ 
+-  es7210_writereg(priv, ES7210_RESET_REG00, ES7210_CLK_OFF);
+-  es7210_writereg(priv, ES7210_RESET_REG00, ES7210_DEVICE_ON);
++  ret = es7210_writereg(priv, ES7210_RESET_REG00, ES7210_CLK_OFF);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = es7210_writereg(priv, ES7210_RESET_REG00, ES7210_DEVICE_ON);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ 
+   audinfo("ES7210 reset done\n");
+   return OK;
+@@ -154,15 +300,25 @@
+ #endif
+ {
+   FAR struct es7210_dev_s *priv = (FAR struct es7210_dev_s *)dev;
++  int ret;
+ 
+   audinfo("ES7210 start\n");
+ 
+   priv->running = true;
+   priv->result  = OK;
+ 
+-  /* Reset the ES7210 hardware */
+-
+-  es7210_reset(priv);
++  /* Reset the ES7210 hardware. A boot-time probe does not establish that
++   * the codec is still reachable when a recording is started. Do not start
++   * I2S or submit DMA buffers after an incomplete reset.
++   */
++
++  ret = es7210_reset(priv);
++  if (ret < 0)
++    {
++      priv->running = false;
++      priv->result  = ret;
++      return ret;
++    }
+ 
+   /* Configure the I2S lower-half with the stream parameters.
+    * Note: I2S_RXSAMPLERATE starts the RX channel, so we must
