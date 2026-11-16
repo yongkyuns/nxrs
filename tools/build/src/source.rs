@@ -30,9 +30,18 @@ pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Re
         ));
     }
     fs::create_dir(destination).map_err(|e| e.to_string())?;
+    // Configuration inspection runs beside the terminal renderer. Keep Git's
+    // diagnostic in the returned error instead of writing into the live screen.
+    // A file keeps diagnostics from blocking the streamed archive.
+    let diagnostics = crate::TempDir::new(&std::env::temp_dir())?;
+    let stderr_path = diagnostics.0.join("git-archive.stderr");
+    let stderr = fs::File::create(&stderr_path).map_err(|e| e.to_string())?;
+    // Archive the committed bytes, not a host-dependent worktree conversion.
+    // With core.autocrlf=true Git otherwise emits CRLF for text on Windows.
     let mut child = git(source)
-        .args(["archive", revision])
+        .args(["-c", "core.autocrlf=false", "archive", revision])
         .stdout(Stdio::piped())
+        .stderr(stderr)
         .spawn()
         .map_err(|e| e.to_string())?;
     let result = archive::source_tree(
@@ -47,7 +56,12 @@ pub fn archive_revision(source: &Path, revision: &str, destination: &Path) -> Re
     let status = child.wait().map_err(|e| e.to_string())?;
     result?;
     if !status.success() {
-        return Err(format!("git archive failed: {status}"));
+        let stderr = fs::read(&stderr_path).map_err(|e| e.to_string())?;
+        return Err(format!(
+            "git archive failed for {}: {status}\n{}",
+            source.display(),
+            String::from_utf8_lossy(&stderr).trim()
+        ));
     }
     Ok(())
 }
@@ -276,4 +290,51 @@ pub fn prepare_inventory(
     write_json(&staged.join("prepared.json"), &identity)?;
     verify_inventory(ledger, &staged)?;
     fs::rename(staged, destination).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_archive_preserves_contents_and_returns_git_diagnostics() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let source = temporary.0.join("source");
+        fs::create_dir(&source).unwrap();
+        output(git(&source).args(["init", "--quiet"])).unwrap();
+        // Reproduce the Windows default even on Unix: archive bytes must not
+        // inherit checkout line-ending conversion from the Git configuration.
+        output(git(&source).args(["config", "core.autocrlf", "true"])).unwrap();
+        fs::write(source.join("input.txt"), "review fixture\n").unwrap();
+        output(git(&source).args(["add", "input.txt"])).unwrap();
+        output(git(&source).args([
+            "-c",
+            "user.name=NXRS test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ]))
+        .unwrap();
+
+        let archive = temporary.0.join("archive");
+        archive_revision(&source, "HEAD", &archive).unwrap();
+        // Git may normalize line endings when staging on Windows. The
+        // archive must preserve the committed blob, not assume that checkout
+        // and index bytes match on every host.
+        let committed = crate::output_bytes(git(&source).args(["show", "HEAD:input.txt"])).unwrap();
+        assert_eq!(fs::read(archive.join("input.txt")).unwrap(), committed);
+        let error = archive_revision(
+            &source,
+            "missing-review-revision",
+            &temporary.0.join("missing"),
+        )
+        .unwrap_err();
+        assert!(error.contains("git archive failed"), "{error}");
+        assert!(error.contains("missing-review-revision"), "{error}");
+    }
 }

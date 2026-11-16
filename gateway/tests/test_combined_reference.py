@@ -30,9 +30,10 @@ class CombinedFixtureTests(unittest.TestCase):
             self.assertEqual(output.count(value), 1)
         self.assertIn('BindsTo=nxrs-test-network.service nxrs-test-control.service nxrs-test-media.service', output)
         self.assertIn('NetworkNamespacePath=/run/netns/nxrs-test-s', output)
-        self.assertIn('/run/nxrs-test/bin/ingest /run/nxrs-test-ingest/config.json', output)
+        self.assertIn('/usr/local/libexec/nxrs-test/ingest /run/nxrs-test-ingest/config.json', output)
         self.assertIn('/run/nxrs-test/conf/ingest.json', output)
         self.assertNotIn('/etc/nxrs-monitor', output)
+        self.assertNotIn('/run/nxrs-test/bin/', output)
 
     def test_target_has_no_invalid_service_section(self):
         _, target = full.adapt_unit('[Unit]\nWants=nxrs-ingest.service\n', 'nxrs-monitor.target',

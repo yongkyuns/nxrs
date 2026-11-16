@@ -386,6 +386,16 @@ def validate_config(text, board, runtime, observer='primary'):
             raise ValueError(f'{key}: expected {value}, got {c.get(key)}')
 
 
+def tool_path(tools, cross_prefix, inherited_path):
+    """Give the pinned Python venv priority over system Python in compiler dirs.
+
+    The NuttX Kconfig adapter must import kconfiglib from this venv, even if
+    arm-none-eabi-gcc lives in /usr/bin alongside a different python3.
+    """
+    return os.pathsep.join([str(Path(tools['python']).parent), str(Path(cross_prefix).parent),
+                            *tools.get('path', []), inherited_path])
+
+
 def build(args):
     board = BOARDS[args.board]
     backend = selected_backend(args.runtime, getattr(args, 'backend', None))
@@ -400,8 +410,7 @@ def build(args):
     if 'nuttx-tools' in tools:
         env['NXRS_QEMU_TOOLS_DIR'] = tools['nuttx-tools']
     prefix = tools['cross-prefix']
-    env['PATH'] = os.pathsep.join([str(Path(prefix).parent), str(Path(tools['python']).parent),
-                                  *tools.get('path', []), env['PATH']])
+    env['PATH'] = tool_path(tools, prefix, env['PATH'])
     env.update(RUSTC=tools['rustc'], RUSTC_BOOTSTRAP='1', MPSC_CLOCK_HZ=str(board['clock-hz']),
                MPSC_BACKEND=backend, MPSC_OBSERVER=observer,
                CARGO_PROFILE_RELEASE_OPT_LEVEL=board['opt-level'],

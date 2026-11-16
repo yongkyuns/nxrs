@@ -13,7 +13,9 @@ Run these commands from the NXRS repository root. The checkout defines `cargo nx
 | Run ordinary host Rust | `cargo run --manifest-path ../my-firmware/Cargo.toml --bin hello` | Builds and runs your application on the development computer |
 | Test a portable package | `cargo test --locked -p nxrs-std-demo` | Tests the selected Cargo package without a firmware image |
 | List available choices | `cargo nxrs apps` and `cargo nxrs platforms` | Lists repository applications and platform families |
-| Inspect a configuration | `cargo nxrs profile --platform esp32s3-qemu-mock` | Resolves a named profile and prints its configuration as JSON |
+| Inspect profile composition | `cargo nxrs profile --platform esp32s3-qemu-mock` | Resolves a named profile and prints its configuration as JSON |
+| Edit native NuttX settings | `cargo nxrs config --app event-demo --platform cores3` | Searches settings, previews native resolution, and saves to the owning sources |
+| Check native settings | `cargo nxrs config check --app event-demo --platform cores3` | Verifies the effective NuttX configuration without compiling firmware |
 | Plan a firmware build | `cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qemu-mock --dry-run` | Validates the selection and prints the build plan |
 | Build the firmware | The same build command without `--dry-run` | Prepares the selected toolchain inputs, compiles source, links, and checks artifacts |
 
@@ -29,6 +31,7 @@ The `profile` inspection command uses `--platform` for either a platform family 
 | Required capabilities | `[package.metadata.nxrs]` | Reject configurations that cannot provide a required capability |
 | OS, board, resources, devices, and product budgets | Named platform profile | Choose a board and its supported resource bindings |
 | A reusable wiring or device variation | Ordered composition overlay | Replace a supported peripheral while preserving its application alias |
+| Explicit native settings | Profile's `nuttx-config` fragment | Set diagnostic or OS options using native Kconfig assignments |
 | Native controller setup and endpoint registration | NuttX BSP, Kconfig, and checked resource mapping | Register the bus endpoint selected by the profile |
 
 Changing a profile does not add an arbitrary crate to your application. Cargo resolves the declared dependency graph. The frontend requests the driver, resource, and model features needed by consumed, configured components through those existing dependency edges. [Profiles and overlays](profiles.md) explains the configuration side; [Drivers and HALs](hardware.md) explains runtime ownership.
@@ -60,9 +63,9 @@ cargo nxrs build --manifest-path ../my-firmware/Cargo.toml --profile esp32s3-qem
 
 The first command prints the resolved profile, including source paths and any composition information. The second prints the selected binary, shell command, backend, output directory, and deployment inputs. For the first tutorial application, the default output is `target/build/hello/esp32s3-qemu-mock/`.
 
-A dry run catches selection and configuration errors without compiling. Its dependency resolution remains `pending`; driver, resource, and model feature requests are not yet a completed Cargo result. It does not check that the target compiler is installed, prove that an image links, or verify attached hardware. Follow it with the real build and target execution.
+A dry run catches selection and profile errors without compiling. Its dependency resolution remains `pending`; driver, resource, and model feature requests are not yet a completed Cargo result. It does not resolve native Kconfig, check that the target compiler is installed, prove that an image links, or verify attached hardware. Use `cargo nxrs config check` with the same application/profile selections to check effective native settings before the real build and target execution.
 
-Use `cargo nxrs build --help` for the current supported switches. Diagnostic Kconfig and ABI overrides are qualification tools. Put persistent product settings in a reviewed profile so that inspection and subsequent builds use the same inputs.
+Use `cargo nxrs config --help` for native editing and inspection, and `cargo nxrs build --help` for build switches. [Configure NuttX](profiles.md#configure-nuttx) explains prerequisites, the editing cycle, and where settings are saved. Persistent product settings belong in the profile and its referenced native fragment; inspection and subsequent builds consume those same inputs. Diagnostic Kconfig and ABI command-line overrides remain qualification tools.
 
 ## Read the build output
 

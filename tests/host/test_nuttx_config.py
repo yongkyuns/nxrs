@@ -79,6 +79,21 @@ class NativeModelTest(unittest.TestCase):
         report, _ = self.resolve(seed, {"LOCAL": "y", "SERIAL": "y"})
         self.assertTrue(any("CONFIG_LOCAL requested" in problem for problem in report["problems"]))
 
+    def test_prompt_only_conditions_have_navigable_prerequisites(self):
+        report, _ = self.resolve("", {})
+        setting = report["symbols"]["PROMPT_ONLY"]
+        self.assertEqual(setting["requires"], {"expression": "y", "value": "y"})
+        self.assertEqual(setting["visibility"], "n")
+        self.assertEqual(setting["prerequisites"], ["PROMPT_GATE"])
+        self.assertEqual(setting["locations"][0]["prompt_condition"],
+                         {"expression": "CONFIG_PROMPT_GATE", "value": "n"})
+
+        report, _ = self.resolve("CONFIG_PROMPT_GATE=y\n", {})
+        setting = report["symbols"]["PROMPT_ONLY"]
+        self.assertEqual(setting["requires"], {"expression": "y", "value": "y"})
+        self.assertEqual(setting["visibility"], "y")
+        self.assertEqual(setting["prerequisites"], ["PROMPT_GATE"])
+
 
 class CoreS3Test(unittest.TestCase):
     @unittest.skipUnless(os.getenv("NXRS_CONFIG_CLI"), "set NXRS_CONFIG_CLI to the built CLI")
