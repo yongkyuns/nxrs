@@ -9,7 +9,8 @@ use std::io::{self, Write};
 
 const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 const MAX_WRITE_CALLS: u8 = 8;
-const WRITE_BATCH_BYTES: usize = 2048;
+// Fit one full camera write budget into a single TLS application record.
+const WRITE_BATCH_BYTES: usize = 4096;
 const PART_PREFIX: &[u8] = b"--nxrs-frame\r\nContent-Type: image/jpeg\r\nContent-Length: ";
 const SEQUENCE_PREFIX: &[u8] = b"\r\nX-Sequence: ";
 const CAPTURE_PREFIX: &[u8] = b"\r\nX-Capture-Ms: ";

@@ -62,6 +62,7 @@ struct State<B> {
     update: Option<crate::update::Update>,
     pending: Option<Packet<B>>,
     returned: Option<Packet<B>>,
+    ready_after: Option<u64>,
     clock: Option<(u64, Instant)>,
     stream: ServerStats,
     tls: TlsStats,
@@ -181,6 +182,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                 update: None,
                 pending: None,
                 returned: None,
+                ready_after: None,
                 clock: None,
                 stream: ServerStats::default(),
                 tls: TlsStats::default(),
@@ -298,7 +300,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
         }
         let mut progress = Progress::default();
         // No waiting or spinning behind a preempted TLS worker.
-        match self.shared.state.try_lock() {
+        let ready_after = match self.shared.state.try_lock() {
             Ok(mut state) => {
                 state.clock = Some((now, observed));
                 self.stats = (state.stream, state.tls);
@@ -306,31 +308,34 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                 if self.free.is_none() {
                     self.free = state.returned.take();
                 }
+                state.ready_after
             }
-            Err(TryLockError::WouldBlock) => {}
+            Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => return Err(self.fail()),
-        }
+        };
         if !online {
             return Ok(Progress::default());
         }
+        // While a JPEG is being sent, capture retains the latest frame. Wait
+        // for the writer to be ready before copying that frame into its handoff.
+        let Some(frame) = frame.filter(|f| ready_after.is_some_and(|after| f.sequence > after))
+        else {
+            return Ok(progress);
+        };
         let Some(mut packet) = self.free.take() else {
             self.skipped_busy = self.skipped_busy.saturating_add(1);
             return Ok(progress);
         };
-        packet.frame = None;
         packet.description = None;
         packet.epoch = self.epoch;
         // Copy outside the mailbox lock; the worker owns only transferred data.
-        if let Some(frame) = frame {
-            if frame.bytes.len() != frame.capture.len
-                || frame.bytes.len() > packet.bytes.as_mut().len()
-            {
-                self.free = Some(packet);
-                return Err(self.refuse(::tls::Error::Capacity));
-            }
-            packet.bytes.as_mut()[..frame.bytes.len()].copy_from_slice(frame.bytes);
-            packet.frame = Some((frame.sequence, frame.capture));
+        if frame.bytes.len() != frame.capture.len || frame.bytes.len() > packet.bytes.as_mut().len()
+        {
+            self.free = Some(packet);
+            return Err(self.refuse(::tls::Error::Capacity));
         }
+        packet.bytes.as_mut()[..frame.bytes.len()].copy_from_slice(frame.bytes);
+        packet.frame = Some((frame.sequence, frame.capture));
         if let Some(metadata) = metadata {
             if metadata.bytes.len() > packet.metadata.len() {
                 self.free = Some(packet);
@@ -350,6 +355,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
             }
             Err(TryLockError::WouldBlock) => {
                 self.free = Some(packet);
+                return Ok(progress);
             }
             Err(TryLockError::Poisoned(_)) => {
                 self.free = Some(packet);
@@ -400,6 +406,7 @@ fn publish<B, W: std::io::Read + std::io::Write>(
     state.stream = http.stats();
     state.stream.rejected_busy = state.stream.rejected_busy.saturating_add(counters.busy);
     state.tls = counters.tls;
+    state.ready_after = http.next_frame_after();
 }
 fn run<
     B: AsRef<[u8]> + AsMut<[u8]>,
@@ -719,6 +726,7 @@ mod tests {
                 update: None,
                 pending: None,
                 returned: None,
+                ready_after: None,
                 clock: None,
                 stream: ServerStats::default(),
                 tls: TlsStats::default(),
@@ -749,7 +757,7 @@ mod tests {
         worker.poll(11, false, None, None).unwrap();
         worker.poll(12, true, None, None).unwrap();
         assert_eq!(shared.epoch.load(Ordering::Acquire), 3);
-        assert_eq!(worker.stats().1.skipped_busy, 2);
+        assert_eq!(worker.stats().1.skipped_busy, 0);
         drop(held);
         worker.free = Some(Packet {
             bytes: [0; 4],
@@ -778,6 +786,20 @@ mod tests {
                     capture,
                     bytes: &bytes,
                 }),
+                None,
+            )
+            .unwrap();
+        assert!(shared.state.lock().unwrap().pending.is_none());
+        shared.state.lock().unwrap().ready_after = Some(0);
+        worker
+            .poll(
+                13,
+                true,
+                Some(Frame {
+                    sequence: 1,
+                    capture,
+                    bytes: &bytes,
+                }),
                 Some(Metadata {
                     revision: 7,
                     content_type: "application/test",
@@ -792,6 +814,24 @@ mod tests {
         assert_eq!(&*packet.metadata, b"data");
         assert_eq!(packet.description, Some((7, 4, "application/test")));
         assert_eq!(packet.epoch, 3);
+        {
+            let mut state = shared.state.lock().unwrap();
+            state.ready_after = Some(1);
+            state.returned = Some(packet);
+        }
+        worker
+            .poll(
+                14,
+                true,
+                Some(Frame {
+                    sequence: 1,
+                    capture,
+                    bytes: &bytes,
+                }),
+                None,
+            )
+            .unwrap();
+        assert!(shared.state.lock().unwrap().pending.is_none());
         assert!(matches!(
             worker.poll(12, true, None, None),
             Err(Error::Tls(::tls::Error::Time))
