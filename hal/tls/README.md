@@ -48,7 +48,8 @@ independently commissioned exact certificate DER SHA-256. Its trust comes from
 the pin and TLS proof of key possession; it does not require or assert trusted
 UTC, a CA chain or certificate validity dates. No application bytes are admitted
 until the complete handshake and pin comparison pass. A fixed monotonic lifetime
-of at most ten seconds bounds handshake and I/O. Tickets, PSK and early data
+of at most one hour bounds the connection, with a separate short handshake
+deadline. The caller bounds each application exchange independently. Tickets, PSK and early data
 remain disabled. Pin rotation requires an independently authorized commissioning
 path. Normal enrolled server connections retain their complete PKI/time checks.
 Both connection types share the existing bounded I/O and teardown code; one

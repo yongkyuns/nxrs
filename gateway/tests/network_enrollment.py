@@ -192,6 +192,18 @@ def run(ingest, camera, case, require_rogue_hints=False):
                 try: assert tls.recv(1) == b''
                 except (ssl.SSLError, ConnectionResetError): pass
             assert (root/'authority/generation').read_text().strip() == '0'
+            # A clock-only peer can renew on the original pinned TLS channel.
+            with socket.create_connection((gateway_ip, bootstrap_port), timeout=3) as raw, context.wrap_socket(raw) as tls:
+                assert hashlib.sha256(tls.getpeercert(binary_form=True)).digest() == (root/'commission.bin').read_bytes()[10:42]
+                request = b'NXB1' + (root/'authority/token').read_bytes() + b'\0\0'
+                with tls.makefile('rb') as reply:
+                    epochs = []
+                    for _ in range(2):
+                        tls.sendall(request)
+                        magic, clock, length = struct.unpack('!4sQH', reply.read(14))
+                        assert magic == b'NXB1' and length == 0
+                        epochs.append(clock)
+                    assert epochs[1] >= epochs[0]
             if gateway_ip == '127.0.0.2':
                 rogue = RogueHints(root, bootstrap_port, (root/'commission.bin').read_bytes()[10:42])
             device = start([str(camera), str(root), '30000', case], 'camera.log')

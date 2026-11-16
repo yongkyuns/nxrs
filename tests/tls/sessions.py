@@ -391,6 +391,7 @@ class Sessions(unittest.TestCase):
             def finish():
                 stopped.set()
                 (root/'block-time').unlink(missing_ok=True)
+                (root/'refresh-time').unlink(missing_ok=True)
                 try: client.shutdown(socket.SHUT_RDWR)
                 except OSError: pass
                 reader.join(timeout=6)
@@ -398,6 +399,11 @@ class Sessions(unittest.TestCase):
             self.addCleanup(finish)
             return finish
         finish_drain = drain_response(client, response)
+        (root/'refresh-time').touch()
+        self.assertEqual(self.line(process), 'TIME_REFRESHING')
+        before = state_until(lambda s: s['active'])
+        state_until(lambda s: s['frames'] >= before['frames'] + 4)
+        (root/'refresh-time').unlink()
         (root/'block-time').touch()
         self.assertEqual(self.line(process), 'TIME_BLOCKED')
         before = state_until(lambda s: s['busy'] > 0)

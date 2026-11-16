@@ -2,15 +2,15 @@
 //! listener and time; connectivity and scheduling stay in the owner's event loop.
 #![forbid(unsafe_code)]
 
-mod detection;
 pub mod bootstrap;
+mod detection;
 pub mod network;
 mod publication;
 pub mod startup;
 mod tls;
 pub mod update;
 pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
-pub use tls::{TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
+pub use tls::{RefreshStep, TimeChannel, TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
 
 use camera::{Camera, Format, PixelFormat};
 use camera_service::{CameraService, CaptureProgress, Frames};
@@ -134,7 +134,14 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
     /// TLS-only output. Buffers are history, capture staging, network output
     /// and one owned handoff. Initialize identity/enrollment on its worker;
     /// the non-Send key never leaves that thread. There is no plaintext fallback.
-    pub fn new_tls<T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error> + 'static>(
+    pub fn new_tls<
+        T: for<'id> FnMut(
+                &'id ::tls::Identity,
+                TimeChannel<'id, '_>,
+                RefreshStep<'_>,
+            ) -> Result<::tls::TimeLease, ::tls::Error>
+            + 'static,
+    >(
         device: D,
         listener: TcpListener,
         [history, staging, outgoing, handoff]: [B; 4],
