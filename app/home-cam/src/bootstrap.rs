@@ -1,5 +1,5 @@
 //! Camera policy for a commissioned gateway; TLS and crypto remain in the HAL.
-use crate::TlsIdentity;
+use crate::{RefreshStep, TimeChannel, TlsIdentity};
 use config::Store;
 pub use enrollment::Commission;
 use std::{
@@ -14,7 +14,14 @@ const REQUEST: Duration = Duration::from_secs(5);
 const LEASE: Duration = Duration::from_secs(30);
 const REFRESH: Duration = Duration::from_secs(15);
 const LOOKUP: Duration = Duration::from_millis(500);
-pub type TimeSource = Box<dyn FnMut(&tls::Identity) -> Result<tls::TimeLease, tls::Error>>;
+const CLOCK_CHANNEL_LIFETIME: Duration = Duration::from_secs(60 * 60);
+pub type TimeSource = Box<
+    dyn for<'id> FnMut(
+        &'id tls::Identity,
+        TimeChannel<'id, '_>,
+        RefreshStep<'_>,
+    ) -> Result<tls::TimeLease, tls::Error>,
+>;
 
 pub fn load(store: &mut impl Store) -> Result<Option<Commission>, config::Error> {
     let mut bytes = [0; Commission::MAX_BYTES];
@@ -39,11 +46,12 @@ pub fn provision(store: &mut impl Store, bytes: &[u8]) -> Result<Commission, con
     Ok(commission)
 }
 
-struct Bounded<'a> {
-    connection: tls::Connection<'a>,
+struct Bounded<'id, 'borrow> {
+    connection: &'borrow mut tls::Connection<'id>,
     until: Instant,
+    step: RefreshStep<'borrow>,
 }
-impl Bounded<'_> {
+impl Bounded<'_, '_> {
     fn retry<T>(
         &mut self,
         mut call: impl FnMut(&mut tls::Connection<'_>) -> io::Result<T>,
@@ -52,26 +60,26 @@ impl Bounded<'_> {
             if Instant::now() >= self.until {
                 return Err(io::ErrorKind::TimedOut.into());
             }
-            match call(&mut self.connection) {
+            match call(self.connection) {
                 Err(e)
                     if matches!(
                         e.kind(),
                         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
                     ) =>
                 {
-                    std::thread::sleep(Duration::from_millis(1))
+                    (self.step)().map_err(|_| io::ErrorKind::ConnectionAborted)?
                 }
                 value => return value,
             }
         }
     }
 }
-impl Read for Bounded<'_> {
+impl Read for Bounded<'_, '_> {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         self.retry(|c| c.read(out))
     }
 }
-impl Write for Bounded<'_> {
+impl Write for Bounded<'_, '_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.retry(|c| c.write(bytes))
     }
@@ -89,7 +97,7 @@ impl Observation {
         Ok(self.time.clone())
     }
 }
-fn endpoints(commission: &Commission, until: Instant) -> Vec<SocketAddrV4> {
+fn endpoints(commission: &Commission, until: Instant, step: RefreshStep<'_>) -> Vec<SocketAddrV4> {
     let mut peers = Vec::with_capacity(4);
     let mut lookup = || -> io::Result<()> {
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
@@ -129,7 +137,7 @@ fn endpoints(commission: &Commission, until: Instant) -> Vec<SocketAddrV4> {
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(5));
+                    step().map_err(|_| io::ErrorKind::Interrupted)?;
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error),
@@ -143,51 +151,79 @@ fn endpoints(commission: &Commission, until: Instant) -> Vec<SocketAddrV4> {
     }
     peers
 }
+#[derive(Clone, Copy)]
+struct Connect {
+    until: Instant,
+    renewing: bool,
+}
 fn connect_at<'a>(
     identity: &'a tls::Identity,
     pin: [u8; 32],
     peer: SocketAddrV4,
     budget: Duration,
-    until: Instant,
-) -> Result<Bounded<'a>, tls::Error> {
-    let deadline = until.min(Instant::now() + budget);
-    let socket =
-        TcpStream::connect_timeout(&SocketAddr::V4(peer), budget).map_err(|_| tls::Error::Io)?;
-    let remaining = until
+    options: Connect,
+    step: RefreshStep<'_>,
+) -> Result<tls::Connection<'a>, tls::Error> {
+    let deadline = options.until.min(Instant::now() + budget);
+    // One TCP connect attempt must not monopolize the video owner.
+    let tcp_budget = if options.renewing {
+        Duration::from_millis(20)
+    } else {
+        REQUEST
+    };
+    let socket = TcpStream::connect_timeout(&SocketAddr::V4(peer), budget.min(tcp_budget))
+        .map_err(|_| tls::Error::Io)?;
+    let remaining = options
+        .until
         .checked_duration_since(Instant::now())
         .ok_or(tls::Error::Time)?;
-    let mut connection = identity.connect_pinned(socket, pin, remaining)?;
+    let lifetime = if options.renewing {
+        CLOCK_CHANNEL_LIFETIME
+    } else {
+        remaining
+    };
+    let mut connection = identity.connect_pinned(socket, pin, lifetime)?;
     loop {
         if Instant::now() >= deadline {
             return Err(tls::Error::Time);
         }
         if connection.poll()? {
-            return Ok(Bounded { connection, until });
+            return Ok(connection);
         }
-        std::thread::sleep(Duration::from_millis(1));
+        step()?;
     }
 }
 fn connect<'a>(
     identity: &'a tls::Identity,
     commission: &Commission,
     preferred: &mut Option<SocketAddrV4>,
-    until: Instant,
-) -> Result<Bounded<'a>, tls::Error> {
+    options: Connect,
+    step: RefreshStep<'_>,
+) -> Result<tls::Connection<'a>, tls::Error> {
     if let Some(peer) = preferred.take() {
-        let budget = until
+        let budget = options
+            .until
             .checked_duration_since(Instant::now())
             .ok_or(tls::Error::Time)?
             / 2;
-        if let Ok(connection) =
-            connect_at(identity, commission.certificate_sha256, peer, budget, until)
-        {
+        if let Ok(connection) = connect_at(
+            identity,
+            commission.certificate_sha256,
+            peer,
+            budget,
+            options,
+            step,
+        ) {
             *preferred = Some(peer);
             return Ok(connection);
         }
     }
-    let peers = endpoints(commission, until);
+    step()?;
+    let peers = endpoints(commission, options.until, step);
     for (index, peer) in peers.iter().enumerate() {
-        let remaining = until
+        step()?;
+        let remaining = options
+            .until
             .checked_duration_since(Instant::now())
             .ok_or(tls::Error::Time)?;
         // A stalled/forged locator cannot consume the original endpoint's share.
@@ -197,7 +233,8 @@ fn connect<'a>(
             commission.certificate_sha256,
             *peer,
             budget,
-            until,
+            options,
+            step,
         ) {
             // Volatile locator only; every reuse still authenticates the TLS pin.
             *preferred = Some(*peer);
@@ -206,15 +243,52 @@ fn connect<'a>(
     }
     Err(tls::Error::Io)
 }
-fn exchange(
-    identity: &tls::Identity,
+fn exchange<'id>(
+    identity: &'id tls::Identity,
     commission: &Commission,
     preferred: &mut Option<SocketAddrV4>,
     csr: &[u8],
+    mut channel: TimeChannel<'id, '_>,
+    step: RefreshStep<'_>,
 ) -> Result<(Observation, Vec<u8>), tls::Error> {
     let started = Instant::now();
-    let until = started + REQUEST;
-    let mut transport = connect(identity, commission, preferred, until)?;
+    if let Some(slot) = channel.as_deref_mut() {
+        if let Some(mut connection) = slot.take() {
+            match request(&mut connection, commission, csr, started, step) {
+                Ok(response) => {
+                    *slot = Some(connection);
+                    return Ok(response);
+                }
+                // Older gateways close after a reply. Reconnect under the
+                // same pin and the original authenticated lease.
+                Err(tls::Error::Io) => step()?,
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    let options = Connect {
+        until: started + REQUEST,
+        renewing: csr.is_empty(),
+    };
+    let mut connection = connect(identity, commission, preferred, options, step)?;
+    let response = request(&mut connection, commission, csr, started, step)?;
+    if let Some(slot) = channel {
+        *slot = Some(connection);
+    }
+    Ok(response)
+}
+fn request(
+    connection: &mut tls::Connection<'_>,
+    commission: &Commission,
+    csr: &[u8],
+    started: Instant,
+    step: RefreshStep<'_>,
+) -> Result<(Observation, Vec<u8>), tls::Error> {
+    let mut transport = Bounded {
+        connection,
+        until: started + REQUEST,
+        step,
+    };
     enrollment::request(&mut transport, &commission.token, csr).map_err(|_| tls::Error::Io)?;
     let (epoch, bytes) = enrollment::read_response(&mut transport).map_err(|_| tls::Error::Io)?;
     let observed = Instant::now();
@@ -236,8 +310,18 @@ pub fn initialize(commission: Arc<Commission>) -> Result<TlsIdentity<TimeSource>
         .request("camera", &mut csr)
         .map_err(crate::Error::Tls)?;
     let mut preferred = None;
-    let (mut time, bytes) = exchange(&identity, &commission, &mut preferred, &csr[..size])
-        .map_err(crate::Error::Tls)?;
+    let (mut time, bytes) = exchange(
+        &identity,
+        &commission,
+        &mut preferred,
+        &csr[..size],
+        None,
+        &mut || {
+            std::thread::sleep(Duration::from_millis(1));
+            Ok(())
+        },
+    )
+    .map_err(crate::Error::Tls)?;
     let certificates = enrollment::Enrollment::decode(&bytes)
         .map_err(|_| crate::Error::Tls(tls::Error::InvalidInput))?;
     if certificates.own_uri != commission.own_uri()
@@ -245,17 +329,25 @@ pub fn initialize(commission: Arc<Commission>) -> Result<TlsIdentity<TimeSource>
     {
         return Err(crate::Error::Tls(tls::Error::Authentication));
     }
-    let clock = move |identity: &tls::Identity| {
-        if time.observed.elapsed() >= REFRESH {
-            let (mut fresh, bytes) = exchange(identity, &commission, &mut preferred, &[])?;
+    fn refresh<'id>(
+        identity: &'id tls::Identity,
+        channel: TimeChannel<'id, '_>,
+        step: RefreshStep<'_>,
+        time: &mut Observation,
+        commission: &Commission,
+        preferred: &mut Option<SocketAddrV4>,
+    ) -> Result<tls::TimeLease, tls::Error> {
+        if channel.as_ref().is_some_and(|slot| slot.is_none()) || time.observed.elapsed() >= REFRESH
+        {
+            let (mut fresh, bytes) = exchange(identity, commission, preferred, &[], channel, step)?;
             if !bytes.is_empty() {
                 return Err(tls::Error::Time);
             }
             fresh.time.advance_from(&time.time)?;
-            time = fresh;
+            *time = fresh;
         }
         time.lease()
-    };
+    }
     Ok(TlsIdentity {
         identity,
         policy: tls::CertificatePolicy {
@@ -267,6 +359,15 @@ pub fn initialize(commission: Arc<Commission>) -> Result<TlsIdentity<TimeSource>
         issuer: certificates.issuer,
         approved_peer: certificates.approved_peer,
         revocations: certificates.revocations,
-        time: Box::new(clock),
+        time: Box::new(move |identity, channel, step| {
+            refresh(
+                identity,
+                channel,
+                step,
+                &mut time,
+                &commission,
+                &mut preferred,
+            )
+        }),
     })
 }

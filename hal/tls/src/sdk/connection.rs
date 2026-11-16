@@ -475,13 +475,18 @@ impl Identity {
     /// claimed. Handshake proof and the pin must pass before application I/O.
     /// The certificate pin remains authoritative even if that certificate expires;
     /// replace it only through an independently authorized commissioning path.
+    /// A reusable pinned session has a fixed monotonic lifetime of at most one
+    /// hour. The handshake still has its own short deadline. The caller must
+    /// bound each application exchange independently of the session lifetime.
     pub fn connect_pinned<'a>(
         &'a self,
         stream: TcpStream,
         certificate_sha256: [u8; 32],
         lifetime: Duration,
     ) -> Result<Connection<'a>, Error> {
-        if lifetime.is_zero() || lifetime > Duration::from_secs(10) || certificate_sha256 == [0; 32]
+        if lifetime.is_zero()
+            || lifetime > Duration::from_secs(60 * 60)
+            || certificate_sha256 == [0; 32]
         {
             return Err(Error::InvalidInput);
         }
