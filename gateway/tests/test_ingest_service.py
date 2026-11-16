@@ -143,5 +143,24 @@ class IngestServiceTests(unittest.TestCase):
         self.assertNotIn(secret, message)
 
 
+    def test_hosted_systemd_binaries_use_executable_mount_and_exclusive_owned_paths(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import systemd_exec
+
+        self.assertEqual(systemd_exec.LIBEXEC, Path('/usr/local/libexec'))
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(systemd_exec, 'LIBEXEC', Path(directory)):
+            for name in ['nxrs-sd-00112233', 'nxrs-ingest-test-aabbccdd']:
+                with self.subTest(name=name):
+                    fixture = systemd_exec.allocate(name)
+                    self.assertEqual(fixture.parent, Path(directory))
+                    self.assertEqual(fixture.stat().st_mode & 0o777, 0o755)
+                    with self.assertRaises(AssertionError):
+                        systemd_exec.allocate(name)
+            for unsafe in ['../etc', 'nxrs-sd-zzzzzzzz', 'nxrs-ingest-test-', 'other-00000000']:
+                with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
+                    systemd_exec.allocate(unsafe)
+
+
 if __name__ == '__main__':
     unittest.main()
