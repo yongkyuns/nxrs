@@ -15,6 +15,7 @@ use std::{
 pub const CAPABILITIES: &[&str] = &[
     "console",
     "execution",
+    "ssh",
     "detector",
     "camera",
     "config",

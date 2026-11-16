@@ -336,7 +336,7 @@ diff --git a/netutils/dropbear/Kconfig b/netutils/dropbear/Kconfig
  	tristate "Dropbear SSH server"
  	default n
 -	depends on NET && NET_TCP
-+	depends on BUILD_FLAT && !SMP
++	depends on BUILD_FLAT && (!SMP || ARCH_CHIP_ESP32S3)
 +	depends on NET && NET_TCP && NET_IPv4
  	depends on !DISABLE_PSEUDOFS_OPERATIONS
  	depends on !DISABLE_PTHREAD
@@ -3081,7 +3081,7 @@ diff --git a/netutils/dropbear/port/dropbear_control.c b/netutils/dropbear/port/
 new file mode 100644
 --- /dev/null
 +++ b/netutils/dropbear/port/dropbear_control.c
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,205 @@
 +/* SPDX-License-Identifier: Apache-2.0 */
 +
 +#include <nuttx/config.h>
@@ -3101,8 +3101,12 @@ new file mode 100644
 + * accidentally wait for a subsequently started instance.
 + */
 +
-+#if ATOMIC_INT_LOCK_FREE != 2
-+#  error "Dropbear control requires lock-free native unsigned atomics"
++/* ESP32-S3 SMP with PSRAM uses libc atomics serialized across both CPUs. */
++
++#if ATOMIC_INT_LOCK_FREE != 2 && \
++    !(defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(CONFIG_SMP) && \
++      defined(CONFIG_ESP32S3_SPIRAM) && defined(CONFIG_LIBC_ATOMIC_IRQ))
++#  error "Dropbear control requires cross-CPU atomic operations"
 +#endif
 +
 +#define STATE_BITS 3u
@@ -3357,7 +3361,7 @@ new file mode 100644
 +  return true;
 +#elif defined(CONFIG_BUILD_FLAT) && defined(CONFIG_ARCH_CHIP_ESP32S3) && \
 +      defined(CONFIG_ESP32S3_RNG) && defined(CONFIG_DEV_RANDOM) && \
-+      defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_SMP) && \
++      defined(CONFIG_ESPRESSIF_WIFI) && \
 +      !defined(CONFIG_PM) && !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && \
 +      !defined(CONFIG_ESP32S3_AUTO_SLEEP)
 +  return true;

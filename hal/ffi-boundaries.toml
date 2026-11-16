@@ -170,6 +170,11 @@ kind = "abi"
 reason = "Target termios/poll layout only; Rust owns descriptor, mode lifetime and deadlines."
 
 [[bridge]]
+path = "hal/ssh/src/platform/nuttx/ffi/service.c"
+kind = "abi"
+reason = "NuttX builtin and waitpid ABI and native credential paths; Rust owns the task lifecycle."
+
+[[bridge]]
 path = "hal/execution/src/platform/nuttx/ffi/scheduling.c"
 kind = "abi"
 reason = "Calling-thread scheduler ABI only; portable scheduling intent and profile priorities remain in Rust."

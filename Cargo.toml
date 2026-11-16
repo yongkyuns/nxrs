@@ -41,6 +41,7 @@ members = [
     "hal/config",
     "hal/console",
     "hal/execution",
+    "hal/ssh",
     "hal/wifi",
     "hal/ble",
     "hal/imu",

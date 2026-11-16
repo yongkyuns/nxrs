@@ -1,0 +1,24 @@
+--- a/netutils/dropbear/port/dropbear_control.c
++++ b/netutils/dropbear/port/dropbear_control.c
+@@ -21,6 +21,11 @@
+ static atomic_int g_shell;
+ static atomic_int g_result;
+ 
++pid_t dropbear_service_owner(void)
++{
++  return atomic_load(&g_owner);
++}
++
+ static bool dropbear_active(unsigned int control)
+ {
+   unsigned int state = control & STATE_MASK;
+--- a/netutils/dropbear/port/dropbear_control.h
++++ b/netutils/dropbear/port/dropbear_control.h
+@@ -26,6 +26,7 @@
+ void dropbear_service_shell(pid_t pid);
+ int dropbear_service_stop(void);
+ void dropbear_service_status(void);
++pid_t dropbear_service_owner(void);
+ struct Channel;
+ void dropbear_nuttx_channel_cancel(const struct Channel *channel);
+ void dropbear_random_cleanup(void);
