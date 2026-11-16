@@ -308,8 +308,8 @@ relaxing the gateway's freshness limit. Requests have a 5-second total budget
 and measured delivery uncertainty. Cloning a lease preserves its original expiry;
 backward disjoint observations fail closed. Exact-peer mutual TLS still guards
 media and updates. The gateway host's UTC must be trustworthy. Camera sessions
-renew before their one-hour grant expires and retry unavailable enrollment after
-joined Wi-Fi cleanup. Losing time closes the authenticated stream.
+renew before their one-hour grant expires and retry unavailable enrollment
+within the existing Wi-Fi session. Losing time closes the authenticated stream.
 
 `gateway/tests/network_enrollment.py` tests the actual SDK camera and Rust gateway
 with synthetic media: enrollment, large JPEGs with a bounded clock-refresh stall,

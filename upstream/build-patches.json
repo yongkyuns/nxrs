@@ -108,7 +108,8 @@
       "0121-espressif-ledc-gpio-readback.patch",
       "0122-esp32s3-spi-write-only-pio.patch",
       "0123-esp32s3-cores3-display-resources.patch",
-      "0124-esp32s3-maintenance-volume.patch"
+      "0124-esp32s3-maintenance-volume.patch",
+      "0125-esp32s3-camera-smp-irq-lifetime.patch"
     ]
   },
   "mcuboot": {
