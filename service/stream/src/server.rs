@@ -231,7 +231,15 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
     /// True only between complete multipart frames, after the response header.
     /// Transport maintenance must finish before selecting another capture.
     pub fn ready_for_frame(&self) -> bool {
-        matches!(self.client.as_ref(), Some(Client::Streaming(stream)) if stream.ready)
+        self.next_frame_after().is_some()
+    }
+
+    /// Sequence a new frame must exceed, when the transport can accept it.
+    pub fn next_frame_after(&self) -> Option<u64> {
+        match self.client.as_ref() {
+            Some(Client::Streaming(stream)) if stream.ready => Some(stream.last_offered),
+            _ => None,
+        }
     }
 
     /// Borrow the admitted transport without replacing HTTP/frame storage.

@@ -80,10 +80,11 @@ cycle during a native call. Stop and Drop join TLS before releasing camera
 storage. Explicit shutdown can wait for an in-progress cryptographic/time call;
 it is not a capture-loop operation. A stopped TLS output cannot restart.
 
-If a camera read returns an I/O error or timeout, the product retires the old
-stream, capture and detector before reopening them on the existing Wi-Fi
-session and listener. After a restart, 32 captured frames rearm recovery. A
-failure to retire the old session stops recovery.
+Camera I/O errors, capture stalls and temporary TLS startup failures trigger
+recovery within the existing Wi-Fi session and SSH lifetime. The app retires
+the stream, capture and detector before reopening them on the same listener.
+The first retry is immediate. Repeated failures back off to at most 30 seconds,
+and 32 captured frames reset the delay. A retirement failure prevents reopening.
 
 `tests/tls/qualify.py` exercises the product composition with synthetic JPEGs,
 actual SDK peers, rejected clients, reconnect, time failure, blocked-worker
