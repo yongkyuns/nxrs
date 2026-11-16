@@ -115,5 +115,56 @@ class IngestServiceTests(unittest.TestCase):
         self.assertNotIn('--require-camera-tls', ingest_service.service())
 
 
+    def test_systemd_start_failure_reports_only_safe_phase_status_codes(self):
+        import subprocess
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import systemd_ingest
+
+        secret = 'untrusted-secret-value'
+        values = {'LoadState': 'loaded', 'Result': 'exit-code', 'ExecMainCode': '0',
+                  'ExecMainStatus': '0', 'StatusErrno': '0',
+                  'ExecStartPre': '{ path=/private/'+secret
+                                  +' ; argv[]=/private/'+secret
+                                  +' ; code=exited ; status=203 }'}
+
+        def run(arguments, **kwargs):
+            if arguments[:2] == ['systemctl', 'start']:
+                return subprocess.CompletedProcess(arguments, 1, b'', secret.encode())
+            return subprocess.CompletedProcess(arguments, 0,
+                                               values[arguments[4]].encode(), b'')
+
+        with mock.patch.object(systemd_ingest.subprocess, 'run', side_effect=run):
+            with self.assertRaises(AssertionError) as failed:
+                systemd_ingest.command(['systemctl', 'start', 'nxrs-ingest-test.service'])
+        message = str(failed.exception)
+        self.assertIn('systemctl start exited 1', message)
+        self.assertIn('Result=exit-code', message)
+        self.assertIn('ExecStartPreStatus=203', message)
+        self.assertNotIn(secret, message)
+
+
+    def test_hosted_systemd_binaries_use_executable_mount_and_exclusive_owned_paths(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import systemd_exec
+
+        self.assertEqual(systemd_exec.LIBEXEC, Path('/usr/local/libexec'))
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(systemd_exec, 'LIBEXEC', Path(directory)/'not-precreated'/'libexec'):
+            self.assertFalse(systemd_exec.LIBEXEC.exists())
+            for name in ['nxrs-sd-00112233', 'nxrs-ingest-test-aabbccdd',
+                         'nxrs-full-11223344']:
+                with self.subTest(name=name):
+                    fixture = systemd_exec.allocate(name)
+                    self.assertEqual(fixture.parent, systemd_exec.LIBEXEC)
+                    self.assertTrue(systemd_exec.LIBEXEC.is_dir())
+                    self.assertEqual(systemd_exec.LIBEXEC.stat().st_mode & 0o777, 0o755)
+                    self.assertEqual(fixture.stat().st_mode & 0o777, 0o755)
+                    with self.assertRaises(AssertionError):
+                        systemd_exec.allocate(name)
+            for unsafe in ['../etc', 'nxrs-sd-zzzzzzzz', 'nxrs-ingest-test-', 'nxrs-full-zzzzzzzz', 'other-00000000']:
+                with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
+                    systemd_exec.allocate(unsafe)
+
+
 if __name__ == '__main__':
     unittest.main()

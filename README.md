@@ -81,6 +81,8 @@ cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
 
 After installing the target prerequisites, remove `--dry-run` to build the image. [Building for NuttX](website/guide/firmware.md) covers setup, outputs, and execution. [Profiles and overlays](website/guide/profiles.md) explains the configuration inputs.
 
+Use `cargo nxrs config --app event-demo --platform cores3` to search, review, and save native NuttX settings for a selected build. The [configuration guide](website/guide/profiles.md#configure-nuttx) covers prerequisites, shared fragment ownership, Save & sync, and scriptable checks. The next ordinary build consumes the saved settings.
+
 ## Tests and evaluations
 
 Basic validation includes host tests, target build and ABI checks, simulator/QEMU execution, and on-board performance and memory evaluations.
