@@ -44,9 +44,7 @@ impl Session {
                 self.pid = None;
                 return Ok(());
             }
-            if ffi::owner() == pid {
-                ffi::stop()?;
-            }
+            ffi::request_stop(pid);
             thread::sleep(Duration::from_millis(10));
         }
     }

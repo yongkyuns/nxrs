@@ -135,9 +135,13 @@ int main(void)
  assert(pthread_create(&thread,NULL,stopper,&result)==0);
  while(!dropbear_service_stopping())usleep(1000);
  dropbear_service_finish(generation,0);
+ task_id=92;
  assert(dropbear_service_begin(&next)==0);
  assert(pthread_join(thread,NULL)==0 && result==0);
- assert(!dropbear_service_stopping());dropbear_service_finish(next,0);
+ dropbear_service_cancel_owner(90);
+ assert(!dropbear_service_stopping());
+ dropbear_service_cancel_owner(92);
+ assert(dropbear_service_stopping());dropbear_service_finish(next,0);
  dropbear_service_status();
  assert(retired>=4);unlink("hostkey");assert(chdir("/")==0);assert(rmdir(directory)==0);
  return 0;

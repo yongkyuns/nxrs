@@ -127,8 +127,7 @@
       "0003-dhcpc-pad-option.patch",
       "0004-mcuboot-current-helpers.patch",
       "0005-dropbear-bounded-service.patch",
-      "0006-dropbear-owner-query.patch",
-      "0007-dropbear-initialize-remote-prompt.patch"
+      "0006-dropbear-initialize-remote-prompt.patch"
     ]
   },
   "esp-hal-3rdparty": {

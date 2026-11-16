@@ -11,8 +11,7 @@ unsafe extern "C" {
     fn maintenance_hostkey() -> *const c_char;
     fn maintenance_passwd() -> *const c_char;
     fn maintenance_bind_address() -> *const c_char;
-    fn dropbear_service_owner() -> c_int;
-    fn dropbear_service_stop() -> c_int;
+    fn dropbear_service_cancel_owner(pid: c_int);
 }
 
 fn result(value: c_int) -> io::Result<c_int> {
@@ -32,12 +31,8 @@ pub(super) fn reaped(pid: i32) -> io::Result<bool> {
     result(value).map(|found| found != 0)
 }
 
-pub(super) fn owner() -> i32 {
-    unsafe { dropbear_service_owner() }
-}
-
-pub(super) fn stop() -> io::Result<()> {
-    result(unsafe { dropbear_service_stop() }).map(|_| ())
+pub(super) fn request_stop(pid: i32) {
+    unsafe { dropbear_service_cancel_owner(pid) }
 }
 
 pub(super) fn credential_paths() -> [&'static Path; 2] {
