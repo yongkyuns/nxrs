@@ -2,7 +2,7 @@
 #define FAR
 #define CONFIG_BUILD_FLAT 1
 #define CONFIG_DEV_RANDOM 1
-#ifndef UNQUALIFIED_SOURCE
+#if !defined(UNQUALIFIED_SOURCE) && !defined(CONFIG_ARCH_CHIP_ESP32S3)
 #define CONFIG_ARCH_SIM 1
 #define CONFIG_SIM_RANDOM 1
 #endif

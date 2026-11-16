@@ -18,14 +18,14 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{atomic::{AtomicU64, Ordering}, Arc},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, UdpSocket},
+    net::{TcpListener, TcpStream, UdpSocket},
     sync::watch,
     task::JoinHandle,
     time::timeout,
@@ -41,6 +41,62 @@ fn now() -> Result<u64> {
         .duration_since(UNIX_EPOCH)
         .map(|v| v.as_secs())
         .map_err(|_| Error::Authentication)
+}
+
+fn observe_clock(previous: &AtomicU64) -> Result<u64> {
+    let epoch = now()?;
+    if epoch < previous.fetch_max(epoch, Ordering::Relaxed) {
+        return Err(Error::Authentication);
+    }
+    Ok(epoch)
+}
+
+async fn request_len(
+    tls: &mut tokio_rustls::server::TlsStream<TcpStream>,
+    token: &[u8],
+) -> Result<usize> {
+    let mut header = [0; 38];
+    tls.read_exact(&mut header).await?;
+    if &header[..4] != enrollment::MAGIC || header[4..36].ct_eq(token).unwrap_u8() != 1 {
+        return Err(Error::Authentication);
+    }
+    let n = u16::from_be_bytes([header[36], header[37]]) as usize;
+    if n > enrollment::MAX_CSR {
+        return Err(Error::Protocol);
+    }
+    Ok(n)
+}
+
+async fn renew_clock(
+    mut tls: tokio_rustls::server::TlsStream<TcpStream>,
+    token: Zeroizing<Vec<u8>>,
+    clock: Arc<AtomicU64>,
+) -> Result<()> {
+    loop {
+        // Renewal normally happens after 15 seconds. Retire idle peers and
+        // bound a partially sent request without blocking new enrollments.
+        if timeout(Duration::from_secs(25), request_len(&mut tls, &token))
+            .await
+            .map_err(|_| Error::Timeout)?? != 0
+        {
+            return Err(Error::Protocol);
+        }
+        let mut response = [0; 14];
+        enrollment::response(&mut &mut response[..], observe_clock(&clock)?, &[])?;
+        timeout(Duration::from_secs(5), async {
+            tls.write_all(&response).await?;
+            tls.flush().await
+        })
+            .await
+            .map_err(|_| Error::Timeout)??;
+    }
+}
+
+async fn retire_clock(task: &mut Option<JoinHandle<Result<()>>>) {
+    if let Some(task) = task.take() {
+        task.abort();
+        let _ = task.await;
+    }
 }
 
 #[cfg(unix)]
@@ -166,7 +222,7 @@ struct Authority {
     bootstrap_pin: [u8; 32],
     token: Zeroizing<Vec<u8>>,
     generation: u64,
-    clock: u64,
+    clock: Arc<AtomicU64>,
     active: Option<(watch::Sender<bool>, JoinHandle<Result<()>>)>,
     grant_directory: Option<PathBuf>,
 }
@@ -238,7 +294,7 @@ impl Authority {
                 bootstrap_pin,
                 token,
                 generation,
-                clock: now()?,
+                clock: Arc::new(AtomicU64::new(now()?)),
                 active: None,
                 grant_directory: None,
             },
@@ -474,6 +530,7 @@ async fn execute(
         authority.resume()?;
         None
     };
+    let mut clock_session = None;
     let outcome=async {
         loop {
             let socket=tokio::select! {
@@ -511,17 +568,14 @@ async fn execute(
                     std::net::IpAddr::V4(ip) if ip.is_private() || ip.is_loopback()=>ip,
                     _=>return Err(Error::Authentication),
                 };
+                socket.set_nodelay(true)?;
                 let mut tls=acceptor.accept(socket).await.map_err(|_|Error::Authentication)?;
                 #[cfg(feature="probe")]
                 eprintln!("nxrs-camera-ingest: bootstrap handshake ms={}",handshake_started.elapsed().as_millis());
-                let mut header=[0;38];tls.read_exact(&mut header).await?;
-                if &header[..4]!=enrollment::MAGIC || header[4..36].ct_eq(&authority.token).unwrap_u8()!=1 { return Err(Error::Authentication); }
-                let n=u16::from_be_bytes(header[36..].try_into().unwrap()) as usize;
-                if n>enrollment::MAX_CSR { return Err(Error::Protocol); }
+                let n = request_len(&mut tls, &authority.token).await?;
                 let mut csr=vec![0;n];tls.read_exact(&mut csr).await?;
-                let epoch=now()?;
-                if epoch<authority.clock { return Err(Error::Authentication); }
-                authority.clock=epoch;
+                retire_clock(&mut clock_session).await;
+                let epoch=observe_clock(&authority.clock)?;
                 let certificate=if n==0 { vec![] } else {
                     // A reboot changes the volatile key. Join the obsolete
                     // uploader before publishing/retrying against a new grant.
@@ -531,11 +585,14 @@ async fn execute(
                     else { authority.resume()?; }
                     certificate
                 };
-                let response_epoch=now()?;
-                if response_epoch<authority.clock { return Err(Error::Authentication); }
-                authority.clock=response_epoch;
+                let response_epoch=observe_clock(&authority.clock)?;
                 let mut bytes=Vec::new();enrollment::response(&mut bytes,response_epoch,&certificate)?;
                 tls.write_all(&bytes).await?;tls.flush().await?;
+                if n == 0 {
+                    clock_session = Some(tokio::spawn(renew_clock(
+                        tls, authority.token.clone(), authority.clock.clone(),
+                    )));
+                }
                 Ok(())
             };
             let result=tokio::select! {
@@ -547,6 +604,7 @@ async fn execute(
             if matches!(result,Ok(Err(Error::Cleanup|Error::Configuration))) { return Err(Error::Cleanup); }
         }
     }.await;
+    retire_clock(&mut clock_session).await;
     if let Some(task) = upload {
         task.abort();
         let _ = task.await;

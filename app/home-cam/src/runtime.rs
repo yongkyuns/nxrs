@@ -116,7 +116,8 @@ fn run_live<D: Camera, O: StreamOutput>(
                     stack_bytes: budget.stack_bytes,
                 },
                 || {
-                    execution::configure_current(execution::Priority::Normal)
+                    // Keep synchronous inference below capture and video delivery.
+                    execution::configure_current(execution::Priority::Background)
                         .map_err(|_| detection_service::Error::Worker)?;
                     detector::open(detector::Config::default()).map_err(Into::into)
                 },
@@ -254,10 +255,17 @@ pub(crate) fn run() -> Result<(), String> {
         .map_err(|e| format!("Wi-Fi open {e:?}"))?;
         let mut network = Reconnector::new(controller, || settings.wifi.command());
         let mut retry_network = false;
+        let mut maintenance = None;
         let operation: Result<Outcome, String> = (|| {
             wait_addressed(&mut network, &events, origin)?;
             if settings.save_wifi {
                 return Ok(Outcome::SaveWifi);
+            }
+            if trial.is_none() {
+                match ssh::start() {
+                    Ok(session) => maintenance = session,
+                    Err(error) => eprintln!("SSH unavailable: {error}"),
+                }
             }
             if listener.is_none() {
                 listener =
@@ -283,7 +291,7 @@ pub(crate) fn run() -> Result<(), String> {
                         poll_interval: Duration::from_millis(2),
                     },
                     move || {
-                        execution::configure_current(execution::Priority::Background)
+                        execution::configure_current(execution::Priority::Normal)
                             .map_err(|_| home_cam::Error::Worker)?;
                         home_cam::bootstrap::initialize(commission)
                     },
@@ -321,6 +329,10 @@ pub(crate) fn run() -> Result<(), String> {
                 )
             })
         })();
+        // Reap the maintenance task before releasing Wi-Fi or modifying flash.
+        if let Some(session) = maintenance {
+            session.stop().map_err(|e| format!("SSH stop {e:?}"))?;
+        }
         let retired = retire_network(&mut network, &events, origin);
         if retry_network && retired.is_ok() {
             std::thread::sleep(Duration::from_secs(retry_delay));

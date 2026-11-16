@@ -197,6 +197,10 @@ class DropbearNativeTests(unittest.TestCase):
     def test_qualified_entropy_refuses_bad_or_unready_sources(self):
         self.compile_run("entropy")
         self.compile_run("entropy", "-DUNQUALIFIED_SOURCE")
+        esp32s3_smp = ("-DCONFIG_ARCH_CHIP_ESP32S3=1", "-DCONFIG_SMP=1",
+                      "-DCONFIG_ESP32S3_RNG=1", "-DCONFIG_ESPRESSIF_WIFI=1")
+        self.compile_run("entropy", *esp32s3_smp)
+        self.compile_run("entropy", *esp32s3_smp, "-DCONFIG_PM=1", "-DUNQUALIFIED_SOURCE")
 
     def test_random_seeding_failure_and_restart_cleanup(self):
         self.compile_run("random")

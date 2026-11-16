@@ -119,9 +119,9 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                     home_cam::bootstrap::initialize(std::sync::Arc::new(commission))?;
                 if time_stall {
                     let mut time = context.time;
-                    context.time = Box::new(move |identity| {
+                    context.time = Box::new(move |identity, channel, step| {
                         std::thread::sleep(Duration::from_millis(1500));
-                        time(identity)
+                        time(identity, channel, step)
                     });
                 }
                 return Ok(context);
@@ -145,8 +145,19 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 issuer: public(root.join("issuer.der")),
                 approved_peer: public(root.join("peer.der")),
                 revocations: public(root.join("revocations.der")),
-                time: Box::new(move |_: &tls::Identity| {
+                time: Box::new(move |_: &tls::Identity, _: home_cam::TimeChannel<'_, '_>, step: home_cam::RefreshStep<'_>| {
                     let _ = &local;
+                    if time_root.join("refresh-time").exists() {
+                        println!("TIME_REFRESHING");
+                        std::io::stdout().flush().unwrap();
+                        let deadline = Instant::now() + Duration::from_secs(5);
+                        while time_root.join("refresh-time").exists() {
+                            if Instant::now() >= deadline {
+                                return Err(tls::Error::Time);
+                            }
+                            step()?;
+                        }
+                    }
                     if time_root.join("block-time").exists() {
                         println!("TIME_BLOCKED");
                         std::io::stdout().flush().unwrap();
