@@ -149,15 +149,19 @@ class IngestServiceTests(unittest.TestCase):
 
         self.assertEqual(systemd_exec.LIBEXEC, Path('/usr/local/libexec'))
         with tempfile.TemporaryDirectory() as directory, \
-                mock.patch.object(systemd_exec, 'LIBEXEC', Path(directory)):
-            for name in ['nxrs-sd-00112233', 'nxrs-ingest-test-aabbccdd']:
+                mock.patch.object(systemd_exec, 'LIBEXEC', Path(directory)/'not-precreated'/'libexec'):
+            self.assertFalse(systemd_exec.LIBEXEC.exists())
+            for name in ['nxrs-sd-00112233', 'nxrs-ingest-test-aabbccdd',
+                         'nxrs-full-11223344']:
                 with self.subTest(name=name):
                     fixture = systemd_exec.allocate(name)
-                    self.assertEqual(fixture.parent, Path(directory))
+                    self.assertEqual(fixture.parent, systemd_exec.LIBEXEC)
+                    self.assertTrue(systemd_exec.LIBEXEC.is_dir())
+                    self.assertEqual(systemd_exec.LIBEXEC.stat().st_mode & 0o777, 0o755)
                     self.assertEqual(fixture.stat().st_mode & 0o777, 0o755)
                     with self.assertRaises(AssertionError):
                         systemd_exec.allocate(name)
-            for unsafe in ['../etc', 'nxrs-sd-zzzzzzzz', 'nxrs-ingest-test-', 'other-00000000']:
+            for unsafe in ['../etc', 'nxrs-sd-zzzzzzzz', 'nxrs-ingest-test-', 'nxrs-full-zzzzzzzz', 'other-00000000']:
                 with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
                     systemd_exec.allocate(unsafe)
 
