@@ -115,5 +115,33 @@ class IngestServiceTests(unittest.TestCase):
         self.assertNotIn('--require-camera-tls', ingest_service.service())
 
 
+    def test_systemd_start_failure_reports_only_safe_phase_status_codes(self):
+        import subprocess
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import systemd_ingest
+
+        secret = 'untrusted-secret-value'
+        values = {'LoadState': 'loaded', 'Result': 'exit-code', 'ExecMainCode': '0',
+                  'ExecMainStatus': '0', 'StatusErrno': '0',
+                  'ExecStartPre': '{ path=/private/'+secret
+                                  +' ; argv[]=/private/'+secret
+                                  +' ; code=exited ; status=203 }'}
+
+        def run(arguments, **kwargs):
+            if arguments[:2] == ['systemctl', 'start']:
+                return subprocess.CompletedProcess(arguments, 1, b'', secret.encode())
+            return subprocess.CompletedProcess(arguments, 0,
+                                               values[arguments[4]].encode(), b'')
+
+        with mock.patch.object(systemd_ingest.subprocess, 'run', side_effect=run):
+            with self.assertRaises(AssertionError) as failed:
+                systemd_ingest.command(['systemctl', 'start', 'nxrs-ingest-test.service'])
+        message = str(failed.exception)
+        self.assertIn('systemctl start exited 1', message)
+        self.assertIn('Result=exit-code', message)
+        self.assertIn('ExecStartPreStatus=203', message)
+        self.assertNotIn(secret, message)
+
+
 if __name__ == '__main__':
     unittest.main()

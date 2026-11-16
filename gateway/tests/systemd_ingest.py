@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
 import shutil
 import signal
 import subprocess
@@ -32,10 +33,33 @@ def require_hosted():
     require(Path('/sys/fs/cgroup/cgroup.controllers').exists(), 'unified cgroup hierarchy required')
 
 
+def unit_start_diagnostics(arguments, exit_code):
+    """Only report allowlisted systemd status codes, never captured stderr or credentials."""
+    summary = [f'{arguments[0]} {arguments[1]} exited {exit_code}']
+    if len(arguments) == 3 and arguments[:2] == ['systemctl', 'start']:
+        for key in ('LoadState', 'Result', 'ExecMainCode', 'ExecMainStatus', 'StatusErrno', 'ExecStartPre'):
+            try:
+                detail = subprocess.run(['systemctl', 'show', arguments[2], '-p', key, '--value'],
+                                        capture_output=True, timeout=5)
+                if detail.returncode:
+                    continue
+                value = detail.stdout.decode(errors='replace').strip()
+                if key == 'ExecStartPre':
+                    codes = re.findall(r'\\bstatus=(\\d+)\\b', value)
+                    if codes:
+                        summary.append(f'ExecStartPreStatus={",".join(codes[:16])}')
+                elif re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', value):
+                    summary.append(f'{key}={value}')
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+    return '; '.join(summary)
+
+
 def command(arguments, check=True):
     result = subprocess.run(arguments, capture_output=True, timeout=20)
     if check and result.returncode:
-        raise AssertionError('owned ingest unit command failed')
+        raise AssertionError('owned ingest unit command failed: '
+                             + unit_start_diagnostics(arguments, result.returncode))
     return result
 
 
