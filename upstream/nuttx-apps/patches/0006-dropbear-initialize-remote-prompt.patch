@@ -1,0 +1,14 @@
+--- a/netutils/dropbear/dropbear_nshsession.c
++++ b/netutils/dropbear/dropbear_nshsession.c
+@@ -100,6 +100,11 @@
+       return -ENOMEM;
+     }
+ 
++  /* Applications that boot directly may never call nsh_initialize().
++   * Initialize the prompt without re-running scripts or network setup.
++   */
++
++  nsh_update_prompt();
+   ret = nsh_session(pstate, NSH_LOGIN_NONE, argc, argv);
+   dropbear_log(LOG_INFO, "NSH session exited: %d", ret);
+ 

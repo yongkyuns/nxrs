@@ -13,6 +13,7 @@ name = "home_cam"
 [dependencies]
 nxrs-console = { path = "../../hal/console" }
 nxrs-execution = { path = "../../hal/execution" }
+nxrs-ssh = { path = "../../hal/ssh" }
 nxrs-detector = { path = "../../hal/detector" }
 nxrs-connectivity-service = { path = "../../service/connectivity" }
 nxrs-enrollment = { path = "../../service/enrollment" }

@@ -166,6 +166,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-camera-stream-single-core": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx"},
                             "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx", "console": "nuttx", "execution": "nuttx"},
+                            "esp32s3-camera-stream-ssh": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx", "ssh": "nuttx"},
                             "esp32s3-camera-stream-protected-build": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "none"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
@@ -227,12 +228,15 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_camera_profiles_share_smp_budget_and_keep_a_single_core_control(self):
         signed = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
         unsigned = PLATFORM_CONFIG.resolve('esp32s3-camera-stream')
+        maintenance = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-ssh')
         control = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-single-core')
         self.assertEqual(signed['cpus'], unsigned['cpus'])
         self.assertEqual(signed['detector'], unsigned['detector'])
         self.assertEqual(signed['detector']['sample-ms'], 500)
         self.assertEqual(signed['detector']['compute-core'], 1)
-        for profile in (signed, unsigned):
+        self.assertEqual(maintenance['cpus'], signed['cpus'])
+        self.assertEqual(maintenance['detector']['compute-core'], signed['detector']['compute-core'])
+        for profile in (signed, unsigned, maintenance):
             config = profile['kconfig']
             self.assertIn('SMP', config['enable'])
             self.assertNotIn('SMP', config['disable'])
@@ -338,7 +342,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESP32S3_CAM', 'VIDEO_OV3660', 'ESPRESSIF_WIFI',
                         'ESPRESSIF_WIFI_STATION', 'NET_TCP', 'NET_UDP',
                         'ESP32S3_SPIRAM_USER_HEAP', 'SCHED_CRITMONITOR',
-                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS',
+                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION',
                         'ESP32S3_INSTRUCTION_CACHE_32KB', 'NET_TCP_SELECTIVE_ACK',
                         'ESP32S3_SPIRAM_SPEED_80M', 'ESP32S3_DATA_CACHE_64KB',
                         'ESP32S3_DATA_CACHE_LINE_64B', 'ESP32S3_SPIRAM_MEMTEST',
@@ -348,10 +352,8 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESPRESSIF_BLE', 'NETINIT_DHCPC', 'ESP32S3_QEMU_IMAGE'):
             self.assertIn(feature, config['disable'])
         self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value for value in config['set']))
-        for setting in ('NET_SEND_BUFSIZE=16384', 'NET_MAX_SEND_BUFSIZE=16384',
-                        'ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
+        for setting in ('ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
                         'NET_TCP_PREALLOC_CONNS=16', 'NET_TCP_ALLOC_CONNS=0',
-                        'NET_TCP_NWRBCHAINS=16', 'NET_TCP_ALLOC_WRBCHAINS=0',
                         'NET_PREALLOC_DEVIF_CALLBACKS=64', 'NET_ALLOC_DEVIF_CALLBACKS=0',
                         'NET_TCP_OUT_OF_ORDER_BUFSIZE=4096'):
             self.assertIn(setting, config['set'])
@@ -359,6 +361,14 @@ class FirmwareFrontendTests(unittest.TestCase):
         for derived in ('ESP32S3_SPIRAM_SPEED=80', 'ESP32S3_DATA_CACHE_SIZE=0x10000',
                         'ESP32S3_DATA_CACHE_LINE_SIZE=64'):
             self.assertIn('CONFIG_' + derived, config['require'])
+        native = (WROOM / data['nuttx-config']).read_text().splitlines()
+        for setting in ('NET_TCP_WRITE_BUFFERS=y', 'NET_SEND_BUFSIZE=16384',
+                        'NET_MAX_SEND_BUFSIZE=16384', 'NET_TCP_NWRBCHAINS=16',
+                        'NET_TCP_ALLOC_WRBCHAINS=0'):
+            self.assertIn('CONFIG_' + setting, native)
+        maintenance = tomllib.loads((WROOM / 'esp32s3-camera-stream-ssh.toml').read_text())
+        ssh_native = (WROOM / maintenance['nuttx-config']).read_text().splitlines()
+        self.assertIn('# CONFIG_NET_TCP_WRITE_BUFFERS is not set', ssh_native)
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()

@@ -956,6 +956,7 @@ dependencies = [
  "nxrs-enrollment",
  "nxrs-execution",
  "nxrs-firmware-update",
+ "nxrs-ssh",
  "nxrs-stream-service",
  "nxrs-tls",
  "nxrs-watchdog",
@@ -1157,6 +1158,14 @@ name = "nxrs-spi"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
+ "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-ssh"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
  "nxrs-build-support",
 ]
 
