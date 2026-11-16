@@ -45,7 +45,7 @@ def unit_start_diagnostics(arguments, exit_code):
                     continue
                 value = detail.stdout.decode(errors='replace').strip()
                 if key == 'ExecStartPre':
-                    codes = re.findall(r'\\bstatus=(\\d+)\\b', value)
+                    codes = re.findall(r'\bstatus=(\d+)\b', value)
                     if codes:
                         summary.append(f'ExecStartPreStatus={",".join(codes[:16])}')
                 elif re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', value):
