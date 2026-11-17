@@ -1,0 +1,154 @@
+{
+  "recorded_utc": "2026-11-17T18:00:37.930985+00:00",
+  "kind": "generated-source host feasibility; independent controller and decoder on one Mac",
+  "host": {
+    "os": "macOS",
+    "version": "27.0.1",
+    "arch": "arm64"
+  },
+  "nxrs_base": "af949aa54076f3a58e0d319a6ec66f17cb2f7bc5",
+  "fixture_pins": "versions.json",
+  "receiver_sha256": "d3db8899bb2eb8e95b11772569c784a68ed6425b0974b8c8cb4744d1fb5a55e7",
+  "commissioning": {
+    "controller": "Matter Server 1.6.0",
+    "transport": "IP",
+    "test_attestation": true,
+    "capabilities_read": true,
+    "identity_retained_after_fixture_restart": true
+  },
+  "playback": [
+    {
+      "camera_capabilities_read": true,
+      "connection_state": "connected",
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "decoded_fps": 29.88,
+      "decoded_frames": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_images": 60,
+      "flow": "receiver-offer",
+      "negotiated_codec": "H264",
+      "schema_version": 15,
+      "teardown_acknowledged": true,
+      "trickle_ice": {
+        "received": 1,
+        "sent": 12
+      }
+    },
+    {
+      "camera_capabilities_read": true,
+      "connection_state": "connected",
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "decoded_fps": 29.91,
+      "decoded_frames": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_images": 60,
+      "flow": "camera-offer",
+      "negotiated_codec": "H264",
+      "schema_version": 15,
+      "teardown_acknowledged": true,
+      "trickle_ice": {
+        "received": 1,
+        "sent": 12
+      }
+    },
+    {
+      "camera_capabilities_read": true,
+      "connection_state": "connected",
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "decoded_fps": 29.86,
+      "decoded_frames": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_images": 60,
+      "flow": "receiver-offer",
+      "negotiated_codec": "H264",
+      "schema_version": 15,
+      "teardown_acknowledged": true,
+      "trickle_ice": {
+        "received": 1,
+        "sent": 12
+      }
+    },
+    {
+      "camera_capabilities_read": true,
+      "connection_state": "connected",
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "decoded_fps": 29.95,
+      "decoded_frames": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_images": 60,
+      "flow": "camera-offer",
+      "negotiated_codec": "H264",
+      "schema_version": 15,
+      "teardown_acknowledged": true,
+      "trickle_ice": {
+        "received": 1,
+        "sent": 12
+      }
+    },
+    {
+      "camera_capabilities_read": true,
+      "connection_state": "connected",
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "decoded_fps": 29.9,
+      "decoded_frames": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_images": 60,
+      "flow": "receiver-offer",
+      "negotiated_codec": "H264",
+      "schema_version": 15,
+      "teardown_acknowledged": true,
+      "trickle_ice": {
+        "received": 1,
+        "sent": 12
+      }
+    },
+    {
+      "camera_capabilities_read": true,
+      "connection_state": "connected",
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "decoded_fps": 29.88,
+      "decoded_frames": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_images": 60,
+      "flow": "camera-offer",
+      "negotiated_codec": "H264",
+      "schema_version": 15,
+      "teardown_acknowledged": true,
+      "trickle_ice": {
+        "received": 1,
+        "sent": 12
+      }
+    }
+  ],
+  "regressions": {
+    "sdk_library_tests_passed": 366,
+    "nxrs_architecture_packages_checked": 79,
+    "nxrs_architecture_regressions_passed": 37,
+    "patch_reconstructs_upstream_sources": true
+  },
+  "limitations": [
+    "Generated source; no real camera or rendered iPhone measurement",
+    "Both independent processes ran on the same Mac; no cross-host or remote-path qualification",
+    "Session teardown acknowledged; joined worker retirement not established",
+    "No Home Assistant UI, topology/conformance, fabric revocation or occupancy qualification",
+    "No Linux, NuttX or 24-hour soak evidence"
+  ]
+}

@@ -1,0 +1,497 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+index d3a104c..9740c54 100644
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -124,9 +124,9 @@ use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
+ 
+ use static_cell::StaticCell;
+ 
+-use str0m::change::SdpOffer;
++use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
+ use str0m::format::Codec;
+-use str0m::media::{MediaKind, MediaTime, Mid, Pt};
++use str0m::media::{Direction, MediaKind, MediaTime, Mid, Pt};
+ use str0m::net::{Protocol, Receive};
+ use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
+ 
+@@ -371,6 +371,7 @@ fn parse_annex_b(data: &[u8]) -> Vec<H264Frame> {
+ /// A new session handed from `on_offer` over to the driver task.
+ struct NewSession {
+     id: u16,
++    local_video_mid: Option<Mid>,
+     rtc: Rtc,
+     socket: Async<UdpSocket>,
+     local_addr: SocketAddr,
+@@ -393,6 +394,8 @@ struct SessionCtrl {
+     /// SDP Answer produced by `on_offer`, awaiting transmission via
+     /// `take_answer_sdp`. `None` once the Answer has been pushed.
+     answer_sdp: RefCell<Option<String>>,
++    offer_sdp: RefCell<Option<String>>,
++    pending_offer: RefCell<Option<(SdpPendingOffer, NewSession)>>,
+ }
+ 
+ struct Str0mInner {
+@@ -495,6 +498,7 @@ impl<K: Eq, V> AllocMap<K, V> {
+ async fn session_loop(session: NewSession) {
+     let NewSession {
+         id,
++        local_video_mid,
+         mut rtc,
+         socket,
+         local_addr,
+@@ -518,8 +522,16 @@ async fn session_loop(session: NewSession) {
+     // RTP timestamp step at 90 kHz for the chosen fps (video clock rate).
+     let rtp_step: u64 = if fps > 0 { 90_000 / fps as u64 } else { 3_000 };
+     let has_media = !frames.is_empty();
+-    let mut video_mid: Option<Mid> = None;
+-    let mut video_pt: Option<Pt> = None;
++    let mut video_mid: Option<Mid> = local_video_mid;
++    // Locally added media does not produce the remote MediaAdded event.
++    let mut video_pt: Option<Pt> = video_mid.and_then(|mid| {
++        rtc.writer(mid).and_then(|writer| {
++            writer
++                .payload_params()
++                .find(|p| p.spec().codec == Codec::H264)
++                .map(|p| p.pt())
++        })
++    });
+     let mut connected = false;
+     let mut next_frame_at: Option<Instant> = None;
+     let mut next_frame_idx: usize = 0;
+@@ -806,24 +818,111 @@ async fn race_next_event(
+ // WebRtcHooks impl
+ // ---------------------------------------------------------------------------
+ 
++fn new_peer() -> Result<(Rtc, Async<UdpSocket>, SocketAddr, SocketAddr, String), WebRtcError> {
++    let bind_addr: SocketAddr = ([0u8, 0, 0, 0], 0u16).into();
++    let socket = Async::<UdpSocket>::bind(bind_addr).map_err(|e| {
++        warn!("webrtc_camera: udp bind failed: {e}");
++        WebRtcError::Failure
++    })?;
++    let local_addr = socket.as_ref().local_addr().map_err(|e| {
++        warn!("webrtc_camera: local_addr failed: {e}");
++        WebRtcError::Failure
++    })?;
++
++    // The socket is bound to 0.0.0.0 so it can receive from any interface,
++    // but ICE requires a concrete routable IP in the host candidate. Probe
++    // the kernel's routing table by UDP-connecting to a dummy public address
++    // (TEST-NET-2, no packets actually sent) to discover the preferred
++    // outbound IPv4.
++    let host_ip = UdpSocket::bind(SocketAddr::from(([0u8, 0, 0, 0], 0u16)))
++        .and_then(|s| {
++            s.connect(SocketAddr::from(([198u8, 51, 100, 1], 80)))?;
++            s.local_addr()
++        })
++        .ok()
++        .map(|a| a.ip())
++        .filter(|ip| !ip.is_unspecified())
++        .ok_or_else(|| {
++            warn!("webrtc_camera: could not determine local routable IP");
++            WebRtcError::Failure
++        })?;
++    let host_addr = SocketAddr::new(host_ip, local_addr.port());
++
++    let mut rtc = Rtc::new(Instant::now());
++    let cand = Candidate::host(host_addr, "udp").map_err(|e| {
++        warn!("webrtc_camera: Candidate::host failed: {e}");
++        WebRtcError::Failure
++    })?;
++    let local_cand_sdp = cand.to_sdp_string();
++    rtc.add_local_candidate(cand);
++
++    Ok((rtc, socket, local_addr, host_addr, local_cand_sdp))
++}
++
+ impl WebRtcHooks for Str0mHooks {
+     async fn on_solicit_offer(
+         &self,
+         session_id: u16,
+-        _params: &OfferParams,
++        params: &OfferParams,
+     ) -> Result<SolicitOutcome, WebRtcError> {
+-        warn!(
+-            "webrtc_camera: SolicitOffer (session {session_id}) rejected — \
+-             camera-initiated flow not implemented in this example"
++        if params.video_stream_id.flatten().is_none() || params.audio_stream_id.flatten().is_some()
++        {
++            return Err(WebRtcError::DynamicConstraint);
++        }
++        let (mut rtc, socket, _, local_addr, local_cand_sdp) = new_peer()?;
++        let mut changes = rtc.sdp_api();
++        let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
++        let (offer, pending) = changes.apply().ok_or(WebRtcError::Failure)?;
++        let offer_sdp = offer.to_sdp_string();
++        let (remote_cand_tx, remote_cand_rx) = async_channel::bounded(16);
++        let (shutdown_tx, shutdown_rx) = async_channel::bounded(1);
++        let trickle_buf = Rc::new(RefCell::new(vec![local_cand_sdp]));
++        let new = NewSession {
++            id: session_id,
++            local_video_mid: Some(mid),
++            rtc,
++            socket,
++            local_addr,
++            remote_cand_rx,
++            shutdown_rx,
++            trickle_buf: trickle_buf.clone(),
++            outbound_tx: self.shared.outbound_tx.clone(),
++            frames: self.shared.frames.clone(),
++            fps: self.shared.fps,
++        };
++        self.shared.inner.borrow_mut().sessions.insert(
++            session_id,
++            SessionCtrl {
++                remote_cand_tx,
++                shutdown_tx,
++                trickle_buf,
++                answer_sdp: RefCell::new(None),
++                offer_sdp: RefCell::new(Some(offer_sdp)),
++                pending_offer: RefCell::new(Some((pending, new))),
++            },
+         );
+-        Err(WebRtcError::Failure)
++        self.shared
++            .outbound_tx
++            .send(OutboundWork::Offer { session_id })
++            .await
++            .map_err(|_| WebRtcError::Failure)?;
++        self.shared
++            .outbound_tx
++            .send(OutboundWork::IceCandidates { session_id })
++            .await
++            .map_err(|_| WebRtcError::Failure)?;
++        Ok(SolicitOutcome {
++            deferred: false,
++            video_stream_id: params.video_stream_id.flatten(),
++            audio_stream_id: None,
++        })
+     }
+ 
+     async fn on_offer(
+         &self,
+         session_id: u16,
+         sdp: &str,
+-        _params: &OfferParams,
++        params: &OfferParams,
+     ) -> Result<AnswerOutcome, WebRtcError> {
+         info!(
+             "webrtc_camera: ProvideOffer session {session_id}, offer len {} B",
+@@ -835,47 +934,17 @@ impl WebRtcHooks for Str0mHooks {
+             WebRtcError::DynamicConstraint
+         })?;
+ 
+-        let bind_addr: SocketAddr = ([0u8, 0, 0, 0], 0u16).into();
+-        let socket = Async::<UdpSocket>::bind(bind_addr).map_err(|e| {
+-            warn!("webrtc_camera: udp bind failed: {e}");
+-            WebRtcError::Failure
+-        })?;
+-        let local_addr = socket.as_ref().local_addr().map_err(|e| {
+-            warn!("webrtc_camera: local_addr failed: {e}");
+-            WebRtcError::Failure
+-        })?;
+-
+-        // The socket is bound to 0.0.0.0 so it can receive from any interface,
+-        // but ICE requires a concrete routable IP in the host candidate. Probe
+-        // the kernel's routing table by UDP-connecting to a dummy public address
+-        // (TEST-NET-2, no packets actually sent) to discover the preferred
+-        // outbound IPv4.
+-        let host_ip = UdpSocket::bind(SocketAddr::from(([0u8, 0, 0, 0], 0u16)))
+-            .and_then(|s| {
+-                s.connect(SocketAddr::from(([198u8, 51, 100, 1], 80)))?;
+-                s.local_addr()
+-            })
+-            .ok()
+-            .map(|a| a.ip())
+-            .filter(|ip| !ip.is_unspecified())
+-            .ok_or_else(|| {
+-                warn!("webrtc_camera: could not determine local routable IP");
+-                WebRtcError::Failure
+-            })?;
+-        let host_addr = SocketAddr::new(host_ip, local_addr.port());
+-
+-        let mut rtc = Rtc::new(Instant::now());
+-        let cand = Candidate::host(host_addr, "udp").map_err(|e| {
+-            warn!("webrtc_camera: Candidate::host failed: {e}");
+-            WebRtcError::Failure
+-        })?;
+-        let local_cand_sdp = cand.to_sdp_string();
+-        rtc.add_local_candidate(cand);
++        let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer()?;
+ 
+         let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| {
+             warn!("webrtc_camera: accept_offer failed: {e}");
+             WebRtcError::DynamicConstraint
+         })?;
++        // This feasibility fixture admits exactly one media section, so every
++        // host candidate belongs to m-line zero. Do not guess for multi-track SDP.
++        if answer.media_lines.len() != 1 {
++            return Err(WebRtcError::DynamicConstraint);
++        }
+         let answer_sdp = answer.to_sdp_string();
+ 
+         // Plumb the session over to the driver task.
+@@ -892,6 +961,8 @@ impl WebRtcHooks for Str0mHooks {
+                     shutdown_tx,
+                     trickle_buf: trickle_buf.clone(),
+                     answer_sdp: RefCell::new(Some(answer_sdp)),
++                    offer_sdp: RefCell::new(None),
++                    pending_offer: RefCell::new(None),
+                 },
+             );
+             info!(
+@@ -907,6 +978,7 @@ impl WebRtcHooks for Str0mHooks {
+             .new_session_tx
+             .send(NewSession {
+                 id: session_id,
++                local_video_mid: None,
+                 rtc,
+                 socket,
+                 // Use the routable host address (not the 0.0.0.0 bind
+@@ -948,14 +1020,55 @@ impl WebRtcHooks for Str0mHooks {
+         }
+ 
+         Ok(AnswerOutcome {
+-            video_stream_id: None,
++            video_stream_id: params.video_stream_id.flatten(),
+             audio_stream_id: None,
+         })
+     }
+ 
+-    async fn on_answer(&self, session_id: u16, _sdp: &str) -> Result<(), WebRtcError> {
+-        warn!("webrtc_camera: unexpected ProvideAnswer for session {session_id}");
+-        Err(WebRtcError::InvalidInState)
++    async fn on_answer(&self, session_id: u16, sdp: &str) -> Result<(), WebRtcError> {
++        let answer = SdpAnswer::from_sdp_string(sdp).map_err(|_| WebRtcError::DynamicConstraint)?;
++        if answer.media_lines.len() != 1 {
++            return Err(WebRtcError::DynamicConstraint);
++        }
++        let (pending, mut new) = {
++            let inner = self.shared.inner.borrow();
++            let ctrl = inner
++                .sessions
++                .get(&session_id)
++                .ok_or(WebRtcError::InvalidInState)?;
++            let pending = ctrl
++                .pending_offer
++                .borrow_mut()
++                .take()
++                .ok_or(WebRtcError::InvalidInState)?;
++            pending
++        };
++        new.rtc
++            .sdp_api()
++            .accept_answer(pending, answer)
++            .map_err(|_| WebRtcError::DynamicConstraint)?;
++        self.shared
++            .new_session_tx
++            .send(new)
++            .await
++            .map_err(|_| WebRtcError::Failure)
++    }
++
++    async fn take_offer_sdp(&self, session_id: u16, out: &mut [u8]) -> Result<usize, WebRtcError> {
++        let inner = self.shared.inner.borrow();
++        let ctrl = inner
++            .sessions
++            .get(&session_id)
++            .ok_or(WebRtcError::InvalidInState)?;
++        let mut stored = ctrl.offer_sdp.borrow_mut();
++        let sdp = stored.as_ref().ok_or(WebRtcError::InvalidInState)?;
++        if sdp.len() > out.len() {
++            return Err(WebRtcError::ResourceExhausted);
++        }
++        let len = sdp.len();
++        out[..len].copy_from_slice(sdp.as_bytes());
++        stored.take();
++        Ok(len)
+     }
+ 
+     async fn on_ice_candidates(
+@@ -1047,7 +1160,7 @@ impl WebRtcHooks for Str0mHooks {
+         };
+         let drained: Vec<String> = s.trickle_buf.borrow_mut().drain(..).collect();
+         for cand in &drained {
+-            out.push(cand)?;
++            out.push(cand, 0)?;
+         }
+         Ok(())
+     }
+diff --git a/rs-matter-dm/src/clusters/app/webrtc_prov.rs b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+index 3c5bfaa..f9b323c 100644
+--- a/rs-matter-dm/src/clusters/app/webrtc_prov.rs
++++ b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+@@ -247,7 +247,7 @@ pub trait IceCandidateSink {
+     /// storage is full — the hook MAY choose to drop further
+     /// candidates and continue (deliver next round) or surface the
+     /// error to the caller.
+-    fn push(&mut self, candidate: &str) -> Result<(), WebRtcError>;
++    fn push(&mut self, candidate: &str, sdp_mline_index: u16) -> Result<(), WebRtcError>;
+ }
+ 
+ /// Default `IceCandidateSink` backed by a `crate::utils::storage::Vec`
+@@ -255,18 +255,18 @@ pub trait IceCandidateSink {
+ /// stack-allocates one of these per outbound `IceCandidates` invoke and
+ /// passes a `&mut` to the hook.
+ struct VecCandidateSink<'a, const CAND_LEN: usize, const MAX_CAND: usize> {
+-    buf: &'a mut Vec<String<CAND_LEN>, MAX_CAND>,
++    buf: &'a mut Vec<(String<CAND_LEN>, u16), MAX_CAND>,
+ }
+ 
+ impl<const CAND_LEN: usize, const MAX_CAND: usize> IceCandidateSink
+     for VecCandidateSink<'_, CAND_LEN, MAX_CAND>
+ {
+-    fn push(&mut self, candidate: &str) -> Result<(), WebRtcError> {
++    fn push(&mut self, candidate: &str, sdp_mline_index: u16) -> Result<(), WebRtcError> {
+         let mut s = String::<CAND_LEN>::new();
+         s.push_str(candidate)
+             .map_err(|_| WebRtcError::ResourceExhausted)?;
+         self.buf
+-            .push(s)
++            .push((s, sdp_mline_index))
+             .map_err(|_| WebRtcError::ResourceExhausted)?;
+         Ok(())
+     }
+@@ -822,7 +822,7 @@ impl<
+                 // the bound are dropped by `IceCandidateSink::push`
+                 // and will not be sent this round (or any future one,
+                 // since the hook consumed them).
+-                let mut ice_buf: crate::utils::storage::Vec<String<CAND_LEN>, MAX_CAND> =
++                let mut ice_buf: crate::utils::storage::Vec<(String<CAND_LEN>, u16), MAX_CAND> =
+                     crate::utils::storage::Vec::new();
+                 {
+                     let mut sink = VecCandidateSink { buf: &mut ice_buf };
+@@ -836,12 +836,12 @@ impl<
+                     .ice_candidates(endpoint, |req| {
+                         let req = req.web_rtc_session_id(session_id)?;
+                         let mut arr = req.ice_candidates()?;
+-                        for cand in ice_buf.iter() {
++                        for (cand, sdp_mline_index) in ice_buf.iter() {
+                             arr = arr
+                                 .push()?
+                                 .candidate(cand.as_str())?
+                                 .sdp_mid(Nullable::none())?
+-                                .sdpm_line_index(Nullable::none())?
++                                .sdpm_line_index(Nullable::some(*sdp_mline_index))?
+                                 .end()?;
+                         }
+                         arr.end()?.end()
+@@ -980,11 +980,22 @@ impl<
+         let fab_idx = cmd.fab_idx;
+         let peer_node_id = self.peer_node_id(&ctx)?;
+ 
++        if (request.video_stream_id()?.is_some() || request.audio_stream_id()?.is_some())
++            && (request.video_streams()?.is_some() || request.audio_streams()?.is_some())
++        {
++            return Err(ErrorCode::InvalidCommand.into());
++        }
+         let params = OfferParams {
+             stream_usage: request.stream_usage()?,
+             originating_endpoint_id: request.originating_endpoint_id()?,
+-            video_stream_id: request.video_stream_id()?.map(|n| n.into_option()),
+-            audio_stream_id: request.audio_stream_id()?.map(|n| n.into_option()),
++            video_stream_id: requested_stream(
++                request.video_stream_id()?,
++                request.video_streams()?,
++            )?,
++            audio_stream_id: requested_stream(
++                request.audio_stream_id()?,
++                request.audio_streams()?,
++            )?,
+             metadata_enabled: request.metadata_enabled()?.unwrap_or(false),
+         };
+ 
+@@ -1037,11 +1048,22 @@ impl<
+             return Err(ErrorCode::ConstraintError.into());
+         }
+ 
++        if (request.video_stream_id()?.is_some() || request.audio_stream_id()?.is_some())
++            && (request.video_streams()?.is_some() || request.audio_streams()?.is_some())
++        {
++            return Err(ErrorCode::InvalidCommand.into());
++        }
+         let params = OfferParams {
+             stream_usage: request.stream_usage()?,
+             originating_endpoint_id: request.originating_endpoint_id()?,
+-            video_stream_id: request.video_stream_id()?.map(|n| n.into_option()),
+-            audio_stream_id: request.audio_stream_id()?.map(|n| n.into_option()),
++            video_stream_id: requested_stream(
++                request.video_stream_id()?,
++                request.video_streams()?,
++            )?,
++            audio_stream_id: requested_stream(
++                request.audio_stream_id()?,
++                request.audio_streams()?,
++            )?,
+             metadata_enabled: request.metadata_enabled()?.unwrap_or(false),
+         };
+ 
+@@ -1207,3 +1229,69 @@ fn encode_session_struct<P: TLVBuilderParent>(
+         .fabric_index(Some(s.fab_idx))?
+         .end()
+ }
++
++// The current media hooks admit one stream of each kind. Preserve that limit
++// when a revision-2 controller uses the list fields instead of the legacy ID.
++fn requested_stream(
++    legacy: Option<Nullable<u16>>,
++    streams: Option<TLVArray<'_, u16>>,
++) -> Result<Option<Option<u16>>, Error> {
++    let Some(streams) = streams else {
++        return Ok(legacy.map(|value| value.into_option()));
++    };
++    let mut ids = streams.iter();
++    let first = ids.next().transpose()?.ok_or(ErrorCode::ConstraintError)?;
++    if ids.next().transpose()?.is_some() {
++        return Err(ErrorCode::DynamicConstraintError.into());
++    }
++    Ok(Some(Some(first)))
++}
++
++#[cfg(test)]
++mod nxrs_reference_tests {
++    use super::*;
++    use crate::tlv::TLVElement;
++
++    #[test]
++    fn stream_lists_keep_ids_and_reject_empty_multi_and_malformed() {
++        // Anonymous TLV arrays containing one, zero, two, or a truncated uint16.
++        let one = TLVArray::new(TLVElement::new(&[0x16, 0x04, 7, 0x18])).unwrap();
++        assert_eq!(requested_stream(None, Some(one)).unwrap(), Some(Some(7)));
++        for bytes in [
++            &[0x16, 0x18][..],
++            &[0x16, 0x04, 7, 0x04, 9, 0x18],
++            &[0x16, 0x05, 7],
++        ] {
++            let values = TLVArray::new(TLVElement::new(bytes)).unwrap();
++            assert!(requested_stream(None, Some(values)).is_err());
++        }
++        assert_eq!(
++            requested_stream(Some(Nullable::some(11)), None).unwrap(),
++            Some(Some(11))
++        );
++        assert_eq!(
++            requested_stream(Some(Nullable::none()), None).unwrap(),
++            Some(None)
++        );
++        assert_eq!(requested_stream(None, None).unwrap(), None);
++    }
++
++    #[test]
++    fn candidate_snapshot_retains_media_index_and_bounds() {
++        let mut buf = Vec::<(String<32>, u16), 1>::new();
++        let mut sink = VecCandidateSink { buf: &mut buf };
++        sink.push("candidate:test", 3).unwrap();
++        assert_eq!(
++            sink.push("candidate:overflow", 0),
++            Err(WebRtcError::ResourceExhausted)
++        );
++        assert_eq!(buf[0].0.as_str(), "candidate:test");
++        assert_eq!(buf[0].1, 3);
++        let mut buf = Vec::<(String<1>, u16), 1>::new();
++        assert_eq!(
++            VecCandidateSink { buf: &mut buf }.push("long", 0),
++            Err(WebRtcError::ResourceExhausted)
++        );
++        assert!(buf.is_empty());
++    }
++}

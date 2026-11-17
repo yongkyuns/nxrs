@@ -1,0 +1,23 @@
+{
+  "rs_matter": {
+    "repository": "https://github.com/project-chip/rs-matter",
+    "revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "patch": "rs-matter-camera.patch"
+  },
+  "rust": "1.98.1",
+  "controller": {
+    "package": "matter-server",
+    "version": "1.6.0",
+    "source_revision": "fc8aa79611aebbe3090a30813e7211f707b2131f"
+  },
+  "node": "24.22.3",
+  "python": "3.12.16",
+  "aiortc": "1.14.0",
+  "str0m": "0.18.1",
+  "sha256": {
+    "Cargo.lock": "123d2bec29d4f249241db7efc579d9453112683f5f4ae240d5937b0033206852",
+    "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
+    "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
+    "rs-matter-camera.patch": "706b4fa4b9bafb982d1dcffad2ee309a559f5f167b11b49a3db4501c9d936239"
+  }
+}

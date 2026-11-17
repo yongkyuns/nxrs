@@ -91,6 +91,11 @@ VPN peer removal is a separate network operation, not application identity.
 
 ## Reference and regression tests
 
+The opt-in [Matter camera fixture](tests/matter/README.md) qualifies commissioning,
+both WebRTC offer directions, trickled ICE and decoded generated video for
+[#388](https://github.com/yongkyuns/nxrs/issues/388). It does not enable a
+production Matter endpoint or change existing gateway dependencies.
+
 The dedicated workflows separate different kinds of evidence:
 
 | Workflow | What it exercises |
