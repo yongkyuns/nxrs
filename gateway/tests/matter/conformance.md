@@ -60,17 +60,28 @@ Implement and qualify these steps in order.
 [Pinned BSP bring-up](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c)
 and [example audio configuration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/configs/audio/defconfig).
 
-## Topology decision still open
+## Bridged camera and occupancy trial
 
-Evaluate a gateway aggregator with a camera endpoint and a separately reachable
-occupancy endpoint per source. A bridged endpoint needs Bridged Device Basic
-Information, stable identity and correct Descriptor composition. Home Assistant
-checks an endpoint's `Reachable` and its composed parent's `Reachable`; stale
-detection must not make the camera's video endpoint unreachable. Verify this
-with real attribute reports and automation states before allocating durable
-endpoint identities. Also qualify multiple cameras, source removal/re-addition
-and the exact bridging rules. Use the standard per-camera-node alternative only
-after comparing those constraints; neither topology removes camera requirements.
+The tested node has root 0, camera 1, aggregator 2 and occupancy 3. The
+controller read root parts `[1,2,3]`, aggregator parts `[1,3]` and empty
+parts lists on both children. Each child has its own Bridged Device Basic
+Information cluster. Marking occupancy unreachable left the camera available.
+Home Assistant rendered 60 advancing H.264 frames while the sensor was unavailable.
+
+The order of two reports matters when a fresh observation changes the last
+known value during an outage. With Bridged Device Basic Information first
+in the sensor descriptor, Home Assistant received `Reachable=true` before
+the updated Occupancy attribute. Its automation emitted `off → on` when
+recovering to person and `on → off` when recovering to clear. Listing the
+Occupancy Sensing cluster first delivered the new value while the entity was
+still unavailable. Each recovery then produced just the expected transition.
+
+Prefer these sibling endpoints for the gateway implementation. The ordering
+result applies to the tested SDK, controller and subscription. Qualify reads
+during recovery, reconnect, split subscriptions, multiple fabrics, camera
+removal/re-addition and multiple cameras before assigning durable endpoint IDs.
+A production ordering guarantee needs to cover each supported controller's
+subscription behavior. A fixed sleep cannot establish delivery.
 
 Home Assistant discovers a Camera from the device type, stream feature map,
 current sessions attribute and a sufficiently new server schema. Discovery

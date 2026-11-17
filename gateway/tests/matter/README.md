@@ -182,6 +182,50 @@ the dialog. Repeat to exercise session reuse. Browser peer closure is distinct
 from proving that all SDK tasks joined. Headless presentation FPS is diagnostic;
 it is not the physical iPhone performance acceptance measurement.
 
+## Bridge and occupancy automation
+
+Apply `bridge-topology.patch` on top of the prepared SDK in a separate
+checkout, then rebuild the same camera binary. Use an empty controller,
+fresh fixture state and the same generated video. Set `WEBRTC_CAMERA_TRIAL_DIR`
+to a new mode-0700 directory for each process launch. The qualification
+binary binds its control socket there. Its inputs specify the detector state
+explicitly so the experiment isolates Matter reports and automation behavior.
+
+After commissioning, use the camera and binary sensor IDs discovered in
+Home Assistant. Add this automation to the isolated Home Assistant config,
+substituting its occupancy entity ID, and load it before running the witness.
+
+```yaml
+automation:
+  - alias: Nxrs occupancy qualification
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.occupancysensor_occupancy
+    actions:
+      - event: nxrs_fixture_occupancy
+        event_data:
+          sensor: "{{ trigger.entity_id }}"
+          observed: "{{ trigger.to_state.state }}"
+```
+
+Start with the sensor unavailable. Run the command in the isolated Home
+Assistant / Playwright environment. It observes every emitted automation event,
+checks for extra transitions and verifies actual camera playback during the
+last period of sensor unavailability.
+
+```sh
+python gateway/tests/matter_topology_reference.py \
+  --sensor binary_sensor.occupancysensor_occupancy --camera camera.camera \
+  --control "$WEBRTC_CAMERA_TRIAL_DIR/occupancy.sock" \
+  --storage-state "$matter_runtime/browser.json" --output "$matter_runtime/topology.json"
+```
+
+To reproduce the negative control, put `Bridged::CLUSTER` before
+`Occupancy::CLUSTER` in endpoint 3's cluster list and rebuild. A recovery
+with changed occupancy then emits the cached value first and fails the witness.
+The positive ordering is specific to the tested report subscription. See
+[conformance.md](conformance.md) for remaining topology requirements.
+
 ## Scope of the evidence
 
 `evidence.json` records host results. Neither a teardown acknowledgement nor

@@ -8,13 +8,14 @@
   },
   "nxrs_base": "af949aa54076f3a58e0d319a6ec66f17cb2f7bc5",
   "fixture_pins": "versions.json",
-  "pins_sha256": "175bc04e1d9bd50346506c358c1f22703873a423fb5a75dc61f0e566ddde0a38",
+  "pins_sha256": "309db970bda195f6026e67a2746ac108ff737ca99ceacbdd23625bcc4eb4ff52",
   "generated_video_sha256": "6bbdfc4d3267e7abd0516bba090b0f6bb3660bf6f81754806f57c36d06b61bba",
   "source_sha256": {
     "tools/prepare-matter-fixture.py": "1520e3439152efb7965472880fe19fdf3a618416443e9324551f3761c6dcf35c",
     "gateway/tests/matter_browser_reference.py": "0b872cadfc52e5221a419c8d43cb76168262ce1994f148ba612fb1b6d41b3137",
     "gateway/tests/matter_reference.py": "8b172d2465d7f505f91e60891541686997ba91dec5cdf5ce31c46d64cbbee6d6",
-    "gateway/tests/matter_state_reference.py": "d5e31f3e02d3e7d6f228583f72e36b332327cf78a9c709950fd07a18f68eff06"
+    "gateway/tests/matter_state_reference.py": "d5e31f3e02d3e7d6f228583f72e36b332327cf78a9c709950fd07a18f68eff06",
+    "gateway/tests/matter_topology_reference.py": "ef91d05b63ad1ee72c448de583e24e68e8bf1ce642e567807db6028e0a72813b"
   },
   "earlier_store_evidence": "https://github.com/yongkyuns/nxrs/blob/bcf9f7435013ceb46d2a960076d0bf2d313527b4/gateway/tests/matter/evidence.json",
   "browser": [
@@ -236,5 +237,76 @@
     "Generated video on one host. Physical microphone, camera, iPhone, Linux and remote access remain open.",
     "Browser peer closure and process recovery do not prove joined SDK retirement or machine power-loss durability.",
     "Endpoint topology, authorization/revocation, occupancy and 24-hour soak remain open."
-  ]
+  ],
+  "topology": {
+    "parts": {
+      "0": [
+        1,
+        2,
+        3
+      ],
+      "1": [],
+      "2": [
+        1,
+        3
+      ],
+      "3": []
+    },
+    "negative_control": {
+      "previously_clear_then_recovered_person": [
+        "off",
+        "on"
+      ],
+      "previously_person_then_recovered_clear": [
+        "on",
+        "off"
+      ]
+    },
+    "automation_transitions": [
+      "on",
+      "unavailable",
+      "off",
+      "unavailable",
+      "on",
+      "off",
+      "on",
+      "unavailable"
+    ],
+    "video_during_sensor_unavailable": {
+      "presented_frames": 60,
+      "distinct_sampled_images": 59,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "advancing_media_time": true,
+      "presented_fps": 25.29,
+      "playback_quality": {
+        "total": 76,
+        "dropped": 13
+      },
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "browser": "157.0.8103.79",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "state": "connected",
+          "codec": "video/H264",
+          "decoded_frames": 76,
+          "dropped_frames": 0,
+          "packets_lost": 0
+        }
+      ],
+      "browser_peers_closed": true
+    },
+    "limitations": "Directly injected fixture states. Expiry from the gateway source, reconnect and multiple subscriptions need independent tests."
+  }
 }
