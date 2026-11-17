@@ -47,6 +47,8 @@ pub enum ViewerScope {
     #[default]
     Viewer,
     Detections,
+    #[serde(rename = "camera_source")]
+    CameraSource,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -252,7 +252,7 @@ HTTP 409. The camera dialog must still present advancing images. Only
 
 Prepare a fresh checkout with `tools/prepare-matter-fixture.py --variant rtsp`
 using the SDK and WebRTC pins above. Build the camera binary with the same
-locked build command. Build the [Nxrs RTSP publisher](../../publisher/README.md)
+locked build command. Build gateway control as above and build the [Nxrs RTSP publisher](../../publisher/README.md)
 and use the MediaMTX version in `versions.json`. Keep only the isolated
 controller and Home Assistant running, with a commissioned test **bridge**
 state and the corresponding authenticated browser state. In the Home Assistant
@@ -260,21 +260,30 @@ Python environment, run:
 
 ```sh
 python gateway/tests/matter_rtsp_reference.py \
+  --gateway gateway/target/debug/nxrs-gateway-control \
   --mediamtx /absolute/path/to/mediamtx --publisher gateway/target/debug/nxrs-rtsp-publisher \
   --device "$matter_sdk/target/debug/webrtc_camera" --state "$matter_runtime/state" \
   --storage-state "$matter_runtime/browser.json" --camera camera.camera \
   --runtime "$matter_runtime/rtsp-trial"
 ```
 
-The witness creates its own loopback MediaMTX instance, RTSP credentials and
-publishers in a new private directory. Two independent camera dialogs must
+The witness starts a strict Nxrs gateway, MediaMTX and publishers on loopback
+with private fixture credentials. Two independent camera dialogs must
 present the changing red-marked source through one reader. Removing the
 publisher with both dialogs open must retire both peers and clear the Matter
 `CurrentSessions` attribute. A fresh dialog must render the blue-marked
 replacement at its new dimensions and RTP clock intervals. Stopping the
 device must release the reader while the replacement publisher stays live.
-Only `result.json` is intended for sharing. Physical camera input, Nxrs gateway
-media authorization and iPhone rendering require separate qualification.
+Repeat with a fresh runtime per fault. With `--fault control-loss`, gateway
+control stops while the source keeps publishing. Both Matter sessions must end,
+and restarting the controller must admit a new reader of the same publisher.
+With `--fault revoke --receiver-python "$matter_runtime/venv/bin/python"`,
+two independent PyAV receivers join the same RTSP publication. One shares the
+revoked credential and must lose access. The other must keep decoding.
+After a control restart, the revoked credential must receive RTSP 401 while
+the authorized receiver can reopen. Only `result.json` is intended for
+sharing. Physical camera input, per-fabric access and iPhone rendering need
+separate qualification.
 
 ## Scope of the evidence
 

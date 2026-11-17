@@ -3,11 +3,9 @@
 import argparse
 import asyncio
 from contextlib import ExitStack
-import http.client
 import json
 import os
 from pathlib import Path
-import secrets
 import socket
 import subprocess
 import sys
@@ -16,34 +14,22 @@ import time
 import aiohttp
 
 from matter_gateway_reference import start, stop
+from matter_source_access import StrictMedia, private_file
 
 
-def ports():
+def ports(count):
     with ExitStack() as stack:
-        sockets = [stack.enter_context(socket.socket()) for _ in range(2)]
+        sockets = [stack.enter_context(socket.socket()) for _ in range(count)]
         for s in sockets:
             s.bind(("127.0.0.1", 0))
         return [s.getsockname()[1] for s in sockets]
 
 
-def get_path(api):
-    conn = http.client.HTTPConnection("127.0.0.1", api, timeout=1)
-    try:
-        conn.request("GET", "/v3/paths/get/cam")
-        res = conn.getresponse()
-        data = json.loads(res.read(16384))
-        return data if res.status == 200 else {}
-    except ConnectionRefusedError:
-        return {}
-    finally:
-        conn.close()
-
-
-def wait_path(api, predicate, children=()):
+def wait_path(gateway, predicate, children=()):
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         assert all(child.poll() is None for child in children), "fixture process exited"
-        value = get_path(api)
+        value = gateway.path()
         if predicate(value):
             return value
         time.sleep(.1)
@@ -94,22 +80,22 @@ def publish(stack, root, args, rtsp, token, color, size, rate):
 def run(args):
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
-    rtsp, api = ports()
-    pub, read = secrets.token_hex(32), secrets.token_hex(32)
-    def principal(user, password, permissions):
-        return dict(user=user, **{"pass": password}, ips=["127.0.0.1"], permissions=permissions)
-    cfg = dict(logLevel="warn", rtspAddress=f"127.0.0.1:{rtsp}", rtspTransports=["tcp"],
-               rtspAuthMethods=["basic"], api=True, apiAddress=f"127.0.0.1:{api}",
-               rtmp=False, hls=False, webrtc=False, srt=False, moq=False, playback=False,
-               authInternalUsers=[principal("publisher", pub, [dict(action="publish", path="cam")]),
-                                  principal("reader", read, [dict(action="read", path="cam")]),
-                                  principal("any", "", [dict(action="api")])], paths={"cam": {}})
-    config, credential = root/"mediamtx.json", root/"reader.token"
-    for path, text in [(config, json.dumps(cfg)), (credential, read)]:
-        with os.fdopen(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "w") as file:
-            file.write(text)
+    rtsp, api, control, internal, whep, ice = ports(6)
+    gateway = StrictMedia(root, api, control, internal)
+    config = root / "mediamtx.json"
+    private_file(config, json.dumps(dict(logLevel="warn", rtspAddress=f"127.0.0.1:{rtsp}", rtspTransports=["tcp"],
+        rtspAuthMethods=["basic"], api=True, apiAddress=f"127.0.0.1:{api}", rtmp=False, hls=False, srt=False,
+        moq=False, playback=False, webrtc=True, webrtcAddress=f"127.0.0.1:{whep}", webrtcLocalUDPAddress=f"127.0.0.1:{ice}",
+        webrtcIPsFromInterfaces=False, webrtcAdditionalHosts=["127.0.0.1"], webrtcICEServers2=[],
+        authMethod="http", authHTTPExclude=[], authHTTPAddress=f"http://127.0.0.1:{internal}/internal/mediamtx/auth",
+        paths={"cam":{"overridePublisher":False, "maxReaders":8}})))
     result = []
     with ExitStack() as stack:
+        def start_control(revoked=False):
+            process = start(stack, root, "gateway", [args.gateway, gateway.config, "--security", gateway.security])
+            gateway.ready(process, revoked)
+            return process
+
         server = start(stack, root, "mtx", [args.mediamtx.resolve(), config], cwd=root)
         deadline = time.monotonic() + 10
         while True:
@@ -119,23 +105,35 @@ def run(args):
             except ConnectionRefusedError:
                 assert server.poll() is None and time.monotonic() < deadline
                 time.sleep(.05)
+        controller = start_control()
         env = dict(os.environ, WEBRTC_CAMERA_TRIAL_DIR=str(root), TMPDIR=str(root),
                    WEBRTC_CAMERA_STATE=str(args.state.resolve()), WEBRTC_RTSP_ADDR=f"127.0.0.1:{rtsp}",
-                   WEBRTC_RTSP_PATH="cam", WEBRTC_RTSP_USER="reader", WEBRTC_RTSP_TOKEN_FILE=str(credential),
+                   WEBRTC_RTSP_PATH="cam", WEBRTC_RTSP_USER="reader", WEBRTC_RTSP_TOKEN_FILE=str(gateway.credentials["reader"]),
                    RUST_LOG="error")
         for key in ("WEBRTC_CAMERA_H264", "WEBRTC_CAMERA_CONTROL"):
             env.pop(key, None)
         device = start(stack, root, "matter", [args.device], env)
         for color, size, rate, count in [("red", "640x360", 15, 2), ("blue", "320x240", 10, 1)]:
             with ExitStack() as publication:
-                encoder, publisher = publish(publication, root, args, rtsp, pub, color, size, rate)
-                active = wait_path(api, lambda p: len(p.get("readers", [])) == 1 and p.get("ready"),
+                encoder, publisher = publish(publication, root, args, rtsp, gateway.publisher, color, size, rate)
+                active = wait_path(gateway, lambda p: len(p.get("readers", [])) == 1 and p.get("ready"),
                                    (server, device, encoder, publisher))
                 reader_id = active["readers"][0]["id"]
                 assert active["source"]["type"] == active["readers"][0]["type"] == "rtspSession"
                 views = []
                 signals = []
                 source_stopped = False
+                def start_receiver(name, suffix=""):
+                    progress = root / (name + suffix + ".frames")
+                    return start(stack, root, name, [args.receiver_python, Path(__file__).with_name("matter_source_access.py"),
+                        str(rtsp), name, gateway.credentials[name], progress]), progress
+
+                readers = []
+                if color == "red" and args.fault == "revoke":
+                    readers = [start_receiver(name) for name in ("reader", "independent")]
+                    wait_path(gateway, lambda p: len(p.get("readers", [])) == 3 and
+                              all(path.exists() and path.stat().st_size > 1 for _, path in readers))
+
                 for i in range(count):
                     output = root/f"{color}-{i}.json"
                     signal = root/f"source-loss-{i}.ready"
@@ -151,12 +149,23 @@ def run(args):
                 while any(proc.poll() is None for proc, _ in views):
                     assert time.monotonic() < deadline and device.poll() is None
                     if not source_stopped:
-                        path = get_path(api)
-                        assert path.get("ready") and [r["id"] for r in path["readers"]] == [reader_id]
+                        path = gateway.path()
+                        assert path.get("ready") and len(path["readers"]) == 1 + len(readers)
+                        assert reader_id in {r["id"] for r in path["readers"]}
                         samples.append(time.time_ns() / 1e6)
                         if color == "red" and all(p.exists() for p in signals):
                             assert asyncio.run(session_count()) == count, "active Matter session count"
-                            publication.close()
+                            cut = time.monotonic()
+                            if args.fault == "source":
+                                publication.close()
+                            elif args.fault == "control-loss":
+                                stop(controller)
+                            else:
+                                gateway.revoke()
+                            while asyncio.run(session_count()) and time.monotonic() - cut < 10:
+                                time.sleep(.1)
+                            end_delay = time.monotonic() - cut
+                            assert end_delay <= 10 and asyncio.run(session_count()) == 0, "Matter retirement deadline"
                             source_stopped = True
                     time.sleep(.2)
                 assert all(proc.returncode == 0 for proc, _ in views), "camera dialog failed"
@@ -166,33 +175,60 @@ def run(args):
                 end = min(r["last_presented_ms"] for r in reports)
                 assert any(begin < at < end for at in samples), "no shared-reader sample during presentation"
                 result.append(dict(marker=color, source_size=size, source_fps=rate, concurrent_views=count,
-                                   overlap_seconds=round((end-begin)/1000, 2), upstream_readers=1,
+                                   overlap_seconds=round((end-begin)/1000, 2), upstream_readers=1 + len(readers),
                                    presented_frames=[r["presented_frames"] for r in reports],
                                    presented_fps=[r["presented_fps"] for r in reports],
                                    decoded_clock_min_step_90khz=[r["min_step_90khz"] for r in reports]))
                 if color == "red":
                     assert source_stopped and all(r["peer_ended_before_dialog_closed"] for r in reports)
-                    result[-1]["active_views_ended_on_source_loss"] = count
-                    deadline = time.monotonic() + 5
-                    while (remaining := asyncio.run(session_count())) > 0 and time.monotonic() < deadline:
-                        time.sleep(.2)
-                    assert remaining == 0, f"source loss retained {remaining} Matter sessions"
-                    result[-1]["remaining_matter_sessions"] = remaining
+                    result[-1].update(fault=args.fault, ended_views=count, retirement_seconds=round(end_delay, 2),
+                                      remaining_matter_sessions=0)
+                    if args.fault == "control-loss":
+                        assert publisher.poll() is None and encoder.poll() is None
+                        controller = start_control()
+                        restored = wait_path(gateway, lambda p: len(p.get("readers", [])) == 1)
+                        assert restored["source"]["id"] == active["source"]["id"]
+                        assert restored["readers"][0]["id"] != reader_id
+                        result[-1]["source_reauthenticated_after_control_restart"] = True
+                    if args.fault == "revoke":
+                        denied, other = readers
+                        denied[0].wait(timeout=5)
+                        after = wait_path(gateway, lambda p: len(p.get("readers", [])) == 1)
+                        assert after["source"]["id"] == active["source"]["id"]
+                        n = other[1].stat().st_size
+                        wait_path(gateway, lambda p: p.get("ready") and other[1].stat().st_size >= n + 15)
+                        result[-1]["independent_reader_advanced_after_revocation"] = True
+                        stop(controller)
+                        controller = start_control(revoked=True)
+                        refused, progress = start_receiver("reader", "-retry")
+                        assert refused.wait(timeout=8) == 77 and not progress.exists(), "expected RTSP 401"
+                        accepted, progress = start_receiver("independent", "-retry")
+                        restored = wait_path(gateway, lambda p: len(p.get("readers", [])) == 1
+                                             and progress.exists() and progress.stat().st_size >= 15,
+                                             (device, server, publisher, accepted))
+                        assert restored["source"]["id"] == active["source"]["id"]
+                        result[-1]["revoked_rtsp_status_after_restart"] = 401
+                        result[-1]["independent_reader_reopened"] = True
+                        return result
                 if color == "blue":
                     stop(device)
-                    released = wait_path(api, lambda p: p.get("ready") and not p.get("readers"))
+                    released = wait_path(gateway, lambda p: p.get("ready") and not p.get("readers"))
                     assert released["source"]["id"] == active["source"]["id"]
                     result[-1]["reader_released_while_publisher_live"] = True
-            wait_path(api, lambda p: not p.get("ready") and not p.get("readers"))
+            wait_path(gateway, lambda p: not p.get("ready") and not p.get("readers"))
         stop(device)
     return result
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("runtime", "state", "mediamtx", "publisher", "device", "storage-state"):
+    for name in ("runtime", "state", "mediamtx", "publisher", "device", "storage-state", "gateway"):
         parser.add_argument("--"+name, type=Path, required=True)
     parser.add_argument("--camera", required=True)
+    parser.add_argument("--fault", choices=("source", "control-loss", "revoke"), default="source")
+    parser.add_argument("--receiver-python", type=Path, help="Python with the pinned PyAV receiver for --fault revoke")
     args = parser.parse_args()
+    if args.fault == "revoke" and args.receiver_python is None:
+        parser.error("--fault revoke requires --receiver-python")
     (args.runtime / "result.json").write_text(json.dumps(run(args), indent=2) + "\n")
-    print("Live RTSP source sharing, browser markers and replacement passed")
+    print("Strict Matter media trial passed:", args.fault)

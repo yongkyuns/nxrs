@@ -1,10 +1,10 @@
-//! Optional durable identity denial and bounded WebRTC ownership, without media proxying.
+//! Durable identity denial and bounded ownership of WebRTC and RTSP readers.
 use crate::{config::{self, Config}, policy::{MediaAuth, Policy}, revocations::{private_read, Store}};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::{HashMap, HashSet}, net::SocketAddr, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet}, net::{IpAddr, SocketAddr}, path::{Path, PathBuf}, time::{Duration, Instant}};
 use subtle::ConstantTimeEq;
 
 pub const MAX_SESSIONS: usize = 256;
@@ -47,6 +47,7 @@ pub fn session_id(id: &str) -> bool {
 #[derive(Deserialize)]
 pub struct Auth {
     #[serde(flatten)] pub request: MediaAuth,
+    #[serde(default)] pub ip: String,
     #[serde(default)] pub id: Option<String>,
 }
 #[derive(Deserialize)]
@@ -64,18 +65,25 @@ struct Session {
     admitted: Instant,
     invalid_mapping: bool,
 }
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum Transport { WebRtc, Rtsp }
+
+#[derive(Default)]
+struct Sessions {
+    owned: HashMap<String, Session>,
+    last_sync: Option<Instant>,
+    bootstrapped: bool,
+}
 struct Enforcement {
     settings: Settings,
     store: Store,
     storage_failed: bool,
     permits: HashMap<String, Permit>,
-    sessions: HashMap<String, Session>,
-    last_sync: Option<Instant>,
-    bootstrapped: bool,
+    sessions: [Sessions; 2],
 }
 impl Enforcement {
-    fn ready(&self, now: Instant) -> bool {
-        !self.storage_failed && self.last_sync.is_some_and(|at| now.saturating_duration_since(at) <= HEALTH_WINDOW)
+    fn ready(&self, transport: Transport, now: Instant) -> bool {
+        !self.storage_failed && self.sessions[transport as usize].last_sync.is_some_and(|at| now.saturating_duration_since(at) <= HEALTH_WINDOW)
     }
     fn prune(&mut self, wall: u64, now: Instant) {
         self.permits.retain(|_, permit| wall < permit.expires && now < permit.deadline);
@@ -101,7 +109,7 @@ impl GatewayPolicy {
                 }
             }
             Some(Enforcement { settings, store, storage_failed: false, permits: HashMap::new(),
-                sessions: HashMap::new(), last_sync: None, bootstrapped: false })
+                sessions: Default::default() })
         } else { None };
         let detections = crate::detections::Store::new(&config);
         Ok(Self { inner, config, enforcement, detections })
@@ -127,7 +135,7 @@ impl GatewayPolicy {
         if let Some(e) = &mut self.enforcement {
             self.inner.catalog(token)?;
             e.prune(wall, now);
-            if !e.ready(now) { return Err(StatusCode::SERVICE_UNAVAILABLE); }
+            if !e.ready(Transport::WebRtc, now) { return Err(StatusCode::SERVICE_UNAVAILABLE); }
             if e.permits.len() >= self.config.max_grants { return Err(StatusCode::TOO_MANY_REQUESTS); }
         }
         let grant = self.inner.issue(token, camera, wall, now)?;
@@ -154,19 +162,34 @@ impl GatewayPolicy {
                     && bool::from(request.token.as_bytes().ct_eq(e.settings.media_api_token.as_bytes()));
             }
         }
-        if !self.inner.authorize_media(request, wall, now) { return false; }
-        if request.action != "read" { return true; }
-        let Some(e) = &mut self.enforcement else { return true; };
+        let transport = if request.protocol == "rtsp" && request.action == "read" {
+            if !auth.ip.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback()) || !self.inner.camera_source(request) {
+                return false;
+            }
+            Transport::Rtsp
+        } else {
+            if !self.inner.authorize_media(request, wall, now) { return false; }
+            if request.action != "read" { return true; }
+            Transport::WebRtc
+        };
+        let Some(e) = &mut self.enforcement else { return transport == Transport::WebRtc; };
         e.prune(wall, now);
-        if !e.ready(now) { return false; }
+        if !e.ready(transport, now) { return false; }
         let Some(id) = auth.id.as_deref().filter(|id| session_id(id)) else { return false; };
-        let Some(permit) = e.permits.get(&hash_hex(&request.token)) else { return false; };
-        if let Some(existing) = e.sessions.get(id) {
-            return !existing.invalid_mapping && existing.viewer == permit.viewer && existing.path == request.path;
+        let viewer = match transport {
+            Transport::Rtsp => &request.user,
+            Transport::WebRtc => match e.permits.get(&hash_hex(&request.token)) {
+                Some(permit) => &permit.viewer,
+                None => return false,
+            },
+        };
+        let sessions = &mut e.sessions[transport as usize].owned;
+        if let Some(existing) = sessions.get(id) {
+            return !existing.invalid_mapping && existing.viewer == *viewer && existing.path == request.path;
         }
-        if e.sessions.len() >= MAX_SESSIONS
-            || e.sessions.values().filter(|s| s.viewer == permit.viewer).count() >= MAX_PER_VIEWER { return false; }
-        e.sessions.insert(id.to_owned(), Session { viewer: permit.viewer.clone(), path: request.path.clone(),
+        if sessions.len() >= MAX_SESSIONS
+            || sessions.values().filter(|s| s.viewer == *viewer).count() >= MAX_PER_VIEWER { return false; }
+        sessions.insert(id.to_owned(), Session { viewer: viewer.clone(), path: request.path.clone(),
             admitted: now, invalid_mapping: false });
         true
     }
@@ -181,44 +204,51 @@ impl GatewayPolicy {
         }
     }
     pub fn revocation_status(&self, viewer: &str, now: Instant) -> Result<Value, StatusCode> {
-        if !self.config.viewers.iter().any(|v| v.viewer_id == viewer) { return Err(StatusCode::NOT_FOUND); }
+        let principal = self.config.viewers.iter().find(|v| v.viewer_id == viewer).ok_or(StatusCode::NOT_FOUND)?;
+        let transport = if principal.scope == config::ViewerScope::CameraSource { Transport::Rtsp } else { Transport::WebRtc };
         let Some(e) = &self.enforcement else { return Err(StatusCode::NOT_FOUND); };
         Ok(json!({"revoked":e.store.revoked.contains(viewer), "persistence_healthy":!e.storage_failed,
-            "media_control_ready":e.ready(now),
-            "tracked_sessions":e.sessions.values().filter(|s| s.viewer == viewer).count()}))
+            "media_control_ready":e.ready(transport, now),
+            "tracked_sessions":e.sessions[transport as usize].owned.values().filter(|s| s.viewer == viewer).count()}))
     }
-    pub fn plan(&mut self, remote: &[RemoteSession], snapshot_started: Instant) -> Vec<String> {
+    pub fn plan(&mut self, transport: Transport, remote: &[RemoteSession], snapshot_started: Instant) -> Vec<String> {
         let Some(e) = &mut self.enforcement else { return Vec::new(); };
+        let sessions = &mut e.sessions[transport as usize];
         let present: HashSet<_> = remote.iter().map(|s| s.id.as_str()).collect();
-        // Pinned MediaMTX registers a session before its HTTP authorization callback.
+        // MediaMTX registers sessions before authorization. RTSP DESCRIBE uses a
+        // connection ID, and SETUP uses the eventual media session ID. The next
+        // snapshot naturally retires the connection-only admission.
         // An absent session in a list requested after admission has already retired,
         // even if negotiation failed before we ever observed it. An older request
         // must retain racing admissions; response completion time is not that barrier.
-        e.sessions.retain(|id, s| present.contains(id.as_str()) || s.admitted >= snapshot_started);
+        sessions.owned.retain(|id, s| present.contains(id.as_str()) || s.admitted >= snapshot_started);
         for remote in remote {
-            if let Some(owned) = e.sessions.get_mut(&remote.id) {
+            // An RTSP session is idle between SETUP and PLAY. Its path can still be empty.
+            if transport == Transport::Rtsp && remote.state == "idle" { continue; }
+            if let Some(owned) = sessions.owned.get_mut(&remote.id) {
                 if remote.state != "read" || owned.path != remote.path { owned.invalid_mapping = true; }
             }
         }
-        remote.iter().filter(|s| s.state == "read" && match e.sessions.get(&s.id) {
+        remote.iter().filter(|s| s.state == "read" && match sessions.owned.get(&s.id) {
             Some(owned) => e.storage_failed || e.store.revoked.contains(&owned.viewer) || owned.invalid_mapping,
-            None => !e.bootstrapped || s.established,
+            None => !sessions.bootstrapped || s.established,
         }).map(|s| s.id.clone()).collect()
     }
-    pub fn still_forbidden(&self, id: &str) -> bool {
+    pub fn still_forbidden(&self, transport: Transport, id: &str) -> bool {
         let Some(e) = &self.enforcement else { return false; };
-        match e.sessions.get(id) {
+        match e.sessions[transport as usize].owned.get(id) {
             Some(s) => e.storage_failed || e.store.revoked.contains(&s.viewer) || s.invalid_mapping,
             None => true,
         }
     }
-    pub fn retired(&mut self, id: &str) {
-        if let Some(e) = &mut self.enforcement { e.sessions.remove(id); }
+    pub fn retired(&mut self, transport: Transport, id: &str) {
+        if let Some(e) = &mut self.enforcement { e.sessions[transport as usize].owned.remove(id); }
     }
-    pub fn synchronized(&mut self, success: bool, now: Instant) {
+    pub fn synchronized(&mut self, transport: Transport, success: bool, now: Instant) {
         if let Some(e) = &mut self.enforcement {
-            e.last_sync = success.then_some(now);
-            if success { e.bootstrapped = true; }
+            let sessions = &mut e.sessions[transport as usize];
+            sessions.last_sync = success.then_some(now);
+            if success { sessions.bootstrapped = true; }
         }
     }
 }

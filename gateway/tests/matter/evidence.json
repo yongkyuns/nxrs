@@ -455,6 +455,155 @@
       "The two viewers used the same commissioned fabric and isolated MediaMTX internal authorization. Nxrs strict media admission, per-fabric revocation and simultaneous Nxrs Home playback require qualification.",
       "The bounded share queue admits at most eight access units of at most 1 MiB each. Maximum memory used by the RTSP library during packet assembly remains unmeasured.",
       "Browser presentation with generated video does not qualify physical camera, microphone, iPhone, Linux, remote access or soak performance."
+    ],
+    "revision": "c595571604a9fa52fc6a749769c03d74d32a74af"
+  },
+  "strict_media_access": {
+    "recorded_utc": "2026-11-17T21:42:57.354317+00:00",
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "pins_sha256": "8d2546d09635ca85b9ab67a260e8ba6f31f58f1ea37ff411854d77e37d51364c",
+    "source": "Generated FFmpeg video through the Nxrs RTSP publisher and private MediaMTX with HTTP authorization by real strict Nxrs gateway control. Pinned macOS SDK, commissioned Home Assistant and headless Chrome; independent RTSP readers used PyAV 16.1.0.",
+    "source_sha256": {
+      "gateway/control/src/config.rs": "7624ee9bfadd5be94dc62384bc2b3aa83ed7045950d64ccd8d084c485a6e635f",
+      "gateway/control/src/media_control.rs": "1fdaec5610ea0da0b3664db1a7a33df84fbb886ff912442e98a47c2b0e211651",
+      "gateway/control/src/policy.rs": "b5d8f493017f3a3b04485da7b7957adaab802542f644705d1e7ffe9f9b2c8bbf",
+      "gateway/control/src/security.rs": "a8c87154a6cf71cfab46da69b5daa55b984c21a1cc6947bd72da7d194416a767",
+      "gateway/matter/src/media.rs": "92d9d5ee416a42f864be97ac69f1dabd626df7839f9262b47603acde07989242",
+      "gateway/tests/matter_rtsp_reference.py": "1bb3c18d3a15dad818ef0ec82b79df54bbc34f4ec9eb26f51da5a726e226ea60"
+    },
+    "trials": {
+      "credential_revocation": [
+        {
+          "marker": "red",
+          "source_size": "640x360",
+          "source_fps": 15,
+          "concurrent_views": 2,
+          "overlap_seconds": 4.38,
+          "upstream_readers": 3,
+          "presented_frames": [
+            60,
+            60
+          ],
+          "presented_fps": [
+            13.46,
+            13.41
+          ],
+          "decoded_clock_min_step_90khz": [
+            6000,
+            6000
+          ],
+          "fault": "revoke",
+          "ended_views": 2,
+          "retirement_seconds": 0.6,
+          "remaining_matter_sessions": 0,
+          "independent_reader_advanced_after_revocation": true,
+          "revoked_rtsp_status_after_restart": 401,
+          "independent_reader_reopened": true
+        }
+      ],
+      "control_outage": [
+        {
+          "marker": "red",
+          "source_size": "640x360",
+          "source_fps": 15,
+          "concurrent_views": 2,
+          "overlap_seconds": 3.9,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60,
+            60
+          ],
+          "presented_fps": [
+            15.13,
+            14.87
+          ],
+          "decoded_clock_min_step_90khz": [
+            6000,
+            6000
+          ],
+          "fault": "control-loss",
+          "ended_views": 2,
+          "retirement_seconds": 3.79,
+          "remaining_matter_sessions": 0,
+          "source_reauthenticated_after_control_restart": true
+        },
+        {
+          "marker": "blue",
+          "source_size": "320x240",
+          "source_fps": 10,
+          "concurrent_views": 1,
+          "overlap_seconds": 5.85,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60
+          ],
+          "presented_fps": [
+            10.09
+          ],
+          "decoded_clock_min_step_90khz": [
+            9000
+          ],
+          "reader_released_while_publisher_live": true
+        }
+      ],
+      "source_replacement": [
+        {
+          "marker": "red",
+          "source_size": "640x360",
+          "source_fps": 15,
+          "concurrent_views": 2,
+          "overlap_seconds": 3.9,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60,
+            60
+          ],
+          "presented_fps": [
+            15.13,
+            15.13
+          ],
+          "decoded_clock_min_step_90khz": [
+            6000,
+            6000
+          ],
+          "fault": "source",
+          "ended_views": 2,
+          "retirement_seconds": 0.1,
+          "remaining_matter_sessions": 0
+        },
+        {
+          "marker": "blue",
+          "source_size": "320x240",
+          "source_fps": 10,
+          "concurrent_views": 1,
+          "overlap_seconds": 5.85,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60
+          ],
+          "presented_fps": [
+            10.09
+          ],
+          "decoded_clock_min_step_90khz": [
+            9000
+          ],
+          "reader_released_while_publisher_live": true
+        }
+      ]
+    },
+    "qualification_notes": [
+      "Retirement time runs from fault injection to a direct Matter CurrentSessions read showing zero entries. Browser presented FPS is diagnostic. All three experiments used the same isolated commissioning and account state in Home Assistant and fresh gateway enrollments per run.",
+      "The revocation experiment had three upstream readers: one shared Matter input and two independent RTSP decoders. Only the revoked source and its non-renewing decoder were retired before the gateway restart. The other decoder advanced at least 15 more frames and the publisher kept its session ID. Existing readers are reconciled as unowned after the gateway restarts."
+    ],
+    "regressions": {
+      "default_gateway_tests_passed": 66,
+      "opt_in_ffmpeg_tests_ignored": 1,
+      "strict_clippy": "passed",
+      "architecture_packages": 79,
+      "architecture_host_regressions": 37
+    },
+    "open": [
+      "Selective removal of one Matter fabric/controller while another uses the same source, runtime ownership barriers, physical input and concurrent Nxrs Home/iPhone playback, microphone, Linux/remote qualification and soak."
     ]
   }
 }

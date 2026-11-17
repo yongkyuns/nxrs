@@ -99,6 +99,17 @@ impl Policy {
         }
         Ok(viewer.viewer_id.clone())
     }
+    /// Only a dedicated service enrollment can read encoded source media.
+    pub(crate) fn camera_source(&self, request: &MediaAuth) -> bool {
+        request.query.is_empty() && request.token == request.password
+            && self.config.viewers.iter().any(|v| {
+                v.scope == ViewerScope::CameraSource && v.viewer_id == request.user
+                    && !self.disabled_viewers.contains(&v.viewer_id)
+                    && matches(&request.password, &v.token_sha256)
+                    && self.config.cameras.iter().any(|c| c.stream_path == request.path
+                        && c.site_id == v.site_id && v.camera_ids.contains(&c.camera_id))
+            })
+    }
     pub fn publisher(&self, token: &str, user: &str, camera: &str) -> bool {
         self.config
             .publishers

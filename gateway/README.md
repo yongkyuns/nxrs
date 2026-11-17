@@ -58,6 +58,14 @@ permissions. Administrative actions remain denied in the legacy profile; strict
 revocation mode adds a **separate privileged management token** for a private
 loopback API. That token must never appear in viewer enrollment or media grants.
 
+A service enrollment with `"scope": "camera_source"` admits authenticated
+loopback RTSP reads of its configured camera paths in strict mode. Use the
+viewer ID as the RTSP username and a separate generated token as its password.
+Ordinary viewer and publisher enrollments retain their existing permissions.
+The gateway reconciles WebRTC and RTSP sessions independently. Revoking a
+camera-source account retires its readers while other accounts and the
+publisher can continue. [Matter reader and outage handling](matter/README.md).
+
 Responses use `no-store`; bodies are limited to 16 KiB, handlers to 64 per
 listener, request/body time to five seconds, configuration to 64 KiB and catalogs
 to 64 cameras. Proxy/socket/header limits remain a deployment responsibility.

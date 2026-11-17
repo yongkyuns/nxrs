@@ -161,7 +161,11 @@ impl Reader {
     pub async fn run(self) {
         for generation in 1..=u64::MAX {
             self.current.store(generation, Ordering::Release);
-            let _ = self.receive(generation).await;
+            tokio::select! {
+                biased;
+                _ = self.check_permission() => {},
+                _ = self.receive(generation) => {},
+            }
             self.retire();
             time::sleep(Duration::from_secs(1)).await;
         }
@@ -172,14 +176,28 @@ impl Reader {
         let _ = self.sender.send(Message::End);
     }
 
+    async fn describe(&self) -> Result<Session<retina::client::Described>, ()> {
+        let options = SessionOptions::default()
+            .creds(Some(self.credentials.clone()))
+            .teardown(TeardownPolicy::Never);
+        Session::describe(self.url.clone(), options).await.map_err(|_| ())
+    }
+
+    // MediaMTX authenticates DESCRIBE through the same path-scoped HTTP policy
+    // as SETUP. DESCRIBE alone opens no media reader. Run it alongside packet
+    // delivery so a dead controller cannot leave an established stream open.
+    async fn check_permission(&self) {
+        loop {
+            time::sleep(Duration::from_secs(3)).await;
+            if !matches!(time::timeout(Duration::from_secs(2), self.describe()).await, Ok(Ok(_))) {
+                return;
+            }
+        }
+    }
+
     async fn receive(&self, generation: u64) -> Result<(), ()> {
         let opening = async {
-            let options = SessionOptions::default()
-                .creds(Some(self.credentials.clone()))
-                .teardown(TeardownPolicy::Never);
-            let mut session = Session::describe(self.url.clone(), options)
-                .await
-                .map_err(|_| ())?;
+            let mut session = self.describe().await?;
             let mut videos = session
                 .streams()
                 .iter()

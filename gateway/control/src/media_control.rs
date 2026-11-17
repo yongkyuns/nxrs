@@ -1,5 +1,5 @@
 //! Bounded loopback-only MediaMTX reconciliation. No general URL fetcher or media transport.
-use crate::{security::{session_id, RemoteSession, Settings, MAX_SESSIONS}, Shared};
+use crate::{security::{session_id, RemoteSession, Settings, Transport, MAX_SESSIONS}, Shared};
 use axum::http::{header, Method, Request, StatusCode};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty, Limited};
@@ -9,10 +9,31 @@ use std::{collections::HashSet, time::{Duration, Instant}};
 use tokio::{net::TcpStream, task::JoinHandle};
 
 #[derive(Deserialize)]
-struct Listing {
+struct Listing<T> {
     #[serde(rename = "itemCount")] count: usize,
     #[serde(rename = "pageCount")] pages: usize,
-    items: Vec<RemoteSession>,
+    items: Vec<T>,
+}
+#[derive(Deserialize)]
+struct RtspSession { id: String, state: String, path: String }
+
+impl Transport {
+    fn api(self) -> &'static str {
+        match self { Self::WebRtc => "webrtcsessions", Self::Rtsp => "rtspsessions" }
+    }
+
+    fn listing(self, bytes: &[u8]) -> Result<Listing<RemoteSession>, ()> {
+        match self {
+            Self::WebRtc => serde_json::from_slice(bytes).map_err(|_| ()),
+            Self::Rtsp => {
+                let listing: Listing<RtspSession> = serde_json::from_slice(bytes).map_err(|_| ())?;
+                let items = listing.items.into_iter().map(|s| RemoteSession {
+                    established: s.state == "read", id: s.id, state: s.state, path: s.path,
+                }).collect();
+                Ok(Listing { count: listing.count, pages: listing.pages, items })
+            }
+        }
+    }
 }
 struct Driver(JoinHandle<()>);
 impl Drop for Driver { fn drop(&mut self) { self.0.abort(); } }
@@ -47,38 +68,43 @@ impl Maintenance {
         async move { shared.lock().await.detections.shutting_down = true; }
     }
     pub(crate) fn new(shared: Shared, settings: Option<Settings>) -> Self { Self { shared, settings } }
-    async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
+    async fn reconcile(&self, settings: &Settings, transport: Transport) -> Result<(), ()> {
         let snapshot_started = Instant::now();
-        let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;
+        let (status, bytes) = exchange(settings, Method::GET, &format!("/v3/{}/list?itemsPerPage=256", transport.api())).await?;
         if status != StatusCode::OK { return Err(()); }
-        let listing: Listing = serde_json::from_slice(&bytes).map_err(|_| ())?;
+        let listing = transport.listing(&bytes)?;
         if listing.pages > 1 || listing.count != listing.items.len() || listing.items.len() > MAX_SESSIONS
-            || listing.items.iter().any(|s| !session_id(&s.id) || !["read", "publish"].contains(&s.state.as_str()))
+            || listing.items.iter().any(|s| !session_id(&s.id) || !(["read", "publish"].contains(&s.state.as_str())
+                || transport == Transport::Rtsp && s.state == "idle"))
             || listing.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != listing.items.len() {
             return Err(());
         }
-        let denied = self.shared.lock().await.plan(&listing.items, snapshot_started);
+        let denied = self.shared.lock().await.plan(transport, &listing.items, snapshot_started);
         for id in denied {
             // Recheck after the HTTP/list await: a fresh legitimate admission can race the snapshot.
-            if !self.shared.lock().await.still_forbidden(&id) { continue; }
-            exchange(settings, Method::POST, &format!("/v3/webrtcsessions/kick/{id}")).await?;
-            self.shared.lock().await.retired(&id);
+            if !self.shared.lock().await.still_forbidden(transport, &id) { continue; }
+            exchange(settings, Method::POST, &format!("/v3/{}/kick/{id}", transport.api())).await?;
+            self.shared.lock().await.retired(transport, &id);
         }
         Ok(())
     }
-    pub async fn run(self) {
-        let Some(settings) = &self.settings else { std::future::pending::<()>().await; return; };
+    async fn supervise(&self, settings: &Settings, transport: Transport) {
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut previous = None;
         loop {
             timer.tick().await;
-            let success = matches!(tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings)).await, Ok(Ok(())));
-            self.shared.lock().await.synchronized(success, Instant::now());
+            let success = matches!(tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings, transport)).await, Ok(Ok(())));
+            self.shared.lock().await.synchronized(transport, success, Instant::now());
             if previous != Some(success) {
-                eprintln!("nxrs-gateway media control {}", if success { "ready" } else { "unavailable; new viewing denied" });
+                let name = match transport { Transport::WebRtc => "media control", Transport::Rtsp => "RTSP source control" };
+                eprintln!("nxrs-gateway {name} {}", if success { "ready" } else { "unavailable; new viewing denied" });
                 previous = Some(success);
             }
         }
+    }
+    pub async fn run(self) {
+        let Some(settings) = &self.settings else { std::future::pending::<()>().await; return; };
+        tokio::join!(self.supervise(settings, Transport::WebRtc), self.supervise(settings, Transport::Rtsp));
     }
 }

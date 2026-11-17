@@ -1,5 +1,5 @@
 #![cfg(unix)]
-use nxrs_gateway_control::{config::Config, security::{Auth, GatewayPolicy, RemoteSession, Settings}};
+use nxrs_gateway_control::{config::Config, security::{Auth, GatewayPolicy, RemoteSession, Settings, Transport}};
 use axum::http::StatusCode;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -46,14 +46,14 @@ fn remote(n: u64, established: bool) -> RemoteSession {
 #[test] fn new_admission_requires_fresh_control_and_a_real_session_identifier() {
     let fixture = Fixture::new(); let mut p = fixture.policy(); let now = Instant::now();
     assert_eq!(p.issue(&"a".repeat(64),"cam_one",1000,now).unwrap_err(),StatusCode::SERVICE_UNAVAILABLE);
-    p.synchronized(true,now); let grant = token(&mut p,&"a".repeat(64),now);
+    p.synchronized(Transport::WebRtc,true,now); let grant = token(&mut p,&"a".repeat(64),now);
     assert!(!p.authorize_media(&auth(&grant,None),1000,now));
     assert!(p.authorize_media(&auth(&grant,Some(1)),1000,now));
     assert!(!p.authorize_media(&auth(&grant,Some(2)),1000,now+Duration::from_secs(6)));
-    p.synchronized(false,now); assert!(!p.authorize_media(&auth(&grant,Some(2)),1000,now));
+    p.synchronized(Transport::WebRtc,false,now); assert!(!p.authorize_media(&auth(&grant,Some(2)),1000,now));
 }
 #[test] fn per_viewer_slots_and_duplicate_callbacks_preserve_ownership() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now); let b=token(&mut p,&"b".repeat(64),now);
     for n in 1..=4 { assert!(p.authorize_media(&auth(&a,Some(n)),1000,now)); }
     assert!(p.authorize_media(&auth(&a,Some(1)),1000,now));
@@ -62,12 +62,12 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert!(p.authorize_media(&auth(&b,Some(5)),1000,now));
 }
 #[test] fn revoke_is_persistent_and_does_not_select_other_viewers() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now); let b=token(&mut p,&"b".repeat(64),now);
     assert!(p.authorize_media(&auth(&a,Some(1)),1000,now));
     assert!(p.authorize_media(&auth(&b,Some(2)),1000,now));
     assert_eq!(p.revoke("viewer_a").unwrap(),StatusCode::ACCEPTED);
-    assert_eq!(p.plan(&[remote(1,true),remote(2,true)],now),vec![id(1)]);
+    assert_eq!(p.plan(Transport::WebRtc,&[remote(1,true),remote(2,true)],now),vec![id(1)]);
     assert_eq!(p.catalog(&"a".repeat(64)).unwrap_err(),StatusCode::FORBIDDEN);
     assert!(p.catalog(&"b".repeat(64)).is_ok());
     assert!(!p.authorize_media(&auth(&a,Some(3)),1000,now));
@@ -76,32 +76,32 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert!(p.catalog(&"b".repeat(64)).is_ok());
 }
 #[test] fn snapshot_race_cannot_kick_a_newly_owned_session() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now);
-    assert_eq!(p.plan(&[remote(1,true)],now),vec![id(1)]);
+    assert_eq!(p.plan(Transport::WebRtc,&[remote(1,true)],now),vec![id(1)]);
     assert!(p.authorize_media(&auth(&a,Some(1)),1000,now));
-    assert!(!p.still_forbidden(&id(1)));
-    p.revoke("viewer_a").unwrap(); assert!(p.still_forbidden(&id(1)));
-    p.retired(&id(1)); assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],0);
+    assert!(!p.still_forbidden(Transport::WebRtc,&id(1)));
+    p.revoke("viewer_a").unwrap(); assert!(p.still_forbidden(Transport::WebRtc,&id(1)));
+    p.retired(Transport::WebRtc,&id(1)); assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],0);
 }
 #[test] fn admission_expiry_is_not_an_implicit_viewing_time_limit() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now); assert!(p.authorize_media(&auth(&a,Some(1)),1000,now));
-    let later=now+Duration::from_secs(61); p.synchronized(true,later);
+    let later=now+Duration::from_secs(61); p.synchronized(Transport::WebRtc,true,later);
     assert!(!p.authorize_media(&auth(&a,Some(2)),1061,later));
-    assert!(p.plan(&[remote(1,true)],later).is_empty());
-    p.revoke("viewer_a").unwrap(); assert_eq!(p.plan(&[remote(1,true)],later),vec![id(1)]);
+    assert!(p.plan(Transport::WebRtc,&[remote(1,true)],later).is_empty());
+    p.revoke("viewer_a").unwrap(); assert_eq!(p.plan(Transport::WebRtc,&[remote(1,true)],later),vec![id(1)]);
 }
 #[test] fn restart_retires_orphans_but_not_publishers_or_fresh_negotiation() {
     let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now();
     let mut publisher=remote(2,true); publisher.state="publish".into();
-    assert_eq!(p.plan(&[remote(1,false),publisher],now),vec![id(1)]);
-    p.synchronized(true,now);
-    assert!(p.plan(&[remote(3,false)],now).is_empty());
-    assert_eq!(p.plan(&[remote(3,true)],now),vec![id(3)]);
+    assert_eq!(p.plan(Transport::WebRtc,&[remote(1,false),publisher],now),vec![id(1)]);
+    p.synchronized(Transport::WebRtc,true,now);
+    assert!(p.plan(Transport::WebRtc,&[remote(3,false)],now).is_empty());
+    assert_eq!(p.plan(Transport::WebRtc,&[remote(3,true)],now),vec![id(3)]);
 }
 #[test] fn failed_persistence_is_an_error_not_successful_revocation() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let backup=fixture.directory.join("backup.json"); fs::rename(&fixture.settings.revocations_file,&backup).unwrap();
     assert_eq!(p.revoke("viewer_a").unwrap_err(),StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(p.catalog(&"a".repeat(64)).unwrap_err(),StatusCode::FORBIDDEN);
@@ -130,40 +130,88 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert_eq!(legacy.revoke("viewer_a").unwrap(),StatusCode::NO_CONTENT);
 }
 #[test] fn closed_observed_sessions_free_slots_without_discarding_racing_admissions() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now);
     for n in 1..=4 { assert!(p.authorize_media(&auth(&a,Some(n)),1000,now)); }
     // An old empty list must not discard newly admitted ownership.
-    assert!(p.plan(&[],now).is_empty());
+    assert!(p.plan(Transport::WebRtc,&[],now).is_empty());
     assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],4);
-    assert!(p.plan(&[remote(1,true),remote(2,true),remote(3,true),remote(4,true)],now).is_empty());
-    assert!(p.plan(&[remote(2,true),remote(3,true),remote(4,true)],now+Duration::from_millis(1)).is_empty());
+    assert!(p.plan(Transport::WebRtc,&[remote(1,true),remote(2,true),remote(3,true),remote(4,true)],now).is_empty());
+    assert!(p.plan(Transport::WebRtc,&[remote(2,true),remote(3,true),remote(4,true)],now+Duration::from_millis(1)).is_empty());
     assert!(p.authorize_media(&auth(&a,Some(5)),1000,now));
     assert!(!p.authorize_media(&auth(&a,Some(6)),1000,now));
 }
 #[test] fn remote_path_mismatch_remains_denied_at_final_kick_recheck() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now); assert!(p.authorize_media(&auth(&a,Some(1)),1000,now));
     let mut mismatch=remote(1,true); mismatch.path="other".into();
-    assert_eq!(p.plan(&[mismatch],now),vec![id(1)]);
-    assert!(p.still_forbidden(&id(1)));
+    assert_eq!(p.plan(Transport::WebRtc,&[mismatch],now),vec![id(1)]);
+    assert!(p.still_forbidden(Transport::WebRtc,&id(1)));
     assert!(!p.authorize_media(&auth(&a,Some(1)),1000,now));
 }
 
 #[test] fn failed_unobserved_negotiations_release_slots_on_a_fresh_snapshot() {
-    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(Transport::WebRtc,true,now);
     let a=token(&mut p,&"a".repeat(64),now);
     for n in 1..=4 { assert!(p.authorize_media(&auth(&a,Some(n)),1000,now)); }
     assert!(!p.authorize_media(&auth(&a,Some(5)),1000,now));
     // A response completing later can still describe a list requested before admission.
-    assert!(p.plan(&[],now-Duration::from_millis(1)).is_empty());
+    assert!(p.plan(Transport::WebRtc,&[],now-Duration::from_millis(1)).is_empty());
     assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],4);
     // MediaMTX had registered these IDs before calling auth. Their absence in
     // this later request proves they closed, without an arbitrary 30-second hold.
-    assert!(p.plan(&[],now+Duration::from_millis(1)).is_empty());
+    assert!(p.plan(Transport::WebRtc,&[],now+Duration::from_millis(1)).is_empty());
     assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],0);
     assert!(p.authorize_media(&auth(&a,Some(5)),1000,now+Duration::from_millis(2)));
     p.revoke("viewer_a").unwrap();
-    assert_eq!(p.plan(&[remote(5,true)],now+Duration::from_millis(3)),vec![id(5)]);
-    assert!(p.still_forbidden(&id(5)));
+    assert_eq!(p.plan(Transport::WebRtc,&[remote(5,true)],now+Duration::from_millis(3)),vec![id(5)]);
+    assert!(p.still_forbidden(Transport::WebRtc,&id(5)));
+}
+
+#[test]
+fn encoded_source_requires_strict_camera_scope_and_independent_rtsp_supervision() {
+    use nxrs_gateway_control::config::ViewerScope;
+    let mut f = Fixture::new();
+    f.config.viewers[0].scope = ViewerScope::CameraSource;
+    let mut other = f.config.cameras[0].clone();
+    other.camera_id = "cam_two".into();
+    other.stream_path = "other".into();
+    other.whep_endpoint = "https://media.test/other/whep".into();
+    f.config.cameras.push(other);
+    let now = Instant::now();
+    let request = |user: &str, secret: &str| -> Auth {
+        serde_json::from_value(json!({"action":"read", "protocol":"rtsp", "ip":"127.0.0.1",
+            "id":id(1), "user":user, "password":secret, "token":secret, "path":"one"})).unwrap()
+    };
+    let a = "a".repeat(64);
+    let good = || request("viewer_a",&a);
+    assert!(!GatewayPolicy::new(f.config.clone(),None).unwrap().authorize_media(&good(),1000,now));
+    let mut p = f.policy();
+    p.synchronized(Transport::WebRtc,true,now);
+    assert!(!p.authorize_media(&good(),1000,now));
+    p.synchronized(Transport::Rtsp,true,now);
+    assert!(p.authorize_media(&good(),1000,now));
+    assert_eq!(p.catalog(&a).unwrap_err(), StatusCode::FORBIDDEN);
+    assert_eq!(p.issue(&a,"cam_one",1000,now).unwrap_err(), StatusCode::FORBIDDEN);
+    for invalid in [request("viewer_b",&"b".repeat(64)), request("publisher",&"c".repeat(64)),
+        { let mut r=good(); r.request.path="other".into(); r },
+        { let mut r=good(); r.request.query="extra".into(); r },
+        { let mut r=good(); r.ip="192.0.2.1".into(); r },
+        { let mut r=good(); r.request.token="d".repeat(64); r }] {
+        assert!(!p.authorize_media(&invalid,1000,now));
+    }
+    // A snapshot from WHEP cannot retire an RTSP admission with the same ID.
+    let whep_token = token(&mut p,&"b".repeat(64),now);
+    assert!(p.authorize_media(&auth(&whep_token,Some(1)),1000,now));
+    assert!(p.plan(Transport::WebRtc,&[],now+Duration::from_millis(1)).is_empty());
+    let mut idle = remote(1,false); idle.state="idle".into(); idle.path.clear();
+    assert!(p.plan(Transport::Rtsp,&[idle],now).is_empty());
+    assert!(p.plan(Transport::Rtsp,&[remote(1,true)],now).is_empty());
+    p.revoke("viewer_a").unwrap();
+    let mut publisher=remote(2,true); publisher.state="publish".into();
+    assert_eq!(p.plan(Transport::Rtsp,&[remote(1,true),publisher],now),vec![id(1)]);
+    assert!(!p.authorize_media(&good(),1000,now));
+    drop(p);
+    let mut p=f.policy(); p.synchronized(Transport::Rtsp,true,now);
+    assert!(!p.authorize_media(&good(),1000,now));
 }

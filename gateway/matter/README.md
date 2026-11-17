@@ -9,8 +9,14 @@ credentialed loopback RTSP/TCP connection and forwards H.264 pictures with their
 source timestamps. Each viewer subscribes through `Video`. Eight access units
 are shared across viewers. A lagging viewer resumes at a new keyframe. Source
 loss or replacement ends viewers of the retired source. The caller can cancel
-the reader by dropping its future. The host fixture qualifies this path with
-MediaMTX's internal authentication. Production gateway admission is pending.
+the reader by dropping its future. Give it a strict gateway `camera_source`
+credential scoped to the camera. The gateway reconciles active RTSP sessions
+against its durable denials. The reader also rechecks the same path with RTSP
+DESCRIBE every three seconds, allowing two seconds for a response. This check
+opens no media track. Failure retires the source even if the original media
+socket can still deliver video. Revoking the shared source ends every Matter
+peer using it. Selective revocation of a single Matter fabric is a separate
+release gate.
 
 `occupancy::Feed::open` takes a loopback control address, a camera ID and
 a private credential file. Run the subscription on the owning executor. Its
