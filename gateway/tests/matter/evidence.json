@@ -786,5 +786,46 @@
       "gateway_publisher_revision": "80a78a45b566b2c7bc9618329224c088d885e8a6",
       "rtsp_fixture_before_publisher_helper_extraction_sha256": "9959d5c8f2e950b36d329a9af4f44989a078200222ca904abd8a18b0aec95635"
     }
+  },
+  "audio_allocation": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "audio-control",
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "pins_sha256": "63f2a78579a211a85b99b7a46e8857bb4e31c7b58e6c6f2a74580efc2eb44db1",
+    "source_sha256": {
+      "gateway/matter/src/media.rs": "2009a5b78a853d7e4bab3ebbba6fa3c6710d0f9c7c92f2f7f513abde5c4f5069",
+      "gateway/tests/matter/audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7",
+      "gateway/tests/matter_audio_allocation.py": "9b40aadbef6132252a6aeca5be923c9d1387f89ea81b03be82756ca5cb21edac",
+      "gateway/tests/matter_audio_reference.py": "715543bef9c39d7338e79102175518c782bc0f7193de5981ebae29248ff665b8",
+      "tools/prepare-matter-fixture.py": "53d8d9703c557a0bab60e3d3c44d89141a8e72da308d6bc366244f664c37da7f"
+    },
+    "report": {
+      "feature_map": 3,
+      "supported_sample_rates": [
+        16000
+      ],
+      "allocation_commands_present": true,
+      "duplicate_reused_id": true,
+      "incompatible_requests_rejected": 4,
+      "offline_and_video_only_denied": true,
+      "revoked_source_denied_while_publishing": true,
+      "retired_id_rejected": true,
+      "final_allocations": 0
+    },
+    "regressions": {
+      "pinned_sdk_dm_tests": 366,
+      "sdk_camera_tests": 2,
+      "default_gateway_tests": 66,
+      "opt_in_gateway_ffmpeg_test_ignored": 1,
+      "architecture_packages": 79,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "gateway_clippy_warnings_denied": true
+    },
+    "scope": "One independent Matter Server commissioned a macOS test node. The strict gateway authorized one RTSP source reader and generated video/Opus. This verifies camera-cluster commands and the table read from the device. The WebRTC path still sends video only. Neither audible Matter playback nor hardware microphone capture, mute, privacy or active audio-reference ownership is qualified."
   }
 }

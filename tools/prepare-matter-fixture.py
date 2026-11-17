@@ -17,16 +17,18 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True, help="fresh clean rs-matter checkout")
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
-    parser.add_argument("--variant", choices=["camera", "bridge", "rtsp"], default="camera",
-                        help="select the camera example, bridged occupancy, or bridged RTSP input")
+    parser.add_argument("--variant", choices=["camera", "bridge", "rtsp", "audio-control"], default="camera",
+                        help="select the camera example, bridged occupancy, bridged RTSP input, or microphone allocation qualification")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
     sdk_patches = ["rs-matter-camera.patch"]
-    if args.variant in ("bridge", "rtsp"):
+    if args.variant in ("bridge", "rtsp", "audio-control"):
         sdk_patches.append("bridge-topology.patch")
-    if args.variant == "rtsp":
+    if args.variant in ("rtsp", "audio-control"):
         sdk_patches.append("live-media.patch")
+    if args.variant == "audio-control":
+        sdk_patches.append("audio-control.patch")
     for name in (*sdk_patches, "str0m-rejected-media.patch", "Cargo.lock"):
         if hashlib.sha256((FIXTURE / name).read_bytes()).hexdigest() != pins["sha256"][name]:
             raise SystemExit("fixture digest mismatch: " + name)

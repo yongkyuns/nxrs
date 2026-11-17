@@ -88,23 +88,27 @@ def observe(streams):
                 video_pulses=len(edges["video"]), audio_pulses=len(edges["audio"]))
 
 
+def publish_av(stack, root, args, port, token):
+    # Deliberately unequal pulse intervals make a missing cue observable.
+    pulse = "lt(mod(t,3),0.22)+between(mod(t,3),0.6,0.82)+between(mod(t,3),1.6,1.82)"
+    # Audio first exercises per-track rescaling when video isn't stream zero.
+    command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+               "-re", "-f", "lavfi", "-i", f"color=black:s=320x240:r=15,drawbox=color=white:t=fill:enable='{pulse}'",
+               "-re", "-f", "lavfi", "-i", f"aevalsrc='if({pulse},0.6*sin(2*PI*1000*t),0)':s=16000",
+               "-map", "1:a", "-map", "0:v", "-c:a", "libopus", "-ar", "16000", "-ac", "1",
+               "-b:a", "64k", "-frame_duration", "20", "-c:v", "libx264", "-bf", "0",
+               "-g", "15", "-threads", "2", "-preset", "ultrafast", "-tune", "zerolatency",
+               "-f", "mpegts", "-muxdelay", "0", "pipe:1"]
+    return publish_encoded(stack, root, args, port, token, command, ("mpegts-av",))
+
+
 def run(args):
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
     with ExitStack() as stack:
         gateway, _, _, port = start_media(stack, root, args)
         rejected = check_admission(args, port, gateway.publisher)
-        # Deliberately unequal pulse intervals make a missing cue observable.
-        pulse = "lt(mod(t,3),0.22)+between(mod(t,3),0.6,0.82)+between(mod(t,3),1.6,1.82)"
-        # Audio first exercises per-track rescaling when video isn't stream zero.
-        command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                   "-re", "-f", "lavfi", "-i", f"color=black:s=320x240:r=15,drawbox=color=white:t=fill:enable='{pulse}'",
-                   "-re", "-f", "lavfi", "-i", f"aevalsrc='if({pulse},0.6*sin(2*PI*1000*t),0)':s=16000",
-                   "-map", "1:a", "-map", "0:v", "-c:a", "libopus", "-ar", "16000", "-ac", "1",
-                   "-b:a", "64k", "-frame_duration", "20", "-c:v", "libx264", "-bf", "0",
-                   "-g", "15", "-threads", "2", "-preset", "ultrafast", "-tune", "zerolatency",
-                   "-f", "mpegts", "-muxdelay", "0", "pipe:1"]
-        children = publish_encoded(stack, root, args, port, gateway.publisher, command, ("mpegts-av",))
+        children = publish_av(stack, root, args, port, gateway.publisher)
         wait_path(gateway, lambda p: p.get("ready"), children)
         token = gateway.credentials["reader"].read_text()
         uri = f"rtsp://reader:{token}@127.0.0.1:{port}/cam"

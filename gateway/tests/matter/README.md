@@ -305,6 +305,29 @@ decoded frame cadence and the relative cue times. This measures timing at the
 decoder. Physical microphone input, client presentation and Matter audio
 allocation have their own release checks.
 
+## Microphone allocation commands
+
+Prepare a fresh pinned SDK checkout with `--variant audio-control`, then build
+the camera example with the locked command above. This qualification variant
+adds a microphone format and the two allocation commands to the camera
+endpoint. Use the receiver environment with the pinned Node binary on `PATH`.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_audio_allocation.py \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" --device "$matter_sdk/target/debug/webrtc_camera" \
+  --gateway gateway/target/debug/nxrs-gateway-control --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx /absolute/path/to/mediamtx --runtime "$matter_runtime/audio-allocation" --interface en1 --ip <fixture-lan-ip>
+```
+
+An independent controller reads `MicrophoneCapabilities`, allocates the
+advertised live-view format, checks the device's stream table and releases
+the ID. The gateway source must advertise Opus with its 48 kHz RTP clock and
+supply an authorized H.264 keyframe. The fixture's configured capture format
+is 16 kHz mono, 16-bit. It admits a 64 kbit/s stream. The test repeats the
+request while the source is offline, after video-only replacement and after
+revoking the reader while publication continues. The report contains public
+format and control results. Audible playback, mute and privacy remain open.
+
 ## Two administrators and active fabric removal
 
 With the other test processes stopped, use the receiver Python environment,

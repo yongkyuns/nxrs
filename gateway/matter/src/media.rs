@@ -45,9 +45,16 @@ enum Message {
 pub struct Video {
     sender: broadcast::WeakSender<Message>,
     current: Arc<AtomicU64>,
+    opus_generation: Arc<AtomicU64>,
 }
 
 impl Video {
+    /// The authorized source with advancing video announces an Opus RTP track.
+    pub fn has_opus_track(&self) -> bool {
+        let generation = self.current.load(Ordering::Acquire);
+        generation != 0 && generation == self.opus_generation.load(Ordering::Acquire)
+    }
+
     pub fn subscribe(&self) -> Option<Pictures> {
         Some(Pictures {
             queue: self.sender.upgrade()?.subscribe(),
@@ -117,6 +124,7 @@ pub struct Reader {
     credentials: Credentials,
     sender: broadcast::Sender<Message>,
     current: Arc<AtomicU64>,
+    opus_generation: Arc<AtomicU64>,
 }
 
 impl Reader {
@@ -141,14 +149,17 @@ impl Reader {
         };
         let sender = broadcast::Sender::new(QUEUE);
         let current = Arc::new(AtomicU64::new(0));
+        let opus_generation = Arc::new(AtomicU64::new(0));
         let video = Video {
             sender: sender.downgrade(),
+            opus_generation: opus_generation.clone(),
             current: current.clone(),
         };
         Ok((
             Self {
                 url,
                 credentials,
+                opus_generation,
                 sender,
                 current,
             },
@@ -210,6 +221,9 @@ impl Reader {
             {
                 return Err(());
             }
+            let mut audio = session.streams().iter().filter(|s| s.media() == "audio");
+            let opus = audio.next().is_some_and(|s| s.encoding_name() == "opus" && s.clock_rate_hz() == 48_000)
+                && audio.next().is_none();
             let setup = SetupOptions::default()
                 .transport(Transport::Tcp(Default::default()))
                 .frame_format(FrameFormat::SIMPLE);
@@ -220,9 +234,9 @@ impl Reader {
                 .map_err(|_| ())?
                 .demuxed()
                 .map_err(|_| ())?;
-            Ok((media, index))
+            Ok((media, index, opus))
         };
-        let (mut media, track) = time::timeout(STARTUP, opening).await.map_err(|_| ())??;
+        let (mut media, track, opus) = time::timeout(STARTUP, opening).await.map_err(|_| ())??;
         let mut deadline = Instant::now() + SILENCE;
         let mut first = None;
         let mut previous = None;
@@ -257,6 +271,9 @@ impl Reader {
             let tick = frame.timestamp().timestamp();
             if previous.is_some_and(|p| tick <= p) {
                 return Err(());
+            }
+            if previous.is_none() && opus {
+                self.opus_generation.store(generation, Ordering::Release);
             }
             previous = Some(tick);
             let pts_90khz = u64::try_from(tick.checked_sub(*first.get_or_insert(tick)).ok_or(())?)

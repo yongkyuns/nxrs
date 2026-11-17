@@ -18,6 +18,7 @@ async fn slow_peer_resumes_on_new_keyframe_and_retired_frames_are_inaccessible()
     let current = Arc::new(AtomicU64::new(1));
     let video = Video {
         sender: sender.downgrade(),
+        opus_generation: Arc::new(AtomicU64::new(0)),
         current: current.clone(),
     };
     let mut fast = video.subscribe().unwrap();
@@ -46,6 +47,7 @@ async fn an_offline_source_cannot_keep_an_opening_peer_alive() {
     let sender = broadcast::Sender::new(2);
     let video = Video {
         sender: sender.downgrade(),
+        opus_generation: Arc::new(AtomicU64::new(0)),
         current: Arc::new(AtomicU64::new(0)),
     };
     let mut peer = video.subscribe().unwrap();

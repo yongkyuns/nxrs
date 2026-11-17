@@ -55,8 +55,10 @@ Implement and qualify these steps in order.
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio
    capability from the acquired format and negotiated encoding. Exercise
    allocation, deallocation, microphone mute, gain where supported, privacy
-   and active-session revocation. The pinned camera handler exposes preallocated
-   audio, but its audio allocation commands require implementation. Treat
+   and active-session revocation. The patched camera handler now admits,
+   deduplicates and releases the configured audio format in a commissioned
+   control test. Carry its allocated ID into the WebRTC session and retain the
+   reference until the peer has retired. Treat
    speaker/talkback as a separate capability with its own hardware.
 5. Use a known acoustic pattern at the physical microphone and a visible timing
    cue. Compare decoded samples and rendered video in Home Assistant and its
@@ -78,6 +80,13 @@ Two existing interfaces determine the work between capture and playback.
   from the Speaker feature and duplex capability. A microphone-only profile
   should deliver camera audio with the phone microphone disabled.
   [Matter Server audio selection](https://github.com/matter-js/matterjs-server/blob/fc8aa79611aebbe3090a30813e7211f707b2131f/packages/ws-controller/src/camera/streamPolicy.ts#L543-L629) · [Home Assistant camera signaling](https://github.com/home-assistant/core/blob/ff5d56b825a0fb66b03d01bc297d49e206cdaba3/homeassistant/components/matter/camera.py#L134-L175).
+
+The pinned Retina frame reader supports H.264 and lacks an Opus depacketizer.
+The current control test checks the authorized RTSP announcement. For actual
+WebRTC audio, read both tracks through one RTSP session, preserve their separate
+RTP clocks and map both to a common reference with sender reports. Verify the
+generated light and tone after Matter negotiation, including video-only viewers
+sharing that source. [Retina codec dispatch](https://docs.rs/retina/0.4.21/src/retina/codec/mod.rs.html) · [RTP sender reports](https://www.rfc-editor.org/rfc/rfc3550#section-6.4.1).
 
 Exercise stop, mute and immediate reopen with every capture buffer in flight.
 The ESP driver calls back with `-ECANCELED` for active and pending buffers
