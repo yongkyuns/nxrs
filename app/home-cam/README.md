@@ -75,6 +75,11 @@ steps on the same owner. Each exchange is limited to five seconds, and the
 short-lived lease still accounts for the original observation's age and fails
 closed on expiry.
 
+After 45 minutes, the same TLS worker requests new one-hour credentials for
+the existing camera and gateway keys. The camera and gateway validate the
+renewal before using its deadlines. The active media transport, camera, PICO,
+and SSH keep their owners.
+
 Offline transitions retire the connection, including a complete offline/online
 cycle during a native call. Stop and Drop join TLS before releasing camera
 storage. Explicit shutdown can wait for an in-progress cryptographic/time call;

@@ -7,7 +7,7 @@ use enrollment::{Commission, Enrollment};
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateRevocationListParams,
     CertificateSigningRequestParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyIdMethod,
-    KeyPair, KeyUsagePurpose, SanType, SerialNumber, PKCS_ECDSA_P256_SHA256,
+    KeyPair, KeyUsagePurpose, PublicKeyData, SanType, SerialNumber, PKCS_ECDSA_P256_SHA256,
 };
 use rustls::{
     pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
@@ -51,20 +51,23 @@ fn observe_clock(previous: &AtomicU64) -> Result<u64> {
     Ok(epoch)
 }
 
-async fn request_len(
+async fn request_header(
     tls: &mut tokio_rustls::server::TlsStream<TcpStream>,
     token: &[u8],
-) -> Result<usize> {
+) -> Result<(bool, usize)> {
     let mut header = [0; 38];
     tls.read_exact(&mut header).await?;
-    if &header[..4] != enrollment::MAGIC || header[4..36].ct_eq(token).unwrap_u8() != 1 {
+    let renew = &header[..4] == enrollment::RENEW_MAGIC;
+    if (!renew && &header[..4] != enrollment::MAGIC)
+        || header[4..36].ct_eq(token).unwrap_u8() != 1
+    {
         return Err(Error::Authentication);
     }
     let n = u16::from_be_bytes([header[36], header[37]]) as usize;
-    if n > enrollment::MAX_CSR {
+    if n > enrollment::MAX_CSR || (renew && n == 0) {
         return Err(Error::Protocol);
     }
-    Ok(n)
+    Ok((renew, n))
 }
 
 async fn renew_clock(
@@ -75,9 +78,9 @@ async fn renew_clock(
     loop {
         // Renewal normally happens after 15 seconds. Retire idle peers and
         // bound a partially sent request without blocking new enrollments.
-        if timeout(Duration::from_secs(25), request_len(&mut tls, &token))
+        if timeout(Duration::from_secs(25), request_header(&mut tls, &token))
             .await
-            .map_err(|_| Error::Timeout)?? != 0
+            .map_err(|_| Error::Timeout)?? != (false, 0)
         {
             return Err(Error::Protocol);
         }
@@ -223,8 +226,13 @@ struct Authority {
     token: Zeroizing<Vec<u8>>,
     generation: u64,
     clock: Arc<AtomicU64>,
-    active: Option<(watch::Sender<bool>, JoinHandle<Result<()>>)>,
+    active: Option<Active>,
     grant_directory: Option<PathBuf>,
+}
+struct Active {
+    stop: watch::Sender<bool>,
+    task: JoinHandle<Result<()>>,
+    policy: crate::tls::Prepared,
 }
 struct Staging(PathBuf);
 impl Drop for Staging {
@@ -302,9 +310,9 @@ impl Authority {
         ))
     }
     async fn retire(&mut self) -> Result<()> {
-        if let Some((stop, task)) = self.active.as_mut() {
-            let _ = stop.send(true);
-            let result = task.await;
+        if let Some(active) = self.active.as_mut() {
+            let _ = active.stop.send(true);
+            let result = (&mut active.task).await;
             self.active = None;
             if matches!(result, Err(_) | Ok(Err(Error::Cleanup))) {
                 return Err(Error::Cleanup);
@@ -343,10 +351,16 @@ impl Authority {
             return Ok(());
         }
         let config = self.config_for(self.generation)?;
-        match crate::check(&config) {
-            Ok(()) => {
+        config.validate()?;
+        let _token = Zeroizing::new(config.token()?);
+        match crate::tls::Prepared::load(&config) {
+            Ok(policy) => {
                 let (stop, receiver) = watch::channel(false);
-                self.active = Some((stop, tokio::spawn(runner::run(config, receiver))));
+                self.active = Some(Active {
+                    stop,
+                    task: tokio::spawn(runner::run_prepared(config, policy.clone(), receiver)),
+                    policy,
+                });
             }
             Err(Error::Authentication) => {} // The camera's next renewal supplies a fresh grant.
             Err(error) => return Err(error),
@@ -359,6 +373,7 @@ impl Authority {
         csr: &[u8],
         epoch: u64,
         address: std::net::Ipv4Addr,
+        renew: bool,
     ) -> Result<Vec<u8>> {
         if !(address.is_private() || address.is_loopback()) {
             return Err(Error::Authentication);
@@ -370,6 +385,17 @@ impl Authority {
         if request.public_key.algorithm() != &PKCS_ECDSA_P256_SHA256 {
             return Err(Error::Authentication);
         }
+        let client_key = if renew {
+            let previous = self.grant_directory.as_ref().ok_or(Error::Authentication)?;
+            if config::private_read(&previous.join("camera.ip"), 4)? != address.octets() {
+                return Err(Error::Authentication);
+            }
+            crate::tls::check_public_key(&previous.join("camera.pem"), request.public_key.der_bytes())?;
+            let pem = Zeroizing::new(config::private_read(&previous.join("client.key"), 32_768)?);
+            configuration(KeyPair::from_pem(configuration(std::str::from_utf8(&pem))?))?
+        } else {
+            configuration(KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256))?
+        };
         // Ignore all caller-requested names, usages, constraints and validity.
         let names = self.config.bootstrap.as_ref().ok_or(Error::Configuration)?;
         let own_uri = format!("urn:nxrs:camera:{}:{}", names.site_id, names.camera_id);
@@ -388,7 +414,6 @@ impl Authority {
             .subject_alt_names
             .push(SanType::IpAddress(address.into()));
         let own = configuration(request.signed_by(&self.issuer))?;
-        let client_key = configuration(KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256))?;
         let peer = configuration(
             leaf(&peer_uri, epoch, generation * 2 + 1, true)?.signed_by(&client_key, &self.issuer),
         )?;
@@ -432,8 +457,14 @@ impl Authority {
             let bytes = Zeroizing::new(bytes);
             write_new(&staging.0.join(name), &bytes)?;
         }
-        crate::check(&self.config_in(generation, &staging.0)?)?;
-        self.retire().await?; // A replacement grant cannot overlap the old ingest/encoder.
+        let config = self.config_in(generation, &staging.0)?;
+        config.validate()?;
+        let _token = Zeroizing::new(config.token()?);
+        let policy = crate::tls::Prepared::load(&config)?;
+        if !renew {
+            // A replacement identity cannot overlap the old ingest/encoder.
+            self.retire().await?;
+        }
         let directory = self.directory.join(format!("grant-{generation}"));
         // An uncommitted orphan from an interrupted prior attempt is never active.
         if directory.exists() {
@@ -449,6 +480,11 @@ impl Authority {
         self.generation = generation;
         if let Some(previous) = self.grant_directory.replace(directory) {
             fs::remove_dir_all(previous)?;
+        }
+        if renew {
+            if let Some(active) = &self.active {
+                active.policy.renew(&policy)?;
+            }
         }
         Ok(encoded)
     }
@@ -572,23 +608,28 @@ async fn execute(
                 let mut tls=acceptor.accept(socket).await.map_err(|_|Error::Authentication)?;
                 #[cfg(feature="probe")]
                 eprintln!("nxrs-camera-ingest: bootstrap handshake ms={}",handshake_started.elapsed().as_millis());
-                let n = request_len(&mut tls, &authority.token).await?;
+                let (renew, n) = request_header(&mut tls, &authority.token).await?;
                 let mut csr=vec![0;n];tls.read_exact(&mut csr).await?;
                 retire_clock(&mut clock_session).await;
                 let epoch=observe_clock(&authority.clock)?;
                 let certificate=if n==0 { vec![] } else {
                     // A reboot changes the volatile key. Join the obsolete
                     // uploader before publishing/retrying against a new grant.
-                    if cancel_upload(&mut upload).await? { image=None; }
-                    let certificate=authority.enroll(&csr,epoch,address).await?;
-                    if let Some(image)=&image { upload=Some(start_upload(&authority,image)?); }
-                    else { authority.resume()?; }
+                    if !renew && cancel_upload(&mut upload).await? { image=None; }
+                    let certificate=authority.enroll(&csr,epoch,address,renew).await?;
+                    if !renew {
+                        if let Some(image)=&image { upload=Some(start_upload(&authority,image)?); }
+                        else { authority.resume()?; }
+                    } else if image.is_none() && authority.active.as_ref().is_none_or(|a| a.task.is_finished()) {
+                        authority.retire().await?;
+                        authority.resume()?;
+                    }
                     certificate
                 };
                 let response_epoch=observe_clock(&authority.clock)?;
                 let mut bytes=Vec::new();enrollment::response(&mut bytes,response_epoch,&certificate)?;
                 tls.write_all(&bytes).await?;tls.flush().await?;
-                if n == 0 {
+                if n == 0 || renew {
                     clock_session = Some(tokio::spawn(renew_clock(
                         tls, authority.token.clone(), authority.clock.clone(),
                     )));
@@ -664,7 +705,8 @@ mod tests {
             .enroll(
                 b"invalid CSR",
                 now().unwrap(),
-                std::net::Ipv4Addr::LOCALHOST
+                std::net::Ipv4Addr::LOCALHOST,
+                false,
             )
             .await
             .is_err());
@@ -679,6 +721,7 @@ mod tests {
                 request.as_bytes(),
                 now().unwrap(),
                 "127.0.0.2".parse().unwrap(),
+                false,
             )
             .await
             .unwrap();
@@ -700,13 +743,30 @@ mod tests {
         authority.retire().await.unwrap();
         let (release, wait) = tokio::sync::oneshot::channel();
         let (stop, _) = watch::channel(false);
-        authority.active = Some((
+        let policy = crate::tls::Prepared::load(&authority.config_for(1).unwrap()).unwrap();
+        authority.active = Some(Active {
             stop,
-            tokio::spawn(async {
+            task: tokio::spawn(async {
                 let _ = wait.await;
                 Ok(())
             }),
+            policy,
+        });
+        let other = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let other = CertificateParams::new(Vec::<String>::new()).unwrap()
+            .serialize_request(&other).unwrap().pem().unwrap();
+        let address = "127.0.0.2".parse().unwrap();
+        assert!(matches!(
+            authority.enroll(other.as_bytes(), now().unwrap(), address, true).await,
+            Err(Error::Authentication)
         ));
+        assert_eq!(authority.generation, 1);
+        let renewed = authority.enroll(request.as_bytes(), now().unwrap(), address, true).await.unwrap();
+        let renewed = Enrollment::decode(&renewed).unwrap();
+        assert_ne!(renewed.own, grant.own);
+        assert_ne!(renewed.approved_peer, grant.approved_peer);
+        assert_eq!(authority.generation, 2);
+        assert!(!authority.active.as_ref().unwrap().task.is_finished());
         assert!(timeout(Duration::from_millis(5), authority.retire())
             .await
             .is_err());
@@ -715,7 +775,7 @@ mod tests {
         authority.retire().await.unwrap();
         assert!(authority.active.is_none());
         let (restarted, _) = Authority::load(config).unwrap();
-        assert_eq!(restarted.generation, 1);
+        assert_eq!(restarted.generation, 2);
         drop(restarted);
         for (outcome, expected) in [
             (Ok(()), Ok(true)),

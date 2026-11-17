@@ -13,6 +13,7 @@ enum Case {
     Bulk,
     ChangedRetry,
     Refresh,
+    Renew,
     Rollback,
     ChangedEnrollment,
     Http,
@@ -162,6 +163,42 @@ fn transaction(
             let directory = PathBuf::from(std::env::args_os().nth(1).unwrap());
             bootstrap::exchange(identity, &directory, 3000)?;
         }
+        if matches!(case, Case::Renew) {
+            let directory = PathBuf::from(std::env::args_os().nth(1).unwrap());
+            let revocations = public(directory.join("renewed-crl.der"));
+            let wrong_peer = public(directory.join("wrong-peer.der"));
+            // Model a time observation beyond the old CRL deadline.
+            let renewed = tls::TimeLease::from_trusted(epoch + 65, Duration::from_secs(5))?;
+            assert_eq!(
+                identity.renew(
+                    tls::Certificates {
+                        approved_peer: &wrong_peer,
+                        revocations: &revocations,
+                        ..certs
+                    },
+                    &renewed,
+                    || Ok(())
+                ),
+                Err(tls::Error::Authentication),
+            );
+            let mut steps = 0;
+            identity.renew(
+                tls::Certificates {
+                    revocations: &revocations,
+                    ..certs
+                },
+                &renewed,
+                || {
+                    steps += 1;
+                    Ok(())
+                },
+            )?;
+            assert!(
+                steps > 4,
+                "renewal validation must yield inside SDK verification"
+            );
+            connection.refresh_time(renewed)?;
+        }
         if matches!(case, Case::Rollback) {
             let rollback = tls::TimeLease::from_trusted(epoch - 10, Duration::from_secs(5))?;
             assert_eq!(connection.refresh_time(rollback), Err(tls::Error::Time));
@@ -262,6 +299,7 @@ fn main() {
         Some("bulk") => Case::Bulk,
         Some("changed-retry") => Case::ChangedRetry,
         Some("refresh") => Case::Refresh,
+        Some("renew") => Case::Renew,
         Some("rollback") => Case::Rollback,
         Some("changed-enrollment") => Case::ChangedEnrollment,
         Some("http") => Case::Http,

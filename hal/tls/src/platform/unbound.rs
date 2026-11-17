@@ -16,7 +16,7 @@ pub fn open() -> Result<Identity, Error> {
     Err(Error::Unsupported)
 }
 impl Identity {
-    pub fn request(&mut self, _: &str, output: &mut [u8]) -> Result<usize, Error> {
+    pub fn request(&self, _: &str, output: &mut [u8]) -> Result<usize, Error> {
         output.fill(0);
         Err(Error::Unsupported)
     }
@@ -24,6 +24,14 @@ impl Identity {
         Err(Error::Unsupported)
     }
     pub fn configure(&mut self, _: Certificates<'_>, _: &TimeLease) -> Result<(), Error> {
+        Err(Error::Unsupported)
+    }
+    pub fn renew(
+        &self,
+        _: Certificates<'_>,
+        _: &TimeLease,
+        _: impl FnMut() -> Result<(), Error>,
+    ) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
     pub fn accept<'a>(&'a self, _: TcpStream, _: TimeLease) -> Result<Connection<'a>, Error> {

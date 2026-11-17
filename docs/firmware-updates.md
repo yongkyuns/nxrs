@@ -307,9 +307,15 @@ image. This keeps crypto/network delay out of a partially sent JPEG without
 relaxing the gateway's freshness limit. Requests have a 5-second total budget
 and measured delivery uncertainty. Cloning a lease preserves its original expiry;
 backward disjoint observations fail closed. Exact-peer mutual TLS still guards
-media and updates. The gateway host's UTC must be trustworthy. Camera sessions
-renew before their one-hour grant expires and retry unavailable enrollment
-within the existing Wi-Fi session. Losing time closes the authenticated stream.
+media and updates. The gateway host's UTC must be trustworthy. The camera
+requests fresh certificates and revocation data after 45 minutes, before the
+one-hour grant expires. Renewal proves possession of the existing camera key
+over the pinned bootstrap channel and retains the gateway key. Both sides
+validate the refreshed grant and apply it to the active TLS transport. The
+camera, detector, and gateway publisher keep running. Initial enrollment or
+replacement of a camera key still retires the prior grant and its publisher.
+Losing trusted time or reaching the grant deadline closes the authenticated
+stream. Seamless renewal requires the updated camera and gateway together.
 
 `gateway/tests/network_enrollment.py` tests the actual SDK camera and Rust gateway
 with synthetic media: enrollment, large JPEGs with a bounded clock-refresh stall,

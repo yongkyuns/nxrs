@@ -126,7 +126,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 }
                 return Ok(context);
             }
-            let mut identity = tls::open().map_err(home_cam::Error::Tls)?;
+            let identity = tls::open().map_err(home_cam::Error::Tls)?;
             let mut csr = [0; 1024];
             let size = identity.request("fixture", &mut csr).unwrap();
             std::fs::write(root.join("request.csr"), &csr[..size]).unwrap();
@@ -336,7 +336,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         drop(live);
     }
     // Even a failed camera stop must have joined TLS and released its SDK owner.
-    let mut replacement = tls::open().expect("TLS worker joined and released native owner");
+    let replacement = tls::open().expect("TLS worker joined and released native owner");
     let mut csr = [0; 1024];
     let count = replacement.request("replacement", &mut csr).unwrap();
     std::fs::write(directory.join("replacement.csr"), &csr[..count]).unwrap();

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 const RECORD: usize = 4096;
 const HANDSHAKE: Duration = Duration::from_secs(5);
+const VERIFY_STEP_OPS: u32 = 64;
 // RFC 5280 id-kp-serverAuth/clientAuth OID contents, parsed by the SDK.
 const SERVER_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x01";
 const CLIENT_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x02";
@@ -45,6 +46,36 @@ fn timed(identity: &Identity, epoch: i64, action: impl FnOnce() -> c_int) -> Res
     result
 }
 
+fn verify(
+    identity: &Identity,
+    epoch: i64,
+    restart: Option<Opaque>,
+    progress: &mut impl FnMut() -> Result<(), Error>,
+    mut operation: impl FnMut(*mut c_void) -> c_int,
+) -> Result<(), Error> {
+    loop {
+        progress()?;
+        let status = timed(identity, epoch, || {
+            let Some(restart) = &restart else {
+                return operation(ptr::null_mut());
+            };
+            // TF-PSA's step limit is global. Restore it before running media
+            // or any other SDK operation on this single-threaded owner.
+            let previous = unsafe { psa_interruptible_get_max_ops() };
+            unsafe { psa_interruptible_set_max_ops(VERIFY_STEP_OPS) };
+            let status = operation(restart.pointer());
+            unsafe { psa_interruptible_set_max_ops(previous) };
+            status
+        })?;
+        if status == 0 {
+            return Ok(());
+        }
+        if restart.is_none() || status != unsafe { tls_ecc_in_progress() } {
+            return Err(Error::Authentication);
+        }
+    }
+}
+
 fn bytes(owner: &Opaque, view: View) -> Result<&[u8], Error> {
     let mut size = 0;
     // SAFETY: each caller pairs a parsed/initialized SDK owner with its getter.
@@ -54,6 +85,26 @@ fn bytes(owner: &Opaque, view: View) -> Result<&[u8], Error> {
         return Err(Error::Authentication);
     }
     Ok(unsafe { std::slice::from_raw_parts(pointer, size) })
+}
+
+fn sha256(identity: &Identity, input: &[u8]) -> Result<[u8; 32], Error> {
+    let mut fingerprint = [0; 32];
+    let mut length = 0;
+    // SAFETY: bounded buffers remain live for the synchronous SDK hash.
+    identity.sdk(|| unsafe {
+        psa_hash_compute(
+            tls_sha256_algorithm(),
+            input.as_ptr(),
+            input.len(),
+            fingerprint.as_mut_ptr(),
+            fingerprint.len(),
+            &mut length,
+        )
+    })?;
+    if length != fingerprint.len() {
+        return Err(Error::Crypto);
+    }
+    Ok(fingerprint)
 }
 
 fn uri(owner: &Opaque, expected: &str) -> Result<(), Error> {
@@ -93,7 +144,13 @@ struct Roots {
     crl: Opaque,
 }
 impl Roots {
-    fn parse(identity: &Identity, certs: Certificates<'_>, epoch: i64) -> Result<Self, Error> {
+    fn parse(
+        identity: &Identity,
+        certs: Certificates<'_>,
+        epoch: i64,
+        previous: Option<&Self>,
+        progress: &mut impl FnMut() -> Result<(), Error>,
+    ) -> Result<Self, Error> {
         certs.policy.validate()?;
         if [certs.own, certs.issuer, certs.approved_peer]
             .iter()
@@ -103,21 +160,7 @@ impl Roots {
         {
             return Err(Error::Capacity);
         }
-        let mut fingerprint = [0; 32];
-        let mut length = 0;
-        // SAFETY: initialized SDK owner; bounded input/output remain live for
-        // this synchronous hash operation. The expected pin is caller supplied.
-        identity.sdk(|| unsafe {
-            psa_hash_compute(
-                tls_sha256_algorithm(),
-                certs.issuer.as_ptr(),
-                certs.issuer.len(),
-                fingerprint.as_mut_ptr(),
-                fingerprint.len(),
-                &mut length,
-            )
-        })?;
-        if length != fingerprint.len() || fingerprint != certs.policy.issuer_sha256 {
+        if sha256(identity, certs.issuer)? != certs.policy.issuer_sha256 {
             return Err(Error::Authentication);
         }
         // SAFETY: exact SDK layouts, paired constructors/destructors, fresh contexts.
@@ -179,6 +222,40 @@ impl Roots {
         {
             return Err(Error::Authentication);
         }
+        uri(&roots.own, &certs.policy.own_uri)?;
+        uri(&roots.peer, &certs.policy.peer_uri)?;
+        if let Some(previous) = previous {
+            for (old, new) in [(&previous.own, &roots.own), (&previous.peer, &roots.peer)] {
+                if bytes(old, tls_crt_public_key)? != bytes(new, tls_crt_public_key)? {
+                    return Err(Error::Authentication);
+                }
+            }
+        }
+        // The single issuer and signed CRL apply to both leaves. Check that
+        // signature once and check each leaf's serial with the SDK below.
+        // `cutoff` checks the validity of all four documents before use.
+        let digest = sha256(identity, bytes(&roots.crl, tls_crl_signed_bytes)?)?;
+        let signature = bytes(&roots.crl, tls_crl_signature)?;
+        let restart = previous
+            .map(|_| unsafe {
+                Opaque::new(
+                    tls_pk_restart_size(),
+                    tls_pk_restart_align(),
+                    mbedtls_pk_restart_init,
+                    mbedtls_pk_restart_free,
+                )
+            })
+            .transpose()?;
+        verify(identity, epoch, restart, progress, |restart| unsafe {
+            tls_pk_verify_sha256(
+                tls_crt_pk(roots.issuer.pointer()),
+                digest.as_ptr(),
+                digest.len(),
+                signature.as_ptr(),
+                signature.len(),
+                restart,
+            )
+        })?;
         for (owner, purpose) in [(&roots.own, SERVER_AUTH), (&roots.peer, CLIENT_AUTH)] {
             if bytes(owner, tls_crt_issuer)? != bytes(&roots.issuer, tls_crt_subject)?
                 || bytes(owner, tls_crt_eku)? != purpose
@@ -186,32 +263,36 @@ impl Roots {
                     tls_crt_ca(owner.pointer()) != 0
                         || tls_crt_usage(owner.pointer()) != tls_sign_usage()
                         || !tls_crt_eku_next(owner.pointer()).is_null()
+                        || mbedtls_x509_crt_is_revoked(owner.pointer(), roots.crl.pointer()) != 0
                 }
             {
                 return Err(Error::Authentication);
             }
+            let restart = previous
+                .map(|_| unsafe {
+                    Opaque::new(
+                        tls_crt_restart_size(),
+                        tls_crt_restart_align(),
+                        mbedtls_x509_crt_restart_init,
+                        mbedtls_x509_crt_restart_free,
+                    )
+                })
+                .transpose()?;
             let mut flags = u32::MAX;
-            let status = timed(identity, epoch, || unsafe {
-                mbedtls_x509_crt_verify(
-                    owner.pointer(),
-                    roots.issuer.pointer(),
-                    roots.crl.pointer(),
-                    ptr::null(),
-                    &mut flags,
-                    None,
-                    ptr::null_mut(),
-                )
+            verify(identity, epoch, restart, progress, |restart| unsafe {
+                tls_crt_verify(owner.pointer(), roots.issuer.pointer(), &mut flags, restart)
             })?;
-            if status != 0 || flags != 0 {
+            if flags != 0 {
                 return Err(Error::Authentication);
             }
         }
-        let pk = identity.pk.as_ref().ok_or(Error::Poisoned)?;
-        uri(&roots.own, &certs.policy.own_uri)?;
-        uri(&roots.peer, &certs.policy.peer_uri)?;
-        identity.sdk(|| unsafe {
-            mbedtls_pk_check_pair(tls_crt_pk(roots.own.pointer()), pk.pointer())
-        })?;
+        if previous.is_none() {
+            let pk = identity.pk.as_ref().ok_or(Error::Poisoned)?;
+            identity.sdk(|| unsafe {
+                mbedtls_pk_check_pair(tls_crt_pk(roots.own.pointer()), pk.pointer())
+            })?;
+        }
+        progress()?;
         Ok(roots)
     }
     fn future(&self, identity: &Identity, epoch: i64) -> Result<bool, Error> {
@@ -283,9 +364,24 @@ impl Enrollment {
         identity: &Identity,
         certificates: Certificates<'_>,
         time: &TimeLease,
+        previous: Option<&Self>,
+        progress: &mut impl FnMut() -> Result<(), Error>,
     ) -> Result<Self, Error> {
+        if let Some(previous) = previous {
+            if certificates.issuer != bytes(&previous.roots.issuer, tls_crt_raw)? {
+                return Err(Error::Authentication);
+            }
+            uri(&previous.roots.own, &certificates.policy.own_uri)?;
+            uri(&previous.roots.peer, &certificates.policy.peer_uri)?;
+        }
         let (_, upper, _) = time.sample()?;
-        let roots = Roots::parse(identity, certificates, upper)?;
+        let roots = Roots::parse(
+            identity,
+            certificates,
+            upper,
+            previous.map(|p| &p.roots),
+            progress,
+        )?;
         // SAFETY: exact SDK layout and matching initialization/free operations.
         let config = unsafe {
             Opaque::new(
@@ -407,9 +503,9 @@ unsafe extern "C" fn recv(context: *mut c_void, output: *mut u8, size: usize) ->
     }
 }
 
-enum Peer<'a> {
+enum Peer {
     Enrolled {
-        enrollment: &'a Enrollment,
+        enrollment: Rc<Enrollment>,
         time: TimeLease,
     },
     Pinned {
@@ -417,7 +513,7 @@ enum Peer<'a> {
         sha256: [u8; 32],
     },
 }
-impl Peer<'_> {
+impl Peer {
     fn config(&self) -> &Opaque {
         match self {
             Self::Enrolled { enrollment, .. } => &enrollment.config,
@@ -438,7 +534,7 @@ impl Peer<'_> {
 /// latency before placing it on a camera capture thread. No worker is implied.
 pub struct Connection<'a> {
     ssl: Opaque,
-    peer: Peer<'a>,
+    peer: Peer,
     socket: Box<Socket>,
     pending: Box<[u8; RECORD]>,
     pending_size: usize,
@@ -465,7 +561,11 @@ impl Identity {
         stream: TcpStream,
         time: TimeLease,
     ) -> Result<Connection<'a>, Error> {
-        let enrollment = self.enrollment.as_ref().ok_or(Error::InvalidInput)?;
+        let enrollment = self
+            .enrollment
+            .borrow()
+            .clone()
+            .ok_or(Error::InvalidInput)?;
         let until = enrollment.roots.cutoff(self, &time)?;
         self.connection(stream, Peer::Enrolled { enrollment, time }, until)
     }
@@ -529,7 +629,7 @@ impl Identity {
     fn connection<'a>(
         &'a self,
         stream: TcpStream,
-        peer: Peer<'a>,
+        peer: Peer,
         until: Instant,
     ) -> Result<Connection<'a>, Error> {
         let (lower, _, now) = peer.sample()?;
@@ -677,16 +777,21 @@ impl Connection<'_> {
         time.raise_lower(self.last_epoch)
             .map_err(|e| self.fail(e))?;
         let (lower, _, _) = time.sample()?;
-        let Peer::Enrolled { enrollment, .. } = &self.peer else {
+        let Peer::Enrolled { time: current, .. } = &mut self.peer else {
             return Err(Error::InvalidInput);
         };
-        self.until = enrollment
-            .roots
-            .cutoff(self.identity, &time)
-            .map_err(|e| self.fail(e))?;
-        if let Peer::Enrolled { time: current, .. } = &mut self.peer {
-            *current = time;
-        }
+        let cutoff = self
+            .identity
+            .enrollment
+            .borrow()
+            .as_ref()
+            .ok_or(Error::InvalidInput)
+            .and_then(|enrollment| enrollment.roots.cutoff(self.identity, &time));
+        self.until = match cutoff {
+            Ok(until) => until,
+            Err(error) => return Err(self.fail(error)),
+        };
+        *current = time;
         self.last_epoch = lower;
         Ok(())
     }
@@ -808,7 +913,7 @@ mod tests {
             fn tls_test_clock_probe(expected: i64) -> c_int;
         }
         let _serial = super::super::tests::serial();
-        let mut identity = crate::open().unwrap();
+        let identity = crate::open().unwrap();
         let epoch = 1_i64 << 34;
         assert_eq!(
             timed(&identity, epoch, || unsafe { tls_test_clock_probe(epoch) }),
