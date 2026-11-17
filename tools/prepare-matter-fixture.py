@@ -17,19 +17,22 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True, help="fresh clean rs-matter checkout")
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
-    parser.add_argument("--variant", choices=["camera", "bridge", "rtsp", "audio-control"], default="camera",
-                        help="select the camera example, bridged occupancy, bridged RTSP input, or microphone allocation qualification")
+    parser.add_argument("--variant", choices=["camera", "bridge", "rtsp", "audio-control", "audio-playback"], default="camera")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
     sdk_patches = ["rs-matter-camera.patch"]
-    if args.variant in ("bridge", "rtsp", "audio-control"):
+    if args.variant in ("bridge", "rtsp", "audio-control", "audio-playback"):
         sdk_patches.append("bridge-topology.patch")
-    if args.variant in ("rtsp", "audio-control"):
+    if args.variant in ("rtsp", "audio-control", "audio-playback"):
         sdk_patches.append("live-media.patch")
-    if args.variant == "audio-control":
+    if args.variant in ("audio-control", "audio-playback"):
         sdk_patches.append("audio-control.patch")
-    for name in (*sdk_patches, "str0m-rejected-media.patch", "Cargo.lock"):
+    engine_patches = ["str0m-rejected-media.patch"]
+    if args.variant == "audio-playback":
+        sdk_patches.append("audio-playback.patch")
+        engine_patches.append("str0m-sync.patch")
+    for name in (*sdk_patches, *engine_patches, "Cargo.lock"):
         if hashlib.sha256((FIXTURE / name).read_bytes()).hexdigest() != pins["sha256"][name]:
             raise SystemExit("fixture digest mismatch: " + name)
     if hashlib.sha256(args.webrtc_archive.read_bytes()).hexdigest() != pins["str0m"]["archive_sha256"]:
@@ -46,8 +49,8 @@ def main():
     engine = "nxrs-fixture-deps/str0m-" + pins["str0m"]["version"]
     with tarfile.open(args.webrtc_archive) as archive:
         archive.extractall(sdk / "nxrs-fixture-deps", filter="data")
-    subprocess.run([*git, "apply", "--directory=" + engine,
-                    str(FIXTURE / "str0m-rejected-media.patch")], check=True)
+    for name in engine_patches:
+        subprocess.run([*git, "apply", "--directory=" + engine, str(FIXTURE / name)], check=True)
     for name in sdk_patches:
         subprocess.run([*git, "apply", str(FIXTURE / name)], check=True)
     # Ordinary declared Cargo dependency. Its path is local build input, not a

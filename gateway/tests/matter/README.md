@@ -321,12 +321,42 @@ endpoint. Use the receiver environment with the pinned Node binary on `PATH`.
 
 An independent controller reads `MicrophoneCapabilities`, allocates the
 advertised live-view format, checks the device's stream table and releases
-the ID. The gateway source must advertise Opus with its 48 kHz RTP clock and
-supply an authorized H.264 keyframe. The fixture's configured capture format
+the ID. The paired gateway reader requires timed Opus packets and an authorized
+H.264 keyframe. The fixture's configured capture format
 is 16 kHz mono, 16-bit. It admits a 64 kbit/s stream. The test repeats the
 request while the source is offline, after video-only replacement and after
 revoking the reader while publication continues. The report contains public
-format and control results. Audible playback, mute and privacy remain open.
+format and control results.
+
+## Matter microphone playback
+
+Prepare and build the SDK with `--variant audio-playback`. Run the microphone
+allocation command above with `--playback` and a fresh runtime directory.
+The independent receiver negotiates both offer directions, decodes a known
+1 kHz pulse train alongside changing images, and attempts to deallocate the
+microphone during playback. A third active session loses both tracks after
+reader revocation while the publisher continues.
+
+For the browser trial, start the isolated Home Assistant and Matter Server
+described above with their commissioned test enrollment. Leave the test node
+stopped. The following command starts it with its saved state and a fresh
+gateway, opens the normal camera dialog, and tears down its own processes.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_audio_dialog.py \
+  --state "$matter_runtime/state" --device "$matter_sdk/target/debug/webrtc_camera" \
+  --gateway gateway/target/debug/nxrs-gateway-control --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx /absolute/path/to/mediamtx --runtime "$matter_runtime/audio-dialog" \
+  --browser-python "$home_assistant_venv/bin/python" --storage-state "$matter_runtime/browser.json" \
+  --camera camera.camera
+```
+
+The browser checks incoming H.264 and Opus, one synchronization context with
+distinct tracks, 60 presented images and at least six light and tone pulses.
+It measures the tone from the incoming audio track with Web Audio and the
+light from the displayed video. Their observed time difference includes
+browser scheduling and the analyser window. Physical microphone capture,
+speaker/display timing, iPhone playback, mute and privacy have separate gates.
 
 ## Two administrators and active fabric removal
 

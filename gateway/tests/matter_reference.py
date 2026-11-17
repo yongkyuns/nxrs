@@ -75,8 +75,11 @@ class Controller:
 
 
 @contextlib.asynccontextmanager
-async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, request_end=True):
+async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, request_end=True,
+                        audio_observer=None):
     peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+    if audio_observer:
+        peer.addTransceiver("audio", direction="recvonly")
     receiver = peer.addTransceiver("video", direction="recvonly")
     receiver.setCodecPreferences([
         codec for codec in RTCRtpSender.getCapabilities("video").codecs
@@ -132,6 +135,8 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
         if track.kind == "video":
             video_track = track
             tasks.append(asyncio.create_task(receive(track)))
+        elif track.kind == "audio" and audio_observer:
+            tasks.append(asyncio.create_task(audio_observer(track)))
 
     async def signalling():
         pending_candidates = []
@@ -170,7 +175,7 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
     signal_task = asyncio.create_task(signalling())
     tasks.append(signal_task)
     try:
-        args = dict(**target, stream_usage="LiveView", audio=False,
+        args = dict(**target, stream_usage="LiveView", audio={} if audio_observer else False,
                     allow_eviction=False, client_session_key=client_session_key)
         if flow == "receiver-offer":
             await peer.setLocalDescription(await peer.createOffer())

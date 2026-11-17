@@ -1,0 +1,578 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -13,7 +13,7 @@
+  *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  *    See the License for the specific language governing permissions and
+  *    limitations under the License.
+- */
++*/
+
+ //! An example Matter Camera device that bridges a real `str0m` WebRTC peer
+ //! into the Matter `WebRTCTransportProvider` (0x0553) cluster.
+@@ -72,9 +72,9 @@
+ use core::cell::RefCell;
+ use core::pin::pin;
+
++use nxrs_gateway_matter::media::{AccessUnit, Audio, AudioPacket, Pictures, Reader, Video};
+ use std::net::{SocketAddr, TcpListener, UdpSocket};
+ use std::rc::Rc;
+-use nxrs_gateway_matter::media::{AccessUnit, Pictures, Reader, Video};
+ use std::time::Instant;
+
+ use async_channel::{Receiver, Sender};
+@@ -141,7 +141,7 @@
+
+ use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
+ use str0m::format::Codec;
+-use str0m::media::{Direction, MediaKind, MediaTime, Mid, Pt};
++use str0m::media::{Direction, Frequency, MediaKind, MediaTime, Mid, Pt};
+ use str0m::net::{Protocol, Receive};
+ use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
+
+@@ -291,6 +291,9 @@
+ struct NewSession {
+     id: u16,
+     local_video_mid: Option<Mid>,
++    local_audio_mid: Option<Mid>,
++    sound: Option<Audio>,
++    refs: StreamRefs,
+     rtc: Rtc,
+     socket: Async<UdpSocket>,
+     local_addr: SocketAddr,
+@@ -317,6 +320,25 @@
+     pending_offer: RefCell<Option<(SdpPendingOffer, NewSession)>>,
+ }
+
++type CamAv = CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>;
++
++// The pending offer or the running peer owns these references until its media
++// resources retire. Failed negotiation unwinds through the same Drop.
++struct StreamRefs {
++    camera: &'static CamAv,
++    video: u16,
++    audio: Option<u16>,
++}
++
++impl Drop for StreamRefs {
++    fn drop(&mut self) {
++        if let Some(id) = self.audio {
++            self.camera.release_audio(id);
++        }
++        self.camera.release_video(self.video);
++    }
++}
++
+ struct Str0mInner {
+     sessions: AllocMap<u16, SessionCtrl>,
+ }
+@@ -324,6 +346,7 @@
+ /// Lives in a `StaticCell`; both the hooks (embedded in `WebRtcProvHandler`)
+ /// and the driver future hold a `&'static` borrow.
+ struct Str0mShared {
++    camera: &'static CamAv,
+     inner: RefCell<Str0mInner>,
+     new_session_tx: Sender<NewSession>,
+     new_session_rx: Receiver<NewSession>,
+@@ -333,19 +356,48 @@
+ }
+
+ impl Str0mShared {
+-    fn new(video: Video) -> Self {
++    fn new(video: Video, camera: &'static CamAv) -> Self {
+         let (new_session_tx, new_session_rx) = async_channel::unbounded();
+         let (outbound_tx, outbound_rx) = async_channel::unbounded();
+         Self {
+             inner: RefCell::new(Str0mInner {
+                 sessions: AllocMap::new(),
+             }),
++            camera,
+             new_session_tx,
+             new_session_rx,
+             outbound_tx,
+             outbound_rx,
+             video,
+         }
++    }
++
++    fn streams(&self, params: &OfferParams) -> Result<(StreamRefs, Option<Audio>), WebRtcError> {
++        let video = params
++            .video_stream_id
++            .flatten()
++            .ok_or(WebRtcError::DynamicConstraint)?;
++        self.camera
++            .acquire_video(video)
++            .map_err(|_| WebRtcError::DynamicConstraint)?;
++        let mut refs = StreamRefs {
++            camera: self.camera,
++            video,
++            audio: None,
++        };
++        let mut audio = None;
++        if let Some(id) = params.audio_stream_id.flatten() {
++            audio = Some(
++                self.video
++                    .subscribe_audio()
++                    .ok_or(WebRtcError::DynamicConstraint)?,
++            );
++            self.camera
++                .acquire_audio(id)
++                .map_err(|_| WebRtcError::DynamicConstraint)?;
++            refs.audio = Some(id);
++        }
++        Ok((refs, audio))
+     }
+
+     /// Main async driver future. Joined into the top-level `select` and
+@@ -415,7 +467,7 @@
+ async fn session_loop(session: NewSession) {
+     let NewSession {
+         id,
+-        local_video_mid,
++        local_video_mid, local_audio_mid, mut sound, refs,
+         mut rtc,
+         socket,
+         local_addr,
+@@ -441,8 +493,20 @@
+                 .map(|p| p.pt())
+         })
+     });
++    let mut audio_mid = local_audio_mid;
++    let mut audio_pt = audio_mid.and_then(|mid| {
++        rtc.writer(mid).and_then(|w| {
++            w.payload_params()
++                .find(|p| p.spec().codec == Codec::Opus)
++                .map(|p| p.pt())
++        })
++    });
+     let mut connected = false;
+     'outer: loop {
++        if sound.as_ref().is_some_and(|s| !s.is_current()) {
++            end_reason = WebRTCEndReasonEnum::NoUserMedia;
++            break;
++        }
+         // Non-blocking drain of control messages.
+         while let Ok(c) = remote_cand_rx.try_recv() {
+             log::debug!("webrtc_camera[{id}]: remote candidate {c:?}");
+@@ -490,7 +554,8 @@
+                 // Race: UDP recv | deadline timer | new remote candidate | shutdown.
+                 let ev =
+                     race_next_event(&socket, &mut buf, deadline, &remote_cand_rx, &shutdown_rx,
+-                        if connected && video_pt.is_some() { Some(&mut pictures) } else { None })
++                        if connected && video_pt.is_some() { Some(&mut pictures) } else { None },
++                        if connected && audio_pt.is_some() { sound.as_mut() } else { None })
+                         .await;
+                 match ev {
+                     DriverEvent::Recv(Ok((n, from))) => {
+@@ -529,11 +594,18 @@
+                     DriverEvent::Picture(Some(frame)) => {
+                         let (Some(mid), Some(pt)) = (video_mid, video_pt) else { break 'outer };
+                         let Some(writer) = rtc.writer(mid) else { break 'outer };
+-                        if writer.write(pt, Instant::now(), MediaTime::from_90khz(frame.pts_90khz), frame.annex_b).is_err() {
++                        if writer.write(pt, frame.source_time, MediaTime::from_90khz(frame.pts_90khz), frame.annex_b).is_err() {
+                             break 'outer;
+                         }
+                     }
+-                    DriverEvent::Picture(None) => {
++                    DriverEvent::Audio(Some(packet)) => {
++                        let (Some(mid), Some(pt)) = (audio_mid, audio_pt) else { break 'outer };
++                        let Some(writer) = rtc.writer(mid) else { break 'outer };
++                        if writer.write(pt, packet.source_time, MediaTime::new(packet.pts_48khz, Frequency::FORTY_EIGHT_KHZ), packet.opus).is_err() {
++                            break 'outer;
++                        }
++                    }
++                    DriverEvent::Audio(None) | DriverEvent::Picture(None) => {
+                         end_reason = WebRTCEndReasonEnum::NoUserMedia;
+                         break 'outer;
+                     }
+@@ -564,6 +636,11 @@
+                         "webrtc_camera[{id}]: MediaAdded mid={:?} kind={:?} dir={:?}",
+                         m.mid, m.kind, m.direction
+                     );
++                    if m.kind == MediaKind::Audio && sound.is_some() && audio_mid.is_none() {
++                        audio_mid = Some(m.mid);
++                        audio_pt = rtc.writer(m.mid).and_then(|w|
++                            w.payload_params().find(|p| p.spec().codec == Codec::Opus).map(|p| p.pt()));
++                    }
+                     if m.kind == MediaKind::Video && video_mid.is_none() {
+                         video_mid = Some(m.mid);
+                         // Resolve an H.264 payload type for this mid.
+@@ -598,6 +675,8 @@
+     drop(rtc);
+     drop(socket);
+     drop(pictures);
++    drop(sound);
++    drop(refs);
+     // Notify the controller that we are tearing down.
+     if let Err(e) = outbound_tx
+         .send(OutboundWork::End {
+@@ -612,6 +691,7 @@
+ }
+
+ enum DriverEvent {
++    Audio(Option<AudioPacket>),
+     Picture(Option<AccessUnit>),
+     Recv(std::io::Result<(usize, SocketAddr)>),
+     Timeout,
+@@ -666,6 +746,7 @@
+     remote_cand_rx: &Receiver<Candidate>,
+     shutdown_rx: &Receiver<()>,
+     pictures: Option<&mut Pictures>,
++    sound: Option<&mut Audio>,
+ ) -> DriverEvent {
+     use futures_lite::future::or;
+
+@@ -686,18 +767,28 @@
+     };
+
+     let network = or(or(recv_fut, timer_fut), or(remote_fut, shutdown_fut));
+-    if let Some(pictures) = pictures {
+-        or(network, async { DriverEvent::Picture(pictures.next().await) }).await
+-    } else {
+-        network.await
+-    }
++    let audio = async {
++        match sound {
++            Some(sound) => DriverEvent::Audio(sound.next().await),
++            None => core::future::pending().await,
++        }
++    };
++    let media = async {
++        match pictures {
++            Some(pictures) => DriverEvent::Picture(pictures.next().await),
++            None => core::future::pending().await,
++        }
++    };
++    or(network, or(media, audio)).await
+ }
+
+ // ---------------------------------------------------------------------------
+ // WebRtcHooks impl
+ // ---------------------------------------------------------------------------
+
+-fn new_peer() -> Result<(Rtc, Async<UdpSocket>, SocketAddr, SocketAddr, String), WebRtcError> {
++fn new_peer(
++    audio: bool,
++) -> Result<(Rtc, Async<UdpSocket>, SocketAddr, SocketAddr, String), WebRtcError> {
+     let bind_addr: SocketAddr = ([0u8, 0, 0, 0], 0u16).into();
+     let socket = Async::<UdpSocket>::bind(bind_addr).map_err(|e| {
+         warn!("webrtc_camera: udp bind failed: {e}");
+@@ -727,12 +818,14 @@
+         })?;
+     let host_addr = SocketAddr::new(host_ip, local_addr.port());
+
+-    // This fixture supplies H.264 video only. Do not negotiate audio or other
+-    // video codecs for which no source exists.
+     let mut rtc = Rtc::builder()
+         .clear_codecs()
+         .enable_h264(true)
++        .enable_opus(audio)
+         .build(Instant::now());
++    if audio {
++        rtc.sdp_api().synchronize_local_tracks();
++    }
+     let cand = Candidate::host(host_addr, "udp").map_err(|e| {
+         warn!("webrtc_camera: Candidate::host failed: {e}");
+         WebRtcError::Failure
+@@ -743,7 +836,11 @@
+     Ok((rtc, socket, local_addr, host_addr, local_cand_sdp))
+ }
+
+-fn accept_video_offer(rtc: &mut Rtc, offer: SdpOffer) -> Result<(SdpAnswer, u16), WebRtcError> {
++fn accept_offer(
++    rtc: &mut Rtc,
++    offer: SdpOffer,
++    audio: bool,
++) -> Result<(SdpAnswer, u16), WebRtcError> {
+     // Browsers may offer audio before video even to a video-only source. Keep
+     // that SDP layout: the media engine rejects unsupported audio, and ICE
+     // must name the negotiated video section rather than assuming index zero.
+@@ -754,20 +851,28 @@
+         .sdp_api()
+         .accept_offer(offer)
+         .map_err(|_| WebRtcError::DynamicConstraint)?;
+-    let mut active = answer
+-        .media_lines
+-        .iter()
+-        .enumerate()
+-        .filter(|(_, media)| !media.disabled && media.direction() != Direction::Inactive);
+-    let (index, media) = active.next().ok_or(WebRtcError::DynamicConstraint)?;
+-    if active.next().is_some()
+-        || !rtc
+-            .media(media.mid())
+-            .is_some_and(|media| media.kind() == MediaKind::Video)
++    let mut first = None;
++    let mut kinds = Vec::new();
++    for (index, line) in answer.media_lines.iter().enumerate() {
++        if line.disabled || line.direction() == Direction::Inactive {
++            continue;
++        }
++        if line.direction() != Direction::SendOnly {
++            return Err(WebRtcError::DynamicConstraint);
++        }
++        first.get_or_insert(index as u16);
++        kinds.push(
++            rtc.media(line.mid())
++                .ok_or(WebRtcError::DynamicConstraint)?
++                .kind(),
++        );
++    }
++    if kinds.iter().filter(|k| **k == MediaKind::Video).count() != 1
++        || kinds.iter().filter(|k| **k == MediaKind::Audio).count() != usize::from(audio)
+     {
+         return Err(WebRtcError::DynamicConstraint);
+     }
+-    Ok((answer, index as u16))
++    Ok((answer, first.ok_or(WebRtcError::DynamicConstraint)?))
+ }
+
+ #[cfg(test)]
+@@ -808,8 +913,12 @@
+                 }
+             })
+             .collect::<String>();
+-        let (answer, index) =
+-            accept_video_offer(&mut peer, SdpOffer::from_sdp_string(&with_g722).unwrap()).unwrap();
++        let (answer, index) = accept_offer(
++            &mut peer,
++            SdpOffer::from_sdp_string(&with_g722).unwrap(),
++            false,
++        )
++        .unwrap();
+         assert_eq!(index, 1);
+         assert_eq!(answer.media_lines.len(), 2);
+         assert!(answer.media_lines[0].disabled);
+@@ -836,10 +945,57 @@
+             &[MediaKind::Video, MediaKind::Video][..],
+             &[MediaKind::Audio, MediaKind::Video, MediaKind::Video][..],
+         ] {
+-            assert!(accept_video_offer(&mut video_peer(), offer(kinds)).is_err());
+-        }
+-        let (_, index) = accept_video_offer(&mut video_peer(), offer(&[MediaKind::Video])).unwrap();
++            assert!(accept_offer(&mut video_peer(), offer(kinds), false).is_err());
++        }
++        let (_, index) =
++            accept_offer(&mut video_peer(), offer(&[MediaKind::Video]), false).unwrap();
+         assert_eq!(index, 0);
++    }
++
++    #[test]
++    fn audio_and_video_share_one_synchronization_context_in_both_offer_roles() {
++        fn camera() -> Rtc {
++            let mut rtc = Rtc::builder()
++                .clear_codecs()
++                .enable_h264(true)
++                .enable_opus(true)
++                .build(Instant::now());
++            rtc.sdp_api().synchronize_local_tracks();
++            rtc
++        }
++        fn identity(sdp: &str) -> String {
++            let names: std::collections::BTreeSet<_> = sdp
++                .lines()
++                .filter_map(|l| {
++                    l.strip_prefix("a=ssrc:")?
++                        .split_once(" cname:")
++                        .map(|(_, name)| name)
++                })
++                .collect();
++            let tracks: Vec<_> = sdp
++                .lines()
++                .filter_map(|l| l.strip_prefix("a=msid:")?.split_once(' '))
++                .collect();
++            assert_eq!(names.len(), 1);
++            assert_eq!(tracks.len(), 2);
++            assert_eq!(tracks[0].0, tracks[1].0);
++            assert_ne!(tracks[0].1, tracks[1].1);
++            names.into_iter().next().unwrap().to_owned()
++        }
++        let mut sender = camera();
++        let mut changes = sender.sdp_api();
++        for kind in [MediaKind::Video, MediaKind::Audio] {
++            changes.add_media(kind, Direction::SendOnly, None, None, None);
++        }
++        let first = identity(&changes.apply().unwrap().0.to_sdp_string());
++        let (answer, index) = accept_offer(
++            &mut camera(),
++            offer(&[MediaKind::Audio, MediaKind::Video]),
++            true,
++        )
++        .unwrap();
++        assert_eq!(index, 0);
++        assert_ne!(first, identity(&answer.to_sdp_string()));
+     }
+ }
+
+@@ -849,13 +1005,13 @@
+         session_id: u16,
+         params: &OfferParams,
+     ) -> Result<SolicitOutcome, WebRtcError> {
+-        if params.video_stream_id.flatten().is_none() || params.audio_stream_id.flatten().is_some()
+-        {
+-            return Err(WebRtcError::DynamicConstraint);
+-        }
+-        let (mut rtc, socket, _, local_addr, local_cand_sdp) = new_peer()?;
++        let (refs, sound) = self.shared.streams(params)?;
++        let (mut rtc, socket, _, local_addr, local_cand_sdp) = new_peer(sound.is_some())?;
+         let mut changes = rtc.sdp_api();
+         let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
++        let audio_mid = sound
++            .as_ref()
++            .map(|_| changes.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None));
+         let (offer, pending) = changes.apply().ok_or(WebRtcError::Failure)?;
+         let offer_sdp = offer.to_sdp_string();
+         let (remote_cand_tx, remote_cand_rx) = async_channel::bounded(16);
+@@ -863,7 +1019,7 @@
+         let trickle_buf = Rc::new(RefCell::new(vec![local_cand_sdp]));
+         let new = NewSession {
+             id: session_id,
+-            local_video_mid: Some(mid),
++            local_video_mid: Some(mid), local_audio_mid: audio_mid, sound, refs,
+             rtc,
+             socket,
+             local_addr,
+@@ -898,7 +1054,7 @@
+         Ok(SolicitOutcome {
+             deferred: false,
+             video_stream_id: params.video_stream_id.flatten(),
+-            audio_stream_id: None,
++            audio_stream_id: params.audio_stream_id.flatten(),
+         })
+     }
+
+@@ -918,13 +1074,9 @@
+             WebRtcError::DynamicConstraint
+         })?;
+
+-        let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer()?;
+-
+-        if params.video_stream_id.flatten().is_none() || params.audio_stream_id.flatten().is_some()
+-        {
+-            return Err(WebRtcError::DynamicConstraint);
+-        }
+-        let (answer, ice_mline_index) = accept_video_offer(&mut rtc, offer)?;
++        let (refs, sound) = self.shared.streams(params)?;
++        let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer(sound.is_some())?;
++        let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
+         let answer_sdp = answer.to_sdp_string();
+
+         // Plumb the session over to the driver task.
+@@ -959,7 +1111,7 @@
+             .new_session_tx
+             .send(NewSession {
+                 id: session_id,
+-                local_video_mid: None,
++                local_video_mid: None, local_audio_mid: None, sound, refs,
+                 rtc,
+                 socket,
+                 // Use the routable host address (not the 0.0.0.0 bind
+@@ -1001,15 +1153,12 @@
+
+         Ok(AnswerOutcome {
+             video_stream_id: params.video_stream_id.flatten(),
+-            audio_stream_id: None,
++            audio_stream_id: params.audio_stream_id.flatten(),
+         })
+     }
+
+     async fn on_answer(&self, session_id: u16, sdp: &str) -> Result<(), WebRtcError> {
+         let answer = SdpAnswer::from_sdp_string(sdp).map_err(|_| WebRtcError::DynamicConstraint)?;
+-        if answer.media_lines.len() != 1 {
+-            return Err(WebRtcError::DynamicConstraint);
+-        }
+         let (pending, mut new) = {
+             let inner = self.shared.inner.borrow();
+             let ctrl = inner
+@@ -1023,6 +1172,18 @@
+                 .ok_or(WebRtcError::InvalidInState)?;
+             pending
+         };
++        let expected = [new.local_video_mid, new.local_audio_mid];
++        if answer.media_lines.len() != expected.iter().flatten().count()
++            || !answer
++                .media_lines
++                .iter()
++                .zip(expected.into_iter().flatten())
++                .all(|(m, mid)| {
++                    m.mid() == mid && !m.disabled && m.direction() == Direction::RecvOnly
++                })
++        {
++            return Err(WebRtcError::DynamicConstraint);
++        }
+         new.rtc
+             .sdp_api()
+             .accept_answer(pending, answer)
+@@ -1264,13 +1425,6 @@
+     let (reader, video) = Reader::open(value("WEBRTC_RTSP_ADDR")?.parse().map_err(|_| ErrorCode::Invalid)?,
+         &value("WEBRTC_RTSP_PATH")?, &value("WEBRTC_RTSP_USER")?,
+         std::path::Path::new(&value("WEBRTC_RTSP_TOKEN_FILE")?)).map_err(|_| ErrorCode::Invalid)?;
+-    let shared = SHARED.init(Str0mShared::new(video.clone()));
+-    let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+-        Dataver::new_rand(&mut rand),
+-        matter,
+-        1,
+-        Str0mHooks { shared },
+-    ));
+     let cam_av_config = CameraAvStreamConfig {
+         max_concurrent_encoders: 1,
+         max_encoded_pixel_rate: 1920 * 1080 * 30,
+@@ -1298,7 +1452,7 @@
+         1,
+         cam_av_config,
+         CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits(),
+-        Str0mCamHooks(video),
++        Str0mCamHooks(video.clone()),
+     ));
+     // Pre-seed one H.264 1080p30 stream so AllocatedVideoStreams is
+     // non-empty at boot, mirroring the prior demo behaviour.
+@@ -1319,6 +1473,13 @@
+         osd_enabled: None,
+         reference_count: 0,
+     });
++    let shared = SHARED.init(Str0mShared::new(video, cam_av));
++    let webrtc = WEBRTC.init(WebRtcProvHandler::new(
++        Dataver::new_rand(&mut rand),
++        matter,
++        1,
++        Str0mHooks { shared },
++    ));
+     let cam_av_settings = CAM_AV_SETTINGS.init(CamAvSettingsHandler::new(
+         Dataver::new_rand(&mut rand),
+         1,
+diff --git a/rs-matter-dm/src/clusters/app/cam_av_stream.rs b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+--- a/rs-matter-dm/src/clusters/app/cam_av_stream.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+@@ -13,7 +13,7 @@
+  *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  *    See the License for the specific language governing permissions and
+  *    limitations under the License.
+- */
++*/
+
+ //! Implementation of the Matter Camera AV Stream Management cluster (0x0551).
+ //!
+@@ -487,6 +487,24 @@
+         Ok(id)
+     }
+
++    /// Hold the microphone allocation until the consumer's session ends.
++    pub fn acquire_audio(&self, id: u16) -> Result<(), Error> {
++        self.state
++            .lock(|cell| cell.borrow_mut().audios.acquire(id))?;
++        self.dataver.changed();
++        Ok(())
++    }
++
++    pub fn release_audio(&self, id: u16) {
++        if self
++            .state
++            .lock(|cell| cell.borrow_mut().audios.release(id))
++            .is_ok()
++        {
++            self.dataver.changed();
++        }
++    }
++
+     /// Snapshot the current set of allocated audio streams.
+     pub fn audio_streams(&self) -> Vec<AudioStream, NA> {
+         self.state.lock(|cell| cell.borrow().audios.snapshot())

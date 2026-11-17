@@ -118,6 +118,10 @@ def run(args):
             assert result["peers"][0]["state"] == "connected"
             assert result["peers"][0]["codec"] == "video/H264"
             assert result["peers"][0]["decoded_frames"] >= result["presented_frames"]
+            if args.audio_cue:
+                # Unlock Web Audio with a user gesture. Read only the incoming track.
+                page.keyboard.press("Shift")
+                result["audio_cue"] = video.evaluate((Path(__file__).parent / "matter/audio-cue.js").read_text())
             if args.await_source_loss:
                 args.await_source_loss.touch(exist_ok=False)
                 page.wait_for_function("['closed','disconnected','failed'].includes(window.nxrsPeers[0].connectionState)",
@@ -147,6 +151,7 @@ def main():
     parser.add_argument("--await-source-loss", type=Path)
     parser.add_argument("--fixture-rate", type=int, choices=(10, 15))
     parser.add_argument("--fixture-marker", choices=["red", "blue"])
+    parser.add_argument("--audio-cue", action="store_true", help="measure the paired generated light and microphone tone")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     url = urlparse(args.server)

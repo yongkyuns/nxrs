@@ -827,5 +827,137 @@
       "gateway_clippy_warnings_denied": true
     },
     "scope": "One independent Matter Server commissioned a macOS test node. The strict gateway authorized one RTSP source reader and generated video/Opus. This verifies camera-cluster commands and the table read from the device. The WebRTC path still sends video only. Neither audible Matter playback nor hardware microphone capture, mute, privacy or active audio-reference ownership is qualified."
+  },
+  "matter_microphone_playback": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "audio-playback",
+    "source_sha256": {
+      "gateway/matter/src/media.rs": "10b9f5cded2006d1966298bac00a2f89803e2860ec1367117304487b831b4ec3",
+      "gateway/matter/src/media/paired.rs": "5ce8dcee8fe35c7e819ad71e7b698ae29ede094e603ab7d1f06556fe36c8b17f",
+      "gateway/tests/matter/versions.json": "a9b6163d9e9b44fc41e75af184d14a908d0f9a97335fa3afa81c9ce38d8150f1",
+      "gateway/tests/matter/str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012",
+      "gateway/tests/matter/audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
+      "gateway/tests/matter/audio-cue.js": "13d53a7105a439d012645a045746ff0bbd62d454ca214508e52b04ead64fc11d",
+      "gateway/tests/matter_audio_dialog.py": "01147a01f71f33b477d9b9389576ee8320d89b5d2c7734c1a201a59c392cf804",
+      "gateway/tests/matter_audio_allocation.py": "2369403cca6a93bd05e9cffd3fa1c6a4c7029406d67a84c67576ca7b3a643bed",
+      "gateway/tests/matter_reference.py": "24e5f271455b68f6b5367711cf916c610849f0df789c261ff030de41c3402a95",
+      "gateway/tests/matter_browser_reference.py": "85fa75cf8c6574c1ee2bd6cf623f0322d6dd94cf76059793d5bdaaf02725f39d",
+      "tools/prepare-matter-fixture.py": "dd870617c4b55e38a2dc9c910a0656e981696243be0e988695399a1a9578cf8b"
+    },
+    "controller": {
+      "playback": [
+        {
+          "flow": "receiver-offer",
+          "video_frames": 60,
+          "decoded_audio_frames": 224,
+          "pulses": 5,
+          "median_hz": 1000.0
+        },
+        {
+          "flow": "camera-offer",
+          "video_frames": 60,
+          "decoded_audio_frames": 250,
+          "pulses": 5,
+          "median_hz": 1000.0
+        }
+      ],
+      "active_revocation_stopped_both_tracks": true,
+      "feature_map": 3,
+      "supported_sample_rates": [
+        16000
+      ],
+      "allocation_commands_present": true,
+      "duplicate_reused_id": true,
+      "incompatible_requests_rejected": 4,
+      "offline_and_video_only_denied": true,
+      "revoked_source_denied_while_publishing": true,
+      "retired_id_rejected": true,
+      "final_allocations": 0
+    },
+    "browser": {
+      "product": "Home Assistant 2026.11.2 camera dialog",
+      "browser": "157.0.8103.79",
+      "runs": [
+        {
+          "presented_frames": 60,
+          "presented_fps": 15.0,
+          "display_drops": 1,
+          "decoded_video_frames": 61,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 169
+        },
+        {
+          "presented_frames": 60,
+          "presented_fps": 14.94,
+          "display_drops": 1,
+          "decoded_video_frames": 61,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 174
+        },
+        {
+          "presented_frames": 60,
+          "presented_fps": 13.77,
+          "display_drops": 5,
+          "decoded_video_frames": 66,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 160
+        },
+        {
+          "presented_frames": 60,
+          "presented_fps": 15.0,
+          "display_drops": 1,
+          "decoded_video_frames": 61,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 172
+        }
+      ]
+    },
+    "regressions": {
+      "pinned_sdk_dm_tests": 366,
+      "sdk_camera_tests": 3,
+      "default_gateway_tests": 70,
+      "opt_in_gateway_ffmpeg_test_ignored": 1,
+      "architecture_packages": 79,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "gateway_clippy_warnings_denied": true
+    },
+    "scope": "Generated H.264/Opus through one authorized source reader per trial. The browser light-to-tone offsets use requestVideoFrameCallback and a Web Audio analyser on the incoming track. They include browser scheduling and analysis delay. Hardware capture, acoustic playout, iPhone timing, long-run drift, microphone mute and privacy remain open."
   }
 }

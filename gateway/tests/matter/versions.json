@@ -29,7 +29,9 @@
     "homeassistant-constraints.txt": "2cd619b73945ecac9a3f6c43944ce68970cc8a0bcb43ab27bdfecb5c952e7e9a",
     "bridge-topology.patch": "39606efa6a4fd35840fbc38e03f3bbb12af02f84b6c9dc081e46e60d519d9a99",
     "live-media.patch": "76daffe46f28bf551840032dc0cedd79b0aca5fbbc837ce882d5e352190ce9f0",
-    "audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7"
+    "audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7",
+    "audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
+    "str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012"
   },
   "home_assistant": {
     "version": "2026.11.2",

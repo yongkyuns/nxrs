@@ -20,6 +20,8 @@ use tokio::{
 };
 use url::Url;
 
+mod paired;
+
 const STARTUP: Duration = Duration::from_secs(10);
 const SILENCE: Duration = Duration::from_secs(5);
 const MAX_UNIT: usize = 1_048_576;
@@ -29,6 +31,8 @@ const QUEUE: usize = 8;
 #[derive(Clone)]
 pub struct AccessUnit {
     pub pts_90khz: u64,
+    /// Source time mapped to the gateway clock. Video-only sources use receipt time.
+    pub source_time: std::time::Instant,
     pub keyframe: bool,
     pub dimensions: (u32, u32),
     pub annex_b: Bytes,
@@ -44,12 +48,26 @@ enum Message {
 #[derive(Clone)]
 pub struct Video {
     sender: broadcast::WeakSender<Message>,
+    sound: broadcast::WeakSender<Option<(u64, AudioPacket)>>,
     current: Arc<AtomicU64>,
     opus_generation: Arc<AtomicU64>,
 }
 
 impl Video {
-    /// The authorized source with advancing video announces an Opus RTP track.
+    /// Listen to the current authorized microphone. Replacement retires this subscription.
+    pub fn subscribe_audio(&self) -> Option<Audio> {
+        let queue = self.sound.upgrade()?.subscribe();
+        let generation = self.current.load(Ordering::Acquire);
+        (generation != 0 && self.opus_generation.load(Ordering::Acquire) == generation).then(|| {
+            Audio {
+                queue,
+                generation,
+                current: self.current.clone(),
+            }
+        })
+    }
+
+    /// Both tracks of the current authorized source have supplied timed media.
     pub fn has_opus_track(&self) -> bool {
         let generation = self.current.load(Ordering::Acquire);
         generation != 0 && generation == self.opus_generation.load(Ordering::Acquire)
@@ -63,6 +81,45 @@ impl Video {
             need_keyframe: true,
             deadline: None,
         })
+    }
+}
+
+#[derive(Clone)]
+pub struct AudioPacket {
+    pub pts_48khz: u64,
+    pub source_time: std::time::Instant,
+    pub opus: Bytes,
+}
+
+pub struct Audio {
+    queue: broadcast::Receiver<Option<(u64, AudioPacket)>>,
+    generation: u64,
+    current: Arc<AtomicU64>,
+}
+
+impl Audio {
+    pub fn is_current(&self) -> bool {
+        self.generation == self.current.load(Ordering::Acquire)
+    }
+
+    pub async fn next(&mut self) -> Option<AudioPacket> {
+        let deadline = Instant::now() + SILENCE;
+        loop {
+            if !self.is_current() {
+                return None;
+            }
+            match time::timeout_at(deadline, self.queue.recv()).await.ok()? {
+                Ok(Some((g, p)))
+                    if g == self.generation && g == self.current.load(Ordering::Acquire) =>
+                {
+                    return Some(p)
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    self.queue = self.queue.resubscribe()
+                }
+                _ => return None,
+            }
+        }
     }
 }
 
@@ -123,6 +180,7 @@ pub struct Reader {
     url: Url,
     credentials: Credentials,
     sender: broadcast::Sender<Message>,
+    sound: broadcast::Sender<Option<(u64, AudioPacket)>>,
     current: Arc<AtomicU64>,
     opus_generation: Arc<AtomicU64>,
 }
@@ -148,15 +206,18 @@ impl Reader {
             password: crate::credential::read(token_file)?,
         };
         let sender = broadcast::Sender::new(QUEUE);
+        let sound = broadcast::Sender::new(16);
         let current = Arc::new(AtomicU64::new(0));
         let opus_generation = Arc::new(AtomicU64::new(0));
         let video = Video {
+            sound: sound.downgrade(),
             sender: sender.downgrade(),
             opus_generation: opus_generation.clone(),
             current: current.clone(),
         };
         Ok((
             Self {
+                sound,
                 url,
                 credentials,
                 opus_generation,
@@ -185,13 +246,16 @@ impl Reader {
     fn retire(&self) {
         self.current.store(0, Ordering::Release);
         let _ = self.sender.send(Message::End);
+        let _ = self.sound.send(None);
     }
 
     async fn describe(&self) -> Result<Session<retina::client::Described>, ()> {
         let options = SessionOptions::default()
             .creds(Some(self.credentials.clone()))
             .teardown(TeardownPolicy::Never);
-        Session::describe(self.url.clone(), options).await.map_err(|_| ())
+        Session::describe(self.url.clone(), options)
+            .await
+            .map_err(|_| ())
     }
 
     // MediaMTX authenticates DESCRIBE through the same path-scoped HTTP policy
@@ -200,7 +264,10 @@ impl Reader {
     async fn check_permission(&self) {
         loop {
             time::sleep(Duration::from_secs(3)).await;
-            if !matches!(time::timeout(Duration::from_secs(2), self.describe()).await, Ok(Ok(_))) {
+            if !matches!(
+                time::timeout(Duration::from_secs(2), self.describe()).await,
+                Ok(Ok(_))
+            ) {
                 return;
             }
         }
@@ -221,22 +288,42 @@ impl Reader {
             {
                 return Err(());
             }
-            let mut audio = session.streams().iter().filter(|s| s.media() == "audio");
-            let opus = audio.next().is_some_and(|s| s.encoding_name() == "opus" && s.clock_rate_hz() == 48_000)
-                && audio.next().is_none();
+            let mut audio = session
+                .streams()
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.media() == "audio");
+            let opus = audio
+                .next()
+                .and_then(|(id, s)| {
+                    (s.encoding_name() == "opus" && s.clock_rate_hz() == 48_000).then_some(id)
+                })
+                .filter(|_| audio.next().is_none());
             let setup = SetupOptions::default()
                 .transport(Transport::Tcp(Default::default()))
                 .frame_format(FrameFormat::SIMPLE);
             session.setup(index, setup).await.map_err(|_| ())?;
-            let media = session
-                .play(Default::default())
-                .await
-                .map_err(|_| ())?
-                .demuxed()
-                .map_err(|_| ())?;
+            if let Some(id) = opus {
+                session
+                    .setup(
+                        id,
+                        SetupOptions::default().transport(Transport::Tcp(Default::default())),
+                    )
+                    .await
+                    .map_err(|_| ())?;
+            }
+            // Per-track NPT zero is unrelated across tracks. Paired input uses
+            // original RTP timestamps and RTCP sender reports exclusively.
+            let play = retina::client::PlayOptions::default()
+                .initial_timestamp(retina::client::InitialTimestampPolicy::Ignore);
+            let media = session.play(play).await.map_err(|_| ())?;
             Ok((media, index, opus))
         };
-        let (mut media, track, opus) = time::timeout(STARTUP, opening).await.map_err(|_| ())??;
+        let (media, track, opus) = time::timeout(STARTUP, opening).await.map_err(|_| ())??;
+        if let Some(audio) = opus {
+            return paired::receive(self, generation, media, track, audio).await;
+        }
+        let mut media = media.demuxed().map_err(|_| ())?;
         let mut deadline = Instant::now() + SILENCE;
         let mut first = None;
         let mut previous = None;
@@ -272,14 +359,12 @@ impl Reader {
             if previous.is_some_and(|p| tick <= p) {
                 return Err(());
             }
-            if previous.is_none() && opus {
-                self.opus_generation.store(generation, Ordering::Release);
-            }
             previous = Some(tick);
             let pts_90khz = u64::try_from(tick.checked_sub(*first.get_or_insert(tick)).ok_or(())?)
                 .map_err(|_| ())?;
             let unit = AccessUnit {
                 pts_90khz,
+                source_time: std::time::Instant::now(),
                 keyframe: frame.is_random_access_point(),
                 dimensions: (w, h),
                 annex_b: frame.into_data().into(),
