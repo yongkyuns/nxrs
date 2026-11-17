@@ -15,7 +15,7 @@ XML in Nxrs; follow the upstream source links.
 | Base device requirements | Descriptor is mandatory. A simple endpoint with a client cluster also requires Binding. Descriptor server/client lists, parts and device types must describe implemented behavior. |
 | Optional camera functions | Identify, occupancy, zones, settings and push transport are optional for the Camera type. The example's no-op PTZ/zone hooks must not be copied into advertised production capabilities. |
 | Occupancy Sensor type | A separate Occupancy Sensor requires Identify and Occupancy Sensing. Its availability must expire independently from live video. |
-| Persistent identity | The blob store is qualified for process recovery. Stable endpoint assignment waits for the topology decision; multi-admin mutation and semantic SDK-state recovery remain open. |
+| Persistent identity | On macOS two independent administrators commissioned the bridge. Removing one fabric stopped its video while the other kept playing. After restart, 253 real commissioning cycles led to reuse of the removed index. The new fabric started with no sessions and could open video. The retired controller could no longer read the node. Durable endpoint assignment, interrupted multi-admin mutations and semantic recovery still need qualification. |
 
 The cluster's feature choices and the device type's requirements are different
 constraints. A video-only Camera AV Stream Management cluster may work with a

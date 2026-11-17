@@ -15,8 +15,10 @@ against its durable denials. The reader also rechecks the same path with RTSP
 DESCRIBE every three seconds, allowing two seconds for a response. This check
 opens no media track. Failure retires the source even if the original media
 socket can still deliver video. Revoking the shared source ends every Matter
-peer using it. Selective revocation of a single Matter fabric is a separate
-release gate.
+peer using it. At the Matter layer, removing one commissioned fabric stopped
+its active stream while a viewer on the surviving fabric kept receiving frames
+from the same reader. Camera permissions for individual nodes within one fabric
+and joining all retired session resources still need qualification.
 
 `occupancy::Feed::open` takes a loopback control address, a camera ID and
 a private credential file. Run the subscription on the owning executor. Its

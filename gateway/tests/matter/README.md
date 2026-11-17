@@ -143,7 +143,8 @@ sanitized `results.json`; only the latter belongs in evidence.
 
 This proves process recovery and modeled interrupted staging, not sudden power
 loss or atomicity across several SDK blob mutations. Semantic SDK-state/version
-validation, commissioning failure paths and multi-admin removal remain open.
+validation and commissioning interrupted during a multi-admin mutation remain
+open. The two-administrator test below covers a completed fabric removal.
 
 ## Home Assistant browser qualification
 
@@ -282,8 +283,8 @@ two independent PyAV receivers join the same RTSP publication. One shares the
 revoked credential and must lose access. The other must keep decoding.
 After a control restart, the revoked credential must receive RTSP 401 while
 the authorized receiver can reopen. Only `result.json` is intended for
-sharing. Physical camera input, per-fabric access and iPhone rendering need
-separate qualification.
+sharing. The fabric witness below exercises independent administrators. Physical
+camera input, product access policy and iPhone rendering still need qualification.
 
 ## Timestamped audio/video publication
 
@@ -304,6 +305,38 @@ decoded frame cadence and the relative cue times. This measures timing at the
 decoder. Physical microphone input, client presentation and Matter audio
 allocation have their own release checks.
 
+## Two administrators and active fabric removal
+
+With the other test processes stopped, use the receiver Python environment,
+the RTSP variant of the SDK and the local IP address of the selected
+interface. The witness starts fresh Matter Servers, a test device, a strict
+gateway, MediaMTX and one generated-video publisher. Run from the repo root
+with the pinned Node binary on `PATH`.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_fabric_reference.py \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" \
+  --device "$matter_sdk/target/debug/webrtc_camera" --gateway gateway/target/debug/nxrs-gateway-control \
+  --mediamtx /absolute/path/to/mediamtx --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --runtime "$matter_runtime/fabric-trial" --interface en1 --ip <fixture-lan-ip>
+```
+
+A opens a 180-second enhanced commissioning window for B. Each fabric must
+decode moving H.264 from the shared source. A removes B while both local peers
+stay open. After a two-second drain, measure four seconds of decoded frames and
+RTP reception. A must keep playing, B must stop receiving packets, and the
+publisher and upstream reader must retain their IDs. Restart the device with
+its persisted identity, verify A can play again and commission C. Read the
+device's full fabric table through A and check that only A and C are present.
+Also attempt an operational read through B and record the outcome.
+
+The SDK persists a fabric-index cursor. Ordinary recommissioning can give C a
+new index. With `--exercise-index-wrap`, A repeatedly commissions and removes
+fresh administrators, each with its own certificate authority and private
+controller storage. The test stops when a new fabric receives B's old index
+and verifies its session list is empty before opening video. Only sanitized
+`result.json` is intended for sharing.
+
 ## Scope of the evidence
 
 `evidence.json` records host results. Neither a teardown acknowledgement nor
@@ -313,10 +346,10 @@ Production needs truthful capabilities, bounded session ownership, revocation,
 complete persistent identity and failure recovery under #388's release criteria.
 
 See [conformance.md](conformance.md) for mandatory audio/snapshot/root behavior
-and the unresolved endpoint topology. The video-only fixture is not a conforming
+and the bridged endpoint topology. The video-only fixture is not a conforming
 Matter Camera product.
 
 A physical iPhone, real camera media, bridge conformance,
-multi-admin authorization, Linux, remote access and the 24-hour soak remain
+authorization of individual controllers within a fabric, Linux, remote access and the 24-hour soak remain
 separate acceptance gates. This fixture establishes no NuttX support and adds
 no mandatory integration CI job or production SDK dependency. The Rust store and occupancy tests run in the existing gateway workspace check using Rust 1.90.

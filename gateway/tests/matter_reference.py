@@ -74,7 +74,8 @@ class Controller:
             self.pending.pop(key, None)
 
 
-async def playback(controller, node_id, endpoint_id, flow, frame_count):
+@contextlib.asynccontextmanager
+async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, request_end=True):
     peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     receiver = peer.addTransceiver("video", direction="recvonly")
     receiver.setCodecPreferences([
@@ -87,6 +88,8 @@ async def playback(controller, node_id, endpoint_id, flow, frame_count):
     target = dict(node_id=node_id, endpoint_id=endpoint_id)
     client_session_key = "nxrs-reference"
     candidate_counts = dict(sent=0, received=0)
+
+    video_track = None
 
     async def send_candidates(candidates):
         assert candidates, "local ICE gathering produced no candidates"
@@ -125,7 +128,9 @@ async def playback(controller, node_id, endpoint_id, flow, frame_count):
 
     @peer.on("track")
     def on_track(track):
+        nonlocal video_track
         if track.kind == "video":
+            video_track = track
             tasks.append(asyncio.create_task(receive(track)))
 
     async def signalling():
@@ -189,6 +194,7 @@ async def playback(controller, node_id, endpoint_id, flow, frame_count):
         assert all(candidate_counts.values()), "bidirectional Matter ICE exchange was not witnessed"
         result.update(flow=flow, negotiated_codec=session["video"]["codec"],
                       trickle_ice=candidate_counts)
+        yield result, peer, video_track
     finally:
         for task in tasks:
             task.cancel()
@@ -197,10 +203,16 @@ async def playback(controller, node_id, endpoint_id, flow, frame_count):
             decoded.cancel()
         await peer.close()
         # Also cancels a partially established session if start failed.
-        ended = await controller.request("camera_stop_stream", **target,
-                                         client_session_key=client_session_key)
-        if session is not None and not ended["ended"]:
-            raise RuntimeError("Matter session teardown was not acknowledged")
+        if request_end:
+            ended = await controller.request("camera_stop_stream", **target,
+                                             client_session_key=client_session_key)
+            if session is not None and not ended["ended"]:
+                raise RuntimeError("Matter session teardown was not acknowledged")
+
+
+async def playback(controller, node_id, endpoint_id, flow, frame_count):
+    async with measured_peer(controller, node_id, endpoint_id, flow, frame_count) as (result, _, _):
+        pass
     result["teardown_acknowledged"] = True
     return result
 

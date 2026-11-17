@@ -658,5 +658,133 @@
       "publisher_clock_test_passed": 1
     },
     "scope": "Opt-in timestamped publication on the host. Cue differences use decoded timestamps at 15 fps, with 20 ms audio. They do not measure microphone capture latency, rendered iPhone lip sync or long-run drift. The existing camera ingest, Matter reader and iPhone have no newly qualified audio path."
+  },
+  "multi_admin": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "pins_sha256": "8d2546d09635ca85b9ab67a260e8ba6f31f58f1ea37ff411854d77e37d51364c",
+    "source_sha256": {
+      "gateway/tests/matter_fabric_reference.py": "37d369ab86a1767101ff80fd99a31b45a32e524122ed6793376281751d1bc4f7",
+      "gateway/tests/matter_reference.py": "64f7f01d52b36ca87896394933ce3f01dc6171d77598beb45a6057609f8fe97c",
+      "gateway/tests/matter_gateway_reference.py": "3f714da2dbc89e420443510e1f36ff74ba3411d1bd125ec49a922a5c70259880",
+      "gateway/tests/matter_rtsp_reference.py": "eb91c3d7a4383626967680d719f1c6db6338077cc955a3b1b8dd8eae661b9a21"
+    },
+    "source": "One isolated FFmpeg video generator, Nxrs publisher, MediaMTX, gateway under strict authorization, RTSP bridge and independent matter-server controllers with distinct CA stores. Both receivers used aiortc on the same Mac.",
+    "normal_commissioning": {
+      "initial_frames": [
+        30,
+        30
+      ],
+      "post_removal_seconds": 4,
+      "surviving_frames": 60,
+      "removed_frames": 0,
+      "removed_rtp_packets": 0,
+      "same_upstream_reader": true,
+      "surviving_playback_after_restart": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 14.97,
+        "connection_state": "connected",
+        "flow": "receiver-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "new_fabric_playback": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 14.97,
+        "connection_state": "connected",
+        "flow": "camera-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "retired_controller_read": "no reply within 12 seconds",
+      "authorized_fabric_ids_and_indices_verified": true,
+      "commissioning_window_closed_after_restart": true,
+      "commissioning_cycles_after_restart": 1,
+      "fabric_index_reused_with_empty_sessions": false
+    },
+    "qualification_notes": [
+      "Allow two seconds for packets in flight after successful RemoveFabric. Keep both receiver peers open for the following four measured seconds. The removed receiver sends no EndSession. The surviving viewer and the original publisher and reader stay connected.",
+      "After restart the authorized administrator read the complete device fabric table. It contained only the surviving fabric, then the surviving and the new fabric after commissioning. The retired controller read outcome is reported separately. A transport timeout establishes only that no authenticated response was observed during the measured interval.",
+      "For index wrap, the surviving administrator removed each replacement fabric using OperationalCredentials.RemoveFabric. A fresh controller store and CA were used per enrolment. The 253rd replacement received the retired index. The original controller returned an error for an operational read; the surviving administrator directly verified the replacement's membership. An earlier stress attempt using one repeatedly recycled controller store stopped at AddNOC InvalidNOC with the device allocation cursor at 128; this distinct controller-reuse case is unqualified."
+    ],
+    "open": [
+      "Individual node permissions within a fabric, interrupted multi-admin mutations, joined worker cleanup, physical audio/video, iPhone, Linux, remote access and soak."
+    ],
+    "index_wrap": {
+      "initial_frames": [
+        30,
+        30
+      ],
+      "post_removal_seconds": 4,
+      "surviving_frames": 60,
+      "removed_frames": 0,
+      "removed_rtp_packets": 0,
+      "same_upstream_reader": true,
+      "surviving_playback_after_restart": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 15.06,
+        "connection_state": "connected",
+        "flow": "receiver-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "new_fabric_playback": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 15.05,
+        "connection_state": "connected",
+        "flow": "camera-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "retired_controller_read": "controller rejected",
+      "authorized_fabric_ids_and_indices_verified": true,
+      "commissioning_window_closed_after_restart": true,
+      "commissioning_cycles_after_restart": 253,
+      "fabric_index_reused_with_empty_sessions": true
+    },
+    "index_wrap_launch_inputs": {
+      "gateway_publisher_revision": "80a78a45b566b2c7bc9618329224c088d885e8a6",
+      "rtsp_fixture_before_publisher_helper_extraction_sha256": "9959d5c8f2e950b36d329a9af4f44989a078200222ca904abd8a18b0aec95635"
+    }
   }
 }
