@@ -7,7 +7,7 @@
     "arch": "arm64"
   },
   "nxrs_base": "af949aa54076f3a58e0d319a6ec66f17cb2f7bc5",
-  "fixture_pins": "versions.json",
+  "fixture_pins": "https://github.com/yongkyuns/nxrs/blob/491aeaf6117db972eadc90108ad9da1fc351f52a/gateway/tests/matter/versions.json",
   "pins_sha256": "309db970bda195f6026e67a2746ac108ff737ca99ceacbdd23625bcc4eb4ff52",
   "generated_video_sha256": "6bbdfc4d3267e7abd0516bba090b0f6bb3660bf6f81754806f57c36d06b61bba",
   "source_sha256": {
@@ -308,5 +308,81 @@
       "browser_peers_closed": true
     },
     "limitations": "Directly injected fixture states. Expiry from the gateway source, reconnect and multiple subscriptions need independent tests."
+  },
+  "gateway_occupancy": {
+    "recorded_utc": "2026-11-17T20:13:42.494740+00:00",
+    "source": "Labelled detector publications through Nxrs gateway control; generated H.264 in a commissioned bridge.",
+    "fixture_pins": "versions.json",
+    "pins_sha256": "4c4780faf53a09bfbb85060683bfaee5d5ba2e00d5c217ba09adf0f63de48d7d",
+    "source_sha256": {
+      "gateway/control/src/detections.rs": "6c388b0fab99c71ec7c5983cb728ca35337f93f96089f98ed992c2c87b98e4fe",
+      "gateway/control/src/config.rs": "818fbeba222237ed6db672813c9b53cd8162982da01d3ccef2a645ebb242d4df",
+      "gateway/control/src/policy.rs": "59dcf43febaea099616c15644ae729eb7aebb7bbe94af8a3e7d6d61947ebb3d4",
+      "gateway/matter/src/occupancy.rs": "271352046799c422992fe450bfa294d335f5aec98be5606510f53e724cc1ae96",
+      "gateway/tests/matter_gateway_reference.py": "7ad6c9ad911d037a8ed6b75d2f77cd80dc5ea40b40232e5e8f077796f55a1ce7",
+      "gateway/tests/matter_topology_reference.py": "2051a55050f7f2e0a3dd7937b0135673dda97006a3040d6436eb275c518b48da",
+      "gateway/tests/matter_browser_reference.py": "d5f5dec32ebd3b5a5a54c8aea8d81aa16a7d388d178aa453e6e33f517ab28c00",
+      "tools/prepare-matter-fixture.py": "18e4ebb1565c566f998a39da3fae409ea9aa6f6a655d3056eae1c848cc0c992e"
+    },
+    "automation_transitions": [
+      "on",
+      "unavailable",
+      "off",
+      "unavailable",
+      "on",
+      "unavailable"
+    ],
+    "retired_source_http_status": 409,
+    "gateway_restart_recovered": true,
+    "subscriber_revoked": true,
+    "catalogue_and_playback_denied": true,
+    "video_during_sensor_unavailable": {
+      "presented_frames": 60,
+      "distinct_sampled_images": 59,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "advancing_media_time": true,
+      "presented_fps": 29.02,
+      "playback_quality": {
+        "total": 67,
+        "dropped": 7
+      },
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "browser": "157.0.8103.79",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "state": "connected",
+          "codec": "video/H264",
+          "decoded_frames": 67,
+          "dropped_frames": 0,
+          "packets_lost": 0
+        }
+      ],
+      "browser_peers_closed": true
+    },
+    "regressions": {
+      "gateway_tests_passed": 63,
+      "gateway_ffmpeg_tests_ignored": 1,
+      "strict_gateway_clippy": "passed",
+      "architecture_packages": 79,
+      "architecture_host_regressions": 37,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 2
+    },
+    "limitations": [
+      "The first development run passed the automation sequence but failed the browser playback witness before the diagnostic location was recorded. Subsequent host runs passed; browser startup reliability remains a qualification item.",
+      "One local fabric and wildcard subscription. Physical camera/audio, iPhone, split subscriptions, multi-admin access and active media revocation require separate evidence."
+    ]
   }
 }

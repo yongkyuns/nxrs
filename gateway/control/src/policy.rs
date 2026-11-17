@@ -1,5 +1,5 @@
 //! Application authorization, deliberately independent of VPN peers and IP addresses.
-use crate::config::{hex_token, Config, Viewer};
+use crate::config::{hex_token, Config, Viewer, ViewerScope};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -63,19 +63,20 @@ impl Policy {
         })
     }
 
-    fn viewer(&self, token: &str) -> Result<&Viewer> {
+    fn viewer(&self, token: &str, required: ViewerScope) -> Result<&Viewer> {
         // Fixed-size digests are compared in constant time. Tokens are generated, not passwords.
         let viewer = self.config.viewers.iter()
             .find(|v| matches(token, &v.token_sha256))
             .ok_or(StatusCode::UNAUTHORIZED)?;
-        if self.disabled_viewers.contains(&viewer.viewer_id) {
+        if self.disabled_viewers.contains(&viewer.viewer_id)
+            || (viewer.scope != ViewerScope::Viewer && viewer.scope != required) {
             return Err(StatusCode::FORBIDDEN);
         }
         Ok(viewer)
     }
 
     pub fn catalog(&self, token: &str) -> Result<Value> {
-        let viewer = self.viewer(token)?;
+        let viewer = self.viewer(token, ViewerScope::Viewer)?;
         let cameras: Vec<Value> = self.config.cameras.iter()
             .filter(|c| c.site_id == viewer.site_id && viewer.camera_ids.contains(&c.camera_id))
             .map(|c| json!({
@@ -87,8 +88,8 @@ impl Policy {
         Ok(json!({"api_version": "1", "cameras": cameras}))
     }
 
-    pub fn camera_viewer(&self, token: &str, camera: &str) -> Result<String> {
-        let viewer = self.viewer(token)?;
+    pub fn detection_viewer(&self, token: &str, camera: &str) -> Result<String> {
+        let viewer = self.viewer(token, ViewerScope::Detections)?;
         if !self.config.cameras.iter().any(|c| {
             c.camera_id == camera
                 && c.site_id == viewer.site_id
@@ -111,7 +112,7 @@ impl Policy {
     }
 
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value> {
-        let viewer = self.viewer(token)?.clone();
+        let viewer = self.viewer(token, ViewerScope::Viewer)?.clone();
         let camera = self.config.cameras.iter()
             .find(|c| c.camera_id == camera && c.site_id == viewer.site_id
                 && viewer.camera_ids.contains(&c.camera_id))
@@ -216,6 +217,20 @@ mod tests {
             user: String::new(), password: String::new(), token: token.into(),
             action: "read".into(), path: "one".into(), protocol: "webrtc".into(), query: String::new(),
         }
+    }
+
+    #[test]
+    fn detection_scope_admits_only_selected_camera_observations_until_revoked() {
+        let mut cfg = config();
+        cfg.viewers[0].scope = ViewerScope::Detections;
+        let mut policy = Policy::new(cfg).unwrap();
+        let token = "a".repeat(64);
+        assert_eq!(policy.detection_viewer(&token, "cam_one").unwrap(), "viewer_one");
+        assert_eq!(policy.detection_viewer(&token, "other"), Err(StatusCode::NOT_FOUND));
+        assert_eq!(policy.catalog(&token), Err(StatusCode::FORBIDDEN));
+        assert_eq!(policy.issue(&token, "cam_one", 0, Instant::now()), Err(StatusCode::FORBIDDEN));
+        policy.revoke("viewer_one").unwrap();
+        assert_eq!(policy.detection_viewer(&token, "cam_one"), Err(StatusCode::FORBIDDEN));
     }
 
     #[test]

@@ -1,9 +1,8 @@
 # Matter camera feasibility fixture
 
 This opt-in fixture tests the protocol choice for [#388](https://github.com/yongkyuns/nxrs/issues/388).
-It is separate from the live gateway and camera firmware. The external SDK uses
-`gateway/matter`'s persistence code through a fixture-only adapter; the gateway
-workspace does not depend on the SDK.
+It is separate from the live gateway and camera firmware. The external SDK uses the identity store and occupancy subscription from
+`gateway/matter` through a fixture adapter.
 The issue is the canonical architecture and release checklist.
 
 `../matter_reference.py` commissions the rs-matter camera example through the
@@ -226,6 +225,29 @@ with changed occupancy then emits the cached value first and fails the witness.
 The positive ordering is specific to the tested report subscription. See
 [conformance.md](conformance.md) for remaining topology requirements.
 
+## Occupancy from gateway control
+
+Keep the isolated controller and Home Assistant running with the automation above.
+Stop the test device and supply its commissioned **test** state to the witness.
+The script starts its own device and gateway, creates a private detection-only
+credential and uses the authenticated publisher API to send labelled observations.
+Build the gateway with `cargo build --locked --manifest-path gateway/Cargo.toml
+-p nxrs-gateway-control` and use the SDK built with the bridge patch.
+
+```sh
+python gateway/tests/matter_gateway_reference.py \
+  --gateway gateway/target/debug/nxrs-gateway-control --device "$matter_sdk/target/debug/webrtc_camera" \
+  --state "$matter_runtime/state" --video "$matter_runtime/fixture.h264" \
+  --sensor binary_sensor.occupancysensor_occupancy --camera camera.camera \
+  --storage-state "$matter_runtime/browser.json" --runtime "$matter_runtime/gateway-trial"
+```
+
+The automation must observe person, expiry, clear from a new publisher session,
+loss of the gateway, fresh person after restart and loss of subscriber access
+while publishing continues. An update from the retired publisher must receive
+HTTP 409. The camera dialog must still present advancing images. Only
+`result.json` contains shareable test results.
+
 ## Scope of the evidence
 
 `evidence.json` records host results. Neither a teardown acknowledgement nor
@@ -241,5 +263,4 @@ Matter Camera product.
 A physical iPhone, real camera media, bridge conformance,
 multi-admin authorization, Linux, remote access and the 24-hour soak remain
 separate acceptance gates. This fixture establishes no NuttX support and adds
-no mandatory integration CI job or production SDK dependency. The six store tests
-run in the existing gateway workspace check, using Rust 1.90.
+no mandatory integration CI job or production SDK dependency. The Rust store and occupancy tests run in the existing gateway workspace check using Rust 1.90.

@@ -542,7 +542,7 @@ dependencies = ["axum", "bytes", "futures-util", "getrandom 0.3.4", "http-body-u
 [[package]]
 name = "nxrs-gateway-matter"
 version = "0.1.0"
-dependencies = ["cfg-if", "libc", "sha2"]
+dependencies = ["bytes", "cfg-if", "http-body-util", "hyper", "hyper-util", "libc", "nxrs-detection-wire", "serde_json", "sha2", "tokio"]
 
 [[package]]
 name = "nxrs-parser-fuzz"

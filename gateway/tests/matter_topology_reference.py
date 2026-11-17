@@ -13,24 +13,38 @@ from playwright.sync_api import sync_playwright
 SERVER = "http://127.0.0.1:18123"
 
 
+def observe(browser, args):
+    page = browser.new_page(storage_state=str(args.storage_state))
+    page.goto(SERVER, wait_until="networkidle", timeout=30000)
+    page.wait_for_function("() => document.querySelector('home-assistant')?.hass?.connected")
+    page.evaluate("""async sensor => {
+        window.transitions = [];
+        await document.querySelector('home-assistant').hass.connection.subscribeEvents(
+            event => { if (event.data.sensor === sensor)
+                window.transitions.push(event.data.observed); }, 'nxrs_fixture_occupancy');
+    }""", args.sensor)
+    def state(entity):
+        return page.evaluate("""id =>
+            document.querySelector('home-assistant').hass.states[id]?.state""", entity)
+    return page, state
+
+
+def playback(args):
+    with TemporaryDirectory() as directory:
+        output = Path(directory) / "playback.json"
+        subprocess.run([sys.executable, str(Path(__file__).with_name("matter_browser_reference.py")),
+                        "--entity", args.camera, "--storage-state", str(args.storage_state),
+                        "--output", str(output)], timeout=120, check=True)
+        result = json.loads(output.read_text())
+    return result
+
+
 def run(args):
     with sync_playwright() as pw, socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as control:
         control.connect(str(args.control))
         browser = pw.chromium.launch(channel="chrome", headless=True)
         try:
-            page = browser.new_page(storage_state=str(args.storage_state))
-            page.goto(SERVER, wait_until="networkidle", timeout=30000)
-            page.wait_for_function("() => document.querySelector('home-assistant')?.hass?.connected")
-            page.evaluate("""async sensor => {
-                window.transitions = [];
-                await document.querySelector('home-assistant').hass.connection.subscribeEvents(
-                    event => { if (event.data.sensor === sensor)
-                        window.transitions.push(event.data.observed); }, 'nxrs_fixture_occupancy');
-            }""", args.sensor)
-            def state(entity):
-                return page.evaluate("""id =>
-                    document.querySelector('home-assistant').hass.states[id]?.state""", entity)
-
+            page, state = observe(browser, args)
             assert state(args.sensor) == "unavailable"
             assert state(args.camera) not in (None, "unknown", "unavailable")
             expected = []
@@ -47,12 +61,7 @@ def run(args):
                 assert state(args.camera) not in (None, "unknown", "unavailable")
                 assert state(args.sensor) == observed
             # Leave the subscription open while the other browser receives video.
-            with TemporaryDirectory() as directory:
-                output = Path(directory) / "playback.json"
-                subprocess.run([sys.executable, str(Path(__file__).with_name("matter_browser_reference.py")),
-                                "--entity", args.camera, "--storage-state", str(args.storage_state),
-                                "--output", str(output)], timeout=120, check=True, capture_output=True)
-                result = json.loads(output.read_text())
+            result = playback(args)
             assert state(args.sensor) == "unavailable" and page.evaluate("window.transitions") == expected
             return {"automation_transitions": expected, "video_during_sensor_unavailable": result}
         finally:

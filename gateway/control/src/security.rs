@@ -114,7 +114,7 @@ impl GatewayPolicy {
         Ok(catalog)
     }
     pub(crate) fn detection_viewer(&self, token: &str, camera: &str) -> Result<String, StatusCode> {
-        let viewer = self.inner.camera_viewer(token, camera)?;
+        let viewer = self.inner.detection_viewer(token, camera)?;
         if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }

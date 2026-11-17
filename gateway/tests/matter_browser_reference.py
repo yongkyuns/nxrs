@@ -6,6 +6,7 @@ Print only media counters and errors with fixed labels, never SDP or credentials
 """
 import argparse
 import json
+import traceback
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -129,7 +130,9 @@ def main():
         result = run(args)
     except Exception as error:
         # Playwright error strings can contain browser inputs or raw page data.
-        raise SystemExit("Home Assistant browser witness failed: " + type(error).__name__) from None
+        stage = next((f.lineno for f in reversed(traceback.extract_tb(error.__traceback__))
+                          if f.filename == __file__), 0)
+        raise SystemExit(f"Home Assistant browser witness failed at line {stage}: {type(error).__name__}") from None
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, sort_keys=True))
 

@@ -1,9 +1,15 @@
 # Matter service foundation
 
-This package implements durable blob storage for [#388](https://github.com/yongkyuns/nxrs/issues/388).
-It does not yet run a production Matter node. The external protocol fixture uses
-the same store through the SDK's existing `KvBlobStore` contract; see
-[`../tests/matter`](../tests/matter/README.md) for the reproducer and evidence.
+The gateway owns a durable identity store and one authenticated detection
+subscription per monitored camera. The external Matter fixture uses both.
+[Reproduction and host evidence](../tests/matter/README.md).
+
+`occupancy::Feed::open` takes a loopback control address, a camera ID and
+a private credential file. Run the subscription on the owning executor. Its
+callback receives changes in confirmed presence. On silence, disconnection,
+malformed input, revocation or cancellation, it withdraws the last level.
+An incomplete event cannot extend freshness. Reconnection consumes the current
+snapshot without replaying the source's historical transitions.
 
 `persistence::Store` owns one writer lock and a bounded, versioned snapshot.
 `initialize` requires a nonexistent absolute directory; `open` requires valid

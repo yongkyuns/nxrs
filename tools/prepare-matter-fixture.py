@@ -45,6 +45,7 @@ def main():
     manifest = sdk / "examples/Cargo.toml"
     source = manifest.read_text()
     declaration = "nxrs-gateway-matter = { path = " + json.dumps(str(ROOT / "gateway/matter")) + " }\n"
+    declaration += 'tokio = { workspace = true, features = ["rt", "net", "time"] }\n'
     if source.count("[dependencies]\n") != 1:
         raise SystemExit("unexpected SDK examples manifest")
     manifest.write_text(source.replace("[dependencies]\n", "[dependencies]\n" + declaration))

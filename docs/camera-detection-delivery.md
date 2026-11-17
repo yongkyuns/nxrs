@@ -91,6 +91,11 @@ Slow readers have no application queue. Shutdown ends streaming bodies before
 HTTP listeners drain. The nginx route disables buffering and preserves
 Last-Event-ID. The optional local HTTPS fixture proxy also streams incrementally.
 
+An enrolled gateway reader with `"scope": "detections"` can subscribe only
+to detections for its configured cameras. Catalogue and playback-grant requests
+return HTTP 403. Existing viewers retain their original access when scope is
+omitted. Revocation ends an active subscription at the next gateway emission.
+
 Each `event: detection` contains a complete `Snapshot`, including confirmed
 presence, current source data, known observation age and a presentation deadline
 in `valid_for_ms`. For fresh observations, each 500 ms heartbeat reports only the time remaining until

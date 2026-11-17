@@ -21,13 +21,13 @@
     "patch": "str0m-rejected-media.patch"
   },
   "sha256": {
-    "Cargo.lock": "95c294477c037cd36edbb7fcecbc9533fccd17ecb0e78fab2eb6897639f726fa",
+    "Cargo.lock": "fc8fd6ddc06d82dddc061cf9b48a7387ef2d89d281b8cf32d40c9fdcec9353a8",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
     "str0m-rejected-media.patch": "80d8a616fba9b645ab9a059fcb4ea8da10d86e639be21c430a439045049ee11b",
     "homeassistant-constraints.txt": "2cd619b73945ecac9a3f6c43944ce68970cc8a0bcb43ab27bdfecb5c952e7e9a",
-    "bridge-topology.patch": "f420b14242d2160c2c0c4906ba2b05a13e331d48ed71de10cd5282b91ebec358"
+    "bridge-topology.patch": "39606efa6a4fd35840fbc38e03f3bbb12af02f84b6c9dc081e46e60d519d9a99"
   },
   "home_assistant": {
     "version": "2026.11.2",

@@ -1,12 +1,13 @@
 diff --git a/examples/src/bin/topology/mod.rs b/examples/src/bin/topology/mod.rs
 new file mode 100644
-index 0000000..4023f41
+index 0000000..f90fa26
 --- /dev/null
 +++ b/examples/src/bin/topology/mod.rs
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,159 @@
 +//! Generated-source bridge qualification. The private datagram socket lets a
 +//! test drive Matter attribute reports independently of camera playback.
 +use async_io::Async;
++use nxrs_gateway_matter::occupancy::{Feed, Presence};
 +use rs_matter::dm::clusters::decl::{
 +    bridged_device_basic_information as bridge, occupancy_sensing as occ,
 +};
@@ -107,20 +108,15 @@ index 0000000..4023f41
 +}
 +
 +pub async fn drive(
-+    directory: &Path,
 +    notifier: &impl AttrChangeNotifier,
 +    status: &Bridged,
 +    occupancy: &Occupancy,
 +) -> Result<(), Error> {
-+    let socket = Async::new(UnixDatagram::bind(directory.join("occupancy.sock"))?)?;
-+    let mut bytes = [0; 16];
-+    loop {
-+        let size = socket.recv(&mut bytes).await?;
-+        let state = match &bytes[..size] {
-+            b"person" => Some(true),
-+            b"clear" => Some(false),
-+            b"unavailable" => None,
-+            _ => continue,
++    let publish = |state: Presence| {
++        let state = match state {
++            Presence::Person => Some(true),
++            Presence::Clear => Some(false),
++            Presence::Unavailable => None,
 +        };
 +        if let Some(value) = state {
 +            if value != occupancy.occupied.replace(value) {
@@ -132,10 +128,43 @@ index 0000000..4023f41
 +            status.version.changed();
 +            notifier.notify_cluster_changed(3, bridge::FULL_CLUSTER.id);
 +        }
++    };
++    let trial = std::env::var_os("WEBRTC_CAMERA_TRIAL_DIR");
++    let control = std::env::var_os("WEBRTC_CAMERA_CONTROL");
++    match (trial, control) {
++        (None, Some(addr)) => {
++            let addr = addr
++                .to_str()
++                .and_then(|s| s.parse().ok())
++                .ok_or(ErrorCode::Invalid)?;
++            let camera = std::env::var("WEBRTC_CAMERA_ID").map_err(|_| ErrorCode::Invalid)?;
++            let token = std::env::var_os("WEBRTC_CAMERA_TOKEN_FILE").ok_or(ErrorCode::Invalid)?;
++            let feed =
++                Feed::open(addr, &camera, Path::new(&token)).map_err(|_| ErrorCode::Invalid)?;
++            feed.run(publish).await;
++            Ok(())
++        }
++        (Some(directory), None) => {
++            let socket = Async::new(UnixDatagram::bind(
++                Path::new(&directory).join("occupancy.sock"),
++            )?)?;
++            let mut bytes = [0; 16];
++            loop {
++                let size = socket.recv(&mut bytes).await?;
++                let state = match &bytes[..size] {
++                    b"person" => Presence::Person,
++                    b"clear" => Presence::Clear,
++                    b"unavailable" => Presence::Unavailable,
++                    _ => continue,
++                };
++                publish(state);
++            }
++        }
++        _ => Err(ErrorCode::Invalid.into()),
 +    }
 +}
 diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
-index 6b1f83d..766591d 100644
+index 6b1f83d..51da73a 100644
 --- a/examples/src/bin/webrtc_camera.rs
 +++ b/examples/src/bin/webrtc_camera.rs
 @@ -67,6 +67,8 @@
@@ -206,11 +235,11 @@ index 6b1f83d..766591d 100644
          Err(Error::from(ErrorCode::StdIoError))
      };
 -    futures_lite::future::block_on(select(all, failed_store).coalesce())
-+    let control_dir = std::env::var_os("WEBRTC_CAMERA_TRIAL_DIR").ok_or(ErrorCode::Invalid)?;
-+    let controls = topology::drive(std::path::Path::new(&control_dir), &im, &sensor, &occupancy);
-+    futures_lite::future::block_on(
-+        select(select(all, failed_store).coalesce(), controls).coalesce(),
-+    )
++    let controls = topology::drive(&im, &sensor, &occupancy);
++    tokio::runtime::Builder::new_current_thread()
++        .enable_all()
++        .build()?
++        .block_on(select(select(all, failed_store).coalesce(), controls).coalesce())
  }
  
  // ---------------------------------------------------------------------------
