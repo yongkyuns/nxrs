@@ -156,12 +156,13 @@ impl Store {
                     .saturating_add(elapsed.unwrap_or(u64::MAX))
             })
         });
-        let presence = if online && age.is_some_and(|a| a < wire::MAX_AGE_MS) {
-            source
-                .as_ref()
-                .map_or(Presence::Unavailable, |s| s.presence)
-        } else {
-            Presence::Unavailable
+        let remaining_ms = elapsed.zip(age).map_or(0, |(elapsed, age)| {
+            wire::SOURCE_TIMEOUT_MS.saturating_sub(elapsed)
+                .min(wire::MAX_AGE_MS.saturating_sub(age))
+        });
+        let (presence, valid_for_ms) = match (source.as_ref(), remaining_ms) {
+            (Some(s), 1..) => (s.presence, remaining_ms),
+            _ => (Presence::Unavailable, wire::SOURCE_TIMEOUT_MS),
         };
         let event_gap = cursor.is_some_and(|cursor| {
             let Some((session, count)) = cursor.split_once(':') else {
@@ -188,7 +189,7 @@ impl Store {
             presence,
             stream_elapsed_ms: 0,
             observation_age_ms: age,
-            valid_for_ms: 1500,
+            valid_for_ms,
             frame_synchronized: false,
             source,
             event_gap,
@@ -267,11 +268,10 @@ pub(crate) async fn subscribe(
             if p.detections.shutting_down || p.detection_viewer(&token, &camera).is_err() {
                 return None;
             }
-            let mut s = p
-                .detections
-                .snapshot(&camera, Instant::now(), cursor.as_deref());
+            let now = Instant::now();
+            let mut s = p.detections.snapshot(&camera, now, cursor.as_deref());
             drop(p);
-            s.stream_elapsed_ms = started.elapsed().as_millis() as u64;
+            s.stream_elapsed_ms = now.duration_since(started).as_millis() as u64;
             let id = format!(
                 "{}:{}",
                 s.source_session_id.as_deref().unwrap_or("none"),
@@ -337,6 +337,10 @@ mod tests {
             store.snapshot("cam_one", t, None).presence,
             Presence::Person
         );
+        // If transport stalls after a heartbeat, the client must still expire
+        // the observation at the gateway's original deadline.
+        let last = store.snapshot("cam_one", t + Duration::from_millis(1499), None);
+        assert_eq!((last.presence, last.valid_for_ms), (Presence::Person, 1));
         assert_eq!(
             store
                 .snapshot("cam_one", t + Duration::from_millis(1500), None)
@@ -371,6 +375,19 @@ mod tests {
             store.snapshot("cam_one", later, None).presence,
             Presence::Unavailable
         );
+    }
+    #[test]
+    fn observation_deadline_can_precede_source_heartbeat_deadline() {
+        let mut store = Store::new(&config());
+        let t = Instant::now();
+        let id = store.register("cam_one", t).unwrap();
+        let mut v = update(id, 20);
+        v.frame_capture_ms = v.source.latest.as_ref().unwrap().captured_ms + wire::MAX_AGE_MS - 10;
+        store.update("cam_one", v, t).unwrap();
+        assert_eq!(store.snapshot("cam_one", t, None).valid_for_ms, 10);
+        let expired = store.snapshot("cam_one", t + Duration::from_millis(10), None);
+        assert!(expired.source_online);
+        assert_eq!(expired.presence, Presence::Unavailable);
     }
     #[tokio::test]
     async fn live_stream_authorization_revocation_and_bounds() {
