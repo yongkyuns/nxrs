@@ -35,17 +35,23 @@ Implement and qualify these steps in order.
    and 7, all occupied by the camera. Check the schematic, flash/PSRAM, USB,
    boot straps, DMA capacity and the effective NuttX configuration before
    admitting an I2S receive resource in a derived product profile.
-2. Have the BSP register the input endpoint. Give a Rust audio capture HAL
-   ownership of the input, bounded buffers, capture timestamps, overrun
-   reporting and joined shutdown. Use std where the operations fit and keep
-   target-header audio buffer/ioctl translation beside its NuttX provider.
-3. Negotiate a versioned audio-capable stream with the gateway. Older ingest
-   requires JPEG after optional detection metadata. Preserve this wire format
-   for existing clients. Carry a source generation, sample sequence, format,
-   capture time and discontinuities with bounded PCM chunks. Share capture
-   and an audio encoder across viewers. Start by measuring mono PCM to the
-   gateway and Opus there. At 16 kHz and 16 bits this costs 256 kbit/s before
-   framing. Measure link budget and video FPS alongside detection.
+2. Use the BSP's existing receive endpoint. By default port 0 registers
+   `/dev/audio/pcm_in0` and port 1 registers `/dev/audio/pcm_in1`. Derive
+   the path from the chosen BSP configuration. Rust opens the descriptor with
+   `std::fs`. The generic I²S lower half has no read operation, so a plain
+   `File::read` on this endpoint returns zero bytes. The NuttX provider must
+   reserve and configure capture, register a notification queue, enqueue a
+   fixed pool of audio buffers and process dequeues in task context. Keep the
+   target-header translations private to the provider. Check the returned
+   sample count, active capture generation and accepted format.
+3. Negotiate a versioned audio-capable stream with the gateway. Preserve the
+   existing JPEG and optional detection path for older peers. Start with signed
+   16-bit mono PCM at 16 kHz. A 20 ms chunk contains 320 samples (640 bytes),
+   or 256 kbit/s before framing. Decode the microphone's actual slot width and
+   channel selection on the camera. Carry source generation, sample sequence,
+   capture time and discontinuities. Timestamp audio and video against the same
+   source clock. Encode Opus once at the gateway. A 20 ms Opus packet advances
+   its 48 kHz RTP clock by 960 ticks. [RTP clock specification](https://www.rfc-editor.org/rfc/rfc7587#section-4.1).
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio
    capability from the acquired format and negotiated encoding. Exercise
    allocation, deallocation, microphone mute, gain where supported, privacy
@@ -57,8 +63,17 @@ Implement and qualify these steps in order.
    iPhone app, measure A/V skew and drift, and verify mute, disconnect,
    reconfiguration and recovery. Keep private household audio out of evidence.
 
-[Pinned BSP bring-up](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c)
-and [example audio configuration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/configs/audio/defconfig).
+Exercise stop, mute and immediate reopen with every capture buffer in flight.
+The ESP driver calls back with `-ECANCELED` for active and pending buffers
+during stop. The generic audio I²S callback passes `OK` upward on dequeue.
+Mark the retiring capture before stop, discard its completions and account
+for every buffer before reuse. Inject an RX failure separately and verify it
+becomes an observable discontinuity or terminal fault. If the native interface
+cannot distinguish the error, correct that boundary before admitting the
+hardware profile. Verify mute and revocation with a known acoustic cue so a
+listener cannot hear queued samples from an earlier capture. [ESP32-S3 I²S stop](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/common/espressif/esp_i2s.c#L3184-L3241) · [I²S audio operations and callback](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/drivers/audio/audio_i2s.c) · [Audio upper half](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/audio/audio.c#L287-L305).
+
+The profile admission review uses the [camera's current pin assignments](../../../platform/wroom/profiles/esp32s3-camera-stream.toml), [pinned BSP bring-up](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c), [receive registration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/common/src/esp32s3_board_i2s.c) and [example audio configuration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/configs/audio/defconfig).
 
 ## Bridged camera and occupancy trial
 
