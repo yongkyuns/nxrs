@@ -6,3 +6,4 @@ pub mod media;
 pub mod occupancy;
 pub mod persistence;
 mod platform;
+pub mod privacy;

@@ -21,6 +21,7 @@ use tokio::{
 use url::Url;
 
 mod paired;
+mod silence;
 
 const STARTUP: Duration = Duration::from_secs(10);
 const SILENCE: Duration = Duration::from_secs(5);
@@ -98,6 +99,9 @@ pub struct Audio {
 }
 
 impl Audio {
+    pub fn discard_queued(&mut self) {
+        self.queue = self.queue.resubscribe();
+    }
     pub fn is_current(&self) -> bool {
         self.generation == self.current.load(Ordering::Acquire)
     }

@@ -959,5 +959,54 @@
       "gateway_clippy_warnings_denied": true
     },
     "scope": "Generated H.264/Opus through one authorized source reader per trial. The browser light-to-tone offsets use requestVideoFrameCallback and a Web Audio analyser on the incoming track. They include browser scheduling and analysis delay. Hardware capture, acoustic playout, iPhone timing, long-run drift, microphone mute and privacy remain open."
+  },
+  "matter_viewer_privacy": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "privacy",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/privacy.rs": "9f56af7563e9cfd08c281f0c046cc4cbfe9da33ddeea562519f23f5f8e30fc69",
+      "gateway/matter/src/media.rs": "b83f6f866995d992a6494c6145fc651ac453723b1ef2f6326d25e41d39ad3d1f",
+      "gateway/matter/src/media/silence.rs": "7b76473dbf3efde11959c60e37206ad789ec7f621f805322bd3aa1cd51838081",
+      "gateway/tests/matter/privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1",
+      "gateway/tests/matter_privacy_reference.py": "3c68fb8bc402d9354b4b2dfa12a40e894f2ec4a2ed4a023b43fc0dba3fef7a5e",
+      "gateway/tests/matter_reference.py": "a5445ee064540c7764612825d457e0aa4d5bee2c7ac0975758a2f806de2bd2b3",
+      "tools/prepare-matter-fixture.py": "cbe6357632675b3cfeef8116d224d29a77306e417fefd513c44712b27eef3c47"
+    },
+    "receiver": "Commissioned Matter Server and independent aiortc peer using generated H.264 and pulsed mono Opus.",
+    "result": {
+      "initial_zero_pcm_frames": 100,
+      "live_muted_zero_pcm_frames": 100,
+      "muted_video_frames": 36,
+      "unmute_recovered_tone": true,
+      "privacy_end_reason": 11,
+      "active_audio_and_video_stopped": true,
+      "blocked_before_and_after_restart": true,
+      "restarted_with_same_enrollment": true,
+      "restarted_zero_pcm_frames": 100,
+      "recording_privacy_independent": true,
+      "publisher_continued": true,
+      "unmuted_tone_after_second_restart": true,
+      "allocations_preserved_across_restarts": true,
+      "direct_solicit_denied_while_private": true,
+      "pending_offer_retired": true,
+      "reboot_cleared_session_references": true
+    },
+    "direct_offer_rejection_status": 203,
+    "regressions": {
+      "pinned_sdk_dm_tests": 366,
+      "sdk_camera_tests": 3,
+      "default_gateway_tests": 72,
+      "additional_native_ffmpeg_tests": 1,
+      "architecture_packages": 79,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "gateway_clippy_warnings_denied": true
+    },
+    "scope": "The Matter endpoint and receiving peer ran on macOS. The source produced a known generated tone. Physical microphone capture, effects on non-Matter recording and detection, iPhone playback and physical A/V timing remain open."
   }
 }

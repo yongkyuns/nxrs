@@ -9,7 +9,7 @@ XML in Nxrs; follow the upstream source links.
 
 | Requirement | Current fixture / remaining work |
 | --- | --- |
-| Camera AV Stream Management | The Camera type requires video, audio and snapshots. The fixture supplies only H.264 video. The existing Nxrs camera profile and ingest do not provide audio. A real audio source and snapshot implementation are release dependencies; silent or fictitious audio is not evidence. |
+| Camera AV Stream Management | The Camera type requires video, audio and snapshots. The host fixture streams H.264 and microphone-format mono Opus from a generated A/V source. The physical camera still needs microphone capture and timestamped ingest. Snapshots are also a release dependency. |
 | WebRTC | Provider server and requestor client are required. Both offer directions and trickled candidates work in the independent receiver; Home Assistant's browser offer also includes an audio section before video. Unsupported media must be rejected without changing SDP indices. |
 | Root-node conditions | Camera requires power-source support, TLS certificate/client management and time synchronization with NTP client, Matter time client and timezone support. The default SDK Ethernet root is not evidence that these conditions are satisfied. |
 | Base device requirements | Descriptor is mandatory. A simple endpoint with a client cluster also requires Binding. Descriptor server/client lists, parts and device types must describe implemented behavior. |
@@ -58,8 +58,11 @@ Implement and qualify these steps in order.
    and active-session revocation. The host fixture holds the microphone
    allocation while the WebRTC peer is active. An independent controller
    confirmed that deallocation fails while streaming and that revoking gateway
-   access stops both tracks and releases the reference. Treat
-   speaker/talkback as a separate capability with its own hardware.
+   access stops both tracks and releases the reference. The host also persists
+   microphone mute and both software privacy settings. Check microphone mute
+   on the real capture path, and define what each privacy setting enforces in
+   the product recorder and detector. Talkback requires separate speaker
+   hardware. [Host privacy test](README.md#matter-microphone-mute-and-live-privacy).
 5. Use a known acoustic pattern at the physical microphone and a visible timing
    cue. Compare decoded samples and rendered video in Home Assistant and its
    iPhone app, measure A/V skew and drift, and verify mute, disconnect,

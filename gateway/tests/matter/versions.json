@@ -31,7 +31,8 @@
     "live-media.patch": "76daffe46f28bf551840032dc0cedd79b0aca5fbbc837ce882d5e352190ce9f0",
     "audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7",
     "audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
-    "str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012"
+    "str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012",
+    "privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1"
   },
   "home_assistant": {
     "version": "2026.11.2",

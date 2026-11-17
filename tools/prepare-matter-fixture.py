@@ -17,20 +17,17 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True, help="fresh clean rs-matter checkout")
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
-    parser.add_argument("--variant", choices=["camera", "bridge", "rtsp", "audio-control", "audio-playback"], default="camera")
+    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy")
+    parser.add_argument("--variant", choices=variants, default="camera")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
-    sdk_patches = ["rs-matter-camera.patch"]
-    if args.variant in ("bridge", "rtsp", "audio-control", "audio-playback"):
-        sdk_patches.append("bridge-topology.patch")
-    if args.variant in ("rtsp", "audio-control", "audio-playback"):
-        sdk_patches.append("live-media.patch")
-    if args.variant in ("audio-control", "audio-playback"):
-        sdk_patches.append("audio-control.patch")
+    # Each variant builds on the preceding fixture, in patch application order.
+    patches = ("rs-matter-camera.patch", "bridge-topology.patch", "live-media.patch",
+               "audio-control.patch", "audio-playback.patch", "privacy.patch")
+    sdk_patches = patches[:variants.index(args.variant) + 1]
     engine_patches = ["str0m-rejected-media.patch"]
-    if args.variant == "audio-playback":
-        sdk_patches.append("audio-playback.patch")
+    if "audio-playback.patch" in sdk_patches:
         engine_patches.append("str0m-sync.patch")
     for name in (*sdk_patches, *engine_patches, "Cargo.lock"):
         if hashlib.sha256((FIXTURE / name).read_bytes()).hexdigest() != pins["sha256"][name]:

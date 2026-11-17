@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import json
 import time
+import uuid
 
 import aiohttp
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCRtpSender, RTCSessionDescription
@@ -49,7 +50,9 @@ class Controller:
                 if future is not None and not future.done():
                     if "error_code" in data:
                         # Server details can contain SDP or commissioning credentials.
-                        future.set_exception(RuntimeError(f"controller error {data['error_code']}"))
+                        status = data.get("status")
+                        detail = f" (Matter status {status})" if type(status) is int else ""
+                        future.set_exception(RuntimeError(f"controller error {data['error_code']}{detail}"))
                     else:
                         future.set_result(data["result"])
                 elif data.get("event") in ("webrtc_callback", "camera_session_ended"):
@@ -76,7 +79,7 @@ class Controller:
 
 @contextlib.asynccontextmanager
 async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, request_end=True,
-                        audio_observer=None):
+                        audio_observer=None, end_reason=None):
     peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     if audio_observer:
         peer.addTransceiver("audio", direction="recvonly")
@@ -89,7 +92,7 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
     decoded = asyncio.get_running_loop().create_future()
     session = None
     target = dict(node_id=node_id, endpoint_id=endpoint_id)
-    client_session_key = "nxrs-reference"
+    client_session_key = uuid.uuid4().hex
     candidate_counts = dict(sent=0, received=0)
 
     video_track = None
@@ -145,7 +148,13 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
             value = event["data"]
             if value.get("node_id") != node_id or value.get("endpoint_id") != endpoint_id:
                 continue
+            if value.get("client_session_key") != client_session_key:
+                continue
             if event["event"] == "camera_session_ended":
+                if end_reason is not None:
+                    if isinstance(value.get("reason"), int) and not end_reason.done():
+                        end_reason.set_result(value["reason"])
+                    continue
                 raise RuntimeError("camera ended before decoded-frame witness completed")
             kind, body = value["event_type"], value["data"]
             if kind in ("offer", "answer"):
@@ -162,6 +171,8 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
             elif kind == "ice_candidates":
                 pending_candidates.extend(body["ice_candidates"])
             elif kind == "end":
+                if end_reason is not None and not end_reason.done():
+                    end_reason.set_result(body["reason"])
                 raise RuntimeError("camera ended before decoded-frame witness completed")
             if peer.remoteDescription:
                 for raw in pending_candidates:

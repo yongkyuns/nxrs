@@ -1,0 +1,720 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -116,6 +116,23 @@
+ use rs_matter::pairing::qr::QrTextType;
+ use rs_matter::pairing::DiscoveryCapabilities;
+ mod persistence;
++use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
++use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
++use rs_matter::persist::{KvBlobStoreAccess, VENDOR_KEYS_START};
++
++// This fixture owns one durable camera endpoint. Vendor keys are separate from SDK fabric keys.
++const CAMERA_PRIVACY_KEY: u16 = VENDOR_KEYS_START;
++const VIDEO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 1;
++const AUDIO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 2;
++fn privacy_setting(id: CameraAttr) -> Result<Setting, Error> {
++    match id {
++        CameraAttr::MicrophoneMuted => Ok(Setting::MicrophoneMuted),
++        CameraAttr::SoftLivestreamPrivacyModeEnabled => Ok(Setting::LivePrivacy),
++        CameraAttr::SoftRecordingPrivacyModeEnabled => Ok(Setting::RecordingPrivacy),
++        _ => Err(ErrorCode::AttributeNotFound.into()),
++    }
++}
++
+ mod topology;
+ use bridge::ClusterHandler as _;
+ use occ::ClusterHandler as _;
+@@ -189,14 +206,28 @@
+ /// allocation from the controller.
+ const CAM_AV_NV: usize = 2;
+
+-/// Hooks impl for the str0m-based example. The actual encoder is the
+-/// pre-loaded H.264 file and is started/stopped by the WebRTC session
+-/// lifecycle, not by `CameraAVStreamManagement` commands. So all hooks
+-/// are no-ops — they merely log so an operator can see the cluster
+-/// being driven.
+-struct Str0mCamHooks(Video);
++/// Authorize audio against the live source and apply camera privacy writes.
++struct Str0mCamHooks(Video, Privacy);
+
+ impl CameraAvStreamHooks for Str0mCamHooks {
++    fn read_privacy(&self, id: CameraAttr) -> Result<bool, Error> {
++        Ok(self.1.get(privacy_setting(id)?))
++    }
++
++    fn write_privacy(
++        &self,
++        id: CameraAttr,
++        value: bool,
++        kv: impl KvBlobStoreAccess,
++    ) -> Result<(), Error> {
++        self.1
++            .set(privacy_setting(id)?, value, |record| {
++                kv.access(|store, buf| store.store(CAMERA_PRIVACY_KEY, record, buf))
++                    .map_err(|_| privacy::Error::Storage)
++            })
++            .map_err(|_| ErrorCode::StdIoError.into())
++    }
++
+     fn admit_audio(&self, params: &AudioStreamParams) -> Result<(), CamAvError> {
+         if self.0.has_opus_track() && params.bit_rate == 64_000 {
+             Ok(())
+@@ -325,6 +356,7 @@
+ // The pending offer or the running peer owns these references until its media
+ // resources retire. Failed negotiation unwinds through the same Drop.
+ struct StreamRefs {
++    view: LiveView,
+     camera: &'static CamAv,
+     video: u16,
+     audio: Option<u16>,
+@@ -346,6 +378,7 @@
+ /// Lives in a `StaticCell`; both the hooks (embedded in `WebRtcProvHandler`)
+ /// and the driver future hold a `&'static` borrow.
+ struct Str0mShared {
++    privacy: Privacy,
+     camera: &'static CamAv,
+     inner: RefCell<Str0mInner>,
+     new_session_tx: Sender<NewSession>,
+@@ -356,14 +389,14 @@
+ }
+
+ impl Str0mShared {
+-    fn new(video: Video, camera: &'static CamAv) -> Self {
++    fn new(video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
+         let (new_session_tx, new_session_rx) = async_channel::unbounded();
+         let (outbound_tx, outbound_rx) = async_channel::unbounded();
+         Self {
+             inner: RefCell::new(Str0mInner {
+                 sessions: AllocMap::new(),
+             }),
+-            camera,
++            camera, privacy,
+             new_session_tx,
+             new_session_rx,
+             outbound_tx,
+@@ -373,6 +406,13 @@
+     }
+
+     fn streams(&self, params: &OfferParams) -> Result<(StreamRefs, Option<Audio>), WebRtcError> {
++        if params.stream_usage != StreamUsageEnum::LiveView {
++            return Err(WebRtcError::DynamicConstraint);
++        }
++        let view = self
++            .privacy
++            .live_view()
++            .ok_or(WebRtcError::InvalidInState)?;
+         let video = params
+             .video_stream_id
+             .flatten()
+@@ -381,6 +421,7 @@
+             .acquire_video(video)
+             .map_err(|_| WebRtcError::DynamicConstraint)?;
+         let mut refs = StreamRefs {
++            view,
+             camera: self.camera,
+             video,
+             audio: None,
+@@ -411,7 +452,42 @@
+                 ex.spawn(session_loop(new)).detach();
+             }
+         };
+-        ex.run(accept).await;
++        let retire_pending = self.privacy.observe(async || {
++            loop {
++                let retired = self
++                    .inner
++                    .borrow()
++                    .sessions
++                    .entries
++                    .iter()
++                    .find_map(|(id, ctrl)| {
++                        let mut pending = ctrl.pending_offer.borrow_mut();
++                        if pending
++                            .as_ref()
++                            .is_some_and(|(_, new)| new.refs.view.retired())
++                        {
++                            pending.take();
++                            Some(*id)
++                        } else {
++                            None
++                        }
++                    });
++                let Some(id) = retired else { break };
++                if self
++                    .outbound_tx
++                    .send(OutboundWork::End {
++                        session_id: id,
++                        reason: WebRTCEndReasonEnum::PrivacyMode,
++                    })
++                    .await
++                    .is_err()
++                {
++                    break;
++                }
++            }
++        });
++        ex.run(futures_lite::future::or(accept, retire_pending))
++            .await;
+         Ok(())
+     }
+ }
+@@ -467,7 +543,7 @@
+ async fn session_loop(session: NewSession) {
+     let NewSession {
+         id,
+-        local_video_mid, local_audio_mid, mut sound, refs,
++        local_video_mid, local_audio_mid, mut sound, mut refs,
+         mut rtc,
+         socket,
+         local_addr,
+@@ -503,6 +579,16 @@
+     });
+     let mut connected = false;
+     'outer: loop {
++        if refs.view.retired() {
++            end_reason = WebRTCEndReasonEnum::PrivacyMode;
++            break;
++        }
++        if refs.view.audio_changed() {
++            if let Some(sound) = &mut sound {
++                sound.discard_queued();
++            }
++        }
++
+         if sound.as_ref().is_some_and(|s| !s.is_current()) {
+             end_reason = WebRTCEndReasonEnum::NoUserMedia;
+             break;
+@@ -551,13 +637,28 @@
+                     }
+                     continue;
+                 }
+-                // Race: UDP recv | deadline timer | new remote candidate | shutdown.
+-                let ev =
+-                    race_next_event(&socket, &mut buf, deadline, &remote_cand_rx, &shutdown_rx,
+-                        if connected && video_pt.is_some() { Some(&mut pictures) } else { None },
+-                        if connected && audio_pt.is_some() { sound.as_mut() } else { None })
+-                        .await;
++                let media_event = race_next_event(
++                    &socket,
++                    &mut buf,
++                    deadline,
++                    &remote_cand_rx,
++                    &shutdown_rx,
++                    if connected && video_pt.is_some() { Some(&mut pictures) } else { None },
++                    if connected && audio_pt.is_some() { sound.as_mut() } else { None },
++                );
++                let ev = futures_lite::future::or(
++                    async {
++                        refs.view.changed().await;
++                        DriverEvent::PrivacyChanged
++                    },
++                    media_event,
++                ).await;
++                if refs.view.retired() {
++                    end_reason = WebRTCEndReasonEnum::PrivacyMode;
++                    break;
++                }
+                 match ev {
++                    DriverEvent::PrivacyChanged => continue,
+                     DriverEvent::Recv(Ok((n, from))) => {
+                         let k = packet_kind(&buf[..n]);
+                         log::debug!("webrtc_camera[{id}]: RX <- {from} {n} bytes ({k})");
+@@ -599,9 +700,21 @@
+                         }
+                     }
+                     DriverEvent::Audio(Some(packet)) => {
++                        if refs.view.audio_changed() {
++                            if let Some(sound) = &mut sound { sound.discard_queued(); }
++                            continue;
++                        }
++                        let payload = if refs.view.microphone_muted() {
++                            let Some(silence) = packet.silence() else { break 'outer };
++                            silence
++                        } else {
++                            packet.opus
++                        };
++
+                         let (Some(mid), Some(pt)) = (audio_mid, audio_pt) else { break 'outer };
+                         let Some(writer) = rtc.writer(mid) else { break 'outer };
+-                        if writer.write(pt, packet.source_time, MediaTime::new(packet.pts_48khz, Frequency::FORTY_EIGHT_KHZ), packet.opus).is_err() {
++                        let timestamp = MediaTime::new(packet.pts_48khz, Frequency::FORTY_EIGHT_KHZ);
++                        if writer.write(pt, packet.source_time, timestamp, payload).is_err() {
+                             break 'outer;
+                         }
+                     }
+@@ -691,6 +804,7 @@
+ }
+
+ enum DriverEvent {
++    PrivacyChanged,
+     Audio(Option<AudioPacket>),
+     Picture(Option<AccessUnit>),
+     Recv(std::io::Result<(usize, SocketAddr)>),
+@@ -1165,6 +1279,14 @@
+                 .sessions
+                 .get(&session_id)
+                 .ok_or(WebRtcError::InvalidInState)?;
++            if ctrl
++                .pending_offer
++                .borrow()
++                .as_ref()
++                .is_some_and(|(_, new)| new.refs.view.retired())
++            {
++                return Err(WebRtcError::InvalidInState);
++            }
+             let pending = ctrl
+                 .pending_offer
+                 .borrow_mut()
+@@ -1417,6 +1539,10 @@
+
+     // Re-hydrate the `Matter` instance (fabrics, basic info, RTC).
+     matter.startup(&kv)?;
++    let privacy = kv.access(|store, buffer| {
++        Privacy::load(store.load(CAMERA_PRIVACY_KEY, buffer)?)
++            .map_err(|_| Error::from(ErrorCode::Invalid))
++    })?;
+
+     let crypto = default_crypto(rand::rng(), DAC_PRIVKEY);
+     let mut rand = crypto.rand()?;
+@@ -1447,16 +1573,16 @@
+             supported_bit_depths: &[16],
+         }),
+     };
+-    let cam_av = CAM_AV.init(CameraAvStreamHandler::new(
++    let cam_av = CameraAvStreamHandler::new(
+         Dataver::new_rand(&mut rand),
+         1,
+         cam_av_config,
+-        CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits(),
+-        Str0mCamHooks(video.clone()),
+-    ));
+-    // Pre-seed one H.264 1080p30 stream so AllocatedVideoStreams is
+-    // non-empty at boot, mirroring the prior demo behaviour.
+-    let _ = cam_av.add_preallocated_video(VideoStream {
++        CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits() | CameraFeature::PRIVACY.bits(),
++        Str0mCamHooks(video.clone(), privacy.clone()),
++    );
++    // The first commissioning sees one allocated video stream. A stored empty
++    // allocation table is a valid controller choice and survives a restart.
++    let initial_video = VideoStream {
+         video_stream_id: 0, // overwritten by handler
+         stream_usage: StreamUsageEnum::LiveView,
+         video_codec: VideoCodecEnum::H264,
+@@ -1472,8 +1598,14 @@
+         watermark_enabled: None,
+         osd_enabled: None,
+         reference_count: 0,
+-    });
+-    let shared = SHARED.init(Str0mShared::new(video, cam_av));
++    };
++    let cam_av = CAM_AV.init(cam_av.restore_allocations(
++        &kv,
++        VIDEO_ALLOCATIONS_KEY,
++        AUDIO_ALLOCATIONS_KEY,
++        initial_video,
++    )?);
++    let shared = SHARED.init(Str0mShared::new(video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+         matter,
+diff --git a/rs-matter-dm/src/clusters/app/cam_av_common.rs b/rs-matter-dm/src/clusters/app/cam_av_common.rs
+--- a/rs-matter-dm/src/clusters/app/cam_av_common.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_common.rs
+@@ -13,17 +13,17 @@
+  *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  *    See the License for the specific language governing permissions and
+  *    limitations under the License.
+- */
++*/
+
+ //! Shared primitives and serialization helpers for Camera and Audio AV Stream Management (Cluster 0x0551).
+
++use crate::dm::ArrayAttributeRead;
+ use crate::dm::clusters::decl::camera_av_stream_management::{
+     AudioCapabilitiesStructBuilder, AudioCodecEnum, AudioStreamStructBuilder,
+ };
+ use crate::dm::clusters::decl::globals::StreamUsageEnum;
+-use crate::dm::ArrayAttributeRead;
+ use crate::error::{Error, ErrorCode};
+-use crate::tlv::{TLVBuilderParent, ToTLVArrayBuilder, ToTLVBuilder};
++use crate::tlv::{FromTLV, TLVBuilderParent, ToTLV, ToTLVArrayBuilder, ToTLVBuilder};
+ use crate::utils::storage::Vec;
+
+ /// Maximum number of distinct stream usages the priority table can hold.
+@@ -40,7 +40,7 @@
+ }
+
+ /// One row in the `AllocatedAudioStreams` attribute.
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, FromTLV, ToTLV)]
+ #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+ pub struct AudioStream {
+     pub audio_stream_id: u16,
+diff --git a/rs-matter-dm/src/clusters/app/cam_av_stream.rs b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+--- a/rs-matter-dm/src/clusters/app/cam_av_stream.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+@@ -71,12 +71,14 @@
+ //!   night vision, image control, speaker / microphone, status light.
+ //!   Each is a follow-up.
+
++use crate::dm::WriteContext;
++use crate::persist::{KvBlobStoreAccess, Persist};
+ use core::cell::{Cell, RefCell};
+ use core::future::Future;
+
+ use crate::dm::{ArrayAttributeRead, Cluster, Dataver, EndptId, InvokeContext, ReadContext};
+ use crate::error::{Error, ErrorCode};
+-use crate::tlv::{TLVBuilderParent, ToTLVArrayBuilder, ToTLVBuilder};
++use crate::tlv::{FromTLV, TLVBuilderParent, ToTLV, ToTLVArrayBuilder, ToTLVBuilder};
+ use crate::utils::storage::Vec;
+ use crate::utils::sync::blocking::Mutex;
+ use crate::utils::sync::{MaybeSend, MaybeSendSync};
+@@ -131,7 +133,7 @@
+ /// ignore it; cross-cluster consumers (WebRTC, PushAV) adjust it via
+ /// [`CameraAvStreamHandler::acquire_video`] /
+ /// [`CameraAvStreamHandler::release_video`].
+-#[derive(Debug, Clone, Copy)]
++#[derive(Debug, Clone, Copy, FromTLV, ToTLV)]
+ #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+ pub struct VideoStream {
+     pub video_stream_id: u16,
+@@ -159,6 +161,19 @@
+ /// [`CameraAvStreamHandler`] before any of these methods run. Implementors
+ /// only need to interact with their actual encoder / camera.
+ pub trait CameraAvStreamHooks: MaybeSendSync {
++    fn read_privacy(&self, _id: AttributeId) -> Result<bool, Error> {
++        Err(ErrorCode::AttributeNotFound.into())
++    }
++
++    fn write_privacy(
++        &self,
++        _id: AttributeId,
++        _value: bool,
++        _kv: impl KvBlobStoreAccess,
++    ) -> Result<(), Error> {
++        Err(ErrorCode::AttributeNotFound.into())
++    }
++
+     /// Called when a new video stream has been validated and assigned a
+     /// stable ID. The implementation should provision encoder resources;
+     /// returning `Err` aborts the allocation (the stream is NOT added to
+@@ -204,6 +219,18 @@
+ where
+     T: CameraAvStreamHooks,
+ {
++    fn read_privacy(&self, id: AttributeId) -> Result<bool, Error> {
++        (*self).read_privacy(id)
++    }
++    fn write_privacy(
++        &self,
++        id: AttributeId,
++        value: bool,
++        kv: impl KvBlobStoreAccess,
++    ) -> Result<(), Error> {
++        (*self).write_privacy(id, value, kv)
++    }
++
+     fn allocate_video(&self, stream: &VideoStream) -> impl Future<Output = Result<(), CamAvError>> {
+         (*self).allocate_video(stream)
+     }
+@@ -307,6 +334,7 @@
+     hooks: H,
+     state: Mutex<RefCell<State<NV, NA>>>,
+     next_id: Mutex<Cell<u16>>,
++    allocation_keys: Option<(u16, u16)>,
+ }
+
+ impl<'a, H, const NV: usize, const NA: usize> CameraAvStreamHandler<'a, H, NV, NA>
+@@ -344,7 +372,7 @@
+     /// when the camera also exposes a microphone and admits audio allocations.
+     pub const CLUSTER_VIDEO_AUDIO: Cluster<'static> = decl::FULL_CLUSTER
+         .with_revision(1)
+-        .with_features(decl::Feature::VIDEO.bits() | decl::Feature::AUDIO.bits())
++        .with_features(decl::Feature::VIDEO.bits() | decl::Feature::AUDIO.bits() | decl::Feature::PRIVACY.bits())
+         .with_attrs(with!(
+             required;
+             AttributeId::MaxConcurrentEncoders
+@@ -355,6 +383,9 @@
+                 | AttributeId::AllocatedVideoStreams
+                 | AttributeId::MicrophoneCapabilities
+                 | AttributeId::AllocatedAudioStreams
++                | AttributeId::MicrophoneMuted
++                | AttributeId::SoftLivestreamPrivacyModeEnabled
++                | AttributeId::SoftRecordingPrivacyModeEnabled
+         ))
+         .with_cmds(with!(
+             decl::CommandId::VideoStreamAllocate
+@@ -397,6 +428,7 @@
+             hooks,
+             state: Mutex::new(RefCell::new(State::new())),
+             next_id: Mutex::new(Cell::new(1)),
++            allocation_keys: None,
+         }
+     }
+
+@@ -409,6 +441,87 @@
+     /// Endpoint this handler is mounted on.
+     pub const fn endpoint_id(&self) -> EndptId {
+         self.endpoint_id
++    }
++
++    /// Restore nonvolatile allocations before exposing the endpoint. Transport
++    /// sessions never survive a process restart, so every restored count is zero.
++    pub fn restore_allocations(
++        mut self,
++        kv: impl KvBlobStoreAccess,
++        video_key: u16,
++        audio_key: u16,
++        initial_video: VideoStream,
++    ) -> Result<Self, Error> {
++        let mut persist = Persist::new(kv);
++        if let Some(mut rows) = persist.load_tlv::<Vec<VideoStream, NV>>(video_key)? {
++            for (i, row) in rows.iter().enumerate() {
++                if row.video_stream_id == 0
++                    || rows[..i]
++                        .iter()
++                        .any(|s| s.video_stream_id == row.video_stream_id)
++                {
++                    return Err(ErrorCode::Invalid.into());
++                }
++            }
++            for row in &mut rows {
++                row.reference_count = 0;
++            }
++            self.state.lock(|cell| cell.borrow_mut().videos = rows);
++        } else {
++            self.add_preallocated_video(initial_video)?;
++            persist.store_tlv(video_key, self.video_streams())?;
++        }
++        if let Some(rows) = persist.load_tlv::<Vec<AudioStream, NA>>(audio_key)? {
++            self.state.lock(|cell| -> Result<(), Error> {
++                let mut state = cell.borrow_mut();
++                for mut row in rows {
++                    if row.audio_stream_id == 0 || state.audios.get(row.audio_stream_id).is_some() {
++                        return Err(ErrorCode::Invalid.into());
++                    }
++                    row.reference_count = 0;
++                    state.audios.add_preallocated(row)?;
++                }
++                Ok(())
++            })?;
++        }
++        self.allocation_keys = Some((video_key, audio_key));
++        Ok(self)
++    }
++
++    fn change_videos(
++        &self,
++        kv: impl KvBlobStoreAccess,
++        change: impl FnOnce(&mut Vec<VideoStream, NV>) -> Result<(), Error>,
++    ) -> Result<(), Error> {
++        self.state.lock(|cell| {
++            let mut state = cell.borrow_mut();
++            let Some((key, _)) = self.allocation_keys else {
++                return change(&mut state.videos);
++            };
++            let mut rows = state.videos.clone();
++            change(&mut rows)?;
++            Persist::new(kv).store_tlv(key, &rows)?;
++            state.videos = rows;
++            Ok(())
++        })
++    }
++
++    fn change_audios<T>(
++        &self,
++        kv: impl KvBlobStoreAccess,
++        change: impl FnOnce(&mut AudioStreamTable<NA>) -> Result<T, Error>,
++    ) -> Result<T, Error> {
++        self.state.lock(|cell| {
++            let mut state = cell.borrow_mut();
++            let Some((_, key)) = self.allocation_keys else {
++                return change(&mut state.audios);
++            };
++            let mut table = state.audios.clone();
++            let result = change(&mut table)?;
++            Persist::new(kv).store_tlv(key, table.snapshot())?;
++            state.audios = table;
++            Ok(result)
++        })
+     }
+
+     /// Increment the reference count of an allocated video stream so
+@@ -532,12 +645,16 @@
+     /// cheap to defend against).
+     fn alloc_video_id(&self) -> u16 {
+         self.next_id.lock(|cell| {
+-            let mut id = cell.get();
+-            if id == 0 {
+-                id = 1;
+-            }
+-            cell.set(id.wrapping_add(1).max(1));
+-            id
++            loop {
++                let id = cell.get().max(1);
++                cell.set(id.wrapping_add(1).max(1));
++                if self
++                    .state
++                    .lock(|s| s.borrow().videos.iter().all(|v| v.video_stream_id != id))
++                {
++                    break id;
++                }
++            }
+         })
+     }
+
+@@ -714,6 +831,64 @@
+         self.dataver.changed();
+     }
+
++    async fn microphone_muted(&self, _ctx: impl ReadContext) -> Result<bool, Error> {
++        self.hooks.read_privacy(AttributeId::MicrophoneMuted)
++    }
++
++    async fn set_microphone_muted(&self, ctx: impl WriteContext, value: bool) -> Result<(), Error> {
++        self.hooks
++            .write_privacy(AttributeId::MicrophoneMuted, value, ctx.kv())?;
++        self.dataver.changed();
++        ctx.notify_changed();
++        Ok(())
++    }
++
++    async fn soft_livestream_privacy_mode_enabled(
++        &self,
++        _ctx: impl ReadContext,
++    ) -> Result<bool, Error> {
++        self.hooks
++            .read_privacy(AttributeId::SoftLivestreamPrivacyModeEnabled)
++    }
++
++    async fn set_soft_livestream_privacy_mode_enabled(
++        &self,
++        ctx: impl WriteContext,
++        value: bool,
++    ) -> Result<(), Error> {
++        self.hooks.write_privacy(
++            AttributeId::SoftLivestreamPrivacyModeEnabled,
++            value,
++            ctx.kv(),
++        )?;
++        self.dataver.changed();
++        ctx.notify_changed();
++        Ok(())
++    }
++
++    async fn soft_recording_privacy_mode_enabled(
++        &self,
++        _ctx: impl ReadContext,
++    ) -> Result<bool, Error> {
++        self.hooks
++            .read_privacy(AttributeId::SoftRecordingPrivacyModeEnabled)
++    }
++
++    async fn set_soft_recording_privacy_mode_enabled(
++        &self,
++        ctx: impl WriteContext,
++        value: bool,
++    ) -> Result<(), Error> {
++        self.hooks.write_privacy(
++            AttributeId::SoftRecordingPrivacyModeEnabled,
++            value,
++            ctx.kv(),
++        )?;
++        self.dataver.changed();
++        ctx.notify_changed();
++        Ok(())
++    }
++
+     async fn max_content_buffer_size(&self, _ctx: impl ReadContext) -> Result<u32, Error> {
+         Ok(self.config.max_content_buffer_size)
+     }
+@@ -864,13 +1039,12 @@
+         // Commit. If push() fails (NV exhausted concurrently) the hooks
+         // already returned Ok and we leak a half-open stream — call
+         // deallocate to be tidy.
+-        let pushed = self.state.lock(|cell| {
+-            let mut state = cell.borrow_mut();
+-            state.videos.push(candidate).is_ok()
+-        });
+-        if !pushed {
++        if let Err(error) = self.change_videos(ctx.kv(), |rows| {
++            rows.push(candidate)
++                .map_err(|_| ErrorCode::ResourceExhausted.into())
++        }) {
+             let _ = self.hooks.deallocate_video(candidate.video_stream_id).await;
+-            return Err(ErrorCode::ResourceExhausted.into());
++            return Err(error);
+         }
+         ctx.notify_own_attr_changed(AttributeId::AllocatedVideoStreams as _);
+
+@@ -904,17 +1078,19 @@
+
+         self.hooks.modify_video(id, watermark, osd).await?;
+
+-        self.state.lock(|cell| {
+-            let mut state = cell.borrow_mut();
+-            if let Some(row) = state.videos.iter_mut().find(|s| s.video_stream_id == id) {
+-                if let Some(w) = watermark {
+-                    row.watermark_enabled = Some(w);
+-                }
+-                if let Some(o) = osd {
+-                    row.osd_enabled = Some(o);
+-                }
+-            }
+-        });
++        self.change_videos(ctx.kv(), |rows| {
++            let row = rows
++                .iter_mut()
++                .find(|s| s.video_stream_id == id)
++                .ok_or(ErrorCode::NotFound)?;
++            if let Some(w) = watermark {
++                row.watermark_enabled = Some(w);
++            }
++            if let Some(o) = osd {
++                row.osd_enabled = Some(o);
++            }
++            Ok(())
++        })?;
+         ctx.notify_own_attr_changed(AttributeId::AllocatedVideoStreams as _);
+         Ok(())
+     }
+@@ -940,10 +1116,10 @@
+
+         self.hooks.deallocate_video(id).await?;
+
+-        self.state.lock(|cell| {
+-            let mut state = cell.borrow_mut();
+-            state.videos.retain(|s| s.video_stream_id != id);
+-        });
++        self.change_videos(ctx.kv(), |rows| {
++            rows.retain(|s| s.video_stream_id != id);
++            Ok(())
++        })?;
+         ctx.notify_own_attr_changed(AttributeId::AllocatedVideoStreams as _);
+         Ok(())
+     }
+@@ -1034,9 +1210,10 @@
+             validate_audio_allocate(&params, caps, &cell.borrow().stream_usage_priorities)
+         })?;
+         self.hooks.admit_audio(&params)?;
+-        let allocation = self
+-            .state
+-            .lock(|cell| cell.borrow_mut().audios.find_or_create(&params))?;
++        if let Some(row) = self.state.lock(|cell| cell.borrow().audios.find(&params)) {
++            return response.audio_stream_id(row.audio_stream_id)?.end();
++        }
++        let allocation = self.change_audios(ctx.kv(), |table| table.find_or_create(&params))?;
+         if matches!(allocation, StreamAllocation::Created(_)) {
+             ctx.notify_own_attr_changed(AttributeId::AllocatedAudioStreams as _);
+         }
+@@ -1054,8 +1231,7 @@
+             return Err(ErrorCode::CommandNotFound.into());
+         }
+         let id = request.audio_stream_id()?;
+-        self.state
+-            .lock(|cell| cell.borrow_mut().audios.deallocate(id))?;
++        self.change_audios(ctx.kv(), |table| table.deallocate(id))?;
+         ctx.notify_own_attr_changed(AttributeId::AllocatedAudioStreams as _);
+         Ok(())
+     }

@@ -356,7 +356,30 @@ distinct tracks, 60 presented images and at least six light and tone pulses.
 It measures the tone from the incoming audio track with Web Audio and the
 light from the displayed video. Their observed time difference includes
 browser scheduling and the analyser window. Physical microphone capture,
-speaker/display timing, iPhone playback, mute and privacy have separate gates.
+speaker/display timing and iPhone playback require physical qualification.
+
+## Matter microphone mute and live privacy
+
+Prepare and build the pinned SDK with `--variant privacy`. Use the same binary
+paths, interface and IP as the microphone allocation test. Run the following
+in a fresh private runtime directory.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_privacy_reference.py \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" --device "$matter_sdk/target/debug/webrtc_camera" \
+  --gateway gateway/target/debug/nxrs-gateway-control --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx /absolute/path/to/mediamtx --runtime "$matter_runtime/privacy" --interface en1 --ip <fixture-lan-ip>
+```
+
+A commissioned controller mutes and unmutes a generated tone during playback.
+The independent receiver requires consecutive exact-zero PCM samples and
+advancing video. Live privacy ends established and pending sessions, rejects
+direct offers, and allows a fresh viewer after release. The same controller
+reconnects after two abrupt device-process restarts and checks settings,
+allocated stream IDs, reference counts and decoded audio. A recording-privacy
+write leaves the separately admitted LiveView usage available. This test
+covers the Matter viewer. Physical microphone capture, recorder behavior and
+the product-wide scope of privacy controls still require qualification.
 
 ## Two administrators and active fabric removal
 
