@@ -117,6 +117,9 @@ def allocation_output(text, profile, platform, configuration):
         raise ValueError("allocation control did not exit successfully")
     terminal = rows(text, "ES_ALLOC_RESULT")
     workers = int(profile.rsplit("-", 1)[1]) if profile.startswith("alloc-threads-") else 0
+    linked_workers = configuration.get("worker_capacity", 20)
+    if type(linked_workers) is not int or linked_workers not in (0, 1, 5, 10, 20) or workers > linked_workers:
+        raise ValueError("allocation workers exceed the linked capacity")
     if len(terminal) != 1 or terminal[0] != dict(
             platform=platform, profile=profile, requested_workers=workers, errors=0):
         raise ValueError("allocation result identity or qualification failure")
@@ -154,7 +157,8 @@ def allocation_output(text, profile, platform, configuration):
             raise ValueError("allocation stack requests disagree with build")
         if static:
             if (row["worker_stack_reservation_available"] != 1 or
-                    row["worker_stack_reserved"] < 20 * requested or
+                    row["worker_stack_reserved"] < linked_workers * requested or
+                    (linked_workers == 0 and row["worker_stack_reserved"] != 0) or
                     row["worker_stack_reserved"] != phases[0]["worker_stack_reserved"]):
                 raise ValueError("static stack reservations are missing or inconsistent")
         elif row["worker_stack_reservation_available"] != 0 or row["worker_stack_reserved"] != 0:

@@ -1,5 +1,7 @@
 # Pico 2 W and ESP32-S3 WROOM characterization
 
+The [November 17 WROOM review](WROOM-REVIEW.md) is a separate fresh cohort with improved placement inspection and matched usable-stack RAM controls. The historical records below remain unchanged.
+
 The physical runs covered 151 Pico captures and 304 WROOM evidence entries.
 Each block replayed against its own frozen artifacts. The IRQ and native RAM
 corrections used separate cohorts, so these results summarize the measured

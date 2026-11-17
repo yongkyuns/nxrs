@@ -7,7 +7,7 @@ The website is static HTML, CSS, and JavaScript generated from the guide and rep
 - `guide/`: task-oriented guides for the first build, architecture and APIs, application design, configuration, debugging, and examples.
 - `api.md` and `api.json`: the Rust API introduction and curated public-library catalog.
 - `build_api.py`: the separate Rust documentation builder and artifact validator.
-- `site.json`: page titles, guide sections, and reference groups.
+- `site.json`: page titles, guide sections, reference groups and reader-facing descriptions.
 - `layout.html`: shared homepage and documentation layouts.
 - `static/`: local styles, search, theme, and navigation behavior.
 - `examples/basic-firmware/`: a dependency-free Cargo workspace used by the introductory guides.
@@ -90,7 +90,7 @@ node docs/assets/render-architecture.mjs --check
 
 Keep the approved architecture's typography, rounded containers, muted connectors, and blue/orange accents. Each figure should answer one question, with a caption explaining its scope and meaningful alternative text. Use prose or a table for a short path inventory or a simple mapping. Reserve code blocks for commands, source, configuration, and actual output.
 
-Reference Markdown can use a `<picture>` with a dark source so it also reads on GitHub. The site's theme control updates these sources to match the reader's selected theme. Guide figures can use the existing `theme-light` and `theme-dark` image classes. Keep an SVG link in the caption when a detailed diagram needs a larger view. The Website workflow checks reproducibility and rejects missing or stale SVGs without changing files.
+Reference Markdown can use a `<picture>` with a dark source so it also reads on GitHub. The site's theme control updates these sources to match the reader's selected theme. Guide figures can use the existing `theme-light` and `theme-dark` image classes. Keep an SVG link in the caption when a detailed diagram needs a larger view. The Website workflow checks reproducibility and rejects missing or stale SVGs without changing files. The message-comparison chart reads the recorded physical-results table; changes to that source also trigger the existing website check.
 
 ## Links and examples
 
@@ -98,7 +98,7 @@ Use relative Markdown links between guide and reference sources. The build rewri
 
 Link to `api.md` when directing readers to the Rust API catalog. Maintain its package names, Rust library names, descriptions, and feature selection in `api.json`; the builder checks the catalog against the Cargo manifests. The generated item pages and rustdoc search belong to the artifact, and should not be edited or committed as website source. Website search indexes the library catalog, while rustdoc supplies symbol search.
 
-Add a guide to `site.json` and exactly one section. Add curated references to `reference_groups` without duplication; remaining documents stay available under Additional engineering notes. Preserve old URL fragments when a heading is renamed.
+Add a guide to `site.json` and exactly one section. Add curated references to `reference_groups` without duplication and describe their purpose in `reference_descriptions`; remaining documents stay available under Additional engineering notes. Findings, methods and historical measurements have distinct groups. Keep current explanations at established routes and preserve original reports under `docs/history/`. Preserve old URL fragments when a heading is renamed.
 
 The guide order also defines previous/next navigation across sections. A `reference_guides` entry connects an engineering reference to its practical introduction without duplicating its source. Keep the guide index's task map and homepage reading paths aligned with that organization.
 

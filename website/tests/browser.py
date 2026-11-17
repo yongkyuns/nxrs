@@ -168,11 +168,27 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             page.locator('#theme-toggle').click()
             report['checks'].append('engineering reference links back to guide; SVG picture follows explicit theme')
 
+            for reference in ('rtos-comparison', 'std-channel-performance'):
+                page.goto(url + f'reference/{reference}/', wait_until='networkidle')
+                figure = page.locator('.prose figure').last
+                picture = figure.locator('img')
+                figure.scroll_into_view_if_needed()
+                for theme in ('light', 'dark'):
+                    expect(page.locator('html')).to_have_attribute('data-theme', theme)
+                    picture.evaluate('(img) => img.decode()')
+                    expect(picture).to_be_visible()
+                    assert picture.evaluate('(img) => img.complete && img.naturalWidth > 0')
+                    assert picture.evaluate('(img) => img.currentSrc.endsWith("-dark.svg")') == (theme == 'dark')
+                    figure.screenshot(path=str(output / f'{reference}-{theme}.png'))
+                    page.locator('#theme-toggle').click()
+            report['checks'].append('comparison chart and latency diagram load and follow both themes')
+
             main_nav.get_by_role('link', name='Reference', exact=True).click()
             expect(page.locator('.reference-category h2').first).to_have_text('Framework and build system')
             expected = sorted(item['url'] for item in search if item['section'] == 'Reference')
             actual = sorted(page.locator('.reference-list a').evaluate_all('(links) => links.map(a => a.getAttribute("href"))'))
             assert actual == expected, (actual, expected)
+            page.screenshot(path=str(output / 'reference-index.png'), full_page=True)
             report['checks'].append('categorized reference index retains every source exactly once')
 
             main_nav.get_by_role('link', name='Rust API', exact=True).click()
@@ -233,6 +249,7 @@ def run(site: Path, prefix: str, output: Path) -> dict:
 
             page.set_viewport_size({'width': 390, 'height': 844})
             routes = ['', 'reference/', 'api/'] + [item['url'][len(prefix):] for item in guides]
+            routes += [f'reference/{name}/' for name in ('rtos-comparison', 'std-channel-performance', 'rust-std-footprint', 'nuttx-std', 'camera-pico-performance', 'camera-detector-alternatives')]
             for route in routes:
                 page.goto(url + route, wait_until='networkidle')
                 width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
@@ -240,6 +257,11 @@ def run(site: Path, prefix: str, output: Path) -> dict:
                 assert page.locator('iframe').count() == 0
                 for label in ('Getting started', 'User guide', 'Examples', 'Reference', 'Rust API', 'GitHub ↗'):
                     expect(main_nav.get_by_role('link', name=label, exact=True)).to_be_visible()
+                if route == 'reference/rtos-comparison/':
+                    mobile_figure = page.locator('.prose figure')
+                    mobile_figure.scroll_into_view_if_needed()
+                    mobile_figure.locator('img').evaluate('(img) => img.decode()')
+                    mobile_figure.screenshot(path=str(output / 'rtos-comparison-mobile.png'))
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')
             expect(page.locator('.mobile-toc')).to_be_visible()
             page.locator('.mobile-toc summary').click()

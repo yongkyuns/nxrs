@@ -75,6 +75,14 @@ paths = ['^tests/channel-progress/results/2026-11-04-esp32s3/(runs/(std|crossbea
 regexTarget = "line"
 regexes = ['^[\r\n \t]*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":[ \t]*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?[ \t\r]*$']
 
+[[allowlists]]
+description = "Reviewed WROOM comparison public pthread patch hash from 2026-11-17"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/rtos-characterization/wroom-review-2026-11-17\.json$']
+regexTarget = "line"
+regexes = ['^[\r\n \t]*"upstream/nuttx/patches/0006-flat-build-global-pthread-keys\.patch":[ \t]*"776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",?[ \t\r]*$']
+
 # Reviewed Dropbear history contains two public preimage hashes and a prose
 # table row that the generic key heuristic matches. The self-test reconstructs
 # the source bytes from the immutable complete patch and verifies the prose.

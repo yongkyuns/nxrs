@@ -1,5 +1,7 @@
 # PICO camera detection qualification
 
+> **Historical model qualification.** The measurements and viewer limitations below describe the initial PICO integration. Current frame-matched overlays and freshness behavior are in [detection delivery](camera-detection-delivery.md) and [client architecture](client-camera-architecture.md).
+
 The [performance follow-up](camera-pico-performance.md) records stage profiling,
 unchanged-model equivalence and the optimized memory/resize implementation.
 The image hashes, two-second budget and measurements below remain historical

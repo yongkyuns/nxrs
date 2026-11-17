@@ -1,5 +1,14 @@
 # Architecture and source ownership
 
+Use this reference to decide who owns behavior and where a change belongs. The [architecture guide](../website/guide/overview.md) is the shorter introduction; the tables and sections below give the implementation boundaries.
+
+| Question | Read |
+| --- | --- |
+| Who owns product policy and reusable behavior? | [Applications](#applications) and [services](#services) |
+| How do components wait, exchange events and stop? | [Event-driven communication](#event-driven-service-communication) |
+| Who owns a device, its driver and its bus? | [HALs](#hal-one-crate-per-capability), [drivers](#providers-and-drivers) and [composition](static-device-composition.md) |
+| Where are OS and board choices made? | [Platform composition](#platform-directory) and [build policy](#build-policy) |
+
 The source hierarchy is app, service, hal, driver, platform, and layer-neutral shared libraries.
 
 The normative HAL/resource ownership rules are in

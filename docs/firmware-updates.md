@@ -1,5 +1,19 @@
 # Signed firmware updates
 
+A signed update must be authenticated, staged without damaging the active image, tried under a startup deadline, and confirmed only after health checks pass. MCUboot owns authentication and recovery; the Rust boot HAL owns staging/lifecycle access; the application decides when it is healthy enough to confirm.
+
+This reference covers the WROOM camera integration and its recorded checks. It separates the update contract from the individual hardware trials.
+
+| Task | Read |
+| --- | --- |
+| Build a signed image and matching bootloader | [Image preparation](#prepare-the-image) and [bootloader](#build-the-bootloader) |
+| Understand staging and confirmation ownership | [Boot HAL and startup health](#boot-hal-and-startup-health) |
+| Inspect exercised fault cases and remaining limits | [Physical update trials](#physical-update-trials) |
+| Deliver an update over the network | [OTA delivery](#ota-delivery) |
+| Understand credentials and renewal | [Network enrollment and time](#network-enrollment-and-time) |
+
+## Prepare the image
+
 Select `home-cam` with platform `esp32s3-camera-stream-startup` for a signed MCUboot camera/TLS/PICO image with
 TLS autostart and trial confirmation. Unsigned qualification builds require an
 explicit `--platform`; missing signing inputs fail before building.
@@ -55,6 +69,8 @@ The same candidate payload with the trusted key, matching class and counter 8
 booted as an unconfirmed trial. The test seeded pending images over USB to
 exercise MCUboot admission. The original 16 MiB flash was restored and verified.
 
+## Boot HAL and startup health
+
 MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
 `state`, `stage_update`, `request_trial` and `confirm`. Shared Rust admits staging
 only from a stable image, stable-to-pending trial requests, and trial-to-confirmed
@@ -100,6 +116,8 @@ service or automatic startup confirmation policy. Product wiring owns layout.
 The packager uses upstream signing/verification and explicit geometry, independent
 of the ESP32-S3 boot ROM.
 
+## Build the bootloader
+
 Build the matching signature-enforcing second stage with:
 
 ```sh
@@ -130,6 +148,8 @@ invokes synchronous network initialization. Stable boots cancel before USB
 credential/enrollment input; trial boots retain the deadline while waiting.
 The register model checks both modes, locked/unlocked entry,
 preserved bits and repeated handoff; it does not qualify reset timing.
+
+## Physical update trials
 
 Trial health requires capture, authenticated full-image write completion and
 any configured real-frame inference within five seconds. Consuming retirement
