@@ -99,16 +99,16 @@ fn real_csr_exclusive_owner_moves_and_fresh_keys() {
     ));
     // The callback scope borrows the current location; it cannot retain the old
     // owner address across safe moves. The SDK key context itself stays stable.
-    let mut moved = Box::new(identity);
+    let moved = Box::new(identity);
     let mut first = [0; 2048];
     let n = moved.request("device_A", &mut first).unwrap();
     assert!(first[..n].starts_with(b"-----BEGIN CERTIFICATE REQUEST-----\n"));
     assert!(first[n..].iter().all(|v| *v == 0));
-    let mut identity = *moved;
+    let identity = *moved;
     assert!(identity.request("device_A", &mut [0; 2048]).is_ok());
     drop(identity);
     let mut second = [0; 2048];
-    let mut fresh = crate::open().unwrap();
+    let fresh = crate::open().unwrap();
     let m = fresh.request("device_A", &mut second).unwrap();
     assert!(first[..n] != second[..m]);
     if let Some(directory) = std::env::var_os("NXRS_TLS_PUBLIC_DIR") {
@@ -145,7 +145,7 @@ fn failed_refresh_cannot_use_cached_drbg_or_restore_this_owner() {
     let _serial = serial();
     let source = Source::new();
     let fail = source.fail.clone();
-    let mut identity = Identity::generate(source).unwrap();
+    let identity = Identity::generate(source).unwrap();
     fail.store(true, Ordering::Release);
     assert_eq!(identity.refresh_entropy(), Err(Error::Entropy));
     fail.store(false, Ordering::Release);
@@ -163,7 +163,7 @@ fn automatic_drbg_reseed_failure_clears_csr_and_stays_closed() {
     let source = Source::new();
     let fail = source.fail.clone();
     let calls = source.calls.clone();
-    let mut identity = Identity::generate(source).unwrap();
+    let identity = Identity::generate(source).unwrap();
     let seeded = calls.load(Ordering::Relaxed);
     fail.store(true, Ordering::Release);
     let mut output = [0xa5; 2048];
@@ -189,7 +189,7 @@ fn invalid_subject_and_capacity_refuse_before_sdk_without_poisoning() {
     let _serial = serial();
     let source = Source::new();
     let calls = source.calls.clone();
-    let mut identity = Identity::generate(source).unwrap();
+    let identity = Identity::generate(source).unwrap();
     let before = calls.load(Ordering::Relaxed);
     let mut output = [0xa5; 2048];
     for subject in ["", "a/b", "a,CN=b", "a\0b", &"a".repeat(65)] {
@@ -212,7 +212,7 @@ fn invalid_subject_and_capacity_refuse_before_sdk_without_poisoning() {
 #[test]
 fn foreign_and_late_callbacks_refuse_without_dereferencing_owner() {
     let _serial = serial();
-    let mut identity = Identity::generate(Source::new()).unwrap();
+    let identity = Identity::generate(Source::new()).unwrap();
     let probe = || {
         let mut bits = 99;
         let mut output = [0xa5; 32];
@@ -238,7 +238,7 @@ fn foreign_and_late_callbacks_refuse_without_dereferencing_owner() {
 #[test]
 fn unsupported_callback_flags_latch_failure() {
     let _serial = serial();
-    let mut identity = Identity::generate(Source::new()).unwrap();
+    let identity = Identity::generate(Source::new()).unwrap();
     let mut bits = 99;
     let mut output = [0xa5; 32];
     assert_eq!(
@@ -313,7 +313,7 @@ fn fallible_rust_allocations_retire_sources_and_preserve_healthy_key() {
         assert!(closed.load(Ordering::Acquire));
         assert!(Identity::generate(Source::new()).is_ok());
     }
-    let mut identity = Identity::generate(Source::new()).unwrap();
+    let identity = Identity::generate(Source::new()).unwrap();
     let mut output = [0xa5; 2048];
     assert_eq!(
         budget(0, || identity.request("device", &mut output)),

@@ -14,7 +14,6 @@ use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
 
 const BYTES: usize = 320 * 240 * 2;
 const HEALTH_AGE_MS: u64 = 5000;
-const RENEW_AFTER: Duration = Duration::from_secs(45 * 60);
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
 const RECOVERY_RESET_FRAMES: u64 = 32;
 const MAX_RETRY_DELAY: u64 = 30;
@@ -152,14 +151,13 @@ fn run_live<D: Camera, O: StreamOutput>(
             }
             Err(error) => return Err(format!("capture start {error:?}")),
         }
-        let started = Instant::now();
         let (mut delivered, mut captured) = (0, 0);
         let (mut last_delivery, mut last_capture) = (Instant::now(), Instant::now());
         loop {
             if update.is_some_and(home_cam::update::Update::ready) {
                 return Ok(false);
             }
-            if (started.elapsed() >= RENEW_AFTER || last_delivery.elapsed() >= DELIVERY_TIMEOUT)
+            if last_delivery.elapsed() >= DELIVERY_TIMEOUT
                 && update.is_none_or(home_cam::update::Update::retire_if_idle)
             {
                 return Ok(false);

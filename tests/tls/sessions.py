@@ -543,6 +543,19 @@ class Sessions(unittest.TestCase):
                     pass
         self.result(root, process, credentials, error, accepted=False)
 
+    def test_same_key_renewal_updates_an_active_connections_crl_deadline(self):
+        root, process, credentials, error = self.start(case='renew')
+        credentials.call('crl', '-in', root/'crl.pem', '-outform', 'DER', '-out', root/'renewed-crl.der')
+        credentials.issue('other', client=True)
+        private(root/'wrong-peer.der', ssl.PEM_cert_to_DER_cert((root/'other.pem').read_text()))
+        credentials.crl(seconds=60)
+        address = self.load(root, process, credentials)
+        with socket.create_connection(address, timeout=5) as transport:
+            with self.context(root, ssl.TLSVersion.TLSv1_3).wrap_socket(transport, server_hostname='127.0.0.1') as client:
+                client.sendall(b'ping\n')
+                self.assertEqual(client.recv(5), b'pong\n')
+        self.result(root, process, credentials, error, accepted=True)
+
     def test_unusable_own_certificate_cannot_serve(self):
         for case in ['different-key', 'expired']:
             with self.subTest(case=case):

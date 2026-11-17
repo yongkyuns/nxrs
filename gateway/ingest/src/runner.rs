@@ -193,10 +193,13 @@ async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::
     outcome
 }
 /// One source connection and encoder at a time. Retry delay caps at eight seconds.
-pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
+pub async fn run(config:Config, stop:watch::Receiver<bool>) -> Result<()> {
+    let policy=Prepared::load(&config)?;
+    run_prepared(config, policy, stop).await
+}
+pub(crate) async fn run_prepared(config:Config, policy:Prepared, mut stop:watch::Receiver<bool>) -> Result<()> {
     config.validate()?;
     let token=zeroize::Zeroizing::new(config.token()?);
-    let policy=Prepared::load(&config)?;
     let mut delay=1;
     loop {
         let start=Instant::now();

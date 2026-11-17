@@ -69,6 +69,13 @@ admits at most eight socket callbacks and 8 KiB; plaintext records are at most
 and entropy reads are synchronous: qualify their execution latency or isolate
 them from capture before product admission. Drop aborts without waiting on peers.
 
+`Identity::renew` validates fresh certificates and revocation data for the same
+issuer, identity names and public keys. Verification runs in bounded SDK steps
+so the caller can service a live connection between them. An established
+connection retains its original native TLS context and applies the new
+authorization at its next trusted-time refresh. New handshakes use the fresh
+certificates.
+
 `python3 tests/tls/qualify.py --platform linux` (or `macos`) runs actual SDK
 failure/lifetime tests, native sanitizer controls, independent CSR verification
 and OpenSSL TLS peers with revocation, deadline and real backpressure controls.

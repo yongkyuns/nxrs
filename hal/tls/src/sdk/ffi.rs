@@ -87,11 +87,39 @@ unsafe extern "C" {
     pub(super) fn tls_crt_sig_pk(p: *mut c_void) -> c_int;
     pub(super) fn tls_crl_sig_md(p: *mut c_void) -> c_int;
     pub(super) fn tls_crl_sig_pk(p: *mut c_void) -> c_int;
+    pub(super) fn tls_pk_restart_size() -> usize;
+    pub(super) fn tls_pk_restart_align() -> usize;
+    pub(super) fn tls_crt_restart_size() -> usize;
+    pub(super) fn tls_crt_restart_align() -> usize;
+    pub(super) fn mbedtls_pk_restart_init(p: *mut c_void);
+    pub(super) fn mbedtls_pk_restart_free(p: *mut c_void);
+    pub(super) fn mbedtls_x509_crt_restart_init(p: *mut c_void);
+    pub(super) fn mbedtls_x509_crt_restart_free(p: *mut c_void);
+    pub(super) fn psa_interruptible_get_max_ops() -> u32;
+    pub(super) fn psa_interruptible_set_max_ops(ops: u32);
+    pub(super) fn tls_ecc_in_progress() -> c_int;
+    pub(super) fn tls_pk_verify_sha256(
+        p: *mut c_void,
+        hash: *const u8,
+        hash_size: usize,
+        signature: *const u8,
+        signature_size: usize,
+        restart: *mut c_void,
+    ) -> c_int;
+    pub(super) fn tls_crt_verify(
+        leaf: *mut c_void,
+        issuer: *mut c_void,
+        flags: *mut u32,
+        restart: *mut c_void,
+    ) -> c_int;
     pub(super) fn tls_crt_from(p: *mut c_void) -> *const c_void;
     pub(super) fn tls_crt_until(p: *mut c_void) -> *const c_void;
     pub(super) fn tls_crl_from(p: *mut c_void) -> *const c_void;
     pub(super) fn tls_crl_until(p: *mut c_void) -> *const c_void;
     pub(super) fn tls_crt_raw(p: *mut c_void, size: *mut usize) -> *const u8;
+    pub(super) fn tls_crt_public_key(p: *mut c_void, size: *mut usize) -> *const u8;
+    pub(super) fn tls_crl_signed_bytes(p: *mut c_void, size: *mut usize) -> *const u8;
+    pub(super) fn tls_crl_signature(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_issuer(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_subject(p: *mut c_void, size: *mut usize) -> *const u8;
     pub(super) fn tls_crt_eku(p: *mut c_void, size: *mut usize) -> *const u8;
@@ -148,16 +176,8 @@ unsafe extern "C" {
         input: *const u8,
         size: usize,
     ) -> c_int;
-    pub(super) fn mbedtls_x509_crt_verify(
-        p: *mut c_void,
-        issuer: *mut c_void,
-        crl: *mut c_void,
-        name: *const c_char,
-        flags: *mut u32,
-        verify: Option<unsafe extern "C" fn(*mut c_void, *mut c_void, c_int, *mut u32) -> c_int>,
-        context: *mut c_void,
-    ) -> c_int;
     pub(super) fn mbedtls_x509_time_is_past(p: *const c_void) -> c_int;
     pub(super) fn mbedtls_x509_time_is_future(p: *const c_void) -> c_int;
+    pub(super) fn mbedtls_x509_crt_is_revoked(crt: *const c_void, crl: *const c_void) -> c_int;
     pub(super) fn mbedtls_pk_check_pair(public: *const c_void, private: *const c_void) -> c_int;
 }

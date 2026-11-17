@@ -100,6 +100,19 @@ int tls_crt_sig_md(void *p) { return ((mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(si
 int tls_crt_sig_pk(void *p) { return ((mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(sig_pk); }
 int tls_crl_sig_md(void *p) { return ((mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig_md); }
 int tls_crl_sig_pk(void *p) { return ((mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig_pk); }
+size_t tls_pk_restart_size(void) { return sizeof(mbedtls_pk_restart_ctx); }
+size_t tls_pk_restart_align(void) { return _Alignof(mbedtls_pk_restart_ctx); }
+size_t tls_crt_restart_size(void) { return sizeof(mbedtls_x509_crt_restart_ctx); }
+size_t tls_crt_restart_align(void) { return _Alignof(mbedtls_x509_crt_restart_ctx); }
+int tls_ecc_in_progress(void) { return PSA_OPERATION_INCOMPLETE; }
+int tls_pk_verify_sha256(void *p, const unsigned char *hash, size_t hash_size,
+                         const unsigned char *signature, size_t signature_size, void *restart)
+{ return mbedtls_pk_verify_restartable(p, MBEDTLS_MD_SHA256, hash, hash_size,
+                                       signature, signature_size, restart); }
+int tls_crt_verify(void *leaf, void *issuer, uint32_t *flags, void *restart)
+{ return mbedtls_x509_crt_verify_restartable(leaf, issuer, NULL,
+                                             &mbedtls_x509_crt_profile_default, NULL,
+                                             flags, NULL, NULL, restart); }
 const void *tls_crt_from(void *p) { return &((mbedtls_x509_crt *)p)->valid_from; }
 const void *tls_crt_until(void *p) { return &((mbedtls_x509_crt *)p)->valid_to; }
 const void *tls_crl_from(void *p) { return &((mbedtls_x509_crl *)p)->this_update; }
@@ -108,6 +121,12 @@ const void *tls_crl_until(void *p) { return &((mbedtls_x509_crl *)p)->next_updat
 /* Read-only views into parsed SDK-owned storage, valid while its owner lives. */
 const unsigned char *tls_crt_raw(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->raw.len; return v->raw.p; }
+const unsigned char *tls_crt_public_key(void *p, size_t *size)
+{ mbedtls_x509_crt *v = p; *size = v->pk_raw.len; return v->pk_raw.p; }
+const unsigned char *tls_crl_signed_bytes(void *p, size_t *size)
+{ mbedtls_x509_crl *v = p; *size = v->tbs.len; return v->tbs.p; }
+const unsigned char *tls_crl_signature(void *p, size_t *size)
+{ mbedtls_x509_buf *v = &((mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig); *size = v->len; return v->p; }
 const unsigned char *tls_crt_issuer(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->issuer_raw.len; return v->issuer_raw.p; }
 const unsigned char *tls_crt_subject(void *p, size_t *size)
