@@ -25,6 +25,20 @@ Reviewed on 2026-11-10:
 
 These are documentation references, not compatibility, endorsement, or feature-parity claims. The wording and examples here are written for NXRS.
 
+## Write finished evaluation reports
+
+An evaluation reference is a completed report: objective, test setup and assumptions, results, interpretation, conclusions and focused follow-up, then evidence and reproduction. State the setup before the first finding or chart. Identify hardware, software/build revisions, workload, scheduling and memory settings, sample counts, warm-up and repetitions, measurement boundaries, correctness checks and exclusions. Include only settings relevant to interpreting the result; link full receipts and commands. If a material detail was not recorded, say so rather than inferring it.
+
+Define unfamiliar metrics and denominators before using them. Separate experiments that used different firmware, workloads, observers or label rules. Put the scope beside each table or chart as well. Conclusions should follow from the stated evidence; avoid opening with a rhetorical question, repeating a recommendation, or narrating successive attempts. Keep detailed test procedures in the measurement guide and intermediate controls in the linked study archive.
+
+Interpret the result rather than restating the table. Identify the dominant measured cost, the implementation mechanism that could explain a difference, and what is still unresolved. Distinguish measured effects, source inspection, hypotheses and calculated opportunities; do not turn correlation into a root-cause claim. Explain the consequence for the user's latency, memory or reliability budget. End with one or two prioritized follow-ups, stating which uncertainty each resolves and what evidence would justify the proposed improvement. Avoid an open-ended test catalogue.
+
+Keep current explanations at their established routes. Preserve long investigations under `docs/history/` with a prominent scope notice and a link back to the maintained summary. Original numbers, failed controls and provenance remain intact. Do not combine different firmware, workloads or observers into a new apparent result, or turn historical “pending” statements into current status.
+
+Reference navigation separates findings, measurement methods and historical evidence. Give each entry a short description of the question it answers in `site.json`; a filename alone is not a useful introduction. Add results to the appropriate summary instead of appending a new chronology to the reader's main path.
+
+Charts use the existing SVG generator and themes, with named units, readable values, a source and a nearby textual/table equivalent. Use a zero baseline for magnitude bars. Conceptual flow diagrams must not imply measured durations. A documentation or chart refresh never implies a new hardware run.
+
 ## Maintainable examples
 
 `examples/basic-firmware` is an independent, dependency-free Cargo workspace. The first application and worker excerpts are checked against their source. Website CI creates an external workspace from the guide's `cargo new` command and published blocks, compiles and runs each tutorial revision, tests the worker lifecycle, and executes the documented `std-demo` commands.

@@ -4,6 +4,8 @@ Use this guide to take an ordinary Rust program from a host computer to a NuttX 
 
 The tutorials use a small, independent Cargo application. The same development concepts apply to a controller, data logger, connected device, or another firmware project. Larger application-specific material is under [Examples](examples.md).
 
+For resource and RTOS questions, [Performance and memory](performance.md) maps each question to a result summary or measurement fixture. Historical investigations are linked behind those summaries.
+
 ## Get started
 
 Follow these pages in order for the first build:

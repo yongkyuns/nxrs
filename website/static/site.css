@@ -92,7 +92,7 @@ html[data-theme=dark] .theme-dark{display:block!important}
 .reference-list{display:grid;gap:.6rem;margin-top:2rem}
 .reference-list>a{display:flex;flex-direction:column;text-decoration:none;color:var(--ink);padding:.85rem 1rem;border:1px solid var(--line);border-radius:9px}
 .reference-list>a:hover{border-color:var(--sky)}
-.reference-list span{font-size:.72rem;color:var(--muted);font-family:ui-monospace,monospace;margin-top:.3rem}
+.reference-list span{font-size:.82rem;color:var(--muted);line-height:1.5;margin-top:.3rem}
 .prose .api-catalog th[scope=row]{background:transparent;font-weight:500}
 .prose .api-catalog th[scope=row] code,.prose .api-catalog td:nth-child(2) code{white-space:nowrap}
 .prose .api-catalog td:last-child{min-width:180px}

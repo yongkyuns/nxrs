@@ -78,6 +78,7 @@ jobs:
       - name: Documentation and dependency setup guards (no toolchain build)
         run: |
           python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
+          python -m unittest discover -s tests/host -p test_xtensa_literal_calls.py -v
           python -m unittest discover -s tests/host -p test_upstream_layout.py -v
           python -m unittest discover -s tests/host -p test_esp_mbedtls_allocators.py -v
           python -m unittest discover -s tests/host -p test_arc4random_entropy.py -v

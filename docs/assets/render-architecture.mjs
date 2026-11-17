@@ -453,7 +453,66 @@ function acquisitionBoundary(p) {
 }
 
 
+function latencyBoundaries(p) {
+  return guideFigure(p, 'Measure the path that matters',
+    'An event is acquired, admitted to a queue, received by a worker and processed into output. Channel delivery covers admission through receive; end-to-end response includes acquisition and useful processing. Widths and spacing are conceptual, not durations.', 640, `
+  <text x="400" y="42" text-anchor="middle" class="label" font-size="26">Measure the path that matters</text>
+  ${panel({ id: 'acquire', x: 240, y: 80, w: 320, title: 'Acquire and normalize', lines: ['Device readiness → typed event'] })}
+  ${panel({ id: 'admit', x: 240, y: 206, w: 320, title: 'Offer to the inbox', lines: ['Queue admission / full policy'], accent: p.blue })}
+  ${panel({ id: 'receive', x: 240, y: 332, w: 320, title: 'Worker receives', lines: ['Queue residence + scheduling'], accent: p.blue })}
+  ${panel({ id: 'output', x: 240, y: 458, w: 320, title: 'Handle and output', lines: ['Useful work completes'], accent: p.orange })}
+  ${edge('acquire', 'admit', 'M400 168 V204')}
+  ${edge('admit', 'receive', 'M400 294 V330')}
+  ${edge('receive', 'output', 'M400 420 V456')}
+  <path d="M204 80 H180 V546 H204 M596 206 H620 V420 H596" fill="none" stroke="${p.line}" stroke-width="2"/>
+  <text transform="translate(152 313) rotate(-90)" text-anchor="middle" class="label" font-size="22">End-to-end response</text>
+  <text transform="translate(654 313) rotate(-90)" text-anchor="middle" class="label" font-size="22">Channel delivery</text>
+  <text x="400" y="592" text-anchor="middle" class="subtitle">Elapsed time includes waiting and preemption.</text>
+  <text x="400" y="618" text-anchor="middle" class="subtitle">CPU time counts execution; measure it separately.</text>
+`);
+}
+
+function messageComparison(p) {
+  const evidence = JSON.parse(readFileSync(new URL('../../tests/rtos-characterization/wroom-review-2026-11-17.json', import.meta.url), 'utf8'));
+  const cases = [
+    ['stream-p4-b16-q8', '16-byte messages'],
+    ['stream-p4-b64-q8', '64-byte messages'],
+  ];
+  const arms = [['timing-std', 'NuttX std', p.blue], ['timing-zephyr', 'Zephyr native', p.orange]];
+  const x = 230, scale = 500 / 100;
+  const ticks = [0, 25, 50, 75, 100];
+  const rows = cases.map(([key, title], groupIndex) => {
+    const top = 126 + groupIndex * 140;
+    return `<text x="30" y="${top}" class="label" font-size="22">${xml(title)}</text>\n`
+      + arms.map(([build, name, color], i) => {
+        const runs = evidence.timing.filter(run => run.case === key && run.build === build);
+        if (runs.length !== 3 || new Set(runs.map(run => run.pass)).size !== 3 ||
+            runs.some(run => !run.normal_loss_gate || !Number.isFinite(run.delivery_p99_us))) {
+          throw new Error(`Missing or invalid comparison evidence: ${key} ${build}`);
+        }
+        const value = Math.max(...runs.map(run => run.delivery_p99_us));
+        if (value <= 0 || value > 100) throw new Error(`Comparison value outside chart: ${value}`);
+        const y = top + 22 + i * 36, width = value * scale;
+        return `<text x="30" y="${y + 15}" class="subtitle">${name}</text>
+  <rect x="${x}" y="${y}" width="${width.toFixed(2)}" height="20" rx="4" fill="${color}"/>
+  <text x="${x + width + 9}" y="${y + 15}" class="subtitle">${value.toFixed(3)}</text>`;
+      }).join('\n');
+  }).join('\n');
+  return guideFigure(p, 'WROOM stream delivery latency',
+    'Maximum of three per-run delivery p99 values in microseconds; lower is better. Four producers, eight slots. 16-byte messages: NuttX std 50.375, Zephyr 52.000. 64-byte messages: NuttX std 85.438, Zephyr 85.313. One physical WROOM; nominal on-chip clock. November 17, 2026.', 480, `
+  <text x="30" y="43" class="label" font-size="26">WROOM stream delivery p99</text>
+  <text x="30" y="75" class="subtitle">Four producers · eight slots · lower is better</text>
+  ${ticks.map(t => `<path d="M${x + t * scale} 146 V354" stroke="${p.border}" stroke-width="1"/>`).join('\n  ')}
+  ${rows}
+  ${ticks.map(t => `<text x="${x + t * scale}" y="390" text-anchor="middle" class="subtitle">${t}</text>`).join('\n  ')}
+  <text x="480" y="423" text-anchor="middle" class="subtitle">Delivery latency (µs) · nominal on-chip clock</text>
+  <text x="30" y="458" class="subtitle">Maximum per-run p99 across three boots; not a worst-case bound.</text>
+`);
+}
+
 const guideDiagrams = [
+  ['nxrs-latency-boundaries', latencyBoundaries],
+  ['nxrs-message-comparison', messageComparison],
   ['nxrs-build-workflow', buildWorkflow],
   ['nxrs-profile-composition', profileComposition],
   ['nxrs-interface-boundaries', interfaceBoundaries],

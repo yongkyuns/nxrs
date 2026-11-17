@@ -175,7 +175,7 @@ class ChartTests(unittest.TestCase):
                     self.assertEqual(width, "1")
 
     def test_analysis_local_links_and_anchors_resolve(self):
-        document = HERE.parents[1] / "rtos-comparison.md"
+        document = HERE.parents[1] / "history/native-rtos-study.md"
         for link in re.findall(r'\[[^]]*\]\(([^)]+)\)', document.read_text()):
             if "://" in link:
                 continue
@@ -190,8 +190,8 @@ class ChartTests(unittest.TestCase):
 
     def test_size_footnotes_resolve_in_each_comparison_document(self):
         repository = HERE.parents[2]
-        documents = ("docs/rtos-comparison.md",
-                     "docs/rust-std-footprint.md")
+        documents = ("docs/history/native-rtos-study.md",
+                     "docs/history/rust-footprint-study.md")
         for name in documents:
             content = (repository / name).read_text()
             references = set(re.findall(r'\[\^([\w-]+)\](?!:)', content))

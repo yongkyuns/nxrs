@@ -95,6 +95,20 @@ def allocation(profile, platform="nuttx-c", queues=60):
 
 
 class AllocationEvidenceTests(unittest.TestCase):
+    def test_linked_capacity_is_distinct_from_the_runtime_worker_count(self):
+        for count in (0, 1, 5, 10, 20):
+            text = allocation(f"alloc-threads-{count}", "zephyr-c").replace(
+                "worker_stack_reserved=41600", f"worker_stack_reserved={count * 2080}")
+            config = {"worker_stack_bytes": 2048, "queues": 60, "worker_capacity": count}
+            result = ram.allocation_output(text, f"alloc-threads-{count}", "zephyr-c", config)
+            self.assertEqual(result["phases"][0]["worker_stack_reserved"], count * 2080)
+        with self.assertRaisesRegex(ValueError, "linked capacity"):
+            ram.allocation_output(allocation("alloc-threads-1"), "alloc-threads-1", "nuttx-c",
+                                  {"worker_stack_bytes": 2048, "queues": 60, "worker_capacity": 0})
+        with self.assertRaisesRegex(ValueError, "static stack reservations"):
+            ram.allocation_output(allocation("alloc-threads-0", "zephyr-c"), "alloc-threads-0", "zephyr-c",
+                                  {"worker_stack_bytes": 2048, "queues": 60, "worker_capacity": 0})
+
     def test_all_controls_keep_static_reservations_and_runtime_deltas_distinct(self):
         for platform in ("nuttx-c", "nuttx-rust", "zephyr-c"):
             for queues in (20, 60):
