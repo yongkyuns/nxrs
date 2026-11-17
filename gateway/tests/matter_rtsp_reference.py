@@ -55,6 +55,16 @@ async def session_count():
 
 
 def publish(stack, root, args, rtsp, token, color, size, rate):
+    command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                "-re", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}",
+                "-vf", f"drawbox=x=0:y=0:w=iw/4:h=ih/4:color={color}:t=fill",
+                "-c:v", "libx264", "-threads", "2", "-profile:v", "baseline",
+                "-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0", "-g", str(rate),
+                "-f", "mpegts", "pipe:1"]
+    return publish_encoded(stack, root, args, rtsp, token, command)
+
+
+def publish_encoded(stack, root, args, rtsp, token, command, formats=()):
     # The publisher consumes credentials from stdin. The encoder inherits the
     # same pipe after the preamble and only ever sees public media arguments.
     with ExitStack() as pipes:
@@ -63,23 +73,22 @@ def publish(stack, root, args, rtsp, token, color, size, rate):
         out = pipes.enter_context(os.fdopen(write, "wb", buffering=0))
         out.write(token.encode())
         with (root / "publisher.log").open("ab") as log:
-            pub = subprocess.Popen([args.publisher, f"127.0.0.1:{rtsp}", "publisher", "cam"],
+            pub = subprocess.Popen([args.publisher, f"127.0.0.1:{rtsp}", "publisher", "cam", *formats],
                                    stdin=inp, stdout=log, stderr=log)
             stack.callback(stop, pub)
         with (root / "encoder.log").open("ab") as log:
-            encoder = subprocess.Popen(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                "-re", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}",
-                "-vf", f"drawbox=x=0:y=0:w=iw/4:h=ih/4:color={color}:t=fill",
-                "-c:v", "libx264", "-threads", "2", "-profile:v", "baseline",
-                "-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0", "-g", str(rate),
-                "-f", "mpegts", "pipe:1"], stdout=out, stderr=log)
+            encoder = subprocess.Popen(command, stdout=out, stderr=log)
             stack.callback(stop, encoder)
     return encoder, pub
 
 
-def run(args):
-    root = args.runtime.resolve()
-    root.mkdir(mode=0o700)
+def start_control(stack, root, args, gateway, revoked=False):
+    process = start(stack, root, "gateway", [args.gateway, gateway.config, "--security", gateway.security])
+    gateway.ready(process, revoked)
+    return process
+
+
+def start_media(stack, root, args):
     rtsp, api, control, internal, whep, ice = ports(6)
     gateway = StrictMedia(root, api, control, internal)
     config = root / "mediamtx.json"
@@ -89,30 +98,37 @@ def run(args):
         webrtcIPsFromInterfaces=False, webrtcAdditionalHosts=["127.0.0.1"], webrtcICEServers2=[],
         authMethod="http", authHTTPExclude=[], authHTTPAddress=f"http://127.0.0.1:{internal}/internal/mediamtx/auth",
         paths={"cam":{"overridePublisher":False, "maxReaders":8}})))
+    server = start(stack, root, "mtx", [args.mediamtx.resolve(), config], cwd=root)
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            with socket.create_connection(("127.0.0.1", rtsp), timeout=1):
+                break
+        except ConnectionRefusedError:
+            assert server.poll() is None and time.monotonic() < deadline
+            time.sleep(.05)
+    controller = start_control(stack, root, args, gateway)
+    return gateway, server, controller, rtsp
+
+
+def start_device(stack, root, args, gateway, rtsp, state, *, initialize=False):
+    env = dict(os.environ, WEBRTC_CAMERA_TRIAL_DIR=str(root), TMPDIR=str(root),
+               WEBRTC_CAMERA_STATE=str(state.resolve()), WEBRTC_RTSP_ADDR=f"127.0.0.1:{rtsp}",
+               WEBRTC_RTSP_PATH="cam", WEBRTC_RTSP_USER="reader", WEBRTC_RTSP_TOKEN_FILE=str(gateway.credentials["reader"]),
+               RUST_LOG="error")
+    for key in ("WEBRTC_CAMERA_H264", "WEBRTC_CAMERA_CONTROL"):
+        env.pop(key, None)
+    command = [args.device, "--initialize-state"] if initialize else [args.device]
+    return start(stack, root, "matter", command, env)
+
+
+def run(args):
+    root = args.runtime.resolve()
+    root.mkdir(mode=0o700)
     result = []
     with ExitStack() as stack:
-        def start_control(revoked=False):
-            process = start(stack, root, "gateway", [args.gateway, gateway.config, "--security", gateway.security])
-            gateway.ready(process, revoked)
-            return process
-
-        server = start(stack, root, "mtx", [args.mediamtx.resolve(), config], cwd=root)
-        deadline = time.monotonic() + 10
-        while True:
-            try:
-                with socket.create_connection(("127.0.0.1", rtsp), timeout=1):
-                    break
-            except ConnectionRefusedError:
-                assert server.poll() is None and time.monotonic() < deadline
-                time.sleep(.05)
-        controller = start_control()
-        env = dict(os.environ, WEBRTC_CAMERA_TRIAL_DIR=str(root), TMPDIR=str(root),
-                   WEBRTC_CAMERA_STATE=str(args.state.resolve()), WEBRTC_RTSP_ADDR=f"127.0.0.1:{rtsp}",
-                   WEBRTC_RTSP_PATH="cam", WEBRTC_RTSP_USER="reader", WEBRTC_RTSP_TOKEN_FILE=str(gateway.credentials["reader"]),
-                   RUST_LOG="error")
-        for key in ("WEBRTC_CAMERA_H264", "WEBRTC_CAMERA_CONTROL"):
-            env.pop(key, None)
-        device = start(stack, root, "matter", [args.device], env)
+        gateway, server, controller, rtsp = start_media(stack, root, args)
+        device = start_device(stack, root, args, gateway, rtsp, args.state)
         for color, size, rate, count in [("red", "640x360", 15, 2), ("blue", "320x240", 10, 1)]:
             with ExitStack() as publication:
                 encoder, publisher = publish(publication, root, args, rtsp, gateway.publisher, color, size, rate)
@@ -185,7 +201,7 @@ def run(args):
                                       remaining_matter_sessions=0)
                     if args.fault == "control-loss":
                         assert publisher.poll() is None and encoder.poll() is None
-                        controller = start_control()
+                        controller = start_control(stack, root, args, gateway)
                         restored = wait_path(gateway, lambda p: len(p.get("readers", [])) == 1)
                         assert restored["source"]["id"] == active["source"]["id"]
                         assert restored["readers"][0]["id"] != reader_id
@@ -199,7 +215,7 @@ def run(args):
                         wait_path(gateway, lambda p: p.get("ready") and other[1].stat().st_size >= n + 15)
                         result[-1]["independent_reader_advanced_after_revocation"] = True
                         stop(controller)
-                        controller = start_control(revoked=True)
+                        controller = start_control(stack, root, args, gateway, revoked=True)
                         refused, progress = start_receiver("reader", "-retry")
                         assert refused.wait(timeout=8) == 77 and not progress.exists(), "expected RTSP 401"
                         accepted, progress = start_receiver("independent", "-retry")

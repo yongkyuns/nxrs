@@ -285,6 +285,25 @@ the authorized receiver can reopen. Only `result.json` is intended for
 sharing. Physical camera input, per-fabric access and iPhone rendering need
 separate qualification.
 
+## Timestamped audio/video publication
+
+Run this isolated host test with the pinned receiver environment, FFmpeg with
+libopus and libx264, the strict gateway, MediaMTX and the SDK publisher.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_audio_reference.py \
+  --gateway gateway/target/debug/nxrs-gateway-control --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx /absolute/path/to/mediamtx --runtime "$matter_runtime/av-publication"
+```
+
+The generator flashes an image and sounds a 1 kHz tone at unequal intervals.
+Both tracks use a common source timeline. The test sends Opus first and H.264
+second in MPEG-TS. An independent PyAV receiver decodes both tracks from one
+authenticated RTSP publication and checks the tone, all pulse intervals, the
+decoded frame cadence and the relative cue times. This measures timing at the
+decoder. Physical microphone input, client presentation and Matter audio
+allocation have their own release checks.
+
 ## Scope of the evidence
 
 `evidence.json` records host results. Neither a teardown acknowledgement nor

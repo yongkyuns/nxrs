@@ -12,8 +12,6 @@ import socket
 import subprocess
 import time
 
-from playwright.sync_api import sync_playwright
-from matter_topology_reference import observe, playback
 
 ROOT = Path(__file__).resolve().parents[2]
 CAMERA = "cam_one"
@@ -111,6 +109,8 @@ class Gateway:
 
 
 def run(args):
+    from playwright.sync_api import sync_playwright
+    from matter_topology_reference import observe, playback
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
     with ExitStack() as stack:

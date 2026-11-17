@@ -13,6 +13,7 @@ use zeroize::Zeroizing;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EncodedMedia {
     MpegTs,
+    MpegTsAv,
     AnnexB,
 }
 
@@ -51,6 +52,7 @@ fn publication_input(
     let (public, format) = match args {
         [_, _, _] => (args, EncodedMedia::MpegTs),
         [_, _, _, mode] if mode == "annexb" => (&args[..3], EncodedMedia::AnnexB),
+        [_, _, _, mode] if mode == "mpegts-av" => (&args[..3], EncodedMedia::MpegTsAv),
         _ => return Err(Failure::Configuration),
     };
     let (address, user, path) = target(public)?;

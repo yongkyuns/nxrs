@@ -63,6 +63,22 @@ Implement and qualify these steps in order.
    iPhone app, measure A/V skew and drift, and verify mute, disconnect,
    reconfiguration and recovery. Keep private household audio out of evidence.
 
+Two existing interfaces determine the work between capture and playback.
+
+- Current camera ingest sends H.264. The publisher's raw Annex-B mode timestamps
+  pictures at gateway receipt. Its new `mpegts-av` mode accepts timestamped
+  H.264 and mono Opus together. The generated cue test reaches an independent
+  RTSP decoder. Firmware and ingest must still preserve capture timestamps
+  through the mux and retain the picture identity metadata. Exercise transport
+  delays, lost audio chunks and simultaneous video-only playback. [Publisher input](../../publisher/src/sdk.rs) · [Publisher clock](../../publisher/src/main.rs).
+- The pinned Matter Server intersects the offered audio codecs with the
+  camera's microphone capabilities. Its default request uses 64 kbit/s. Test
+  mono Opus allocation with that request, release it on the last viewer, and
+  verify that two viewers share one encoder. Home Assistant enables talkback
+  from the Speaker feature and duplex capability. A microphone-only profile
+  should deliver camera audio with the phone microphone disabled.
+  [Matter Server audio selection](https://github.com/matter-js/matterjs-server/blob/fc8aa79611aebbe3090a30813e7211f707b2131f/packages/ws-controller/src/camera/streamPolicy.ts#L543-L629) · [Home Assistant camera signaling](https://github.com/home-assistant/core/blob/ff5d56b825a0fb66b03d01bc297d49e206cdaba3/homeassistant/components/matter/camera.py#L134-L175).
+
 Exercise stop, mute and immediate reopen with every capture buffer in flight.
 The ESP driver calls back with `-ECANCELED` for active and pending buffers
 during stop. The generic audio I²S callback passes `OK` upward on dequeue.

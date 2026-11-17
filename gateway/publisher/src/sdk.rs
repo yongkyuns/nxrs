@@ -35,30 +35,37 @@ impl Drop for Options {
 pub struct Source {
     context: *mut av::AVFormatContext,
     packet: *mut av::AVPacket,
+    streams: usize,
+    audio: Option<i32>,
 }
 impl Source {
     pub fn open(format: EncodedMedia) -> Result<Self> {
         // Preserve MPEG-TS program/header discovery. A zero analyzeduration
         // requests automatic multi-second analysis; explicitly bound it instead.
-        let (name, probe) = match format {
-            EncodedMedia::MpegTs => (c"mpegts", c"153600"),
-            EncodedMedia::AnnexB => (c"h264", c"32"),
+        // Allow the container demuxer to report one unexpected track so the
+        // admission check can reject it even if FFmpeg ignores later tracks.
+        // The Opus packets can precede the H.264 SPS. Allow 250 ms of media
+        // for paired track discovery under the same input byte budget.
+        let (name, probe, limit, duration) = match format {
+            EncodedMedia::MpegTs => (c"mpegts", c"153600", c"2", c"1"),
+            EncodedMedia::MpegTsAv => (c"mpegts", c"153600", c"3", c"250000"),
+            EncodedMedia::AnnexB => (c"h264", c"32", c"1", c"1"),
         };
         let values = [
             (c"probesize", probe),
-            (c"analyzeduration", c"1"),
-            (c"max_streams", c"1"),
+            (c"analyzeduration", duration),
+            (c"max_streams", limit),
             (c"protocol_whitelist", c"pipe"),
             (c"codec_whitelist", c""),
         ];
-        Self::open_with(c"pipe:0", name, &values)
-    }
-    fn open_with(url: &CStr, name: &CStr, values: &[(&CStr, &CStr)]) -> Result<Self> {
+        let audio = format == EncodedMedia::MpegTsAv;
         let mut source = Self {
             context: ptr::null_mut(),
             packet: ptr::null_mut(),
+            streams: if audio { 2 } else { 1 },
+            audio: None,
         };
-        let mut options = Options::new(values)?;
+        let mut options = Options::new(&values)?;
         // SAFETY: constant NUL-terminated strings and live dictionary; the SDK
         // allocates/frees a null-initialized context according to its contract.
         unsafe {
@@ -66,7 +73,7 @@ impl Source {
             if format.is_null()
                 || av::avformat_open_input(
                     &mut source.context,
-                    url.as_ptr(),
+                    c"pipe:0".as_ptr(),
                     format,
                     &mut options.0,
                 ) < 0
@@ -81,23 +88,48 @@ impl Source {
                 return Err(Failure::Media);
             }
             if av::avformat_find_stream_info(source.context, ptr::null_mut()) < 0
-                || (*source.context).nb_streams != 1
+                || (*source.context).nb_streams as usize != source.streams
             {
                 return Err(Failure::Media);
             }
-            let stream = *(*source.context).streams;
-            if stream.is_null() || (*stream).codecpar.is_null() {
-                return Err(Failure::Media);
+            for index in 0..source.streams {
+                let stream = *(*source.context).streams.add(index);
+                if stream.is_null()
+                    || (*stream).codecpar.is_null()
+                    || (*stream).time_base.num <= 0
+                    || (*stream).time_base.den <= 0
+                {
+                    return Err(Failure::Media);
+                }
+                let parameters = &*(*stream).codecpar;
+                match parameters.codec_type {
+                    av::AVMediaType::AVMEDIA_TYPE_VIDEO
+                        if parameters.codec_id == av::AVCodecID::AV_CODEC_ID_H264
+                            && (2..=1920).contains(&parameters.width)
+                            && (2..=1080).contains(&parameters.height)
+                            && parameters.width % 2 == 0
+                            && parameters.height % 2 == 0
+                            && (0..=153600).contains(&parameters.extradata_size) => {}
+                    av::AVMediaType::AVMEDIA_TYPE_AUDIO
+                        if audio
+                            && source.audio.is_none()
+                            && parameters.codec_id == av::AVCodecID::AV_CODEC_ID_OPUS
+                            && parameters.ch_layout.nb_channels == 1
+                            && parameters.sample_rate == 48_000
+                            && parameters.extradata_size == 19
+                            && !parameters.extradata.is_null() =>
+                    {
+                        // Version 1, one channel and mapping family zero.
+                        let header = std::slice::from_raw_parts(parameters.extradata, 19);
+                        if !header.starts_with(b"OpusHead\x01\x01") || header[18] != 0 {
+                            return Err(Failure::Media);
+                        }
+                        source.audio = Some(index as i32);
+                    }
+                    _ => return Err(Failure::Media),
+                }
             }
-            let parameters = &*(*stream).codecpar;
-            if parameters.codec_type != av::AVMediaType::AVMEDIA_TYPE_VIDEO
-                || parameters.codec_id != av::AVCodecID::AV_CODEC_ID_H264
-                || !(2..=1920).contains(&parameters.width)
-                || !(2..=1080).contains(&parameters.height)
-                || parameters.width % 2 != 0
-                || parameters.height % 2 != 0
-                || !(0..=153600).contains(&parameters.extradata_size)
-            {
+            if audio != source.audio.is_some() {
                 return Err(Failure::Media);
             }
             source.packet = av::av_packet_alloc();
@@ -121,9 +153,16 @@ impl Source {
             if result == av::AVERROR_EOF {
                 return Ok(false);
             }
+            let index = (*self.packet).stream_index;
+            let max_packet = if self.audio == Some(index) {
+                4096
+            } else {
+                1_048_576
+            };
             if result < 0
-                || (*self.packet).stream_index != 0
-                || !(1..=1_048_576).contains(&(*self.packet).size)
+                || (*self.context).nb_streams as usize != self.streams
+                || !(0..self.streams as i32).contains(&index)
+                || !(1..=max_packet).contains(&(*self.packet).size)
             {
                 return Err(Failure::Media);
             }
@@ -168,17 +207,17 @@ impl Publication {
             {
                 return Err(Failure::Output);
             }
-            let stream = av::avformat_new_stream(output.context, ptr::null());
-            if stream.is_null()
-                || av::avcodec_parameters_copy(
-                    (*stream).codecpar,
-                    (**(*source.context).streams).codecpar,
-                ) < 0
-            {
-                return Err(Failure::Output);
+            for index in 0..source.streams {
+                let input = *(*source.context).streams.add(index);
+                let stream = av::avformat_new_stream(output.context, ptr::null());
+                if stream.is_null()
+                    || av::avcodec_parameters_copy((*stream).codecpar, (*input).codecpar) < 0
+                {
+                    return Err(Failure::Output);
+                }
+                (*(*stream).codecpar).codec_tag = 0;
+                (*stream).time_base = (*input).time_base;
             }
-            (*(*stream).codecpar).codec_tag = 0;
-            (*stream).time_base = (**(*source.context).streams).time_base;
             if av::avformat_write_header(output.context, &mut options.0) < 0 {
                 return Err(Failure::Output);
             }
@@ -186,7 +225,7 @@ impl Publication {
         Ok(output)
     }
     pub fn time_base(&self) -> Result<(u32, u32)> {
-        // SAFETY: successful header owns its single initialized output stream.
+        // SAFETY: raw Annex-B always has exactly one initialized output stream.
         let value = unsafe { (**(*self.context).streams).time_base };
         if value.num <= 0 || value.den <= 0 {
             return Err(Failure::Output);
@@ -223,10 +262,11 @@ fn write_packet(
     // SAFETY: contexts/packet are exclusively owned and initialized. The SDK
     // rescales to the output clock and consumes/unrefs on interleaved write.
     unsafe {
+        let index = (*source.packet).stream_index as usize; // Validated by Source::next.
         av::av_packet_rescale_ts(
             source.packet,
-            (**(*source.context).streams).time_base,
-            (**(*output).streams).time_base,
+            (**(*source.context).streams.add(index)).time_base,
+            (**(*output).streams.add(index)).time_base,
         );
         // Rust supplies an optional receipt time in this exact output clock.
         // Container/RTP inputs retain their native clock without replacement.

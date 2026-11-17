@@ -604,6 +604,59 @@
     },
     "open": [
       "Selective removal of one Matter fabric/controller while another uses the same source, runtime ownership barriers, physical input and concurrent Nxrs Home/iPhone playback, microphone, Linux/remote qualification and soak."
-    ]
+    ],
+    "revision": "80a78a45b566b2c7bc9618329224c088d885e8a6"
+  },
+  "audio_publication": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "source": "One FFmpeg generator produces a timed light pattern and matching 1 kHz tone on a shared clock. The Nxrs publisher sends H.264 and mono Opus in one session to MediaMTX under strict gateway authorization. PyAV decodes both tracks over RTSP/TCP.",
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "source_sha256": {
+      "gateway/publisher/src/main.rs": "f0849e0918042809493cf4b5a795a1b86165581412ae8ca02f670a39ffe41165",
+      "gateway/publisher/src/sdk.rs": "116e97bb215eb56b5f389789d2667cbaa54de7371afc3426b85c9a8a276a2854",
+      "gateway/tests/matter_audio_reference.py": "22ed685fbf3785fde253eaf4d7d60ae59f0edde2e5ef32af8f4cd2bf25f6748d",
+      "gateway/tests/matter_rtsp_reference.py": "eb91c3d7a4383626967680d719f1c6db6338077cc955a3b1b8dd8eae661b9a21"
+    },
+    "runs": [
+      {
+        "video_frames": 86,
+        "audio_frames": 316,
+        "median_tone_hz": 1000.0,
+        "maximum_cue_difference_ms": 59.4,
+        "video_pulses": 6,
+        "audio_pulses": 7,
+        "rejected_inputs": [
+          "missing audio",
+          "stereo",
+          "AAC",
+          "extra track",
+          "paired input in video-only mode"
+        ]
+      },
+      {
+        "video_frames": 86,
+        "audio_frames": 316,
+        "median_tone_hz": 1000.0,
+        "maximum_cue_difference_ms": 57.6,
+        "video_pulses": 6,
+        "audio_pulses": 7,
+        "rejected_inputs": [
+          "missing audio",
+          "stereo",
+          "AAC",
+          "extra track",
+          "paired input in video-only mode"
+        ]
+      }
+    ],
+    "controls": {
+      "legacy_sdk_publisher_controls_passed": 8,
+      "publisher_clock_test_passed": 1
+    },
+    "scope": "Opt-in timestamped publication on the host. Cue differences use decoded timestamps at 15 fps, with 20 ms audio. They do not measure microphone capture latency, rendered iPhone lip sync or long-run drift. The existing camera ingest, Matter reader and iPhone have no newly qualified audio path."
   }
 }

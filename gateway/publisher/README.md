@@ -6,17 +6,20 @@ ingest relays it through bounded storage to this helper. Only the helper's stdin
 receives the 64-byte lowercase-hex token preamble. Its arguments are public:
 
 ```sh
-nxrs-rtsp-publisher 127.0.0.1:8554 publisher_reference reference [annexb]
+nxrs-rtsp-publisher 127.0.0.1:8554 publisher_reference reference [annexb|mpegts-av]
 ```
 
 The default input is H264 in MPEG-TS. The optional `annexb` mode uses a monotonic
 receipt clock in the output time base; frame identity remains in the unchanged
-SEI payload. Regular-file stdin, invalid credentials/targets and non-H264 media
+SEI payload. The opt-in `mpegts-av` input requires exactly one H.264 track
+and one mono Opus track. Either can appear first. Supply timestamps from a
+common source clock in MPEG-TS. The helper rescales each packet to its own
+RTSP track clock and shares a single publication. Regular-file stdin, invalid credentials/targets and unsupported media
 are refused. The helper consumes exactly the preamble without buffered prefetch.
 It uses the installed FFmpeg SDK for demuxing and RTSP-over-TCP remuxing. An empty
 decoder whitelist prevents image decoding during stream probing. Native logs
 are disabled before credential handling; only fixed errors and numeric packet
-progress leave the helper.
+progress leave the helper. [Generated audio/video qualification](../tests/matter/README.md#timestamped-audiovideo-publication).
 
 Build explicitly from `gateway/` with installed FFmpeg development headers,
 libraries, libclang and pkg-config:
