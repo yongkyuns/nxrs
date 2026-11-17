@@ -312,7 +312,7 @@
   "gateway_occupancy": {
     "recorded_utc": "2026-11-17T20:13:42.494740+00:00",
     "source": "Labelled detector publications through Nxrs gateway control; generated H.264 in a commissioned bridge.",
-    "fixture_pins": "versions.json",
+    "fixture_pins": "https://github.com/yongkyuns/nxrs/blob/a1d07affc550b7b2b794007cfe185309904eff65/gateway/tests/matter/versions.json",
     "pins_sha256": "4c4780faf53a09bfbb85060683bfaee5d5ba2e00d5c217ba09adf0f63de48d7d",
     "source_sha256": {
       "gateway/control/src/detections.rs": "6c388b0fab99c71ec7c5983cb728ca35337f93f96089f98ed992c2c87b98e4fe",
@@ -383,6 +383,78 @@
     "limitations": [
       "The first development run passed the automation sequence but failed the browser playback witness before the diagnostic location was recorded. Subsequent host runs passed; browser startup reliability remains a qualification item.",
       "One local fabric and wildcard subscription. Physical camera/audio, iPhone, split subscriptions, multi-admin access and active media revocation require separate evidence."
+    ]
+  },
+  "live_media": {
+    "recorded_utc": "2026-11-17T21:19:19.272019+00:00",
+    "host": "macOS arm64, Home Assistant Core and headless Chrome",
+    "source": "FFmpeg 9.0.2 testsrc2 with red or blue marker, Nxrs RTSP publisher and loopback MediaMTX. No physical camera or microphone.",
+    "fixture_pins": "versions.json",
+    "pins_sha256": "8d2546d09635ca85b9ab67a260e8ba6f31f58f1ea37ff411854d77e37d51364c",
+    "source_sha256": {
+      "gateway/matter/src/media.rs": "b34503bc4098cf4fb1888cc472fc3543261873f822afcf42198bc87fd5796a4e",
+      "gateway/matter/src/media/tests.rs": "13301837f8ca3e2e50f89968a27af1b2508c677a4704ec8c336da51d96533731",
+      "gateway/tests/matter/live-media.patch": "76daffe46f28bf551840032dc0cedd79b0aca5fbbc837ce882d5e352190ce9f0",
+      "gateway/tests/matter_rtsp_reference.py": "07db3c8d8cbf44b2c4fa5382e326f0e6096d9602a3951e86f89a7ac4f52e9149",
+      "gateway/tests/matter_browser_reference.py": "c79c6a7438a3691f422fd0af241c4d56208643b5f1e3320d1e128bc537c9215c",
+      "tools/prepare-matter-fixture.py": "57cf9f9e21b9bbc032308e4767a67d98988cefef8ab941d39b826526f75ac220"
+    },
+    "qualification": [
+      {
+        "marker": "red",
+        "source_size": "640x360",
+        "source_fps": 15,
+        "concurrent_views": 2,
+        "overlap_seconds": 4.23,
+        "upstream_readers": 1,
+        "presented_frames": [
+          60,
+          60
+        ],
+        "presented_fps": [
+          13.94,
+          13.94
+        ],
+        "decoded_clock_min_step_90khz": [
+          6000,
+          6000
+        ],
+        "active_views_ended_on_source_loss": 2,
+        "remaining_matter_sessions": 0
+      },
+      {
+        "marker": "blue",
+        "source_size": "320x240",
+        "source_fps": 10,
+        "concurrent_views": 1,
+        "overlap_seconds": 5.85,
+        "upstream_readers": 1,
+        "presented_frames": [
+          60
+        ],
+        "presented_fps": [
+          10.09
+        ],
+        "decoded_clock_min_step_90khz": [
+          9000
+        ],
+        "reader_released_while_publisher_live": true
+      }
+    ],
+    "negative_control": "Before local End removed its SDK entry, both browser peers observed source loss but a direct CurrentSessions read still returned two rows after five seconds.",
+    "regressions": {
+      "gateway_tests_passed": 65,
+      "gateway_ffmpeg_tests_ignored": 1,
+      "strict_gateway_clippy": "passed",
+      "architecture_packages": 79,
+      "architecture_host_regressions": 37,
+      "clean_sdk_data_model_tests": 366,
+      "clean_sdk_camera_tests": 2
+    },
+    "limitations": [
+      "The two viewers used the same commissioned fabric and isolated MediaMTX internal authorization. Nxrs strict media admission, per-fabric revocation and simultaneous Nxrs Home playback require qualification.",
+      "The bounded share queue admits at most eight access units of at most 1 MiB each. Maximum memory used by the RTSP library during packet assembly remains unmeasured.",
+      "Browser presentation with generated video does not qualify physical camera, microphone, iPhone, Linux, remote access or soak performance."
     ]
   }
 }

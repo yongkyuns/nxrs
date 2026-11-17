@@ -21,13 +21,14 @@
     "patch": "str0m-rejected-media.patch"
   },
   "sha256": {
-    "Cargo.lock": "fc8fd6ddc06d82dddc061cf9b48a7387ef2d89d281b8cf32d40c9fdcec9353a8",
+    "Cargo.lock": "af1d1e7457e7c8d9616c250901a787cef9cbcaeab94a41534fe8285381a8f459",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
     "str0m-rejected-media.patch": "80d8a616fba9b645ab9a059fcb4ea8da10d86e639be21c430a439045049ee11b",
     "homeassistant-constraints.txt": "2cd619b73945ecac9a3f6c43944ce68970cc8a0bcb43ab27bdfecb5c952e7e9a",
-    "bridge-topology.patch": "39606efa6a4fd35840fbc38e03f3bbb12af02f84b6c9dc081e46e60d519d9a99"
+    "bridge-topology.patch": "39606efa6a4fd35840fbc38e03f3bbb12af02f84b6c9dc081e46e60d519d9a99",
+    "live-media.patch": "76daffe46f28bf551840032dc0cedd79b0aca5fbbc837ce882d5e352190ce9f0"
   },
   "home_assistant": {
     "version": "2026.11.2",
@@ -36,5 +37,11 @@
     "python": "3.14.10",
     "playwright": "1.65.2",
     "chrome": "157.0.8103.79"
+  },
+  "rtsp": {
+    "reader": "retina",
+    "version": "0.4.21",
+    "server": "MediaMTX 1.21.2",
+    "macos_arm64_archive_sha256": "7d0d0c5c11527cbd10bde1c3d728864eb0334a9b653566cd73c0259750cbf093"
   }
 }

@@ -29,9 +29,9 @@ def stop(child):
             child.wait(timeout=5)
 
 
-def start(stack, root, name, command, env=None):
+def start(stack, root, name, command, env=None, *, cwd=None):
     with (root / (name + ".log")).open("ab") as log:
-        child = subprocess.Popen(command, stdout=log, stderr=log, env=env)
+        child = subprocess.Popen(command, stdout=log, stderr=log, env=env, cwd=cwd)
     stack.callback(stop, child)
     return child
 

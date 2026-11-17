@@ -17,10 +17,17 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True, help="fresh clean rs-matter checkout")
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
+    parser.add_argument("--variant", choices=["camera", "bridge", "rtsp"], default="camera",
+                        help="select the camera example, bridged occupancy, or bridged RTSP input")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
-    for name in ("rs-matter-camera.patch", "str0m-rejected-media.patch", "Cargo.lock"):
+    sdk_patches = ["rs-matter-camera.patch"]
+    if args.variant in ("bridge", "rtsp"):
+        sdk_patches.append("bridge-topology.patch")
+    if args.variant == "rtsp":
+        sdk_patches.append("live-media.patch")
+    for name in (*sdk_patches, "str0m-rejected-media.patch", "Cargo.lock"):
         if hashlib.sha256((FIXTURE / name).read_bytes()).hexdigest() != pins["sha256"][name]:
             raise SystemExit("fixture digest mismatch: " + name)
     if hashlib.sha256(args.webrtc_archive.read_bytes()).hexdigest() != pins["str0m"]["archive_sha256"]:
@@ -39,7 +46,8 @@ def main():
         archive.extractall(sdk / "nxrs-fixture-deps", filter="data")
     subprocess.run([*git, "apply", "--directory=" + engine,
                     str(FIXTURE / "str0m-rejected-media.patch")], check=True)
-    subprocess.run([*git, "apply", str(FIXTURE / "rs-matter-camera.patch")], check=True)
+    for name in sdk_patches:
+        subprocess.run([*git, "apply", str(FIXTURE / name)], check=True)
     # Ordinary declared Cargo dependency. Its path is local build input, not a
     # committed absolute path or production dependency-selection environment switch.
     manifest = sdk / "examples/Cargo.toml"
@@ -52,7 +60,7 @@ def main():
     with (sdk / "Cargo.toml").open("a") as workspace:
         workspace.write('\n[patch.crates-io]\nstr0m = { path = ' + json.dumps(engine) + ' }\n')
     shutil.copyfile(FIXTURE / "Cargo.lock", sdk / "Cargo.lock")
-    print("Prepared pinned Matter fixture with persistence and WebRTC corrections")
+    print("Prepared pinned Matter fixture:", args.variant)
 
 
 if __name__ == "__main__":

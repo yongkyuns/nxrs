@@ -5,7 +5,7 @@ use detection_wire::{Snapshot, MAX_AGE_MS, SOURCE_TIMEOUT_MS};
 use http_body_util::{BodyExt, Empty};
 use hyper::{client::conn::http1, header, Request, StatusCode};
 use hyper_util::rt::TokioIo;
-use std::{io::Read, net::SocketAddr, path::Path, time::Duration};
+use std::{net::SocketAddr, path::Path, time::Duration};
 use tokio::{
     net::TcpStream,
     time::{self, Instant},
@@ -30,22 +30,10 @@ impl Feed {
         if !control.ip().is_loopback() || control.port() == 0 {
             return Err("detection control requires a loopback endpoint");
         }
-        if camera.is_empty()
-            || camera.len() > 64
-            || !camera
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-        {
+        if !crate::credential::identifier(camera) {
             return Err("invalid camera identifier");
         }
-        let mut text = String::new();
-        crate::platform::open_file(credential, false, false)
-            .and_then(|file| file.take(66).read_to_string(&mut text))
-            .map_err(|_| "unreadable detection credential")?;
-        let token = text.strip_suffix('\n').unwrap_or(&text);
-        if token.len() != 64 || !lower_hex(token) {
-            return Err("invalid detection credential");
-        }
+        let token = crate::credential::read(credential)?;
         let mut authorization = header::HeaderValue::from_str(&format!("Bearer {token}"))
             .map_err(|_| "invalid detection credential")?;
         authorization.set_sensitive(true);

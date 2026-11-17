@@ -1,8 +1,16 @@
 # Matter service foundation
 
-The gateway owns a durable identity store and one authenticated detection
-subscription per monitored camera. The external Matter fixture uses both.
+The external Matter fixture uses the gateway’s durable identity store, detection
+subscription and shared encoded video input.
 [Reproduction and host evidence](../tests/matter/README.md).
+
+For each camera, run one `media::Reader` on the owning executor. It opens a
+credentialed loopback RTSP/TCP connection and forwards H.264 pictures with their
+source timestamps. Each viewer subscribes through `Video`. Eight access units
+are shared across viewers. A lagging viewer resumes at a new keyframe. Source
+loss or replacement ends viewers of the retired source. The caller can cancel
+the reader by dropping its future. The host fixture qualifies this path with
+MediaMTX's internal authentication. Production gateway admission is pending.
 
 `occupancy::Feed::open` takes a loopback control address, a camera ID and
 a private credential file. Run the subscription on the owning executor. Its

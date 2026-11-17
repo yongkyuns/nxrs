@@ -53,7 +53,7 @@ def run(args):
                 }))""", args.entity)
             video = page.locator("video")
             video.wait_for(state="visible", timeout=30000)
-            result = video.evaluate("""video => new Promise((resolve, reject) => {
+            result = video.evaluate("""(video, {marker, rate}) => new Promise((resolve, reject) => {
                 const canvas = document.createElement('canvas');
                 canvas.width = 128; canvas.height = 72;
                 const ctx = canvas.getContext('2d', {willReadFrequently: true});
@@ -61,13 +61,28 @@ def run(args):
                 const timeout = setTimeout(() => reject(new Error('frame deadline')), 15000);
                 function frame(now, metadata) {
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    if (marker) {
+                        const [red, green, blue] = ctx.getImageData(8, 4, 1, 1).data;
+                        if (!(marker === 'red' ? red > 185 && blue < 70 && green < 70 :
+                                                 blue > 185 && red < 70 && green < 70)) {
+                            clearTimeout(timeout); reject(new Error('incorrect fixture marker')); return;
+                        }
+                    }
                     let hash = 2166136261;
                     for (const byte of ctx.getImageData(0, 0, canvas.width, canvas.height).data)
                         hash = Math.imul(hash ^ byte, 16777619) >>> 0;
-                    hashes.add(hash); times.push({now, media: metadata.mediaTime});
+                    hashes.add(hash); times.push({now, media: metadata.mediaTime, rtp: metadata.rtpTimestamp});
                     if (times.length < 60) { video.requestVideoFrameCallback(frame); return; }
                     clearTimeout(timeout);
-                    resolve({presented_frames: times.length, distinct_sampled_images: hashes.size,
+                    const steps = times.slice(1).map((t,i) => (t.rtp-times[i].rtp) >>> 0);
+                    const mediaSteps = times.slice(1).map((t,i) => Math.round((t.media-times[i].media)*90000));
+                    resolve({...(rate ? {rtp_clock_valid: times.every(t => Number.isInteger(t.rtp)) &&
+                        steps.every(t => t > 0 && t % (90000/rate) === 0),
+                        min_step_90khz: Math.min(...steps), max_step_90khz: Math.max(...steps),
+                        media_time_min_step_90khz: Math.min(...mediaSteps)} : {}),
+                        ...(marker ? {fixture_marker: marker, first_presented_ms:
+                        performance.timeOrigin + times[0].now, last_presented_ms:
+                        performance.timeOrigin + times.at(-1).now} : {}), presented_frames: times.length, distinct_sampled_images: hashes.size,
                         dimensions: [video.videoWidth, video.videoHeight],
                         advancing_media_time: times.every((t, i) => !i || t.media > times[i-1].media),
                         presented_fps: (times.length-1)*1000/(times.at(-1).now-times[0].now),
@@ -76,7 +91,10 @@ def run(args):
                             dropped: video.getVideoPlaybackQuality().droppedVideoFrames}});
                 }
                 video.requestVideoFrameCallback(frame);
-            })""")
+            })""", {"marker": args.fixture_marker, "rate": args.fixture_rate})
+            if args.fixture_rate and not result["rtp_clock_valid"]:
+                print("Unexpected fixture RTP steps", result["min_step_90khz"], result["max_step_90khz"])
+                raise AssertionError("encoded RTP clock")
             assert result["advancing_media_time"] and result["distinct_sampled_images"] > 1
             result["presented_fps"] = round(result["presented_fps"], 2)
             result.update(kind="generated-source Home Assistant dialog; headless Chrome",
@@ -100,6 +118,11 @@ def run(args):
             assert result["peers"][0]["state"] == "connected"
             assert result["peers"][0]["codec"] == "video/H264"
             assert result["peers"][0]["decoded_frames"] >= result["presented_frames"]
+            if args.await_source_loss:
+                args.await_source_loss.touch(exist_ok=False)
+                page.wait_for_function("['closed','disconnected','failed'].includes(window.nxrsPeers[0].connectionState)",
+                                       timeout=15000)
+                result["peer_ended_before_dialog_closed"] = True
             if args.screenshot:
                 page.screenshot(path=str(args.screenshot))
             page.get_by_role("button", name="Close", exact=True).click()
@@ -121,6 +144,9 @@ def main():
     parser.add_argument("--entity", required=True)
     parser.add_argument("--storage-state", type=Path, required=True)
     parser.add_argument("--screenshot", type=Path)
+    parser.add_argument("--await-source-loss", type=Path)
+    parser.add_argument("--fixture-rate", type=int, choices=(10, 15))
+    parser.add_argument("--fixture-marker", choices=["red", "blue"])
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     url = urlparse(args.server)

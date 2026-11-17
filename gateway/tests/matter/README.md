@@ -1,7 +1,7 @@
 # Matter camera feasibility fixture
 
 This opt-in fixture tests the protocol choice for [#388](https://github.com/yongkyuns/nxrs/issues/388).
-It is separate from the live gateway and camera firmware. The external SDK uses the identity store and occupancy subscription from
+It is separate from the live gateway and camera firmware. The external SDK uses the identity store, occupancy subscription and RTSP reader from
 `gateway/matter` through a fixture adapter.
 The issue is the canonical architecture and release checklist.
 
@@ -183,8 +183,8 @@ it is not the physical iPhone performance acceptance measurement.
 
 ## Bridge and occupancy automation
 
-Apply `bridge-topology.patch` on top of the prepared SDK in a separate
-checkout, then rebuild the same camera binary. Use an empty controller,
+Prepare a fresh SDK checkout with `--variant bridge`, then rebuild the same
+camera binary. Use an empty controller,
 fresh fixture state and the same generated video. Set `WEBRTC_CAMERA_TRIAL_DIR`
 to a new mode-0700 directory for each process launch. The qualification
 binary binds its control socket there. Its inputs specify the detector state
@@ -247,6 +247,34 @@ loss of the gateway, fresh person after restart and loss of subscriber access
 while publishing continues. An update from the retired publisher must receive
 HTTP 409. The camera dialog must still present advancing images. Only
 `result.json` contains shareable test results.
+
+## Shared live video and source replacement
+
+Prepare a fresh checkout with `tools/prepare-matter-fixture.py --variant rtsp`
+using the SDK and WebRTC pins above. Build the camera binary with the same
+locked build command. Build the [Nxrs RTSP publisher](../../publisher/README.md)
+and use the MediaMTX version in `versions.json`. Keep only the isolated
+controller and Home Assistant running, with a commissioned test **bridge**
+state and the corresponding authenticated browser state. In the Home Assistant
+Python environment, run:
+
+```sh
+python gateway/tests/matter_rtsp_reference.py \
+  --mediamtx /absolute/path/to/mediamtx --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --device "$matter_sdk/target/debug/webrtc_camera" --state "$matter_runtime/state" \
+  --storage-state "$matter_runtime/browser.json" --camera camera.camera \
+  --runtime "$matter_runtime/rtsp-trial"
+```
+
+The witness creates its own loopback MediaMTX instance, RTSP credentials and
+publishers in a new private directory. Two independent camera dialogs must
+present the changing red-marked source through one reader. Removing the
+publisher with both dialogs open must retire both peers and clear the Matter
+`CurrentSessions` attribute. A fresh dialog must render the blue-marked
+replacement at its new dimensions and RTP clock intervals. Stopping the
+device must release the reader while the replacement publisher stays live.
+Only `result.json` is intended for sharing. Physical camera input, Nxrs gateway
+media authorization and iPhone rendering require separate qualification.
 
 ## Scope of the evidence
 
