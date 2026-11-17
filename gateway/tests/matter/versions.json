@@ -13,11 +13,27 @@
   "node": "24.22.3",
   "python": "3.12.16",
   "aiortc": "1.14.0",
-  "str0m": "0.18.1",
+  "str0m": {
+    "version": "0.18.1",
+    "archive_url": "https://static.crates.io/crates/str0m/str0m-0.18.1.crate",
+    "archive_sha256": "853853eafde0493f1928bf8a658ac05d5605ead911643f4cc88432420b8898b5",
+    "source_revision": "5d23b8fe2f1884b1f49529c7c6024294e6412193",
+    "patch": "str0m-rejected-media.patch"
+  },
   "sha256": {
-    "Cargo.lock": "abc8bdc9ece8dc71d2b5cec25b0b320950469c6ca8cbe2df9d5286463176f859",
+    "Cargo.lock": "95c294477c037cd36edbb7fcecbc9533fccd17ecb0e78fab2eb6897639f726fa",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
-    "rs-matter-camera.patch": "16b80e89dcaa1399cbde3bbcc404820fcb24ca6521acb125230f6c8351d6011b"
+    "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
+    "str0m-rejected-media.patch": "80d8a616fba9b645ab9a059fcb4ea8da10d86e639be21c430a439045049ee11b",
+    "homeassistant-constraints.txt": "2cd619b73945ecac9a3f6c43944ce68970cc8a0bcb43ab27bdfecb5c952e7e9a"
+  },
+  "home_assistant": {
+    "version": "2026.11.2",
+    "source_revision": "ff5d56b825a0fb66b03d01bc297d49e206cdaba3",
+    "frontend": "20261028.6",
+    "python": "3.14.10",
+    "playwright": "1.65.2",
+    "chrome": "157.0.8103.79"
   }
 }

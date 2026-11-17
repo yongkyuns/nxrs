@@ -4196,8 +4196,6 @@ dependencies = [
 [[package]]
 name = "str0m"
 version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "853853eafde0493f1928bf8a658ac05d5605ead911643f4cc88432420b8898b5"
 dependencies = [
  "arrayvec",
  "base64ct",

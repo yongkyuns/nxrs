@@ -13,6 +13,9 @@ acknowledged Matter session teardown. Reported FPS is **decoded fixture FPS**,
 not iPhone rendering or physical camera throughput.
 Candidates are removed from both directions of SDP so playback must use the
 Matter ICE-candidate commands; inline candidates cannot conceal broken trickle.
+`../matter_browser_reference.py` separately exercises Home Assistant's actual
+camera dialog in headless Chrome. It checks presented images, H.264 reception
+and browser peer closure. Neither witness establishes physical iPhone behavior.
 
 ## Pins and local corrections
 
@@ -32,10 +35,19 @@ lockfile, so the captured Cargo.lock is necessary for a repeatable resolution.
 - Replace the example's in-place blob files with the Nxrs snapshot store. Require
   explicit initialization and terminate the fixture after a storage failure,
   including failures that an SDK caller might otherwise ignore.
+- Accept the browser's audio-first/video-second layout, reject unused audio,
+  and keep the video's actual media-section index in trickled candidates.
+
+`str0m-rejected-media.patch` corrects the published WebRTC engine's empty format
+list on rejected media. [RFC 3264 section 6](https://www.rfc-editor.org/rfc/rfc3264#section-6)
+requires a format even when the port is zero. Retain the first offered format;
+do not negotiate that codec or echo all unsupported audio codec names. The
+preparer verifies the published crate checksum and patches a private copy,
+leaving Cargo's shared source cache untouched.
 
 The patch changes Apache-2.0 upstream sources and retains their original notices.
-It is a qualification patch, not a vendored production Matter runtime. Two
-focused SDK regressions accompany the protocol changes.
+These are qualification patches, not a vendored production Matter runtime.
+Two SDK protocol tests and two media-layout tests cover the corrections.
 
 ## Reproduce on macOS
 
@@ -50,11 +62,16 @@ matter_runtime="$(mktemp -d)"
 chmod 700 "$matter_runtime"
 git clone https://github.com/project-chip/rs-matter.git "$matter_sdk"
 git -C "$matter_sdk" checkout a530a2972b860162527a9ec9df4ee62156b0ad69
-python3.12 tools/prepare-matter-fixture.py --sdk "$matter_sdk"
+curl --fail --location https://static.crates.io/crates/str0m/str0m-0.18.1.crate \
+  --output "$matter_runtime/str0m.crate"
+python3.12 tools/prepare-matter-fixture.py --sdk "$matter_sdk" \
+  --webrtc-archive "$matter_runtime/str0m.crate"
 cargo +1.98.1 build --locked --manifest-path "$matter_sdk/Cargo.toml" \
   -p rs-matter-examples --bin webrtc_camera --features webrtc,astro-dnssd
 cargo +1.98.1 test --locked --manifest-path "$matter_sdk/Cargo.toml" \
   -p rs-matter-dm --lib
+cargo +1.98.1 test --locked --manifest-path "$matter_sdk/Cargo.toml" \
+  -p rs-matter-examples --bin webrtc_camera --features webrtc,astro-dnssd
 cp "$matter_fixture/package.json" "$matter_fixture/package-lock.json" "$matter_runtime/"
 npm ci --prefix "$matter_runtime" --ignore-scripts
 python3.12 -m venv "$matter_runtime/venv"
@@ -129,6 +146,42 @@ This proves process recovery and modeled interrupted staging, not sudden power
 loss or atomicity across several SDK blob mutations. Semantic SDK-state/version
 validation, commissioning failure paths and multi-admin removal remain open.
 
+## Home Assistant browser qualification
+
+Keep the isolated controller and generated camera running. Use a separate
+Python 3.14.10 environment with `homeassistant-constraints.txt` as constraints
+when installing Home Assistant 2026.11.2, Playwright 1.65.2,
+`matter-python-client` and `matter-ble-proxy`. The installed Chrome version is
+recorded in `versions.json`; the witness records the actual browser version.
+This pip-based macOS instance is a development fixture, not a qualified
+production Home Assistant deployment.
+
+Start Home Assistant with a new private `--config` directory. Enable only
+`frontend`, `api`, `config`, `websocket_api`, and `logger`; set HTTP's
+`server_host: 127.0.0.1` and `server_port: 18123`. Complete onboarding with a
+test-only account and confirm the pending HTTP address within five minutes
+(Home Assistant's supported `http/config/promote` WebSocket command). Otherwise
+Home Assistant rolls back that address. Add the Matter integration using
+`ws://127.0.0.1:15580/ws`, and verify the generated camera is discovered.
+
+Save authentication from an isolated browser context after signing in, then
+close it. This state file contains credentials and must remain private:
+
+```sh
+python -m playwright open --channel chrome \
+  --save-storage "$matter_runtime/browser.json" http://127.0.0.1:18123
+python gateway/tests/matter_browser_reference.py --entity camera.acme_test \
+  --storage-state "$matter_runtime/browser.json" \
+  --output "$matter_runtime/browser-result.json"
+```
+
+The witness opens the normal camera dialog without rewriting its offer. It
+requires 60 presented frames with increasing media time and changing sampled
+pixels, records video dimensions and presentation/decoder counters, and closes
+the dialog. Repeat to exercise session reuse. Browser peer closure is distinct
+from proving that all SDK tasks joined. Headless presentation FPS is diagnostic;
+it is not the physical iPhone performance acceptance measurement.
+
 ## Scope of the evidence
 
 `evidence.json` records host results. Neither a teardown acknowledgement nor
@@ -137,7 +190,11 @@ uses placeholder capability declarations, unbounded queues and detached tasks.
 Production needs truthful capabilities, bounded session ownership, revocation,
 complete persistent identity and failure recovery under #388's release criteria.
 
-Home Assistant UI, a physical iPhone, real camera media, bridge conformance,
+See [conformance.md](conformance.md) for mandatory audio/snapshot/root behavior
+and the unresolved endpoint topology. The video-only fixture is not a conforming
+Matter Camera product.
+
+A physical iPhone, real camera media, bridge conformance,
 multi-admin authorization, Linux, remote access and the 24-hour soak remain
 separate acceptance gates. This fixture establishes no NuttX support and adds
 no mandatory integration CI job or production SDK dependency. The six store tests

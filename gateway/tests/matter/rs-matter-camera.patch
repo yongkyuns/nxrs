@@ -54,7 +54,7 @@ index 0000000..1233f5e
 +    }
 +}
 diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
-index d3a104c..59b3400 100644
+index d3a104c..6b1f83d 100644
 --- a/examples/src/bin/webrtc_camera.rs
 +++ b/examples/src/bin/webrtc_camera.rs
 @@ -108,11 +108,11 @@ use rs_matter::dm::devices::DEV_TYPE_CAMERA;
@@ -91,7 +91,15 @@ index d3a104c..59b3400 100644
      rtc: Rtc,
      socket: Async<UdpSocket>,
      local_addr: SocketAddr,
-@@ -393,6 +394,8 @@ struct SessionCtrl {
+@@ -384,6 +385,7 @@ struct NewSession {
+ 
+ /// Hook-side handle to a live session.
+ struct SessionCtrl {
++    ice_mline_index: u16,
+     remote_cand_tx: Sender<Candidate>,
+     shutdown_tx: Sender<()>,
+     /// Locally-gathered candidates awaiting transmission via
+@@ -393,6 +395,8 @@ struct SessionCtrl {
      /// SDP Answer produced by `on_offer`, awaiting transmission via
      /// `take_answer_sdp`. `None` once the Answer has been pushed.
      answer_sdp: RefCell<Option<String>>,
@@ -100,7 +108,7 @@ index d3a104c..59b3400 100644
  }
  
  struct Str0mInner {
-@@ -495,6 +498,7 @@ impl<K: Eq, V> AllocMap<K, V> {
+@@ -495,6 +499,7 @@ impl<K: Eq, V> AllocMap<K, V> {
  async fn session_loop(session: NewSession) {
      let NewSession {
          id,
@@ -108,7 +116,7 @@ index d3a104c..59b3400 100644
          mut rtc,
          socket,
          local_addr,
-@@ -518,8 +522,16 @@ async fn session_loop(session: NewSession) {
+@@ -518,8 +523,16 @@ async fn session_loop(session: NewSession) {
      // RTP timestamp step at 90 kHz for the chosen fps (video clock rate).
      let rtp_step: u64 = if fps > 0 { 90_000 / fps as u64 } else { 3_000 };
      let has_media = !frames.is_empty();
@@ -127,7 +135,7 @@ index d3a104c..59b3400 100644
      let mut connected = false;
      let mut next_frame_at: Option<Instant> = None;
      let mut next_frame_idx: usize = 0;
-@@ -806,24 +818,111 @@ async fn race_next_event(
+@@ -806,24 +819,217 @@ async fn race_next_event(
  // WebRtcHooks impl
  // ---------------------------------------------------------------------------
  
@@ -161,7 +169,12 @@ index d3a104c..59b3400 100644
 +        })?;
 +    let host_addr = SocketAddr::new(host_ip, local_addr.port());
 +
-+    let mut rtc = Rtc::new(Instant::now());
++    // This fixture supplies H.264 video only. Do not negotiate audio or other
++    // video codecs for which no source exists.
++    let mut rtc = Rtc::builder()
++        .clear_codecs()
++        .enable_h264(true)
++        .build(Instant::now());
 +    let cand = Candidate::host(host_addr, "udp").map_err(|e| {
 +        warn!("webrtc_camera: Candidate::host failed: {e}");
 +        WebRtcError::Failure
@@ -170,6 +183,106 @@ index d3a104c..59b3400 100644
 +    rtc.add_local_candidate(cand);
 +
 +    Ok((rtc, socket, local_addr, host_addr, local_cand_sdp))
++}
++
++fn accept_video_offer(rtc: &mut Rtc, offer: SdpOffer) -> Result<(SdpAnswer, u16), WebRtcError> {
++    // Browsers may offer audio before video even to a video-only source. Keep
++    // that SDP layout: the media engine rejects unsupported audio, and ICE
++    // must name the negotiated video section rather than assuming index zero.
++    if offer.media_lines.is_empty() || offer.media_lines.len() > 2 {
++        return Err(WebRtcError::DynamicConstraint);
++    }
++    let answer = rtc
++        .sdp_api()
++        .accept_offer(offer)
++        .map_err(|_| WebRtcError::DynamicConstraint)?;
++    let mut active = answer
++        .media_lines
++        .iter()
++        .enumerate()
++        .filter(|(_, media)| !media.disabled && media.direction() != Direction::Inactive);
++    let (index, media) = active.next().ok_or(WebRtcError::DynamicConstraint)?;
++    if active.next().is_some()
++        || !rtc
++            .media(media.mid())
++            .is_some_and(|media| media.kind() == MediaKind::Video)
++    {
++        return Err(WebRtcError::DynamicConstraint);
++    }
++    Ok((answer, index as u16))
++}
++
++#[cfg(test)]
++mod browser_offer_tests {
++    use super::*;
++
++    fn offer(kinds: &[MediaKind]) -> SdpOffer {
++        let mut peer = Rtc::new(Instant::now());
++        let mut changes = peer.sdp_api();
++        for kind in kinds {
++            changes.add_media(*kind, Direction::RecvOnly, None, None, None);
++        }
++        changes.apply().unwrap().0
++    }
++
++    fn video_peer() -> Rtc {
++        Rtc::builder()
++            .clear_codecs()
++            .enable_h264(true)
++            .build(Instant::now())
++    }
++
++    #[test]
++    fn browser_audio_first_offer_preserves_video_index_and_rejects_audio() {
++        let mut peer = video_peer();
++        let original = offer(&[MediaKind::Audio, MediaKind::Video]).to_sdp_string();
++        // Chrome also offers G722. The engine cannot round-trip its codec name,
++        // so echoing every unused audio format would produce invalid SDP.
++        let with_g722 = original
++            .lines()
++            .map(|line| {
++                if line.starts_with("m=audio ") {
++                    format!("{line} 9\r\n")
++                } else if line.starts_with("a=rtpmap:") && line.contains(" opus/") {
++                    format!("{line}\r\na=rtpmap:9 G722/8000\r\n")
++                } else {
++                    format!("{line}\r\n")
++                }
++            })
++            .collect::<String>();
++        let (answer, index) =
++            accept_video_offer(&mut peer, SdpOffer::from_sdp_string(&with_g722).unwrap()).unwrap();
++        assert_eq!(index, 1);
++        assert_eq!(answer.media_lines.len(), 2);
++        assert!(answer.media_lines[0].disabled);
++        assert_eq!(answer.media_lines[0].pts.len(), 1);
++        assert!(!answer.to_sdp_string().contains("unknown/"));
++        assert!(peer
++            .media(answer.media_lines[0].mid())
++            .unwrap()
++            .remote_pts()
++            .is_empty());
++        // Parsing the serialized answer catches invalid rejected m-lines that
++        // passing the engine's in-memory answer to itself would miss.
++        let parsed = SdpAnswer::from_sdp_string(&answer.to_sdp_string()).unwrap();
++        assert!(parsed.media_lines[0].disabled);
++        assert_eq!(parsed.media_lines[0].pts, answer.media_lines[0].pts);
++        assert_eq!(answer.media_lines[1].direction(), Direction::SendOnly);
++        assert!(!answer.media_lines[1].disabled);
++    }
++
++    #[test]
++    fn fixture_rejects_missing_or_multiple_video_tracks() {
++        for kinds in [
++            &[MediaKind::Audio][..],
++            &[MediaKind::Video, MediaKind::Video][..],
++            &[MediaKind::Audio, MediaKind::Video, MediaKind::Video][..],
++        ] {
++            assert!(accept_video_offer(&mut video_peer(), offer(kinds)).is_err());
++        }
++        let (_, index) = accept_video_offer(&mut video_peer(), offer(&[MediaKind::Video])).unwrap();
++        assert_eq!(index, 0);
++    }
 +}
 +
  impl WebRtcHooks for Str0mHooks {
@@ -210,6 +323,7 @@ index d3a104c..59b3400 100644
 +        self.shared.inner.borrow_mut().sessions.insert(
 +            session_id,
 +            SessionCtrl {
++                ice_mline_index: 0,
 +                remote_cand_tx,
 +                shutdown_tx,
 +                trickle_buf,
@@ -245,7 +359,7 @@ index d3a104c..59b3400 100644
      ) -> Result<AnswerOutcome, WebRtcError> {
          info!(
              "webrtc_camera: ProvideOffer session {session_id}, offer len {} B",
-@@ -835,47 +934,17 @@ impl WebRtcHooks for Str0mHooks {
+@@ -835,47 +1041,13 @@ impl WebRtcHooks for Str0mHooks {
              WebRtcError::DynamicConstraint
          })?;
  
@@ -287,19 +401,24 @@ index d3a104c..59b3400 100644
 -        rtc.add_local_candidate(cand);
 +        let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer()?;
  
-         let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| {
-             warn!("webrtc_camera: accept_offer failed: {e}");
-             WebRtcError::DynamicConstraint
-         })?;
-+        // This feasibility fixture admits exactly one media section, so every
-+        // host candidate belongs to m-line zero. Do not guess for multi-track SDP.
-+        if answer.media_lines.len() != 1 {
+-        let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| {
+-            warn!("webrtc_camera: accept_offer failed: {e}");
+-            WebRtcError::DynamicConstraint
+-        })?;
++        if params.video_stream_id.flatten().is_none() || params.audio_stream_id.flatten().is_some()
++        {
 +            return Err(WebRtcError::DynamicConstraint);
 +        }
++        let (answer, ice_mline_index) = accept_video_offer(&mut rtc, offer)?;
          let answer_sdp = answer.to_sdp_string();
  
          // Plumb the session over to the driver task.
-@@ -892,6 +961,8 @@ impl WebRtcHooks for Str0mHooks {
+@@ -888,10 +1060,13 @@ impl WebRtcHooks for Str0mHooks {
+             inner.sessions.insert(
+                 session_id,
+                 SessionCtrl {
++                    ice_mline_index,
+                     remote_cand_tx,
                      shutdown_tx,
                      trickle_buf: trickle_buf.clone(),
                      answer_sdp: RefCell::new(Some(answer_sdp)),
@@ -308,7 +427,7 @@ index d3a104c..59b3400 100644
                  },
              );
              info!(
-@@ -907,6 +978,7 @@ impl WebRtcHooks for Str0mHooks {
+@@ -907,6 +1082,7 @@ impl WebRtcHooks for Str0mHooks {
              .new_session_tx
              .send(NewSession {
                  id: session_id,
@@ -316,7 +435,7 @@ index d3a104c..59b3400 100644
                  rtc,
                  socket,
                  // Use the routable host address (not the 0.0.0.0 bind
-@@ -948,14 +1020,55 @@ impl WebRtcHooks for Str0mHooks {
+@@ -948,14 +1124,55 @@ impl WebRtcHooks for Str0mHooks {
          }
  
          Ok(AnswerOutcome {
@@ -376,16 +495,16 @@ index d3a104c..59b3400 100644
      }
  
      async fn on_ice_candidates(
-@@ -1047,7 +1160,7 @@ impl WebRtcHooks for Str0mHooks {
+@@ -1047,7 +1264,7 @@ impl WebRtcHooks for Str0mHooks {
          };
          let drained: Vec<String> = s.trickle_buf.borrow_mut().drain(..).collect();
          for cand in &drained {
 -            out.push(cand)?;
-+            out.push(cand, 0)?;
++            out.push(cand, s.ice_mline_index)?;
          }
          Ok(())
      }
-@@ -1146,7 +1259,12 @@ fn main() -> Result<(), Error> {
+@@ -1146,7 +1363,12 @@ fn main() -> Result<(), Error> {
          MATTER_PORT,
      ));
  
@@ -399,7 +518,7 @@ index d3a104c..59b3400 100644
  
      let buffers = BUFFERS.uninit().init_with(MatterBuffers::init());
  
-@@ -1297,6 +1415,9 @@ fn main() -> Result<(), Error> {
+@@ -1297,6 +1519,9 @@ fn main() -> Result<(), Error> {
      // state and deliver the `Startup` lifecycle op to all cluster handlers.
      futures_lite::future::block_on(im.startup())?;
  
@@ -409,7 +528,7 @@ index d3a104c..59b3400 100644
      let responder = DefaultResponder::new(&im);
      let mut respond = pin!(responder.run::<4, 4>());
      let mut im_job = pin!(im.run());
-@@ -1350,7 +1471,11 @@ fn main() -> Result<(), Error> {
+@@ -1350,7 +1575,11 @@ fn main() -> Result<(), Error> {
  
      let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();
      let all = select(matter_core, &mut driver).coalesce();
