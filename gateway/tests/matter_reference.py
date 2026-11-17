@@ -234,7 +234,7 @@ async def run(args):
                 if args.flow != "inventory":
                     result.update(await playback(controller, node_id, args.endpoint_id,
                                                  args.flow, args.frames))
-                print(json.dumps(result, sort_keys=True))
+                return result
             finally:
                 reader.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -253,7 +253,7 @@ def main():
     args = parser.parse_args()
     if not 30 <= args.frames <= 1800:
         parser.error("--frames must be between 30 and 1800")
-    asyncio.run(run(args))
+    print(json.dumps(asyncio.run(run(args)), sort_keys=True))
 
 
 if __name__ == "__main__":

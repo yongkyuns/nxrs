@@ -1,7 +1,76 @@
+diff --git a/examples/src/bin/persistence/mod.rs b/examples/src/bin/persistence/mod.rs
+new file mode 100644
+index 0000000..1233f5e
+--- /dev/null
++++ b/examples/src/bin/persistence/mod.rs
+@@ -0,0 +1,49 @@
++//! The fixture uses Nxrs's durable store through the SDK's existing blob contract.
++use async_channel::{Receiver, Sender};
++use nxrs_gateway_matter::persistence::Store;
++use rs_matter::{
++    error::{Error, ErrorCode},
++    persist::KvBlobStore,
++};
++use std::path::Path;
++
++pub struct StoreAdapter {
++    inner: Store,
++    failure: Sender<()>,
++}
++
++impl StoreAdapter {
++    pub fn open(path: &Path, initialize: bool) -> Result<(Self, Receiver<()>), Error> {
++        let inner = if initialize {
++            Store::initialize(path)
++        } else {
++            Store::open(path)
++        }
++        .map_err(|_| ErrorCode::StdIoError)?;
++        let (failure, receiver) = async_channel::bounded(1);
++        Ok((Self { inner, failure }, receiver))
++    }
++    fn checked<T>(
++        &self,
++        result: Result<T, nxrs_gateway_matter::persistence::Error>,
++    ) -> Result<T, Error> {
++        result.map_err(|_| {
++            let _ = self.failure.try_send(());
++            ErrorCode::StdIoError.into()
++        })
++    }
++}
++
++impl KvBlobStore for StoreAdapter {
++    fn load<'a>(&mut self, key: u16, buffer: &'a mut [u8]) -> Result<Option<&'a [u8]>, Error> {
++        self.checked(self.inner.load(key, buffer))
++    }
++    fn store(&mut self, key: u16, data: &[u8], _buffer: &mut [u8]) -> Result<(), Error> {
++        let result = self.inner.store(key, data);
++        self.checked(result)
++    }
++    fn remove(&mut self, key: u16, _buffer: &mut [u8]) -> Result<(), Error> {
++        let result = self.inner.remove(key);
++        self.checked(result)
++    }
++}
 diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
-index d3a104c..9740c54 100644
+index d3a104c..59b3400 100644
 --- a/examples/src/bin/webrtc_camera.rs
 +++ b/examples/src/bin/webrtc_camera.rs
+@@ -108,11 +108,11 @@ use rs_matter::dm::devices::DEV_TYPE_CAMERA;
+ use rs_matter::dm::endpoints;
+ use rs_matter::dm::networks::unix::UnixNetifs;
+ use rs_matter::dm::{DataModel, Dataver, Endpoint, Node};
+-use rs_matter::error::Error;
++use rs_matter::error::{Error, ErrorCode};
+ use rs_matter::im::{InteractionModel, InteractionModelState};
+ use rs_matter::pairing::qr::QrTextType;
+ use rs_matter::pairing::DiscoveryCapabilities;
+-use rs_matter::persist::DirKvBlobStore;
++mod persistence;
+ use rs_matter::respond::DefaultResponder;
+ use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
+ use rs_matter::tlv::TLVArray;
 @@ -124,9 +124,9 @@ use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
  
  use static_cell::StaticCell;
@@ -316,6 +385,43 @@ index d3a104c..9740c54 100644
          }
          Ok(())
      }
+@@ -1146,7 +1259,12 @@ fn main() -> Result<(), Error> {
+         MATTER_PORT,
+     ));
+ 
+-    let store = DirKvBlobStore::new_default();
++    let state_dir = std::env::var_os("WEBRTC_CAMERA_STATE").ok_or(ErrorCode::Invalid)?;
++    let initialize = std::env::args()
++        .skip(1)
++        .any(|arg| arg == "--initialize-state");
++    let (store, persistence_failure) =
++        persistence::StoreAdapter::open(std::path::Path::new(&state_dir), initialize)?;
+ 
+     let buffers = BUFFERS.uninit().init_with(MatterBuffers::init());
+ 
+@@ -1297,6 +1415,9 @@ fn main() -> Result<(), Error> {
+     // state and deliver the `Startup` lifecycle op to all cluster handlers.
+     futures_lite::future::block_on(im.startup())?;
+ 
++    if persistence_failure.try_recv().is_ok() {
++        return Err(ErrorCode::StdIoError.into());
++    }
+     let responder = DefaultResponder::new(&im);
+     let mut respond = pin!(responder.run::<4, 4>());
+     let mut im_job = pin!(im.run());
+@@ -1350,7 +1471,11 @@ fn main() -> Result<(), Error> {
+ 
+     let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();
+     let all = select(matter_core, &mut driver).coalesce();
+-    futures_lite::future::block_on(all)
++    let failed_store = async {
++        let _ = persistence_failure.recv().await;
++        Err(Error::from(ErrorCode::StdIoError))
++    };
++    futures_lite::future::block_on(select(all, failed_store).coalesce())
+ }
+ 
+ // ---------------------------------------------------------------------------
 diff --git a/rs-matter-dm/src/clusters/app/webrtc_prov.rs b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
 index 3c5bfaa..f9b323c 100644
 --- a/rs-matter-dm/src/clusters/app/webrtc_prov.rs

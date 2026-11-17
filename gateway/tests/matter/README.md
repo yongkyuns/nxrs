@@ -1,7 +1,9 @@
 # Matter camera feasibility fixture
 
 This opt-in fixture tests the protocol choice for [#388](https://github.com/yongkyuns/nxrs/issues/388).
-It is separate from the live gateway, camera firmware and production Cargo graph.
+It is separate from the live gateway and camera firmware. The external SDK uses
+`gateway/matter`'s persistence code through a fixture-only adapter; the gateway
+workspace does not depend on the SDK.
 The issue is the canonical architecture and release checklist.
 
 `../matter_reference.py` commissions the rs-matter camera example through the
@@ -27,6 +29,9 @@ lockfile, so the captured Cargo.lock is necessary for a repeatable resolution.
   Empty, malformed and multiple-stream lists fail rather than silently choosing.
 - Implement the example's missing camera-initiated offer/answer flow. Retain the
   locally created media ID; it does not produce a remote `MediaAdded` event.
+- Replace the example's in-place blob files with the Nxrs snapshot store. Require
+  explicit initialization and terminate the fixture after a storage failure,
+  including failures that an SDK caller might otherwise ignore.
 
 The patch changes Apache-2.0 upstream sources and retains their original notices.
 It is a qualification patch, not a vendored production Matter runtime. Two
@@ -45,8 +50,7 @@ matter_runtime="$(mktemp -d)"
 chmod 700 "$matter_runtime"
 git clone https://github.com/project-chip/rs-matter.git "$matter_sdk"
 git -C "$matter_sdk" checkout a530a2972b860162527a9ec9df4ee62156b0ad69
-git -C "$matter_sdk" apply "$matter_fixture/rs-matter-camera.patch"
-cp "$matter_fixture/Cargo.lock" "$matter_sdk/Cargo.lock"
+python3.12 tools/prepare-matter-fixture.py --sdk "$matter_sdk"
 cargo +1.98.1 build --locked --manifest-path "$matter_sdk/Cargo.toml" \
   -p rs-matter-examples --bin webrtc_camera --features webrtc,astro-dnssd
 cargo +1.98.1 test --locked --manifest-path "$matter_sdk/Cargo.toml" \
@@ -78,8 +82,10 @@ session secrets. Do not use existing home enrollment or gateway state.
 ```
 
 ```sh
-TMPDIR="$matter_runtime/device-tmp" WEBRTC_CAMERA_H264="$matter_runtime/fixture.h264" \
+TMPDIR="$matter_runtime/device-tmp" WEBRTC_CAMERA_STATE="$matter_runtime/state" \
+  WEBRTC_CAMERA_H264="$matter_runtime/fixture.h264" \
   WEBRTC_CAMERA_FPS=30 RUST_LOG=warn "$matter_sdk/target/debug/webrtc_camera" \
+  --initialize-state \
   > "$matter_runtime/device.log" 2>&1
 ```
 
@@ -92,9 +98,36 @@ Commission only this fixture into an empty isolated controller using its LAN IP:
 "$matter_runtime/venv/bin/python" gateway/tests/matter_reference.py --flow camera-offer
 ```
 
-Restart the fixture with the same private state to check retained commissioning.
+Restart the fixture with the same private state **without** `--initialize-state`
+to check retained commissioning. Initialization refuses an existing directory;
+missing or corrupt state is never automatically reset.
 Run alternating playback flows at least six times to exceed the four-session
 table cumulatively. Stop only these two fixture processes when finished.
+
+## Automated persistence qualification
+
+With those manual fixture processes stopped, this command owns fresh isolated
+controller/device processes and joins them on exit. It refuses occupied ports
+and an existing runtime directory. Use the same tool versions as above.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_state_reference.py \
+  --device "$matter_sdk/target/debug/webrtc_camera" \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" \
+  --video "$matter_runtime/fixture.h264" --runtime "$matter_runtime/state-trial" \
+  --interface en1 --ip <fixture-lan-ip>
+```
+
+It commissions once, decodes after abrupt process termination and restart,
+discards an incomplete staging file, refuses a corrupt snapshot, resumes after
+restoring its own checkpoint, and forces a real SDK attribute write to fail.
+The last case requires the node to stop. Recovery playback has one 30-second
+budget, including controller retries. The private runtime retains raw logs and
+sanitized `results.json`; only the latter belongs in evidence.
+
+This proves process recovery and modeled interrupted staging, not sudden power
+loss or atomicity across several SDK blob mutations. Semantic SDK-state/version
+validation, commissioning failure paths and multi-admin removal remain open.
 
 ## Scope of the evidence
 
@@ -102,9 +135,10 @@ table cumulatively. Stop only these two fixture processes when finished.
 repeated sessions establishes joined worker cleanup. The upstream example still
 uses placeholder capability declarations, unbounded queues and detached tasks.
 Production needs truthful capabilities, bounded session ownership, revocation,
-persisted identity and failure recovery under #388's release criteria.
+complete persistent identity and failure recovery under #388's release criteria.
 
 Home Assistant UI, a physical iPhone, real camera media, bridge conformance,
 multi-admin authorization, Linux, remote access and the 24-hour soak remain
 separate acceptance gates. This fixture establishes no NuttX support and adds
-no mandatory CI job or production dependency.
+no mandatory integration CI job or production SDK dependency. The six store tests
+run in the existing gateway workspace check, using Rust 1.90.

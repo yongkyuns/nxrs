@@ -1,6 +1,6 @@
 {
-  "recorded_utc": "2026-11-17T18:00:37.930985+00:00",
-  "kind": "generated-source host feasibility; independent controller and decoder on one Mac",
+  "recorded_utc": "2026-11-17T18:30:22.134331+00:00",
+  "kind": "generated-source macOS commissioning and persistence qualification; independent controller and decoder on one Mac",
   "host": {
     "os": "macOS",
     "version": "27.0.1",
@@ -8,147 +8,149 @@
   },
   "nxrs_base": "af949aa54076f3a58e0d319a6ec66f17cb2f7bc5",
   "fixture_pins": "versions.json",
-  "receiver_sha256": "d3db8899bb2eb8e95b11772569c784a68ed6425b0974b8c8cb4744d1fb5a55e7",
+  "source_sha256": {
+    "gateway/tests/matter_reference.py": "8b172d2465d7f505f91e60891541686997ba91dec5cdf5ce31c46d64cbbee6d6",
+    "gateway/tests/matter_state_reference.py": "d5e31f3e02d3e7d6f228583f72e36b332327cf78a9c709950fd07a18f68eff06",
+    "tools/prepare-matter-fixture.py": "89c4ca416098c641605f5de39ce0ae5a723813401c4c6d7ffe093f615c0f37fa",
+    "gateway/matter/Cargo.toml": "d25d6d170786c8a2f771ebd76c07c113017e0852821204d566991aeef7cb4a80",
+    "gateway/matter/README.md": "3b305e69ece23fac7ce03bf9dd46c9de472238acee431def3bf364becbab7cd8",
+    "gateway/matter/src/lib.rs": "173bf7418fe129582b3b6c6938a182f3745c5b6b6ef659d8447ec9eab8a5b139",
+    "gateway/matter/src/persistence/tests.rs": "e6abf0b7af330b51d7e51909f3e14285d7e2579f248813fd223c0cd7e860677f",
+    "gateway/matter/src/persistence.rs": "27e8429008f9795e87b7112dcb32cd2f462729e402fc6c0f4dc73fbb85c20065",
+    "gateway/matter/src/platform/files.rs": "8c49aa33437cecde6ca0a678d11b52c05c9f1d303527d1c44fb242e6915c5c80",
+    "gateway/matter/src/platform/mod.rs": "6daf21b208f7024f7b50182d8205e926a4f4baaa6b3629695b16c34370f40073",
+    "gateway/matter/src/platform/unavailable.rs": "7e701edb3b40a906fef014084fe11ce03bfe80110408bcad5b3c651e624f2d70"
+  },
+  "pins_sha256": "81334653a480fbbd1093bc719ffb33f58a45236bfc2964441cdad991035bbac4",
+  "initial_protocol_evidence": "https://github.com/yongkyuns/nxrs/blob/9628b54d225b28d623477d3e7e3f630d22a33c4f/gateway/tests/matter/evidence.json",
+  "command": "python gateway/tests/matter_state_reference.py --device <pinned-sdk-binary> --controller <pinned-matter-server> --video <generated-h264> --runtime <new-private-directory> --interface <lan-interface> --ip <fixture-ip>",
+  "generated_video_sha256": "6bbdfc4d3267e7abd0516bba090b0f6bb3660bf6f81754806f57c36d06b61bba",
   "commissioning": {
     "controller": "Matter Server 1.6.0",
     "transport": "IP",
     "test_attestation": true,
-    "capabilities_read": true,
-    "identity_retained_after_fixture_restart": true
+    "initial_commissions": 1,
+    "recommission_on_restart": false
   },
-  "playback": [
+  "cases": [
     {
-      "camera_capabilities_read": true,
-      "connection_state": "connected",
       "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
-      "decoded_fps": 29.88,
+      "schema_version": 15,
+      "camera_capabilities_read": true,
       "decoded_frames": 60,
+      "distinct_images": 60,
       "dimensions": [
         1920,
         1080
       ],
-      "distinct_images": 60,
+      "decoded_fps": 30.09,
+      "connection_state": "connected",
       "flow": "receiver-offer",
       "negotiated_codec": "H264",
-      "schema_version": 15,
-      "teardown_acknowledged": true,
       "trickle_ice": {
-        "received": 1,
-        "sent": 12
-      }
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "commission",
+      "seconds": 5.04,
+      "transient_failures": 0
     },
     {
-      "camera_capabilities_read": true,
-      "connection_state": "connected",
       "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
-      "decoded_fps": 29.91,
+      "schema_version": 15,
+      "camera_capabilities_read": true,
       "decoded_frames": 60,
+      "distinct_images": 60,
       "dimensions": [
         1920,
         1080
       ],
-      "distinct_images": 60,
+      "decoded_fps": 30.01,
+      "connection_state": "connected",
       "flow": "camera-offer",
       "negotiated_codec": "H264",
-      "schema_version": 15,
-      "teardown_acknowledged": true,
       "trickle_ice": {
-        "received": 1,
-        "sent": 12
-      }
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "after-process-kill",
+      "seconds": 3.03,
+      "transient_failures": 0
     },
     {
-      "camera_capabilities_read": true,
-      "connection_state": "connected",
       "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
-      "decoded_fps": 29.86,
+      "schema_version": 15,
+      "camera_capabilities_read": true,
       "decoded_frames": 60,
+      "distinct_images": 60,
       "dimensions": [
         1920,
         1080
       ],
-      "distinct_images": 60,
+      "decoded_fps": 30.0,
+      "connection_state": "connected",
       "flow": "receiver-offer",
       "negotiated_codec": "H264",
-      "schema_version": 15,
-      "teardown_acknowledged": true,
       "trickle_ice": {
-        "received": 1,
-        "sent": 12
-      }
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "abandoned-stage",
+      "seconds": 4.32,
+      "transient_failures": 1
     },
     {
-      "camera_capabilities_read": true,
-      "connection_state": "connected",
+      "case": "corrupt-state-refused",
+      "exit_code": 1
+    },
+    {
       "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
-      "decoded_fps": 29.95,
+      "schema_version": 15,
+      "camera_capabilities_read": true,
       "decoded_frames": 60,
+      "distinct_images": 60,
       "dimensions": [
         1920,
         1080
       ],
-      "distinct_images": 60,
+      "decoded_fps": 30.0,
+      "connection_state": "connected",
       "flow": "camera-offer",
       "negotiated_codec": "H264",
-      "schema_version": 15,
-      "teardown_acknowledged": true,
       "trickle_ice": {
-        "received": 1,
-        "sent": 12
-      }
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "restored-checkpoint",
+      "seconds": 3.01,
+      "transient_failures": 0
     },
     {
-      "camera_capabilities_read": true,
-      "connection_state": "connected",
-      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
-      "decoded_fps": 29.9,
-      "decoded_frames": 60,
-      "dimensions": [
-        1920,
-        1080
-      ],
-      "distinct_images": 60,
-      "flow": "receiver-offer",
-      "negotiated_codec": "H264",
-      "schema_version": 15,
-      "teardown_acknowledged": true,
-      "trickle_ice": {
-        "received": 1,
-        "sent": 12
-      }
-    },
-    {
-      "camera_capabilities_read": true,
-      "connection_state": "connected",
-      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
-      "decoded_fps": 29.88,
-      "decoded_frames": 60,
-      "dimensions": [
-        1920,
-        1080
-      ],
-      "distinct_images": 60,
-      "flow": "camera-offer",
-      "negotiated_codec": "H264",
-      "schema_version": 15,
-      "teardown_acknowledged": true,
-      "trickle_ice": {
-        "received": 1,
-        "sent": 12
-      }
+      "case": "runtime-storage-failure-stops-node",
+      "exit_code": 1
     }
   ],
   "regressions": {
-    "sdk_library_tests_passed": 366,
+    "gateway_tests_passed": 59,
+    "store_tests_passed": 6,
+    "gateway_clippy_warnings": 0,
     "nxrs_architecture_packages_checked": 79,
     "nxrs_architecture_regressions_passed": 37,
-    "patch_reconstructs_upstream_sources": true
+    "patch_reconstructs_upstream_sources": true,
+    "sdk_library_tests_passed": 366
   },
   "limitations": [
     "Generated source; no real camera or rendered iPhone measurement",
     "Both independent processes ran on the same Mac; no cross-host or remote-path qualification",
     "Session teardown acknowledged; joined worker retirement not established",
     "No Home Assistant UI, topology/conformance, fabric revocation or occupancy qualification",
-    "No Linux, NuttX or 24-hour soak evidence"
+    "No Linux, NuttX or 24-hour soak evidence",
+    "Abrupt process termination and modeled abandoned staging; no power-loss test",
+    "One SDK blob mutation per snapshot; no SDK-wide transaction or semantic schema migration proof",
+    "No failed/interrupted commissioning or multi-admin removal qualification"
   ]
 }
