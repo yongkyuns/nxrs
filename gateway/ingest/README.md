@@ -171,9 +171,10 @@ NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \
 [Matroska block timestamps](https://www.rfc-editor.org/rfc/rfc9559.html#section-11.2).
 The [loopback playback witness](../tests/ingest_av_reference.py) checks the
 authenticated ingest and RTSP path with alternating image markers and a
-generated tone, including one annotation per encoded picture. A commissioned
-controller drives the capture commands and the receiver verifies both tracks
-on one publication through mute, unmute, and bridge process loss.
+generated tone, including one annotation per encoded picture. CI uses
+`--gateway-only` to verify capture permit changes and expiry through the
+gateway control API. The full test drives capture from a commissioned Matter
+controller and verifies both tracks through mute, unmute, and bridge process loss.
 
 ## Bounds, freshness and lifecycle
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive physical capture commands from Matter with an isolated mTLS camera fixture."""
+"""Verify controlled A/V ingest with an isolated mTLS camera fixture."""
 import argparse
 from array import array
 import asyncio
@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 
+import aiohttp
 import av
 from matter_attestation_reference import public_test_bundle
 from matter_commissioning_reference import provision
@@ -210,31 +211,178 @@ def receive(port, token, report):
                 startup_frames_without_pts=startup_frames_without_pts,
                 rtsp_timing_steps_outside_1ms=rebased)
 
+def watch_media(tasks, gateway, port):
+    phases = asyncio.Queue(maxsize=5)
+    loop = asyncio.get_running_loop()
+    listen = tasks.create_task(asyncio.to_thread(
+        receive, port, gateway.credentials['reader'].read_text(),
+        lambda muted: loop.call_soon_threadsafe(phases.put_nowait, muted),
+    ))
+    return phases, listen
+
+async def expect(queue, muted, deadline=5):
+    assert await asyncio.wait_for(queue.get(), deadline) is muted
+
+async def verify_gateway(gateway, stage, port, commands):
+    url = f'http://127.0.0.1:{gateway.internal}/internal/cameras/cam/microphone'
+    headers = {'Authorization': 'Bearer ' + (stage/'microphone.token').read_text().strip()}
+    async with (
+        aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=2)) as session,
+        asyncio.TaskGroup() as tasks,
+    ):
+        async def publish(permit):
+            async with session.post(url, json={'permit': permit}) as response:
+                assert response.status == 204, response.status
+
+        async def renew(permit):
+            while True:
+                await publish(permit)
+                await asyncio.sleep(.4)
+
+        phases, listen = watch_media(tasks, gateway, port)
+        await expect(phases, True)
+        assert commands.empty()
+        for generation in (1, 2):
+            refresh = tasks.create_task(renew([generation] * 16))
+            await expect(commands, False)
+            await expect(phases, False)
+            refresh.cancel()
+            with suppress(asyncio.CancelledError):
+                await refresh
+            if generation == 1:
+                await publish(None)
+            await expect(commands, True, 3)
+            await expect(phases, True)
+        result = await listen
+    result['wire_mute_commands'] = [False, True, False, True]
+    result['last_mute_cause'] = 'expired capture permit after stopping renewal'
+    return result
+
+async def verify_matter(args, root, processes, gateway, stage, port, commands):
+    factory = provision(root / 'factory', args.controller)
+    attestation = root / 'attestation'
+    public_test_bundle(args.sdk, attestation)
+    state = root / 'state'
+    deployment = root / 'matter.json'
+    private(deployment, json.dumps(dict(
+        version=1, site_id='lab', camera_id='cam', control=f'127.0.0.1:{gateway.control}',
+        rtsp=f'127.0.0.1:{port}', ice_address=args.ip, lan_interface=args.interface,
+        media_token_file=str(stage/'media.token'), detection_token_file=str(stage/'detections.token'),
+        factory_data=str(factory), state_directory=str(state), snapshot_ffmpeg=args.ffmpeg,
+        attestation_directory=str(attestation), host_power_source='dc',
+        microphone_control=dict(address=f'127.0.0.1:{gateway.internal}',
+                                token_file=str(stage/'microphone.token')),
+    )))
+
+    bridge = start_device(processes, root, args, gateway, port, state, initialize=True,
+                          extra_args=('--config', deployment, '--allow-test-attestation',
+                                      '--open-commissioning-window'))
+    controller_port = 15580 if args.browser_python else ports(1)[0]
+    async with (
+        controller(processes, root, args, 'admin', controller_port, 32704) as admin,
+        asyncio.TaskGroup() as tasks,
+    ):
+        code = json.loads((factory.parent/'onboarding.json').read_bytes())['qrCode']
+        paired = await admin.request('commission_with_code', code=code, network_only=True,
+                                     discovery_timeout_s=30)
+        node = paired['node_id']
+        muted_attribute = '1/1361/29'
+        assert await attribute(admin, node, muted_attribute) is True
+        browser = None
+        if args.browser_python:
+            browser_output = root / 'home-assistant-browser.json'
+            browser_command = [
+                args.browser_python, Path(__file__).with_name('matter_browser_reference.py'),
+                '--entity', args.camera_entity, '--storage-state', args.storage_state,
+                '--browser-engine', args.browser_engine, '--output', browser_output,
+            ]
+            if args.check_thumbnail:
+                browser_command.append('--check-thumbnail')
+            await asyncio.to_thread(
+                subprocess.run, browser_command, stdout=subprocess.DEVNULL, check=True, timeout=95,
+            )
+            assert commands.empty(), 'opening the Home Assistant dialog started microphone capture'
+            assert await attribute(admin, node, muted_attribute) is True
+            async with asyncio.timeout(5):
+                while await attribute(admin, node, '1/1363/0'):
+                    await asyncio.sleep(.1)
+            browser = json.loads(browser_output.read_bytes())
+            candidates = browser['candidate_responses']
+            assert candidates['accepted'].get('mdns', 0) > 0
+            assert not candidates['rejected']
+        phases, listen = watch_media(tasks, gateway, port)
+
+        await expect(phases, True)
+        assert commands.empty()
+        samples = Samples()
+        async with measured_peer(
+            admin, node, 1, 'receiver-offer', 30, audio_observer=samples.consume, bundled=True,
+        ) as (matter_video, peer, video):
+            assert matter_video['trickle_ice']['sent'] > matter_video['distinct_sent_candidates']
+            async def video_packets():
+                return sum(stat.packetsReceived for stat in (await peer.getStats()).values()
+                           if stat.type == 'inbound-rtp' and stat.kind == 'video')
+
+            sessions = await attribute(admin, node, '1/1363/0')
+            assert len(sessions) == 1
+            quiet_frames = [await samples.silence()]
+            previous_pts = -1
+            phase_video = []
+            phase_packets = []
+            for muted in (False, True, False):
+                before = await video_packets()
+                await admin.request(
+                    'write_attribute', node_id=node, attribute_path=muted_attribute, value=muted,
+                )
+                assert await attribute(admin, node, muted_attribute) is muted
+                await expect(commands, muted)
+                await expect(phases, muted)
+                if muted:
+                    quiet_frames.append(await samples.silence())
+                else:
+                    await samples.tone()
+                async with asyncio.timeout(4):
+                    pictures = [(await video.recv()).pts for _ in range(12)]
+                assert previous_pts < pictures[0] and all(a < b for a, b in zip(pictures, pictures[1:]))
+                previous_pts = pictures[-1]
+                phase_video.append(len(pictures))
+                advancing = await video_packets() - before
+                assert advancing > 0
+                phase_packets.append(advancing)
+                assert await attribute(admin, node, '1/1363/0') == sessions
+                assert peer.connectionState == 'connected'
+        async with asyncio.timeout(5):
+            while await attribute(admin, node, '1/1363/0'):
+                await asyncio.sleep(.1)
+        bridge.kill()
+        assert await asyncio.to_thread(bridge.wait, 5) != 0
+        await expect(commands, True, 3)
+        await expect(phases, True)
+        result = await listen
+        matter_video.update(
+            silent_decoded_opus_frames=quiet_frames,
+            video_frames_per_capture_transition=phase_video,
+            video_rtp_packets_during_capture_transition=phase_packets,
+            decoded_audio_phases=['silent', 'tone', 'silent', 'tone'],
+            teardown_acknowledged=True,
+        )
+        result['matter_webrtc'] = matter_video
+        if browser:
+            result['home_assistant_browser_while_capture_muted'] = browser
+        result['wire_mute_commands'] = [False, True, False, True]
+        result['last_mute_cause'] = 'expired capture permit after stopping Matter bridge'
+    return result
+
 async def run(args, root):
+    stage = root / 'matter-enrollment'
     with ExitStack() as processes:
         def configure(gateway):
-            stage = root / 'matter-enrollment'
             subprocess.run([
                 sys.executable, str(ROOT / 'gateway/tools/stage_matter.py'),
                 str(gateway.config), str(stage), '--camera', 'cam', '--identity', 'bridge', '--microphone',
             ], check=True, stdout=subprocess.DEVNULL)
             gateway.config = stage / 'control.json'
         gateway, _, _, port = start_media(processes, root, args, configure=configure)
-        factory = provision(root / 'factory', args.controller)
-        attestation = root / 'attestation'
-        public_test_bundle(args.sdk, attestation)
-        state = root / 'state'
-        stage = root / 'matter-enrollment'
-        deployment = root / 'matter.json'
-        private(deployment, json.dumps(dict(
-            version=1, site_id='lab', camera_id='cam', control=f'127.0.0.1:{gateway.control}',
-            rtsp=f'127.0.0.1:{port}', ice_address=args.ip, lan_interface=args.interface,
-            media_token_file=str(stage/'media.token'), detection_token_file=str(stage/'detections.token'),
-            factory_data=str(factory), state_directory=str(state), snapshot_ffmpeg=args.ffmpeg,
-            attestation_directory=str(attestation), host_power_source='dc',
-            microphone_control=dict(address=f'127.0.0.1:{gateway.internal}',
-                                    token_file=str(stage/'microphone.token')),
-        )))
         commands = asyncio.Queue(maxsize=8)
         camera_root = root / 'camera'
         camera_root.mkdir(mode=0o700)
@@ -278,112 +426,11 @@ async def run(args, root):
                 assert ingest.poll() is None and not errors and time.monotonic() < deadline, errors
                 await asyncio.sleep(.08)
             source_id = gateway.path()['source']['id']
-            bridge = start_device(processes, root, args, gateway, port, state, initialize=True,
-                                  extra_args=('--config', deployment, '--allow-test-attestation',
-                                              '--open-commissioning-window'))
-            controller_port = 15580 if args.browser_python else ports(1)[0]
-            async with (
-                controller(processes, root, args, 'admin', controller_port, 32704) as admin,
-                asyncio.TaskGroup() as tasks,
-            ):
-                code = json.loads((factory.parent/'onboarding.json').read_bytes())['qrCode']
-                paired = await admin.request('commission_with_code', code=code, network_only=True,
-                                             discovery_timeout_s=30)
-                node = paired['node_id']
-                muted_attribute = '1/1361/29'
-                assert await attribute(admin, node, muted_attribute) is True
-                browser = None
-                if args.browser_python:
-                    browser_output = root / 'home-assistant-browser.json'
-                    browser_command = [
-                        args.browser_python, Path(__file__).with_name('matter_browser_reference.py'),
-                        '--entity', args.camera_entity, '--storage-state', args.storage_state,
-                        '--browser-engine', args.browser_engine, '--output', browser_output,
-                    ]
-                    if args.check_thumbnail:
-                        browser_command.append('--check-thumbnail')
-                    await asyncio.to_thread(
-                        subprocess.run, browser_command, stdout=subprocess.DEVNULL, check=True, timeout=95,
-                    )
-                    assert commands.empty(), 'opening the Home Assistant dialog started microphone capture'
-                    assert await attribute(admin, node, muted_attribute) is True
-                    async with asyncio.timeout(5):
-                        while await attribute(admin, node, '1/1363/0'):
-                            await asyncio.sleep(.1)
-                    browser = json.loads(browser_output.read_bytes())
-                    candidates = browser['candidate_responses']
-                    assert candidates['accepted'].get('mdns', 0) > 0
-                    assert not candidates['rejected']
-                phases = asyncio.Queue(maxsize=5)
-                loop = asyncio.get_running_loop()
-                listen = tasks.create_task(asyncio.to_thread(
-                    receive, port, gateway.credentials['reader'].read_text(),
-                    lambda muted: loop.call_soon_threadsafe(phases.put_nowait, muted),
-                ))
-
-                async def expect(queue, muted, deadline=5):
-                    assert await asyncio.wait_for(queue.get(), deadline) is muted
-
-                await expect(phases, True)
-                assert commands.empty()
-                samples = Samples()
-                async with measured_peer(
-                    admin, node, 1, 'receiver-offer', 30, audio_observer=samples.consume, bundled=True,
-                ) as (matter_video, peer, video):
-                    assert matter_video['trickle_ice']['sent'] > matter_video['distinct_sent_candidates']
-                    async def video_packets():
-                        return sum(stat.packetsReceived for stat in (await peer.getStats()).values()
-                                   if stat.type == 'inbound-rtp' and stat.kind == 'video')
-
-                    sessions = await attribute(admin, node, '1/1363/0')
-                    assert len(sessions) == 1
-                    quiet_frames = [await samples.silence()]
-                    previous_pts = -1
-                    phase_video = []
-                    phase_packets = []
-                    for muted in (False, True, False):
-                        before = await video_packets()
-                        await admin.request(
-                            'write_attribute', node_id=node, attribute_path=muted_attribute, value=muted,
-                        )
-                        assert await attribute(admin, node, muted_attribute) is muted
-                        await expect(commands, muted)
-                        await expect(phases, muted)
-                        if muted:
-                            quiet_frames.append(await samples.silence())
-                        else:
-                            await samples.tone()
-                        async with asyncio.timeout(4):
-                            pictures = [(await video.recv()).pts for _ in range(12)]
-                        assert previous_pts < pictures[0] and all(a < b for a, b in zip(pictures, pictures[1:]))
-                        previous_pts = pictures[-1]
-                        phase_video.append(len(pictures))
-                        advancing = await video_packets() - before
-                        assert advancing > 0
-                        phase_packets.append(advancing)
-                        assert await attribute(admin, node, '1/1363/0') == sessions
-                        assert peer.connectionState == 'connected'
-                async with asyncio.timeout(5):
-                    while await attribute(admin, node, '1/1363/0'):
-                        await asyncio.sleep(.1)
-                bridge.kill()
-                assert await asyncio.to_thread(bridge.wait, 5) != 0
-                await expect(commands, True, 3)
-                await expect(phases, True)
-                result = await listen
-                assert gateway.path()['source']['id'] == source_id
-                matter_video.update(
-                    silent_decoded_opus_frames=quiet_frames,
-                    video_frames_per_capture_transition=phase_video,
-                    video_rtp_packets_during_capture_transition=phase_packets,
-                    decoded_audio_phases=['silent', 'tone', 'silent', 'tone'],
-                    teardown_acknowledged=True,
-                )
-                result['matter_webrtc'] = matter_video
-                if browser:
-                    result['home_assistant_browser_while_capture_muted'] = browser
-                result['wire_mute_commands'] = [False, True, False, True]
-                result['last_mute_cause'] = 'expired capture permit after stopping Matter bridge'
+            if args.gateway_only:
+                result = await verify_gateway(gateway, stage, port, commands)
+            else:
+                result = await verify_matter(args, root, processes, gateway, stage, port, commands)
+            assert gateway.path()['source']['id'] == source_id
             assert received == [True] and not errors
             ingest.terminate()
             assert await asyncio.to_thread(ingest.wait, 8) == 0
@@ -399,11 +446,14 @@ async def run(args, root):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    for name in ('gateway', 'ingest', 'publisher', 'mediamtx', 'device', 'controller', 'sdk'):
+    for name in ('gateway', 'ingest', 'publisher', 'mediamtx'):
         p.add_argument('--' + name, type=Path, required=True)
+    for name in ('device', 'controller', 'sdk'):
+        p.add_argument('--' + name, type=Path)
+    p.add_argument('--gateway-only', action='store_true', help='drive capture permits directly through gateway control')
     p.add_argument('--ffmpeg', default='/usr/bin/ffmpeg')
-    p.add_argument('--interface', required=True)
-    p.add_argument('--ip', required=True)
+    p.add_argument('--interface')
+    p.add_argument('--ip')
     p.add_argument('--runtime', type=Path)
     p.add_argument('--browser-python', type=Path, help='the isolated Home Assistant browser Python')
     p.add_argument('--browser-engine', choices=('chrome', 'webkit'), default='chrome')
@@ -412,6 +462,11 @@ if __name__ == '__main__':
     p.add_argument('--camera-entity', help='camera discovered by isolated Home Assistant on the fixture controller')
     args = p.parse_args()
     browser_inputs = args.browser_python, args.storage_state, args.camera_entity
+    matter_inputs = args.device, args.controller, args.sdk, args.interface, args.ip
+    if args.gateway_only and (any(matter_inputs) or any(browser_inputs) or args.check_thumbnail):
+        p.error('--gateway-only cannot be combined with Matter or browser arguments')
+    if not args.gateway_only and not all(matter_inputs):
+        p.error('supply --device, --controller, --sdk, --interface and --ip for the Matter test')
     if any(browser_inputs) and not all(browser_inputs):
         p.error('set all three Home Assistant browser arguments together')
     if args.check_thumbnail and not args.browser_python:

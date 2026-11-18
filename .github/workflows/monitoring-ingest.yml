@@ -90,7 +90,7 @@ jobs:
           test "$result" = 91
           python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-no-decoder.so
-          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_av_reference.py \
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_av_reference.py --gateway-only \
             --gateway gateway/target/debug/nxrs-gateway-control --ingest gateway/target/debug/nxrs-camera-ingest \
             --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
