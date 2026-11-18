@@ -3,14 +3,17 @@ mod matroska;
 
 use crate::{
     config::Config,
+    detections::Sample,
     protocol::{Frame, Packet, Reader},
     runner, Error, Result,
 };
 use capture_wire::{AudioStamp, SAMPLE_RATE_HZ};
+use detection_wire::{Version, VideoFrame};
 use std::time::Duration;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     process::Command,
+    sync::watch,
     time::{timeout_at, Instant},
 };
 
@@ -30,6 +33,8 @@ pub fn encoder(config: &Config) -> Command {
         "0:v:0",
         "-map",
         "0:a:0",
+        "-map",
+        "0:s:0",
         "-enc_time_base:v",
         "1:1000",
     ]);
@@ -45,12 +50,16 @@ pub fn encoder(config: &Config) -> Command {
         "64k",
         "-frame_duration",
         "20",
+        "-c:s",
+        "copy",
         "-f",
-        "mpegts",
-        "-mpegts_copyts",
+        "matroska",
+        "-live",
         "1",
-        "-muxdelay",
-        "0",
+        "-cluster_time_limit",
+        "40",
+        "-avoid_negative_ts",
+        "disabled",
         "-max_interleave_delta",
         "250000",
         "-flush_packets",
@@ -79,6 +88,7 @@ pub struct EncoderInput<R, W> {
     budget: Duration,
     deadlines: [Instant; 2],
     audio: Option<AudioStamp>,
+    epoch: String,
     timeline: Timeline,
 }
 
@@ -103,6 +113,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
             budget,
             deadlines: [deadline; 2],
             audio: None,
+            epoch: runner::epoch()?,
             timeline: Timeline {
                 window_ms: config.frame_timeout_ms,
                 ..Timeline::default()
@@ -124,6 +135,16 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
                     let pts_ms = self
                         .timeline
                         .pts(track, frame.capture_ms, frame.capture_ms)?;
+                    let annotation = VideoFrame {
+                        api_version: Version::V1,
+                        epoch: self.epoch.clone(),
+                        frame_sequence: frame.sequence,
+                        frame_capture_ms: frame.capture_ms,
+                        source: self.source.metadata.clone(),
+                    }
+                    .encode()
+                    .map_err(|_| Error::Protocol)?;
+                    self.output.write_annotation(pts_ms, &annotation).await?;
                     self.output
                         .write(track, pts_ms, self.source.payload(frame))
                         .await?;
@@ -152,6 +173,26 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
         }
         self.deadlines[track as usize] = finished + self.budget;
         Ok(picture)
+    }
+}
+
+pub(crate) async fn pump<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    source: Reader<R>,
+    output: W,
+    config: &Config,
+    metadata: watch::Sender<Option<Sample>>,
+) -> Result<()> {
+    let mut input = EncoderInput::start(source, output, config).await?;
+    loop {
+        if let Some(picture) = input.next().await? {
+            if let Some(sample) = &input.source.metadata {
+                metadata.send_replace(Some(Sample {
+                    frame: picture.frame,
+                    source: sample.clone(),
+                    received: Instant::now(),
+                }));
+            }
+        }
     }
 }
 

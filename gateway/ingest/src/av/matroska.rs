@@ -1,4 +1,4 @@
-//! Write a fixed two-track, streaming Matroska pipe. The private FFmpeg
+//! Write a fixed streaming Matroska pipe. The private FFmpeg
 //! subprocess owns demuxing and encoding. This module only writes EBML.
 use super::Track;
 use crate::{Error, Result};
@@ -72,6 +72,7 @@ fn header(width: u16, height: u16) -> Vec<u8> {
     let mut tracks = Vec::new();
     element(&mut tracks, 0xae, &video); // TrackEntry
     element(&mut tracks, 0xae, &audio);
+    element(&mut tracks, 0xae, &track(3, 17, b"S_TEXT/UTF8"));
     element(&mut header, 0x1654ae6b, &tracks); // Tracks
     header
 }
@@ -95,6 +96,17 @@ impl<W: AsyncWrite + Unpin> Writer<W> {
     }
 
     pub(super) async fn write(&mut self, track: Track, pts: u64, payload: &[u8]) -> Result<()> {
+        self.block(0x81 + track as u8, pts, payload).await
+    }
+
+    pub(super) async fn write_annotation(&mut self, video_pts: u64, payload: &[u8]) -> Result<()> {
+        // Place the private text block one tick ahead of the video in the
+        // interleaver. The publisher must match the exact video timestamp.
+        self.block(0x83, video_pts.checked_sub(1).ok_or(Error::Stale)?, payload)
+            .await
+    }
+
+    async fn block(&mut self, track: u8, pts: u64, payload: &[u8]) -> Result<()> {
         // One finite cluster per part. Keep cluster time monotonic while a
         // slightly earlier part from the other track uses a signed offset.
         self.clock = self.clock.max(pts);
@@ -102,10 +114,19 @@ impl<W: AsyncWrite + Unpin> Writer<W> {
             i16::try_from(i128::from(pts) - i128::from(self.clock)).map_err(|_| Error::Stale)?;
         self.cluster.clear();
         integer(&mut self.cluster, 0xe7, self.clock); // Cluster Timestamp
-        prefix(&mut self.cluster, 0xa3, payload.len() + 4); // SimpleBlock
-        self.cluster.push(0x81 + track as u8); // Track VINT 1 or 2
+        let block_size = payload.len() + 4;
+        if track == 0x83 {
+            self.prefix.clear();
+            integer(&mut self.prefix, 0x9b, 1); // BlockDuration
+            prefix(&mut self.prefix, 0xa1, block_size); // Block
+            prefix(&mut self.cluster, 0xa0, self.prefix.len() + block_size); // BlockGroup
+            self.cluster.extend(&self.prefix);
+        } else {
+            prefix(&mut self.cluster, 0xa3, block_size); // SimpleBlock
+        }
+        self.cluster.push(track);
         self.cluster.extend(relative.to_be_bytes());
-        self.cluster.push(0x80); // Independently decodable, no lacing
+        self.cluster.push(if track == 0x83 { 0 } else { 0x80 }); // No lacing
         self.prefix.clear();
         prefix(
             &mut self.prefix,

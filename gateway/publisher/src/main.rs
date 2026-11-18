@@ -1,6 +1,7 @@
 //! Single-use RTSP publisher; pixel coding belongs to the separate encoder.
 //! Its supervisor must bound startup, packet progress, cancellation and reaping.
 #![deny(unsafe_code)]
+mod annotations;
 #[allow(unsafe_code)]
 mod sdk;
 
@@ -14,6 +15,7 @@ use zeroize::Zeroizing;
 enum EncodedMedia {
     MpegTs,
     MpegTsAv,
+    MatroskaAv,
     AnnexB,
 }
 
@@ -53,6 +55,7 @@ fn publication_input(
         [_, _, _] => (args, EncodedMedia::MpegTs),
         [_, _, _, mode] if mode == "annexb" => (&args[..3], EncodedMedia::AnnexB),
         [_, _, _, mode] if mode == "mpegts-av" => (&args[..3], EncodedMedia::MpegTsAv),
+        [_, _, _, mode] if mode == "matroska-av" => (&args[..3], EncodedMedia::MatroskaAv),
         _ => return Err(Failure::Configuration),
     };
     let (address, user, path) = target(public)?;
@@ -138,22 +141,48 @@ fn publish(args: &[String]) -> Result<()> {
         None
     };
     let mut count = 0u64;
+    let mut av_counts = [0u64; 2];
+    let mut annotations = annotations::Pending::default();
     while source.next()? {
         let timestamp = match &mut receipt_clock {
             Some(clock) => Some(clock.next()?),
             None => {
-                if !source.has_timestamps() {
+                if format != EncodedMedia::MatroskaAv && !source.has_timestamps() {
                     return Err(Failure::Media);
                 }
                 None
             }
         };
+        let track = if format == EncodedMedia::MatroskaAv {
+            match source.annotated_packet()? {
+                sdk::AnnotatedPacket::Text { pts_ms, body } => {
+                    annotations.push(pts_ms, body)?;
+                    continue;
+                }
+                sdk::AnnotatedPacket::Picture(pts_ms) => {
+                    source.insert_sei(&annotations.take(pts_ms)?)?;
+                    Some((0, "video_packet"))
+                }
+                sdk::AnnotatedPacket::Audio => Some((1, "audio_packet")),
+            }
+        } else {
+            None
+        };
         output.write(&mut source, timestamp)?;
-        count = count.checked_add(1).ok_or(Failure::Media)?;
         // Progress confirms successful SDK publication, not encoder activity.
-        writeln!(std::io::stdout(), "packet={count}").map_err(|_| Failure::Output)?;
-        std::io::stdout().flush().map_err(|_| Failure::Output)?;
+        let mut progress = std::io::stdout().lock();
+        if let Some((index, key)) = track {
+            let next = av_counts[index].checked_add(1).ok_or(Failure::Media)?;
+            av_counts[index] = next;
+            writeln!(progress, "{key}={next}")
+        } else {
+            count = count.checked_add(1).ok_or(Failure::Media)?;
+            writeln!(progress, "packet={count}")
+        }
+        .map_err(|_| Failure::Output)?;
+        progress.flush().map_err(|_| Failure::Output)?;
     }
+    annotations.finish()?;
     output.finish()
 }
 

@@ -2669,5 +2669,47 @@
     "video_deadline_budget_ms": 250,
     "audio_progress_did_not_extend_video_deadline": true,
     "scope": "Generated version 1 camera multipart input exercised the gateway parser, timing, bounded encoder input and real FFmpeg. FFprobe checked encoded tracks and packet timestamps. This does not measure hardware timing, decoded-frame annotations, RTSP or iPhone playback of the paired stream."
+  },
+  "camera_av_rtsp": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/ingest/src/av.rs": "92d4ca8f95b8a9ebd9dc7d81ea41327a678a67526c36667c45301e7e4cd55f4c",
+      "gateway/ingest/src/av/matroska.rs": "3909aebd6262e33f41be21620e2e32936cbf06404268bb5f8143433b2f4839b0",
+      "gateway/ingest/src/config.rs": "c53569896e6a2fe6a579a372bc4f91155e82c3c6c0755c733b3359c505b42898",
+      "gateway/ingest/src/runner.rs": "352a5bdf3e177cc1e59e495a34921094d1f2c36800d06e5ecf5e8958e0992081",
+      "gateway/ingest/src/video.rs": "b8d34ae88f2e3aa97067e4116e3b7ce959840e8c2f730ae9474bff61789e9443",
+      "gateway/publisher/src/annotations.rs": "d0367f6a1dda36d970f9afcf18314afc3548830e9892a5ef1d7d86584c8f05e2",
+      "gateway/publisher/src/main.rs": "407b86c9ea592b481398ff980c9c38f1c2488b97071e00d33e75277ae0c06478",
+      "gateway/publisher/src/sdk.rs": "5db6f56ba02f2bb6bd957f902ca4d995fffc140da48447ec44742dafcbdbc7f4",
+      "gateway/tests/ingest_av_reference.py": "74f96a2ebcb78d6e2890312b9ae015d81b95f46515673453603b33fe5c569ca5",
+      "service/detection-wire/src/lib.rs": "8518355cc06033a19bf8cb15facfe8e67cb765e23a06ccdda174ffa91b862298"
+    },
+    "versions": {
+      "ffmpeg": "9.0.2",
+      "mediamtx": "1.21.2",
+      "receiver_pyav": "16.1.0"
+    },
+    "loopback_trials": 2,
+    "each_trial": {
+      "mutually_authenticated_camera_connections": 1,
+      "decoded_h264_pictures": 45,
+      "exact_pixel_annotation_matches": 45,
+      "decoded_opus_frames": 210,
+      "annotation_epochs": 1,
+      "rtsp_video_timing_steps_outside_one_ms_of_60_ms": 1,
+      "publication_retired_on_stop": true
+    },
+    "rtp_packetization_control": {
+      "access_units_examined_per_trial": 52,
+      "units_with_duplicate_annotations_at_default_1472_bytes": 1,
+      "units_with_duplicate_annotations_at_1200_bytes": 0
+    },
+    "encoder_only_hard_cut_diagnostic": {
+      "source": "Two generated JPEGs with alternating colors and inverted backgrounds, switched every 60 ms",
+      "matched_picture_and_annotation_pts": 50,
+      "decoded_color_matches_at_1500_kbps": 14,
+      "decoded_color_matches_at_6000_kbps": 50
+    },
+    "scope": "A generated camera used disposable TLS credentials and exact ingress headers. The actual gateway ingest, FFmpeg encoder, Rust RTSP publisher and strict MediaMTX served a fresh independent decoder. There was one startup RTSP receiver timestamp step in each trial. The hard-cut diagnostic separated encoder color fidelity from timing and used 6000 kbps only as a comparison. The production bitrate remains 1500 kbps. Physical microphone capture, camera firmware publication, Matter/iPhone playback of this source, and hardware A/V skew and drift remain open."
   }
 }

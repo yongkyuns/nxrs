@@ -49,14 +49,28 @@ impl VideoFrame {
         }
         Ok(())
     }
-    /// H.264 user_data_unregistered SEI, including Annex-B start code and RBSP
-    /// escaping. Insert after the access-unit delimiter, before its VCL slices.
-    pub fn sei(&self) -> Result<Vec<u8>, &'static str> {
+    pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
         self.validate()?;
         let json = serde_json::to_vec(self).map_err(|_| "invalid video metadata")?;
         if json.len() > MAX_VIDEO_BYTES {
             return Err("video metadata capacity");
         }
+        Ok(json)
+    }
+
+    pub fn decode(json: &[u8]) -> Result<Self, &'static str> {
+        if json.len() > MAX_VIDEO_BYTES {
+            return Err("video metadata capacity");
+        }
+        let frame: Self = serde_json::from_slice(json).map_err(|_| "invalid video metadata")?;
+        frame.validate()?;
+        Ok(frame)
+    }
+
+    /// H.264 user_data_unregistered SEI, including Annex-B start code and RBSP
+    /// escaping. Insert after the access-unit delimiter, before its VCL slices.
+    pub fn sei(&self) -> Result<Vec<u8>, &'static str> {
+        let json = self.encode()?;
         let mut rbsp = Vec::with_capacity(json.len() + 40);
         rbsp.push(5);
         let mut length = VIDEO_SEI_UUID.len() + json.len();

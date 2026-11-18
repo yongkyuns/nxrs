@@ -132,9 +132,12 @@ The A/V encoder input writes bounded MJPEG/PCM Matroska blocks to FFmpeg. Video
 uses its capture time directly. Audio uses the first block's capture time and
 later sample offsets, preserving capture gaps. Both tracks have independent
 deadlines that include writing each complete part to the encoder. FFmpeg emits
-H.264 and mono Opus with the same presentation timeline. The deployment still
-uses legacy ingest pending firmware integration and a paired publisher with
-source-frame annotations.
+H.264 and mono Opus with a private timed annotation track. The RTSP publisher
+requires the annotation for the exact picture timestamp before inserting its
+SEI and publishes only the video and audio tracks. Ingest monitors their
+progress independently. Set `camera_audio: true` only for a mutually authenticated camera that
+authorizes access and implements version 1. The existing ESP32 camera firmware
+still needs microphone capture wiring.
 
 ```sh
 NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \
@@ -142,6 +145,9 @@ NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \
 ```
 
 [Matroska block timestamps](https://www.rfc-editor.org/rfc/rfc9559.html#section-11.2).
+The [loopback playback witness](../tests/ingest_av_reference.py) checks the
+authenticated ingest and RTSP path with alternating image markers and a
+generated tone, including one annotation per encoded picture.
 
 ## Bounds, freshness and lifecycle
 

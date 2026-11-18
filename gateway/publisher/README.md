@@ -1,12 +1,12 @@
 # Credentialed RTSP publisher
 
 This single-use Rust helper separates image encoding from authenticated
-publication (#37). The encoder sends compressed MPEG-TS or Annex-B to ingest;
+publication (#37). The encoder sends compressed MPEG-TS, Annex-B or Matroska to ingest;
 ingest relays it through bounded storage to this helper. Only the helper's stdin
 receives the 64-byte lowercase-hex token preamble. Its arguments are public:
 
 ```sh
-nxrs-rtsp-publisher 127.0.0.1:8554 publisher_reference reference [annexb|mpegts-av]
+nxrs-rtsp-publisher 127.0.0.1:8554 publisher_reference reference [annexb|mpegts-av|matroska-av]
 ```
 
 The default input is H264 in MPEG-TS. The optional `annexb` mode uses a monotonic
@@ -20,6 +20,12 @@ It uses the installed FFmpeg SDK for demuxing and RTSP-over-TCP remuxing. An emp
 decoder whitelist prevents image decoding during stream probing. Native logs
 are disabled before credential handling; only fixed errors and numeric packet
 progress leave the helper. [Generated audio/video qualification](../tests/matter/README.md#timestamped-audiovideo-publication).
+
+`matroska-av` accepts the output of the authenticated A/V ingest encoder. An
+internal text track carries bounded frame annotations. A missing, repeated or
+mismatched timestamp retires the publication. The publisher inserts the matched
+annotation as H.264 SEI, omits the text track from RTSP and reports packet progress
+independently for H.264 and Opus.
 
 Build explicitly from `gateway/` with installed FFmpeg development headers,
 libraries, libclang and pkg-config:

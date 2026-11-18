@@ -2,6 +2,7 @@
 //! No C wrapper, raw POSIX layer, callbacks, worker or reconnect loop is added.
 use super::EncodedMedia;
 use super::{Failure, Result};
+use detection_wire::MAX_VIDEO_BYTES;
 use ffmpeg_sys_next as av;
 use std::{
     ffi::{CStr, CString},
@@ -37,7 +38,17 @@ pub struct Source {
     packet: *mut av::AVPacket,
     streams: usize,
     audio: Option<i32>,
+    annotated: bool,
 }
+
+pub enum AnnotatedPacket<'a> {
+    Picture(i64),
+    Audio,
+    Text { pts_ms: i64, body: &'a [u8] },
+}
+
+const MAX_PICTURE_BYTES: i32 = 1_048_576;
+
 impl Source {
     pub fn open(format: EncodedMedia) -> Result<Self> {
         // Preserve MPEG-TS program/header discovery. A zero analyzeduration
@@ -49,6 +60,7 @@ impl Source {
         let (name, probe, limit, duration) = match format {
             EncodedMedia::MpegTs => (c"mpegts", c"153600", c"2", c"1"),
             EncodedMedia::MpegTsAv => (c"mpegts", c"153600", c"3", c"250000"),
+            EncodedMedia::MatroskaAv => (c"matroska", c"153600", c"4", c"250000"),
             EncodedMedia::AnnexB => (c"h264", c"32", c"1", c"1"),
         };
         let values = [
@@ -58,12 +70,14 @@ impl Source {
             (c"protocol_whitelist", c"pipe"),
             (c"codec_whitelist", c""),
         ];
-        let audio = format == EncodedMedia::MpegTsAv;
+        let annotated = format == EncodedMedia::MatroskaAv;
+        let audio = annotated || format == EncodedMedia::MpegTsAv;
         let mut source = Self {
             context: ptr::null_mut(),
             packet: ptr::null_mut(),
-            streams: if audio { 2 } else { 1 },
+            streams: 1 + usize::from(audio) + usize::from(annotated),
             audio: None,
+            annotated,
         };
         let mut options = Options::new(&values)?;
         // SAFETY: constant NUL-terminated strings and live dictionary; the SDK
@@ -102,6 +116,9 @@ impl Source {
                     return Err(Failure::Media);
                 }
                 let parameters = &*(*stream).codecpar;
+                if annotated && ((*stream).time_base.num != 1 || (*stream).time_base.den != 1000) {
+                    return Err(Failure::Media);
+                }
                 match parameters.codec_type {
                     av::AVMediaType::AVMEDIA_TYPE_VIDEO
                         if parameters.codec_id == av::AVCodecID::AV_CODEC_ID_H264
@@ -109,9 +126,26 @@ impl Source {
                             && (2..=1080).contains(&parameters.height)
                             && parameters.width % 2 == 0
                             && parameters.height % 2 == 0
-                            && (0..=153600).contains(&parameters.extradata_size) => {}
+                            && (0..=153600).contains(&parameters.extradata_size) =>
+                    {
+                        if annotated {
+                            // AVCDecoderConfigurationRecord and fixed four-byte NAL lengths.
+                            if index != 0
+                                || parameters.video_delay != 0
+                                || parameters.extradata_size < 7
+                                || parameters.extradata.is_null()
+                            {
+                                return Err(Failure::Media);
+                            }
+                            let avcc = std::slice::from_raw_parts(parameters.extradata, 7);
+                            if avcc[0] != 1 || avcc[4] & 3 != 3 {
+                                return Err(Failure::Media);
+                            }
+                        }
+                    }
                     av::AVMediaType::AVMEDIA_TYPE_AUDIO
                         if audio
+                            && (!annotated || index == 1)
                             && source.audio.is_none()
                             && parameters.codec_id == av::AVCodecID::AV_CODEC_ID_OPUS
                             && parameters.ch_layout.nb_channels == 1
@@ -126,6 +160,11 @@ impl Source {
                         }
                         source.audio = Some(index as i32);
                     }
+                    av::AVMediaType::AVMEDIA_TYPE_SUBTITLE
+                        if annotated
+                            && index == 2
+                            && parameters.codec_id == av::AVCodecID::AV_CODEC_ID_SUBRIP
+                            && parameters.extradata_size == 0 => {}
                     _ => return Err(Failure::Media),
                 }
             }
@@ -154,20 +193,70 @@ impl Source {
                 return Ok(false);
             }
             let index = (*self.packet).stream_index;
-            let max_packet = if self.audio == Some(index) {
+            let max_packet = if self.annotated && index == 2 {
+                MAX_VIDEO_BYTES as i32
+            } else if self.audio == Some(index) {
                 4096
             } else {
-                1_048_576
+                MAX_PICTURE_BYTES
             };
             if result < 0
                 || (*self.context).nb_streams as usize != self.streams
                 || !(0..self.streams as i32).contains(&index)
                 || !(1..=max_packet).contains(&(*self.packet).size)
+                || (*self.packet).data.is_null()
             {
                 return Err(Failure::Media);
             }
         }
         Ok(true)
+    }
+
+    pub fn annotated_packet(&self) -> Result<AnnotatedPacket<'_>> {
+        if !self.annotated {
+            return Err(Failure::Media);
+        }
+        // SAFETY: next validated the packet and this borrow prevents unref.
+        unsafe {
+            let packet = &*self.packet;
+            let missing_picture_dts = packet.stream_index == 0 && packet.dts == av::AV_NOPTS_VALUE;
+            if packet.pts < 0 || (packet.pts != packet.dts && !missing_picture_dts) {
+                return Err(Failure::Media);
+            }
+            match packet.stream_index {
+                0 => Ok(AnnotatedPacket::Picture(packet.pts)),
+                1 => Ok(AnnotatedPacket::Audio),
+                2 if packet.duration == 1 => Ok(AnnotatedPacket::Text {
+                    pts_ms: packet.pts,
+                    body: std::slice::from_raw_parts(packet.data, packet.size as usize),
+                }),
+                _ => Err(Failure::Media),
+            }
+        }
+    }
+
+    pub fn insert_sei(&mut self, sei: &[u8]) -> Result<()> {
+        let nal = sei.strip_prefix(&[0, 0, 0, 1]).ok_or(Failure::Media)?;
+        // SAFETY: next established a bounded nonempty packet. av_grow_packet
+        // may change its storage, so no slice into the original is kept across it.
+        unsafe {
+            let before = (*self.packet).size as usize;
+            let offset = super::annotations::insertion_point(std::slice::from_raw_parts(
+                (*self.packet).data,
+                before,
+            ))?;
+            if before + sei.len() > MAX_PICTURE_BYTES as usize
+                || av::av_packet_make_writable(self.packet) < 0
+                || av::av_grow_packet(self.packet, sei.len() as i32) < 0
+            {
+                return Err(Failure::Media);
+            }
+            let data = std::slice::from_raw_parts_mut((*self.packet).data, before + sei.len());
+            data.copy_within(offset..before, offset + sei.len());
+            data[offset..offset + 4].copy_from_slice(&(nal.len() as u32).to_be_bytes());
+            data[offset + 4..offset + sei.len()].copy_from_slice(nal);
+        }
+        Ok(())
     }
 }
 impl Drop for Source {
@@ -192,8 +281,15 @@ impl Publication {
         let mut output = Self {
             context: ptr::null_mut(),
         };
-        let mut options =
-            Options::new(&[(c"rtsp_transport", c"tcp"), (c"rw_timeout", c"5000000")])?;
+        // Keep annotated access units below MediaMTX's RTP packet ceiling.
+        // Its switch to repacketization midway through a large access unit can
+        // otherwise resend that unit's already forwarded leading NALs.
+        let packet_size = if source.annotated { c"1200" } else { c"1472" };
+        let mut options = Options::new(&[
+            (c"rtsp_transport", c"tcp"),
+            (c"rw_timeout", c"5000000"),
+            (c"pkt_size", packet_size),
+        ])?;
         // SAFETY: source remains borrowed/alive throughout parameter copying.
         // RTSP is AVFMT_NOFILE: do not call avio_open on an RTSP output URL.
         unsafe {
@@ -207,7 +303,7 @@ impl Publication {
             {
                 return Err(Failure::Output);
             }
-            for index in 0..source.streams {
+            for index in 0..source.streams - usize::from(source.annotated) {
                 let input = *(*source.context).streams.add(index);
                 let stream = av::avformat_new_stream(output.context, ptr::null());
                 if stream.is_null()
@@ -263,6 +359,12 @@ fn write_packet(
     // rescales to the output clock and consumes/unrefs on interleaved write.
     unsafe {
         let index = (*source.packet).stream_index as usize; // Validated by Source::next.
+        if source.annotated && index == 0 && (*source.packet).dts == av::AV_NOPTS_VALUE {
+            // The live Matroska demuxer can leave decode time unset for the
+            // first AVC picture. The admitted encoder has no reordering and
+            // its exact presentation time was already matched to the frame.
+            (*source.packet).dts = (*source.packet).pts;
+        }
         av::av_packet_rescale_ts(
             source.packet,
             (**(*source.context).streams.add(index)).time_base,

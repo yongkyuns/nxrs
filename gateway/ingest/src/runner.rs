@@ -27,7 +27,13 @@ impl Lag {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EncodedMedia { MpegTs, AnnexB }
+pub(crate) enum EncodedMedia { MpegTs, AnnexB, MatroskaAv }
+
+pub(crate) fn epoch() -> Result<String> {
+    let mut bytes = [0; 16];
+    getrandom::fill(&mut bytes).map_err(|_| Error::Configuration)?;
+    Ok(bytes.iter().map(|v| format!("{v:02x}")).collect())
+}
 
 pub(crate) fn ffmpeg(config: &Config) -> Command {
     let mut command=Command::new(&config.ffmpeg);
@@ -46,7 +52,11 @@ pub(crate) fn h264(command: &mut Command, fps_mode: &str) {
         "-b:v","1500k","-maxrate","1500k","-bufsize","1500k"]);
 }
 pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
-    let elementary = format == EncodedMedia::AnnexB;
+    let elementary = match format {
+        EncodedMedia::MatroskaAv => return crate::av::encoder(config),
+        EncodedMedia::AnnexB => true,
+        EncodedMedia::MpegTs => false,
+    };
     // image2pipe wallclock PTS can collide when Wi-Fi delivers frame bursts.
     let fps_mode=if elementary { "passthrough" } else { "vfr" };
     let mut command=ffmpeg(config);
@@ -57,9 +67,10 @@ pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
     if !elementary { command.args(["-use_wallclock_as_timestamps","1"]); }
     command.args(["-i","pipe:0","-an"]);
     h264(&mut command, fps_mode);
-    match format {
-        EncodedMedia::MpegTs => { command.args(["-f","mpegts","-muxdelay","0"]); }
-        EncodedMedia::AnnexB => { command.args(["-x264-params","aud=1","-f","h264"]); }
+    if elementary {
+        command.args(["-x264-params","aud=1","-f","h264"]);
+    } else {
+        command.args(["-f","mpegts","-muxdelay","0"]);
     }
     command.args(["-flush_packets","1","pipe:1"]);
     command
@@ -68,7 +79,11 @@ pub(crate) fn publisher(config: &Config, format: EncodedMedia) -> Command {
     let mut command=Command::new(&config.publisher);
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args([config.rtsp.to_string(),config.publisher_user.clone(),config.stream_path.clone()]);
-    if format==EncodedMedia::AnnexB { command.arg("annexb"); }
+    match format {
+        EncodedMedia::AnnexB => { command.arg("annexb"); }
+        EncodedMedia::MatroskaAv => { command.arg("matroska-av"); }
+        EncodedMedia::MpegTs => {}
+    }
     // The publisher suppresses SDK logs and emits only fixed failure categories.
     command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).kill_on_drop(true);
     command
@@ -78,7 +93,7 @@ pub(crate) async fn preamble(output: &mut tokio::process::ChildStdin, token: &st
     timeout(Duration::from_secs(3),output.write_all(token.as_bytes())).await.map_err(|_|Error::Encoder)??;
     Ok(())
 }
-async fn relay<R: tokio::io::AsyncRead + Unpin>(mut encoded:R, mut output:tokio::process::ChildStdin,
+pub(crate) async fn relay<R: tokio::io::AsyncRead + Unpin>(mut encoded:R, mut output:tokio::process::ChildStdin,
     token:&str, budget:Duration) -> Result<()> {
     use tokio::io::AsyncReadExt;
     preamble(&mut output,token).await?;
@@ -116,12 +131,15 @@ impl ProgressCounter {
             Self::Published(count)=>("packet=",count),
         };
         let Some(value)=text.strip_prefix(prefix) else { return Ok(false); };
-        let next:u64=value.trim().parse().map_err(|_|Error::Encoder)?;
-        if next<*count { return Err(Error::Encoder); }
-        let advanced=next>*count;
-        *count=next;
-        Ok(advanced)
+        advance_count(count, value)
     }
+}
+fn advance_count(count: &mut u64, value: &str) -> Result<bool> {
+    let next:u64=value.trim().parse().map_err(|_|Error::Encoder)?;
+    if next<*count { return Err(Error::Encoder); }
+    let advanced=next>*count;
+    *count=next;
+    Ok(advanced)
 }
 async fn media_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration,
     mut counter: ProgressCounter) -> Result<()> {
@@ -138,6 +156,28 @@ pub(crate) async fn encoder_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R,
 }
 pub(crate) async fn publisher_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
     media_progress(stdout,budget,ProgressCounter::Published(0)).await
+}
+pub(crate) async fn av_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
+    let mut input = BufReader::with_capacity(4096, stdout);
+    let mut deadlines = [Instant::now() + Duration::from_secs(10); 2];
+    let mut counts = [0; 2];
+    loop {
+        let deadline = deadlines[0].min(deadlines[1]);
+        let bytes = timeout_at(deadline, line(&mut input, 512)).await.map_err(|_| Error::Encoder)??;
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(Error::Encoder);
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| Error::Encoder)?.trim();
+        for (index, key) in ["video_packet=", "audio_packet="].into_iter().enumerate() {
+            if let Some(count) = text.strip_prefix(key) {
+                if advance_count(&mut counts[index], count)? {
+                    deadlines[index] = now + budget;
+                }
+                break;
+            }
+        }
+    }
 }
 pub(crate) async fn retire(child: &mut Child) -> Result<()> {
     if child.try_wait().map_err(|_|Error::Cleanup)?.is_some() { return Ok(()); }
@@ -156,16 +196,20 @@ pub(crate) async fn camera_source(config:&Config, policy:&Prepared, stop:&mut wa
             let socket=TcpStream::connect(config.camera).await?;
             socket.set_nodelay(true)?;
             let mut socket=policy.connect(socket).await?;
-            let path=if config.detections.is_some() { "/stream?metadata=1" } else { "/stream" };
+            let path=if config.camera_audio { capture_wire::AV_PATH } else if config.detections.is_some() { "/stream?metadata=1" } else { "/stream" };
             let request=format!("GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
             socket.write_all(request.as_bytes()).await?;
-            Reader::start(socket,config.width,config.height).await
+            if config.camera_audio {
+                Reader::start_av(socket,config.width,config.height).await
+            } else {
+                Reader::start(socket,config.width,config.height).await
+            }
         })=>result.map_err(|_|Error::Timeout)?,
     }
 }
 async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::Receiver<bool>) -> Result<()> {
     if *stop.borrow() { return Err(Error::Stopped); }
-    if config.detections.is_some() { return crate::video::attempt(config, token, policy, stop).await; }
+    if config.detections.is_some() || config.camera_audio { return crate::video::attempt(config, token, policy, stop).await; }
     let source=camera_source(config,policy,stop).await?;
     let mut encoder=encoder(config,EncodedMedia::MpegTs).spawn().map_err(|_|Error::Encoder)?;
     let mut publisher=match publisher(config,EncodedMedia::MpegTs).spawn() {
@@ -234,6 +278,25 @@ pub(crate) async fn run_prepared(config:Config, policy:Prepared, mut stop:watch:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn audio_publication_cannot_keep_stale_video_alive() {
+        let (mut tx, rx) = tokio::io::duplex(1024);
+        let producer = tokio::spawn(async move {
+            for count in 1.. {
+                let progress = format!("audio_packet={count}\nvideo_packet=1\n");
+                if tx.write_all(progress.as_bytes()).await.is_err() {
+                    return;
+                }
+                sleep(Duration::from_millis(5)).await;
+            }
+        });
+        let result = timeout(Duration::from_secs(1), av_progress(rx, Duration::from_millis(40))).await;
+        producer.abort();
+        let _ = producer.await;
+        assert!(matches!(result, Ok(Err(Error::Encoder))));
+    }
+
     #[tokio::test]
     #[ignore = "requires native FFmpeg with libx264; run in media qualification"]
     async fn small_paced_camera_frames_encode_within_startup_budget() {

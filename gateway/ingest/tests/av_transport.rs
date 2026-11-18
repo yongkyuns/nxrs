@@ -426,7 +426,7 @@ async fn camera_timestamps_and_sample_gaps_survive_the_native_encoder() {
     assert!(observed.status.success());
     let observed: serde_json::Value = serde_json::from_slice(&observed.stdout).unwrap();
     let streams = observed["streams"].as_array().unwrap();
-    assert_eq!(streams.len(), 2);
+    assert_eq!(streams.len(), 3);
     assert_eq!(
         (
             streams[0]["codec_name"].as_str(),
@@ -436,9 +436,8 @@ async fn camera_timestamps_and_sample_gaps_survive_the_native_encoder() {
     );
     assert_eq!(streams[1]["sample_rate"], "48000");
     assert_eq!(streams[1]["channels"], 1);
-    assert!(streams
-        .iter()
-        .all(|stream| stream["time_base"] == "1/90000"));
+    assert_eq!(streams[2]["codec_name"], "subrip");
+    assert!(streams.iter().all(|stream| stream["time_base"] == "1/1000"));
     let timestamps = |kind| {
         observed["packets"]
             .as_array()
@@ -448,26 +447,30 @@ async fn camera_timestamps_and_sample_gaps_survive_the_native_encoder() {
             .map(|p| p["pts"].as_u64().unwrap())
             .collect::<Vec<_>>()
     };
+    assert_eq!(timestamps("video"), offered);
     assert_eq!(
-        timestamps("video"),
-        offered.iter().map(|ms| ms * 90).collect::<Vec<_>>()
+        timestamps("subtitle"),
+        offered.iter().map(|ms| ms - 1).collect::<Vec<_>>()
     );
+    let mut available = std::collections::VecDeque::new();
+    for packet in observed["packets"].as_array().unwrap() {
+        match packet["codec_type"].as_str() {
+            Some("subtitle") => available.push_back(packet["pts"].as_u64().unwrap() + 1),
+            Some("video") => assert_eq!(available.pop_front(), packet["pts"].as_u64()),
+            _ => {}
+        }
+    }
+    assert!(available.is_empty());
     let audio = timestamps("audio");
     assert!((27..=28).contains(&audio.len())); // Every block, plus optional encoder tail.
-    assert!(audio[0].abs_diff(3020 * 90 - 585) <= 90); // 6.5 ms Opus priming.
+    assert!(audio[0].abs_diff(3014) <= 1); // 6.5 ms Opus priming.
     let differences: Vec<_> = audio.windows(2).map(|pair| pair[1] - pair[0]).collect();
     assert_eq!(
-        differences
-            .iter()
-            .filter(|d| d.abs_diff(7200) <= 90)
-            .count(),
+        differences.iter().filter(|d| d.abs_diff(80) <= 1).count(),
         1
     );
     assert_eq!(
-        differences
-            .iter()
-            .filter(|d| d.abs_diff(1800) <= 90)
-            .count(),
+        differences.iter().filter(|d| d.abs_diff(20) <= 1).count(),
         differences.len() - 1
     );
 }

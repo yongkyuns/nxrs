@@ -67,8 +67,10 @@ Implement and qualify these steps in order.
    metadata and rejection of malformed audio. The legacy path decoded changing
    frames through the actual ingest process and MediaMTX. The paired encoder
    preserved irregular video timestamps and a three-block audio gap in a
-   generated-media trial. The firmware microphone, annotated RTSP publication,
-   and on-device clock alignment remain open. [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).
+   generated-media trial. The opt-in TLS ingest and RTSP publisher decoded
+   generated audio and video with exact source annotations on the Mac.
+   Firmware microphone admission and physical capture timing remain open.
+   [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio
    capability from the acquired format and negotiated encoding. Exercise
    allocation, deallocation, microphone mute, gain where supported, privacy
