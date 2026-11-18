@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use zeroize::Zeroizing;
 
 const MAGIC: &[u8; 8] = b"NXMAT\0\0\x01";
 const STATE: &str = "state.bin";
@@ -41,11 +42,11 @@ impl std::error::Error for Error {}
 #[derive(Clone, Default)]
 struct Snapshot {
     generation: u64,
-    entries: BTreeMap<u16, Vec<u8>>,
+    entries: BTreeMap<u16, Zeroizing<Vec<u8>>>,
 }
 
 impl Snapshot {
-    fn encode(&self) -> Result<Vec<u8>, Error> {
+    fn encode(&self) -> Result<Zeroizing<Vec<u8>>, Error> {
         let size = 8 + 8 + 2 + 32 + self.entries.values().map(|v| 6 + v.len()).sum::<usize>();
         if self.entries.len() > MAX_ENTRIES
             || size > MAX_SNAPSHOT_BYTES
@@ -53,7 +54,7 @@ impl Snapshot {
         {
             return Err(Error::Capacity);
         }
-        let mut bytes = Vec::with_capacity(size);
+        let mut bytes = Zeroizing::new(Vec::with_capacity(size));
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&self.generation.to_le_bytes());
         bytes.extend_from_slice(&(self.entries.len() as u16).to_le_bytes());
@@ -88,7 +89,7 @@ impl Snapshot {
             if len > MAX_VALUE_BYTES || previous.is_some_and(|p| p >= key) {
                 return Err(Error::Corrupt);
             }
-            entries.insert(key, take(&mut payload, len)?.to_vec());
+            entries.insert(key, Zeroizing::new(take(&mut payload, len)?.to_vec()));
             previous = Some(key);
         }
         if !payload.is_empty() {
@@ -107,12 +108,13 @@ fn take<'a>(bytes: &mut &'a [u8], count: usize) -> Result<&'a [u8], Error> {
     Ok(value)
 }
 
-fn read_state(path: &Path) -> Result<Vec<u8>, Error> {
+fn read_state(path: &Path) -> Result<Zeroizing<Vec<u8>>, Error> {
     let file = platform::open_file(path, false, false).map_err(|_| Error::Unavailable)?;
-    if file.metadata().map_err(|_| Error::Unavailable)?.len() > MAX_SNAPSHOT_BYTES as u64 {
+    let len = file.metadata().map_err(|_| Error::Unavailable)?.len();
+    if len > MAX_SNAPSHOT_BYTES as u64 {
         return Err(Error::Corrupt);
     }
-    let mut bytes = Vec::new();
+    let mut bytes = Zeroizing::new(Vec::with_capacity(len as usize));
     file.take(MAX_SNAPSHOT_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| Error::Unavailable)?;
@@ -208,7 +210,11 @@ impl Store {
         if self.failed {
             return Err(Error::Failed);
         }
-        Ok(self.snapshot.entries.get(&key).map(Vec::as_slice))
+        Ok(self
+            .snapshot
+            .entries
+            .get(&key)
+            .map(|value| value.as_slice()))
     }
 
     pub fn store(&mut self, key: u16, value: &[u8]) -> Result<(), Error> {
@@ -232,7 +238,7 @@ impl Store {
             {
                 return Err(Error::Capacity);
             }
-            next.entries.insert(key, value.to_vec());
+            next.entries.insert(key, Zeroizing::new(value.to_vec()));
         }
         self.commit(next)
     }

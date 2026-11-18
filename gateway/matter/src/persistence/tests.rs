@@ -3,7 +3,9 @@ use super::*;
 #[test]
 fn bounded_format_rejects_corruption_noncanonical_and_oversized_state() {
     let mut snapshot = Snapshot::default();
-    snapshot.entries.insert(7, b"test data".to_vec());
+    snapshot
+        .entries
+        .insert(7, Zeroizing::new(b"test data".to_vec()));
     let encoded = snapshot.encode().unwrap();
     assert_eq!(
         Snapshot::decode(&encoded).unwrap().entries,
@@ -25,8 +27,10 @@ fn bounded_format_rejects_corruption_noncanonical_and_oversized_state() {
         bad.extend_from_slice(&Sha256::digest(&bad));
         assert!(Snapshot::decode(&bad).is_err());
     }
-    snapshot.entries.insert(8, vec![0; MAX_VALUE_BYTES + 1]);
-    assert_eq!(snapshot.encode(), Err(Error::Capacity));
+    snapshot
+        .entries
+        .insert(8, Zeroizing::new(vec![0; MAX_VALUE_BYTES + 1]));
+    assert!(matches!(snapshot.encode(), Err(Error::Capacity)));
     assert!(Snapshot::decode(&vec![0; MAX_SNAPSHOT_BYTES + 1]).is_err());
 }
 
@@ -141,13 +145,13 @@ mod files {
         let mut roots = RootCertificates::open(&mut store, 1).unwrap();
         assert_eq!(roots.lookup(&fingerprint), Ok(id));
         assert_eq!(
-            tls_handshake(roots.trust_anchor(id, now).unwrap(), &leaf, &leaf_key),
+            tls_handshake(roots.trust_anchor(id, now).unwrap(), &leaf, &leaf_key, None),
             Ok(()),
         );
         assert_eq!(roots.provision(Some(id), second.der(), now), Ok(id));
         assert_eq!(roots.lookup(&fingerprint), Err(Error::NotFound));
         assert_eq!(
-            tls_handshake(roots.trust_anchor(id, now).unwrap(), &leaf, &leaf_key),
+            tls_handshake(roots.trust_anchor(id, now).unwrap(), &leaf, &leaf_key, None),
             Err(rustls::Error::InvalidCertificate(
                 rustls::CertificateError::UnknownIssuer
             )),
@@ -171,19 +175,171 @@ mod files {
         let other = RootCertificates::open(&mut store, 2).unwrap();
         assert_eq!(other.lookup(&fingerprint), Ok(other_id));
         assert_eq!(
-            tls_handshake(other.trust_anchor(other_id, now).unwrap(), &leaf, &leaf_key),
+            tls_handshake(
+                other.trust_anchor(other_id, now).unwrap(),
+                &leaf,
+                &leaf_key,
+                None
+            ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn tls_client_key_survives_restart_and_authenticates_after_renewal() {
+        use crate::tls::{ClientCertificates, Error};
+        use rcgen::{
+            BasicConstraints, CertificateParams, CertificateSigningRequestParams, DnType,
+            ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
+        };
+        use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_FIXED};
+        use x509_parser::{certification_request::X509CertificationRequest, prelude::FromDer};
+
+        let fixture = Fixture::new();
+        let mut store = fixture.initialize();
+        let nonce = [7; 32];
+        let now = Some(1_788_000_000);
+        let mut clients = ClientCertificates::open(&mut store, 1).unwrap();
+        assert!(matches!(
+            clients.request_csr(None, &nonce[..31]),
+            Err(Error::Constraint)
+        ));
+        let first = clients.request_csr(None, &nonce).unwrap();
+        let vacant = clients.request_csr(None, &nonce).unwrap();
+        assert!(matches!(
+            clients.request_csr(None, &nonce),
+            Err(Error::Capacity)
+        ));
+        clients.remove(vacant.id).unwrap();
+        assert!(matches!(
+            clients.identity(first.id, now),
+            Err(Error::CertificatePending)
+        ));
+        assert!(clients.list().unwrap()[0].leaf.is_none());
+        let mut other = ClientCertificates::open(&mut store, 2).unwrap();
+        assert!(matches!(
+            other.request_csr(Some(first.id), &nonce),
+            Err(Error::NotFound)
+        ));
+        let other_id = other.request_csr(None, &nonce).unwrap().id;
+        assert_ne!(first.id, other_id);
+        drop(store);
+
+        let mut store = Store::open(&fixture.path()).unwrap();
+        let mut clients = ClientCertificates::open(&mut store, 1).unwrap();
+        let renewal_nonce = [8; 32];
+        let renewal = clients.request_csr(Some(first.id), &renewal_nonce).unwrap();
+        let verify = |request: &crate::tls::SigningRequest, nonce: &[u8]| {
+            let (rest, csr) = X509CertificationRequest::from_der(&request.der).unwrap();
+            assert!(rest.is_empty());
+            csr.verify_signature().unwrap();
+            let public = csr
+                .certification_request_info
+                .subject_pki
+                .subject_public_key
+                .data;
+            let verifier = UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, public.as_ref());
+            verifier.verify(nonce, &request.nonce_signature).unwrap();
+            assert!(verifier.verify(&[9; 32], &request.nonce_signature).is_err());
+            public.into_owned()
+        };
+        assert_eq!(verify(&first, &nonce), verify(&renewal, &renewal_nonce));
+
+        let mut ca = CertificateParams::default();
+        ca.distinguished_name.push(DnType::CommonName, "test root");
+        ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let ca_key = KeyPair::generate().unwrap();
+        let root = ca.self_signed(&ca_key).unwrap();
+        let ca = Issuer::new(ca, ca_key);
+        let mut intermediate = CertificateParams::default();
+        intermediate
+            .distinguished_name
+            .push(DnType::CommonName, "test intermediate");
+        intermediate.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
+        let intermediate_key = KeyPair::generate().unwrap();
+        let intermediate_cert = intermediate.signed_by(&intermediate_key, &ca).unwrap();
+        let intermediate = Issuer::new(intermediate, intermediate_key);
+        let sign = |req: &crate::tls::SigningRequest, serial: u64| {
+            let mut params =
+                CertificateSigningRequestParams::from_der(&req.der.as_slice().into()).unwrap();
+            params.params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+            params.params.serial_number = Some(serial.into());
+            params.signed_by(&intermediate).unwrap()
+        };
+        let leaf = sign(&first, 1);
+        let renewed = sign(&renewal, 2);
+        let chain = &[intermediate_cert.der().as_ref()];
+        let server_key = KeyPair::generate().unwrap();
+        let server = CertificateParams::new(vec!["camera.example".into()])
+            .unwrap()
+            .signed_by(&server_key, &ca)
+            .unwrap();
+        assert_eq!(
+            clients.provision(first.id, server.der(), chain, now),
+            Err(Error::InvalidCertificate)
+        );
+        assert_eq!(
+            clients.provision(first.id, leaf.der(), chain, None),
+            Err(Error::InvalidTime)
+        );
+        clients.provision(first.id, leaf.der(), chain, now).unwrap();
+        let old_fingerprint = Sha256::digest(leaf.der());
+        assert_eq!(clients.lookup(&old_fingerprint), Ok(first.id));
+        assert_eq!(
+            clients.provision(first.id, leaf.der(), chain, now),
+            Err(Error::AlreadyExists)
+        );
+        assert_eq!(
+            clients.provision(first.id, renewed.der(), &[b"invalid"], now),
+            Err(Error::InvalidCertificate)
+        );
+        tls_handshake(
+            root.der().to_vec(),
+            &server,
+            &server_key,
+            Some(clients.identity(first.id, now).unwrap()),
+        )
+        .unwrap();
+        clients
+            .provision(first.id, renewed.der(), chain, now)
+            .unwrap();
+        assert_eq!(clients.lookup(&old_fingerprint), Err(Error::NotFound));
+        drop(store);
+
+        let mut store = Store::open(&fixture.path()).unwrap();
+        let clients = ClientCertificates::open(&mut store, 1).unwrap();
+        assert!(matches!(
+            clients.identity(first.id, Some(0)),
+            Err(Error::InvalidCertificate)
+        ));
+        let identity = clients.identity(first.id, now).unwrap();
+        assert_eq!(identity.end_entity_cert().unwrap(), renewed.der());
+        tls_handshake(root.der().to_vec(), &server, &server_key, Some(identity)).unwrap();
+        let slots = ClientCertificates::record_keys(1).unwrap();
+        store.store(0x0050, b"test fabric").unwrap();
+        store
+            .remove_with(0x0050, |key| slots.contains(&key))
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&fixture.path()).unwrap();
+        assert!(ClientCertificates::open(&mut store, 1)
+            .unwrap()
+            .list()
+            .unwrap()
+            .is_empty());
+        let other = ClientCertificates::open(&mut store, 2).unwrap();
+        assert_eq!(other.list().unwrap()[0].id, other_id);
     }
 
     fn tls_handshake(
         root: Vec<u8>,
         leaf: &rcgen::Certificate,
         key: &rcgen::KeyPair,
+        identity: Option<rustls::sign::CertifiedKey>,
     ) -> Result<(), rustls::Error> {
         use rustls::{
-            pki_types::PrivatePkcs8KeyDer, ClientConfig, ClientConnection, RootCertStore,
-            ServerConfig, ServerConnection,
+            pki_types::PrivatePkcs8KeyDer, server::WebPkiClientVerifier, sign::SingleCertAndKey,
+            ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection,
         };
         use std::sync::Arc;
 
@@ -193,12 +349,23 @@ mod files {
         let client = ClientConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
             .unwrap()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let server = ServerConfig::builder_with_provider(provider)
+            .with_root_certificates(roots.clone());
+        let server = ServerConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_no_client_auth()
+            .unwrap();
+        let expected_client = identity.as_ref().map(|id| id.cert[0].clone());
+        let (client, server) = if let Some(identity) = identity {
+            let verifier = WebPkiClientVerifier::builder_with_provider(Arc::new(roots), provider)
+                .build()
+                .unwrap();
+            (
+                client.with_client_cert_resolver(Arc::new(SingleCertAndKey::from(identity))),
+                server.with_client_cert_verifier(verifier),
+            )
+        } else {
+            (client.with_no_client_auth(), server.with_no_client_auth())
+        };
+        let server = server
             .with_single_cert(
                 vec![leaf.der().clone()],
                 PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
@@ -217,6 +384,10 @@ mod files {
             client.read_tls(&mut flight.as_slice()).unwrap();
             client.process_new_packets()?;
             if !client.is_handshaking() && !server.is_handshaking() {
+                assert_eq!(
+                    server.peer_certificates().and_then(|certs| certs.first()),
+                    expected_client.as_ref()
+                );
                 return Ok(());
             }
         }
@@ -308,7 +479,8 @@ mod files {
         let mut store = fixture.initialize();
         store.store(1, b"committed").unwrap();
         let mut next = store.snapshot.clone();
-        next.entries.insert(1, b"uncommitted".to_vec());
+        next.entries
+            .insert(1, Zeroizing::new(b"uncommitted".to_vec()));
         let encoded = next.encode().unwrap();
         drop(store);
         for bytes in [&encoded[..5], &encoded[..]] {

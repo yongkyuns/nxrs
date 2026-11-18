@@ -2302,5 +2302,26 @@
     "host_architecture_tests_passed": 37,
     "host_hal_boundary_tests_passed": 29,
     "scope": "Native macOS arm64. Generated X.509 roots, durable store reopen and in-memory Rustls handshakes verify capacity, authenticated fabric scope supplied by the test, validation, rotation and durable removal. Matter command admission, protocol transport, TLS client credentials and endpoint management remain open."
+  },
+  "tls_client_credentials": {
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "source_sha256": {
+      "gateway/Cargo.lock": "fdee99514aaed77eee215b1d4b7a221daba366800e344fda0185dd107998d0f2",
+      "gateway/matter/Cargo.toml": "701876bbbeca3da28a78a3f196d8472355c0c725c4d0e80ef0d50542d9afe396",
+      "gateway/matter/src/persistence.rs": "d9f270d03d0502c406d21656f0b2e948c5f948276238dd25003de178ab03a4f9",
+      "gateway/matter/src/persistence/tests.rs": "8738f029c5923b02683d79b9df1401a301da1176e6c465000852950035a5bdcf",
+      "gateway/matter/src/tls.rs": "b06d1750a3e9649d74ea80840aeb15d3d08ceabe148fa4d569e1cd01e441f6c5",
+      "gateway/matter/src/tls/client.rs": "aad7f9287ec461cce6b670c9736d3b9dfbcebc16e09f1dca6fc47852aa7ddd3c",
+      "gateway/tests/matter/Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8"
+    },
+    "macos_bridge_sha256": "225ab7fda9506f61094b10258021e351559d42aa83b896821b3a3eb70b4db0d6",
+    "macos_bridge_build": "dhcp-time from a fresh SDK clone using the verified archives and locked dependency graph",
+    "test": "persistence::tests::files::tls_client_key_survives_restart_and_authenticates_after_renewal",
+    "macos_gateway_tests_passed": 25,
+    "host_architecture_tests_passed": 37,
+    "host_hal_boundary_tests_passed": 29,
+    "scope": "Native macOS 27.0.1 arm64. Generated credentials, P-256 PKCS #10 and raw ECDSA nonce verification, two fabrics and a real mutual TLS handshake with an intermediate before and after renewal. The same key survives restart. The test verifies rejection of a wrong key and a malformed intermediate, and durable removal of one fabric's records. Matter command admission, large-message interoperability, TLS endpoints and physical release qualification remain open."
   }
 }

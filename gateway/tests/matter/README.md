@@ -759,20 +759,31 @@ across restarts. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and TLS
 management remain open.
 [DHCPv4 NTP option](https://www.rfc-editor.org/rfc/rfc2132#section-8.3) · [DHCPv6 NTP option](https://www.rfc-editor.org/rfc/rfc5908) · [Results](evidence.json).
 
-### Matter TLS root certificates
+### Matter TLS certificates
 
 The gateway stores up to five TLS CA certificates per authenticated fabric in
 the existing durable node store. Provisioning and use check DER, the CA
 constraints, the signature and synchronized UTC. SHA-256 lookup is fabric
 scoped, rotation preserves the CAID, and allocation commits its cursor and
-certificate together. The fabric record and roots can be retired in one store
-transaction. Matter command handlers, client keys and endpoint references
-still need integration. The fixture's advertised clusters are unchanged.
+certificate together. The fabric and its credential records can be retired in
+one store transaction.
 
 Run `cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-matter tls_roots_rotate_and_retire_with_their_fabric`.
 The test uses generated certificates and a real Rustls handshake before and
 after rotation. The old server's certificate is rejected on one fabric and
 still accepted on the other. The test reopens the durable store after removal.
+
+The client table reserves two identities per fabric. The gateway generates a
+P-256 key, a PKCS #10 request and a signature over the controller's 32-byte
+nonce. Renewal keeps the original key and the active certificate until a
+replacement with the matching public key is committed. The TLS engine receives
+a signing handle. Private DER copies in the gateway's state buffers are
+zeroized on drop. The node store remains a protected local file.
+
+Run `cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-matter tls_client_key_survives_restart_and_authenticates_after_renewal`.
+The test verifies both CSR signatures and mutual TLS with a generated leaf and
+intermediate before and after renewal. Matter command handlers, large-message
+interoperability and TLS endpoint references remain open.
 [TLS Certificate Management](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/data_model/1.5.1/clusters/TLSCertificateManagement.xml) · [TLS Client Management](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/data_model/1.5.1/clusters/TLSClientManagement.xml).
 
 ## Two controllers on the same fabric

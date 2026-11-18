@@ -1,9 +1,12 @@
-//! Fabric-scoped trust anchors for Matter TLS Certificate Management.
+//! Fabric-scoped credentials for Matter TLS Certificate Management.
 
 use crate::persistence::{self, Store};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-use x509_parser::{parse_x509_certificate, time::ASN1Time};
+use std::collections::{BTreeMap, BTreeSet};
+use x509_parser::{certificate::X509Certificate, parse_x509_certificate, time::ASN1Time};
+
+mod client;
+pub use client::{ClientCertificate, ClientCertificates, SigningRequest, MAX_CLIENT_CERTIFICATES};
 
 pub const MAX_ROOT_CERTIFICATES: usize = 5;
 pub const MAX_CERTIFICATE_BYTES: usize = 3000;
@@ -22,6 +25,8 @@ pub enum Error {
     InvalidTime,
     AlreadyExists,
     NotFound,
+    CertificatePending,
+    Crypto,
     Capacity,
     Storage(persistence::Error),
 }
@@ -135,19 +140,30 @@ fn check_id(id: u16) -> Result<(), Error> {
 }
 
 fn validate(der: &[u8], unix_seconds: Option<i64>) -> Result<(), Error> {
-    let (rest, cert) = parse_x509_certificate(der).map_err(|_| Error::InvalidCertificate)?;
+    let cert = parse_certificate(der)?;
     let constraints = cert
         .basic_constraints()
         .map_err(|_| Error::InvalidCertificate)?;
     let usage = cert.key_usage().map_err(|_| Error::InvalidCertificate)?;
-    if !rest.is_empty()
-        || cert.subject() != cert.issuer()
+    if cert.subject() != cert.issuer()
         || !constraints.is_some_and(|constraints| constraints.value.ca)
         || usage.is_some_and(|usage| !usage.value.key_cert_sign())
         || cert.verify_signature(None).is_err()
     {
         return Err(Error::InvalidCertificate);
     }
+    check_validity(&cert, unix_seconds)
+}
+
+fn parse_certificate(der: &[u8]) -> Result<X509Certificate<'_>, Error> {
+    let (rest, certificate) = parse_x509_certificate(der).map_err(|_| Error::InvalidCertificate)?;
+    if !rest.is_empty() {
+        return Err(Error::InvalidCertificate);
+    }
+    Ok(certificate)
+}
+
+fn check_validity(cert: &X509Certificate<'_>, unix_seconds: Option<i64>) -> Result<(), Error> {
     let now = unix_seconds
         .and_then(|seconds| ASN1Time::from_timestamp(seconds).ok())
         .ok_or(Error::InvalidTime)?;
@@ -158,7 +174,19 @@ fn validate(der: &[u8], unix_seconds: Option<i64>) -> Result<(), Error> {
 }
 
 fn next_available_id(store: &Store) -> Result<u16, Error> {
-    let mut candidate = match store.value(ROOT_CURSOR)? {
+    let mut used = BTreeSet::new();
+    for key in store.keys().filter(|key| ROOT_RECORDS.contains(key)) {
+        for id in read(store, key)?.into_keys() {
+            if !used.insert(id) {
+                return Err(persistence::Error::Corrupt.into());
+            }
+        }
+    }
+    allocate_id(store, ROOT_CURSOR, &used)
+}
+
+fn allocate_id(store: &Store, cursor_key: u16, used: &BTreeSet<u16>) -> Result<u16, Error> {
+    let mut candidate = match store.value(cursor_key)? {
         None => 0,
         Some(bytes) => {
             let cursor =
@@ -167,14 +195,6 @@ fn next_available_id(store: &Store) -> Result<u16, Error> {
             advance(cursor)
         }
     };
-    let mut used = std::collections::BTreeSet::new();
-    for key in store.keys().filter(|key| ROOT_RECORDS.contains(key)) {
-        for id in read(store, key)?.into_keys() {
-            if !used.insert(id) {
-                return Err(persistence::Error::Corrupt.into());
-            }
-        }
-    }
     // The store's total record bound is much smaller than the CAID space.
     for _ in 0..=used.len() {
         if !used.contains(&candidate) {
