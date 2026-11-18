@@ -416,15 +416,17 @@ at most 16 remote ICE candidates within one negotiation.
 
 ## Matter JPEG snapshots
 
-Prepare the pinned SDK with `--variant snapshots`. Run
+Prepare the pinned SDK with `--variant stream-continuity`. Run
 `gateway/tests/matter_snapshot_reference.py` with the
 [commissioning test](#operator-initiated-commissioning) arguments plus an
 absolute `--ffmpeg` path and a fresh runtime directory.
 
-The commissioned controller allocates a JPEG snapshot stream, decodes the
-returned 640×360 image while live video advances, and requests a 320×180
-image after the source changes. The test verifies source colors, dimensions,
-reuse of the original RTSP reader, and release of the snapshot allocation.
+Two independently commissioned fabrics request the same JPEG stream. The
+first capture holds the encoder while the second fabric receives Matter
+`Busy` and live video advances. The first controller decodes a 640×360
+JPEG. After the source changes, the second controller decodes a 320×180
+JPEG. The test verifies source colors, dimensions, one RTSP reader, and
+release of the snapshot allocation.
 Separate commands check live privacy, source unavailability and the capture
 interval. The fixture pauses a disposable encoder and verifies its process
 has exited before a source-loss error returns to the controller.

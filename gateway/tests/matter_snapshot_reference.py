@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode a real Matter JPEG response while a commissioned controller plays video."""
+"""Exercise JPEG capture across two Matter fabrics while the live peer plays video."""
 
 import argparse
 import asyncio
@@ -46,6 +46,7 @@ def encoder_probe(root, ffmpeg):
     path = root / "encoder-probe"
     delay = root / "delay-encoder"
     pid_file = root / "encoder.pid"
+    resume = root / "resume-encoder"
     program = f"""#!{sys.executable}
 import os
 from pathlib import Path
@@ -54,14 +55,36 @@ import time
 
 delay = Path({str(delay)!r})
 if delay.is_file():
+    hold = delay.read_text() == "hold"
     delay.unlink()
     Path({str(pid_file)!r}).write_text(str(os.getpid()))
-    time.sleep(30)
+    if hold:
+        resume = Path({str(resume)!r})
+        deadline = time.monotonic() + 30
+        while not resume.exists():
+            if time.monotonic() >= deadline:
+                raise SystemExit(1)
+            time.sleep(0.02)
+        resume.unlink()
+    else:
+        time.sleep(30)
 os.execv({str(ffmpeg)!r}, [{str(ffmpeg)!r}, *sys.argv[1:]])
 """
     private_file(path, program)
     path.chmod(0o700)
     return path, delay, pid_file
+
+
+async def wait_for_encoder(pid_file, capture):
+    async with asyncio.timeout(4):
+        while not pid_file.is_file():
+            if capture.done():
+                capture.result()
+                raise AssertionError("capture finished before the delayed encoder started")
+            await asyncio.sleep(0.02)
+    pid = int(pid_file.read_text())
+    os.kill(pid, 0)
+    return pid
 
 
 async def run(args):
@@ -108,12 +131,27 @@ async def run(args):
             ],
             dict(os.environ, RUST_LOG="error", TMPDIR=str(root)),
         )
-        async with controller(fixtures, root, args, "admin", ports(1)[0], 32713) as client:
+        admin_port, viewer_port = ports(2)
+        async with (
+            controller(fixtures, root, args, "admin", admin_port, 32713) as client,
+            controller(fixtures, root, args, "viewer", viewer_port, 32714) as viewer,
+        ):
             pairing = await client.request(
                 "commission_with_code", code=code, network_only=True, discovery_timeout_s=60
             )
             node = pairing["node_id"]
             target = dict(node_id=node, endpoint_id=1)
+            invitation = await client.request(
+                "open_commissioning_window", node_id=node, timeout=180, iteration=1000, option=1
+            )
+            paired_viewer = await viewer.request(
+                "commission_on_network",
+                setup_pin_code=invitation["setup_pin_code"],
+                ip_addr=args.ip,
+                discovery_timeout_s=60,
+            )
+            viewer_node = paired_viewer["node_id"]
+            assert await attribute(client, node, "0/62/5") != await attribute(viewer, viewer_node, "0/62/5")
             caps = await attribute(client, node, CAPABILITIES)
             assert caps == [{"0": {"0": 640, "1": 360}, "1": 1, "2": 0, "3": False, "4": False}]
             assert await attribute(client, node, ALLOCATIONS) == []
@@ -121,11 +159,12 @@ async def run(args):
             async def capture(**params):
                 return await client.request("camera_snapshot", **target, codec="JPEG", **params)
 
-            async def rejected_capture(stream, status=203):
+            async def rejected_capture(stream, status=203, *, actor=client, capture_node=node):
                 try:
-                    await client.request(
+                    await actor.request(
                         "device_command",
-                        **target,
+                        node_id=capture_node,
+                        endpoint_id=1,
                         cluster_id=CLUSTER,
                         command_name="CaptureSnapshot",
                         payload={
@@ -168,9 +207,24 @@ async def run(args):
                     reader = gateway.path()["readers"][0]["id"]
                     frames = Frames()
                     consumer = asyncio.create_task(frames.consume(track))
+                    delay_encoder.write_text("hold")
+                    in_flight = asyncio.create_task(capture())
                     try:
-                        first = await capture()
+                        pid = await wait_for_encoder(pid_file, in_flight)
+                        (allocation,) = await attribute(viewer, viewer_node, ALLOCATIONS)
+                        await rejected_capture(allocation["0"], 156, actor=viewer, capture_node=viewer_node)
+                        assert not in_flight.done()
+                        before = frames.count
+                        async with asyncio.timeout(4):
+                            while frames.count < before + 15:
+                                assert not consumer.done()
+                                await asyncio.sleep(0.03)
+                        concurrent_frames = frames.count - before
+                        os.kill(pid, 0)
+                        (root / "resume-encoder").touch()
+                        first = await asyncio.wait_for(in_flight, 5)
                         next_capture = asyncio.get_running_loop().time() + 1.05
+                        assert first["stream_id"] == allocation["0"]
                         await rejected_capture(first["stream_id"], status=156)
                         first_bytes = verify_jpeg(first, (640, 360), 0)
                         before = frames.count
@@ -181,8 +235,10 @@ async def run(args):
                         assert gateway.path()["readers"][0]["id"] == reader
                     finally:
                         consumer.cancel()
+                        in_flight.cancel()
                         with suppress(asyncio.CancelledError):
                             await consumer
+                        await asyncio.gather(in_flight, return_exceptions=True)
                 stream = first["stream_id"]
                 (allocated,) = await attribute(client, node, ALLOCATIONS)
                 assert allocated["0"] == stream
@@ -190,17 +246,11 @@ async def run(args):
                 await rejected_capture(stream)
                 await privacy(False)
                 await asyncio.sleep(max(0, next_capture - asyncio.get_running_loop().time()))
+                pid_file.unlink()
                 delay_encoder.touch()
                 in_flight = asyncio.create_task(rejected_capture(stream))
                 try:
-                    async with asyncio.timeout(4):
-                        while not pid_file.is_file():
-                            if in_flight.done():
-                                in_flight.result()
-                                raise AssertionError("capture retired before starting the encoder")
-                            await asyncio.sleep(0.02)
-                    pid = int(pid_file.read_text())
-                    os.kill(pid, 0)
+                    pid = await wait_for_encoder(pid_file, in_flight)
                     await asyncio.to_thread(red.close)
                     await asyncio.wait_for(in_flight, 5)
                     try:
@@ -221,7 +271,10 @@ async def run(args):
                 wait_path(gateway, lambda p: p.get("ready") and len(p["readers"]) == 1, (device, *children))
                 # Demand a decoded first keyframe before making the second capture.
                 async with play("camera-offer", 30):
-                    second = await capture(resolution={"width": 320, "height": 180})
+                    second = await viewer.request(
+                        "camera_snapshot", node_id=viewer_node, endpoint_id=1, codec="JPEG",
+                        resolution={"width": 320, "height": 180},
+                    )
                     second_bytes = verify_jpeg(second, (320, 180), 2)
                 assert second["stream_id"] == stream
                 await client.request("camera_release_stream", **target, kind="snapshot", stream_id=stream)
@@ -235,6 +288,9 @@ async def run(args):
                 shared_reader=True,
                 private_and_offline_rejected=True,
                 rate_limit_busy_status=156,
+                concurrent_fabrics=2,
+                concurrent_busy_status=156,
+                live_frames_while_encoder_held=concurrent_frames,
                 source_loss_cancelled_and_reaped_encoder=True,
                 allocation_reused_and_released=True,
             )

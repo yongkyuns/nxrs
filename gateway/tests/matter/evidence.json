@@ -1966,5 +1966,37 @@
     "macos_im_core_tests": 26,
     "host_architecture_tests": 37,
     "host_hal_boundary_tests": 29
+  },
+  "concurrent_jpeg_capture": {
+    "fixture": "stream-continuity",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sdk_patch_sha256": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
+    "test_sha256": "58d9340e513131bfed0b6d6fd3c6f96e88d85de1b366b2b96f1a229c41097d76",
+    "macos_device_binary_sha256": "81a9b71f02e45ae2994b8cc8e0b320bb97b86bed0d967553b4494fa1baf603d8",
+    "environment": "macOS 27.0.1 ARM64 with native DNS-SD, Matter Server 1.6.0, Python 3.12.16 and MediaMTX 1.21.2",
+    "result_json_sha256": [
+      "8172200eb5f4d826484030b4e18bf9424bafebd9859202970e61569656ce9cff",
+      "8172200eb5f4d826484030b4e18bf9424bafebd9859202970e61569656ce9cff"
+    ],
+    "fresh_trials": 2,
+    "independent_fabrics_per_trial": 2,
+    "second_fabric_rejected_while_first_encoder_held_status": 156,
+    "live_frames_decoded_while_encoder_held": [
+      15,
+      15
+    ],
+    "successful_JPEGs": {
+      "first_fabric": [
+        640,
+        360
+      ],
+      "second_fabric_after_source_change": [
+        320,
+        180
+      ]
+    },
+    "shared_reader_and_released_snapshot_allocation": true,
+    "source_loss_cancelled_and_reaped_encoder": true,
+    "scope": "Generated H.264 on the native macOS bridge. Physical ESP32 source and iPhone snapshots remain open."
   }
 }
