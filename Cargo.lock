@@ -768,6 +768,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-capture-wire"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-composition"
 version = "0.1.0"
 dependencies = [
@@ -1300,6 +1304,7 @@ name = "nxrs-stream-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
+ "nxrs-capture-wire",
 ]
 
 [[package]]

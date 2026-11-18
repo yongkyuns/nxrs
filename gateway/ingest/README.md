@@ -117,6 +117,21 @@ credentials and enforce TLS at startup. Device TLS, provisioning/custody and
 physical resource qualification remain in #33/#35. Publisher-secret isolation
 remains in #37. This does not make the full system production-qualified.
 
+## Camera audio framing
+
+The stream writer and ingest parser support an explicit `GET /stream?av=1`
+exchange. The caller must authenticate the connection and authorize microphone
+access before admitting the request. The response must carry `X-Nxrs-AV: 1`.
+It interleaves the existing JPEG and detection parts with
+`application/vnd.nxrs.pcm16.v1` parts. Each audio part is 640 bytes of signed
+little-endian mono PCM at 16 kHz, with `X-First-Sample` and `X-Capture-Ms`.
+Sample offsets are aligned to 320 samples. Gaps preserve dropped blocks, and
+overlap or a backwards capture time invalidates the response.
+
+The deployed ingest process still requests the legacy stream. Connecting the
+microphone and encoder requires independent audio and video progress deadlines.
+An audio part does not complete a video frame or extend its freshness.
+
 ## Bounds, freshness and lifecycle
 
 One source socket, one encoder and one publisher exist per attempt. The adapter holds a fixed

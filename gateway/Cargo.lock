@@ -805,7 +805,11 @@ dependencies = [
 [[package]]
 name = "nxrs-camera-ingest"
 version = "0.1.0"
-dependencies = ["getrandom 0.3.4", "libc", "nxrs-detection-wire", "nxrs-enrollment", "nxrs-firmware-update", "rcgen", "rustls", "serde", "serde_json", "sha2", "subtle", "time", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
+dependencies = ["getrandom 0.3.4", "libc", "nxrs-camera", "nxrs-capture-wire", "nxrs-detection-wire", "nxrs-enrollment", "nxrs-firmware-update", "nxrs-stream-service", "rcgen", "rustls", "serde", "serde_json", "sha2", "subtle", "time", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
+
+[[package]]
+name = "nxrs-capture-wire"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-detection-wire"
@@ -853,6 +857,7 @@ name = "nxrs-stream-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
+ "nxrs-capture-wire",
 ]
 
 [[package]]

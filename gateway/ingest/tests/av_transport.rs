@@ -1,0 +1,265 @@
+//! Exercise the actual camera multipart writer and gateway reader together.
+use camera::{Capture, Format, Frame, PixelFormat};
+use capture_wire::{AudioBlock, AudioStamp, AUDIO_TYPE, AV_PATH, BLOCK_BYTES};
+use nxrs_camera_ingest::{
+    protocol::{Packet, Reader},
+    Error,
+};
+use std::io::{self, Cursor, Read, Write};
+use stream_service::{HttpSession, Metadata, Options};
+use tokio::io::AsyncWriteExt;
+
+const JPEG: &[u8] = &[
+    255, 216, 255, 192, 0, 11, 8, 0, 240, 1, 64, 1, 1, 17, 0, 255, 218, 0, 2, 255, 217,
+];
+const PCM: [u8; BLOCK_BYTES] = [0xa5; BLOCK_BYTES];
+const RESPONSE: &[u8] =
+    b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\n";
+const METADATA: &[u8] = br#"{"api_version":"1","publication_id":3,"emitted_ms":100,"presence":"clear","localization":true,"latest":{"frame_sequence":8,"captured_ms":100,"inference_us":0,"person_score_permille":50,"objects":[],"truncated":false},"event_count":0,"events":[]}"#;
+
+struct Transport {
+    request: Cursor<Vec<u8>>,
+    output: Vec<u8>,
+    written: usize,
+}
+
+impl Read for Transport {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.request.read(bytes)
+    }
+}
+
+impl Write for Transport {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        // Yield partway through a part, including inside PCM bytes.
+        if self.written >= 350 {
+            self.written = 0;
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        let count = bytes.len().min(53);
+        self.output.extend_from_slice(&bytes[..count]);
+        self.written += count;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn session(path: &str, authorized: bool) -> HttpSession<Transport, [u8; 64]> {
+    let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+    let transport = Transport {
+        request: Cursor::new(format!("GET {path} HTTP/1.1\r\n\r\n").into_bytes()),
+        output: Vec::new(),
+        written: 0,
+    };
+    if authorized {
+        assert!(http.accept_with_audio(transport, 100, &[]));
+    } else {
+        assert!(http.accept(transport, 100));
+    }
+    http.poll(100, None);
+    http
+}
+
+fn drain(http: &mut HttpSession<Transport, [u8; 64]>, now: u64) {
+    for _ in 0..16 {
+        if http.ready_for_frame() {
+            return;
+        }
+        assert!(http.poll(now, None).active);
+    }
+    panic!("bounded test payload did not drain");
+}
+
+fn audio(first_sample: u64, capture_ms: u64) -> AudioBlock<'static> {
+    AudioBlock {
+        stamp: AudioStamp {
+            first_sample,
+            capture_ms,
+        },
+        pcm: &PCM,
+    }
+}
+
+fn frame(sequence: u64, timestamp_ms: u64) -> Frame<'static> {
+    Frame {
+        sequence,
+        capture: Capture {
+            format: Format {
+                pixels: PixelFormat::Jpeg,
+                width: 320,
+                height: 240,
+            },
+            timestamp_ms,
+            len: JPEG.len(),
+        },
+        bytes: JPEG,
+    }
+}
+
+#[tokio::test]
+async fn negotiated_audio_and_annotated_video_survive_short_writes_and_reads() {
+    let mut http = session(AV_PATH, true);
+    drain(&mut http, 100);
+    let metadata = Some(Metadata {
+        revision: 3,
+        bytes: METADATA,
+        content_type: detection_wire::METADATA_TYPE,
+    });
+
+    let progress = http.poll_media(100, Some(frame(8, 100)), metadata, Some(audio(0, 100)));
+    assert!(progress.audio_accepted);
+    assert!(!progress.frame_accepted);
+    drain(&mut http, 101);
+    assert_eq!(http.stats().frames_completed, 0);
+    assert_eq!(http.stats().latest_completed, None);
+
+    let progress = http.poll_media(120, Some(frame(8, 100)), metadata, Some(audio(320, 120)));
+    assert!(progress.frame_accepted);
+    assert!(!progress.audio_accepted);
+    drain(&mut http, 120);
+    assert_eq!(http.stats().frames_completed, 1);
+
+    // A skipped block has an explicit 320-sample gap on the wire.
+    assert!(
+        http.poll_media(140, None, None, Some(audio(640, 140)))
+            .audio_accepted
+    );
+    drain(&mut http, 140);
+    assert!(
+        !http
+            .poll_media(141, None, None, Some(audio(640, 140)))
+            .audio_accepted
+    );
+    assert!(
+        !http
+            .poll_media(141, None, None, Some(audio(960, 160)))
+            .audio_accepted
+    );
+    assert_eq!(http.stats().frames_completed, 1);
+
+    let output = std::mem::take(&mut http.transport_mut().unwrap().output);
+    let (mut sender, receiver) = tokio::io::duplex(19);
+    let writer = tokio::spawn(async move {
+        for fragment in output.chunks(11) {
+            sender.write_all(fragment).await.unwrap();
+        }
+    });
+
+    let mut reader = Reader::start_av(receiver, 320, 240).await.unwrap();
+    let Packet::Audio(block) = reader.next_packet().await.unwrap() else {
+        panic!("expected audio packet");
+    };
+    assert_eq!(block.stamp, audio(0, 100).stamp);
+    assert_eq!(block.pcm, &PCM);
+    let Packet::Video(frame) = reader.next_packet().await.unwrap() else {
+        panic!("expected annotated video");
+    };
+    assert_eq!((frame.sequence, frame.capture_ms), (8, 100));
+    assert_eq!(reader.payload(frame), JPEG);
+    assert_eq!(reader.metadata.as_ref().unwrap().publication_id, 3);
+    let Packet::Audio(block) = reader.next_packet().await.unwrap() else {
+        panic!("expected audio packet");
+    };
+    assert_eq!(block.stamp, audio(640, 140).stamp);
+    assert_eq!(block.pcm, &PCM);
+    writer.await.unwrap();
+    assert!(matches!(reader.next_packet().await, Err(Error::Io)));
+}
+
+#[tokio::test]
+async fn legacy_and_unauthorized_transports_do_not_send_audio() {
+    let mut legacy = session("/stream", true);
+    drain(&mut legacy, 100);
+    let progress = legacy.poll_media(100, Some(frame(8, 100)), None, Some(audio(0, 100)));
+    assert!(progress.frame_accepted);
+    assert!(!progress.audio_accepted);
+    drain(&mut legacy, 100);
+    let output = &legacy.transport_mut().unwrap().output;
+    let mut reader = Reader::start(output.as_slice(), 320, 240).await.unwrap();
+    let frame = reader.next_frame().await.unwrap();
+    assert_eq!(reader.payload(frame), JPEG);
+    assert!(matches!(reader.next_frame().await, Err(Error::Io)));
+
+    struct Reply(Vec<u8>, Cursor<&'static [u8]>);
+    impl Read for Reply {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            self.1.read(bytes)
+        }
+    }
+    impl Write for Reply {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.extend_from_slice(bytes);
+            assert!(self.0.starts_with(b"HTTP/1.1 404 Not Found\r\n"));
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut denied = HttpSession::new([0; 64], Options::default()).unwrap();
+    assert!(denied.accept(
+        Reply(
+            Vec::new(),
+            Cursor::new(b"GET /stream?av=1 HTTP/1.1\r\n\r\n")
+        ),
+        100
+    ));
+    assert!(denied.poll(100, None).active);
+    assert!(
+        !denied
+            .poll_media(100, None, None, Some(audio(0, 100)))
+            .active
+    );
+    assert_eq!(denied.stats().frames_completed, 0);
+}
+
+fn response(version: Option<&str>) -> Vec<u8> {
+    let mut bytes = RESPONSE.to_vec();
+    if let Some(version) = version {
+        write!(bytes, "X-Nxrs-AV: {version}\r\n").unwrap();
+    }
+    bytes.extend(b"\r\n");
+    bytes
+}
+
+fn write_audio(output: &mut Vec<u8>, sample: u64, capture_ms: u64, length: usize) {
+    write!(
+        output,
+        "--nxrs-frame\r\nContent-Type: {AUDIO_TYPE}\r\nContent-Length: {length}\r\nX-First-Sample: {sample}\r\nX-Capture-Ms: {capture_ms}\r\n\r\n",
+    ).unwrap();
+    output.extend(PCM);
+    output.extend(b"\r\n");
+}
+
+#[tokio::test]
+async fn reader_requires_negotiation_and_rejects_oversized_or_disordered_blocks() {
+    for version in [None, Some("2")] {
+        assert!(matches!(
+            Reader::start_av(response(version).as_slice(), 320, 240).await,
+            Err(Error::Protocol)
+        ));
+    }
+    let mut unsolicited = response(None);
+    write_audio(&mut unsolicited, 0, 0, BLOCK_BYTES);
+    let mut reader = Reader::start(unsolicited.as_slice(), 320, 240)
+        .await
+        .unwrap();
+    assert!(matches!(reader.next_frame().await, Err(Error::Protocol)));
+
+    for (sample, stamp, length, error) in [
+        (640, 50, BLOCK_BYTES + 1, Error::Protocol),
+        (639, 50, BLOCK_BYTES, Error::Protocol),
+        (320, 50, BLOCK_BYTES, Error::Stale),
+        (640, 49, BLOCK_BYTES, Error::Stale),
+    ] {
+        let mut bytes = response(Some("1"));
+        write_audio(&mut bytes, 320, 50, BLOCK_BYTES);
+        write_audio(&mut bytes, sample, stamp, length);
+        let mut reader = Reader::start_av(bytes.as_slice(), 320, 240).await.unwrap();
+        assert!(matches!(reader.next_packet().await, Ok(Packet::Audio(_))));
+        assert!(matches!(reader.next_packet().await, Err(got) if got == error));
+    }
+}

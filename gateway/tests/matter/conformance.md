@@ -62,6 +62,11 @@ Implement and qualify these steps in order.
    capture time and discontinuities. Timestamp audio and video against the same
    source clock. Encode Opus once at the gateway. A 20 ms Opus packet advances
    its 48 kHz RTP clock by 960 ticks. [RTP clock specification](https://www.rfc-editor.org/rfc/rfc7587#section-4.1).
+   Host tests exercise the versioned camera writer and ingest reader together
+   under short reads and writes, including retained sample gaps, detection
+   metadata and rejection of malformed audio. The legacy path decoded changing
+   frames through the actual ingest process and MediaMTX. The microphone feed
+   and timed encoder input still need to be connected. [Wire contract](../../ingest/README.md#camera-audio-framing).
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio
    capability from the acquired format and negotiated encoding. Exercise
    allocation, deallocation, microphone mute, gain where supported, privacy

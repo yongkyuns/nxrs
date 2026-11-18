@@ -1,5 +1,6 @@
-//! The current service/stream wire contract, NOT a generic Internet MJPEG client.
+//! Bounded camera multipart framing shared with the camera stream writer.
 use crate::{Error, Result};
+use capture_wire::{AudioBlock, AudioStamp, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES};
 use std::collections::BTreeMap;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
 
@@ -53,16 +54,33 @@ pub struct Frame {
     /// Device owner clock, not UTC and not sensor exposure time.
     pub capture_ms: u64,
 }
+#[derive(Clone, Copy)]
+pub enum Packet<'a> {
+    Video(Frame),
+    Audio(AudioBlock<'a>),
+}
 pub struct Reader<R> {
     input: BufReader<R>,
     payload: Vec<u8>,
     last: Option<Frame>,
+    audio: bool,
+    last_audio: Option<AudioStamp>,
     width: u16,
     height: u16,
     pub metadata: Option<detection_wire::Source>,
 }
 impl<R: AsyncRead + Unpin> Reader<R> {
     pub async fn start(input: R, width: u16, height: u16) -> Result<Self> {
+        Self::start_version(input, width, height, false).await
+    }
+
+    /// Parse the response to an explicitly requested A/V stream. The caller
+    /// must authenticate the transport before issuing that request.
+    pub async fn start_av(input: R, width: u16, height: u16) -> Result<Self> {
+        Self::start_version(input, width, height, true).await
+    }
+
+    async fn start_version(input: R, width: u16, height: u16, audio: bool) -> Result<Self> {
         let mut input = BufReader::with_capacity(8192, input);
         let status = line(&mut input, 128).await?;
         if status != b"HTTP/1.1 200 OK\r\n" { return Err(Error::Protocol); }
@@ -71,24 +89,49 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             != Some("multipart/x-mixed-replace; boundary=nxrs-frame")
             || ["transfer-encoding", "content-encoding", "content-length"].iter().any(|k| header.contains_key(*k))
         { return Err(Error::Protocol); }
-        Ok(Self { input, payload: vec![0; MAX_FRAME], last: None, width, height,
+        let expected = audio.then_some(AV_VERSION);
+        if header.get(AV_HEADER).map(String::as_str) != expected {
+            return Err(Error::Protocol);
+        }
+        Ok(Self {
+            input,
+            payload: vec![0; MAX_FRAME],
+            last: None,
+            audio,
+            last_audio: None,
+            width,
+            height,
             metadata: None,
         })
     }
     pub async fn next_frame(&mut self) -> Result<Frame> {
-        if line(&mut self.input, 64).await? != b"--nxrs-frame\r\n" { return Err(Error::Protocol); }
-        let mut header = headers(&mut self.input, PART_LIMIT).await?;
+        match self.next_packet().await? {
+            Packet::Video(frame) => Ok(frame),
+            Packet::Audio(_) => Err(Error::Protocol),
+        }
+    }
+
+    /// Read one complete part within the caller's deadline. Each stream must
+    /// track its own complete-media deadline, even when the other advances.
+    pub async fn next_packet(&mut self) -> Result<Packet<'_>> {
+        let mut header = self.part_header().await?;
+        if header.get("content-type").map(String::as_str) == Some(AUDIO_TYPE) {
+            let stamp = self.audio_packet(&header).await?;
+            let pcm = self.payload[..BLOCK_BYTES].try_into().expect("fixed PCM length");
+            return Ok(Packet::Audio(AudioBlock { stamp, pcm }));
+        }
         if header.get("content-type").map(String::as_str)
             == Some(detection_wire::METADATA_TYPE)
         {
             if header.contains_key("transfer-encoding") || header.contains_key("content-encoding") {
                 return Err(Error::Protocol);
             }
-            let length = integer(&header, "content-length")? as usize;
-            if length == 0 || length > detection_wire::MAX_SOURCE_BYTES {
+            let length = integer(&header, "content-length")?;
+            if length == 0 || length > detection_wire::MAX_SOURCE_BYTES as u64 {
                 return Err(Error::Protocol);
             }
-            self.input.read_exact(&mut self.payload[..length]).await?;
+            let length = length as usize;
+            self.read_payload(length).await?;
             let metadata = detection_wire::Source::decode(&self.payload[..length])
                 .map_err(|_| Error::Protocol)?;
             if self.metadata.as_ref().is_some_and(|old| {
@@ -100,12 +143,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
                 return Err(Error::Stale);
             }
             self.metadata = Some(metadata);
-            let mut tail = [0; 2];
-            self.input.read_exact(&mut tail).await?;
-            if tail != *b"\r\n" || line(&mut self.input, 64).await? != b"--nxrs-frame\r\n" {
-                return Err(Error::Protocol);
-            }
-            header = headers(&mut self.input, PART_LIMIT).await?;
+            header = self.part_header().await?;
         }
         if header.get("content-type").map(String::as_str) != Some("image/jpeg")
             || header.contains_key("transfer-encoding") || header.contains_key("content-encoding")
@@ -131,15 +169,55 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             eprintln!("nxrs-camera-ingest: source annotation is ahead of its image");
             return Err(Error::Stale);
         }
-        self.input.read_exact(&mut self.payload[..frame.length]).await?;
-        let mut tail = [0;2];
-        self.input.read_exact(&mut tail).await?;
-        if tail != *b"\r\n" { return Err(Error::Protocol); }
+        self.read_payload(frame.length).await?;
         jpeg_dimensions(&self.payload[..frame.length], self.width, self.height)?;
         self.last = Some(frame);
-        Ok(frame)
+        Ok(Packet::Video(frame))
     }
-    pub fn payload(&self, frame: Frame) -> &[u8] { &self.payload[..frame.length] }
+
+    async fn part_header(&mut self) -> Result<BTreeMap<String, String>> {
+        if line(&mut self.input, 64).await? != b"--nxrs-frame\r\n" {
+            return Err(Error::Protocol);
+        }
+        headers(&mut self.input, PART_LIMIT).await
+    }
+
+    async fn audio_packet(&mut self, header: &BTreeMap<String, String>) -> Result<AudioStamp> {
+        if !self.audio
+            || header.len() != 4
+            || integer(header, "content-length")? != BLOCK_BYTES as u64
+        {
+            return Err(Error::Protocol);
+        }
+        let stamp = AudioStamp {
+            first_sample: integer(header, "x-first-sample")?,
+            capture_ms: integer(header, "x-capture-ms")?,
+        };
+        if stamp.end_sample().is_none() {
+            return Err(Error::Protocol);
+        }
+        if self.last_audio.is_some_and(|previous| !stamp.follows(previous)) {
+            return Err(Error::Stale);
+        }
+        self.read_payload(BLOCK_BYTES).await?;
+        self.last_audio = Some(stamp);
+        Ok(stamp)
+    }
+
+    async fn read_payload(&mut self, length: usize) -> Result<()> {
+        // Callers have already checked the maximum size for their media part.
+        self.input.read_exact(&mut self.payload[..length]).await?;
+        let mut tail = [0; 2];
+        self.input.read_exact(&mut tail).await?;
+        if tail != *b"\r\n" {
+            return Err(Error::Protocol);
+        }
+        Ok(())
+    }
+
+    pub fn payload(&self, frame: Frame) -> &[u8] {
+        &self.payload[..frame.length]
+    }
 }
 /// SOF/size checks bound decoder input; FFmpeg must still decode the entropy data.
 fn jpeg_dimensions(bytes: &[u8], width: u16, height: u16) -> Result<()> {

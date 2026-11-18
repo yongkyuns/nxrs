@@ -4,10 +4,12 @@ mod server;
 pub use server::{CompletedFrame, Failure, HttpSession, Options, Progress, Server, ServerStats};
 
 use camera::{Frame, PixelFormat};
+use capture_wire::{AudioBlock, AUDIO_TYPE, BLOCK_BYTES};
 use core::fmt;
 use std::io::{self, Write};
 
 const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+const AV_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nX-Nxrs-AV: 1\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 const MAX_WRITE_CALLS: u8 = 8;
 // Fit one full camera write budget into a single TLS application record.
 const WRITE_BATCH_BYTES: usize = 4096;
@@ -43,6 +45,7 @@ pub enum RejectReason {
     TooLarge,
     InvalidMarkers,
     InvalidMetadata,
+    InvalidAudio,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +87,7 @@ enum State {
     Ready,
     PartHeader { position: usize, length: usize },
     Payload { position: usize, length: usize },
+    Audio { position: usize, length: usize },
     Tail(usize),
     Closed,
 }
@@ -95,6 +99,7 @@ pub struct MjpegSession<W, B> {
     buffer: B,
     state: State,
     part_header: Box<[u8]>,
+    audio: bool,
     payload_len: usize,
     deadline_ms: Option<u64>,
     timeout_ms: u64,
@@ -112,6 +117,7 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
             vec![0; HEADER_CAPACITY].into_boxed_slice(),
             now_ms,
             send_deadline_ms,
+            false,
         )
     }
     pub(crate) fn with_header(
@@ -120,12 +126,14 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         part_header: Box<[u8]>,
         now_ms: u64,
         send_deadline_ms: u64,
+        audio: bool,
     ) -> Self {
         Self {
             writer,
             buffer,
             state: State::Response(0),
             part_header,
+            audio,
             payload_len: 0,
             deadline_ms: Some(now_ms.saturating_add(send_deadline_ms)),
             timeout_ms: send_deadline_ms,
@@ -150,20 +158,8 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         now_ms: u64,
         metadata: Option<Metadata<'_>>,
     ) -> OfferResult {
-        if self.state == State::Closed {
-            return OfferResult::Closed;
-        }
-        if self.check_clock(now_ms).is_err() {
-            return OfferResult::Closed;
-        }
-        if self.deadline_ms.is_some_and(|deadline| now_ms >= deadline) {
-            let _ = self.fail::<()>(SessionError::DeadlineExpired);
-            return OfferResult::Closed;
-        }
-        if self.state != State::Ready {
-            self.stats.busy = self.stats.busy.saturating_add(1);
-            self.stats.skipped = self.stats.skipped.saturating_add(1);
-            return OfferResult::Busy;
+        if let Some(result) = self.offer_status(now_ms) {
+            return result;
         }
         let reason = if metadata.is_some_and(|m| {
             m.bytes.len() > MAX_METADATA_BYTES
@@ -232,6 +228,54 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         OfferResult::Accepted
     }
 
+    pub(crate) fn offer_audio(&mut self, block: AudioBlock<'_>, now_ms: u64) -> OfferResult {
+        if let Some(result) = self.offer_status(now_ms) {
+            return result;
+        }
+        if !self.audio || block.stamp.end_sample().is_none() {
+            return OfferResult::Rejected(RejectReason::InvalidAudio);
+        }
+
+        let mut length = 0;
+        let output = &mut self.part_header;
+        append(output, &mut length, b"--nxrs-frame\r\nContent-Type: ");
+        append(output, &mut length, AUDIO_TYPE.as_bytes());
+        append(output, &mut length, b"\r\nContent-Length: ");
+        append_number(output, &mut length, BLOCK_BYTES as u64);
+        append(output, &mut length, b"\r\nX-First-Sample: ");
+        append_number(output, &mut length, block.stamp.first_sample);
+        append(output, &mut length, CAPTURE_PREFIX);
+        append_number(output, &mut length, block.stamp.capture_ms);
+        append(output, &mut length, PART_END);
+        append(output, &mut length, block.pcm);
+        append(output, &mut length, PART_TAIL);
+        self.state = State::Audio {
+            position: 0,
+            length,
+        };
+        self.deadline_ms = Some(now_ms.saturating_add(self.timeout_ms));
+        OfferResult::Accepted
+    }
+
+    fn offer_status(&mut self, now_ms: u64) -> Option<OfferResult> {
+        if self.state == State::Closed {
+            return Some(OfferResult::Closed);
+        }
+        if self.check_clock(now_ms).is_err() {
+            return Some(OfferResult::Closed);
+        }
+        if self.deadline_ms.is_some_and(|deadline| now_ms >= deadline) {
+            let _ = self.fail::<()>(SessionError::DeadlineExpired);
+            return Some(OfferResult::Closed);
+        }
+        if self.state != State::Ready {
+            self.stats.busy = self.stats.busy.saturating_add(1);
+            self.stats.skipped = self.stats.skipped.saturating_add(1);
+            return Some(OfferResult::Busy);
+        }
+        None
+    }
+
     /// Write at most `byte_budget` bytes and eight calls. `WouldBlock` and
     /// `Interrupted` preserve the pending offset. Timeout or fatal errors close
     /// the session so a partial multipart part is never followed by another.
@@ -284,8 +328,12 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
 
     fn segment(&self, state: State) -> Option<(&[u8], usize)> {
         match state {
-            State::Response(position) => Some((RESPONSE, position)),
-            State::PartHeader { position, length } => Some((&self.part_header[..length], position)),
+            State::Response(position) => {
+                Some((if self.audio { AV_RESPONSE } else { RESPONSE }, position))
+            }
+            State::PartHeader { position, length } | State::Audio { position, length } => {
+                Some((&self.part_header[..length], position))
+            }
             State::Payload { position, length } => {
                 Some((&self.buffer.as_ref()[..length], position))
             }
@@ -334,12 +382,13 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
                 State::Response(_) => State::Response(position),
                 State::PartHeader { length, .. } => State::PartHeader { position, length },
                 State::Payload { length, .. } => State::Payload { position, length },
+                State::Audio { length, .. } => State::Audio { position, length },
                 State::Tail(_) => State::Tail(position),
                 state => state,
             };
         }
         match state {
-            State::Response(_) | State::Tail(_) => State::Ready,
+            State::Response(_) | State::Tail(_) | State::Audio { .. } => State::Ready,
             State::PartHeader { .. } => State::Payload {
                 position: 0,
                 length: self.payload_len,

@@ -3,6 +3,7 @@
 
 use crate::{append, append_number, Metadata, MjpegSession, OfferResult, SessionError};
 use camera::Frame;
+use capture_wire::{AudioBlock, AudioStamp, AV_PATH};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
@@ -69,6 +70,7 @@ pub enum Failure {
     IdleDeadline,
     InvalidRequest,
     InvalidFrame,
+    InvalidAudio,
     UnexpectedInput,
     Configure(io::ErrorKind),
     Read(io::ErrorKind),
@@ -81,6 +83,7 @@ pub struct Progress {
     pub active: bool,
     pub bytes_written: usize,
     pub frame_accepted: bool,
+    pub audio_accepted: bool,
     pub frames_completed: u64,
 }
 
@@ -88,6 +91,7 @@ struct Request<W> {
     socket: W,
     length: usize,
     deadline: u64,
+    audio_allowed: bool,
 }
 
 struct Reply<W> {
@@ -107,6 +111,9 @@ struct Streaming<W, B> {
     ready: bool,
     metadata_enabled: bool,
     metadata_revision: u64,
+    audio_enabled: bool,
+    last_audio: Option<AudioStamp>,
+    last_part_audio: bool,
 }
 
 enum Client<W, B> {
@@ -276,6 +283,22 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
     /// Preserve up to four bytes inspected by an authenticated protocol router.
     /// This is a partial method prefix, never a complete buffered HTTP request.
     pub fn accept_with_prefix(&mut self, socket: W, now_ms: u64, prefix: &[u8]) -> bool {
+        self.accept_transport(socket, now_ms, prefix, false)
+    }
+
+    /// Admit microphone requests on a transport whose peer has already been
+    /// authenticated and authorized for microphone capture by the caller.
+    pub fn accept_with_audio(&mut self, socket: W, now_ms: u64, prefix: &[u8]) -> bool {
+        self.accept_transport(socket, now_ms, prefix, true)
+    }
+
+    fn accept_transport(
+        &mut self,
+        socket: W,
+        now_ms: u64,
+        prefix: &[u8],
+        audio_allowed: bool,
+    ) -> bool {
         if prefix.len() > 4 {
             return false;
         }
@@ -292,6 +315,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             socket,
             length: prefix.len(),
             deadline: now_ms.saturating_add(self.options.request_timeout_ms),
+            audio_allowed,
         }));
         true
     }
@@ -325,12 +349,24 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
     ) -> Progress {
+        self.poll_media(now_ms, latest, metadata, None)
+    }
+
+    /// Offer one audio block on an admitted A/V connection. Audio completions
+    /// never update the successful video-delivery counters.
+    pub fn poll_media(
+        &mut self,
+        now_ms: u64,
+        latest: Option<Frame<'_>>,
+        metadata: Option<Metadata<'_>>,
+        audio: Option<AudioBlock<'_>>,
+    ) -> Progress {
         let mut progress = Progress::default();
         if !self.advance_clock(now_ms) {
             return progress;
         }
         if let Some(client) = self.client.take() {
-            self.client = self.step(client, now_ms, latest, metadata, &mut progress);
+            self.client = self.step(client, now_ms, latest, metadata, audio, &mut progress);
         }
         progress.active = self.client.is_some();
         progress
@@ -355,6 +391,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         now: u64,
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
+        audio: Option<AudioBlock<'_>>,
         progress: &mut Progress,
     ) -> Option<Client<W, B>> {
         match client {
@@ -378,7 +415,10 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                     .position(|bytes| bytes == b"\r\n\r\n")
                 {
                     match request_path(&self.request_bytes[..end]) {
-                        Some(path @ ("/stream" | "/stream.mjpg" | "/stream?metadata=1")) => {
+                        Some(
+                            path @ ("/stream" | "/stream.mjpg" | "/stream?metadata=1" | AV_PATH),
+                        ) if path != AV_PATH || request.audio_allowed => {
+                            let audio_enabled = path == AV_PATH;
                             let buffer = self
                                 .buffer
                                 .take()
@@ -390,14 +430,18 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                     self.header.take().expect("idle server owns header storage"),
                                     now,
                                     self.options.send_deadline_ms,
+                                    audio_enabled,
                                 ),
                                 last_offered: 0,
                                 last_capture_ms: 0,
                                 read_closed: false,
                                 last_write_ms: now,
                                 ready: false,
-                                metadata_enabled: path == "/stream?metadata=1",
+                                metadata_enabled: path == "/stream?metadata=1" || audio_enabled,
                                 metadata_revision: 0,
+                                audio_enabled,
+                                last_audio: None,
+                                last_part_audio: false,
                             }));
                         }
                         Some("/clock") => ReplyKind::Clock,
@@ -475,16 +519,37 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                     }
                 }
                 if stream.ready {
-                    if let Some(frame) = latest.filter(|frame| {
-                        frame.sequence > stream.last_offered
-                            && now
-                                .checked_sub(frame.capture.timestamp_ms)
-                                .is_some_and(|age| {
-                                    self.options
-                                        .max_frame_age_ms
-                                        .is_none_or(|limit| age <= limit)
-                                })
-                    }) {
+                    let fresh = |capture_ms| {
+                        now.checked_sub(capture_ms).is_some_and(|age| {
+                            self.options
+                                .max_frame_age_ms
+                                .is_none_or(|limit| age <= limit)
+                        })
+                    };
+                    let video = latest.filter(|frame| {
+                        frame.sequence > stream.last_offered && fresh(frame.capture.timestamp_ms)
+                    });
+                    let audio = audio.filter(|block| {
+                        stream.audio_enabled
+                            && fresh(block.stamp.capture_ms)
+                            && stream
+                                .last_audio
+                                .is_none_or(|previous| block.stamp.follows(previous))
+                            && (video.is_none() || !stream.last_part_audio)
+                    });
+                    if let Some(block) = audio {
+                        match stream.session.offer_audio(block, now) {
+                            OfferResult::Accepted => {
+                                stream.last_audio = Some(block.stamp);
+                                stream.last_part_audio = true;
+                                progress.audio_accepted = true;
+                            }
+                            OfferResult::Busy => {}
+                            _ => {
+                                return self.fail(Client::Streaming(stream), Failure::InvalidAudio)
+                            }
+                        }
+                    } else if let Some(frame) = video {
                         let metadata = metadata.filter(|m| {
                             stream.metadata_enabled && m.revision > stream.metadata_revision
                         });
@@ -493,6 +558,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                 stream.last_offered = frame.sequence;
                                 stream.last_capture_ms = frame.capture.timestamp_ms;
                                 progress.frame_accepted = true;
+                                stream.last_part_audio = false;
                                 if let Some(m) = metadata {
                                     stream.metadata_revision = m.revision;
                                 }

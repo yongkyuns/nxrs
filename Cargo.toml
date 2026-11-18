@@ -29,6 +29,7 @@ members = [
     "service/detection-wire",
     "service/firmware-update",
     "service/enrollment",
+    "service/capture-wire",
     "service/stream",
     "service/connectivity",
     "shared/messaging",

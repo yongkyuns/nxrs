@@ -2614,5 +2614,36 @@
       "test_signature_verified": true
     },
     "scope": "The Rust capture state machine and slot decoder ran on the host. The dedicated two-core WROOM qualification firmware compiled and linked against the exact native headers. The command was not executed on hardware. Camera ingress, shared capture timing, physical mute and iPhone audio remain open."
+  },
+  "camera_av_wire": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "service/capture-wire/src/lib.rs": "59d1fc6722ea8d456ca8f9c0422a7aaf03cc0590f12c76a36c49e1cb002afde0",
+      "service/stream/src/lib.rs": "ed3f5d81733fbb870b7f6a5ace11fc84f092c376e2e7e22d6becb492e04e76b0",
+      "service/stream/src/server.rs": "971b1e8657ec099dbe342b4f32db729fcd6991c44f99e012241820ad7d711390",
+      "gateway/ingest/src/protocol.rs": "f32a79978478389513ed3eab9ebb0a55f3ccef4ecfe21bb8720a9cfd69a37282",
+      "gateway/ingest/tests/av_transport.rs": "cd17493fad6f0814c00bbce4aef9973bc961f915b6d0739d4831a0d0204b1140"
+    },
+    "ingest_host_tests_passed": 27,
+    "av_transport_tests_included": 3,
+    "stream_service_tests_passed": 27,
+    "home_cam_host_tests_passed": 17,
+    "legacy_playback": {
+      "source": "Alternating generated JPEGs from the repository camera source fixture, using the camera HTTP stream writer",
+      "path": "Nxrs camera ingest, FFmpeg, Nxrs RTSP publisher, MediaMTX, FFmpeg RTSP decoder",
+      "decoded_frames": 45,
+      "distinct_decoded_frame_hashes": 2
+    },
+    "target_build": {
+      "profile": "wroom",
+      "app": "home-cam",
+      "i2s_enabled": false,
+      "resolved_config_sha256": "36b70b7e1cf6f7872c083aec8b0bc159640d43fbe151af002c293d079eb7acce",
+      "signed_image_sha256": "4e0b4e5a00c4ad625548bd0e0cd123bcaaf24b34262dd109ebae80a529400475",
+      "signed_image_bytes": 1899623,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "Host tests exercise an explicitly admitted version 1 stream under fragmented I/O, malformed input, sample gaps and independent video receipts. Legacy RTSP playback used generated images. The WROOM executable linked without I2S and was not flashed. Firmware microphone integration, timestamped encoder input and physical A/V playback remain open."
   }
 }

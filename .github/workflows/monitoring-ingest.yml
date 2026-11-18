@@ -25,6 +25,7 @@ on:
       - 'service/enrollment/**'
       - 'docs/detection-protocol*'
       - 'service/stream/**'
+      - 'service/capture-wire/**'
       - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-ingest.yml'
   workflow_dispatch:
