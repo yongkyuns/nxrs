@@ -2998,5 +2998,38 @@
     "capture_commands_while_browser_open": 0,
     "sdk_example_tests_passed": 4,
     "scope": "The stock Home Assistant camera dialog rendered generated camera images across the full mTLS, ingest, RTSP and Matter gateway path. The selected bridge interface retained working local ICE while browser mDNS candidates were ignored without signaling failure. The browser never triggered microphone capture. This measures headless Chrome presentation. Physical camera publication, microphone audio and iPhone playback remain separate gates."
+  },
+  "matter_gateway_candidate_build": {
+    "receipt": {
+      "version": 1,
+      "nxrs_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-apple-darwin",
+      "pin_file_sha256": "1ef25077be1d8af74dd8c8a23698bcfd5a63b17c9c8a8046f3d0506364ea6e8d",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d"
+    },
+    "executable_bytes": 9622192,
+    "builder_sha256": "c1fcbbcf463178014bc30ec8e2ce0986be71bd2b9c737bfd1fda6e6a2adc44e8",
+    "build": "Offline Cargo release, locked dependencies, macOS arm64",
+    "rejected_existing_output": true,
+    "rejected_modified_webrtc_archive": true,
+    "default_policy_rejected_development_attestation": true,
+    "explicit_test_attestation_read_retained_fabric": true,
+    "home_assistant_browser_presented_frames": 60,
+    "home_assistant_browser_presentation_fps": 16.54,
+    "browser_webrtc_candidate_errors": 0,
+    "independent_webrtc_decoded_frames": 30,
+    "independent_rtsp_decoded_and_annotated_frames": 186,
+    "wire_mute_commands": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "scope": "The receipt hash was verified before running the optimized package through isolated Matter commissioning, Home Assistant Chrome playback, microphone privacy transitions and permit loss. It used a generated camera and explicitly allowed development attestation for the trial. The ordinary startup policy refused those certificates. Linux packaging at this exact revision, production attestation, physical media and iPhone playback remain open."
   }
 }
