@@ -71,9 +71,12 @@ Implement and qualify these steps in order.
    generated audio and video with exact source annotations on the Mac.
    The microphone qualification firmware starts capture on an authenticated
    version 2 unmute command and acknowledges mute after canceling and joining
-   the DMA worker. JPEG delivery stays eligible during mute. Propagating
-   Matter privacy state into ingest remains open. PCM and JPEG use the
-   same camera clock. Measure the completion observation's offset and drift
+   the DMA worker. Ingest withholds PCM after sending mute, generates silence
+   from advancing JPEG capture timestamps, and ignores resumed blocks that
+   overlap that silence. A generated mTLS source kept one H.264/Opus RTSP
+   publication running from default mute through acknowledged unmute.
+   Propagating Matter privacy state into ingest remains open. PCM and JPEG
+   use the same camera clock. Measure the completion observation's offset and drift
    on the board before declaring synchronized physical playback.
    [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio

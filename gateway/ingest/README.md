@@ -143,12 +143,15 @@ samples are discarded and capture is joined before the acknowledgement, while
 JPEG delivery stays eligible. Unmuting opens a new sample sequence and requires
 a complete capture block before acknowledging. Controlled firmware rejects the
 version 1 audio route. Current ingest requests unmute when `camera_audio` is
-enabled. Propagating a Matter privacy write and maintaining the paired encoder
-while the source is muted remain separate integration steps.
+enabled. Propagating a Matter privacy write into ingest remains open.
 
 The A/V encoder input writes bounded MJPEG/PCM Matroska blocks to FFmpeg. Video
 uses its capture time directly. Audio uses the first block's capture time and
-later sample offsets, preserving capture gaps. Both tracks have independent
+later sample offsets, preserving capture gaps. While capture is muted or a
+mute command awaits acknowledgement, ingest discards microphone blocks and
+fills the audio track with 20 ms silence blocks up to the latest video capture
+time. On resume, it drops sample blocks overlapping that silence boundary.
+A command has a deadline independent of both tracks. Both tracks have independent
 deadlines that include writing each complete part to the encoder. FFmpeg emits
 H.264 and mono Opus with a private timed annotation track. The RTSP publisher
 requires the annotation for the exact picture timestamp before inserting its
@@ -165,7 +168,9 @@ NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \
 [Matroska block timestamps](https://www.rfc-editor.org/rfc/rfc9559.html#section-11.2).
 The [loopback playback witness](../tests/ingest_av_reference.py) checks the
 authenticated ingest and RTSP path with alternating image markers and a
-generated tone, including one annotation per encoded picture.
+generated tone, including one annotation per encoded picture. The test camera
+waits to acknowledge unmute until a receiver has decoded advancing video and
+silent Opus, then supplies tone audio on the same connection.
 
 ## Bounds, freshness and lifecycle
 

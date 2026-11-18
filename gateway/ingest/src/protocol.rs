@@ -112,6 +112,12 @@ impl<R: AsyncRead + Unpin> Reader<R> {
         Ok(state)
     }
 
+    pub(crate) fn microphone_muted(&self) -> bool {
+        self.control.as_ref().is_some_and(|control| {
+            control.muted || control.pending.is_some_and(|change| change.muted)
+        })
+    }
+
     pub(crate) fn av_dimensions(&self) -> Option<(u16, u16)> {
         self.audio.then_some((self.width, self.height))
     }

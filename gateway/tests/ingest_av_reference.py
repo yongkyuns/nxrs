@@ -13,6 +13,7 @@ import ssl
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 
 import av
@@ -42,7 +43,7 @@ def jpeg(ffmpeg, color):
     assert 4 <= len(output) <= 153600
     return output
 
-async def camera(reader, writer, cert, frames, received):
+async def camera(reader, writer, cert, frames, received, allow_audio):
     try:
         peer = writer.get_extra_info('ssl_object').getpeercert(binary_form=True)
         assert peer == cert
@@ -53,15 +54,19 @@ async def camera(reader, writer, cert, frames, received):
         await writer.drain()
         command = await asyncio.wait_for(reader.readexactly(9), 3)
         assert command == struct.pack('>QB', 1, 0)
-        writer.write(part('application/vnd.nxrs.microphone-state.v2', command, ''))
+        first_audio = None
         tone = struct.pack('<320h', *(round(18_000 * math.sin(i * math.pi / 8)) for i in range(SAMPLES)))
         template = json.loads((ROOT / 'clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json').read_text())['source']
         began = time.monotonic()
         for index in range(1500):
             stamp = CLOCK_START + index * 20
             seq = index // 3 + 1
-            writer.write(part('application/vnd.nxrs.pcm16.v1', tone if seq % 2 else bytes(640),
-                              f'X-First-Sample: {index*SAMPLES}\r\nX-Capture-Ms: {stamp}'))
+            if first_audio is None and allow_audio.is_set():
+                first_audio = index
+                writer.write(part('application/vnd.nxrs.microphone-state.v2', command, ''))
+            if first_audio is not None:
+                writer.write(part('application/vnd.nxrs.pcm16.v1', tone if seq % 2 else bytes(640),
+                                  f'X-First-Sample: {(index-first_audio)*SAMPLES}\r\nX-Capture-Ms: {stamp}'))
             if index % 3 == 0:
                 source = deepcopy(template)
                 source.update(publication_id=seq, emitted_ms=stamp,
@@ -83,7 +88,7 @@ async def camera(reader, writer, cert, frames, received):
         except OSError:
             pass
 
-def receive(port, token):
+def receive(port, token, allow_audio):
     # Suppress SDK logs and exceptions that could include the temporary RTSP token.
     av.logging.set_level(av.logging.PANIC)
     url = f'rtsp://reader:{token}@127.0.0.1:{port}/cam'
@@ -92,6 +97,7 @@ def receive(port, token):
     mono = av.AudioResampler(format="s16", layout="mono", rate=16_000)
     seen = set()
     video_steps = []
+    silence_frames = 0
     try:
         with av.open(url, options={'rtsp_transport': 'tcp'}, timeout=(4, 5)) as streams:
             assert [(s.type, s.codec_context.name) for s in streams.streams] == [('video', 'h264'), ('audio', 'opus')]
@@ -148,18 +154,23 @@ def receive(port, token):
                         samples = array("h")
                         samples.frombytes(bytes(chunk.planes[0])[:chunk.samples * samples.itemsize])
                         audio.append(sum(map(abs, samples)) / len(samples))
-                if len(frames) >= 45 and len(audio) >= 100:
+                if not allow_audio.is_set() and len(frames) >= 5 and len(audio) >= 10:
+                    assert max(audio) < 100
+                    silence_frames = len(audio)
+                    allow_audio.set()
+                if len(frames) >= 45 and len(audio) >= 100 and max(audio) > 4000:
                     break
     except av.FFmpegError:
         raise RuntimeError('RTSP decode failed') from None
     assert len(frames) >= 45 and len(audio) >= 100 and len(seen) == 1
-    assert min(audio) < 100 and max(audio) > 4000
+    assert silence_frames >= 10 and max(audio) > 4000
     # The RTSP receiver may align its clock at the first RTCP sender report.
     # The encoder witness checks exact capture timestamps before RTP.
     rebased = sum(abs(step - .06) > .001 for step in video_steps)
     assert rebased <= 1, video_steps
     return dict(decoded_video_frames=len(frames), exact_pixel_annotation_matches=len(frames),
                 decoded_opus_frames=len(audio), distinct_annotation_epochs=len(seen),
+                decoded_silent_opus_frames_before_camera_ack=silence_frames,
                 rtsp_timing_steps_outside_1ms=rebased)
 
 async def run(args, root):
@@ -178,11 +189,12 @@ async def run(args, root):
         received = []
         errors = []
         pending = set()
+        allow_audio = threading.Event()
         async def accept(reader, writer):
             task = asyncio.current_task()
             pending.add(task)
             try:
-                await camera(reader, writer, client, frames, received)
+                await camera(reader, writer, client, frames, received, allow_audio)
             except Exception as error:
                 errors.append(type(error).__name__)
             finally:
@@ -198,14 +210,14 @@ async def run(args, root):
                 detections=dict(control=f'127.0.0.1:{gateway.internal}', camera_id='cam'),
                 rtsp=f'127.0.0.1:{port}', stream_path='cam', publisher_user='publisher',
                 publisher_token_file=str(publisher_file), ffmpeg=args.ffmpeg,
-                publisher=str(args.publisher.resolve()), width=320, height=240, frame_timeout_ms=3000,
+                publisher=str(args.publisher.resolve()), width=320, height=240, frame_timeout_ms=5000,
             )))
             ingest = start(processes, root, 'ingest', [args.ingest.resolve(), config, '--require-camera-tls'])
             deadline = time.monotonic() + 12
             while not gateway.path().get('ready'):
                 assert ingest.poll() is None and not errors and time.monotonic() < deadline, errors
                 await asyncio.sleep(.08)
-            result = await asyncio.to_thread(receive, port, gateway.credentials['reader'].read_text())
+            result = await asyncio.to_thread(receive, port, gateway.credentials['reader'].read_text(), allow_audio)
             assert received == [True] and not errors
             ingest.terminate()
             assert await asyncio.to_thread(ingest.wait, 8) == 0

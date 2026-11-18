@@ -2809,5 +2809,44 @@
       }
     ],
     "scope": "The in-memory writer and reader exercise default mute, fragmented command deadlines, exact acknowledgement, continued JPEG delivery and a fresh audio sequence on resume. An already-started PCM part can finish before a mute acknowledgement. The generated mTLS camera verifies initial unmute through the actual ingest, publisher and RTSP server. Signed images were verified off-device. Matter-to-ingest policy, continuing the Opus track while source capture is muted, physical capture and A/V timing remain open."
+  },
+  "muted_audio_publication": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/ingest/src/av.rs": "15b0f2f306094459efcdf074c508dacc1da558903845b92cebff9fcaa296c3b0",
+      "gateway/ingest/src/protocol.rs": "8ef829fe4f80cd4629012a35bbccf27d5ba2bf00d7aa2a0aac2bb120a46d952f",
+      "gateway/ingest/src/runner.rs": "b5d5ae75148fd0e9aa826516adaf08f4850fddafbec90b40a19cac03236d537c",
+      "gateway/ingest/tests/av_transport.rs": "c7d70af1e92f9309d8f7c78b0676d4b949e6586d54d15c0420a1983be5c6a07d",
+      "gateway/tests/ingest_av_reference.py": "1146408e060fca5ab0c9ad09c049ccef5f18cf18253b8e82ba955a6b83ba830f"
+    },
+    "versions": {
+      "ffmpeg": "9.0.2",
+      "mediamtx": "1.21.2",
+      "receiver_pyav": "16.1.0"
+    },
+    "ingest_tests_passed": 36,
+    "native_ffmpeg_tests_passed": 2,
+    "native_loopback_trials": [
+      {
+        "decoded_video_frames": 45,
+        "exact_pixel_annotation_matches": 45,
+        "decoded_opus_frames": 205,
+        "decoded_silent_opus_frames_before_camera_ack": 87
+      },
+      {
+        "decoded_video_frames": 45,
+        "exact_pixel_annotation_matches": 45,
+        "decoded_opus_frames": 209,
+        "decoded_silent_opus_frames_before_camera_ack": 90
+      }
+    ],
+    "each_trial": {
+      "authenticated_camera_connections": 1,
+      "distinct_annotation_epochs": 1,
+      "rtsp_timing_steps_outside_1ms": 1,
+      "tone_decoded_after_unmute": true,
+      "publication_retired_on_stop": true
+    },
+    "scope": "An isolated generated mTLS camera delayed its initial unmute acknowledgement until the native receiver had decoded silent Opus and advancing video from the live RTSP publication. The same connection then carried the camera tone. The in-memory input test also drove mute during streaming and confirmed the old in-flight PCM, plus the first overlapping resumed block, never entered the encoder. A missing command acknowledgement still expired while both streams advanced. This does not exercise a later mute through Matter, encoded output already queued at a mute transition, physical capture, or handset playback."
   }
 }

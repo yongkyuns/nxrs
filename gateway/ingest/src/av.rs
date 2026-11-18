@@ -7,7 +7,7 @@ use crate::{
     protocol::{Frame, Packet, Reader},
     runner, Error, Result,
 };
-use capture_wire::{AudioStamp, SAMPLE_RATE_HZ};
+use capture_wire::{AudioStamp, MicrophoneState, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
 use detection_wire::{Version, VideoFrame};
 use std::time::Duration;
 use tokio::{
@@ -75,6 +75,9 @@ enum Track {
     Audio = 1,
 }
 
+const BLOCK_MS: u64 = 1000 * BLOCK_SAMPLES / SAMPLE_RATE_HZ as u64;
+const SILENT_PCM: [u8; BLOCK_BYTES] = [0; BLOCK_BYTES];
+
 /// A validated JPEG and its encoder input timestamp in milliseconds.
 #[derive(Debug)]
 pub struct Picture {
@@ -87,7 +90,9 @@ pub struct EncoderInput<R, W> {
     output: matroska::Writer<W>,
     budget: Duration,
     deadlines: [Instant; 2],
+    microphone_deadline: Option<Instant>,
     audio: Option<AudioStamp>,
+    silence_until: Option<u64>,
     epoch: String,
     timeline: Timeline,
 }
@@ -112,7 +117,9 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
             output,
             budget,
             deadlines: [deadline; 2],
+            microphone_deadline: None,
             audio: None,
+            silence_until: None,
             epoch: runner::epoch()?,
             timeline: Timeline {
                 window_ms: config.frame_timeout_ms,
@@ -121,20 +128,40 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
         })
     }
 
+    /// Send a command between complete camera parts. A mute request withholds
+    /// PCM immediately, including the last in-flight block before the ACK.
+    /// Retire this input on a failed write or a missing acknowledgement.
+    pub async fn request_microphone(&mut self, muted: bool) -> Result<MicrophoneState>
+    where
+        R: AsyncWrite,
+    {
+        let deadline = Instant::now() + self.budget;
+        let state = timeout_at(deadline, self.source.request_microphone(muted))
+            .await
+            .map_err(|_| Error::Timeout)??;
+        self.microphone_deadline = Some(deadline);
+        Ok(state)
+    }
+
     /// Read a complete camera part and return a picture only for video.
     /// On error the caller must retire the encoder and discard the connection.
     pub async fn next(&mut self) -> Result<Option<Picture>> {
         let deadline = self.deadlines[0].min(self.deadlines[1]);
+        let deadline = self
+            .microphone_deadline
+            .map_or(deadline, |ack| deadline.min(ack));
         if Instant::now() >= deadline {
             return Err(Error::Timeout);
         }
-        let media = timeout_at(deadline, async {
+        let muted = self.source.microphone_muted();
+        let (picture, audio_written) = timeout_at(deadline, async {
             match self.source.next_packet().await? {
                 Packet::Video(frame) => {
                     let track = Track::Video;
                     let pts_ms = self
                         .timeline
                         .pts(track, frame.capture_ms, frame.capture_ms)?;
+                    self.timeline.place(track, pts_ms)?;
                     let annotation = VideoFrame {
                         api_version: Version::V1,
                         epoch: self.epoch.clone(),
@@ -148,8 +175,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
                     self.output
                         .write(track, pts_ms, self.source.payload(frame))
                         .await?;
-                    Ok::<_, Error>(Some((track, Some(Picture { frame, pts_ms }))))
+                    let audio_written = muted && self.write_silence(pts_ms).await?;
+                    Ok::<_, Error>((Some(Picture { frame, pts_ms }), audio_written))
                 }
+                Packet::Audio(_) if muted => Ok((None, false)),
                 Packet::Audio(block) => {
                     let track = Track::Audio;
                     let stamp = block.stamp;
@@ -160,14 +189,21 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
                         .checked_add(samples / u64::from(SAMPLE_RATE_HZ / 1000))
                         .ok_or(Error::Stale)?;
                     let pts = self.timeline.pts(track, sample_time, stamp.capture_ms)?;
+                    if self.silence_until.is_some_and(|end| pts < end) {
+                        return Ok((None, false));
+                    }
+                    self.timeline.place(track, pts)?;
                     self.output.write(track, pts, block.pcm).await?;
-                    Ok(Some((track, None)))
+                    self.silence_until = None;
+                    Ok((None, true))
                 }
                 Packet::Microphone { changed, .. } => {
+                    self.microphone_deadline = None;
                     if changed {
                         self.audio = None;
+                        self.timeline.lag[Track::Audio as usize] = runner::Lag::default();
                     }
-                    Ok(None)
+                    Ok((None, false))
                 }
             }
         })
@@ -177,20 +213,43 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
         if finished >= deadline {
             return Err(Error::Timeout);
         }
-        Ok(media.and_then(|(track, picture)| {
-            self.deadlines[track as usize] = finished + self.budget;
-            picture
-        }))
+        if picture.is_some() {
+            self.deadlines[Track::Video as usize] = finished + self.budget;
+        }
+        if audio_written {
+            self.deadlines[Track::Audio as usize] = finished + self.budget;
+        }
+        Ok(picture)
+    }
+
+    async fn write_silence(&mut self, video_pts: u64) -> Result<bool> {
+        // Advance only through a fresh picture's capture time. Muted silence
+        // never replaces video progress or hides a stalled camera connection.
+        let track = Track::Audio;
+        let start = self.timeline.track_pts[track as usize]
+            .map_or(video_pts - BLOCK_MS, |last| last + BLOCK_MS);
+        let mut pts = start;
+        while pts + BLOCK_MS <= video_pts {
+            self.timeline.place(track, pts)?;
+            self.output.write(track, pts, &SILENT_PCM).await?;
+            pts += BLOCK_MS;
+        }
+        if pts != start {
+            self.silence_until = Some(pts);
+        }
+        Ok(pts != start)
     }
 }
 
-pub(crate) async fn pump<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+pub(crate) async fn pump<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Unpin>(
     source: Reader<R>,
     output: W,
     config: &Config,
     metadata: watch::Sender<Option<Sample>>,
 ) -> Result<()> {
     let mut input = EncoderInput::start(source, output, config).await?;
+    // Enabling microphone capture is currently an explicit ingest setting.
+    input.request_microphone(false).await?;
     loop {
         if let Some(picture) = input.next().await? {
             if let Some(sample) = &input.source.metadata {
@@ -224,14 +283,20 @@ impl Timeline {
         // Opus encoder's first 20 ms frame and priming delay.
         let relative = i128::from(sample_ms) - i128::from(origin) + i128::from(self.window_ms) + 20;
         let pts = u64::try_from(relative).map_err(|_| Error::Stale)?;
-        if pts < 20
-            || pts > i64::MAX as u64 / 1000
-            || self.track_pts[index].is_some_and(|last| pts <= last)
+        if pts < BLOCK_MS || pts > i64::MAX as u64 / 1000 {
+            return Err(Error::Stale);
+        }
+        Ok(pts)
+    }
+
+    fn place(&mut self, track: Track, pts: u64) -> Result<()> {
+        let index = track as usize;
+        if self.track_pts[index].is_some_and(|last| pts <= last)
             || self.track_pts[1 - index].is_some_and(|other| pts.abs_diff(other) > self.window_ms)
         {
             return Err(Error::Stale);
         }
         self.track_pts[index] = Some(pts);
-        Ok(pts)
+        Ok(())
     }
 }

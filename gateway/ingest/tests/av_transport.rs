@@ -460,6 +460,18 @@ fn write_jpeg(output: &mut Vec<u8>, sequence: u64, capture_ms: u64, jpeg: &[u8])
     output.extend(b"\r\n");
 }
 
+fn write_microphone_ack(output: &mut Vec<u8>, state: MicrophoneState) {
+    write!(
+        output,
+        "--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+        capture_wire::MICROPHONE_STATE_TYPE,
+        MicrophoneState::BYTES
+    )
+    .unwrap();
+    output.extend(state.encode());
+    output.extend(b"\r\n");
+}
+
 fn encoder_config(timeout_ms: u64) -> Config {
     serde_json::from_value(serde_json::json!({
         "camera": "127.0.0.1:8080", "allow_insecure_camera_http": true,
@@ -469,6 +481,120 @@ fn encoder_config(timeout_ms: u64) -> Config {
         "width": 320, "height": 240, "frame_timeout_ms": timeout_ms,
     }))
     .unwrap()
+}
+
+#[tokio::test]
+async fn muted_encoder_keeps_video_and_rejects_in_flight_and_overlapping_pcm() {
+    let (mut peer, source) = tokio::io::duplex(4096);
+    peer.write_all(&response(Some("2"))).await.unwrap();
+    let source = Reader::start_controlled(source, 320, 240).await.unwrap();
+    let mut output = Vec::new();
+    let mut input = EncoderInput::start(source, &mut output, &encoder_config(500))
+        .await
+        .unwrap();
+
+    let mut part = Vec::new();
+    write_jpeg(&mut part, 1, 1000, JPEG);
+    peer.write_all(&part).await.unwrap();
+    assert_eq!(input.next().await.unwrap().unwrap().frame.sequence, 1);
+
+    let mut command_bytes = [0; MicrophoneState::BYTES];
+    let unmute = input.request_microphone(false).await.unwrap();
+    peer.read_exact(&mut command_bytes).await.unwrap();
+    assert_eq!(command_bytes, unmute.encode());
+    part.clear();
+    write_microphone_ack(&mut part, unmute);
+    write_audio(&mut part, 0, 1001, BLOCK_BYTES);
+    write_jpeg(&mut part, 2, 1060, JPEG);
+    peer.write_all(&part).await.unwrap();
+    assert!(input.next().await.unwrap().is_none());
+    assert!(input.next().await.unwrap().is_none());
+    assert_eq!(input.next().await.unwrap().unwrap().frame.sequence, 2);
+
+    let mute = input.request_microphone(true).await.unwrap();
+    peer.read_exact(&mut command_bytes).await.unwrap();
+    assert_eq!(command_bytes, mute.encode());
+    let in_flight = [0x5a; BLOCK_BYTES];
+    part.clear();
+    write_pcm(&mut part, 320, 1021, BLOCK_BYTES, &in_flight);
+    write_jpeg(&mut part, 3, 1121, JPEG);
+    write_microphone_ack(&mut part, mute);
+    write_jpeg(&mut part, 4, 1181, JPEG);
+    peer.write_all(&part).await.unwrap();
+    assert!(input.next().await.unwrap().is_none());
+    assert_eq!(input.next().await.unwrap().unwrap().frame.sequence, 3);
+    assert!(input.next().await.unwrap().is_none());
+    assert_eq!(input.next().await.unwrap().unwrap().frame.sequence, 4);
+
+    let resume = input.request_microphone(false).await.unwrap();
+    peer.read_exact(&mut command_bytes).await.unwrap();
+    assert_eq!(command_bytes, resume.encode());
+    let overlap = [0xe3; BLOCK_BYTES];
+    let resumed = [0x3c; BLOCK_BYTES];
+    part.clear();
+    write_microphone_ack(&mut part, resume);
+    write_pcm(&mut part, 0, 1176, BLOCK_BYTES, &overlap);
+    write_pcm(&mut part, 320, 1196, BLOCK_BYTES, &resumed);
+    write_jpeg(&mut part, 5, 1241, JPEG);
+    peer.write_all(&part).await.unwrap();
+    for _ in 0..3 {
+        assert!(input.next().await.unwrap().is_none());
+    }
+    assert_eq!(input.next().await.unwrap().unwrap().frame.sequence, 5);
+    drop(input);
+
+    let blocks = |pcm: &[u8; BLOCK_BYTES]| {
+        output
+            .windows(BLOCK_BYTES)
+            .filter(|window| *window == pcm)
+            .count()
+    };
+    assert_eq!(blocks(&PCM), 1);
+    assert_eq!(blocks(&in_flight), 0);
+    assert_eq!(blocks(&overlap), 0);
+    assert_eq!(blocks(&[0; BLOCK_BYTES]), 9);
+    assert_eq!(blocks(&resumed), 1);
+}
+
+#[tokio::test]
+async fn advancing_video_and_silence_cannot_extend_the_microphone_command_deadline() {
+    let (mut peer, source) = tokio::io::duplex(4096);
+    peer.write_all(&response(Some("2"))).await.unwrap();
+    let source = Reader::start_controlled(source, 320, 240).await.unwrap();
+    let mut input = EncoderInput::start(source, tokio::io::sink(), &encoder_config(250))
+        .await
+        .unwrap();
+    input.request_microphone(false).await.unwrap();
+    let mut command = [0; MicrophoneState::BYTES];
+    peer.read_exact(&mut command).await.unwrap();
+
+    let producer = async {
+        let mut part = Vec::new();
+        for sequence in 1..=10 {
+            part.clear();
+            write_jpeg(&mut part, sequence, sequence * 40, JPEG);
+            if peer.write_all(&part).await.is_err() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+    };
+    let consumer = async move {
+        let mut pictures = 0;
+        loop {
+            match input.next().await {
+                Ok(Some(_)) => pictures += 1,
+                Err(Error::Timeout) => break,
+                result => panic!("unexpected camera result: {result:?}"),
+            }
+        }
+        assert!((3..10).contains(&pictures));
+    };
+    tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(producer, consumer);
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
