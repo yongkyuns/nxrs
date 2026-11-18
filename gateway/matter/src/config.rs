@@ -24,6 +24,7 @@ pub struct Deployment {
     media_token_file: PathBuf,
     detection_token_file: PathBuf,
     pub factory_data: PathBuf,
+    pub attestation_directory: Option<PathBuf>,
     pub state_directory: PathBuf,
     pub ice_address: Ipv4Addr,
     pub lan_interface: Option<String>,
@@ -51,6 +52,10 @@ impl Deployment {
                 .iter()
                 .any(|s| !s.ip().is_loopback() || s.port() == 0)
             || config.control == config.rtsp
+            || config
+                .attestation_directory
+                .as_ref()
+                .is_some_and(|path| !path.is_absolute())
             || config
                 .snapshot_ffmpeg
                 .as_ref()

@@ -801,7 +801,7 @@ dependencies = ["axum", "bytes", "futures-util", "getrandom 0.3.4", "http-body-u
 [[package]]
 name = "nxrs-gateway-matter"
 version = "0.1.0"
-dependencies = ["base64 0.22.1", "bytes", "cfg-if", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nxrs-detection-wire", "retina", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url"]
+dependencies = ["base64 0.22.1", "bytes", "cfg-if", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nxrs-detection-wire", "retina", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "zeroize"]
 
 [[package]]
 name = "nxrs-parser-fuzz"

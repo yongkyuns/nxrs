@@ -2029,5 +2029,35 @@
     "retained_camera_identity": true,
     "final_sessions": 0,
     "scope": "Native macOS 27.0.1 ARM64, generated H.264. The same control process, bridge and Matter enrollment survived an abrupt MediaMTX exit. Physical camera and production deployment recovery remain open."
+  },
+  "provisioned_device_attestation": {
+    "fixture": "provisioned-attestation",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "macos_device_binary_sha256": "167a8b0be767e0b13702a0d2420cddc365d40a023ec76e22a983999319976bd7",
+    "source_sha256": {
+      "gateway/matter/src/attestation.rs": "9c32498b33110f6e271ac5ace9b26fcb35d9aa8a0658eca588ee4484095785f1",
+      "gateway/matter/src/config.rs": "a72bdb9de7ca3ac69a702ca91775fb44beea15b0022480fc5151961b088516e0",
+      "gateway/tests/matter_attestation_reference.py": "be65f6b36afcd4529ca85b3c370d2d76345afe96110580f4fdf2c1745f965018",
+      "gateway/tests/matter/provisioned-attestation.patch": "c7002dacd95911abf729ec9fe148ce310bea4e33543880f1702b5c4429828607",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "8e34d5b1e673cba89550012532d393606f525b00f9ff61063d9623a163606760",
+    "inadmissible_bundles": [
+      "missing",
+      "development_on_default_path",
+      "exposed_key",
+      "wrong_key",
+      "altered_declaration",
+      "wrong_product"
+    ],
+    "new_state_untouched_on_rejection": true,
+    "provided_basic_information": true,
+    "changed_identity_preserved_durable_state": true,
+    "frames": [
+      45,
+      45
+    ],
+    "original_enrollment_restored": true,
+    "scope": "Native macOS 27.0.1 ARM64 with an independent Matter Server 1.6.0 and the pinned public development credentials. No production credential or protected signer was qualified."
   }
 }

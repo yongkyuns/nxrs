@@ -638,6 +638,39 @@ discriminator's subtype with `dns-sd -B '_matterc._udp,_L<discriminator>' local.
 The `--code manualCode` trial starts with the manually entered code.
 [Measured results](evidence.json).
 
+## Provisioned device attestation
+
+Prepare the pinned host SDK with `--variant provisioned-attestation` and the
+same DNS-SD archive as the scoped LAN build. The bridge's deployment JSON
+requires an absolute `attestation_directory`. Keep that directory on the
+trusted host filesystem with mode 0700 and its regular files with mode 0600.
+
+| File | Contents |
+| --- | --- |
+| `device.json` | `version` 1, integer `vendor_id` and `product_id`, and `vendor_name`, `product_name`, `serial_number` strings |
+| `dac.der` | Device Attestation Certificate |
+| `pai.der` | Product Attestation Intermediate certificate |
+| `certification-declaration.der` | CSA-signed Certification Declaration |
+| `dac.key` | The 32-byte P-256 private scalar for the DAC |
+
+The default path requires an official signed declaration. It checks the
+provisioned identity against the declaration and the DAC and PAI, checks the
+certificates' validity windows and issuer key identifiers, and derives the
+public key from the private key to check the DAC match. The commissioner
+still validates the attestation chain against its trust store. The bridge
+persists a fingerprint of the DAC and device identity during initialization
+and requires the same identity on startup.
+
+Run `gateway/tests/matter_attestation_reference.py` with the
+[snapshot test](#matter-jpeg-snapshots) arguments plus `--sdk` pointing to
+the prepared SDK. The test extracts the pinned upstream public development
+vectors into a private runtime and enables them with `--allow-test-attestation`.
+It checks invalid input before state creation, commissioning, playback,
+identity-change rejection and playback after restart with the same fabric.
+Use product-issued credentials for real device qualification. Production
+credential issuance and protected-key lifecycle have separate release gates.
+[Results](evidence.json).
+
 ## Two controllers on the same fabric
 
 For **two controllers on one fabric**, prepare a clean SDK with

@@ -19,10 +19,13 @@ XML in Nxrs; follow the upstream source links.
 | Access within one fabric | Two separately commissioned controller nodes decoded the same camera. Withdrawing one node’s WebRTC permission ended its active and pending sessions. The other controller kept receiving frames from the same upstream reader. Restoring the permission admitted a fresh stream. The tested path used generated video on macOS. |
 
 The commissioning fixture accepts a private device-specific verifier and requires
-an explicit local request to open the initial 180-second window. The pinned
-development DAC, PAI and certification declaration remain qualification inputs.
-Shipping requires provisioned product attestation and a separately assessed
-private-key lifecycle. [Operator-initiated commissioning](README.md#operator-initiated-commissioning).
+an explicit local request to open the initial 180-second window. The provisioned
+attestation variant loads a protected DAC, key, PAI and declaration, verifies the
+declaration and identity at startup, and requires the same device identity on
+restart. The qualification input is the pinned development chain, enabled
+explicitly. Shipping requires commissioning with product-issued credentials and
+qualification of the private-key lifecycle.
+[Provisioned device attestation](README.md#provisioned-device-attestation).
 
 The cluster's feature choices and the device type's requirements are different
 constraints. A video-only Camera AV Stream Management cluster may work with a

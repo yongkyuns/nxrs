@@ -1,0 +1,235 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -66,7 +66,7 @@
+ use rs_matter::dm::clusters::decl::globals::{ICECandidateStruct, WebRTCEndReasonEnum};
+ use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+ use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
+-use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_DET};
++use rs_matter::attest::DeviceAttestation;
+ use rs_matter::dm::devices::DEV_TYPE_CAMERA;
+ use rs_matter::dm::endpoints;
+ use rs_matter::dm::networks::unix::UnixNetifs;
+@@ -76,6 +76,7 @@
+ use nxrs_gateway_matter::commissioning::FactoryData;
+ use rs_matter::VerifierCommData;
+ mod lan;
++mod attestation;
+ mod persistence;
+ use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+@@ -87,6 +88,7 @@
+ const AUDIO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 2;
+ const ONBOARDING_ID_KEY: u16 = VENDOR_KEYS_START + 3;
+ const CAMERA_ID_KEY: u16 = VENDOR_KEYS_START + 4;
++const ATTESTATION_ID_KEY: u16 = VENDOR_KEYS_START + 5;
+ fn privacy_setting(id: CameraAttr) -> Result<Setting, Error> {
+     match id {
+         CameraAttr::MicrophoneMuted => Ok(Setting::MicrophoneMuted),
+@@ -1500,6 +1502,8 @@
+ // ---------------------------------------------------------------------------
+ 
+ static FACTORY: StaticCell<FactoryData> = StaticCell::new();
++static ATTESTATION: StaticCell<attestation::ProvisionedDevice> = StaticCell::new();
++static BASIC_INFO: StaticCell<BasicInfoConfig> = StaticCell::new();
+ static MATTER: StaticCell<Matter> = StaticCell::new();
+ static BUFFERS: StaticCell<MatterBuffers> = StaticCell::new();
+ static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuffers> =
+@@ -1561,6 +1565,7 @@
+     let mut initialize = false;
+     let mut open_window = false;
+     let mut config_path = None;
++    let mut allow_test_attestation = false;
+     let mut maintenance = None;
+     let mut args = std::env::args_os().skip(1);
+     while let Some(arg) = args.next() {
+@@ -1575,6 +1580,9 @@
+                     .filter(|index| (1..=254).contains(index)).ok_or(ErrorCode::Invalid)?;
+                 maintenance = Some(Maintenance::RemoveSoleFabric(index));
+             }
++            Some("--allow-test-attestation") if !allow_test_attestation => {
++                allow_test_attestation = true;
++            }
+             Some("--config") if config_path.is_none() => {
+                 config_path = Some(args.next().ok_or(ErrorCode::Invalid)?);
+             }
+@@ -1587,6 +1595,10 @@
+     let config_path = config_path.ok_or(ErrorCode::Invalid)?;
+     let deployment = nxrs_gateway_matter::config::Deployment::load(std::path::Path::new(&config_path))
+         .map_err(|_| ErrorCode::Invalid)?;
++    let attestation = ATTESTATION.init(attestation::ProvisionedDevice::load(
++        deployment.attestation_directory.as_deref().ok_or(ErrorCode::Invalid)?,
++        allow_test_attestation,
++    )?);
+     let snapshot_path = deployment.snapshot_ffmpeg.as_deref().ok_or(ErrorCode::Invalid)?;
+     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+     let inputs = if maintenance.is_none() {
+@@ -1602,7 +1614,7 @@
+     let verifier = VerifierCommData::new(
+         factory.discriminator, &factory.verifier, &factory.salt, factory.iterations,
+     )?;
+-    let crypto = default_crypto(rand::rng(), DAC_PRIVKEY);
++    let crypto = default_crypto(rand::rng(), attestation.dac_priv_key());
+     // Validate the scalar and encoded P-256 point before initializing durable state.
+     let (w0, point) = factory.verifier.split_at(32);
+     crypto.ec_scalar(CanonEcScalarRef::new(w0.try_into().map_err(|_| ErrorCode::Invalid)?))?;
+@@ -1610,6 +1622,7 @@
+     let (mut store, persistence_failure) = persistence::StoreAdapter::open(
+         &deployment.state_directory, initialize, factory, ONBOARDING_ID_KEY,
+     )?;
++    store.bind_attestation(attestation.input(), ATTESTATION_ID_KEY, initialize)?;
+     let (camera_id, sensor_id) = store.bind_camera(&deployment, CAMERA_ID_KEY, initialize)?;
+     if let Some(maintenance) = maintenance {
+         match maintenance {
+@@ -1623,7 +1636,7 @@
+     }
+     let (lan, (reader, video, feed)) = inputs.ok_or(ErrorCode::Invalid)?;
+     let matter = MATTER.uninit().init_with(Matter::init(
+-        &BASIC_INFO, verifier.into(), &TEST_DEV_ATT, MATTER_PORT,
++        BASIC_INFO.init(attestation.basic_info()), verifier.into(), attestation, MATTER_PORT,
+     ));
+ 
+     let buffers = BUFFERS.uninit().init_with(MatterBuffers::init());
+@@ -1874,8 +1887,6 @@
+ // ---------------------------------------------------------------------------
+ // Node + handler wiring
+ // ---------------------------------------------------------------------------
+-
+-const BASIC_INFO: BasicInfoConfig<'static> = TEST_DEV_DET;
+ 
+ const NODE: Node<'static> = Node {
+     endpoints: &[
+--- a/examples/src/bin/persistence/mod.rs
++++ b/examples/src/bin/persistence/mod.rs
+@@ -31,6 +31,16 @@
+         let (failure, receiver) = async_channel::bounded(1);
+         Ok((Self { inner, failure }, receiver))
+     }
++    pub fn bind_attestation(
++        &mut self,
++        attestation: &nxrs_gateway_matter::attestation::Attestation,
++        key: u16,
++        initializing: bool,
++    ) -> Result<(), Error> {
++        attestation.bind(&mut self.inner, key, initializing)
++            .map_err(|_| ErrorCode::Invalid.into())
++    }
++
+     pub fn bind_camera(&mut self, config: &nxrs_gateway_matter::config::Deployment, key: u16, initializing: bool)
+         -> Result<(String, String), Error> {
+         config.bind(&mut self.inner, key, initializing, rand::random)
+--- /dev/null
++++ b/examples/src/bin/attestation/mod.rs
+@@ -0,0 +1,113 @@
++//! Adapt the gateway's provisioned identity to the pinned Matter SDK.
++use nxrs_gateway_matter::attestation::Attestation;
++use rs_matter::{
++    attest::{
++        cd::{CertificationElements, CertificationType, DeviceInfoForAttestation},
++        DeviceAttestation,
++    },
++    cert::x509::cert::{DacCert, PaiCert},
++    crypto::{
++        default_crypto, CanonPkcPublicKey, CanonPkcPublicKeyRef, CanonPkcSecretKeyRef, Crypto,
++        PublicKey, SigningSecretKey,
++    },
++    error::{Error, ErrorCode},
++    dm::clusters::basic_info::BasicInfoConfig,
++};
++use std::{path::Path, time::SystemTime};
++
++pub struct ProvisionedDevice {
++    input: Attestation,
++    public_key: [u8; 65],
++}
++
++impl ProvisionedDevice {
++    pub fn load(directory: &Path, allow_test: bool) -> Result<Self, Error> {
++        let input = Attestation::load(directory).map_err(|_| ErrorCode::Invalid)?;
++        let public_key = Self::validate(&input, allow_test)?;
++        Ok(Self { input, public_key })
++    }
++
++    fn validate(input: &Attestation, allow_test: bool) -> Result<[u8; 65], Error> {
++        let dac = DacCert::new(input.dac())?;
++        let pai = PaiCert::new(input.pai())?;
++        let identity = input.identity();
++        let now = SystemTime::now()
++            .duration_since(SystemTime::UNIX_EPOCH)
++            .map_err(|_| ErrorCode::Invalid)?
++            .as_secs();
++        if dac.authority_key_id()? != pai.subject_key_id()?
++            || !dac.is_valid_at(now)?
++            || !pai.is_valid_at(now)?
++        {
++            return Err(ErrorCode::Invalid.into());
++        }
++
++        let key = CanonPkcSecretKeyRef::new(input.signing_key());
++        let crypto = default_crypto(rand::rng(), key);
++        let cert_key: [u8; 65] = dac.public_key()?.try_into().map_err(|_| ErrorCode::Invalid)?;
++        let mut derived = CanonPkcPublicKey::new();
++        crypto.secret_key(key)?.pub_key()?.write_canon(&mut derived)?;
++        if derived.access() != &cert_key {
++            return Err(ErrorCode::Invalid.into());
++        }
++
++        let cd = CertificationElements::verify(&crypto, input.declaration(), allow_test)?;
++        if cd.certification_type != CertificationType::Official
++            && (!allow_test || cd.certification_type != CertificationType::DevelopmentAndTest)
++        {
++            return Err(ErrorCode::Invalid.into());
++        }
++        let pai_product_id = match pai.product_id() {
++            Err(error) if error.code() == ErrorCode::NotFound => 0,
++            result => result?,
++        };
++        cd.validate(&DeviceInfoForAttestation {
++            vendor_id: identity.vendor_id,
++            product_id: identity.product_id,
++            dac_vendor_id: dac.vendor_id()?,
++            dac_product_id: dac.product_id()?,
++            pai_vendor_id: pai.vendor_id()?,
++            pai_product_id,
++            paa_skid: pai.authority_key_id()?.try_into().map_err(|_| ErrorCode::Invalid)?,
++        })?;
++        Ok(cert_key)
++    }
++
++    pub fn input(&self) -> &Attestation {
++        &self.input
++    }
++
++    pub fn basic_info(&self) -> BasicInfoConfig<'_> {
++        let identity = self.input.identity();
++        BasicInfoConfig {
++            vid: identity.vendor_id,
++            pid: identity.product_id,
++            vendor_name: &identity.vendor_name,
++            product_name: &identity.product_name,
++            serial_no: &identity.serial_number,
++            ..BasicInfoConfig::new()
++        }
++    }
++}
++
++impl DeviceAttestation for ProvisionedDevice {
++    fn cert_declaration(&self) -> &[u8] {
++        self.input.declaration()
++    }
++
++    fn pai(&self) -> &[u8] {
++        self.input.pai()
++    }
++
++    fn dac(&self) -> &[u8] {
++        self.input.dac()
++    }
++
++    fn dac_pub_key(&self) -> CanonPkcPublicKeyRef<'_> {
++        CanonPkcPublicKeyRef::new(&self.public_key)
++    }
++
++    fn dac_priv_key(&self) -> CanonPkcSecretKeyRef<'_> {
++        CanonPkcSecretKeyRef::new(self.input.signing_key())
++    }
++}
