@@ -623,6 +623,21 @@ limit. After the peer closes, stopping the bridge withdraws capture when its
 permit expires. An independent RTSP receiver checks the resulting silence,
 advancing decoded video and exact picture annotations on the same publication.
 
+To include the real Home Assistant camera dialog, start the isolated instance
+described in [browser qualification](#home-assistant-browser-qualification)
+with its Matter integration pointing to loopback port 15580. Leave that port
+free for the witness to start its controller. Add
+`--browser-python "$home_assistant_venv/bin/python"`,
+`--storage-state "$matter_runtime/browser.json"` and
+`--camera-entity camera.camera` to the capture-control command. The browser
+must present 60 advancing frames while the camera receives no capture
+command. The witness also checks that the dialog closes its Matter session.
+
+Chrome sends mDNS host candidate names to conceal private addresses. The
+bridge ignores these unsupported names and continues ICE using supported
+candidates. The browser trial requires acknowledgement of the mDNS
+messages and no candidate errors. [RFC 8839 §5.1](https://www.rfc-editor.org/rfc/rfc8839.html#section-5.1).
+
 ### WebRTC presentation
 
 Prepare and build the pinned SDK with `--variant privacy`. Use the same binary

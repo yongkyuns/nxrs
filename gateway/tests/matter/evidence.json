@@ -2948,5 +2948,55 @@
       "same_publication_and_source_connection": true
     },
     "scope": "The generated mTLS camera fixture feeds the actual ingest, MediaMTX, Matter gateway and independent WebRTC/RTSP receivers. The bundled offer retains duplicate signaling entries while the bridge caps distinct remote candidates at 16. The same Matter session presents silence and tone during capture changes. RTSP continues when the Matter process is terminated. Physical media, handset playback and recorder and detector privacy acceptance remain open."
+  },
+  "home_assistant_muted_camera_dialog": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/tests/matter/capture-privacy.patch": "fb72ca6fa911d77243c9e8a265437a617f24e61a69bbafc563cf14a5c367e61a",
+      "gateway/tests/matter_browser_reference.py": "08d16a80302f0bddfc571e614c48a4d4b478b348af1f2159bd7d79911bdbaa53",
+      "gateway/tests/ingest_av_reference.py": "ee521ec37ab818592790594b0ad4c8cbe4049651fffe35e3fcb077fa6f37ad46"
+    },
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_binary_sha256": "9ebe34feabbc5a95804ba268bb691e485ca0ca95c865157d8f40d5f27e23d2a0",
+    "home_assistant": "2026.11.2",
+    "home_assistant_frontend": "20261028.6",
+    "matter_server": "1.6.0",
+    "chrome": "157.0.8103.80",
+    "presented_frames": 60,
+    "distinct_sampled_images": 25,
+    "dimensions": [
+      320,
+      240
+    ],
+    "presented_fps": 16.7,
+    "decoded_frames": 61,
+    "video_rtp_packets_lost": 0,
+    "video_playback_quality": {
+      "total": 61,
+      "dropped": 1
+    },
+    "candidate_responses_before_fix": {
+      "accepted": {
+        "other": 2
+      },
+      "rejected": {
+        "mdns": 4
+      }
+    },
+    "candidate_responses_after_fix": {
+      "accepted": {
+        "mdns": 4,
+        "other": 2
+      },
+      "rejected": {}
+    },
+    "websocket_offer_media": [
+      "audio",
+      "video"
+    ],
+    "browser_peer_closed_and_matter_session_retired": true,
+    "capture_commands_while_browser_open": 0,
+    "sdk_example_tests_passed": 4,
+    "scope": "The stock Home Assistant camera dialog rendered generated camera images across the full mTLS, ingest, RTSP and Matter gateway path. The selected bridge interface retained working local ICE while browser mDNS candidates were ignored without signaling failure. The browser never triggered microphone capture. This measures headless Chrome presentation. Physical camera publication, microphone audio and iPhone playback remain separate gates."
   }
 }

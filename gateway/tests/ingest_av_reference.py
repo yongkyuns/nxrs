@@ -281,8 +281,9 @@ async def run(args, root):
             bridge = start_device(processes, root, args, gateway, port, state, initialize=True,
                                   extra_args=('--config', deployment, '--allow-test-attestation',
                                               '--open-commissioning-window'))
+            controller_port = 15580 if args.browser_python else ports(1)[0]
             async with (
-                controller(processes, root, args, 'admin', ports(1)[0], 32704) as admin,
+                controller(processes, root, args, 'admin', controller_port, 32704) as admin,
                 asyncio.TaskGroup() as tasks,
             ):
                 code = json.loads((factory.parent/'onboarding.json').read_bytes())['qrCode']
@@ -291,6 +292,25 @@ async def run(args, root):
                 node = paired['node_id']
                 muted_attribute = '1/1361/29'
                 assert await attribute(admin, node, muted_attribute) is True
+                browser = None
+                if args.browser_python:
+                    browser_output = root / 'home-assistant-browser.json'
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        [args.browser_python, Path(__file__).with_name('matter_browser_reference.py'),
+                         '--entity', args.camera_entity, '--storage-state', args.storage_state,
+                         '--output', browser_output],
+                        stdout=subprocess.DEVNULL, check=True, timeout=95,
+                    )
+                    assert commands.empty(), 'opening the Home Assistant dialog started microphone capture'
+                    assert await attribute(admin, node, muted_attribute) is True
+                    async with asyncio.timeout(5):
+                        while await attribute(admin, node, '1/1363/0'):
+                            await asyncio.sleep(.1)
+                    browser = json.loads(browser_output.read_bytes())
+                    candidates = browser['candidate_responses']
+                    assert candidates['accepted'].get('mdns', 0) > 0
+                    assert not candidates['rejected']
                 phases = asyncio.Queue(maxsize=5)
                 loop = asyncio.get_running_loop()
                 listen = tasks.create_task(asyncio.to_thread(
@@ -357,6 +377,8 @@ async def run(args, root):
                     teardown_acknowledged=True,
                 )
                 result['matter_webrtc'] = matter_video
+                if browser:
+                    result['home_assistant_browser_while_capture_muted'] = browser
                 result['wire_mute_commands'] = [False, True, False, True]
                 result['last_mute_cause'] = 'expired capture permit after stopping Matter bridge'
             assert received == [True] and not errors
@@ -380,7 +402,13 @@ if __name__ == '__main__':
     p.add_argument('--interface', required=True)
     p.add_argument('--ip', required=True)
     p.add_argument('--runtime', type=Path)
+    p.add_argument('--browser-python', type=Path, help='the isolated Home Assistant browser Python')
+    p.add_argument('--storage-state', type=Path, help='the isolated Home Assistant browser storage state')
+    p.add_argument('--camera-entity', help='camera discovered by isolated Home Assistant on the fixture controller')
     args = p.parse_args()
+    browser_inputs = args.browser_python, args.storage_state, args.camera_entity
+    if any(browser_inputs) and not all(browser_inputs):
+        p.error('set all three Home Assistant browser arguments together')
     if args.runtime:
         root = args.runtime.resolve()
         root.mkdir(mode=0o700)

@@ -10,7 +10,49 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
      negotiation: Cell<Option<OutboundWork>>,
      send_ice: Cell<bool>,
      end: Cell<Option<WebRTCEndReasonEnum>>,
-@@ -1195,7 +1195,7 @@
+@@ -1137,6 +1137,41 @@
+     }
+ }
+
++// RFC 8839 section 5.1 keeps ICE active for unsupported hostnames.
++// Browser mDNS names cannot be passed to the literal-address ICE engine.
++fn remote_candidate(sdp: &str) -> Result<Option<Candidate>, WebRtcError> {
++    let sdp = sdp.trim_start_matches("a=");
++    match Candidate::from_sdp_string(sdp) {
++        Ok(candidate) => Ok(Some(candidate)),
++        Err(_) => {
++            let address = sdp.split_ascii_whitespace().nth(4);
++            let mdns = address.and_then(|name| name.split_once('.')).is_some_and(|(label, suffix)| {
++                suffix.eq_ignore_ascii_case("local") && !label.is_empty() && label.len() <= 63
++                    && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
++            });
++            if sdp.starts_with("candidate:") && mdns {
++                Ok(None)
++            } else {
++                Err(WebRtcError::DynamicConstraint)
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++#[test]
++fn private_candidate_names_leave_numeric_ice_available() {
++    assert!(matches!(remote_candidate(
++        "candidate:1 1 UDP 2122262783 1f4712db-ea17-4bcf-a596-105139dfd8bf.local 54596 typ host",
++    ), Ok(None)));
++    assert!(matches!(remote_candidate(
++        "candidate:2 1 UDP 2122262783 192.0.2.4 54596 typ host",
++    ), Ok(Some(_))));
++    assert!(matches!(remote_candidate(
++        "candidate:3 1 UDP 2122262783 192.0.2.999 54596 typ host",
++    ), Err(WebRtcError::DynamicConstraint)));
++}
++
+ impl WebRtcHooks for Str0mHooks {
+     fn signaling_timeout(&self) -> Option<rs_matter::utils::timers::Duration> {
+         Some(rs_matter::utils::timers::Duration::from_secs(3))
+@@ -1195,7 +1230,7 @@
                  shutdown_tx,
                  joined: finished,
                  candidate: RefCell::new(Some(local_cand_sdp)),
@@ -19,7 +61,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
                  negotiation: Cell::new(Some(OutboundWork::Offer { session_id })),
                  send_ice: Cell::new(true),
                  end: Cell::new(None),
-@@ -1253,7 +1253,7 @@
+@@ -1253,7 +1288,7 @@
                      shutdown_tx,
                      joined: finished,
                      candidate: RefCell::new(Some(local_cand_sdp)),
@@ -28,7 +70,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
                      negotiation: Cell::new(Some(OutboundWork::Answer { session_id })),
                      send_ice: Cell::new(true),
                      end: Cell::new(None),
-@@ -1344,19 +1344,29 @@
+@@ -1344,19 +1379,28 @@
          if ctrl.closing.get() || ctrl.revoked.get() || ctrl.joined.is_closed() {
              return Err(WebRtcError::InvalidInState);
          }
@@ -46,8 +88,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
 -                .map_err(|_| WebRtcError::DynamicConstraint)?);
 -        }
 -        ctrl.remote_candidates.set(ctrl.remote_candidates.get() + parsed.len());
-+            let candidate = Candidate::from_sdp_string(sdp.trim_start_matches("a="))
-+                .map_err(|_| WebRtcError::DynamicConstraint)?;
++            let Some(candidate) = remote_candidate(sdp)? else { continue; };
 +            // Bundled media and signaling retries may repeat the same candidate.
 +            // Keep one shared transport's limit on distinct candidates.
 +            if accepted.contains(&candidate) || parsed.contains(&candidate) {
@@ -65,7 +106,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
          }
          Ok(())
      }
-@@ -1671,6 +1681,8 @@
+@@ -1671,6 +1715,8 @@
          AUDIO_ALLOCATIONS_KEY,
          initial_video,
      )?);
@@ -74,7 +115,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
      let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
      let webrtc = WEBRTC.init(WebRtcProvHandler::new(
          Dataver::new_rand(&mut rand),
-@@ -1770,6 +1782,15 @@
+@@ -1770,6 +1816,15 @@
              let matter_core =
                  select(matter_core, time_client.run_with_ntp(TIME_REFRESH, &kv, &im, &ntp)).coalesce();
              let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };

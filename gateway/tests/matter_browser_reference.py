@@ -5,12 +5,48 @@ Use an authenticated Playwright storage state from the private HA fixture.
 Print only media counters and errors with fixed labels, never SDP or credentials.
 """
 import argparse
+from collections import Counter
 import json
 import traceback
 from pathlib import Path
 from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
+
+
+def observe_candidate_responses(page):
+    accepted, rejected = Counter(), Counter()
+
+    def observe(socket):
+        if urlparse(socket.url).path != "/api/websocket":
+            return
+        pending = {}
+
+        def messages(payload):
+            values = json.loads(payload)
+            return values if isinstance(values, list) else [values]
+
+        def sent(payload):
+            for value in messages(payload):
+                if value.get("type") != "camera/webrtc/candidate":
+                    continue
+                parts = value["candidate"]["candidate"].split()
+                kind = "mdns" if len(parts) > 4 and parts[4].casefold().endswith(".local") else "other"
+                pending[value["id"]] = kind
+
+        def received(payload):
+            for value in messages(payload):
+                if value.get("type") != "result":
+                    continue
+                kind = pending.pop(value.get("id"), None)
+                if kind:
+                    (accepted if value.get("success") else rejected)[kind] += 1
+
+        socket.on("framesent", sent)
+        socket.on("framereceived", received)
+
+    page.on("websocket", observe)
+    return accepted, rejected
 
 
 def run(args):
@@ -42,6 +78,7 @@ def run(args):
                 });
             """)
             page = context.new_page()
+            accepted, rejected = observe_candidate_responses(page)
             page.goto(args.server, wait_until="networkidle", timeout=30000)
             page.wait_for_function("""entity => {
                 const camera = document.querySelector('home-assistant')?.hass?.states?.[entity];
@@ -133,6 +170,7 @@ def run(args):
             page.wait_for_function("window.nxrsPeers.every(peer => peer.connectionState === 'closed')",
                                    timeout=10000)
             result["browser_peers_closed"] = True
+            result["candidate_responses"] = {"accepted": dict(accepted), "rejected": dict(rejected)}
             return result
         except Exception:
             if args.screenshot and "page" in locals():
