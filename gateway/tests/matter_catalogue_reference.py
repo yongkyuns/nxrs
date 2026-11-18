@@ -11,7 +11,10 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import subprocess
+import sys
 
+from matter_attestation_reference import public_test_bundle
 from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller
 from matter_gateway_reference import DetectionPublisher, start, stop
@@ -56,36 +59,47 @@ async def run(args):
         config["cameras"].append(second)
         config["viewers"][0]["camera_ids"] = [porch, study]
         config["viewers"][1]["camera_ids"] = [study]
-        detector_token, other_token = secrets.token_hex(32), secrets.token_hex(32)
+        other_token = secrets.token_hex(32)
+        existing_viewer = secrets.token_hex(32)
 
         def digest(s):
             return hashlib.sha256(s.encode()).hexdigest()
 
-        config["viewers"].append(
-            dict(
-                viewer_id="detector",
-                site_id="lab",
-                scope="detections",
-                camera_ids=[porch, study],
-                token_sha256=digest(detector_token),
-            )
-        )
+        config["viewers"].append(dict(viewer_id="phone", site_id="lab", camera_ids=[study],
+                                      token_sha256=digest(existing_viewer)))
         config["publishers"][0]["camera_id"] = porch
         config["publishers"].append(
             dict(username="second", camera_id=study, token_sha256=digest(other_token))
         )
         gateway.config.write_text(json.dumps(config))
+        original = gateway.config.read_bytes()
+        staged = root / "staged"
+        stager = Path(__file__).resolve().parents[1] / "tools/stage_matter.py"
+        enrollment_args = ["--camera", porch, "--identity", "matter"]
+        subprocess.run([sys.executable, stager, gateway.config, staged, *enrollment_args],
+                       check=True, stdout=subprocess.DEVNULL)
+        assert gateway.config.read_bytes() == original
+        gateway.config = staged / "control.json"
+        duplicate = root / "duplicate"
+        rejected = subprocess.run(
+            [sys.executable, stager, gateway.config, duplicate, *enrollment_args],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        assert rejected.returncode == 1 and not duplicate.exists()
+        config = json.loads(gateway.config.read_bytes())
+        selected, second = config["cameras"]
+        reader_name = "matter_media"
         control = start_control(services, root, args, gateway)
-        source_token = gateway.credentials["reader"].read_text()
-        sensor_token = root / "detection.token"
-        private_file(sensor_token, detector_token)
+        media_token = staged / "media.token"
+        sensor_token = staged / "detections.token"
+        source_token, detector_token = (path.read_text().strip() for path in (media_token, sensor_token))
         settings = dict(
             version=1,
             site_id="lab",
             camera_id=porch,
             control=f"127.0.0.1:{gateway.control}",
             rtsp=f"127.0.0.1:{rtsp}",
-            media_token_file=str(gateway.credentials["reader"]),
+            media_token_file=str(media_token),
             detection_token_file=str(sensor_token),
             factory_data=str(factory),
             ice_address=args.ip,
@@ -93,6 +107,13 @@ async def run(args):
         )
         if args.ffmpeg is not None:
             settings["snapshot_ffmpeg"] = str(args.ffmpeg.resolve(strict=True))
+        attestation_flags = []
+        if args.sdk is not None:
+            bundle = root / "attestation"
+            public_test_bundle(args.sdk, bundle)
+            settings.update(attestation_directory=str(bundle), host_power_source="dc",
+                            lan_interface=args.interface)
+            attestation_flags = ["--allow-test-attestation"]
         deployment = root / "deployment.json"
         private_file(deployment, json.dumps(settings))
 
@@ -101,7 +122,7 @@ async def run(args):
                 services,
                 root,
                 label,
-                [args.device, "--config", deployment, *flags],
+                [args.device, "--config", deployment, *attestation_flags, *flags],
                 dict(os.environ, RUST_LOG="error", TMPDIR=str(root)),
             )
 
@@ -112,9 +133,15 @@ async def run(args):
             return status, json.loads(body)
 
         assert mapping(porch)[1]["stream_path"] == "cam"
+        assert mapping(study)[0] == 404
         assert mapping(porch, gateway.credentials["independent"].read_text())[0] == 404
         assert mapping(porch, detector_token)[0] == 403
         assert mapping(porch, gateway.publisher)[0] == 401
+        status, catalogue = request(gateway.control, "GET", "/v1/cameras", existing_viewer)
+        assert status == 200 and [row["camera_id"] for row in json.loads(catalogue)["cameras"]] == [study]
+        assert request(gateway.control, "GET", "/v1/cameras", detector_token)[0] == 403
+        assert request(gateway.control, "GET", "/v1/cameras", source_token)[0] == 403
+        assert request(gateway.control, "GET", f"/v1/cameras/{study}/detections", detector_token)[0] == 404
         deployment.write_text(json.dumps(dict(settings, site_id="other")))
         assert await asyncio.to_thread(boot("unknown-site", "--initialize-state").wait, 8) != 0
         assert not (root / "state").exists()
@@ -193,8 +220,8 @@ async def run(args):
                     username="second",
                 )
                 first_frames = await play([640, 360], "receiver-offer")
-                assert describe(rtsp, source_token, "cam", porch) == 200
-                assert describe(rtsp, source_token, "cam", study) == 401
+                assert describe(rtsp, source_token, "cam", porch, username=reader_name) == 200
+                assert describe(rtsp, source_token, "cam", study, username=reader_name) == 401
 
             stop(control)
             selected["stream_path"], second["stream_path"] = "other", "cam"
@@ -208,8 +235,9 @@ async def run(args):
                 publish(sources, root, args, rtsp, gateway.publisher, "red", "320x240", 10, path="other")
                 publish(sources, root, args, rtsp, other_token, "blue", "640x360", 15, username="second")
                 replacement_frames = await play([320, 240], "camera-offer")
-                assert describe(rtsp, source_token, "cam", study) == 200
-                assert describe(rtsp, source_token, "cam", porch) == 401
+                assert describe(rtsp, source_token, "other", porch, username=reader_name) == 200
+                assert describe(rtsp, source_token, "cam", study, username=reader_name) == 401
+                assert describe(rtsp, source_token, "cam", porch, username=reader_name) == 401
                 selected_session = selected_feed.register(control)
                 await observe(selected_feed, selected_session, False)
                 stop(device)
@@ -230,7 +258,7 @@ async def run(args):
                 assert await read("0/62/3") == 1 and await read("0/60/0") == 0
 
                 async def revoke(ended):
-                    await asyncio.to_thread(gateway.revoke)
+                    await asyncio.to_thread(gateway.revoke, reader_name)
                     assert await asyncio.wait_for(ended, 8) == 5
                     assert mapping(porch)[0] == 403
                     assert gateway.path("other")["ready"]
@@ -260,6 +288,8 @@ async def run(args):
                 media_revocation_end_reason=5,
                 publisher_and_independent_reader_survived=True,
                 occupancy_observed_after_media_revocation=True,
+                staged_credentials_scoped_to_selected_camera=True,
+                existing_viewer_enrollment_preserved=True,
             )
 
 
@@ -268,9 +298,12 @@ if __name__ == "__main__":
     for name in ("runtime", "device", "controller", "gateway", "publisher", "mediamtx"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--ffmpeg", type=Path)
+    parser.add_argument("--sdk", type=Path, help="pinned SDK checkout for the provisioned attestation variant")
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
     args = parser.parse_args()
+    if args.sdk is not None and args.ffmpeg is None:
+        parser.error("the provisioned variant requires --ffmpeg for snapshots")
     result = asyncio.run(run(args))
     (args.runtime / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result))

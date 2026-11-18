@@ -386,14 +386,18 @@ Prepare the pinned SDK with `--variant catalogue` and use the build command
 above. Run `gateway/tests/matter_catalogue_reference.py` with the same
 arguments as the [commissioning test](#operator-initiated-commissioning)
 and a fresh runtime directory. The test provisions the deployment JSON
-and isolated service enrollments.
+and exercises the gateway's enrollment stager. For the `tls-management`
+variant, also supply the pinned checkout as `--sdk` and an absolute
+`--ffmpeg` path.
 
 Two publishers have different frame sizes and report independent occupancy.
 The controller verifies the selected video, occupancy and nominated ICE
 address, then repeats the checks after swapping media paths and reordering
-the catalogue. It checks durable endpoint IDs, rejects site or camera changes
-against the original state, and withdraws the media credential while the
-selected camera continues to report occupancy. [Results](evidence.json).
+the catalogue. The new credentials are scoped to the selected camera and
+existing viewer access still works. The controller checks durable endpoint IDs,
+rejects site or camera changes against the original state, and withdraws the
+media credential while the selected camera continues to report occupancy.
+[Results](evidence.json).
 
 ## Session capacity and retirement
 

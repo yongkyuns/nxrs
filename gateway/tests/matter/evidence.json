@@ -2476,5 +2476,15 @@
       }
     ],
     "scope": "120-second Debian ARM64 QEMU rehearsal of the capped TLS-capable release bridge and the generated H.264 publication. Verified four independent viewers, rejection at capacity, offer retirement, bridge restart, selective fabric removal and replacement, and joined teardown. The separately started 24-hour run has its own acceptance."
+  },
+  "gateway_enrollment_staging": {
+    "bridge_source_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
+    "environment": "Native macOS, isolated strict gateway, Matter Server 1.6.0 and generated H.264",
+    "decoded_frames_before_remap_after_remap_and_after_restart": [45, 45, 45],
+    "staged_identities_scoped_to_selected_camera": true,
+    "duplicate_identity_rejected": true,
+    "existing_viewer_catalogue_access_preserved": true,
+    "source_revocation_ended_playback_with_occupancy_and_other_reader_surviving": true,
+    "scope": "The staging command left its original input byte-for-byte intact. The test started a separate gateway on the staged copy and verified the two service credentials against two cameras. Physical playback and activation on the existing gateway are separate."
   }
 }

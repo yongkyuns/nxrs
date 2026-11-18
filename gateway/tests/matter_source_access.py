@@ -77,8 +77,8 @@ class StrictMedia:
             time.sleep(.1)
         raise RuntimeError("strict RTSP management readiness")
 
-    def revoke(self):
-        assert request(self.internal, "POST", "/internal/viewers/reader/revoke")[0] == 202
+    def revoke(self, viewer="reader"):
+        assert request(self.internal, "POST", f"/internal/viewers/{viewer}/revoke")[0] == 202
 
 
 def receive(port, user, secret_file, counter):

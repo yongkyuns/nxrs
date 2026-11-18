@@ -33,9 +33,21 @@ is omitted, the bridge resolves that address to one LAN interface. An explicit
 interface must own the address. DNS-SD, IPv4 and IPv6 Matter transport, and
 WebRTC sockets all use the resolved interface. Keep the controller reachable
 through the selected LAN. [Isolation test](../tests/matter/README.md#lan-interface-isolation).
-Enroll separate `camera_source` and `detections` credentials for the selected
-camera. The bridge resolves the RTSP path from the strict gateway catalogue
-on each reconnect. The detector subscription verifies the authorized site.
+Stage separate credentials for one existing camera using its catalogue ID.
+Use a fresh service identity prefix for each enrollment.
+
+```sh
+python3 gateway/tools/stage_matter.py "$control_config" "$new_private_directory" \
+  --camera "$camera_id" --identity "$service_identity"
+```
+
+Review the staged `control.json` before activating it under
+[strict gateway authorization](../deploy/strict-services.md). Preserve the
+existing durable deny list during deployment. Set `media_token_file` and
+`detection_token_file` in the bridge configuration to the staged
+`media.token` and `detections.token` files. The bridge resolves the RTSP path
+from the gateway catalogue on reconnect. The detector subscription verifies
+the authorized site.
 
 Use `--initialize-state --open-commissioning-window` on first installation
 to create the state and pair. Subsequent starts use `--config` alone.
