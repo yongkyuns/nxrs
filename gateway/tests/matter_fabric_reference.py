@@ -63,7 +63,8 @@ async def packets(peer):
 
 
 class Frames:
-    def __init__(self):
+    def __init__(self, size=(640, 360)):
+        self.size = size
         self.count = 0
         self.last_pts = None
 
@@ -71,7 +72,7 @@ class Frames:
         with suppress(MediaStreamError):
             while True:
                 frame = await track.recv()
-                assert (frame.width, frame.height) == (640, 360)
+                assert (frame.width, frame.height) == self.size
                 assert self.last_pts is None or frame.pts > self.last_pts, "decoded clock went backwards"
                 self.count += 1
                 self.last_pts = frame.pts

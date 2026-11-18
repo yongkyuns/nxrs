@@ -424,6 +424,24 @@ discriminator's subtype with `dns-sd -B '_matterc._udp,_L<discriminator>' local.
 The `--code manualCode` trial starts with the manually entered code.
 [Measured results](evidence.json).
 
+## Two controllers on the same fabric
+
+For **two controllers on one fabric**, prepare a clean SDK with
+`--variant viewer-permissions`. Build the camera with the commissioning
+variant's Cargo command and run `gateway/tests/matter_viewer_permissions.py`
+with the same paths, interface and IP as the commissioning example above.
+Use a fresh private runtime directory. The administrator commissions both the
+camera and a separate Matter.js viewer. Each holds its own operational key.
+
+The witness plays both WebRTC streams, withdraws the viewer's endpoint grant,
+and restores it while both receivers are still connected. It checks the Matter
+end reason, received RTP, decoded frames, and the surviving upstream reader.
+It also withdraws access during an unanswered offer and opens a fresh session
+after permission returns. The SDK fixture checks the original authenticated
+subject against the endpoint and offer command on ACL changes, fabric removal
+and fail-safe expiry. Each stream requires a fresh negotiation after withdrawal.
+In-place SDP renegotiation is unsupported by this fixture.
+
 ## Two administrators and active fabric removal
 
 With the other test processes stopped, use the receiver Python environment,

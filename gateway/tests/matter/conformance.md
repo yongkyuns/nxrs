@@ -16,6 +16,7 @@ XML in Nxrs; follow the upstream source links.
 | Optional camera functions | Identify, occupancy, zones, settings and push transport are optional for the Camera type. The example's no-op PTZ/zone hooks must not be copied into advertised production capabilities. |
 | Occupancy Sensor type | A separate Occupancy Sensor requires Identify and Occupancy Sensing. Its availability must expire independently from live video. |
 | Persistent identity | On macOS two independent administrators commissioned the bridge. Removing one fabric stopped its video while the other kept playing. After restart, 253 real commissioning cycles led to reuse of the removed index. The new fabric started with no sessions and could open video. The retired controller could no longer read the node. Durable endpoint assignment, interrupted multi-admin mutations and semantic recovery still need qualification. |
+| Access within one fabric | Two separately commissioned controller nodes decoded the same camera. Withdrawing one node’s WebRTC permission ended its active and pending sessions. The other controller kept receiving frames from the same upstream reader. Restoring the permission admitted a fresh stream. The tested path used generated video on macOS. |
 
 The commissioning fixture accepts a private device-specific verifier and requires
 an explicit local request to open the initial 180-second window. The pinned
@@ -30,8 +31,9 @@ Do not call the video-only fixture a conforming product.
 
 ## Microphone delivery
 
-The release includes a real microphone at the camera. The Freenove OV3660
-profile currently has no audio binding, and Nxrs has no audio capture HAL.
+The release requires capture from a real microphone at the camera. Physical
+audio qualification is waiting for microphone hardware. The Freenove OV3660
+profile still needs an audio binding and Nxrs needs an audio capture HAL.
 Implement and qualify these steps in order.
 
 1. Select a microphone and verify its clock, data format and wiring against

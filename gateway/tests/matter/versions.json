@@ -33,7 +33,8 @@
     "audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
     "str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012",
     "privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1",
-    "commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3"
+    "commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3",
+    "viewer-permissions.patch": "a5b5d539c6733a56452bc1c8ff6b1eaa5d2d857594dba3abb17f88f5f09c2d76"
   },
   "home_assistant": {
     "version": "2026.11.2",

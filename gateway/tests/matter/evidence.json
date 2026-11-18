@@ -1075,5 +1075,49 @@
       "hal_boundary_tests": 29
     },
     "scope": "A real independent Matter Server commissioned a generated-media node on the Mac with the SDK development attestation chain. The passcode stayed with the operator. Physical iPhone scanning, production attestation, interrupted fabric removal, Linux discovery and physical media remain open."
+  },
+  "same_fabric_camera_access": {
+    "host": "macOS arm64, isolated generated H.264 publication, pinned Matter Server and a separately commissioned Matter.js requestor",
+    "fixture": "viewer-permissions",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/tests/matter/viewer-permissions.patch": "a5b5d539c6733a56452bc1c8ff6b1eaa5d2d857594dba3abb17f88f5f09c2d76",
+      "gateway/tests/matter/viewer.cjs": "66cd85e4865f1f9f754dfd203525a93bf37564ed1cdb9a3ba65de29413edef93",
+      "gateway/tests/matter_viewer_permissions.py": "7d5da755bf24553ecf31551df6f129c2294b01fdc8bfde6c34b2f2977c78fabc",
+      "gateway/tests/matter_fabric_reference.py": "6b8a6ce083a25d183352eefa42694eb1b22543901f02f362b4c1c218bfb44d0f",
+      "tools/prepare-matter-fixture.py": "f37d64a1bd251b87f69f571d6b082991c8fd06196b0ea3b49dd14116a2d06f7e",
+      "gateway/tests/matter/versions.json": "35d399635f6337afe2ee8f0bbfacf405ba7ac8b5150a49d1ba21cad5982f1c40"
+    },
+    "clean_runs": 2,
+    "result_in_each_run": {
+      "camera_fabrics": 1,
+      "distinct_controller_nodes": 2,
+      "viewer_read_restored": true,
+      "viewer_revoked_status": 126,
+      "simultaneous_decoded_frames": [
+        20,
+        20
+      ],
+      "revoked_end_reason": 5,
+      "revoked_observation_seconds": 4,
+      "revoked_rtp_packets": 0,
+      "revoked_decoded_frames": 0,
+      "continuing_frames": 60,
+      "new_session_decoded_frames": 15,
+      "same_upstream_reader": true,
+      "pending_revoked_end_reason": 5
+    },
+    "measurement": "Both controllers decoded 20 frames concurrently and appeared under distinct node IDs on the same fabric. After the revoked controller received NoUserMedia, allow one second to drain in-flight media, then count received RTP and decoded frames at both receivers for four seconds. The restored endpoint grant admitted a new session after restoration.",
+    "regressions": {
+      "gateway_default_tests_passed": 74,
+      "native_ffmpeg_tests_passed": 1,
+      "gateway_clippy": "passed",
+      "sdk_data_model_tests_passed": 366,
+      "sdk_camera_example_tests_passed": 3,
+      "sdk_camera_stub": "compiled",
+      "architecture_host_regressions_passed": 37,
+      "hal_boundary_regressions_passed": 29
+    },
+    "scope": "WebRTC offer permission at camera endpoint 1, including an established viewer and an unanswered offer. Full process-loss recovery during administration, production admission, Linux and physical device/audio qualification remain open."
   }
 }
