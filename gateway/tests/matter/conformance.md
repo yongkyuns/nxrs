@@ -152,21 +152,25 @@ within each peer connection. Home Assistant decoded the generated tone and
 displayed the flashing image. Compare physical capture, display and acoustic
 playout separately from Web Audio sampling. [Browser trial](README.md#matter-microphone-playback) · [RTP sender reports](https://www.rfc-editor.org/rfc/rfc3550#section-6.4.1) · [WebRTC synchronization](https://www.rfc-editor.org/rfc/rfc8834#section-12.2.3).
 
-Exercise stop, mute and immediate reopen with every capture buffer in flight.
-The ESP driver calls back with `-ECANCELED` for active and pending buffers
-during stop. The generic audio I²S callback passes `OK` upward on dequeue.
-Mark the retiring capture before stop, discard its completions and account
-for every buffer before reuse. The normal RX completion releases the
-driver's audio-buffer reference. The active and pending stop drains clear
-the container without that release. Returning active buffers requires
-confirmation that GDMA is idle and that no worker or interrupt can
-rearm the retired transfer. Exercise a full buffer pool through stop and
-reopen. The upper half already has a separate `AUDIO_MSG_IOERR` event for faults.
-Inject an RX failure and verify it becomes an observable discontinuity or
-terminal fault. If the native interface
-cannot distinguish the error, correct that boundary before admitting the
-hardware profile. Verify mute and revocation with a known acoustic cue so a
-listener cannot hear queued samples from an earlier capture. [ESP32-S3 I²S stop](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/common/espressif/esp_i2s.c#L3184-L3241) · [I²S audio operations and callback](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/drivers/audio/audio_i2s.c) · [Audio upper half](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/audio/audio.c#L287-L305).
+Patch 0128 makes stop retryable for receive-only ESP32-S3 I²S. It
+masks the source, rejects new submissions, and retains the queued buffers
+while GDMA is active or a submission or completion is in progress. Once idle,
+the driver returns every buffer with zero valid bytes and releases its
+references. A host witness exercises cancellation, callback re-entry, and
+starting capture again after a full pool is returned. The two-core WROOM
+firmware linked and passed 122 ABI witnesses off-device.
+[Stop regression](../../../tests/host/test_esp_i2s_rx_stop.py) · [Build evidence](evidence.json).
+
+The queued NuttX provider must retain its descriptor and buffer pool until
+stop succeeds. Use a nonblocking completion queue sized for the outstanding
+buffers and terminal notification. Mark the capture as retiring before
+stopping and discard its queued samples. The generic I²S audio adapter
+returns canceled buffers as ordinary dequeues and emits completion for the
+last canceled buffer. A successful stop also covers an empty pool. Abrupt
+close and physical stop, mute and reopen remain unqualified. Inject an RX
+fault and verify that the provider reports an observable discontinuity or a
+terminal failure. Verify mute and revocation with a known acoustic cue.
+[I²S audio operations and callback](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/drivers/audio/audio_i2s.c) · [Audio upper half](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/audio/audio.c).
 
 The profile admission review uses the [camera's current pin assignments](../../../platform/wroom/profiles/esp32s3-camera-stream.toml), [pinned BSP bring-up](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c), [receive registration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/common/src/esp32s3_board_i2s.c) and [example audio configuration](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/configs/audio/defconfig).
 

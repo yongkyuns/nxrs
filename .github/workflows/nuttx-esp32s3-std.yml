@@ -48,6 +48,8 @@ on:
       - 'tests/host/esp_i2s_rx_enqueue.c'
       - 'tests/host/test_esp_i2s_rx_irq.py'
       - 'tests/host/esp_i2s_rx_irq.c'
+      - 'tests/host/test_esp_i2s_rx_stop.py'
+      - 'tests/host/esp_i2s_rx_stop.c'
       - 'tests/host/esp32s3_camera_stop.c'
       - 'tests/host/v4l2_camera_stop.c'
   workflow_dispatch:
@@ -94,6 +96,7 @@ jobs:
           python3 tests/host/test_camera_stop.py -v
           python3 tests/host/test_esp_i2s_rx_enqueue.py -v
           python3 tests/host/test_esp_i2s_rx_irq.py -v
+          python3 tests/host/test_esp_i2s_rx_stop.py -v
           python3 tests/nuttx-std/run.py --self-test
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test

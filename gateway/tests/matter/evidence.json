@@ -2556,5 +2556,26 @@
       "test_signature_verified": true
     },
     "scope": "Host execution of pinned IRQ registration, channel and dispatch functions with injected CPU and GDMA state. The two-core WROOM configuration compiled, linked and passed ABI checks on the same pinned toolchain as the RX submission build. Hardware interrupt delivery and active DMA buffer retirement remain open."
+  },
+  "microphone_rx_stop": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "patch": "0128-esp32s3-i2s-rx-stop-ownership.patch",
+    "patched_cases_passed": 7,
+    "defects_reproduced_before_patch": 5,
+    "normal_completion_passed_on_both": true,
+    "asan_ubsan_passed": true,
+    "ordered_sdk_patch_tests_passed": 52,
+    "target_build": {
+      "patch_sha256": "e365fb00330c4d85d22d3bd58d099d98ee3cf5c26bafc88c000f44d43345f468",
+      "profile": "esp32s3-camera-stream-startup",
+      "cpus": 2,
+      "resolved_config_sha256": "99fc288aee50c3ca1b2fcfdb24e28e2eb5ed1bf83886144405c02a2fffe81e49",
+      "elf_sha256": "c7de5c63b559714509860b9d7aaa742651909af6cca9de8789cff491e2aabf07",
+      "signed_image_sha256": "93016007945a1f3e3e449b45f7dc3887c2e0df8e698dfef3f017b460674ccb3b",
+      "signed_image_bytes": 1900462,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "Receive-only ESP32-S3. Exact pinned driver functions exercised on the host with injected GDMA and callback state. The same patch content linked into the two-core WROOM target. The explicit stop retry is tested. Abrupt close, the Rust capture provider, device capture and iPhone playback remain open."
   }
 }
