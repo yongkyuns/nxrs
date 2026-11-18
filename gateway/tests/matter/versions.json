@@ -25,7 +25,7 @@
     "archive_sha256": "661c82dba25552a2d5c0d0783d6161dfbe8c875fc734a7171bbef3882dbb7acc"
   },
   "sha256": {
-    "Cargo.lock": "70e150a186e717fe34ef4a6dd78fa3ad215c1519c6406e7e9d64fdd70f18df32",
+    "Cargo.lock": "bbb133df6a7c9528d6c93164b194320140fe9389a4ef1c8ad288946dccc63969",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",

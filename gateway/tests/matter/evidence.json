@@ -2282,5 +2282,25 @@
     ],
     "macos_trusted_and_configured_fallback": true,
     "scope": "Debian 13 arm64 QEMU with systemd-networkd and real DHCPv4/v6 replies from dnsmasq on a private veth link. Distinct lab clocks and generated H.264 verified source precedence and playback across five boots on one enrollment. Native macOS 27.0.1 arm64 verified trusted Matter and configured IPv6 SNTP fallback on a link without a DHCP time option. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and remaining TLS and physical release gates stay open."
+  },
+  "tls_root_storage": {
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "source_sha256": {
+      "gateway/Cargo.lock": "1bd000fa1ce9857993181310300ba70b3b04752a2f6669154217338952f6b161",
+      "gateway/matter/Cargo.toml": "7afdb1b1c8ae9acc4d4a7928e7d049197409131c6259e5e5b12a08dd53f9ee4b",
+      "gateway/matter/src/persistence.rs": "c44571db49552bc16250780efdc46132863c3bcbfc4fa1292c49b9d3a129139e",
+      "gateway/matter/src/persistence/tests.rs": "94619468089109b7b611a6164bdd90e8faa06080e6c8b7a2c11cbf74d3252ac4",
+      "gateway/matter/src/tls.rs": "c6ee98556fe77831350de5998938f6230bdec7703ca9e4398fa89cc4edb695d5",
+      "gateway/tests/matter/Cargo.lock": "bbb133df6a7c9528d6c93164b194320140fe9389a4ef1c8ad288946dccc63969"
+    },
+    "macos_bridge_sha256": "69d944f6eb32c47c8cf578078e3a4d822fffe2c41300828baea551edaaf804b9",
+    "macos_bridge_build": "dhcp-time from a fresh SDK clone using the verified archives and locked dependency graph",
+    "test": "persistence::tests::files::tls_roots_rotate_and_retire_with_their_fabric",
+    "macos_gateway_tests_passed": 24,
+    "host_architecture_tests_passed": 37,
+    "host_hal_boundary_tests_passed": 29,
+    "scope": "Native macOS arm64. Generated X.509 roots, durable store reopen and in-memory Rustls handshakes verify capacity, authenticated fabric scope supplied by the test, validation, rotation and durable removal. Matter command admission, protocol transport, TLS client credentials and endpoint management remain open."
   }
 }

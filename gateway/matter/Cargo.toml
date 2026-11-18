@@ -23,6 +23,7 @@ http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", default-features = false, features = ["client", "http1"] }
 hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio"] }
 tokio = { version = "=1.51.6", features = ["io-util", "macros", "net", "process", "sync", "time"] }
+x509-parser = { version = "=0.18.1", default-features = false, features = ["verify"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = "=0.2.191"
@@ -30,4 +31,6 @@ if-addrs = "=0.15.0"
 socket2 = { version = "=0.6.5", features = ["all"] }
 
 [dev-dependencies]
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
 tokio = { version = "=1.51.6", features = ["rt", "io-util", "test-util"] }

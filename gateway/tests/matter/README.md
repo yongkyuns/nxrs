@@ -759,6 +759,22 @@ across restarts. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and TLS
 management remain open.
 [DHCPv4 NTP option](https://www.rfc-editor.org/rfc/rfc2132#section-8.3) · [DHCPv6 NTP option](https://www.rfc-editor.org/rfc/rfc5908) · [Results](evidence.json).
 
+### Matter TLS root certificates
+
+The gateway stores up to five TLS CA certificates per authenticated fabric in
+the existing durable node store. Provisioning and use check DER, the CA
+constraints, the signature and synchronized UTC. SHA-256 lookup is fabric
+scoped, rotation preserves the CAID, and allocation commits its cursor and
+certificate together. The fabric record and roots can be retired in one store
+transaction. Matter command handlers, client keys and endpoint references
+still need integration. The fixture's advertised clusters are unchanged.
+
+Run `cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-matter tls_roots_rotate_and_retire_with_their_fabric`.
+The test uses generated certificates and a real Rustls handshake before and
+after rotation. The old server's certificate is rejected on one fabric and
+still accepted on the other. The test reopens the durable store after removal.
+[TLS Certificate Management](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/data_model/1.5.1/clusters/TLSCertificateManagement.xml) · [TLS Client Management](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/data_model/1.5.1/clusters/TLSClientManagement.xml).
+
 ## Two controllers on the same fabric
 
 For **two controllers on one fabric**, prepare a clean SDK with

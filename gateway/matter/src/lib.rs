@@ -14,3 +14,4 @@ mod platform;
 pub use platform::lan;
 pub mod privacy;
 pub mod snapshot;
+pub mod tls;

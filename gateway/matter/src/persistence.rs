@@ -194,10 +194,7 @@ impl Store {
     }
 
     pub fn load<'a>(&self, key: u16, buffer: &'a mut [u8]) -> Result<Option<&'a [u8]>, Error> {
-        if self.failed {
-            return Err(Error::Failed);
-        }
-        let Some(value) = self.snapshot.entries.get(&key) else {
+        let Some(value) = self.value(key)? else {
             return Ok(None);
         };
         if value.len() > buffer.len() {
@@ -205,6 +202,13 @@ impl Store {
         }
         buffer[..value.len()].copy_from_slice(value);
         Ok(Some(&buffer[..value.len()]))
+    }
+
+    pub(crate) fn value(&self, key: u16) -> Result<Option<&[u8]>, Error> {
+        if self.failed {
+            return Err(Error::Failed);
+        }
+        Ok(self.snapshot.entries.get(&key).map(Vec::as_slice))
     }
 
     pub fn store(&mut self, key: u16, value: &[u8]) -> Result<(), Error> {

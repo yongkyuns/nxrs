@@ -65,6 +65,165 @@ mod files {
     }
 
     #[test]
+    fn tls_roots_rotate_and_retire_with_their_fabric() {
+        use crate::tls::{Error, RootCertificates, MAX_CERTIFICATE_BYTES, MAX_ROOT_CERTIFICATES};
+        use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair};
+
+        let fixture = Fixture::new();
+        let mut store = fixture.initialize();
+        let now = Some(1_788_000_000);
+        let ca = |name| {
+            let mut params = CertificateParams::default();
+            params.distinguished_name.push(DnType::CommonName, name);
+            params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            let key = KeyPair::generate().unwrap();
+            let root = params.self_signed(&key).unwrap();
+            (root, Issuer::new(params, key))
+        };
+        let (first, issuer) = ca("first.example");
+        let (second, _) = ca("second.example");
+        let leaf_key = KeyPair::generate().unwrap();
+        let leaf = CertificateParams::new(vec!["camera.example".into()])
+            .unwrap()
+            .signed_by(&leaf_key, &issuer)
+            .unwrap();
+        let mut roots = RootCertificates::open(&mut store, 1).unwrap();
+        assert_eq!(
+            roots.provision(None, first.der(), None),
+            Err(Error::InvalidTime)
+        );
+        assert_eq!(
+            roots.provision(None, &vec![0; MAX_CERTIFICATE_BYTES + 1], now),
+            Err(Error::Constraint)
+        );
+        assert_eq!(
+            roots.provision(None, leaf.der(), now),
+            Err(Error::InvalidCertificate)
+        );
+        let mut broken = first.der().to_vec();
+        *broken.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            roots.provision(None, &broken, now),
+            Err(Error::InvalidCertificate)
+        );
+        let id = roots.provision(None, first.der(), now).unwrap();
+        assert_eq!(
+            roots.provision(None, first.der(), now),
+            Err(Error::AlreadyExists)
+        );
+        assert_eq!(
+            roots.provision(Some(19), second.der(), now),
+            Err(Error::NotFound)
+        );
+        for _ in 1..MAX_ROOT_CERTIFICATES {
+            let (extra, _) = ca("extra.example");
+            roots.provision(None, extra.der(), now).unwrap();
+        }
+        assert_eq!(
+            roots.provision(None, second.der(), now),
+            Err(Error::Capacity)
+        );
+        let fingerprint = Sha256::digest(first.der());
+        assert_eq!(roots.lookup(&fingerprint), Ok(id));
+        assert_eq!(
+            roots.trust_anchor(id, Some(0)),
+            Err(Error::InvalidCertificate)
+        );
+
+        let mut other = RootCertificates::open(&mut store, 2).unwrap();
+        assert_eq!(other.lookup(&fingerprint), Err(Error::NotFound));
+        assert_eq!(other.remove(id), Err(Error::NotFound));
+        let other_id = other.provision(None, first.der(), now).unwrap();
+        assert_ne!(id, other_id);
+        drop(store);
+
+        let mut store = Store::open(&fixture.path()).unwrap();
+        let mut roots = RootCertificates::open(&mut store, 1).unwrap();
+        assert_eq!(roots.lookup(&fingerprint), Ok(id));
+        assert_eq!(
+            tls_handshake(roots.trust_anchor(id, now).unwrap(), &leaf, &leaf_key),
+            Ok(()),
+        );
+        assert_eq!(roots.provision(Some(id), second.der(), now), Ok(id));
+        assert_eq!(roots.lookup(&fingerprint), Err(Error::NotFound));
+        assert_eq!(
+            tls_handshake(roots.trust_anchor(id, now).unwrap(), &leaf, &leaf_key),
+            Err(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::UnknownIssuer
+            )),
+        );
+        let fabric_record = 0x0050;
+        store.store(fabric_record, b"test fabric").unwrap();
+        store
+            .remove_with(fabric_record, |key| {
+                Some(key) == RootCertificates::record_key(1)
+            })
+            .unwrap();
+        drop(store);
+
+        let mut store = Store::open(&fixture.path()).unwrap();
+        assert_eq!(value(&store, fabric_record), None);
+        assert!(RootCertificates::open(&mut store, 1)
+            .unwrap()
+            .list()
+            .unwrap()
+            .is_empty());
+        let other = RootCertificates::open(&mut store, 2).unwrap();
+        assert_eq!(other.lookup(&fingerprint), Ok(other_id));
+        assert_eq!(
+            tls_handshake(other.trust_anchor(other_id, now).unwrap(), &leaf, &leaf_key),
+            Ok(())
+        );
+    }
+
+    fn tls_handshake(
+        root: Vec<u8>,
+        leaf: &rcgen::Certificate,
+        key: &rcgen::KeyPair,
+    ) -> Result<(), rustls::Error> {
+        use rustls::{
+            pki_types::PrivatePkcs8KeyDer, ClientConfig, ClientConnection, RootCertStore,
+            ServerConfig, ServerConnection,
+        };
+        use std::sync::Arc;
+
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let mut roots = RootCertStore::empty();
+        roots.add(root.into()).unwrap();
+        let client = ClientConfig::builder_with_provider(provider.clone())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let server = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![leaf.der().clone()],
+                PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
+            )
+            .unwrap();
+        let mut client =
+            ClientConnection::new(Arc::new(client), "camera.example".try_into().unwrap()).unwrap();
+        let mut server = ServerConnection::new(Arc::new(server)).unwrap();
+        for _ in 0..8 {
+            let mut flight = Vec::new();
+            client.write_tls(&mut flight).unwrap();
+            server.read_tls(&mut flight.as_slice()).unwrap();
+            server.process_new_packets()?;
+            flight.clear();
+            server.write_tls(&mut flight).unwrap();
+            client.read_tls(&mut flight.as_slice()).unwrap();
+            client.process_new_packets()?;
+            if !client.is_handshaking() && !server.is_handshaking() {
+                return Ok(());
+            }
+        }
+        panic!("local TLS handshake did not finish");
+    }
+
+    #[test]
     fn interrupted_onboarding_stays_uncommissionable_on_restart() {
         use crate::commissioning::{Error as OnboardingError, FactoryData};
         let fixture = Fixture::new();
