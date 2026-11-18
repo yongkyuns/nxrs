@@ -1,5 +1,9 @@
 use super::*;
 
+fn publication(generation: u64) -> Option<Publication> {
+    Some(Publication { generation, h264_profile_level_id: 0x42c016 })
+}
+
 fn frame(tick: u64, keyframe: bool) -> Message {
     Message::Picture(
         1,
@@ -16,7 +20,7 @@ fn frame(tick: u64, keyframe: bool) -> Message {
 #[tokio::test]
 async fn slow_peer_resumes_on_new_keyframe_and_retired_frames_are_inaccessible() {
     let sender = broadcast::Sender::new(2);
-    let (source, current) = watch::channel(1);
+    let (source, current) = watch::channel(publication(1));
     let video = Video {
         sender: sender.downgrade(),
         sound: broadcast::Sender::new(2).downgrade(),
@@ -39,7 +43,7 @@ async fn slow_peer_resumes_on_new_keyframe_and_retired_frames_are_inaccessible()
     sender.send(frame(5, false)).ok().unwrap();
     sender.send(frame(6, true)).ok().unwrap();
     assert_eq!(slow.next().await.unwrap().pts_90khz, 6);
-    source.send_replace(2);
+    source.send_replace(publication(2));
     assert!(fast.next().await.is_none());
     assert!(slow.next().await.is_none());
 }
@@ -51,7 +55,7 @@ async fn an_offline_source_cannot_keep_an_opening_peer_alive() {
         sender: sender.downgrade(),
         sound: broadcast::Sender::new(2).downgrade(),
         opus_generation: Arc::new(AtomicU64::new(0)),
-        current: watch::channel(0).1,
+        current: watch::channel(None).1,
     };
     let mut peer = video.subscribe().unwrap();
     let start = Instant::now();
@@ -71,7 +75,7 @@ async fn an_offline_source_cannot_keep_an_opening_peer_alive() {
 #[tokio::test]
 async fn microphone_queue_skips_lag_and_cannot_deliver_retired_audio() {
     let sound = broadcast::Sender::new(2);
-    let (source, current) = watch::channel(1);
+    let (source, current) = watch::channel(publication(1));
     let video = Video {
         sender: broadcast::Sender::new(1).downgrade(),
         sound: sound.downgrade(),
@@ -100,7 +104,7 @@ async fn microphone_queue_skips_lag_and_cannot_deliver_retired_audio() {
         }
     );
     send(4);
-    source.send_replace(2);
+    source.send_replace(publication(2));
     assert!(audio.next().await.is_none());
     assert!(video.subscribe_audio().is_none());
 }
@@ -108,7 +112,7 @@ async fn microphone_queue_skips_lag_and_cannot_deliver_retired_audio() {
 #[tokio::test]
 async fn unanswered_offer_cannot_read_a_replacement_as_its_first_picture() {
     let sender = broadcast::Sender::new(2);
-    let (published, current) = watch::channel(0);
+    let (published, current) = watch::channel(None);
     let video = Video {
         sender: sender.downgrade(),
         sound: broadcast::Sender::new(1).downgrade(),
@@ -116,12 +120,15 @@ async fn unanswered_offer_cannot_read_a_replacement_as_its_first_picture() {
         current,
     };
     assert!(video.subscribe_current().is_none());
-    published.send_replace(7);
+    published.send_replace(Some(Publication { generation: 7, h264_profile_level_id: 0x42c028 }));
     let mut old_offer = video.subscribe_current().unwrap();
-    published.send_replace(0);
+    assert_eq!(old_offer.h264_profile_level_id(), Some(0x42c028));
+    published.send_replace(None);
     // Coalesce loss and replacement before the pending peer's next poll.
-    published.send_replace(1);
+    published.send_replace(publication(1));
     let mut fresh_offer = video.subscribe_current().unwrap();
+    assert_eq!(old_offer.h264_profile_level_id(), None);
+    assert_eq!(fresh_offer.h264_profile_level_id(), Some(0x42c016));
     sender.send(frame(42, true)).ok().unwrap();
     old_offer.wait_until_retired().await;
     assert!(old_offer.next().await.is_none());

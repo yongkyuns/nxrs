@@ -3,7 +3,6 @@
 use super::*;
 use bytes::BytesMut;
 use retina::client::{PacketItem, Playing};
-use retina::codec::VideoParametersCodec;
 use std::time::Instant as ClockTime;
 
 // MediaMTX normally sends reports about ten seconds apart.
@@ -74,6 +73,7 @@ pub(super) async fn receive(
     let VideoParametersCodec::H264 { sps, pps } = parameters.codec_params() else {
         return Err(());
     };
+    let profile_level_id = h264_profile_level_id(sps)?;
     if !(2..=1920).contains(&dimensions.0)
         || !(2..=1080).contains(&dimensions.1)
         || sps.len() + pps.len() + 8 >= MAX_UNIT
@@ -185,7 +185,7 @@ pub(super) async fn receive(
                         dimensions,
                         annex_b: data,
                     };
-                    reader.publish_picture(generation, unit);
+                    reader.publish_picture(generation, profile_level_id, unit);
                 } else {
                     let _ = reader.sound.send(Some((
                         generation,

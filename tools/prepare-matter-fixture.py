@@ -30,6 +30,9 @@ def main():
     engine_patches = ["str0m-rejected-media.patch"]
     if "audio-playback.patch" in sdk_patches:
         engine_patches.append("str0m-sync.patch")
+    if "capture-privacy.patch" in sdk_patches:
+        sdk_patches += ("h264-negotiation.patch",)
+        engine_patches.append("str0m-h264-sender.patch")
     scoped_dns = "lan-interface.patch" in sdk_patches
     dns_patch = ("astro-dnssd-interface.patch",) if scoped_dns else ()
     for name in (*sdk_patches, *engine_patches, *dns_patch, "Cargo.lock"):

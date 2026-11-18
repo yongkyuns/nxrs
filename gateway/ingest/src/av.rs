@@ -40,6 +40,9 @@ pub fn encoder(config: &Config) -> Command {
         "1:1000",
     ]);
     runner::h264(&mut command, "passthrough");
+    // Match the JPEG encoder's nominal rate for x264 level selection. The
+    // Matroska millisecond clock still carries the original capture timestamps.
+    command.args(["-x264-params", "fps=30/1"]);
     command.args([
         "-c:a",
         "libopus",

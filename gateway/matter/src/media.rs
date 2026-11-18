@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use retina::{
     client::{Credentials, Session, SessionOptions, SetupOptions, TeardownPolicy, Transport},
-    codec::{CodecItem, FrameFormat, ParametersRef},
+    codec::{CodecItem, FrameFormat, ParametersRef, VideoParametersCodec},
 };
 use std::{
     net::SocketAddr,
@@ -47,12 +47,18 @@ enum Message {
     End,
 }
 
+#[derive(Clone, Copy)]
+struct Publication {
+    generation: u64,
+    h264_profile_level_id: u32,
+}
+
 /// Each peer subscribes independently. A slow peer cannot hold up the input.
 #[derive(Clone)]
 pub struct Video {
     sender: broadcast::WeakSender<Message>,
     sound: broadcast::WeakSender<Option<(u64, AudioPacket)>>,
-    current: watch::Receiver<u64>,
+    current: watch::Receiver<Option<Publication>>,
     opus_generation: Arc<AtomicU64>,
 }
 
@@ -60,8 +66,8 @@ impl Video {
     /// Listen to the current authorized microphone. Replacement retires this subscription.
     pub fn subscribe_audio(&self) -> Option<Audio> {
         let queue = self.sound.upgrade()?.subscribe();
-        let generation = *self.current.borrow();
-        (generation != 0 && self.opus_generation.load(Ordering::Acquire) == generation).then(|| {
+        let generation = self.current.borrow().as_ref()?.generation;
+        (self.opus_generation.load(Ordering::Acquire) == generation).then(|| {
             Audio {
                 queue,
                 generation,
@@ -72,18 +78,16 @@ impl Video {
 
     /// Both tracks of the current authorized source have supplied timed media.
     pub fn has_opus_track(&self) -> bool {
-        let generation = *self.current.borrow();
-        generation != 0 && generation == self.opus_generation.load(Ordering::Acquire)
+        self.current.borrow().is_some_and(|source| {
+            source.generation == self.opus_generation.load(Ordering::Acquire)
+        })
     }
 
     /// Bind a new offer to the publication that has supplied a decodable picture.
     pub fn subscribe_current(&self) -> Option<Pictures> {
         let mut pictures = self.subscribe()?;
-        let generation = *pictures.current.borrow();
-        if generation == 0 {
-            return None;
-        }
-        pictures.generation = Some(generation);
+        let source = (*pictures.current.borrow())?;
+        pictures.generation = Some(source.generation);
         Some(pictures)
     }
 
@@ -121,7 +125,7 @@ pub struct AudioPacket {
 pub struct Audio {
     queue: broadcast::Receiver<Option<(u64, AudioPacket)>>,
     generation: u64,
-    current: watch::Receiver<u64>,
+    current: watch::Receiver<Option<Publication>>,
 }
 
 impl Audio {
@@ -129,7 +133,7 @@ impl Audio {
         self.queue = self.queue.resubscribe();
     }
     pub fn is_current(&self) -> bool {
-        self.generation == *self.current.borrow()
+        self.current.borrow().is_some_and(|source| source.generation == self.generation)
     }
 
     pub async fn next(&mut self) -> Option<AudioPacket> {
@@ -139,7 +143,7 @@ impl Audio {
                 return None;
             }
             match time::timeout_at(deadline, self.queue.recv()).await.ok()? {
-                Ok(Some((g, p))) if g == self.generation && g == *self.current.borrow() => {
+                Ok(Some((g, p))) if g == self.generation && self.is_current() => {
                     return Some(p)
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -153,23 +157,32 @@ impl Audio {
 
 pub struct Pictures {
     queue: broadcast::Receiver<Message>,
-    current: watch::Receiver<u64>,
+    current: watch::Receiver<Option<Publication>>,
     generation: Option<u64>,
     need_keyframe: bool,
     deadline: Option<Instant>,
 }
 
 impl Pictures {
+    /// Exact H.264 profile and level of this admitted publication's SPS.
+    pub fn h264_profile_level_id(&self) -> Option<u32> {
+        let source = (*self.current.borrow())?;
+        (self.generation == Some(source.generation)).then_some(source.h264_profile_level_id)
+    }
+
     pub fn retired(&self) -> bool {
-        self.generation
-            .is_some_and(|id| id != *self.current.borrow())
+        self.generation.is_some_and(|id| {
+            !self.current.borrow().is_some_and(|source| source.generation == id)
+        })
     }
 
     /// Park an admitted peer during negotiation, until its publication ends.
     /// A subscriber still waiting for its first publication has no identity to retire.
     pub async fn wait_until_retired(&mut self) {
         if let Some(id) = self.generation {
-            let _ = self.current.wait_for(|current| *current != id).await;
+            let _ = self.current.wait_for(|current| {
+                !current.is_some_and(|source| source.generation == id)
+            }).await;
         } else {
             std::future::pending::<()>().await;
         }
@@ -190,7 +203,7 @@ impl Pictures {
             }
             match time::timeout_at(deadline, self.queue.recv()).await.ok()? {
                 Ok(Message::Picture(g, frame)) => {
-                    if g != *self.current.borrow() {
+                    if !self.current.borrow().is_some_and(|source| source.generation == g) {
                         continue;
                     }
                     if self.generation.is_some_and(|old| old != g) {
@@ -220,7 +233,7 @@ pub struct Reader {
     input: Input,
     sender: broadcast::Sender<Message>,
     sound: broadcast::Sender<Option<(u64, AudioPacket)>>,
-    current: watch::Sender<u64>,
+    current: watch::Sender<Option<Publication>>,
     opus_generation: Arc<AtomicU64>,
 }
 
@@ -266,7 +279,7 @@ impl Reader {
     fn new(input: Input) -> (Self, Video) {
         let sender = broadcast::Sender::new(QUEUE);
         let sound = broadcast::Sender::new(16);
-        let (current, published) = watch::channel(0);
+        let (current, published) = watch::channel(None);
         let opus_generation = Arc::new(AtomicU64::new(0));
         let video = Video {
             sound: sound.downgrade(),
@@ -310,17 +323,22 @@ impl Reader {
         }
     }
 
-    fn publish_picture(&self, generation: u64, unit: AccessUnit) {
+    fn publish_picture(&self, generation: u64, h264_profile_level_id: u32, unit: AccessUnit) {
         // Both input paths start on a validated random-access picture.
         if unit.keyframe {
-            self.current
-                .send_if_modified(|id| std::mem::replace(id, generation) != generation);
+            self.current.send_if_modified(|current| {
+                if current.is_some_and(|source| source.generation == generation) {
+                    return false;
+                }
+                *current = Some(Publication { generation, h264_profile_level_id });
+                true
+            });
         }
         let _ = self.sender.send(Message::Picture(generation, unit));
     }
 
     fn retire(&self) {
-        self.current.send_if_modified(|id| std::mem::take(id) != 0);
+        self.current.send_if_modified(|source| source.take().is_some());
         let _ = self.sender.send(Message::End);
         let _ = self.sound.send(None);
     }
@@ -418,6 +436,10 @@ impl Reader {
             let Some(ParametersRef::Video(params)) = media.streams()[track].parameters() else {
                 return Err(());
             };
+            let VideoParametersCodec::H264 { sps, .. } = params.codec_params() else {
+                return Err(());
+            };
+            let profile_level_id = h264_profile_level_id(sps)?;
             let (w, h) = params.pixel_dimensions();
             if !(2..=1920).contains(&w) || !(2..=1080).contains(&h) {
                 return Err(());
@@ -436,7 +458,7 @@ impl Reader {
                 dimensions: (w, h),
                 annex_b: frame.into_data().into(),
             };
-            self.publish_picture(generation, unit);
+            self.publish_picture(generation, profile_level_id, unit);
             deadline = Instant::now() + SILENCE;
         }
     }
@@ -446,6 +468,16 @@ impl Drop for Reader {
     fn drop(&mut self) {
         self.retire();
     }
+}
+
+fn h264_profile_level_id(sps: &[u8]) -> Result<u32, ()> {
+    let [header, profile, constraints, level, ..] = sps else {
+        return Err(());
+    };
+    if header & 0x9f != 7 {
+        return Err(());
+    }
+    Ok(u32::from_be_bytes([0, *profile, *constraints, *level]))
 }
 
 #[cfg(test)]

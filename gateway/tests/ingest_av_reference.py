@@ -127,6 +127,8 @@ def receive(port, token, report):
             picture = av.CodecContext.create('h264', 'r')
             picture.thread_count = 1
             picture.extradata = streams.streams.video[0].codec_context.extradata
+            sps = [nal for nal in re.split(b'\x00\x00\x00?\x01', picture.extradata or b'') if nal and nal[0] & 31 == 7]
+            assert len(sps) == 1 and len(sps[0]) >= 4 and sps[0][3] <= 31, '320×240 A/V must fit H.264 Level 3.1'
             def decode():
                 joined = False
                 for packet in streams.demux(video=0, audio=0):

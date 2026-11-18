@@ -460,6 +460,11 @@ The driver polls its peers as an owned group. Each session has one pending
 negotiation signal, one ICE signal and one terminal reason. The peer accepts
 at most 16 remote ICE candidates within one negotiation.
 
+The packaged bridge binds H.264 negotiation to the current publication’s SPS.
+It selects a compatible mode 1 payload in a viewer offer and checks the
+receiver’s supported level in the answer to a camera offer. The prepared SDK’s
+`browser_offer_tests` check both level rejection and payload selection.
+
 ## Matter JPEG snapshots
 
 Prepare the pinned SDK with `--variant stream-continuity`. Run
