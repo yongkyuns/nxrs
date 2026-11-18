@@ -704,6 +704,40 @@ discriminator's subtype with `dns-sd -B '_matterc._udp,_L<discriminator>' local.
 The `--code manualCode` trial starts with the manually entered code.
 [Measured results](evidence.json).
 
+## Pair from a phone on the LAN
+
+Use the packaged gateway and the same native tools and receiver environment
+as the [commissioning test](#operator-initiated-commissioning). The trial
+uses a new private directory, generated media and separate credentials.
+Start it when the phone and hub are ready on the same IPv6-enabled LAN.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_phone_pairing.py \
+  --runtime "$new_trial_directory" --sdk "$rs_matter_checkout" \
+  --device "$gateway_package/nxrs-matter-camera" \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" \
+  --gateway gateway/target/debug/nxrs-gateway-control \
+  --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx /absolute/path/to/mediamtx --interface en1 --ip <fixture-lan-ip>
+```
+
+The fixture keeps `factory/onboarding.json` private. Display its QR locally
+or enter its manual code while the 180-second window is open. For Google Home,
+use the account enrolled in a Google Home Developer Console Matter integration
+with test VID `0xFFF1` and PID `0x8001`. In the iPhone app, open Devices → Add
+→ Matter-enabled device and scan the code.
+[Google test pairing](https://developers.home.google.com/matter/integration/pair) ·
+[iPhone setup](https://support.google.com/googlehome/answer/13127223?hl=en-VC).
+
+After pairing, look for the bridged occupancy sensor. Enter `occupied`,
+`clear` and `unavailable` in the fixture terminal and observe the sensor or
+an occupancy automation. `unavailable` pauses reports so their freshness
+expires through the normal gateway path. Google documents Matter bridges and
+occupancy sensors. The standard Matter Camera type is absent from its
+[supported device list](https://developers.home.google.com/matter/supported-devices).
+Remove the trial device in the app before entering `quit`. Each new trial
+uses a new directory and pairing code.
+
 ## Provisioned device attestation and camera endpoints
 
 Prepare the pinned host SDK with `--variant root-power-time-zone` and the

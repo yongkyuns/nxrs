@@ -204,7 +204,10 @@ async def run(args):
                 assert other_feed.publish(other_session, True) == 204
                 assert await read("3/57/17") is False
                 await asyncio.sleep(0.25)
-            await observe(selected_feed, selected_feed.register(control), True)
+            initial_session = selected_feed.register(control)
+            await observe(selected_feed, initial_session, True)
+            await observe(selected_feed, initial_session, False)
+            await observe(selected_feed, initial_session, True)
             with ExitStack() as sources:
                 publish(sources, root, args, rtsp, gateway.publisher, "red", "640x360", 15)
                 publish(
@@ -285,6 +288,7 @@ async def run(args):
                 rejected_site_and_camera_changes=True,
                 old_mapping_rtsp_status=401,
                 selected_camera_occupancy=["unavailable", "person", "clear"],
+                same_source_clear_after_occupied=True,
                 media_revocation_end_reason=5,
                 publisher_and_independent_reader_survived=True,
                 occupancy_observed_after_media_revocation=True,

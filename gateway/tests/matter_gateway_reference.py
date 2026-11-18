@@ -40,6 +40,8 @@ class DetectionPublisher:
         self.source = json.loads((ROOT / "clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json")
                                  .read_text())["source"]
         self.sequence = 20
+        self.occupied = False
+        self.events = []
 
     def post(self, endpoint, data):
         conn = http.client.HTTPConnection("127.0.0.1", self.internal, timeout=3)
@@ -58,6 +60,8 @@ class DetectionPublisher:
             try:
                 status, body = self.post("detection-sessions", {})
                 assert status == 200
+                self.occupied = False
+                self.events = []
                 return json.loads(body)["source_session_id"]
             except ConnectionRefusedError:
                 time.sleep(0.05)
@@ -66,15 +70,22 @@ class DetectionPublisher:
     def publish(self, session, occupied):
         self.sequence += 1
         now = self.sequence * 400
+        events = self.events
+        event_count = events[-1]["id"] if events else 0
+        if occupied != self.occupied:
+            event_count += 1
+            events = [*events[-7:], dict(id=event_count, at_ms=now,
+                                        kind="person_entered" if occupied else "person_left")]
         source = self.source.copy()
         source.update(publication_id=self.sequence, emitted_ms=now,
-                      presence="person" if occupied else "clear")
+                      presence="person" if occupied else "clear", event_count=event_count, events=events)
         source["latest"] = dict(source["latest"], frame_sequence=self.sequence, captured_ms=now-100)
         if not occupied:
             source["latest"].update(objects=[], person_score_permille=0)
-            source.update(event_count=0, events=[])
         status, _ = self.post("detections", dict(source_session_id=session, frame_sequence=self.sequence,
                                                 frame_capture_ms=now, source=source))
+        if status == 204:
+            self.occupied, self.events = occupied, events
         return status
 
 
