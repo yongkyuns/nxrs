@@ -35,9 +35,10 @@ async def read_host_power(client, node, expected_current_type):
     return result["0/47/5"]
 
 
-async def check_time_zone(client, node, *, configure):
+async def check_time_zone(client, node, *, features, configure):
     target = dict(node_id=node, endpoint_id=0, cluster_id=56)
-    assert await attribute(client, node, "0/56/65532") == 1  # TimeZone
+    actual = await attribute(client, node, "0/56/65532")
+    assert actual == features, f"Time Synchronization feature map {actual:#x}, expected {features:#x}"
     if configure:
         reply = await client.request(
             "device_command", **target, command_name="SetTimeZone",
@@ -144,6 +145,8 @@ def public_test_bundle(sdk, directory):
 
 
 async def run(args):
+    # The package adds NTP Client and Time Sync Client to Time Zone.
+    time_features = 0b1011 if args.packaged_bridge else 0b0001
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
     with socket.socket(type=socket.SOCK_DGRAM) as probe:
@@ -254,7 +257,7 @@ async def run(args):
             assert {item["0"] for item in root_types} == {0x0011, 0x0016}
             assert {0x002F, 0x0038}.issubset(await attribute(admin, node, "0/29/1"))
             initial_power = await read_host_power(admin, node, expected_current_type=1)
-            await check_time_zone(admin, node, configure=True)
+            await check_time_zone(admin, node, features=time_features, configure=True)
             servers = await attribute(admin, node, "1/29/1")
             clients = await attribute(admin, node, "1/29/2")
             parts = await attribute(admin, node, "2/29/3")
@@ -355,7 +358,7 @@ async def run(args):
             assert await attribute(restored, node, "0/62/3") == 1
             assert await read_bindings(restored, node, filtered=False) == [admin_target]
             restored_power = await read_host_power(restored, node, expected_current_type=0)
-            await check_time_zone(restored, node, configure=False)
+            await check_time_zone(restored, node, features=time_features, configure=False)
             repaired = snapshot.read_bytes()
             repaired_start, repaired_end = binding_record(repaired)
             assert repaired[repaired_start:repaired_end] == clean[start_at:end_at]
@@ -401,6 +404,7 @@ if __name__ == "__main__":
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
+    parser.add_argument("--packaged-bridge", action="store_true", help="expect the packaged bridge's time clients")
     args = parser.parse_args()
     result = asyncio.run(run(args))
     (args.runtime / "result.json").write_text(json.dumps(result, indent=2) + "\n")

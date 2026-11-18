@@ -792,8 +792,10 @@ and requires the same identity on startup.
 
 Run `gateway/tests/matter_attestation_reference.py` with the
 [snapshot test](#matter-jpeg-snapshots) arguments plus `--sdk` pointing to
-the prepared SDK. The test extracts the pinned upstream public development
-vectors into a private runtime and enables them with `--allow-test-attestation`.
+the prepared SDK. Use `--packaged-bridge` to check the package’s Time Zone,
+NTP Client and Time Sync Client feature map. The test extracts the pinned
+upstream public development vectors into a private runtime and enables them
+with `--allow-test-attestation`.
 It checks invalid input before state creation, commissioning and
 identity-change rejection. It verifies the Camera's WebRTC Requestor client,
 Binding server and omission of Zone Management and digital PTZ. Two
