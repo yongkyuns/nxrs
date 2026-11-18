@@ -23,6 +23,7 @@ from matter_source_access import private_file
 
 SESSIONS = "1/1363/0"
 ALLOCATIONS = "1/1361/15"
+SNAPSHOTS = "1/1361/17"
 
 
 @contextmanager
@@ -210,8 +211,23 @@ async def run(args):
                         async with asyncio.timeout(3):
                             assert await sessions() == {live_id}
                             assert len(await sessions(guest, other)) == 1
+                            assert len(await attribute(client, node, SNAPSHOTS)) == 1
                         before = time.monotonic()
                         device.terminate()
+                        try:
+                            await asyncio.wait_for(snapshot, 4)
+                        except RuntimeError as error:
+                            if str(error) != "camera_snapshot: controller error 0" and (
+                                "(Matter status 203)" not in str(error)
+                            ):
+                                raise
+                        else:
+                            raise AssertionError("shutdown completed a delayed capture")
+                        # The high-level controller may translate the Matter status.
+                        # Prove its cleanup reached the bridge before transport exit.
+                        assert device.poll() is None
+                        async with asyncio.timeout(2):
+                            assert await attribute(client, node, SNAPSHOTS) == []
                         assert await asyncio.to_thread(device.wait, 8) == 0
                         shutdown_seconds = time.monotonic() - before
                         try:
@@ -265,6 +281,7 @@ async def run(args):
                 live_frames=live["decoded_frames"],
                 live_frames_after_peer_timeouts=15,
                 matter_read_during_delayed_snapshot=True,
+                shutdown_capture_rejected_and_released=True,
                 graceful_exit_seconds=round(shutdown_seconds, 3),
                 active_and_pending_sockets_closed=True,
                 running_snapshot_encoder_reaped=True,

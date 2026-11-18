@@ -1603,5 +1603,161 @@
       "hal_boundary_tests": 29
     },
     "scope": "Process interruption before the atomic replacement and after directory sync on first and additional Ethernet-host enrollment. A fresh operator-opened window restores an abandoned first enrollment. A surviving administrator can withdraw an abandoned additional enrollment. No live camera, physical commissioning, wireless credentials, or direct NuttX behavior was exercised."
+  },
+  "linux_runtime": {
+    "fixture": "shutdown-drain",
+    "base_nxrs_revision": "bb69dbf184eae4db6f3c6bd0ea4a196967b45929",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "environment": {
+      "os": "Debian GNU/Linux 13.7 (trixie), Linux 6.12.117+deb13-cloud-arm64",
+      "execution": "QEMU 11.1.2 with HVF, ARM64 guest binaries",
+      "arm64_cloud_image_sha512": "ecbb14df864d2f8842539733c10d7251c58294f86b85a487b23b2c959a9b75f003df6b289deb20e1aee03ef65de2b1429818689e1fbc4b727d579c61b247fee9",
+      "discovery": "Astro DNS-SD linked to Avahi compat 0.8-16",
+      "guest_interface": "enp0s1",
+      "ffmpeg_package": "7:7.1.5-0+deb13u1",
+      "mediamtx_linux_arm64_archive_sha256": "180a235374a548d9133cdd5e20f5dbd8b01317be1c86e0d7e66df585dc42ed6f",
+      "node_linux_arm64_archive_sha256": "6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c",
+      "node": "24.22.3",
+      "python": "3.12.16",
+      "aiortc": "1.14.0",
+      "pyav": "16.1.0"
+    },
+    "sha256": {
+      "gateway/tests/matter/shutdown-drain.patch": "4733b5f32d6ebb5cf1230bbee2a77f4ff1054e8de57aae77e3fabec945f9e962",
+      "gateway/tests/matter/versions.json": "37db1b24df44742db51b6196e4ca17645d5882cfd9ce8a7b5840dffdb3d6e572",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "gateway/tests/matter_catalogue_reference.py": "f1ee6f16cabd71271a7e39abfc51d8d49461c2973f728fa03d0d995584d2bc66",
+      "gateway/tests/matter_shutdown_reference.py": "528216f839897a761e726a232aed1d7f77f89eb07ee5ce2ea4770ec620d76839",
+      "gateway/tests/matter_snapshot_reference.py": "0855c73804634ba033b0aa3d4eb7b32d8937ba84bee208808e9d8e9ff61ddbe8",
+      "gateway/tests/matter_final_fabric_reference.py": "2ac22734683bffb2b0cb00d3c453a1e90dbecd92f3b363d900846cb898f58fb4",
+      "tools/prepare-matter-fixture.py": "c01c888e6a7890294e2e9737ddbb6a4e9597d8f382483ab5fcd0f982aa58edd6"
+    },
+    "linux_device_binary_sha256": "3f5e770ea48afa8c7b9b5986f2d90e4c562f6a03b6fccd9cd2d82a715257c075",
+    "tested_sdk_camera_source_sha256": "3837449cfbed595677d0f703da8585d8e74deb6989908232a7c5b08e52d90ea1",
+    "negative_control": "With the previous shutdown path, an active snapshot lost the TCP connection during restart. The independent controller logged ECONNREFUSED and scheduled a two-minute retry, exceeding the unchanged 35-second operational recovery check.",
+    "linux": {
+      "catalogue": {
+        "result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+        "original_frames": 45,
+        "remapped_frames": 45,
+        "restarted_frames": 45,
+        "frames_match_selected_dimensions": true,
+        "selected_ice_address_verified": true,
+        "retained_endpoint_ids": true,
+        "rejected_site_and_camera_changes": true,
+        "old_mapping_rtsp_status": 401,
+        "selected_camera_occupancy": [
+          "unavailable",
+          "person",
+          "clear"
+        ],
+        "media_revocation_end_reason": 5,
+        "publisher_and_independent_reader_survived": true,
+        "occupancy_observed_after_media_revocation": true
+      },
+      "shutdown": {
+        "result_json_sha256": "22700ff4f9c878cea06244a1ed445fdf94f0c1d97598ebb5941a1d66303d445a",
+        "baseline_frames": 30,
+        "timed_out_peers": 2,
+        "timeout_seconds": 20.063,
+        "offline_fabric_rows_released_seconds": 23.108,
+        "outbound_delivery_timeouts": 2,
+        "negotiation_sockets_and_refs_released": true,
+        "live_frames": 45,
+        "live_frames_after_peer_timeouts": 15,
+        "matter_read_during_delayed_snapshot": true,
+        "shutdown_capture_rejected_and_released": true,
+        "graceful_exit_seconds": 1.054,
+        "active_and_pending_sockets_closed": true,
+        "running_snapshot_encoder_reaped": true,
+        "same_publisher": true,
+        "enrollment_preserved": true,
+        "frames_after_restart": 45
+      },
+      "snapshot": {
+        "result_json_sha256": "932c1dd48aea1f2bc90d1ba63f1d32c9d3a81a16548d40a1b9501fa39922ef1d",
+        "jpeg_bytes": [
+          18176,
+          6784
+        ],
+        "dimensions": [
+          [
+            640,
+            360
+          ],
+          [
+            320,
+            180
+          ]
+        ],
+        "distinct_publications": true,
+        "live_frames_before_capture": 45,
+        "additional_frames_after_capture": 15,
+        "shared_reader": true,
+        "private_and_offline_rejected": true,
+        "rate_limit_busy_status": 156,
+        "source_loss_cancelled_and_reaped_encoder": true,
+        "allocation_reused_and_released": true
+      },
+      "final_fabric": {
+        "result_json_sha256": "f922092e7c120dea3c8ba395b47b8355ee97ef31372149d942fa9fbc498861a9",
+        "interruption": null,
+        "pre_commit_installation_recovered": false,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": true,
+        "old_invitation_rejected": true,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      }
+    },
+    "macos_catalogue": {
+      "result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+      "original_frames": 45,
+      "remapped_frames": 45,
+      "restarted_frames": 45,
+      "frames_match_selected_dimensions": true,
+      "selected_ice_address_verified": true,
+      "retained_endpoint_ids": true,
+      "rejected_site_and_camera_changes": true,
+      "old_mapping_rtsp_status": 401,
+      "selected_camera_occupancy": [
+        "unavailable",
+        "person",
+        "clear"
+      ],
+      "media_revocation_end_reason": 5,
+      "publisher_and_independent_reader_survived": true,
+      "occupancy_observed_after_media_revocation": true
+    },
+    "macos_shutdown": {
+      "result_json_sha256": "c76c330e0a256e5ca4f8c40b88ffa40178b0621f3b825b3b21e0f1ef0c519edb",
+      "baseline_frames": 30,
+      "timed_out_peers": 2,
+      "timeout_seconds": 20.111,
+      "offline_fabric_rows_released_seconds": 23.086,
+      "outbound_delivery_timeouts": 2,
+      "negotiation_sockets_and_refs_released": true,
+      "live_frames": 45,
+      "live_frames_after_peer_timeouts": 15,
+      "matter_read_during_delayed_snapshot": true,
+      "shutdown_capture_rejected_and_released": true,
+      "graceful_exit_seconds": 1.056,
+      "active_and_pending_sockets_closed": true,
+      "running_snapshot_encoder_reaped": true,
+      "same_publisher": true,
+      "enrollment_preserved": true,
+      "frames_after_restart": 45
+    },
+    "regressions": {
+      "linux_gateway_tests": 76,
+      "linux_sdk_camera_tests": 3,
+      "macos_architecture_tests": 37,
+      "macos_hal_boundary_tests": 29
+    },
+    "scope": "Discovery, configured ICE route, occupancy and independent media access, JPEG, retirement and persistence on the isolated Linux guest. The cross-platform shutdown regression verifies cancellation and controller stream release before exit, plus playback after restart with the same enrollment. Multi-interface scoping, physical traffic, iPhone presentation and soak require separate qualification."
   }
 }

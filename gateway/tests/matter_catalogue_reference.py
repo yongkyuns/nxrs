@@ -91,6 +91,8 @@ async def run(args):
             ice_address=args.ip,
             state_directory=str(root / "state"),
         )
+        if args.ffmpeg is not None:
+            settings["snapshot_ffmpeg"] = str(args.ffmpeg.resolve(strict=True))
         deployment = root / "deployment.json"
         private_file(deployment, json.dumps(settings))
 
@@ -265,6 +267,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("runtime", "device", "controller", "gateway", "publisher", "mediamtx"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--ffmpeg", type=Path)
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
     args = parser.parse_args()

@@ -44,9 +44,11 @@ interval between captures. It limits JPEG output to 48 KiB, checks live privacy
 and publication identity through delivery, and reaps the encoder before
 releasing the capture slot. [Snapshot test](../tests/matter/README.md#matter-jpeg-snapshots).
 
-The `shutdown` variant bounds pending offers, ICE and outbound signaling.
-SIGTERM and SIGINT drop the node's transport and media futures and join the
-snapshot worker before exit. [Lifecycle test](../tests/matter/README.md#negotiation-deadlines-and-graceful-shutdown).
+The `shutdown-drain` variant bounds pending offers, ICE and outbound signaling.
+SIGTERM and SIGINT close peer admission and join the snapshot worker. The
+bridge keeps Matter transport running for the cancellation reply and a
+bounded cleanup window before exit.
+[Lifecycle test](../tests/matter/README.md#negotiation-deadlines-and-graceful-shutdown).
 
 The `final-fabric` variant retires stored Matter installation records in the
 same commit as the last operational fabric. Factory onboarding and configured

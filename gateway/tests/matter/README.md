@@ -120,6 +120,32 @@ missing or corrupt state is never automatically reset.
 Run alternating playback flows at least six times to exceed the four-session
 table cumulatively. Stop only these two fixture processes when finished.
 
+## Reproduce the Linux runtime checks
+
+Use the same dependency pins and SDK build command with
+`--variant shutdown-drain`. The tested Linux environment was Debian
+13 ARM64 in QEMU with native Avahi DNS-SD. On that guest, install these
+packages before building the SDK, gateway control and RTSP publisher.
+
+```sh
+sudo apt-get install --no-install-recommends \
+  build-essential cmake pkg-config libclang-dev \
+  avahi-daemon dbus libavahi-compat-libdnssd-dev \
+  ffmpeg libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev \
+  libavutil-dev libswresample-dev libswscale-dev
+sudo systemctl start avahi-daemon
+```
+
+Use the selected guest interface and its assigned address for `--interface`
+and `--ip`. Run the [catalogue](#configured-camera-and-durable-endpoints),
+[shutdown](#negotiation-deadlines-and-graceful-shutdown),
+[snapshot](#matter-jpeg-snapshots), and
+[last-fabric](#last-fabric-removal-and-restart) tests sequentially with
+`--ffmpeg /usr/bin/ffmpeg` and a fresh runtime directory for each. They occupy
+the standard Matter port during their own run. The Linux removal trial uses
+the normal command path. The debugger interruption trials use macOS.
+[Linux evidence](evidence.json).
+
 ## Automated persistence qualification
 
 With those manual fixture processes stopped, this command owns fresh isolated
@@ -359,7 +385,7 @@ to 48 KiB within the pinned SDK's 64 KiB interaction buffer.
 
 ## Negotiation deadlines and graceful shutdown
 
-Prepare the pinned SDK with `--variant shutdown`. Run
+Prepare the pinned SDK with `--variant shutdown-drain`. Run
 `gateway/tests/matter_shutdown_reference.py` with the
 [snapshot test](#matter-jpeg-snapshots) arguments and a fresh runtime.
 
@@ -373,8 +399,11 @@ then pauses their disposable controller. Both peers release their UDP ports and
 stream references while the other fabric keeps decoding. The paused controller
 cannot acknowledge either End notification. During shutdown, the process has a decoding peer, a
 pending offer and an active JPEG encoder. A separate Matter read completes while
-the capture is pending. SIGTERM then closes the peers and reaps the encoder.
-The same publisher and enrolled controller resume playback after restart.
+the capture is pending. SIGTERM closes admission, retires peers, and reaps
+the encoder. The bridge keeps Matter transport up for a bounded drain so
+the controller receives the cancellation and releases its snapshot stream
+before exit. The same publisher and enrolled controller resume playback
+after restart.
 [Results](evidence.json).
 
 ## Last-fabric removal and restart
