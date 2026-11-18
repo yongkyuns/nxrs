@@ -5,16 +5,20 @@ import argparse
 import asyncio
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
 import json
+import os
 from pathlib import Path
+import signal
 import socket
 
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCRtpSender
 
 from matter_audio_allocation import CLUSTER
 from matter_commissioning_reference import provision
-from matter_fabric_reference import attribute, controller
+from matter_fabric_reference import attribute, controller, packets
+from matter_gateway_reference import start
 from matter_reference import measured_peer, separate_candidates
-from matter_rtsp_reference import ports, publish, start_device, start_media, wait_path
+from matter_rtsp_reference import ports, publish, start_media, start_media_server, wait_path
+from matter_source_access import private_file
 
 
 async def receiver_offer():
@@ -63,16 +67,33 @@ async def run(args):
         probe.bind((args.ip, 5540))
 
     with ExitStack() as services:
-        gateway, server, _, rtsp = start_media(services, root, args)
-        device = start_device(
+        gateway, server, control, rtsp = start_media(services, root, args)
+        config = root / "matter.json"
+        private_file(
+            config,
+            json.dumps(
+                dict(
+                    version=1,
+                    site_id="lab",
+                    camera_id="cam",
+                    lan_interface=args.interface,
+                    ice_address=args.ip,
+                    control=f"127.0.0.1:{gateway.control}",
+                    rtsp=f"127.0.0.1:{rtsp}",
+                    media_token_file=str(gateway.credentials["reader"]),
+                    detection_token_file=str(gateway.credentials["independent"]),
+                    factory_data=str(factory),
+                    state_directory=str(root / "state"),
+                    snapshot_ffmpeg=str(args.ffmpeg.resolve(strict=True)),
+                )
+            ),
+        )
+        device = start(
             services,
             root,
-            args,
-            gateway,
-            rtsp,
-            root / "state",
-            initialize=True,
-            extra_args=["--factory-data", factory, "--open-commissioning-window"],
+            "matter",
+            [args.device, "--config", config, "--initialize-state", "--open-commissioning-window"],
+            dict(os.environ, RUST_LOG="error", TMPDIR=str(root)),
         )
 
         def source(stack, color, size, rate):
@@ -89,6 +110,10 @@ async def run(args):
             node = paired["node_id"]
             sessions = "1/1363/0"
             video = (await attribute(admin, node, f"1/{CLUSTER}/15"))[0]["0"]
+            identity = await attribute(admin, node, "1/57/18")
+            assert isinstance(identity, str) and identity
+            sdp = await receiver_offer()
+            await offline(admin, node, video, sdp)
 
             async def held_event(event_type, keys):
                 async with asyncio.timeout(12):
@@ -146,7 +171,6 @@ async def run(args):
                     )
                     return (await held_event(event, {key}))["webrtc_session_id"]
 
-                sdp = await receiver_offer()
                 # One controller does not answer the camera offer. With the other
                 # session it receives the camera's answer and never trickles ICE.
                 waiting = {
@@ -157,7 +181,8 @@ async def run(args):
                 assert len(rows) == 2 and {row["0"] for row in rows} == set(waiting.values())
 
             with ExitStack() as replacement:
-                assert source(replacement, "blue", "320x240", 10) != original
+                replacement_id = source(replacement, "blue", "320x240", 10)
+                assert replacement_id != original
                 ended_reasons = {}
                 while waiting:
                     try:
@@ -177,14 +202,36 @@ async def run(args):
                 active_end = asyncio.get_running_loop().create_future()
                 async with playback("camera-offer", request_end=False, end_reason=active_end) as (
                     after,
-                    _,
+                    retired_peer,
                     _,
                 ):
                     assert after["dimensions"] == [320, 240]
-                    replacement.close()
+                    lost_at = asyncio.get_running_loop().time()
+                    server.kill()
+                    assert await asyncio.to_thread(server.wait, 5) == -signal.SIGKILL
                     assert await asyncio.wait_for(active_end, 12) == 5
+                    await released()
+                    packets_after_loss = await packets(retired_peer)
+                    assert packets_after_loss > 0
+                    await offline(admin, node, video, sdp)
+                    assert await packets(retired_peer) == packets_after_loss
+                    assert device.poll() is None and control.poll() is None
+
             await released()
+            server = await asyncio.to_thread(start_media_server, services, root, args, rtsp)
+            await asyncio.to_thread(gateway.ready, control)
+            # Starting MediaMTX alone is not sufficient to admit another peer.
             await offline(admin, node, video, sdp)
+            with ExitStack() as recovered:
+                recovery_id = source(recovered, "green", "640x360", 15)
+                assert recovery_id not in (original, replacement_id)
+                async with playback("receiver-offer") as (restored, _, _):
+                    assert restored["dimensions"] == [640, 360]
+                recovery_seconds = round(asyncio.get_running_loop().time() - lost_at, 3)
+                assert await attribute(admin, node, "1/57/18") == identity
+                assert await attribute(admin, node, "0/62/3") == 1
+            assert device.poll() is None and control.poll() is None
+            await released()
             assert await attribute(admin, node, sessions) == []
             return dict(
                 original_frames=before["decoded_frames"],
@@ -196,13 +243,17 @@ async def run(args):
                 active_end_reason=active_end.result(),
                 offline_solicit_status=203,
                 offline_provide_status=203,
+                media_server_restarted_after_sigkill=True,
+                media_server_recovery_seconds=recovery_seconds,
+                restored_frames=restored["decoded_frames"],
+                retained_camera_identity=True,
                 final_sessions=0,
             )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("runtime", "controller", "device", "gateway", "publisher", "mediamtx"):
+    for name in ("runtime", "controller", "device", "gateway", "publisher", "mediamtx", "ffmpeg"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)

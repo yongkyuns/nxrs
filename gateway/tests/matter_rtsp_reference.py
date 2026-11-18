@@ -101,7 +101,13 @@ def start_media(stack, root, args, *, paths=("cam",)):
         webrtcIPsFromInterfaces=False, webrtcAdditionalHosts=["127.0.0.1"], webrtcICEServers2=[],
         authMethod="http", authHTTPExclude=[], authHTTPAddress=f"http://127.0.0.1:{internal}/internal/mediamtx/auth",
         paths={path: {"overridePublisher":False, "maxReaders":8} for path in paths})))
-    server = start(stack, root, "mtx", [args.mediamtx.resolve(), config], cwd=root)
+    server = start_media_server(stack, root, args, rtsp)
+    controller = start_control(stack, root, args, gateway)
+    return gateway, server, controller, rtsp
+
+
+def start_media_server(stack, root, args, rtsp):
+    server = start(stack, root, "mtx", [args.mediamtx.resolve(), root / "mediamtx.json"], cwd=root)
     deadline = time.monotonic() + 10
     while True:
         try:
@@ -110,8 +116,7 @@ def start_media(stack, root, args, *, paths=("cam",)):
         except ConnectionRefusedError:
             assert server.poll() is None and time.monotonic() < deadline
             time.sleep(.05)
-    controller = start_control(stack, root, args, gateway)
-    return gateway, server, controller, rtsp
+    return server
 
 
 def start_device(stack, root, args, gateway, rtsp, state, *, initialize=False, extra_args=()):

@@ -1998,5 +1998,36 @@
     "shared_reader_and_released_snapshot_allocation": true,
     "source_loss_cancelled_and_reaped_encoder": true,
     "scope": "Generated H.264 on the native macOS bridge. Physical ESP32 source and iPhone snapshots remain open."
+  },
+  "media_server_restart": {
+    "fixture": "stream-continuity",
+    "macos_device_binary_sha256": "81a9b71f02e45ae2994b8cc8e0b320bb97b86bed0d967553b4494fa1baf603d8",
+    "source_sha256": {
+      "gateway/tests/matter_publication_reference.py": "f53a876d4070c88de1e48d58a106f3c93b773ae57cc06818f80a7089d0de0b66",
+      "gateway/tests/matter_rtsp_reference.py": "3695639558a798041a4cb23cec001ab3ccfe71e2acb28002d9875cf68d76086e",
+      "gateway/tests/matter/stream-continuity.patch": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea"
+    },
+    "result_json_sha256": "60e188954a617fe215c78c13f216a61965f840aa7fe9c3c5df18c0f2bd1a78de",
+    "original_frames": 45,
+    "original_dimensions": [
+      640,
+      360
+    ],
+    "unanswered_end_reason": 5,
+    "no_ice_end_reason": 5,
+    "replacement_frames": 45,
+    "replacement_dimensions": [
+      320,
+      240
+    ],
+    "active_end_reason": 5,
+    "offline_solicit_status": 203,
+    "offline_provide_status": 203,
+    "media_server_restarted_after_sigkill": true,
+    "media_server_recovery_seconds": 5.893,
+    "restored_frames": 45,
+    "retained_camera_identity": true,
+    "final_sessions": 0,
+    "scope": "Native macOS 27.0.1 ARM64, generated H.264. The same control process, bridge and Matter enrollment survived an abrupt MediaMTX exit. Physical camera and production deployment recovery remain open."
   }
 }
