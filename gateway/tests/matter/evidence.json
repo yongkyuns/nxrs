@@ -1461,5 +1461,73 @@
       "hal_boundary_tests": 29
     },
     "scope": "Separate unanswered SDP and incomplete ICE, two failed outbound deliveries while their controller is suspended, retirement and continuing decoded video on another fabric. Joined SIGTERM with an established peer, a pending peer and a blocked JPEG encoder, followed by playback on the same publication and preserved enrollment. A separate Matter read completes during capture. Final-fabric cleanup, physical audio/video, production wide-area timing and soak remain open."
+  },
+  "final_fabric_removal": {
+    "fixture": "final-fabric",
+    "host": "macOS arm64, pinned Matter Server, generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/persistence.rs": "b3f3d21afe2f2b90688228e813b6af8edc6ffd2ef86718f6284c561f6af80c3a",
+      "gateway/tests/matter/final-fabric.patch": "8929823be0fa777cb7d2f7da048b4f517173b66b24225ab14e0a8aa9f2ee3234",
+      "gateway/tests/matter_final_fabric_reference.py": "2ac22734683bffb2b0cb00d3c453a1e90dbecd92f3b363d900846cb898f58fb4",
+      "gateway/tests/matter/commit_breakpoint.py": "1c945f4bb40e0b9362796aec36ab78bd9ecf3b40621612d767f81246edfa47b2",
+      "gateway/tests/matter/versions.json": "fb61255ddab02f0a66e744ce85e65f2da89cbda49e204c23a42e1e11eddc417e",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "tools/prepare-matter-fixture.py": "2ca5879d19258ec70988cfd52096fcf1ace5738817282e5ebdc1d13358db44f3"
+    },
+    "baseline": "The shutdown fixture removed the last fabric but retained the changed label and camera installation records on disk.",
+    "trials": [
+      {
+        "result_json_sha256": "f922092e7c120dea3c8ba395b47b8355ee97ef31372149d942fa9fbc498861a9",
+        "interruption": null,
+        "pre_commit_installation_recovered": false,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": true,
+        "old_invitation_rejected": true,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      },
+      {
+        "result_json_sha256": "8ac363a49b8f742ee367d3ea44406eb83b038ab69efbe75f5f695c5d797fcb5f",
+        "interruption": "before-replace",
+        "pre_commit_installation_recovered": true,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": null,
+        "old_invitation_rejected": null,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      },
+      {
+        "result_json_sha256": "295e26efe027a1ea710eca6823eb9e1a55d4e8cff3d7c245e63a2f5d9c4dfe4d",
+        "interruption": "after-sync",
+        "pre_commit_installation_recovered": false,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": null,
+        "old_invitation_rejected": null,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      }
+    ],
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_last_fabric_tests": 2,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Last-fabric removal, selective removal with one survivor, invitation closure, existing playback retirement, settings and subscription cleanup, and recovery across the durable rename while using configured endpoint identity. No live camera or production enrollments were used. Interrupted addition of a fabric, physical microphone and production root-node conformance remain open."
   }
 }

@@ -223,11 +223,26 @@ impl Store {
     }
 
     pub fn remove(&mut self, key: u16) -> Result<(), Error> {
+        self.remove_with(key, |_| false)
+    }
+
+    /// Keys in the current snapshot. Inspect and mutate under the same writer.
+    pub fn keys(&self) -> impl Iterator<Item = u16> + '_ {
+        self.snapshot.entries.keys().copied()
+    }
+
+    /// Remove a key and its dependent records in one durable replacement.
+    pub fn remove_with(
+        &mut self,
+        key: u16,
+        mut dependent: impl FnMut(u16) -> bool,
+    ) -> Result<(), Error> {
         if self.failed {
             return Err(Error::Failed);
         }
         let mut next = self.snapshot.clone();
-        next.entries.remove(&key);
+        next.entries
+            .retain(|&candidate, _| candidate != key && !dependent(candidate));
         self.commit(next)
     }
 

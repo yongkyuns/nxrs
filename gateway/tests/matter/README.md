@@ -377,6 +377,29 @@ the capture is pending. SIGTERM then closes the peers and reaps the encoder.
 The same publisher and enrolled controller resume playback after restart.
 [Results](evidence.json).
 
+## Last-fabric removal and restart
+
+Prepare the pinned SDK with `--variant final-fabric`. Run
+`gateway/tests/matter_final_fabric_reference.py` with the
+[snapshot test](#matter-jpeg-snapshots) arguments and a fresh runtime directory.
+On macOS, repeat with `--lldb /usr/bin/lldb --breakpoint before-replace` and
+`--breakpoint after-sync`, using a different runtime directory for each run.
+
+The controller changes the node label and microphone mute with a subscription
+and video session open. Removing a second fabric first preserves those
+settings on the surviving fabric. Removing the last fabric deletes its
+operational record and the installation's settings and subscriptions together.
+An enhanced invitation issued by that fabric also closes while the node stays
+up. When an operator explicitly reopens commissioning after restart, a fresh
+controller sees the configured endpoint IDs, default label and muted
+microphone, and can decode video.
+
+The breakpoint runs kill the isolated device before the removal snapshot is
+renamed and after it is synced. The first restores the old fabric, settings
+and video session capability. The second leaves it decommissioned and allows
+fresh commissioning with the same endpoint identities. The test reads only
+record keys from the disposable store. [Results](evidence.json).
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with
