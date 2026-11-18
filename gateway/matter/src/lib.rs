@@ -6,6 +6,7 @@ pub mod commissioning;
 pub mod config;
 mod credential;
 pub mod media;
+pub mod ntp;
 pub mod occupancy;
 pub mod persistence;
 mod platform;

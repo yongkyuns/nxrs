@@ -53,7 +53,8 @@
     "astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b",
     "camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
     "root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b",
-    "trusted-matter-time.patch": "dc9b0d5384a132f69a0e400ccbd9429300f3936bdc7ae019dcdf95952c9eb50a"
+    "trusted-matter-time.patch": "dc9b0d5384a132f69a0e400ccbd9429300f3936bdc7ae019dcdf95952c9eb50a",
+    "default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285"
   },
   "home_assistant": {
     "version": "2026.11.2",

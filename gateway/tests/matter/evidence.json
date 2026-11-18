@@ -2176,5 +2176,30 @@
       30
     ],
     "scope": "Native macOS 27.0.1 arm64, Matter Server 1.6.0, independent Matter.js clock, development attestation and generated H.264. The independent clock provides known offsets. The interrupted-removal snapshot models the durable gap after deleting a fabric. NTP, TLS management and physical release qualification remain open."
+  },
+  "configured_sntp_fallback": {
+    "fixture": "default-ntp",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "3c739587300d39cbf897e9c75f886976167a3708f2e86c3c149974754c7e460c",
+    "source_sha256": {
+      "gateway/matter/src/ntp.rs": "eeefc046f0483253e9b614fb6f119acec7742bd049039319c723d22a69c8ba99",
+      "gateway/tests/matter/default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285",
+      "gateway/tests/matter_time_reference.py": "a79904738d9dcf74d2b30fc4a38a6b063738732b07c3e7d4f942a052091c324e",
+      "gateway/tests/matter/time-source.cjs": "141ea25433ab2e63e91ccda04a597eb60d7cc01db2a747e415317d1fc0d43086",
+      "tools/prepare-matter-fixture.py": "e04315a3f62b773be6b7bc0278d9ca3450adfa9ff97058cbd7cb22e767d99841",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "4ba0aff169766e58a87c975afe8837f7240cd46e3f95c64fff513f454c6b2d90",
+    "fallback_sntp_applied": true,
+    "trusted_matter_clock_preferred": true,
+    "fallback_restored_after_trust_removal": true,
+    "fallback_configuration_persisted_and_cleared": true,
+    "malformed_and_unsupported_addresses_rejected": true,
+    "frames": [
+      30,
+      30
+    ],
+    "scope": "Native macOS 27.0.1 arm64, Matter Server 1.6.0, independent Matter.js clock, Cloudflare public IPv6 SNTP, development attestation and generated H.264. Separate loopback tests checked validity, era rollover and silent-server timeout. DHCP and DNS-SD time-source discovery, authenticated network time, TLS management and physical release qualification remain outside this witness."
   }
 }

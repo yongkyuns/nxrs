@@ -5,6 +5,7 @@ import argparse
 import asyncio
 from contextlib import ExitStack
 from hashlib import sha256
+from ipaddress import IPv6Address
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,7 @@ from matter_source_access import private_file
 
 TIME = 56
 TRUSTED_SOURCE_RECORD = 262  # Pinned rs-matter durable key.
+DEFAULT_NTP_RECORD = 0x1006
 
 
 async def time_command(client, node, command, **fields):
@@ -42,6 +44,15 @@ async def wait_clock(client, node, sample):
         local = int(await attribute(client, node, "0/56/7"))
         after = int(await attribute(client, node, "0/56/0"))
         assert utc <= local - 7200 * 1_000_000 <= after
+
+
+async def wait_ntp(client, node):
+    async with asyncio.timeout(12):
+        while await attribute(client, node, "0/56/2") != 4:  # NonMatterSNTP
+            await asyncio.sleep(0.15)
+        sample = int(await attribute(client, node, "0/56/0"))
+        expected = (int(time.time()) - 946684800) * 1_000_000
+        assert abs(sample - expected) < 20_000_000
 
 
 async def receive(client, node):
@@ -133,8 +144,24 @@ async def run(args):
 
             camera = await commission(admin, camera_invitation["qrCode"])
             assert await attribute(admin, camera, "0/29/2") == [TIME]
-            assert await attribute(admin, camera, "0/56/65532") == 9
+            feature_map = 11 if args.default_ntp else 9
+            assert await attribute(admin, camera, "0/56/65532") == feature_map
             assert await attribute(admin, camera, "0/56/3") is None
+            if args.default_ntp:
+                assert await attribute(admin, camera, "0/56/4") is None
+                assert await attribute(admin, camera, "0/56/12") is False
+                for invalid in ("clock.example", "fe80:1", "[::1]:123"):
+                    try:
+                        await time_command(admin, camera, "SetDefaultNTP", defaultNtp=invalid)
+                    except RuntimeError as error:
+                        assert "(Matter status 133)" in str(error), error  # InvalidCommand
+                    else:
+                        raise AssertionError("invalid NTP address accepted")
+                assert await attribute(admin, camera, "0/56/4") is None
+                await time_command(admin, camera, "SetDefaultNTP", defaultNtp=args.default_ntp)
+                assert await attribute(admin, camera, "0/56/4") == args.default_ntp
+                await wait_ntp(admin, camera)
+
             ticket = await admin.request(
                 "open_commissioning_window", node_id=camera, timeout=180, iteration=1000, option=1,
             )
@@ -179,6 +206,11 @@ async def run(args):
             await time_command(owner, clock, "SetUTCTime", utcTime=refreshed, granularity=3)
             device = await boot("restarted")
             await wait_clock(admin, camera, refreshed)
+            if args.default_ntp:
+                assert await attribute(admin, camera, "0/56/4") == args.default_ntp
+                # Keep the revocation test focused on a late trusted-peer sample.
+                await time_command(admin, camera, "SetDefaultNTP", defaultNtp=None)
+                assert await attribute(admin, camera, "0/56/4") is None
 
             # Hold the source while the bridge enters a refresh on the owning fabric.
             await time_command(owner, clock, "SetUTCTime", utcTime=refreshed + 120_000_000, granularity=3)
@@ -201,6 +233,9 @@ async def run(args):
             assert await attribute(admin, camera, "0/56/3") is None
             await asyncio.sleep(2)
             await wait_clock(admin, camera, refreshed)
+            if args.default_ntp:
+                await time_command(admin, camera, "SetDefaultNTP", defaultNtp=args.default_ntp)
+                await wait_ntp(admin, camera)
             await asyncio.to_thread(stop, device)
 
         await asyncio.to_thread(stop, admin_process[0])
@@ -218,14 +253,28 @@ async def run(args):
             assert await attribute(restored, camera, "0/62/3") == 1
             assert await attribute(restored, camera, "0/56/3") is None
             assert TRUSTED_SOURCE_RECORD not in records(snapshot.read_bytes())
-            assert await attribute(restored, camera, "0/56/2") != 3
+            if args.default_ntp:
+                assert await attribute(restored, camera, "0/56/4") == args.default_ntp
+                await wait_ntp(restored, camera)
+                await time_command(restored, camera, "SetDefaultNTP", defaultNtp=None)
+                assert await attribute(restored, camera, "0/56/4") is None
+                assert DEFAULT_NTP_RECORD not in records(snapshot.read_bytes())
+            else:
+                assert await attribute(restored, camera, "0/56/2") != 3
             last_frames = await receive(restored, camera)
 
-    return dict(
+    result = dict(
         case_authenticated_clock=True, picked_fresh_sample_after_restart=True,
         removed_trust_during_refresh=True, kept_previous_clock_on_revocation=True,
         repaired_interrupted_fabric_removal=True, verified_local_time=True, frames=[first_frames, last_frames],
     )
+    if args.default_ntp:
+        result.update(
+            fallback_sntp_applied=True, trusted_matter_clock_preferred=True,
+            fallback_restored_after_trust_removal=True, fallback_configuration_persisted_and_cleared=True,
+            malformed_and_unsupported_addresses_rejected=True,
+        )
+    return result
 
 
 if __name__ == "__main__":
@@ -234,6 +283,7 @@ if __name__ == "__main__":
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
+    parser.add_argument("--default-ntp", type=lambda value: str(IPv6Address(value)))
     args = parser.parse_args()
     result = asyncio.run(run(args))
     (args.runtime / "result.json").write_text(json.dumps(result, indent=2) + "\n")

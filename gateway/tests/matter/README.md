@@ -705,8 +705,24 @@ same enrollment.
 Removing the source's fabric cancels a pending refresh and leaves the last
 accepted clock sample in use. An interrupted-removal snapshot verifies that
 startup discards a trusted-source record whose fabric is gone. The first
-administrator retains playback. NTP and TLS management remain release work.
+administrator retains playback.
 [Results](evidence.json).
+
+### Configured SNTP fallback
+
+Prepare `--variant default-ntp` and add `--default-ntp` with a reachable
+IPv6 address on UDP 123 to the trusted-clock test. The controller configures
+the address through Matter. The bridge persists it, rejects malformed
+addresses and hostnames, and accepts a null value to clear it. Queries use
+the selected LAN interface, with a deadline and reply validation, and update
+the bridge's Matter clock. The host clock is unaffected.
+
+The witness verifies that the trusted Matter source takes precedence, that
+fallback resumes after fabric removal, and that the setting survives
+restart. The macOS trial used Cloudflare's published IPv6 time service.
+UDP loopback tests cover reply validation and timeouts without internet
+access. DHCP/DNS-SD source discovery and TLS management remain open.
+[SNTPv4 protocol](https://www.rfc-editor.org/rfc/rfc5905) · [Time service](https://developers.cloudflare.com/time-services/ntp/usage/) · [Results](evidence.json).
 
 ## Two controllers on the same fabric
 
