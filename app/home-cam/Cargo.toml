@@ -19,6 +19,8 @@ nxrs-connectivity-service = { path = "../../service/connectivity" }
 nxrs-enrollment = { path = "../../service/enrollment" }
 nxrs-config = { path = "../../hal/config" }
 nxrs-camera = { path = "../../hal/camera" }
+nxrs-audio = { path = "../../hal/audio" }
+nxrs-capture-wire = { path = "../../service/capture-wire" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-stream-service = { path = "../../service/stream" }
 nxrs-firmware-update = { path = "../../service/firmware-update" }

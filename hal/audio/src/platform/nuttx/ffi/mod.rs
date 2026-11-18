@@ -17,7 +17,6 @@ unsafe extern "C" {
     fn audio_capture_alloc(fd: i32, bytes: u16, buffer: *mut usize) -> i32;
     fn audio_capture_free(fd: i32, buffer: usize) -> i32;
     fn audio_capture_submit(fd: i32, buffer: usize) -> i32;
-    fn audio_capture_poll(queue: i32, milliseconds: i32) -> i32;
     fn audio_capture_event(queue: i32, buffer: *mut usize) -> i32;
     fn audio_capture_samples(buffer: usize, bytes: u16) -> *const u8;
 }
@@ -113,16 +112,6 @@ impl Buffer {
         }
         // SAFETY: the checked view cannot outlive the buffer or another submit.
         Ok(unsafe { std::slice::from_raw_parts(data, usize::from(bytes)) })
-    }
-}
-
-pub(super) fn ready(queue: RawFd, milliseconds: i32) -> Result<bool, DeviceError> {
-    // SAFETY: live queue; poll arguments are synchronous.
-    match unsafe { audio_capture_poll(queue, milliseconds) } {
-        0 => Ok(false),
-        1 => Ok(true),
-        2 => Err(DeviceError::Busy),
-        _ => Err(DeviceError::Io),
     }
 }
 

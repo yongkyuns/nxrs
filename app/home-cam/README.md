@@ -85,6 +85,18 @@ cycle during a native call. Stop and Drop join TLS before releasing camera
 storage. Explicit shutdown can wait for an in-progress cryptographic/time call;
 it is not a capture-loop operation. A stopped TLS output cannot restart.
 
+The `esp32s3-camera-microphone` qualification profile authorizes its enrolled
+gateway to request `/stream?av=1`. An authenticated JPEG-only request leaves
+the microphone idle. An authenticated A/V request starts one microphone worker
+with a 16 KiB stack and receives a successful response once the first PCM block
+is available.
+The worker waits for DMA completions independently of TLS and keeps one latest
+block. Sample offsets identify blocks skipped by a slow writer. Disconnect
+cancels the native wait and joins the worker before accepting another session.
+PCM timestamps estimate the sample start from the completion observation on the
+camera's monotonic clock. Hardware timing and the capture-side mute control are
+tracked in the [Matter microphone plan](../../gateway/tests/matter/conformance.md#microphone-delivery).
+
 Camera I/O errors, capture stalls and temporary TLS startup failures trigger
 recovery within the existing Wi-Fi session and SSH lifetime. The app retires
 the stream, capture and detector before reopening them on the same listener.

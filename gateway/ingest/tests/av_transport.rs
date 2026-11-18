@@ -66,6 +66,7 @@ fn session(path: &str, authorized: bool) -> HttpSession<Transport, [u8; 64]> {
         assert!(http.accept(transport, 100));
     }
     http.poll(100, None);
+    assert_eq!(http.audio_requested(), authorized && path == AV_PATH);
     http
 }
 
@@ -214,6 +215,7 @@ async fn legacy_and_unauthorized_transports_do_not_send_audio() {
         100
     ));
     assert!(denied.poll(100, None).active);
+    assert!(!denied.audio_requested());
     assert!(
         !denied
             .poll_media(100, None, None, Some(audio(0, 100)))

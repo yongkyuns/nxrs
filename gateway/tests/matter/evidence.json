@@ -2711,5 +2711,53 @@
       "decoded_color_matches_at_6000_kbps": 50
     },
     "scope": "A generated camera used disposable TLS credentials and exact ingress headers. The actual gateway ingest, FFmpeg encoder, Rust RTSP publisher and strict MediaMTX served a fresh independent decoder. There was one startup RTSP receiver timestamp step in each trial. The hard-cut diagnostic separated encoder color fidelity from timing and used 6000 kbps only as a comparison. The production bitrate remains 1500 kbps. Physical microphone capture, camera firmware publication, Matter/iPhone playback of this source, and hardware A/V skew and drift remain open."
+  },
+  "camera_firmware_microphone": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "app/home-cam/src/microphone.rs": "9caf146706a7b7fe8ddbd8a6b6ffeccee8c837547dbba77c567cd98af4de83e6",
+      "app/home-cam/src/runtime.rs": "a83ca04568c5e5c4cb490c515707b27ded0006f89a0465f13e2dae7e70e9e5b6",
+      "app/home-cam/src/tls.rs": "19b8e9fd7fa184ed5e4aff76265c20c8b4e2e68e61fb2ecbf2a8104c85dd6eca",
+      "hal/acquisition/src/platform/nuttx/ffi/events.c": "48fca07facef0d6e2f1e9660c6938783b7afac923d8c561b1ddba5769fdf0ed3",
+      "hal/audio/src/worker.rs": "5619431ef97a0f7484a77cc0466b8bdf0cdb1c0948d4b22d226f84ddb0a43465",
+      "hal/audio/src/platform/nuttx/mod.rs": "7fa9ca981b5bedf192f3619f05cb8a5b5928bf3b3138e2728af513f45a5af7ad",
+      "hal/audio/src/platform/nuttx/ffi/audio.c": "ec5393bb8bcda83ddde6d29f91693fcdb67970f8692fa7f80d7462d0cc9c5099",
+      "service/stream/src/server.rs": "a0be8227371edae038ebeeca0501d8d3a9f12f86a44bda1050f0bef2f193ed15",
+      "tests/profiles/esp32s3-camera-microphone.conf": "d9a3027f904fa8c37b3478f59723b247259abe0e83ce83b502ff6fda449079a0"
+    },
+    "host_audio_tests_passed": 6,
+    "host_home_cam_tests_passed": 18,
+    "host_stream_service_tests_passed": 27,
+    "host_tls_sdk_tests_passed": 15,
+    "host_tls_control_tests_passed": 20,
+    "tls_address_and_undefined_behavior_sanitizers_passed": true,
+    "host_poll_gpio_abi_tests_passed": 3,
+    "target_builds": [
+      {
+        "app": "home-cam",
+        "platform": "wroom",
+        "profile": "esp32s3-camera-microphone",
+        "cpus": 2,
+        "microphone_and_cancel_pipe_linked": true,
+        "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+        "signed_image_sha256": "5fd1b3ba002890c302a96a7eb29dee13f0dca133e436ce83fe045cda2c3ad9e4",
+        "signed_image_bytes": 1901092,
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true
+      },
+      {
+        "app": "home-cam",
+        "platform": "wroom",
+        "profile": "wroom",
+        "cpus": 2,
+        "microphone_and_cancel_pipe_linked": false,
+        "resolved_config_sha256": "36b70b7e1cf6f7872c083aec8b0bc159640d43fbe151af002c293d079eb7acce",
+        "signed_image_sha256": "7e6b9d43fd89656af271a7f6eb9995445d36a981be76fb782059c7c008ed753f",
+        "signed_image_bytes": 1899686,
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true
+      }
+    ],
+    "scope": "The selected microphone profile links I2S capture, the cancellation pipe and the application worker. Unit tests check bounded latest-block delivery, join after waking a blocked reader, the no-response state before PCM and sample offsets on the camera clock. Native TLS host exercise uses generated video and an unbound microphone. Neither image was flashed. Physical board capture, mute with buffers in flight, A/V offset and drift, power and iPhone playback still require qualification."
   }
 }

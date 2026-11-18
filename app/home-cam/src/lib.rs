@@ -4,6 +4,7 @@
 
 pub mod bootstrap;
 mod detection;
+mod microphone;
 pub mod network;
 mod publication;
 pub mod startup;
@@ -171,6 +172,12 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>>
     /// Configure before polling. Only the approved mutual-TLS peer can upload.
     pub fn enable_updates(&mut self, update: update::Update) -> Result<(), Error> {
         self.server.enable_updates(update)
+    }
+
+    /// Authorize the commissioned TLS peer to request microphone capture.
+    /// `origin` is the same monotonic origin used for camera polling.
+    pub fn enable_microphone(&mut self, origin: std::time::Instant) -> Result<(), Error> {
+        self.server.enable_microphone(origin)
     }
 }
 

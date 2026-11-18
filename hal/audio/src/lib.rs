@@ -37,8 +37,24 @@ pub trait Capture {
     fn stop(&mut self, until: Instant) -> Result<(), DeviceError>;
 }
 
+pub struct Block {
+    pub frame: Frame,
+    pub samples: [i16; SAMPLES_PER_BLOCK],
+}
+
+pub trait Stream {
+    /// Take the latest complete block without waiting. Slow readers may skip
+    /// blocks. Sample offsets identify gaps, and a terminal error is sticky.
+    fn take(&mut self) -> Result<Option<Block>, DeviceError>;
+
+    /// Cancel the native wait and join before surrendering the capture owner.
+    fn stop(&mut self) -> Result<(), DeviceError>;
+}
+
 mod platform;
-pub use platform::open;
+pub use platform::{open, stream, AVAILABLE};
 
 #[cfg(any(test, platform = "nuttx"))]
 mod session;
+#[cfg(any(test, platform = "nuttx"))]
+mod worker;

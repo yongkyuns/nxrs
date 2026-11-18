@@ -1,10 +1,12 @@
 use crate::session::{decode_slots, Session, Source, BUFFER_COUNT};
-use crate::{Capture, DeviceError, SAMPLES_PER_BLOCK, SAMPLE_RATE_HZ};
+use crate::{Capture, DeviceError, Stream, SAMPLES_PER_BLOCK, SAMPLE_RATE_HZ};
+use acquisition::nuttx::{self, Readiness};
+use acquisition::readiness::Cancel;
 use std::ffi::CString;
 use std::fs::{File, OpenOptions};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 #[allow(unsafe_code)]
@@ -14,6 +16,8 @@ const STEREO_BYTES: u16 = (SAMPLES_PER_BLOCK * 8) as u16;
 static IN_USE: AtomicBool = AtomicBool::new(false);
 static QUEUE_NUMBER: AtomicU32 = AtomicU32::new(0);
 static RETIRING: Mutex<Option<Device>> = Mutex::new(None);
+
+pub const AVAILABLE: bool = true;
 
 struct Lease;
 impl Drop for Lease {
@@ -25,6 +29,7 @@ impl Drop for Lease {
 struct Device {
     file: File,
     queue: OwnedFd,
+    cancel: Option<Arc<File>>,
     buffers: [Option<ffi::Buffer>; BUFFER_COUNT],
     submitted: [bool; BUFFER_COUNT],
     slot: usize,
@@ -35,6 +40,16 @@ struct Device {
 }
 
 pub fn open() -> Result<impl Capture, DeviceError> {
+    open_device(None)
+}
+
+pub fn stream(stack_bytes: usize) -> Result<impl Stream, DeviceError> {
+    let cancel = Cancel::new(nuttx::pipe).map_err(|_| DeviceError::Io)?;
+    let reader = cancel.reader.clone();
+    crate::worker::Buffered::start(cancel, stack_bytes, move || open_device(Some(reader)))
+}
+
+fn open_device(cancel: Option<Arc<File>>) -> Result<Session<Device>, DeviceError> {
     let path = option_env!("AUDIO_DEVICE").ok_or(DeviceError::Unsupported)?;
     let slot = match option_env!("AUDIO_SLOT") {
         Some("left") => 0,
@@ -67,6 +82,7 @@ pub fn open() -> Result<impl Capture, DeviceError> {
     Session::open(Device {
         file,
         queue,
+        cancel,
         buffers: [None, None],
         submitted: [false; BUFFER_COUNT],
         slot,
@@ -113,14 +129,20 @@ impl Source for Device {
                 return Err(DeviceError::Timeout);
             }
             let milliseconds = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
-            match ffi::ready(queue, milliseconds) {
-                Ok(true) => match ffi::receive(queue) {
+            match nuttx::poll(
+                queue,
+                self.cancel.as_ref().map(|fd| fd.as_raw_fd()),
+                milliseconds,
+            ) {
+                Ok(Readiness::Device) => match ffi::receive(queue) {
                     Ok(token) => break token,
                     Err(DeviceError::Busy) => continue,
                     Err(error) => return Err(error),
                 },
-                Ok(false) | Err(DeviceError::Busy) => continue,
-                Err(error) => return Err(error),
+                Ok(Readiness::Timeout) => continue,
+                Ok(Readiness::Cancelled) => return Err(DeviceError::Closed),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return Err(DeviceError::Io),
             }
         };
         let index = self

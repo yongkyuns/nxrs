@@ -241,6 +241,12 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         self.next_frame_after().is_some()
     }
 
+    /// True after parsing an authorized A/V request. The owner can start the
+    /// microphone before the next poll, which begins the HTTP response.
+    pub fn audio_requested(&self) -> bool {
+        matches!(self.client.as_ref(), Some(Client::Streaming(stream)) if stream.audio_enabled)
+    }
+
     /// Sequence a new frame must exceed, when the transport can accept it.
     pub fn next_frame_after(&self) -> Option<u64> {
         match self.client.as_ref() {

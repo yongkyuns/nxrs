@@ -669,7 +669,9 @@ name = "nxrs-audio"
 version = "0.1.0"
 dependencies = [
  "cfg-if",
+ "nxrs-acquisition",
  "nxrs-build-support",
+ "nxrs-messaging",
 ]
 
 [[package]]
@@ -956,9 +958,11 @@ version = "0.1.0"
 name = "nxrs-home-cam"
 version = "0.1.0"
 dependencies = [
+ "nxrs-audio",
  "nxrs-boot",
  "nxrs-camera",
  "nxrs-camera-service",
+ "nxrs-capture-wire",
  "nxrs-config",
  "nxrs-connectivity-service",
  "nxrs-console",

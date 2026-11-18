@@ -4,7 +4,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <mqueue.h>
-#include <poll.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -16,8 +15,9 @@
     !defined(CONFIG_ESPRESSIF_I2S0_DATA_BIT_WIDTH_32BIT) || \
     CONFIG_ESPRESSIF_I2S0_SAMPLE_RATE != 16000 || \
     defined(CONFIG_ESPRESSIF_I2S0_TX) || defined(CONFIG_AUDIO_MULTI_SESSION) || \
-    defined(CONFIG_AUDIO_EXCLUDE_STOP)
-#  error "Microphone capture requires the receive-only ESP32-S3 audio configuration"
+    defined(CONFIG_AUDIO_EXCLUDE_STOP) || !defined(CONFIG_PIPES) || \
+    CONFIG_DEV_PIPE_SIZE == 0
+#  error "Microphone capture needs receive-only ESP32-S3 audio and cancellation pipes"
 #endif
 
 _Static_assert(CONFIG_ESPRESSIF_I2S_MAXINFLIGHT >= 4,
@@ -145,23 +145,6 @@ int audio_capture_submit(int fd, uintptr_t buffer)
   apb->flags &= ~(AUDIO_APB_FINAL | AUDIO_APB_DEQUEUED);
   desc.u.buffer = apb;
   return status(ioctl(fd, AUDIOIOC_ENQUEUEBUFFER, (unsigned long)&desc));
-}
-
-int audio_capture_poll(int queue, int milliseconds)
-{
-  struct pollfd pfd = {.fd = queue, .events = POLLIN};
-  int ret = poll(&pfd, 1, milliseconds);
-  if (ret < 0)
-    {
-      return errno == EINTR ? 2 : -1;
-    }
-
-  if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
-    {
-      return -1;
-    }
-
-  return (pfd.revents & POLLIN) != 0;
 }
 
 int audio_capture_event(int queue, uintptr_t *buffer)

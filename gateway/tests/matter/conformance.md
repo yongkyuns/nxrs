@@ -69,7 +69,11 @@ Implement and qualify these steps in order.
    preserved irregular video timestamps and a three-block audio gap in a
    generated-media trial. The opt-in TLS ingest and RTSP publisher decoded
    generated audio and video with exact source annotations on the Mac.
-   Firmware microphone admission and physical capture timing remain open.
+   The microphone qualification firmware starts only on a negotiated and
+   authenticated request. A dedicated capture worker owns the DMA wait and
+   cancels through the shared NuttX poll/pipe binding. PCM and JPEG use the
+   same camera clock. Measure the completion observation's offset and drift
+   on the board before declaring synchronized physical playback.
    [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio
    capability from the acquired format and negotiated encoding. Exercise
