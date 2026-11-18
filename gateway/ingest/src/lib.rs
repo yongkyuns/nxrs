@@ -3,6 +3,7 @@
 pub mod av;
 pub mod config;
 pub mod bootstrap;
+mod control;
 mod detections;
 mod video;
 mod tls;

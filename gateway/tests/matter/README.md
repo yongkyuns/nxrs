@@ -595,6 +595,32 @@ speaker/display timing and iPhone playback require physical qualification.
 
 ## Matter microphone mute and live privacy
 
+### Microphone capture control
+
+Prepare and build `--variant capture-privacy` and build the host gateway and
+ingest binaries. Run the test from a LAN with IPv6 and free Matter port 5540.
+It uses disposable enrollments and generated images and sound.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/ingest_av_reference.py \
+  --sdk "$matter_sdk" --device "$matter_sdk/target/debug/webrtc_camera" \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" \
+  --gateway gateway/target/debug/nxrs-gateway-control \
+  --ingest gateway/target/debug/nxrs-camera-ingest \
+  --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --ffmpeg /usr/bin/ffmpeg --mediamtx /absolute/path/to/mediamtx \
+  --interface en1 --ip <fixture-lan-ip>
+```
+
+An independent Matter controller commissions the bridge and writes
+`MicrophoneMuted` three times. The mTLS camera fixture checks the sequenced
+commands and starts or stops its generated PCM. Stopping the Matter bridge
+without cleanup also stops capture when the permit expires. One RTSP receiver
+checks quiet and audible phases, advancing decoded video, exact picture
+annotations, and one publication throughout.
+
+### WebRTC presentation
+
 Prepare and build the pinned SDK with `--variant privacy`. Use the same binary
 paths, interface and IP as the microphone allocation test. Run the following
 in a fresh private runtime directory.

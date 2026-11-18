@@ -91,9 +91,11 @@ def start_control(stack, root, args, gateway, revoked=False):
     return process
 
 
-def start_media(stack, root, args, *, paths=("cam",)):
+def start_media(stack, root, args, *, paths=("cam",), configure=None):
     rtsp, api, control, internal, whep, ice = ports(6)
     gateway = StrictMedia(root, api, control, internal)
+    if configure is not None:
+        configure(gateway)
     config = root / "mediamtx.json"
     private_file(config, json.dumps(dict(logLevel="warn", rtspAddress=f"127.0.0.1:{rtsp}", rtspTransports=["tcp"],
         rtspAuthMethods=["basic"], api=True, apiAddress=f"127.0.0.1:{api}", rtmp=False, hls=False, srt=False,

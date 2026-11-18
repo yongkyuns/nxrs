@@ -50,6 +50,7 @@ def configuration(camera, width=640, height=480, acknowledge_http=False, detecti
         config['detections'] = dict(control='127.0.0.1:18081', camera_id='cam_reference')
     if camera_audio:
         config['camera_audio'] = True
+        config['microphone_control'] = '127.0.0.1:18081'
     return config
 
 

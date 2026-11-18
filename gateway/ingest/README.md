@@ -142,8 +142,11 @@ An in-progress PCM part may finish before a mute acknowledgement. Pending
 samples are discarded and capture is joined before the acknowledgement, while
 JPEG delivery stays eligible. Unmuting opens a new sample sequence and requires
 a complete capture block before acknowledging. Controlled firmware rejects the
-version 1 audio route. Current ingest requests unmute when `camera_audio` is
-enabled. Propagating a Matter privacy write into ingest remains open.
+version 1 audio route. Enable `camera_audio` and set `microphone_control` to
+the gateway's internal loopback address. Ingest starts muted and requires a
+current permit from the camera's authorized Matter controller to request
+unmute. A withdrawn or expired permit mutes capture. If the camera stops
+delivering complete parts during withdrawal, ingest closes the transport.
 
 The A/V encoder input writes bounded MJPEG/PCM Matroska blocks to FFmpeg. Video
 uses its capture time directly. Audio uses the first block's capture time and
@@ -156,8 +159,8 @@ deadlines that include writing each complete part to the encoder. FFmpeg emits
 H.264 and mono Opus with a private timed annotation track. The RTSP publisher
 requires the annotation for the exact picture timestamp before inserting its
 SEI and publishes only the video and audio tracks. Ingest monitors their
-progress independently. Set `camera_audio: true` for a mutually authenticated
-camera that authorizes access and implements version 2. The ESP32 microphone
+progress independently. Audio requires a mutually authenticated camera that
+authorizes access and implements version 2. The ESP32 microphone
 qualification profile includes that capture path.
 
 ```sh
@@ -168,9 +171,9 @@ NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \
 [Matroska block timestamps](https://www.rfc-editor.org/rfc/rfc9559.html#section-11.2).
 The [loopback playback witness](../tests/ingest_av_reference.py) checks the
 authenticated ingest and RTSP path with alternating image markers and a
-generated tone, including one annotation per encoded picture. The test camera
-waits to acknowledge unmute until a receiver has decoded advancing video and
-silent Opus, then supplies tone audio on the same connection.
+generated tone, including one annotation per encoded picture. A commissioned
+controller drives the capture commands and the receiver verifies both tracks
+on one publication through mute, unmute, and bridge process loss.
 
 ## Bounds, freshness and lifecycle
 

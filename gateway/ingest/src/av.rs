@@ -9,6 +9,7 @@ use crate::{
 };
 use capture_wire::{AudioStamp, MicrophoneState, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
 use detection_wire::{Version, VideoFrame};
+use serde::Deserialize;
 use std::time::Duration;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -146,6 +147,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
     /// Read a complete camera part and return a picture only for video.
     /// On error the caller must retire the encoder and discard the connection.
     pub async fn next(&mut self) -> Result<Option<Picture>> {
+        self.next_admitted(|| true).await
+    }
+
+    async fn next_admitted(&mut self, permitted: impl FnOnce() -> bool) -> Result<Option<Picture>> {
         let deadline = self.deadlines[0].min(self.deadlines[1]);
         let deadline = self
             .microphone_deadline
@@ -153,9 +158,11 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
         if Instant::now() >= deadline {
             return Err(Error::Timeout);
         }
-        let muted = self.source.microphone_muted();
+        let muted_at_start = self.source.microphone_muted();
         let (picture, audio_written) = timeout_at(deadline, async {
-            match self.source.next_packet().await? {
+            let packet = self.source.next_packet().await?;
+            let muted = muted_at_start || !permitted();
+            match packet {
                 Packet::Video(frame) => {
                     let track = Track::Video;
                     let pts_ms = self
@@ -241,17 +248,120 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Permit {
+    id: [u8; 16],
+    valid_for_ms: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CapturePermission {
+    id: [u8; 16],
+    deadline: Instant,
+}
+
+fn current(receiver: &watch::Receiver<Option<CapturePermission>>) -> Option<CapturePermission> {
+    receiver
+        .borrow()
+        .filter(|value| value.deadline > Instant::now())
+}
+
 pub(crate) async fn pump<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Unpin>(
     source: Reader<R>,
     output: W,
     config: &Config,
     metadata: watch::Sender<Option<Sample>>,
+    publisher_token: &str,
+) -> Result<()> {
+    let control = config.microphone_control.ok_or(Error::Configuration)?;
+    let enrollment = config.camera_tls.as_ref().ok_or(Error::Configuration)?;
+    let (permits, permit) = watch::channel(None);
+    let poll = async {
+        loop {
+            let requested = Instant::now();
+            let body = crate::control::publisher_post(
+                control,
+                &enrollment.camera_id,
+                &config.publisher_user,
+                publisher_token,
+                "microphone-permit",
+                b"{}",
+            )
+            .await;
+            let received = body
+                .ok()
+                .and_then(|body| serde_json::from_slice::<Option<Permit>>(&body).ok())
+                .flatten()
+                .filter(|permit| (1..=1500).contains(&permit.valid_for_ms))
+                .map(|permit| CapturePermission {
+                    id: permit.id,
+                    // Time in the request/response already consumes the lease.
+                    deadline: requested + Duration::from_millis(permit.valid_for_ms),
+                })
+                .filter(|permission| permission.deadline > Instant::now());
+            permits.send_if_modified(|current| {
+                let changed = *current != received;
+                *current = received;
+                changed
+            });
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+    let encode = pump_with_permits(source, output, config, metadata, permit);
+    tokio::select! { result = encode => result, () = poll => Err(Error::Stopped) }
+}
+
+async fn pump_with_permits<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Unpin>(
+    source: Reader<R>,
+    output: W,
+    config: &Config,
+    metadata: watch::Sender<Option<Sample>>,
+    permit: watch::Receiver<Option<CapturePermission>>,
 ) -> Result<()> {
     let mut input = EncoderInput::start(source, output, config).await?;
-    // Enabling microphone capture is currently an explicit ingest setting.
-    input.request_microphone(false).await?;
+    let mut authorized = None;
     loop {
-        if let Some(picture) = input.next().await? {
+        let granted = current(&permit).map(|permission| permission.id);
+        if authorized.is_some() && granted != authorized {
+            if input.microphone_deadline.is_some() {
+                // The pending unmute is superseded. Closing transport cancels
+                // capture without waiting for it to start.
+                return Err(Error::Stale);
+            }
+            authorized = None;
+            input.request_microphone(true).await?;
+        } else if authorized.is_none() && granted.is_some() && input.microphone_deadline.is_none() {
+            authorized = granted;
+            input.request_microphone(false).await?;
+        }
+        let part =
+            input.next_admitted(|| current(&permit).is_some_and(|p| Some(p.id) == authorized));
+        let retire_stalled = async {
+            if authorized.is_none() {
+                std::future::pending::<()>().await;
+            }
+            let mut changes = permit.clone();
+            loop {
+                let permission = *changes.borrow_and_update();
+                let Some(permission) =
+                    permission.filter(|p| Some(p.id) == authorized && p.deadline > Instant::now())
+                else {
+                    break;
+                };
+                tokio::select! {
+                    _ = tokio::time::sleep_until(permission.deadline) => {},
+                    change = changes.changed() => if change.is_err() { break; },
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        };
+        let picture = tokio::select! {
+            biased;
+            _ = retire_stalled => return Err(Error::Stale),
+            result = part => result?,
+        };
+        if let Some(picture) = picture {
             if let Some(sample) = &input.source.metadata {
                 metadata.send_replace(Some(Sample {
                     frame: picture.frame,

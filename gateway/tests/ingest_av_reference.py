@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Qualify annotated H.264 and Opus through actual ingest with an isolated mTLS camera fixture."""
+"""Drive physical capture commands from Matter with an isolated mTLS camera fixture."""
 import argparse
 from array import array
 import asyncio
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from copy import deepcopy
 import json
 import math
@@ -12,12 +12,15 @@ from pathlib import Path
 import ssl
 import struct
 import subprocess
+import sys
 import tempfile
-import threading
 import time
 
 import av
-from matter_rtsp_reference import start_media
+from matter_attestation_reference import public_test_bundle
+from matter_commissioning_reference import provision
+from matter_fabric_reference import attribute, controller
+from matter_rtsp_reference import ports, start_device, start_media
 from matter_gateway_reference import start
 from tls_reference import Credentials, private
 
@@ -43,7 +46,8 @@ def jpeg(ffmpeg, color):
     assert 4 <= len(output) <= 153600
     return output
 
-async def camera(reader, writer, cert, frames, received, allow_audio):
+async def camera(reader, writer, cert, frames, received, commands):
+    read_command = None
     try:
         peer = writer.get_extra_info('ssl_object').getpeercert(binary_form=True)
         assert peer == cert
@@ -52,20 +56,27 @@ async def camera(reader, writer, cert, frames, received, allow_audio):
         received.append(True)
         writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nX-Nxrs-AV: 2\r\nConnection: close\r\n\r\n')
         await writer.drain()
-        command = await asyncio.wait_for(reader.readexactly(9), 3)
-        assert command == struct.pack('>QB', 1, 0)
+        read_command = asyncio.create_task(reader.readexactly(9))
         first_audio = None
+        sequence = 1
         tone = struct.pack('<320h', *(round(18_000 * math.sin(i * math.pi / 8)) for i in range(SAMPLES)))
         template = json.loads((ROOT / 'clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json').read_text())['source']
         began = time.monotonic()
-        for index in range(1500):
+        for index in range(6000):
             stamp = CLOCK_START + index * 20
             seq = index // 3 + 1
-            if first_audio is None and allow_audio.is_set():
-                first_audio = index
+            if read_command.done():
+                command = read_command.result()
+                word, muted = struct.unpack('>QB', command)
+                assert word == sequence and muted in (0, 1)
+                assert bool(muted) == (first_audio is not None)
+                commands.put_nowait(bool(muted))
                 writer.write(part('application/vnd.nxrs.microphone-state.v2', command, ''))
+                first_audio = None if muted else index
+                sequence += 1
+                read_command = asyncio.create_task(reader.readexactly(9))
             if first_audio is not None:
-                writer.write(part('application/vnd.nxrs.pcm16.v1', tone if seq % 2 else bytes(640),
+                writer.write(part('application/vnd.nxrs.pcm16.v1', tone,
                                   f'X-First-Sample: {(index-first_audio)*SAMPLES}\r\nX-Capture-Ms: {stamp}'))
             if index % 3 == 0:
                 source = deepcopy(template)
@@ -79,25 +90,33 @@ async def camera(reader, writer, cert, frames, received, allow_audio):
                 writer.write(part('image/jpeg', frames[(seq-1) % 2], f'X-Sequence: {seq}\r\nX-Capture-Ms: {stamp}'))
             await writer.drain()
             await asyncio.sleep(max(0, began + (index+1)*.02 - time.monotonic()))
-    except (BrokenPipeError, ConnectionResetError):
+    except (BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
         pass
     finally:
+        if read_command is not None:
+            read_command.cancel()
+            with suppress(asyncio.CancelledError, OSError, asyncio.IncompleteReadError):
+                await read_command
         writer.close()
         try:
             await writer.wait_closed()
         except OSError:
             pass
 
-def receive(port, token, allow_audio):
+def receive(port, token, report):
     # Suppress SDK logs and exceptions that could include the temporary RTSP token.
     av.logging.set_level(av.logging.PANIC)
     url = f'rtsp://reader:{token}@127.0.0.1:{port}/cam'
     frames = []
-    audio = []
+    audio = 0
+    expected = iter((True, False, True, False, True))
+    muted = next(expected)
+    consecutive = 0
+    last_reported_sequence = 0
+    transition_frames = []
     mono = av.AudioResampler(format="s16", layout="mono", rate=16_000)
     seen = set()
     video_steps = []
-    silence_frames = 0
     try:
         with av.open(url, options={'rtsp_transport': 'tcp'}, timeout=(4, 5)) as streams:
             assert [(s.type, s.codec_context.name) for s in streams.streams] == [('video', 'h264'), ('audio', 'opus')]
@@ -120,7 +139,7 @@ def receive(port, token, allow_audio):
                         yield from picture.decode(packet)
                     else:
                         yield from packet.decode()
-            end = time.monotonic() + 12
+            end = time.monotonic() + 25
             for frame in decode():
                 assert time.monotonic() < end
                 if isinstance(frame, av.VideoFrame):
@@ -153,29 +172,59 @@ def receive(port, token, allow_audio):
                     for chunk in mono.resample(frame):
                         samples = array("h")
                         samples.frombytes(bytes(chunk.planes[0])[:chunk.samples * samples.itemsize])
-                        audio.append(sum(map(abs, samples)) / len(samples))
-                if not allow_audio.is_set() and len(frames) >= 5 and len(audio) >= 10:
-                    assert max(audio) < 100
-                    silence_frames = len(audio)
-                    allow_audio.set()
-                if len(frames) >= 45 and len(audio) >= 100 and max(audio) > 4000:
-                    break
+                        audio += 1
+                        amplitude = sum(map(abs, samples)) / len(samples)
+                        matches = amplitude < 100 if muted else amplitude > 4000
+                        if matches:
+                            consecutive += 1
+                        else:
+                            consecutive = 0
+                    if consecutive >= 14 and len(frames) >= last_reported_sequence + 4:
+                        transition_frames.append(len(frames))
+                        last_reported_sequence = len(frames)
+                        report(muted)
+                        muted = next(expected, None)
+                        if muted is None:
+                            break
+                        consecutive = 0
     except av.FFmpegError:
         raise RuntimeError('RTSP decode failed') from None
-    assert len(frames) >= 45 and len(audio) >= 100 and len(seen) == 1
-    assert silence_frames >= 10 and max(audio) > 4000
+    assert len(frames) >= 20 and audio >= 70 and len(seen) == 1 and len(transition_frames) == 5
     # The RTSP receiver may align its clock at the first RTCP sender report.
     # The encoder witness checks exact capture timestamps before RTP.
     rebased = sum(abs(step - .06) > .001 for step in video_steps)
     assert rebased <= 1, video_steps
     return dict(decoded_video_frames=len(frames), exact_pixel_annotation_matches=len(frames),
-                decoded_opus_frames=len(audio), distinct_annotation_epochs=len(seen),
-                decoded_silent_opus_frames_before_camera_ack=silence_frames,
+                decoded_opus_frames=audio, distinct_annotation_epochs=len(seen),
+                video_frame_at_each_audio_transition=transition_frames,
                 rtsp_timing_steps_outside_1ms=rebased)
 
 async def run(args, root):
     with ExitStack() as processes:
-        gateway, _, _, port = start_media(processes, root, args)
+        def configure(gateway):
+            stage = root / 'matter-enrollment'
+            subprocess.run([
+                sys.executable, str(ROOT / 'gateway/tools/stage_matter.py'),
+                str(gateway.config), str(stage), '--camera', 'cam', '--identity', 'bridge', '--microphone',
+            ], check=True, stdout=subprocess.DEVNULL)
+            gateway.config = stage / 'control.json'
+        gateway, _, _, port = start_media(processes, root, args, configure=configure)
+        factory = provision(root / 'factory', args.controller)
+        attestation = root / 'attestation'
+        public_test_bundle(args.sdk, attestation)
+        state = root / 'state'
+        stage = root / 'matter-enrollment'
+        deployment = root / 'matter.json'
+        private(deployment, json.dumps(dict(
+            version=1, site_id='lab', camera_id='cam', control=f'127.0.0.1:{gateway.control}',
+            rtsp=f'127.0.0.1:{port}', ice_address=args.ip, lan_interface=args.interface,
+            media_token_file=str(stage/'media.token'), detection_token_file=str(stage/'detections.token'),
+            factory_data=str(factory), state_directory=str(state), snapshot_ffmpeg=args.ffmpeg,
+            attestation_directory=str(attestation), host_power_source='dc',
+            microphone_control=dict(address=f'127.0.0.1:{gateway.internal}',
+                                    token_file=str(stage/'microphone.token')),
+        )))
+        commands = asyncio.Queue(maxsize=8)
         camera_root = root / 'camera'
         camera_root.mkdir(mode=0o700)
         cred = Credentials(camera_root, site='lab', gateway='gw')
@@ -189,12 +238,11 @@ async def run(args, root):
         received = []
         errors = []
         pending = set()
-        allow_audio = threading.Event()
         async def accept(reader, writer):
             task = asyncio.current_task()
             pending.add(task)
             try:
-                await camera(reader, writer, client, frames, received, allow_audio)
+                await camera(reader, writer, client, frames, received, commands)
             except Exception as error:
                 errors.append(type(error).__name__)
             finally:
@@ -207,6 +255,7 @@ async def run(args, root):
             private(config, json.dumps(dict(
                 camera=f'127.0.0.1:{server.sockets[0].getsockname()[1]}', camera_audio=True,
                 allow_insecure_camera_http=False, camera_tls=cred.config(),
+                microphone_control=f'127.0.0.1:{gateway.internal}',
                 detections=dict(control=f'127.0.0.1:{gateway.internal}', camera_id='cam'),
                 rtsp=f'127.0.0.1:{port}', stream_path='cam', publisher_user='publisher',
                 publisher_token_file=str(publisher_file), ffmpeg=args.ffmpeg,
@@ -217,7 +266,40 @@ async def run(args, root):
             while not gateway.path().get('ready'):
                 assert ingest.poll() is None and not errors and time.monotonic() < deadline, errors
                 await asyncio.sleep(.08)
-            result = await asyncio.to_thread(receive, port, gateway.credentials['reader'].read_text(), allow_audio)
+            bridge = start_device(processes, root, args, gateway, port, state, initialize=True,
+                                  extra_args=('--config', deployment, '--allow-test-attestation',
+                                              '--open-commissioning-window'))
+            async with controller(processes, root, args, 'admin', ports(1)[0], 32704) as admin:
+                code = json.loads((factory.parent/'onboarding.json').read_bytes())['qrCode']
+                paired = await admin.request('commission_with_code', code=code, network_only=True,
+                                             discovery_timeout_s=30)
+                node = paired['node_id']
+                muted_attribute = '1/1361/29'
+                assert await attribute(admin, node, muted_attribute) is True
+                phases = asyncio.Queue(maxsize=5)
+                loop = asyncio.get_running_loop()
+                listen = asyncio.create_task(asyncio.to_thread(
+                    receive, port, gateway.credentials['reader'].read_text(),
+                    lambda muted: loop.call_soon_threadsafe(phases.put_nowait, muted),
+                ))
+
+                async def expect(queue, muted, deadline=5):
+                    assert await asyncio.wait_for(queue.get(), deadline) is muted
+
+                await expect(phases, True)
+                assert commands.empty()
+                for muted in (False, True, False):
+                    await admin.request('write_attribute', node_id=node, attribute_path=muted_attribute, value=muted)
+                    assert await attribute(admin, node, muted_attribute) is muted
+                    await expect(commands, muted)
+                    await expect(phases, muted)
+                bridge.kill()
+                assert await asyncio.to_thread(bridge.wait, 5) != 0
+                await expect(commands, True, 3)
+                await expect(phases, True)
+                result = await listen
+                result['wire_mute_commands'] = [False, True, False, True]
+                result['last_mute_cause'] = 'expired capture permit after stopping Matter bridge'
             assert received == [True] and not errors
             ingest.terminate()
             assert await asyncio.to_thread(ingest.wait, 8) == 0
@@ -233,10 +315,17 @@ async def run(args, root):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    for name in ('gateway', 'ingest', 'publisher', 'mediamtx'):
+    for name in ('gateway', 'ingest', 'publisher', 'mediamtx', 'device', 'controller', 'sdk'):
         p.add_argument('--' + name, type=Path, required=True)
     p.add_argument('--ffmpeg', default='/usr/bin/ffmpeg')
+    p.add_argument('--interface', required=True)
+    p.add_argument('--ip', required=True)
+    p.add_argument('--runtime', type=Path)
     args = p.parse_args()
-    with tempfile.TemporaryDirectory(prefix='nxrs-matter-av-') as tmp:
-        root = Path(tmp)
+    if args.runtime:
+        root = args.runtime.resolve()
+        root.mkdir(mode=0o700)
         asyncio.run(run(args, root))
+    else:
+        with tempfile.TemporaryDirectory(prefix='nxrs-matter-av-') as tmp:
+            asyncio.run(run(args, Path(tmp)))

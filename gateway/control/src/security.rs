@@ -95,6 +95,7 @@ pub struct GatewayPolicy {
     config: Config,
     enforcement: Option<Enforcement>,
     pub(crate) detections: crate::detections::Store,
+    pub(crate) microphone: crate::microphone::Leases,
 }
 impl GatewayPolicy {
     pub fn new(config: Config, settings: Option<Settings>) -> Result<Self, &'static str> {
@@ -112,7 +113,7 @@ impl GatewayPolicy {
                 sessions: Default::default() })
         } else { None };
         let detections = crate::detections::Store::new(&config);
-        Ok(Self { inner, config, enforcement, detections })
+        Ok(Self { inner, config, enforcement, detections, microphone: Default::default() })
     }
     pub fn catalog(&self, token: &str) -> Result<Value, StatusCode> {
         let catalog = self.inner.catalog(token)?;
@@ -135,8 +136,14 @@ impl GatewayPolicy {
         }
         Ok(mapping)
     }
-    pub(crate) fn detection_publisher(&self, token: &str, user: &str, camera: &str) -> bool {
+    pub(crate) fn publisher_authorized(&self, token: &str, user: &str, camera: &str) -> bool {
         self.inner.publisher(token, user, camera)
+    }
+    pub(crate) fn microphone_controller(&self, token: &str, camera: &str) -> Result<(), StatusCode> {
+        if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        self.inner.microphone_controller(token, camera)
     }
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value, StatusCode> {
         if let Some(e) = &mut self.enforcement {
@@ -203,6 +210,12 @@ impl GatewayPolicy {
     /// The HTTP handler executes this on a blocking worker; cancellation cannot undo a denial.
     pub fn revoke(&mut self, viewer: &str) -> Result<StatusCode, StatusCode> {
         self.inner.revoke(viewer)?;
+        if let Some(camera) = self.config.viewers.iter()
+            .find(|v| v.viewer_id == viewer && v.scope == config::ViewerScope::MicrophoneControl)
+            .and_then(|v| v.camera_ids.first())
+        {
+            self.microphone.clear(camera);
+        }
         let Some(e) = &mut self.enforcement else { return Ok(StatusCode::NO_CONTENT); };
         e.permits.retain(|_, permit| permit.viewer != viewer);
         match e.store.revoke(viewer) {

@@ -37,6 +37,14 @@ pub struct Deployment {
     pub lan_interface: Option<String>,
     pub snapshot_ffmpeg: Option<PathBuf>,
     pub host_power_source: Option<HostPowerSource>,
+    microphone_control: Option<MicrophoneControl>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MicrophoneControl {
+    address: SocketAddr,
+    token_file: PathBuf,
 }
 
 impl Deployment {
@@ -60,6 +68,11 @@ impl Deployment {
                 .iter()
                 .any(|s| !s.ip().is_loopback() || s.port() == 0)
             || config.control == config.rtsp
+            || config.microphone_control.as_ref().is_some_and(|microphone| {
+                !microphone.address.ip().is_loopback() || microphone.address.port() == 0
+                    || microphone.address == config.rtsp || microphone.address == config.control
+                    || !microphone.token_file.is_absolute()
+            })
             || config
                 .attestation_directory
                 .as_ref()
@@ -87,6 +100,14 @@ impl Deployment {
             return Err("invalid Matter deployment");
         }
         Ok(config)
+    }
+
+    pub fn microphone(
+        &self,
+    ) -> Result<Option<crate::privacy::Microphone>, &'static str> {
+        self.microphone_control.as_ref().map(|control| {
+            crate::privacy::Microphone::open(control.address, &self.camera_id, &control.token_file)
+        }).transpose()
     }
 
     pub async fn inputs(&self, initializing: bool) -> Result<(Reader, Video, Feed), &'static str> {

@@ -1,0 +1,28 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -1671,6 +1671,8 @@
+         AUDIO_ALLOCATIONS_KEY,
+         initial_video,
+     )?);
++    let microphone = deployment.microphone().map_err(|_| ErrorCode::Invalid)?;
++    let microphone_privacy = privacy.clone();
+     let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+@@ -1770,6 +1772,15 @@
+             let matter_core =
+                 select(matter_core, time_client.run_with_ntp(TIME_REFRESH, &kv, &im, &ntp)).coalesce();
+             let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };
++            let capture_control = async {
++                if let Some(microphone) = &microphone {
++                    microphone.run(&microphone_privacy, || matter.has_fabrics()).await;
++                } else {
++                    core::future::pending::<()>().await;
++                }
++                Err(ErrorCode::StdIoError.into())
++            };
++            let media = select(media, capture_control).coalesce();
+             let all = select(select(matter_core, driver).coalesce(), media).coalesce();
+             let failed_store = async {
+                 let _ = persistence_failure.recv().await;

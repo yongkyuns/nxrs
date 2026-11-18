@@ -1,6 +1,9 @@
 //! Per-camera Matter privacy settings shared by control and media tasks.
 use tokio::sync::watch;
 
+mod microphone;
+pub use microphone::Microphone;
+
 #[derive(Clone, Copy)]
 pub enum Setting {
     MicrophoneMuted = 1,

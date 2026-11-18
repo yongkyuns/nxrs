@@ -2848,5 +2848,45 @@
       "publication_retired_on_stop": true
     },
     "scope": "An isolated generated mTLS camera delayed its initial unmute acknowledgement until the native receiver had decoded silent Opus and advancing video from the live RTSP publication. The same connection then carried the camera tone. The in-memory input test also drove mute during streaming and confirmed the old in-flight PCM, plus the first overlapping resumed block, never entered the encoder. A missing command acknowledgement still expired while both streams advanced. This does not exercise a later mute through Matter, encoded output already queued at a mute transition, physical capture, or handset playback."
+  },
+  "matter_microphone_capture_privacy": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/control/src/microphone.rs": "d1cae6809be04fc9d59278ba405cecda55f79bb25c864938f268e86677cfff6e",
+      "gateway/control/src/security.rs": "28c0ca1be3f9c3c3e8a929e51f1d62a1fcc64d5535268850965b0e97ca54a572",
+      "gateway/ingest/src/av.rs": "ce2d1de86dbcb38974298fe07dd2c503264fd03351d93e54364a07bb357a3e85",
+      "gateway/ingest/src/control.rs": "eb8f368c57122671b500fbc1a06b1bf07e8f63d584f91e1faef3a524b65b223d",
+      "gateway/matter/src/privacy/microphone.rs": "767ebff0a293e1292833d0bef0d2815cff35d012323dcf541fb8391aa3ba4c83",
+      "gateway/tests/matter/capture-privacy.patch": "6abd83b5298f98319e727acf25a33940c69369bf2ae8eee89205461b5ba70c51",
+      "gateway/tests/ingest_av_reference.py": "f76d200be79d912b1f1ead8aae7eba873b20404fd67e413b4dc016fe2ae813e1",
+      "gateway/tools/stage_matter.py": "579d8028600fba101704dfa49f5331e7569a7ca4abdb9cca2029f7b2baaa5875"
+    },
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_binary_sha256": "5a8d294d135e49dabd71cbc211ae66b5d6ffd81252797a8e1b324fcb2d5e9b00",
+    "control_binary_sha256": "33569018ac6a02df7bf80f461a27e173ce8c81de3a332c16c06d1af212f18919",
+    "ingest_binary_sha256": "86428e4ca6aaad21e95fc21b851cabd41217185173d9fc2b1182899a166f9da9",
+    "capture_permit_ms": 1500,
+    "rust_tests_passed": 95,
+    "native_ffmpeg_tests_passed": 2,
+    "decoded_video_frames": 84,
+    "exact_pixel_annotation_matches": 84,
+    "decoded_opus_frames": 253,
+    "video_frame_at_each_audio_transition": [
+      4,
+      36,
+      46,
+      56,
+      84
+    ],
+    "received_wire_commands_muted": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "authenticated_camera_connections": 1,
+    "distinct_annotation_epochs": 1,
+    "publication_retired_on_stop": true,
+    "scope": "The controller commissioned a disposable Matter bridge. It drove unmute, mute and unmute via the standard attribute, while an independent receiver observed initial silence, tone, silence, tone and silence with advancing H.264 on the same RTSP publication. Abrupt bridge termination caused the fourth camera command and silence by permit expiry. A deterministic gateway test verifies writer and publisher scoping, default denial, expiry and revocation. The mTLS camera produced generated media and emulated acknowledgement of capture changes. Physical microphone timing, the Matter WebRTC and iPhone paths with physical media, and recorder and detector privacy acceptance remain open."
   }
 }

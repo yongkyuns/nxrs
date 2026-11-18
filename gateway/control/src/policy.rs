@@ -127,6 +127,17 @@ impl Policy {
             .any(|p| p.username == user && p.camera_id == camera && matches(token, &p.token_sha256))
     }
 
+    pub(crate) fn microphone_controller(&self, token: &str, camera: &str) -> Result<()> {
+        let principal = self.viewer(token, ViewerScope::MicrophoneControl)?;
+        if principal.scope == ViewerScope::MicrophoneControl
+            && principal.camera_ids.iter().any(|id| id == camera)
+        {
+            Ok(())
+        } else {
+            Err(StatusCode::FORBIDDEN)
+        }
+    }
+
 
     fn prune(&mut self, wall: u64, now: Instant) {
         self.grants.retain(|_, grant| wall < grant.expires_at && now < grant.deadline);

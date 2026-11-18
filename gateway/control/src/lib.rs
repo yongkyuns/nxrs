@@ -5,6 +5,7 @@ mod policy;
 mod revocations;
 pub mod security;
 mod media_control;
+mod microphone;
 pub use media_control::Maintenance;
 
 use axum::{
@@ -48,6 +49,17 @@ fn bearer(headers: &HeaderMap) -> Result<&str, Failure> {
     if headers.get_all(header::AUTHORIZATION).iter().count() != 1 { return Err(Failure(StatusCode::UNAUTHORIZED)); }
     headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()).and_then(|s| s.strip_prefix("Bearer "))
         .filter(|s| config::hex_token(s)).ok_or(Failure(StatusCode::UNAUTHORIZED))
+}
+fn publisher_identity(headers: &HeaderMap) -> Result<(&str, &str), Failure> {
+    if headers.get_all("x-nxrs-publisher").iter().count() != 1 {
+        return Err(Failure(StatusCode::UNAUTHORIZED));
+    }
+    let user = headers
+        .get("x-nxrs-publisher")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| crate::config::identifier(v))
+        .ok_or(Failure(StatusCode::UNAUTHORIZED))?;
+    Ok((bearer(headers)?, user))
 }
 fn wall() -> Result<u64, Failure> {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|t| t.as_secs())
@@ -125,6 +137,8 @@ pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Re
         .route("/v1/cameras/{camera}/detections", get(detections::subscribe))
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone());
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
+        .route("/internal/cameras/{camera}/microphone", post(microphone::write))
+        .route("/internal/cameras/{camera}/microphone-permit", post(microphone::read))
         .route("/internal/cameras/{camera}/detection-sessions", post(detections::register))
         .route("/internal/cameras/{camera}/detections", post(detections::publish))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))

@@ -190,7 +190,7 @@ pub(crate) async fn attempt(
                 _=publisher.wait()=>Err(Error::Encoder),
                 result=async {
                     if c.camera_audio {
-                        crate::av::pump(source,input,c,metadata).await
+                        crate::av::pump(source,input,c,metadata,token).await
                     } else {
                         pump(source,input,tx,metadata,runner::epoch()?,budget).await
                     }

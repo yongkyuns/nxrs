@@ -196,22 +196,14 @@ impl Store {
         }
     }
 }
-fn publisher(headers: &HeaderMap) -> Result<(&str, &str), Failure> {
-    let user = headers
-        .get("x-nxrs-publisher")
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| crate::config::identifier(v))
-        .ok_or(Failure(StatusCode::UNAUTHORIZED))?;
-    Ok((bearer(headers)?, user))
-}
 pub(crate) async fn register(
     State(shared): State<Shared>,
     Path(camera): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
-    let (token, user) = publisher(&headers)?;
+    let (token, user) = crate::publisher_identity(&headers)?;
     let mut p = shared.lock().await;
-    if !p.detection_publisher(token, user, &camera) {
+    if !p.publisher_authorized(token, user, &camera) {
         return Err(Failure(StatusCode::UNAUTHORIZED));
     }
     let id = p
@@ -226,9 +218,9 @@ pub(crate) async fn publish(
     headers: HeaderMap,
     payload: Result<Json<Update>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, Failure> {
-    let (token, user) = publisher(&headers)?;
+    let (token, user) = crate::publisher_identity(&headers)?;
     let mut p = shared.lock().await;
-    if !p.detection_publisher(token, user, &camera) {
+    if !p.publisher_authorized(token, user, &camera) {
         return Err(Failure(StatusCode::UNAUTHORIZED));
     }
     let Json(v) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
@@ -517,8 +509,8 @@ mod tests {
     #[test]
     fn metadata_publishers_are_scoped_and_cannot_use_viewer_credentials() {
         let p = GatewayPolicy::new(config(), None).unwrap();
-        assert!(p.detection_publisher(&"b".repeat(64), "publisher", "cam_one"));
-        assert!(!p.detection_publisher(&"a".repeat(64), "publisher", "cam_one"));
-        assert!(!p.detection_publisher(&"b".repeat(64), "publisher", "other"));
+        assert!(p.publisher_authorized(&"b".repeat(64), "publisher", "cam_one"));
+        assert!(!p.publisher_authorized(&"a".repeat(64), "publisher", "cam_one"));
+        assert!(!p.publisher_authorized(&"b".repeat(64), "publisher", "other"));
     }
 }

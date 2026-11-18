@@ -62,6 +62,16 @@ interval between captures. It limits JPEG output to 48 KiB, checks live privacy
 and publication identity through delivery, and reaps the encoder before
 releasing the capture slot. [Snapshot test](../tests/matter/README.md#matter-jpeg-snapshots).
 
+For source-side microphone control, use the `capture-privacy` SDK variant
+and pass `--microphone` to `stage_matter.py`. Add
+`"microphone_control": {"address": "127.0.0.1:18081", "token_file": "/absolute/private/microphone.token"}`
+to the bridge deployment JSON, substituting the gateway's internal listener
+and staged credential. Ingest must use that listener too. The controller
+credential applies to one camera. The bridge renews a 1.5-second capture
+permit only while a fabric is commissioned and the persisted microphone
+setting allows capture. Ingest reads the permit using its own publisher
+identity. [End-to-end witness](../tests/matter/README.md#microphone-capture-control).
+
 The `shutdown-drain` variant bounds pending offers, ICE and outbound signaling.
 SIGTERM and SIGINT close peer admission and join the snapshot worker. The
 bridge keeps Matter transport running for the cancellation reply and a
