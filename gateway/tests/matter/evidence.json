@@ -3270,5 +3270,44 @@
     "whep_session_retired_after_backgrounding": true,
     "whep_delete_http_status": 404,
     "scope": "The stock Nxrs app enrolled over HTTPS using a private simulator trust root. A UI-only test held its dashboard open as WebKit rendered the Home Assistant Matter dialog. A separate screenshot observer sampled the generated source marker, and MediaMTX reported both readers on the same publication around each sample. After browser close the app still rendered the marker. Backgrounding left only the Matter bridge's RTSP reader. The physical iPhone render rate and real-camera concurrency remain open."
+  },
+  "matter_gateway_systemd_qualification": {
+    "system": "Debian 13 ARM64 in QEMU with systemd 257.13",
+    "nxrs_build_revision": "b2b27b9318302639e7ce27c2d953314da1cac79a",
+    "unit_sha256": "d7bd53869410ba0dc858becaf2b6d394222feff919e2c5ec87f1c9de58f5023f",
+    "executable_sha256": "3fb09c272339c3a4a562af779a9401a14441e4d26ac5f2081ba9f607f96810ed",
+    "unprivileged": true,
+    "effective_capabilities": 0,
+    "no_new_privileges": true,
+    "config_read_only": true,
+    "state_writable": true,
+    "failed_closed_with_missing_state": true,
+    "stock_unit_rejected_development_attestation": true,
+    "paired_before_publication": true,
+    "first_frames": 30,
+    "jpeg_size": [
+      640,
+      360
+    ],
+    "media_server_outage_end_reason": 5,
+    "media_server_recovery_frames": 30,
+    "original_bridge_survived_media_restart": true,
+    "systemd_shutdown_seconds": 1.04,
+    "source_continued_after_service_stop": true,
+    "restart_retained_fabric_and_endpoints": true,
+    "restarted_frames": 30,
+    "cold_boot": {
+      "boot_changed": true,
+      "enabled_service_started_without_gateway": true,
+      "previous_fabric_authenticated_before_source": true,
+      "same_service_process_recovered": true,
+      "decoded_frames": 30,
+      "unprivileged": true,
+      "effective_capabilities": 0,
+      "no_new_privileges": true,
+      "config_read_only": true,
+      "state_writable": true
+    },
+    "scope": "An actual systemd service commissioned and streamed generated video under a dedicated account with protected configuration and writable durable state. The service proof enabled test attestation only in a disposable unit override. Cold boot used the already-enrolled service with both upstream listeners absent. It authenticated the saved fabric before the gateway came up and recovered video on the same service process. Physical deployment and production attestation remain open."
   }
 }

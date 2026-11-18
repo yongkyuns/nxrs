@@ -83,6 +83,44 @@ Endpoint assignments and unique IDs persist across catalogue reordering and
 path changes. A deployment selecting a different site or camera needs its own
 state and enrollment. [Configured bridge test](../tests/matter/README.md#configured-camera-and-durable-endpoints).
 
+### Run as a Linux systemd service
+
+Install the verified executable and the supplied service and account files.
+These commands are run from the Nxrs checkout on the gateway host.
+
+```sh
+sudo install -D -m 0644 gateway/deploy/nxrs-matter.sysusers /etc/sysusers.d/nxrs-matter.conf
+sudo systemd-sysusers /etc/sysusers.d/nxrs-matter.conf
+sudo install -D -m 0755 "$gateway_package/nxrs-matter-camera" /usr/local/libexec/nxrs-matter-camera
+sudo install -D -m 0644 gateway/deploy/nxrs-matter.service /etc/systemd/system/nxrs-matter.service
+sudo systemctl daemon-reload
+```
+
+Place `config.json`, the two scoped tokens, factory data and attestation under
+`/etc/nxrs-matter/`. Give the `nxrs-matter` account ownership, with mode `0700`
+for directories and `0600` for files. Set `state_directory` to
+`/var/lib/nxrs-matter/state`. The unit mounts the configuration read-only and
+gives the service write access to `/var/lib/nxrs-matter`.
+
+For a new enrollment, create the private parent directory and run the initial
+commissioning with the service stopped. After pairing, stop the foreground
+command and enable the service. Preserve the existing state directory on
+subsequent installations or restarts.
+
+```sh
+sudo install -d -m 0700 -o nxrs-matter -g nxrs-matter /var/lib/nxrs-matter
+sudo -u nxrs-matter /usr/local/libexec/nxrs-matter-camera \
+  --config /etc/nxrs-matter/config.json --initialize-state --open-commissioning-window
+sudo systemctl enable --now nxrs-matter.service
+```
+
+The bridge reconnects to its authorized source after a gateway or media
+restart. Investigate an exited bridge before restarting `nxrs-matter.service`.
+The unit preserves its fabric across restart and the gateway control and media
+services manage their own processes. The release unit uses the default device
+attestation policy. [Service file](../deploy/nxrs-matter.service) ·
+[Debian service and cold-boot results](../tests/matter/evidence.json).
+
 An absolute `snapshot_ffmpeg` path provides JPEGs from the same authorized H.264 reader used for
 live playback. The gateway allows one capture at a time with a one-second
 interval between captures. It limits JPEG output to 48 KiB, checks live privacy
