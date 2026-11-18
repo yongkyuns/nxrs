@@ -3309,5 +3309,66 @@
       "state_writable": true
     },
     "scope": "An actual systemd service commissioned and streamed generated video under a dedicated account with protected configuration and writable durable state. The service proof enabled test attestation only in a disposable unit override. Cold boot used the already-enrolled service with both upstream listeners absent. It authenticated the saved fabric before the gateway came up and recovered video on the same service process. Physical deployment and production attestation remain open."
+  },
+  "matter_launchd_shutdown_order": {
+    "system": "macOS 27.0.1 ARM64",
+    "controller": "Matter Server 1.6.0",
+    "source": "generated H.264",
+    "build": {
+      "version": 1,
+      "nxrs_revision": "afa05b686fd0ab5f1874eedc7998aa193cff7e14",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-apple-darwin",
+      "pin_file_sha256": "d78bc8e7735aaa8f44363b7b780fba2508532d5a2dc67431a3117630ddb7bfe3",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "f8851f74099abb18680de0fd58ff84a48f982a3b60dd5d653189f5b67d08cdeb"
+    },
+    "prior_launchd_bootout": {
+      "executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+      "continued_playback_after_restart": true,
+      "controller_end_within_six_seconds": false
+    },
+    "launchd_bootout": {
+      "executable_sha256": "f8851f74099abb18680de0fd58ff84a48f982a3b60dd5d653189f5b67d08cdeb",
+      "launchd_domain": "gui",
+      "user_uid_nonzero": true,
+      "missing_state_rejected": true,
+      "no_test_attestation_without_opt_in": true,
+      "paired_while_source_offline": true,
+      "frames_before_stop": 30,
+      "supervisor_stop_seconds": 2.081,
+      "controller_end": {
+        "cause": "peer",
+        "reason": 2
+      },
+      "publication_survived_bootout": true,
+      "fabric_and_endpoint_identity_retained": true,
+      "frames_after_bootstrap": 30,
+      "service_unloaded": true
+    },
+    "shutdown_drain_debug": {
+      "executable_sha256": "1fd13b994795420f923427a6728d3fd87c1af6b69436689765ae4e143f6403e2",
+      "baseline_frames": 30,
+      "timed_out_peers": 2,
+      "timeout_seconds": 20.064,
+      "offline_fabric_rows_released_seconds": 23.05,
+      "outbound_delivery_timeouts": 2,
+      "negotiation_sockets_and_refs_released": true,
+      "live_frames": 45,
+      "live_frames_after_peer_timeouts": 15,
+      "matter_read_during_delayed_snapshot": true,
+      "shutdown_media_end_reason": 2,
+      "shutdown_capture_rejected_and_released": true,
+      "graceful_exit_seconds": 2.037,
+      "active_and_pending_sockets_closed": true,
+      "running_snapshot_encoder_reaped": true,
+      "same_publisher": true,
+      "enrollment_preserved": true,
+      "frames_after_restart": 45
+    },
+    "scope": "Native launchd bootout and bootstrap ran in a disposable login-domain job. The previous executable retired the local reader but the controller did not report the End. The updated bridge lets WebRTC termination and capture cancellation reach the controller before publishing the node shutdown event. The full release binary delivered peer UserHangup and retained the fabric, endpoints and active publisher. The separate shutdown-drain regression also exercised two expired offers, snapshot cancellation and encoder reaping. The running Linux soak is on its original binary. Physical deployment remains open."
   }
 }
