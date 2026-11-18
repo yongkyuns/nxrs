@@ -26,6 +26,7 @@ pub struct Deployment {
     pub factory_data: PathBuf,
     pub state_directory: PathBuf,
     pub ice_address: Ipv4Addr,
+    pub snapshot_ffmpeg: Option<PathBuf>,
 }
 
 impl Deployment {
@@ -49,6 +50,10 @@ impl Deployment {
                 .iter()
                 .any(|s| !s.ip().is_loopback() || s.port() == 0)
             || config.control == config.rtsp
+            || config
+                .snapshot_ffmpeg
+                .as_ref()
+                .is_some_and(|path| !path.is_absolute() || !path.is_file())
             || config.ice_address.is_unspecified()
             || config.ice_address.is_multicast()
             || config.ice_address.is_broadcast()

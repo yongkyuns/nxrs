@@ -9,7 +9,7 @@ XML in Nxrs; follow the upstream source links.
 
 | Requirement | Current fixture / remaining work |
 | --- | --- |
-| Camera AV Stream Management | The Camera type requires video, audio and snapshots. The host fixture streams H.264 and microphone-format mono Opus from a generated A/V source. The physical camera still needs microphone capture and timestamped ingest. Snapshots are also a release dependency. |
+| Camera AV Stream Management | The Camera type requires video, audio and snapshots. Host trials use generated H.264 and microphone-format mono Opus. The snapshot variant also returns bounded JPEGs through the real Matter capture command. Physical camera and microphone input, timing and client qualification remain release requirements. [Snapshot test](README.md#matter-jpeg-snapshots). |
 | WebRTC | Provider server and requestor client are required. Both offer directions and trickled candidates work in the independent receiver; Home Assistant's browser offer also includes an audio section before video. Unsupported media must be rejected without changing SDP indices. |
 | Root-node conditions | Camera requires power-source support, TLS certificate/client management and time synchronization with NTP client, Matter time client and timezone support. The default SDK Ethernet root is not evidence that these conditions are satisfied. |
 | Base device requirements | Descriptor is mandatory. A simple endpoint with a client cluster also requires Binding. Descriptor server/client lists, parts and device types must describe implemented behavior. |

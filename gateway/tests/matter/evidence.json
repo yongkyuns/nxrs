@@ -1348,5 +1348,56 @@
       "hal_boundary_tests": 29
     },
     "scope": "Joined peer resource release for explicit EndSession, cancellation of pending offers and removal of one of two fabrics. The test checks each live peer’s actual nominated UDP port. Long offline signaling deadlines, full process shutdown under load, physical cameras and iPhone remain separate tests."
+  },
+  "jpeg_snapshots": {
+    "fixture": "snapshots",
+    "host": "macOS arm64, pinned Matter Server, generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "ffmpeg_version": "9.0.2",
+    "sha256": {
+      "gateway/matter/src/config.rs": "8819573843e41b6cd962b6810d69b9dad311ac510d67b54aeed5ff6f76502527",
+      "gateway/matter/src/snapshot.rs": "a3dc18a3fb7a6050d56743d08beb710c9335d217ce1f6539f7cdc619a0c08528",
+      "gateway/matter/Cargo.toml": "175f087c7a0173cb054ec133425db28aa23010e39ff277b38d646bf3e4708053",
+      "gateway/tests/matter/snapshots.patch": "30af589da63606a6944d16988b715d9c20589822f84dfb28b182151b1e292d4e",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "gateway/tests/matter/versions.json": "545910f12bc10cf7a5ee1de5a1b27e858a63565532eeaf1c1c2bf006ae961f05",
+      "gateway/tests/matter_snapshot_reference.py": "0855c73804634ba033b0aa3d4eb7b32d8937ba84bee208808e9d8e9ff61ddbe8",
+      "tools/prepare-matter-fixture.py": "2210a584d95fd98bc2350d0c3f942267cbd1621bca757014632caeec790ebd4a"
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "3a1aaf1aea2b76e710f6bd0eec3c209951dcaf46827f59dd96875f79bf93357c",
+    "per_run": {
+      "jpeg_bytes": [
+        18209,
+        6769
+      ],
+      "dimensions": [
+        [
+          640,
+          360
+        ],
+        [
+          320,
+          180
+        ]
+      ],
+      "distinct_publications": true,
+      "live_frames_before_capture": 45,
+      "additional_frames_after_capture": 15,
+      "shared_reader": true,
+      "private_and_offline_rejected": true,
+      "rate_limit_busy_status": 156,
+      "source_loss_cancelled_and_reaped_encoder": true,
+      "allocation_reused_and_released": true
+    },
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "linux_x86_64_cargo_check": true
+    },
+    "scope": "JPEG allocation, scaling, capture, reuse, immediate rate-limit rejection, unavailable and private admission, and encoder reaping before an in-flight source-loss rejection. Concurrent Matter command responsiveness, production conformance, privacy changes made during encoding through an independent access path, and physical capture remain open."
   }
 }

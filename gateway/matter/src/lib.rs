@@ -9,3 +9,4 @@ pub mod occupancy;
 pub mod persistence;
 mod platform;
 pub mod privacy;
+pub mod snapshot;

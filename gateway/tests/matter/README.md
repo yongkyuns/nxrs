@@ -338,6 +338,25 @@ The driver polls its peers as an owned group. Each session has one pending
 negotiation signal, one ICE signal and one terminal reason. The peer accepts
 at most 16 remote ICE candidates within one negotiation.
 
+## Matter JPEG snapshots
+
+Prepare the pinned SDK with `--variant snapshots`. Run
+`gateway/tests/matter_snapshot_reference.py` with the
+[commissioning test](#operator-initiated-commissioning) arguments plus an
+absolute `--ffmpeg` path and a fresh runtime directory.
+
+The commissioned controller allocates a JPEG snapshot stream, decodes the
+returned 640×360 image while live video advances, and requests a 320×180
+image after the source changes. The test verifies source colors, dimensions,
+reuse of the original RTSP reader, and release of the snapshot allocation.
+Separate commands check live privacy, source unavailability and the capture
+interval. The fixture pauses a disposable encoder and verifies its process
+has exited before a source-loss error returns to the controller.
+
+`CaptureSnapshot` is a large-message command. The fixture limits the JPEG
+to 48 KiB within the pinned SDK's 64 KiB interaction buffer.
+[Pinned cluster model](https://raw.githubusercontent.com/project-chip/connectedhomeip/v1.5.1.0/src/app/zap-templates/zcl/data-model/chip/camera-av-stream-management-cluster.xml) · [Results](evidence.json).
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with
