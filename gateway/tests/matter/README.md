@@ -400,6 +400,25 @@ and video session capability. The second leaves it decommissioned and allows
 fresh commissioning with the same endpoint identities. The test reads only
 record keys from the disposable store. [Results](evidence.json).
 
+## Interruption during commissioning
+
+Prepare the pinned SDK with `--variant commissioning-recovery`. Run
+`gateway/tests/matter_commissioning_recovery_reference.py` with the
+[snapshot test](#matter-jpeg-snapshots) arguments plus `--lldb /usr/bin/lldb`.
+Use a fresh runtime directory for each of `--boundary before-replace` and
+`--boundary after-sync`. Repeat both with `--existing-fabric` to exercise a
+bridge that already has an administrator.
+
+The test kills the bridge at the actual `CommissioningComplete` storage
+commit, before any response. Before replacement, the new fabric and allocator
+cursor remain unchanged. After sync, both survive. When the first controller
+misses the confirmation and has no device to manage, local recovery refuses
+a running bridge or the wrong index and permits an explicit sole-fabric
+removal with the media credential unavailable. With two fabrics, local
+recovery refuses removal. The surviving administrator can remove the unused
+one and commission a replacement. The test decodes video after recovery.
+[Results](evidence.json).
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with

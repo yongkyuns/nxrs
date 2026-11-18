@@ -40,7 +40,8 @@
     "sessions.patch": "ef295792ea924fc1dd55bb492b9eec9b9e957291e19ee8f62915e6f664d7b7f1",
     "snapshots.patch": "30af589da63606a6944d16988b715d9c20589822f84dfb28b182151b1e292d4e",
     "shutdown.patch": "63a62d901f5e637cf097f00a0e68c775824f1f46cf5e96d4a08246741844caf6",
-    "final-fabric.patch": "8929823be0fa777cb7d2f7da048b4f517173b66b24225ab14e0a8aa9f2ee3234"
+    "final-fabric.patch": "8929823be0fa777cb7d2f7da048b4f517173b66b24225ab14e0a8aa9f2ee3234",
+    "commissioning-recovery.patch": "87b12231653b1cb97f9a7441565bac2f6f9b3a07cd3d5806d9f701d32745b2f8"
   },
   "home_assistant": {
     "version": "2026.11.2",

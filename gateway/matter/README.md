@@ -37,7 +37,7 @@ Endpoint assignments and unique IDs persist across catalogue reordering and
 path changes. A deployment selecting a different site or camera needs its own
 state and enrollment. [Configured bridge test](../tests/matter/README.md#configured-camera-and-durable-endpoints).
 
-The `snapshots`, `shutdown` and `final-fabric` variants also need an absolute `snapshot_ffmpeg` path in
+The `snapshots` and later variants also need an absolute `snapshot_ffmpeg` path in
 that JSON. It captures JPEGs from the same authorized H.264 reader used for
 live playback. The gateway allows one capture at a time with a one-second
 interval between captures. It limits JPEG output to 48 KiB, checks live privacy
@@ -53,6 +53,24 @@ same commit as the last operational fabric. Factory onboarding and configured
 endpoint identity survive, along with the node's rollback-protection counters.
 Commissioning after removal requires a new operator-opened window after
 restart. [Removal test](../tests/matter/README.md#last-fabric-removal-and-restart).
+
+The `commissioning-recovery` variant stores the new fabric and its allocation
+cursor in one durable write. If a controller misses the confirmation, an
+already enrolled administrator can remove the unused fabric through Matter.
+For a failed first enrollment with no reachable administrator, stop the
+bridge and use the same deployment configuration to inspect the saved indices.
+
+```sh
+webrtc_camera --config "$deployment" --fabric-status
+webrtc_camera --config "$deployment" --remove-sole-fabric "$fabric_index"
+webrtc_camera --config "$deployment" --open-commissioning-window
+```
+
+Run the removal command only for the operator-confirmed abandoned enrollment.
+It requires the exact sole index and exclusive access to the state directory.
+These maintenance commands do not open Matter or read media credentials.
+Removal keeps factory onboarding and both endpoint identities.
+[Recovery test](../tests/matter/README.md#interruption-during-commissioning).
 
 ## Gateway services
 

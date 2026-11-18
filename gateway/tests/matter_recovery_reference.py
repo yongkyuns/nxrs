@@ -19,12 +19,14 @@ from matter_rtsp_reference import ports, start_device, start_media, wait_path
 from matter_viewer_permissions import viewer
 
 
-async def interrupt(stack, folder, args, device, boundary, operation, change, *, remove_key=None):
+async def interrupt(stack, folder, args, device, boundary, operation, change, *, remove_key=None, store_key=None):
     source = Path(__file__).resolve().parents[1] / "matter/src/persistence.rs"
     module = Path(__file__).resolve().with_name("matter") / "commit_breakpoint.py"
     config = dict(pid=device.pid, source=str(source), boundary=boundary, operation=operation)
     if remove_key is not None:
         config["remove_key"] = remove_key
+    if store_key is not None:
+        config["store_key"] = store_key
     (folder / "breakpoint.json").write_text(json.dumps(config))
     debugger = start(stack, folder, "lldb", [
         args.lldb, "--no-lldbinit", "--batch", "--attach-pid", str(device.pid),

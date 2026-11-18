@@ -17,14 +17,14 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True, help="fresh clean rs-matter checkout")
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
-    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy", "commissioning", "viewer-permissions", "source-admission", "catalogue", "sessions", "snapshots", "shutdown", "final-fabric")
+    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy", "commissioning", "viewer-permissions", "source-admission", "catalogue", "sessions", "snapshots", "shutdown", "final-fabric", "commissioning-recovery")
     parser.add_argument("--variant", choices=variants, default="camera")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
     # Each variant builds on the preceding fixture, in patch application order.
     patches = ("rs-matter-camera.patch", "bridge-topology.patch", "live-media.patch",
-               "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch")
+               "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch", "commissioning-recovery.patch")
     sdk_patches = patches[:variants.index(args.variant) + 1]
     engine_patches = ["str0m-rejected-media.patch"]
     if "audio-playback.patch" in sdk_patches:

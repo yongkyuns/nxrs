@@ -1529,5 +1529,79 @@
       "hal_boundary_tests": 29
     },
     "scope": "Last-fabric removal, selective removal with one survivor, invitation closure, existing playback retirement, settings and subscription cleanup, and recovery across the durable rename while using configured endpoint identity. No live camera or production enrollments were used. Interrupted addition of a fabric, physical microphone and production root-node conformance remain open."
+  },
+  "interrupted_commissioning": {
+    "fixture": "commissioning-recovery",
+    "host": "macOS arm64, pinned Matter Server, wired bridge fixture with generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/config.rs": "c96cbf4553210d7dfa038fa7b982507ba5dcb9f63023e7eec9bd9228496bc048",
+      "gateway/matter/src/persistence.rs": "d2dcfcbce9ac62a3f3298123c4febadf0fd2903c88942976c4590d3ef48e5648",
+      "gateway/tests/matter/commit_breakpoint.py": "4e5a1e9fa0de10ff572e09db6539f2bf3e5880ff0f536b8f67028177e7fc9747",
+      "gateway/tests/matter_recovery_reference.py": "a2610e1a321998c1bd02e000133f16939a18f2cd0c566d60cee55a7c7eb4513b",
+      "gateway/tests/matter_commissioning_recovery_reference.py": "0912b1b217efdd8dd6f4024b6c9d1192d5b235cc6214ec6a868f5d2f46c971e4",
+      "gateway/tests/matter/commissioning-recovery.patch": "87b12231653b1cb97f9a7441565bac2f6f9b3a07cd3d5806d9f701d32745b2f8",
+      "gateway/tests/matter/versions.json": "d3c160609f1c876df37a4edd66234ae265e6fdeb18acf9dd62d8659ddcbfb701",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "tools/prepare-matter-fixture.py": "bd0053d4931deb17056f2d4264768b691d4561c9f9a2fc9d60320a23df48b6d9"
+    },
+    "baseline": {
+      "revision": "4af638ba8eed25d85318b53d68ac2062ad45f977",
+      "scenario": "First enrollment killed after storage sync and before the reply. The completed fabric remained but the original Matter Server had no commissioned node on restart.",
+      "result_json_sha256": "ba85d2cc2cfbe3869df01e7767abf81972606195e64f5d15e15f03d4191c36c8"
+    },
+    "trials": [
+      {
+        "result_json_sha256": "0ee3931e214034589315dea2108ec55fac67407162fa61c005ed969729788d78",
+        "boundary": "before-replace",
+        "existing_fabric": false,
+        "cursor_atomic": true,
+        "stock_controller_recovered": null,
+        "local_recovery": false,
+        "original_admin_frames": null,
+        "recommissioned_frames": 45
+      },
+      {
+        "result_json_sha256": "eece047f8d9dedf11c09aa3dfbc84aeef13db57de9463bd432f1bcc4470ff4b3",
+        "boundary": "after-sync",
+        "existing_fabric": false,
+        "cursor_atomic": true,
+        "stock_controller_recovered": false,
+        "local_recovery": true,
+        "original_admin_frames": null,
+        "recommissioned_frames": 45
+      },
+      {
+        "result_json_sha256": "217f528b00006dad893e828fc306dfebc5c8a31f6a038c7c5f469121542442f5",
+        "boundary": "before-replace",
+        "existing_fabric": true,
+        "cursor_atomic": true,
+        "stock_controller_recovered": null,
+        "local_recovery": false,
+        "original_admin_frames": 45,
+        "recommissioned_frames": 45
+      },
+      {
+        "result_json_sha256": "9f3039515fc319c5576ebda691408bf7e6d14affbcd8e7f9472ac452c9abd8c2",
+        "boundary": "after-sync",
+        "existing_fabric": true,
+        "cursor_atomic": true,
+        "stock_controller_recovered": null,
+        "local_recovery": false,
+        "original_admin_frames": 45,
+        "recommissioned_frames": 45
+      }
+    ],
+    "last_fabric_removal_regression_sha256": "8ac363a49b8f742ee367d3ea44406eb83b038ab69efbe75f5f695c5d797fcb5f",
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_persist_core_tests": 20,
+      "sdk_last_fabric_tests": 2,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Process interruption before the atomic replacement and after directory sync on first and additional Ethernet-host enrollment. A fresh operator-opened window restores an abandoned first enrollment. A surviving administrator can withdraw an abandoned additional enrollment. No live camera, physical commissioning, wireless credentials, or direct NuttX behavior was exercised."
   }
 }

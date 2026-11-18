@@ -68,11 +68,11 @@ impl Deployment {
         {
             return Err("invalid Matter deployment");
         }
-        UdpSocket::bind((config.ice_address, 0)).map_err(|_| "ICE address unavailable")?;
         Ok(config)
     }
 
     pub async fn inputs(&self, initializing: bool) -> Result<(Reader, Video, Feed), &'static str> {
+        UdpSocket::bind((self.ice_address, 0)).map_err(|_| "ICE address unavailable")?;
         let (reader, video) = Reader::catalogue(
             self.control,
             self.rtsp,

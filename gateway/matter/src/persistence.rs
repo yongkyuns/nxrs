@@ -208,17 +208,28 @@ impl Store {
     }
 
     pub fn store(&mut self, key: u16, value: &[u8]) -> Result<(), Error> {
+        self.store_with(key, value, &[])
+    }
+
+    /// Store a record and its related entries in one durable replacement.
+    pub fn store_with(
+        &mut self,
+        key: u16,
+        value: &[u8],
+        related: &[(u16, &[u8])],
+    ) -> Result<(), Error> {
         if self.failed {
             return Err(Error::Failed);
         }
-        if value.len() > MAX_VALUE_BYTES
-            || (self.snapshot.entries.len() == MAX_ENTRIES
-                && !self.snapshot.entries.contains_key(&key))
-        {
-            return Err(Error::Capacity);
-        }
         let mut next = self.snapshot.clone();
-        next.entries.insert(key, value.to_vec());
+        for (key, value) in related.iter().copied().chain(std::iter::once((key, value))) {
+            if value.len() > MAX_VALUE_BYTES
+                || (next.entries.len() == MAX_ENTRIES && !next.entries.contains_key(&key))
+            {
+                return Err(Error::Capacity);
+            }
+            next.entries.insert(key, value.to_vec());
+        }
         self.commit(next)
     }
 

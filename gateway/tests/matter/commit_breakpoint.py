@@ -35,12 +35,15 @@ def at_commit(frame, location, _):
     names = [f.GetFunctionName() or "" for f in frame.GetThread()]
     if not any(config["operation"] in name for name in names):
         return False
-    if "remove_key" in config:
+    for method in ("remove", "store"):
+        name = method + "_key"
+        if name not in config:
+            continue
         # The SDK first writes its next-fabric index. Wait for the deletion
         # of the specific fabric record, using the actual store argument.
         if not any("nxrs_gateway_matter::persistence::Store" in (f.GetFunctionName() or "")
-                   and "::remove" in (f.GetFunctionName() or "")
-                   and f.FindVariable("key").GetValueAsUnsigned(lldb.LLDB_INVALID_ADDRESS) == config["remove_key"]
+                   and f"::{method}" in (f.GetFunctionName() or "")
+                   and f.FindVariable("key").GetValueAsUnsigned(lldb.LLDB_INVALID_ADDRESS) == config[name]
                    for f in frame.GetThread()):
             return False
     assert frame.GetThread().GetProcess().GetProcessID() == config["pid"]
