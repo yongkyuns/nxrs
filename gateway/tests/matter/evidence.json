@@ -2059,5 +2059,59 @@
     ],
     "original_enrollment_restored": true,
     "scope": "Native macOS 27.0.1 ARM64 with an independent Matter Server 1.6.0 and the pinned public development credentials. No production credential or protected signer was qualified."
+  },
+  "camera_endpoint_bindings": {
+    "fixture": "camera-endpoints",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "8b55ea1029bdd9a9d45a3898d98ecba3b0be4cd7c4c3b26f5c4f4d4796df6cc4",
+    "source_sha256": {
+      "gateway/tests/matter/camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
+      "gateway/tests/matter_attestation_reference.py": "f5af8872e9e24441d3573933c5585edf6e927999b3430b13e096d548dadc2ff5",
+      "tools/prepare-matter-fixture.py": "63a2564c4a761e5e70d4369e8ee8d29bc9a68b355d67c7a0147baf01902d6d08",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "d5df115f7966defd0bdc94e14bbebce857192c1bf2236c86f70d31d7f121a5b9",
+    "inadmissible_bundles": [
+      "missing",
+      "development_on_default_path",
+      "exposed_key",
+      "wrong_key",
+      "altered_declaration",
+      "wrong_product"
+    ],
+    "new_state_untouched_on_rejection": true,
+    "provided_basic_information": true,
+    "changed_identity_preserved_durable_state": true,
+    "flows": [
+      "receiver-offer",
+      "camera-offer"
+    ],
+    "frames": [
+      45,
+      45
+    ],
+    "original_enrollment_restored": true,
+    "camera_server_clusters": [
+      29,
+      4,
+      1361,
+      30,
+      1363,
+      57
+    ],
+    "camera_client_clusters": [
+      1364
+    ],
+    "aggregator_parts": [
+      1,
+      3
+    ],
+    "binding_fabric_isolation": true,
+    "binding_overflow_preserves_entries": true,
+    "binding_restart_persistence": true,
+    "binding_selective_removal": true,
+    "binding_interrupted_removal_repaired": true,
+    "scope": "Native macOS 27.0.1 arm64, independent Matter Server 1.6.0, development attestation and generated H.264. The interrupted-removal snapshot recreates the durable gap between fabric deletion and Binding cleanup. Root conditions, product attestation and physical microphone, camera and iPhone qualification remain open."
   }
 }

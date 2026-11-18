@@ -638,9 +638,9 @@ discriminator's subtype with `dns-sd -B '_matterc._udp,_L<discriminator>' local.
 The `--code manualCode` trial starts with the manually entered code.
 [Measured results](evidence.json).
 
-## Provisioned device attestation
+## Provisioned device attestation and camera endpoints
 
-Prepare the pinned host SDK with `--variant provisioned-attestation` and the
+Prepare the pinned host SDK with `--variant camera-endpoints` and the
 same DNS-SD archive as the scoped LAN build. The bridge's deployment JSON
 requires an absolute `attestation_directory`. Keep that directory on the
 trusted host filesystem with mode 0700 and its regular files with mode 0600.
@@ -665,8 +665,15 @@ Run `gateway/tests/matter_attestation_reference.py` with the
 [snapshot test](#matter-jpeg-snapshots) arguments plus `--sdk` pointing to
 the prepared SDK. The test extracts the pinned upstream public development
 vectors into a private runtime and enables them with `--allow-test-attestation`.
-It checks invalid input before state creation, commissioning, playback,
-identity-change rejection and playback after restart with the same fabric.
+It checks invalid input before state creation, commissioning and
+identity-change rejection. It verifies the Camera's WebRTC Requestor client,
+Binding server and omission of Zone Management and digital PTZ. Two
+independent fabrics write their own bindings and read them back after restart.
+An oversized list replacement preserves both fabrics' entries. Removing one
+fabric removes its bindings and keeps those of the survivor. A test snapshot
+reproduces an interruption between fabric removal and Binding cleanup. On
+restart the bridge prunes the obsolete entries before accepting requests.
+The surviving enrollment plays video after recovery.
 Use product-issued credentials for real device qualification. Production
 credential issuance and protected-key lifecycle have separate release gates.
 [Results](evidence.json).
