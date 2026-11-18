@@ -1008,5 +1008,72 @@
       "gateway_clippy_warnings_denied": true
     },
     "scope": "The Matter endpoint and receiving peer ran on macOS. The source produced a known generated tone. Physical microphone capture, effects on non-Matter recording and detection, iPhone playback and physical A/V timing remain open."
+  },
+  "operator_commissioning": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "commissioning",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/commissioning.rs": "0048e1f16aeac23172ef4a78bd36c96046abca66cae9f78c433563687582a5f7",
+      "gateway/tests/matter/commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3",
+      "gateway/tests/matter/provision.cjs": "fa6f76b3e05e69366ef61ea6307547014a413aeef6b8fb5a7607d6231059e1b3",
+      "gateway/tests/matter_commissioning_reference.py": "fcc740bba8af5a00b7950876516219ef187d86c43bd09d07d1cdee8e0b85dff3",
+      "gateway/tests/matter_rtsp_reference.py": "a6a254f40e6ce5d66f10a9be00fc80209c27cb777733712adbc8e011596a7269",
+      "tools/prepare-matter-fixture.py": "c5dfb5a209d5856b8011c08228805dab1bb609b825c6ed81bf2534b954b3ca12",
+      "gateway/tests/matter/Cargo.lock": "438fe16d73024641d1b2e4ff687f59a028e208c6f160b4e68f594f71ce24245e"
+    },
+    "window_seconds": 180,
+    "checks_passed_in_both_runs": [
+      "initialization_closed",
+      "empty_restart_closed",
+      "commissioned_restart_closed",
+      "last_fabric_removal_closed",
+      "replacement_and_world_readable_factory_rejected",
+      "invalid_curve_point_rejected_before_state_creation",
+      "commissioned_local_open_rejected",
+      "expired_window_denied_commissioning",
+      "commissioned_with_independent_verifier"
+    ],
+    "runs": [
+      {
+        "first_code": "qrCode",
+        "code_after_last_fabric_removed": "manualCode",
+        "decoded_frames_before_and_after_restart": [
+          30,
+          30
+        ],
+        "fresh_discovery_complete_seconds_after_launch": 185.34,
+        "original_controller_still_listed_expired": true
+      },
+      {
+        "first_code": "manualCode",
+        "code_after_last_fabric_removed": "qrCode",
+        "decoded_frames_before_and_after_restart": [
+          30,
+          30
+        ],
+        "fresh_discovery_complete_seconds_after_launch": 185.26,
+        "original_controller_still_listed_expired": true
+      }
+    ],
+    "macos_bonjour": {
+      "trial_first_code": "qrCode",
+      "removal_seconds_after_launch": 181.3,
+      "interfaces_with_removal": 2
+    },
+    "regressions": {
+      "default_gateway_tests": 74,
+      "additional_ffmpeg_tests": 1,
+      "sdk_dm_tests": 366,
+      "sdk_example_tests": 3,
+      "gateway_clippy_warnings_denied": true,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "A real independent Matter Server commissioned a generated-media node on the Mac with the SDK development attestation chain. The passcode stayed with the operator. Physical iPhone scanning, production attestation, interrupted fabric removal, Linux discovery and physical media remain open."
   }
 }

@@ -21,7 +21,7 @@
     "patch": "str0m-rejected-media.patch"
   },
   "sha256": {
-    "Cargo.lock": "af1d1e7457e7c8d9616c250901a787cef9cbcaeab94a41534fe8285381a8f459",
+    "Cargo.lock": "438fe16d73024641d1b2e4ff687f59a028e208c6f160b4e68f594f71ce24245e",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
@@ -32,7 +32,8 @@
     "audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7",
     "audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
     "str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012",
-    "privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1"
+    "privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1",
+    "commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3"
   },
   "home_assistant": {
     "version": "2026.11.2",

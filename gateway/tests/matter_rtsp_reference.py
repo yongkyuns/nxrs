@@ -111,7 +111,7 @@ def start_media(stack, root, args):
     return gateway, server, controller, rtsp
 
 
-def start_device(stack, root, args, gateway, rtsp, state, *, initialize=False):
+def start_device(stack, root, args, gateway, rtsp, state, *, initialize=False, extra_args=()):
     env = dict(os.environ, WEBRTC_CAMERA_TRIAL_DIR=str(root), TMPDIR=str(root),
                WEBRTC_CAMERA_STATE=str(state.resolve()), WEBRTC_RTSP_ADDR=f"127.0.0.1:{rtsp}",
                WEBRTC_RTSP_PATH="cam", WEBRTC_RTSP_USER="reader", WEBRTC_RTSP_TOKEN_FILE=str(gateway.credentials["reader"]),
@@ -119,7 +119,7 @@ def start_device(stack, root, args, gateway, rtsp, state, *, initialize=False):
     for key in ("WEBRTC_CAMERA_H264", "WEBRTC_CAMERA_CONTROL"):
         env.pop(key, None)
     command = [args.device, "--initialize-state"] if initialize else [args.device]
-    return start(stack, root, "matter", command, env)
+    return start(stack, root, "matter", [*command, *extra_args], env)
 
 
 def run(args):

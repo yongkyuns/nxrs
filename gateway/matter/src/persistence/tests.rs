@@ -65,6 +65,25 @@ mod files {
     }
 
     #[test]
+    fn interrupted_onboarding_stays_uncommissionable_on_restart() {
+        use crate::commissioning::{Error as OnboardingError, FactoryData};
+        let fixture = Fixture::new();
+        drop(fixture.initialize()); // Process exited before recording its factory identity.
+        let mut state = Store::open(&fixture.path()).unwrap();
+        let factory = FactoryData {
+            discriminator: 1,
+            iterations: 10000,
+            salt: vec![1; 16],
+            verifier: [1; 97],
+        };
+        assert_eq!(
+            factory.bind(&mut state, 0x1003, false),
+            Err(OnboardingError::IdentityMismatch)
+        );
+        assert!(state.load(0x1003, &mut [0; 32]).unwrap().is_none());
+    }
+
+    #[test]
     fn explicit_initialization_single_writer_and_durable_mutations() {
         let fixture = Fixture::new();
         assert!(Store::open(&fixture.path()).is_err());

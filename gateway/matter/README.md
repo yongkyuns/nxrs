@@ -34,6 +34,12 @@ Each successful mutation syncs a new snapshot, atomically replaces the old file,
 then syncs the directory. A failed mutation makes further access fail until
 restart. Callers must retire network sessions before releasing the owner.
 
+`commissioning::FactoryData` reads a private verifier file and binds its
+fingerprint to the node store. The responder can authenticate a commissioner
+without holding the printed setup code. The host fixture checks the scalar
+and curve point before creating state, and the SDK owns the window timer
+and multicast advertisement. [Commissioning and restart test](../tests/matter/README.md#operator-initiated-commissioning).
+
 Linux and macOS use std file operations with private file/directory permissions,
 exclusive ownership and link checks. Other OS bindings return unavailable;
 the snapshot format remains portable. The trusted local filesystem must preserve

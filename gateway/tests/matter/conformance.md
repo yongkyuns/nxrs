@@ -17,6 +17,12 @@ XML in Nxrs; follow the upstream source links.
 | Occupancy Sensor type | A separate Occupancy Sensor requires Identify and Occupancy Sensing. Its availability must expire independently from live video. |
 | Persistent identity | On macOS two independent administrators commissioned the bridge. Removing one fabric stopped its video while the other kept playing. After restart, 253 real commissioning cycles led to reuse of the removed index. The new fabric started with no sessions and could open video. The retired controller could no longer read the node. Durable endpoint assignment, interrupted multi-admin mutations and semantic recovery still need qualification. |
 
+The commissioning fixture accepts a private device-specific verifier and requires
+an explicit local request to open the initial 180-second window. The pinned
+development DAC, PAI and certification declaration remain qualification inputs.
+Shipping requires provisioned product attestation and a separately assessed
+private-key lifecycle. [Operator-initiated commissioning](README.md#operator-initiated-commissioning).
+
 The cluster's feature choices and the device type's requirements are different
 constraints. A video-only Camera AV Stream Management cluster may work with a
 client while failing the standard Camera device type's mandatory feature set.

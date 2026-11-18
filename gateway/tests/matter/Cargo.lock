@@ -3095,6 +3095,7 @@ dependencies = [
 name = "nxrs-gateway-matter"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bytes",
  "cfg-if",
  "futures-util",
@@ -3104,6 +3105,7 @@ dependencies = [
  "libc",
  "nxrs-detection-wire",
  "retina",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tokio",

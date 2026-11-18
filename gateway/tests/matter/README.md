@@ -381,6 +381,49 @@ write leaves the separately admitted LiveView usage available. This test
 covers the Matter viewer. Physical microphone capture, recorder behavior and
 the product-wide scope of privacy controls still require qualification.
 
+## Operator-initiated commissioning
+
+Prepare the pinned SDK with `--variant commissioning`. This variant uses the
+SDK's development attestation chain and test VID/PID. To create disposable
+onboarding material offline with the pinned Matter Server dependencies, run this command.
+
+```sh
+node gateway/tests/matter/provision.cjs "$matter_runtime" "$matter_runtime/new-device"
+```
+
+The output directory must be new. Keep `onboarding.json` with the operator.
+It contains the QR payload and manual code. Give the gateway only the private
+`factory.json` file. It contains a SPAKE2+ verifier, salt, iteration count and
+discriminator. Use an absolute path on the trusted local filesystem with mode
+0600. The device validates the P-256 material and binds its fingerprint to
+the persistent node state. Preserve this file and the state directory together.
+[Upstream provisioning tool and verifier format](https://project-chip.github.io/connectedhomeip-doc/scripts/tools/spake2p/README.html).
+
+Pass `--factory-data /absolute/path/to/factory.json` at each startup. Use
+`--initialize-state` once with a new state directory. To commission an
+unowned node, explicitly pass `--open-commissioning-window` for that startup.
+The local window lasts 180 seconds. An enrolled administrator can invite
+another fabric through Matter's enhanced commissioning command.
+
+Run the independent controller trial with a fresh, private runtime directory.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_commissioning_reference.py \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" --device "$matter_sdk/target/debug/webrtc_camera" \
+  --gateway gateway/target/debug/nxrs-gateway-control --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx /absolute/path/to/mediamtx --runtime "$matter_runtime/commissioning" --interface en1 --ip <fixture-lan-ip>
+```
+
+Two macOS runs paired with the QR payload and manual code in opposite orders.
+Each decoded 30 changing video frames before and after an abrupt restart.
+The pinned controller continued listing the expired device. Fresh discovery
+did not find it and the original controller's valid code could not commission
+it. In one run the system Bonjour browser reported removal 181.30 seconds
+after process launch. To observe that event on macOS, browse the factory
+discriminator's subtype with `dns-sd -B '_matterc._udp,_L<discriminator>' local.`.
+The `--code manualCode` trial starts with the manually entered code.
+[Measured results](evidence.json).
+
 ## Two administrators and active fabric removal
 
 With the other test processes stopped, use the receiver Python environment,
