@@ -3370,5 +3370,83 @@
       "frames_after_restart": 45
     },
     "scope": "Native launchd bootout and bootstrap ran in a disposable login-domain job. The previous executable retired the local reader but the controller did not report the End. The updated bridge lets WebRTC termination and capture cancellation reach the controller before publishing the node shutdown event. The full release binary delivered peer UserHangup and retained the fabric, endpoints and active publisher. The separate shutdown-drain regression also exercised two expired offers, snapshot cancellation and encoder reaping. The running Linux soak is on its original binary. Physical deployment remains open."
+  },
+  "matter_linux_shutdown_order": {
+    "system": "Debian 13 ARM64 in QEMU with systemd 257.13 and native Avahi DNS-SD",
+    "controller": "Matter Server 1.6.0",
+    "build": {
+      "version": 1,
+      "nxrs_revision": "88008370aa1b08ed103cc7b115502279b652a3b7",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-unknown-linux-gnu",
+      "pin_file_sha256": "d78bc8e7735aaa8f44363b7b780fba2508532d5a2dc67431a3117630ddb7bfe3",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "dca33fb7cac47d1737541024316c93bd9dc732fc5fd4c8b48f88f10d3d6e68da"
+    },
+    "systemd": {
+      "unit_sha256": "d7bd53869410ba0dc858becaf2b6d394222feff919e2c5ec87f1c9de58f5023f",
+      "temporary_unit_sha256": "64a9ca84cdb1b656090af60d128c06a98627c698bc4db7b77fcf7c9136c93078",
+      "shutdown_end_reason": 2,
+      "stop_seconds": 2.051,
+      "media_server_outage_end_reason": 5,
+      "media_server_recovery_frames": 30,
+      "paired_before_publication": true,
+      "publisher_survived_stop": true,
+      "fabric_and_endpoints_retained": true,
+      "resumed_frames": 30
+    },
+    "rehearsal": {
+      "duration_seconds": 120.288,
+      "viewers": 4,
+      "samples": 13,
+      "checks": [
+        "slow_offer",
+        "restart",
+        "revoke"
+      ],
+      "media": "generated H.264",
+      "rendered_fps": null,
+      "peak_rss_kib": 11156,
+      "min_decoded_fps": 14.945,
+      "events": [
+        {
+          "kind": "slow_offer",
+          "elapsed_seconds": 50.974,
+          "recovery_seconds": 20.955,
+          "offer_retired_seconds": 20.06,
+          "replacement_startup_seconds": 0.857
+        },
+        {
+          "kind": "restart",
+          "elapsed_seconds": 66.981,
+          "recovery_seconds": 6.963,
+          "startup_seconds": [
+            1.759,
+            0.997,
+            1.0,
+            1.003
+          ]
+        },
+        {
+          "kind": "revoke",
+          "elapsed_seconds": 107.98,
+          "recovery_seconds": 17.973,
+          "revoked_fabric_replaced": true,
+          "removed_rtp_packets": 0,
+          "surviving_frames": [
+            60,
+            60,
+            60
+          ],
+          "longest_surviving_gap_seconds": 0.109,
+          "replacement_commission_seconds": 3.023,
+          "replacement_startup_seconds": 0.875
+        }
+      ]
+    },
+    "scope": "Temporary unit used the checked-in service's constraints with separate paths and a development-attestation override. The otherwise identical unit rejected development attestation by default. The same patched Linux release completed the four-viewer fault rehearsal with generated media. The long soak continues on the prior Linux executable; physical installation and iPhone playback remain open."
   }
 }
