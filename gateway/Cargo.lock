@@ -127,6 +127,12 @@ checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
 dependencies = ["memchr"]
 
 [[package]]
+name = "bumpalo"
+version = "3.20.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
+
+[[package]]
 name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,6 +245,20 @@ checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = ["proc-macro2", "quote", "syn 3.0.9"]
 
 [[package]]
+name = "domain"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b68712c02bff2348323c1441ab2e8528e32af4f8f9edf29356356290328c8e6"
+dependencies = ["bumpalo", "bytes", "domain-macros", "hashbrown", "jiff", "octseq", "serde"]
+
+[[package]]
+name = "domain-macros"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fba8fbc4580c745dfeab102232dcb729f030ac3e2c9ff5374a9dfd6dc9ddf8e"
+dependencies = ["proc-macro2", "quote", "syn 2.0.119"]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -286,6 +306,12 @@ name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
+
+[[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
@@ -414,6 +440,7 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = ["foldhash"]
 
 [[package]]
 name = "hermit-abi"
@@ -801,7 +828,7 @@ dependencies = ["axum", "bytes", "futures-util", "getrandom 0.3.4", "http-body-u
 [[package]]
 name = "nxrs-gateway-matter"
 version = "0.1.0"
-dependencies = ["base64 0.22.1", "bytes", "cfg-if", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nxrs-detection-wire", "retina", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "zeroize"]
+dependencies = ["base64 0.22.1", "bytes", "cfg-if", "domain", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nxrs-detection-wire", "retina", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "zeroize"]
 
 [[package]]
 name = "nxrs-parser-fuzz"
@@ -827,6 +854,13 @@ version = "0.1.0"
 dependencies = [
  "nxrs-camera",
 ]
+
+[[package]]
+name = "octseq"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "182eab3e1cd9cdc0ecf1ce3342d9844f3dc7d098f0694569bfdf327b612d69fd"
+dependencies = ["bytes", "serde"]
 
 [[package]]
 name = "oid-registry"

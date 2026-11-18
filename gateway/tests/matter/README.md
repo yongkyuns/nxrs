@@ -721,8 +721,27 @@ The witness verifies that the trusted Matter source takes precedence, that
 fallback resumes after fabric removal, and that the setting survives
 restart. The macOS trial used Cloudflare's published IPv6 time service.
 UDP loopback tests cover reply validation and timeouts without internet
-access. DHCP/DNS-SD source discovery and TLS management remain open.
+access.
 [SNTPv4 protocol](https://www.rfc-editor.org/rfc/rfc5905) · [Time service](https://developers.cloudflare.com/time-services/ntp/usage/) · [Results](evidence.json).
+
+### DNS-SD time sources
+
+Prepare `--variant dns-sd-time`. The bridge browses for `_ntp._udp.local`
+on the selected LAN before trying trusted Matter time and the configured
+fallback. It uses bounded unicast responses to multicast queries from an
+ephemeral port. PTR, SRV and address records can arrive separately.
+Only NTP on UDP 123 is eligible.
+
+In a disposable Linux guest, run `gateway/tests/matter_ntp_discovery.py`
+with the attestation test arguments except `--interface` and `--ip`. The
+runner creates two private veth links and compares distinct clock values.
+It checks that the advertised clock on the other link is ignored, that
+the selected link's advertised clock supersedes the configured fallback,
+and that removing it restores fallback and playback on the same enrollment
+after restart. Use the macOS trusted-clock test with `--default-ntp` on
+a network without an advertised NTP source to check fallthrough.
+DHCP time-source integration and TLS management remain open.
+[mDNS queries](https://www.rfc-editor.org/rfc/rfc6762#section-6.7) · [DNS-SD](https://www.rfc-editor.org/rfc/rfc6763) · [Results](evidence.json).
 
 ## Two controllers on the same fabric
 

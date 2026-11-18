@@ -1403,10 +1403,14 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b68712c02bff2348323c1441ab2e8528e32af4f8f9edf29356356290328c8e6"
 dependencies = [
+ "bumpalo",
+ "bytes",
  "domain-macros",
+ "hashbrown",
  "heapless 0.9.3",
  "jiff",
  "octseq",
+ "serde",
 ]
 
 [[package]]
@@ -3098,6 +3102,7 @@ dependencies = [
  "base64",
  "bytes",
  "cfg-if",
+ "domain",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -3130,7 +3135,9 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "182eab3e1cd9cdc0ecf1ce3342d9844f3dc7d098f0694569bfdf327b612d69fd"
 dependencies = [
+ "bytes",
  "heapless 0.9.3",
+ "serde",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 //! Resolve the configured LAN once and scope all Matter sockets to it.
 
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use std::{
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket},
@@ -77,6 +77,17 @@ impl Lan {
         }
         socket.bind(&addr.into())?;
         Ok(socket.into())
+    }
+
+    pub fn bind_mdns_query(self, addr: SocketAddr) -> io::Result<UdpSocket> {
+        let socket = self.bind_udp(addr)?;
+        if addr.is_ipv6() {
+            SockRef::from(&socket).set_multicast_hops_v6(255)?;
+        } else {
+            socket.set_multicast_ttl_v4(255)?;
+        }
+        socket.set_nonblocking(true)?;
+        Ok(socket)
     }
 
     pub fn listen_tcp(self, addr: SocketAddr) -> io::Result<TcpListener> {

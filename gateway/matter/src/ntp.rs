@@ -1,10 +1,12 @@
 //! Bounded SNTPv4 queries on a socket selected by the deployment.
 use std::{
     io,
-    net::{Ipv6Addr, SocketAddrV6},
+    net::{IpAddr, SocketAddr, SocketAddrV6},
     time::{Duration, Instant, SystemTime},
 };
 use tokio::{net::UdpSocket, time::timeout};
+
+pub mod discovery;
 
 const NTP_PORT: u16 = 123;
 const NTP_HEADER: usize = 48;
@@ -14,19 +16,19 @@ const MICROS_PER_SECOND: i128 = 1_000_000;
 const NTP_ERA: i128 = 1 << 32;
 const QUERY_DEADLINE: Duration = Duration::from_secs(3);
 
-pub fn server_address(address: Ipv6Addr, interface: u32) -> SocketAddrV6 {
-    let scope = if address.is_unicast_link_local() {
-        interface
-    } else {
-        0
-    };
-    SocketAddrV6::new(address, NTP_PORT, 0, scope)
+pub fn server_address(address: impl Into<IpAddr>, interface: u32) -> SocketAddr {
+    match address.into() {
+        IpAddr::V6(address) if address.is_unicast_link_local() => {
+            SocketAddrV6::new(address, NTP_PORT, 0, interface).into()
+        }
+        address => SocketAddr::new(address, NTP_PORT),
+    }
 }
 
 /// Return Matter epoch microseconds from the configured NTP endpoint.
 /// The connected UDP socket and echoed request timestamp bind the response
 /// to this query. This transport is unauthenticated SNTP.
-pub async fn sample(socket: UdpSocket, peer: SocketAddrV6, nonce: [u8; 8]) -> io::Result<u64> {
+pub async fn sample(socket: UdpSocket, peer: SocketAddr, nonce: [u8; 8]) -> io::Result<u64> {
     socket.connect(peer).await?;
     let mut request = [0; NTP_HEADER];
     request[0] = 0x23; // Version 4, client.
@@ -84,6 +86,7 @@ fn sample_time(reply: &[u8], nonce: [u8; 8], unix_hint: u64, elapsed: Duration) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv6Addr;
 
     fn response(nonce: [u8; 8], seconds: u32) -> [u8; NTP_HEADER] {
         let mut reply = [0; NTP_HEADER];
@@ -112,20 +115,15 @@ mod tests {
         }
         assert_eq!(sample_time(&reply[..47], token, hint, delay), None);
         assert_eq!(
-            server_address("fe80::1".parse().unwrap(), 12).scope_id(),
-            12
+            server_address("fe80::1".parse::<Ipv6Addr>().unwrap(), 12),
+            SocketAddrV6::new("fe80::1".parse().unwrap(), 123, 0, 12).into()
         );
-        assert_eq!(server_address(Ipv6Addr::LOCALHOST, 12).scope_id(), 0);
     }
 
     #[tokio::test]
     async fn receives_a_fresh_sample_over_udp() {
-        use std::net::SocketAddr;
-
         let server = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
-        let SocketAddr::V6(peer) = server.local_addr().unwrap() else {
-            panic!("expected IPv6 listener");
-        };
+        let peer = server.local_addr().unwrap();
         let client = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
         let nonce = *b"87654321";
         let utc = SystemTime::now()
@@ -152,9 +150,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn stops_waiting_when_the_server_is_silent() {
         let server = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
-        let std::net::SocketAddr::V6(peer) = server.local_addr().unwrap() else {
-            panic!("expected IPv6 listener");
-        };
+        let peer = server.local_addr().unwrap();
         let client = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
         let error = sample(client, peer, *b"12345678").await.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);

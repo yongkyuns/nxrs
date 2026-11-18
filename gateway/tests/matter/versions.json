@@ -25,7 +25,7 @@
     "archive_sha256": "661c82dba25552a2d5c0d0783d6161dfbe8c875fc734a7171bbef3882dbb7acc"
   },
   "sha256": {
-    "Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa",
+    "Cargo.lock": "70e150a186e717fe34ef4a6dd78fa3ad215c1519c6406e7e9d64fdd70f18df32",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
@@ -54,7 +54,8 @@
     "camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
     "root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b",
     "trusted-matter-time.patch": "dc9b0d5384a132f69a0e400ccbd9429300f3936bdc7ae019dcdf95952c9eb50a",
-    "default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285"
+    "default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285",
+    "dns-sd-time.patch": "1226a01f9a27e71b591307e428473df2dc8b71b490d0ba543aeb9f30a51be249"
   },
   "home_assistant": {
     "version": "2026.11.2",

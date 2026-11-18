@@ -2201,5 +2201,46 @@
       30
     ],
     "scope": "Native macOS 27.0.1 arm64, Matter Server 1.6.0, independent Matter.js clock, Cloudflare public IPv6 SNTP, development attestation and generated H.264. Separate loopback tests checked validity, era rollover and silent-server timeout. DHCP and DNS-SD time-source discovery, authenticated network time, TLS management and physical release qualification remain outside this witness."
+  },
+  "dns_sd_time_sources": {
+    "fixture": "dns-sd-time",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "kernel": "6.12.117+deb13-cloud-arm64",
+    "arch": "aarch64",
+    "test": {
+      "selected_lan_dns_sd": true,
+      "excluded_lan_clock_unused": true,
+      "preferred_discovered_clock": true,
+      "fallback_after_withdrawal": true,
+      "frames": [
+        30,
+        30,
+        30
+      ]
+    },
+    "linux_result_sha256": "896ed092075a22cfc0a46d6aaa85803831fcdfe2970968a6c12cb15a2bb8bcb0",
+    "linux_bridge_sha256": "bc585021b715d42677580793da8eb1bbda87653f54ea09903470656bedafb2a8",
+    "linux_gateway_sha256": "6aad6ab86e0dbbcf65d831e64b81df9fe72f4ef293daafeae217441934717626",
+    "linux_publisher_sha256": "f33882bc745b0d7dbb0f8ebbf78706dd3df28002c3961bb5c75bcf0d5d3d174d",
+    "source_sha256": {
+      "gateway/Cargo.lock": "0b178da7b1661df54fae98326af35b11f672bb40632597d8bf52dd452c94ebf9",
+      "gateway/matter/Cargo.toml": "8133122630962d7a69590695ca381b8de3473ad17665a6650eddfbe7bfe8651d",
+      "gateway/matter/src/ntp.rs": "01d232dc34099c3bd206134e3f06b4394594c8db55b98a0b890ededc70d034e1",
+      "gateway/matter/src/ntp/discovery.rs": "52e044acfff1db8cc9c1f878b9572865869e6519a5b3165b901c282792afed9e",
+      "gateway/matter/src/platform/lan.rs": "3f6fc880830ac0f93d52ec9ddb8a3e5e40c0e7970d6324df2578c84680ffe2b1",
+      "gateway/tests/matter/Cargo.lock": "70e150a186e717fe34ef4a6dd78fa3ad215c1519c6406e7e9d64fdd70f18df32",
+      "gateway/tests/matter/dns-sd-time.patch": "1226a01f9a27e71b591307e428473df2dc8b71b490d0ba543aeb9f30a51be249",
+      "gateway/tests/matter_ntp_discovery.py": "dbd3b81c8eeccf421fc87b24e55ee1542886152ea41b5318c863a1fce7166f03",
+      "tools/prepare-matter-fixture.py": "036fedf9e21036b5d8df3baacaf39e1b11c998df6d74fa5f4cbdf6e884a71145"
+    },
+    "macos_bridge_sha256": "1558d3884a8ced3c8a8fb92cf7087ae87017ed505cb6eb6e4f64622b5256fdff",
+    "macos_result_sha256": "4ba0aff169766e58a87c975afe8837f7240cd46e3f95c64fff513f454c6b2d90",
+    "macos_frames": [
+      30,
+      30
+    ],
+    "macos_trusted_and_configured_fallback": true,
+    "scope": "Debian 13 arm64 QEMU with private veth links, generated IPv6 DNS-SD and SNTP lab clocks, independent Matter Server 1.6.0 and generated H.264. Native macOS 27.0.1 arm64 qualified fallthrough to trusted Matter and configured public IPv6 SNTP. UDP loopback checks cover separate DNS records, mismatched transactions, and zero-lifetime records. DHCP, remaining source-priority rules, TLS management and physical release qualification remain open."
   }
 }
