@@ -158,11 +158,10 @@ async def run(args):
             )
             assert await sessions(guest, other) == waiting.keys() and await references() == original_refs + 2
             assert all(socket_owned(args.ip, port) for port in waiting.values())
-            async with measured_peer(client, node, 1, "receiver-offer", 45, request_end=False) as (
-                live,
-                peer,
-                track,
-            ):
+            ended = asyncio.get_running_loop().create_future()
+            async with measured_peer(
+                client, node, 1, "receiver-offer", 45, request_end=False, end_reason=ended,
+            ) as (live, peer, track):
                 [live_id] = await sessions()
                 live_port = selected_port(peer, args.ip)
                 frames = Frames()
@@ -228,6 +227,8 @@ async def run(args):
                         assert device.poll() is None
                         async with asyncio.timeout(2):
                             assert await attribute(client, node, SNAPSHOTS) == []
+                        end_reason = await asyncio.wait_for(ended, 3)
+                        assert end_reason == 2, "expected Matter UserHangup before node shutdown"
                         assert await asyncio.to_thread(device.wait, 8) == 0
                         shutdown_seconds = time.monotonic() - before
                         try:
@@ -281,6 +282,7 @@ async def run(args):
                 live_frames=live["decoded_frames"],
                 live_frames_after_peer_timeouts=15,
                 matter_read_during_delayed_snapshot=True,
+                shutdown_media_end_reason=end_reason,
                 shutdown_capture_rejected_and_released=True,
                 graceful_exit_seconds=round(shutdown_seconds, 3),
                 active_and_pending_sockets_closed=True,

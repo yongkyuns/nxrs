@@ -498,10 +498,12 @@ stream references while the other fabric keeps decoding. The paused controller
 cannot acknowledge either End notification. During shutdown, the process has a decoding peer, a
 pending offer and an active JPEG encoder. A separate Matter read completes while
 the capture is pending. SIGTERM closes admission, retires peers, and reaps
-the encoder. The bridge keeps Matter transport up for a bounded drain so
-the controller receives the cancellation and releases its snapshot stream
-before exit. The same publisher and enrolled controller resume playback
-after restart.
+the encoder. The controller must observe capture cancellation, release its
+snapshot stream and receive the live peer's Matter `UserHangup` reason.
+The bridge gives those replies and notifications one second before emitting
+the node's `ShutDown` event, then keeps the transport up for one more second
+for subscription delivery. The same publisher and enrolled controller
+resume playback after restart.
 [Results](evidence.json).
 
 ## Last-fabric removal and restart

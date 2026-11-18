@@ -121,6 +121,48 @@ services manage their own processes. The release unit uses the default device
 attestation policy. [Service file](../deploy/nxrs-matter.service) ·
 [Debian service and cold-boot results](../tests/matter/evidence.json).
 
+### Run in a macOS login session
+
+Use the same macOS account for foreground commissioning and the launch
+agent so both have access to the private files and state. Stop the foreground
+bridge after pairing. Save the following as
+`~/Library/LaunchAgents/org.nxrs.matter.plist`, replacing the paths with
+absolute paths to the verified executable and private configuration.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.nxrs.matter</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/absolute/path/nxrs-matter-camera</string>
+    <string>--config</string>
+    <string>/absolute/private/config.json</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>ExitTimeOut</key><integer>30</integer>
+  <key>Umask</key><integer>63</integer>
+</dict>
+</plist>
+```
+
+Load the agent now or let macOS load it when the account next signs in.
+
+```sh
+matter_agent="$HOME/Library/LaunchAgents/org.nxrs.matter.plist"
+plutil -lint "$matter_agent"
+launchctl bootstrap "gui/$(id -u)" "$matter_agent"
+launchctl print "gui/$(id -u)/org.nxrs.matter"
+```
+
+Use `launchctl bootout "gui/$(id -u)/org.nxrs.matter"` to stop the agent.
+Wait for `launchctl print` to report that the service is gone before loading
+it again. Keep the same state directory to retain the Matter enrollment.
+
+### Capture and privacy
+
 An absolute `snapshot_ffmpeg` path provides JPEGs from the same authorized H.264 reader used for
 live playback. The gateway allows one capture at a time with a one-second
 interval between captures. It limits JPEG output to 48 KiB, checks live privacy

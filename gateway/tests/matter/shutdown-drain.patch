@@ -71,7 +71,7 @@
              let mut im_job = pin!(im.run());
              let mut mdns = pin!(mdns::run_mdns(matter, &crypto));
              let mut transport = pin!(select(
-@@ -1815,23 +1832,42 @@
+@@ -1815,23 +1832,47 @@
                  Err(ErrorCode::StdIoError.into())
              };
              let controls = topology::drive(feed, &im, &sensor, &occupancy);
@@ -105,7 +105,6 @@
 +        }
 +
 +        shared.stop_accepting();
-+        let _ = im.emit_shut_down();
          stop.send_replace(true);
 -        worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
 -        result
@@ -117,7 +116,13 @@
 +            result = &mut worker => result.map_err(|_| ErrorCode::StdIoError)?,
 +        }
 +        // The worker has reaped the encoder. Keep the IM and transport alive
-+        // for the cancellation response and the controller's cleanup request.
++        // for cancellation replies and WebRTC End notifications before
++        // ShutDown prompts the controller to close its Matter connection.
++        tokio::select! {
++            result = &mut service => return result,
++            _ = Timer::after(SHUTDOWN_DRAIN) => {}
++        }
++        let _ = im.emit_shut_down();
 +        tokio::select! {
 +            result = &mut service => result,
 +            _ = Timer::after(SHUTDOWN_DRAIN) => Ok(()),
