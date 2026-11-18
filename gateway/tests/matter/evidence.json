@@ -1876,5 +1876,52 @@
       "macos_hal_boundary_tests": 29
     },
     "scope": "Linux commissioning and operational IPv6 multicast on one selected link, IPv4 and IPv6 Matter TCP and UDP isolation including cross-link traffic to selected addresses, actual IPv6 Matter JPEG and IPv4 WebRTC, and same-enrollment restart with interface inference. macOS qualified the scoped build on its selected interface through discovery, decoded video, remapping and persistence. The Linux witness does not substitute for macOS two-link, physical iPhone, or wide-area tests."
+  },
+  "four_viewer_soak_rehearsal": {
+    "fixture": "lan-interface",
+    "scope": "A 120-second rehearsal in Debian 13.7 ARM64 with an isolated veth interface and generated 640x360 H.264. It failed before teardown. The full-duration and physical release gates remain open.",
+    "status": "failed during fabric replacement",
+    "sha256": {
+      "gateway/tests/matter_soak_reference.py": "52365db173c1affdc3bda7467d5da1657e8ecd7b11397797d4d8d91c05b3d640",
+      "gateway/tests/matter_reference.py": "be52e17c05d1e1efe78691cdf683ecdc47cb8e6401509c97d496637b0f1ad20f",
+      "gateway/tests/matter_rtsp_reference.py": "aa6c34ebda401c1a20d9d56775d88fe458808bd1669f0057696b85374301072f"
+    },
+    "bridge_build": "rs-matter release profile, Rust 1.98.1",
+    "bridge_binary_sha256": "dc94c80985bf3ae27ef19332ff1564477ba4bc5a532adf11006b40a72d12a68d",
+    "samples_jsonl_sha256": "e02d5cec011fc355e2c28e0cfae76ed40fb7df9a10056bd3d8a3e390c550de07",
+    "viewers": 4,
+    "samples": 9,
+    "fifth_offer_status": 137,
+    "steady_source_fps_range": [
+      14.966,
+      15.048
+    ],
+    "steady_decoded_fps_range": [
+      14.966,
+      15.048
+    ],
+    "rendered_fps": null,
+    "bridge_rss_kib_range": [
+      9824,
+      10292
+    ],
+    "bridge_threads_range": [
+      11,
+      13
+    ],
+    "bridge_descriptors_range": [
+      51,
+      56
+    ],
+    "unanswered_offer_retired_seconds": 20.036,
+    "restart_to_four_viewers_seconds": 9.983,
+    "longest_surviving_gap_during_removal_and_shutdown_seconds": 0.094,
+    "revoked_viewer_new_frames_and_rtp_packets_after_drain": [
+      0,
+      0
+    ],
+    "longest_surviving_gap_during_replacement_commissioning_seconds": 1.934,
+    "decoded_timestamp_step_after_pause_seconds": 0.067,
+    "replacement_playback_end_reason": 0
   }
 }

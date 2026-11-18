@@ -165,6 +165,27 @@ A restart without an explicit interface field exercises inference from
 behavior, use the `shutdown-drain` binary and `--expect-unscoped`.
 [Results](evidence.json).
 
+## Four-viewer Linux soak
+
+In the same disposable Linux guest, build the `lan-interface` SDK fixture
+with `cargo build --release` and the same features and pins above. Run
+`gateway/tests/matter_soak_reference.py` with the same executable arguments
+as the LAN test and a fresh runtime directory. The default is 24 hours with
+samples every 60 seconds. For a rehearsal, add `--duration 120 --interval 10`.
+
+Four independently commissioned Matter fabrics decode the same H.264
+publication over WebRTC. A fifth offer must fail at capacity. The run checks
+expiry of an unanswered offer while other peers keep playing, graceful
+restart with retained fabrics, replacement of one revoked fabric, and final
+release of all media sessions. The surviving viewers must keep frame gaps
+under one second during offer expiry and fabric replacement.
+`samples.jsonl` records source and per-viewer
+decoded FPS, frame gaps, bridge RSS, threads and descriptors. `result.json`
+is written after a successful teardown. Keep controller state and raw logs
+private. See the [release rehearsal](evidence.json).
+This fixture uses generated video in a guest. Physical ESP32 streaming,
+iPhone rendering and microphone audio require separate tests.
+
 ## Automated persistence qualification
 
 With those manual fixture processes stopped, this command owns fresh isolated

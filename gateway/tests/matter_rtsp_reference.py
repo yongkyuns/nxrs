@@ -54,13 +54,16 @@ async def session_count():
         return len(data[path])
 
 
-def publish(stack, root, args, rtsp, token, color, size, rate, *, path="cam", username="publisher"):
+def publish(stack, root, args, rtsp, token, color, size, rate, *, path="cam", username="publisher",
+            progress=None):
     command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                 "-re", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}",
                 "-vf", f"drawbox=x=0:y=0:w=iw/4:h=ih/4:color={color}:t=fill",
                 "-c:v", "libx264", "-threads", "2", "-profile:v", "baseline",
                 "-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0", "-g", str(rate),
                 "-f", "mpegts", "pipe:1"]
+    if progress is not None:
+        command[1:1] = ["-progress", str(progress), "-stats_period", "1"]
     return publish_encoded(stack, root, args, rtsp, token, command, path=path, username=username)
 
 

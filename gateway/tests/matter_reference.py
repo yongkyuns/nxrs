@@ -171,9 +171,11 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
             elif kind == "ice_candidates":
                 pending_candidates.extend(body["ice_candidates"])
             elif kind == "end":
-                if end_reason is not None and not end_reason.done():
-                    end_reason.set_result(body["reason"])
-                raise RuntimeError("camera ended before decoded-frame witness completed")
+                reason = body.get("reason")
+                if end_reason is not None and not end_reason.done() and type(reason) is int:
+                    end_reason.set_result(reason)
+                suffix = f" (Matter end reason {reason})" if type(reason) is int else ""
+                raise RuntimeError(f"camera ended before decoded-frame witness completed{suffix}")
             if peer.remoteDescription:
                 for raw in pending_candidates:
                     candidate = candidate_from_sdp(raw["candidate"].removeprefix("candidate:"))
