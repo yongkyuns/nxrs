@@ -12,6 +12,7 @@ import re
 import sys
 import time
 
+from matter_attestation_reference import public_test_bundle
 from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller, packets
 from matter_gateway_reference import start, stop
@@ -338,6 +339,8 @@ def source_frames(progress):
 async def run(args):
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
+    attestation = root / "attestation"
+    public_test_bundle(args.sdk, attestation)
     factory = provision(root / "factory", args.controller)
     username = pwd.getpwuid(os.getuid()).pw_name
     with ExitStack() as stack:
@@ -363,7 +366,9 @@ async def run(args):
                     detection_token_file=str(gateway.credentials["independent"]),
                     factory_data=str(factory),
                     state_directory=str(root / "state"),
+                    attestation_directory=str(attestation),
                     snapshot_ffmpeg=str(args.ffmpeg.resolve(strict=True)),
+                    host_power_source="dc",
                 )
             ),
         )
@@ -373,7 +378,7 @@ async def run(args):
                 stack,
                 root,
                 label,
-                [args.device, "--config", config, *flags],
+                [args.device, "--config", config, "--allow-test-attestation", *flags],
                 dict(os.environ, RUST_LOG="error", TMPDIR=str(root)),
             )
 
@@ -524,7 +529,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--controller", type=Path, required=True)
-    for name in ("device", "gateway", "publisher", "mediamtx", "ffmpeg"):
+    for name in ("sdk", "device", "gateway", "publisher", "mediamtx", "ffmpeg"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--duration", type=int, default=86400)
     parser.add_argument("--interval", type=int, default=60)
@@ -536,7 +541,7 @@ if __name__ == "__main__":
         if args.duration < 120 or args.interval < 5:
             parser.error("duration must be at least 120 seconds and interval at least 5 seconds")
         if any(
-            getattr(args, key) is None for key in ("device", "gateway", "publisher", "mediamtx", "ffmpeg")
+            getattr(args, key) is None for key in ("sdk", "device", "gateway", "publisher", "mediamtx", "ffmpeg")
         ):
             parser.error("supply the pinned bridge and gateway fixture executables")
         result = asyncio.run(run(args))

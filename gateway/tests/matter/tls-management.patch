@@ -1,16 +1,3 @@
-diff --git a/examples/Cargo.toml b/examples/Cargo.toml
-index deb2c68..b313fe0 100644
---- a/examples/Cargo.toml
-+++ b/examples/Cargo.toml
-@@ -67,7 +67,7 @@ webrtc = [
-     "dep:async-channel",
-     "dep:tracing",
-     "dep:tracing-subscriber",
--    "rs-matter/large-buffers",
-+    "rs-matter/large-buffers-131072",
- ]
- 
- [dependencies]
 diff --git a/examples/src/bin/persistence/mod.rs b/examples/src/bin/persistence/mod.rs
 index a3a1012..502cc2b 100644
 --- a/examples/src/bin/persistence/mod.rs
@@ -131,10 +118,10 @@ index a3a1012..502cc2b 100644
  }
 diff --git a/examples/src/bin/tls/mod.rs b/examples/src/bin/tls/mod.rs
 new file mode 100644
-index 0000000..ad9a778
+index 0000000..bca2a72
 --- /dev/null
 +++ b/examples/src/bin/tls/mod.rs
-@@ -0,0 +1,519 @@
+@@ -0,0 +1,533 @@
 +//! Matter command adapters. Storage and certificate admission belong to Nxrs.
 +use std::num::NonZeroU8;
 +
@@ -364,19 +351,20 @@ index 0000000..ad9a778
 +        let fabric = fabric(&ctx)?;
 +        let filter = requested_id(request.caid()?.into_option())?;
 +        let records = self.roots(fabric, |roots| roots.list())?;
-+        let mut array = response.certificate_details()?;
-+        let mut found = false;
-+        for (id, der) in records
-+            .into_iter()
-+            .filter(|(id, _)| filter.is_none_or(|wanted| *id == wanted))
-+        {
-+            array = root_record(array.push()?, fabric, id, Some(&der))?;
-+            found = true;
-+        }
-+        if !found {
-+            return Err(ErrorCode::NotFound.into());
-+        }
-+        array.end()?.end()
++        fit_command(|| {
++            let mut records = records
++                .into_iter()
++                .filter(|(id, _)| filter.is_none_or(|wanted| *id == wanted))
++                .peekable();
++            if records.peek().is_none() {
++                return Err(ErrorCode::NotFound.into());
++            }
++            let mut array = response.certificate_details()?;
++            for (id, der) in records {
++                array = root_record(array.push()?, fabric, id, Some(&der))?;
++            }
++            array.end()?.end()
++        })
 +    }
 +
 +    fn handle_lookup_root_certificate<P: TLVBuilderParent>(
@@ -451,19 +439,20 @@ index 0000000..ad9a778
 +        let fabric = fabric(&ctx)?;
 +        let filter = requested_id(request.ccdid()?.into_option())?;
 +        let records = self.clients(fabric, |clients| clients.list())?;
-+        let mut array = response.certificate_details()?;
-+        let mut found = false;
-+        for record in records
-+            .into_iter()
-+            .filter(|record| filter.is_none_or(|wanted| record.id == wanted))
-+        {
-+            array = client_record(array.push()?, fabric, &record, true)?;
-+            found = true;
-+        }
-+        if !found {
-+            return Err(ErrorCode::NotFound.into());
-+        }
-+        array.end()?.end()
++        fit_command(|| {
++            let mut records = records
++                .into_iter()
++                .filter(|record| filter.is_none_or(|wanted| record.id == wanted))
++                .peekable();
++            if records.peek().is_none() {
++                return Err(ErrorCode::NotFound.into());
++            }
++            let mut array = response.certificate_details()?;
++            for record in records {
++                array = client_record(array.push()?, fabric, &record, true)?;
++            }
++            array.end()?.end()
++        })
 +    }
 +
 +    fn handle_lookup_client_certificate<P: TLVBuilderParent>(
@@ -603,6 +592,18 @@ index 0000000..ad9a778
 +    Ok(id)
 +}
 +
++// An Invoke result is one structure. Return a status if the complete list
++// will not fit. The provisioned attribute also supports chunked list reads.
++fn fit_command<T>(write: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
++    write().map_err(|error| {
++        if error.code() == ErrorCode::NoSpace {
++            ErrorCode::ResourceExhausted.into()
++        } else {
++            error
++        }
++    })
++}
++
 +fn root_record<P: TLVBuilderParent>(
 +    item: cert::TLSCertStructBuilder<P>,
 +    fabric: u8,
@@ -655,7 +656,7 @@ index 0000000..ad9a778
 +        .end()
 +}
 diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
-index 4edce27..f9af37a 100644
+index 4edce27..0bdf3e7 100644
 --- a/examples/src/bin/webrtc_camera.rs
 +++ b/examples/src/bin/webrtc_camera.rs
 @@ -61,6 +61,7 @@ use rs_matter::dm::clusters::basic_info::BasicInfoConfig;
@@ -674,7 +675,20 @@ index 4edce27..f9af37a 100644
  mod persistence;
  use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
  use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
-@@ -1595,7 +1597,7 @@ fn main() -> Result<(), Error> {
+@@ -1466,8 +1468,10 @@ static ATTESTATION: StaticCell<attestation::ProvisionedDevice> = StaticCell::new
+ static BASIC_INFO: StaticCell<BasicInfoConfig> = StaticCell::new();
+ static MATTER: StaticCell<Matter> = StaticCell::new();
+ static BUFFERS: StaticCell<MatterBuffers> = StaticCell::new();
+-static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuffers> =
+-    StaticCell::new();
++const TCP_FRAME_BYTES: usize = rs_matter::transport::network::MAX_RX_LARGE_PACKET_SIZE;
++static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuffers<
++    TCP_FRAME_BYTES, 4, {TCP_FRAME_BYTES + rs_matter::transport::network::tcp::FRAME_HDR_LEN},
++>> = StaticCell::new();
+ static STATE: StaticCell<InteractionModelState> = StaticCell::new();
+ static WEBRTC: StaticCell<WebRtc> = StaticCell::new();
+ static CAM_AV: StaticCell<CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>> =
+@@ -1595,7 +1599,7 @@ fn main() -> Result<(), Error> {
      let state = STATE.init(InteractionModelState::new());
  
      // Bind the KV access object (the KV scratch buffer lives in `Matter`).
@@ -683,7 +697,7 @@ index 4edce27..f9af37a 100644
  
      // Re-hydrate the `Matter` instance (fabrics, basic info, RTC).
      matter.startup(&kv)?;
-@@ -1695,6 +1697,7 @@ fn main() -> Result<(), Error> {
+@@ -1695,6 +1699,7 @@ fn main() -> Result<(), Error> {
              &host_power,
              &time_zones,
              &ntp,
@@ -691,7 +705,16 @@ index 4edce27..f9af37a 100644
              camera_id,
              &sensor,
              &occupancy,
-@@ -1818,7 +1821,9 @@ const NODE: Node<'static> = Node {
+@@ -1731,7 +1736,7 @@ fn main() -> Result<(), Error> {
+     )?;
+     matter.transport().set_tcp_capability(
+         rs_matter::transport::network::tcp::TcpCapability::ClientAndServer(
+-            rs_matter::transport::MAX_RX_BUF_SIZE as u32,
++            TCP_FRAME_BYTES as u32,
+         ),
+     );
+     let (mut net_send, mut net_recv, mut net_multicast) = {
+@@ -1818,7 +1823,9 @@ const NODE: Node<'static> = Node {
          Endpoint::new_with_clients(
              0,
              devices!(DEV_TYPE_ROOT_NODE, DEV_TYPE_POWER_SOURCE),
@@ -702,7 +725,7 @@ index 4edce27..f9af37a 100644
              &[time_sync::FULL_CLUSTER.id],
          ),
          Endpoint::new_with_clients(
-@@ -1861,6 +1866,7 @@ fn data_model<'a>(
+@@ -1861,6 +1868,7 @@ fn data_model<'a>(
      host_power: &'a PowerSourceConfig<'a>,
      time_zones: &'a TimeZoneStore,
      ntp: &'a dyn time_sync::NtpClient,
@@ -710,7 +733,7 @@ index 4edce27..f9af37a 100644
      camera_id: String,
      sensor: &'a Bridged,
      occupancy: &'a Occupancy,
-@@ -1884,6 +1890,18 @@ fn data_model<'a>(
+@@ -1884,6 +1892,18 @@ fn data_model<'a>(
                      .adapt(),
                  ),
              )
@@ -811,3 +834,26 @@ index 91a2061..ff00d59 100644
                  ReadReplyInstance::new(attr, tw),
              )
              .await
+diff --git a/rs-matter-transport/src/network.rs b/rs-matter-transport/src/network.rs
+index 54a2b5c..d52930c 100644
+--- a/rs-matter-transport/src/network.rs
++++ b/rs-matter-transport/src/network.rs
+@@ -37,8 +37,16 @@ pub const MAX_RX_PACKET_SIZE: usize = 1583;
+ // Maximum UDP TX packet size per Matter spec
+ pub const MAX_TX_PACKET_SIZE: usize = 1280 - 40/*IPV6 header size*/ - 8/*UDP header size*/;
+ 
+-// Maximum TCP RX packet size derived from the configured buffer size (`IM_BUFFER_SIZE`).
+-pub const MAX_RX_LARGE_PACKET_SIZE: usize = crate::dm::IM_BUFFER_SIZE;
++// Matter's default TCP message size. Its 13-byte AES-CCM nonce also limits
++// each encrypted plaintext to fewer than 2^16 octets, regardless of storage.
++const DEFAULT_TCP_MESSAGE_SIZE: usize = 64_000;
++
++// Bound the packet independently of the host's allocated IM buffer capacity.
++pub const MAX_RX_LARGE_PACKET_SIZE: usize = if crate::dm::IM_BUFFER_SIZE < DEFAULT_TCP_MESSAGE_SIZE {
++    crate::dm::IM_BUFFER_SIZE
++} else {
++    DEFAULT_TCP_MESSAGE_SIZE
++};
+ 
+ // Maximum TCP TX packet size derived from the configured buffer size (`IM_BUFFER_SIZE`).
+ pub const MAX_TX_LARGE_PACKET_SIZE: usize = MAX_RX_LARGE_PACKET_SIZE;

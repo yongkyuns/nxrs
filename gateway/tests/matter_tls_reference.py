@@ -63,6 +63,28 @@ def certificate(builder, subject, issuer, public, signer, *, is_ca, padding=0):
     return builder.sign(signer, hashes.SHA256()).public_bytes(serialization.Encoding.DER)
 
 
+def maximum_certificate(subject, issuer, public, signer, *, is_ca):
+    padding = 2600
+    # ECDSA signature DER length can vary by a byte even when content size is fixed.
+    for _ in range(32):
+        der = certificate(x509.CertificateBuilder(), subject, issuer, public, signer,
+                          is_ca=is_ca, padding=padding)
+        if len(der) == 3000:
+            return der
+        padding += 3000 - len(der)
+    raise AssertionError("could not generate an exact 3000-byte certificate")
+
+
+def maximum_chain(name, key):
+    chain = []
+    for i in range(10):
+        subject = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, f"Nxrs intermediate {i}")])
+        child = ec.generate_private_key(ec.SECP256R1())
+        chain.append(maximum_certificate(subject, name, child.public_key(), key, is_ca=True))
+        name, key = subject, child
+    return name, key, list(reversed(chain))
+
+
 async def run(args):
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
@@ -125,8 +147,11 @@ async def run(args):
             await time_command(a, aid, "SetUTCTime", utcTime=(int(time.time()) - 946684800) * 1_000_000, granularity=3)
             key = ec.generate_private_key(ec.SECP256R1())
             name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "Nxrs qualification CA")])
-            der = certificate(x509.CertificateBuilder(), name, name, key.public_key(), key,
-                              is_ca=True, padding=1750 if args.large_root else 0)
+            if args.max_chain:
+                der = maximum_certificate(name, name, key.public_key(), key, is_ca=True)
+            else:
+                der = certificate(x509.CertificateBuilder(), name, name, key.public_key(), key,
+                                  is_ca=True, padding=1750 if args.large_root else 0)
             a_ca = (await first(CERTIFICATES, "ProvisionRootCertificate", caid=None, certificate=octets(der)))["caid"]
             await rejected(second(CERTIFICATES, "FindRootCertificate", caid=a_ca), 139)
             b_ca = (await second(CERTIFICATES, "ProvisionRootCertificate", caid=None, certificate=octets(der)))["caid"]
@@ -165,6 +190,20 @@ async def run(args):
             await rejected(first(CERTIFICATES, "RemoveRootCertificate", caid=a_ca), 203)
             await rejected(first(CERTIFICATES, "RemoveClientCertificate", ccdid=ccdid), 203)
 
+            max_client = None
+            maximum_der_bytes = 0
+            if args.max_chain:
+                issuer, signer, chain = maximum_chain(name, key)
+                extra_csr = await first(CERTIFICATES, "ClientCSR", ccdid=None, nonce=octets(nonce))
+                max_client = extra_csr["ccdid"]
+                extra_request = x509.load_der_x509_csr(base64.b64decode(extra_csr["csr"]))
+                expected = {}
+                for identity, csr in ((ccdid, request), (max_client, extra_request)):
+                    large_leaf = maximum_certificate(csr.subject, issuer, csr.public_key(), signer, is_ca=False)
+                    await first(CERTIFICATES, "ProvisionClientCertificate", ccdid=identity,
+                                clientCertificate=octets(large_leaf), intermediateCertificates=list(map(octets, chain)))
+                    expected[identity] = large_leaf
+
             await asyncio.to_thread(stop, device)
             device = await boot("restarted")
             found = (await first(ENDPOINTS, "FindEndpoint", endpointId=endpoint))["endpoint"]
@@ -177,6 +216,28 @@ async def run(args):
             all_visible = await a.request("read_attribute", node_id=aid, attribute_path=path, fabric_filtered=False)
             assert {entry["0"] for entry in filtered[path]} == {endpoint}
             assert {entry["0"] for entry in all_visible[path]} == {endpoint, b_endpoint}
+            if args.max_chain:
+                await rejected(first(CERTIFICATES, "FindClientCertificate", ccdid=None), 137)
+                for identity, leaf in expected.items():
+                    response = await first(CERTIFICATES, "FindClientCertificate", ccdid=identity)
+                    item, = response["certificateDetails"]
+                    assert item["ccdid"] == identity
+                    assert base64.b64decode(item["clientCertificate"]) == leaf
+                    assert list(map(base64.b64decode, item["intermediateCertificates"])) == chain
+                    maximum_der_bytes += len(leaf) + sum(map(len, chain))
+                assert maximum_der_bytes == 66_000
+                path = "0/2049/3"
+                attributes = await a.request("read_attribute", node_id=aid, attribute_path=path, fabric_filtered=True)
+                assert set(expected) == {item["0"] for item in attributes[path]}
+                for item in attributes[path]:
+                    assert base64.b64decode(item["1"]) == expected[item["0"]]
+                    assert list(map(base64.b64decode, item["2"])) == chain
+                path = "0/2049/1"
+                attributes = await a.request("read_attribute", node_id=aid, attribute_path=path, fabric_filtered=False)
+                roots = {item["0"]: item for item in attributes[path]}
+                assert set(roots) == {a_ca, b_ca}
+                assert base64.b64decode(roots[a_ca]["1"]) == der
+                assert roots[b_ca].get("1") is None
             removal = await first(62, "RemoveFabric", fabricIndex=b_index)
             assert removal["statusCode"] == 0
             retired = records((state / "state.bin").read_bytes())
@@ -186,12 +247,19 @@ async def run(args):
 
             await first(ENDPOINTS, "RemoveEndpoint", endpointId=endpoint)
             await first(CERTIFICATES, "RemoveClientCertificate", ccdid=ccdid)
+            if max_client is not None:
+                await first(CERTIFICATES, "RemoveClientCertificate", ccdid=max_client)
             await first(CERTIFICATES, "RemoveRootCertificate", caid=a_ca)
             assert await attribute(a, aid, "0/2050/1") == []
             frames = await receive(a, aid)
             await asyncio.to_thread(stop, device)
-    return dict(root_bytes=len(der), separate_fabrics=True, certificate_references_protected=True,
-                endpoint_persisted_and_updated=True, fabric_records_retired_together=True, decoded_frames=frames)
+    result = dict(root_bytes=len(der), separate_fabrics=True, certificate_references_protected=True,
+                  endpoint_persisted_and_updated=True, fabric_records_retired_together=True, decoded_frames=frames)
+    if args.max_chain:
+        result.update(maximum_client_der_bytes=maximum_der_bytes, oversized_command_rejected_without_disconnect=True,
+                      complete_certificate_attribute_read=True,
+                      cross_fabric_certificate_bytes_withheld=True)
+    return result
 
 
 if __name__ == "__main__":
@@ -201,6 +269,7 @@ if __name__ == "__main__":
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
     parser.add_argument("--large-root", action="store_true")
+    parser.add_argument("--max-chain", action="store_true")
     args = parser.parse_args()
     result = asyncio.run(run(args))
     (args.runtime / "result.json").write_text(json.dumps(result, indent=2) + "\n")

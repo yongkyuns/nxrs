@@ -2366,5 +2366,115 @@
     "host_architecture_tests_passed": 37,
     "host_hal_boundary_tests_passed": 29,
     "scope": "Native macOS 27.0.1 arm64, two isolated Matter fabrics, local controller and generated H.264 over the ordinary gateway media path. Verified both root TLS servers, same-fabric references, filtered reads, typed errors, credential retirement and persistence across restart. Certificate commands round-tripped a DER payload above the normal UDP transport limit. Optional Push AV transport, maximum-size and TCP certificate attribute reads, platform coverage, and physical release qualification remain open."
+  },
+  "tls_maximum_chain": {
+    "fixture": "tls-management",
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "controller": "Matter Server 1.6.0",
+    "source_sha256": {
+      "gateway/tests/matter/tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537",
+      "gateway/tests/matter/versions.json": "d740da711b5481e1eb61befc4379206b979c4f9329c30d4bcb80a8a24e37b3d2",
+      "gateway/tests/matter/Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8",
+      "gateway/tests/matter_tls_reference.py": "716cccafe28bf83d727e15746f6abaa6bc3cacfc69813fa1065595c803d686ea"
+    },
+    "macos_bridge_sha256": "f5312eaa606001349c8fa7b29b90b031b810c9a10e6bf26d02256e7c7c8d9521",
+    "macos_result_sha256": "3d883320ce0a166779c7135d47e5153b35ecf7a5da79d8d3bb8c735ee41a46ae",
+    "linux_kernel": "6.12.117+deb13-cloud-arm64",
+    "linux_bridge_sha256": "4842765320c1acb0fe413a30c841ebb3f8f92ffc84ab6ccf039d908d97431b4a",
+    "linux_result_sha256": "3d883320ce0a166779c7135d47e5153b35ecf7a5da79d8d3bb8c735ee41a46ae",
+    "result_on_both_hosts": {
+      "root_bytes": 3000,
+      "separate_fabrics": true,
+      "certificate_references_protected": true,
+      "endpoint_persisted_and_updated": true,
+      "fabric_records_retired_together": true,
+      "decoded_frames": 30,
+      "maximum_client_der_bytes": 66000,
+      "oversized_command_rejected_without_disconnect": true,
+      "complete_certificate_attribute_read": true,
+      "cross_fabric_certificate_bytes_withheld": true
+    },
+    "scope": "Native macOS 27.0.1 ARM64 and Debian 13 ARM64 QEMU. A combined 66,000-byte DER command reply exceeds the encrypted frame budget. The bounded bridge returns ResourceExhausted, returns each full chain by ID, and delivers both chains together through a chunked attribute read. A separate fabric receives no certificate bytes. Both runs decode 30 generated H.264 frames after restart. The witness does not establish physical camera, microphone, iPhone rendering, or complete certification.",
+    "sdk_transport_tests_passed": 238,
+    "linux_gateway_sha256": "7e301def29c2893682e4d349d59644918878b7d299c6c2448a6e515c1b140698",
+    "linux_publisher_sha256": "2ba69525cb77bcbe82fbf1c1e180eef30b2e636046e2d42cc3407e5759985f75"
+  },
+  "tls_release_soak_rehearsal": {
+    "fixture": "tls-management",
+    "linux_kernel": "6.12.117+deb13-cloud-arm64",
+    "linux_release_bridge_sha256": "cb4319111f105b3a6124a22934b61307b71e9466031baf86ee32a0d63514f136",
+    "soak_script_sha256": "d564923cc24b7b07be029729ff8544edfa0667dfc05b213578021bef9f26dc3c",
+    "result": {
+      "duration_seconds": 120.244,
+      "viewers": 4,
+      "samples": 13,
+      "checks": [
+        "slow_offer",
+        "restart",
+        "revoke"
+      ],
+      "media": "generated H.264",
+      "rendered_fps": null
+    },
+    "result_sha256": "c5ede9a06cd1a328824084b8f4e4d6df417d8cf266690ad9b2d7633de27e970f",
+    "samples_sha256": "ce4f191ca08481fdf15e31056debfd6cbc2ec890750fb55cadef794433afe9c5",
+    "observed": [
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 0.001,
+        "fifth_offer_status": 137
+      },
+      {
+        "kind": "slow_offer",
+        "elapsed_seconds": 51.98,
+        "recovery_seconds": 21.965,
+        "offer_retired_seconds": 20.196,
+        "replacement_startup_seconds": 1.755
+      },
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 51.985,
+        "fifth_offer_status": 137
+      },
+      {
+        "kind": "restart",
+        "elapsed_seconds": 65.982,
+        "recovery_seconds": 5.968,
+        "startup_seconds": [
+          1.795,
+          1.002,
+          0.999,
+          1.001
+        ]
+      },
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 66.022,
+        "fifth_offer_status": 137
+      },
+      {
+        "kind": "revoke",
+        "elapsed_seconds": 107.982,
+        "recovery_seconds": 17.978,
+        "revoked_fabric_replaced": true,
+        "removed_rtp_packets": 0,
+        "surviving_frames": [
+          60,
+          60,
+          60
+        ],
+        "longest_surviving_gap_seconds": 0.072,
+        "replacement_commission_seconds": 2.782,
+        "replacement_startup_seconds": 1.152
+      },
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 107.984,
+        "fifth_offer_status": 137
+      }
+    ],
+    "scope": "120-second Debian ARM64 QEMU rehearsal of the capped TLS-capable release bridge and the generated H.264 publication. Verified four independent viewers, rejection at capacity, offer retirement, bridge restart, selective fabric removal and replacement, and joined teardown. The separately started 24-hour run has its own acceptance."
   }
 }

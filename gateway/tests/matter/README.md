@@ -167,11 +167,12 @@ behavior, use the `shutdown-drain` binary and `--expect-unscoped`.
 
 ## Four-viewer Linux soak
 
-In the same disposable Linux guest, prepare the `stream-continuity` variant
+In the same disposable Linux guest, prepare the `tls-management` variant
 with the same DNS-SD archive. Build the SDK fixture
 with `cargo build --release` and the same features and pins above. Run
 `gateway/tests/matter_soak_reference.py` with the same executable arguments
-as the LAN test and a fresh runtime directory. The default is 24 hours with
+as the LAN test, `--sdk` for the pinned SDK's test attestation chain, and a
+fresh runtime directory. The default is 24 hours with
 samples every 60 seconds. For a rehearsal, add `--duration 120 --interval 10`.
 
 Four independently commissioned Matter fabrics decode the same H.264
@@ -794,10 +795,15 @@ endpoints, and verifies which records a fabric can invoke or read. An endpoint
 blocks removal of its root and client certificate until the endpoint is changed
 or removed. The test checks atomic fabric retirement, restart and media playback.
 Repeat with `--large-root` to round-trip a certificate larger than the UDP
-payload limit. The adapter includes certificate bodies only for the accessing
-fabric on a Large Message attribute read. The optional Push AV Transport is
-absent, so there are no application references to installed TLS endpoints.
-[Host results](evidence.json) · [Matter endpoint removal test](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/src/python_testing/TC_TLSCLIENT_3_20.py).
+payload limit. Use `--max-chain` to provision two identities, each with one
+3,000-byte leaf and ten 3,000-byte intermediates. Matter TCP frames stay at
+or below 64,000 bytes. A combined `FindClientCertificate` response that
+exceeds the message budget returns `ResourceExhausted`. Controllers can find
+each ID individually or read the complete chunked certificate attribute.
+The adapter includes certificate bodies only for the accessing fabric on a
+Large Message attribute read. The optional Push AV Transport is absent, so
+there are no application references to installed TLS endpoints.
+[Host results](evidence.json) · [CCM message length](https://www.rfc-editor.org/rfc/rfc3610.html#section-2.1) · [Matter endpoint removal test](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/src/python_testing/TC_TLSCLIENT_3_20.py).
 
 ## Two controllers on the same fabric
 
