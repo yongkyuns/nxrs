@@ -755,8 +755,7 @@ SNTP sources follow DHCP in that order.
 Install `dnsmasq-base` in the disposable Linux guest and add `--dhcp` to the
 two-link witness. The DHCP server replies on the private selected veth
 link with distinct clocks, so precedence is observable through Matter
-across restarts. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and TLS
-management remain open.
+across restarts. NetworkManager, DHCPv6 hostnames and macOS DHCPv6 remain open.
 [DHCPv4 NTP option](https://www.rfc-editor.org/rfc/rfc2132#section-8.3) · [DHCPv6 NTP option](https://www.rfc-editor.org/rfc/rfc5908) · [Results](evidence.json).
 
 ### Matter TLS certificates
@@ -782,9 +781,23 @@ zeroized on drop. The node store remains a protected local file.
 
 Run `cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-matter tls_client_key_survives_restart_and_authenticates_after_renewal`.
 The test verifies both CSR signatures and mutual TLS with a generated leaf and
-intermediate before and after renewal. Matter command handlers, large-message
-interoperability and TLS endpoint references remain open.
+intermediate before and after renewal.
 [TLS Certificate Management](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/data_model/1.5.1/clusters/TLSCertificateManagement.xml) · [TLS Client Management](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/data_model/1.5.1/clusters/TLSClientManagement.xml).
+
+### TLS management over Matter
+
+Prepare `--variant tls-management` and build the camera with the same locked
+SDK command. Run `gateway/tests/matter_tls_reference.py` with the same binary
+and interface arguments as the [clock witness](#trusted-matter-time). The test
+starts two independent administered fabrics, provisions roots, client keys and
+endpoints, and verifies which records a fabric can invoke or read. An endpoint
+blocks removal of its root and client certificate until the endpoint is changed
+or removed. The test checks atomic fabric retirement, restart and media playback.
+Repeat with `--large-root` to round-trip a certificate larger than the UDP
+payload limit. The adapter includes certificate bodies only for the accessing
+fabric on a Large Message attribute read. The optional Push AV Transport is
+absent, so there are no application references to installed TLS endpoints.
+[Host results](evidence.json) · [Matter endpoint removal test](https://github.com/project-chip/connectedhomeip/blob/abcc720b48c5e59c0edcfe65c516f76ca9448aa3/src/python_testing/TC_TLSCLIENT_3_20.py).
 
 ## Two controllers on the same fabric
 

@@ -52,6 +52,9 @@ class Controller:
                         # Server details can contain SDP or commissioning credentials.
                         status = data.get("status")
                         detail = f" (Matter status {status})" if type(status) is int else ""
+                        cluster = data.get("cluster_status")
+                        if type(cluster) is int:
+                            detail += f" (cluster status {cluster})"
                         future.set_exception(RuntimeError(f"controller error {data['error_code']}{detail}"))
                     else:
                         future.set_result(data["result"])

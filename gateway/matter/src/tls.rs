@@ -6,7 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use x509_parser::{certificate::X509Certificate, parse_x509_certificate, time::ASN1Time};
 
 mod client;
-pub use client::{ClientCertificate, ClientCertificates, SigningRequest, MAX_CLIENT_CERTIFICATES};
+mod endpoint;
+pub use client::{
+    ClientCertificate, ClientCertificates, SigningRequest, MAX_CLIENT_CERTIFICATES,
+    MAX_INTERMEDIATE_CERTIFICATES,
+};
+pub use endpoint::{Endpoint, EndpointSettings, Endpoints, MAX_ENDPOINTS};
 
 pub const MAX_ROOT_CERTIFICATES: usize = 5;
 pub const MAX_CERTIFICATE_BYTES: usize = 3000;
@@ -26,6 +31,10 @@ pub enum Error {
     AlreadyExists,
     NotFound,
     CertificatePending,
+    RootCertificateNotFound,
+    ClientCertificateNotFound,
+    EndpointAlreadyInstalled,
+    InUse,
     Crypto,
     Capacity,
     Storage(persistence::Error),
@@ -41,13 +50,14 @@ impl From<persistence::Error> for Error {
 /// The caller must derive `fabric` from the authenticated Matter command.
 pub struct RootCertificates<'a> {
     store: &'a mut Store,
+    fabric: u8,
     key: u16,
 }
 
 impl<'a> RootCertificates<'a> {
     pub fn open(store: &'a mut Store, fabric: u8) -> Result<Self, Error> {
         let key = Self::record_key(fabric).ok_or(Error::Constraint)?;
-        Ok(Self { store, key })
+        Ok(Self { store, fabric, key })
     }
 
     /// The fabric's root record is retired in the same durable write as the fabric.
@@ -120,10 +130,14 @@ impl<'a> RootCertificates<'a> {
         Ok(id)
     }
 
-    /// Remove an unreferenced root. The cluster must check endpoint references
-    /// under the same state owner before calling this operation.
+    /// Remove a root once its endpoints have been removed or changed.
     pub fn remove(&mut self, id: u16) -> Result<(), Error> {
         check_id(id)?;
+        if endpoint::references(self.store, self.fabric, |settings| {
+            settings.root_certificate == id
+        })? {
+            return Err(Error::InUse);
+        }
         let mut entries = self.list()?;
         entries.remove(&id).ok_or(Error::NotFound)?;
         if entries.is_empty() {
@@ -133,6 +147,14 @@ impl<'a> RootCertificates<'a> {
         }
         Ok(())
     }
+}
+
+/// Include all TLS records for this fabric in the same durable removal as its
+/// Matter fabric record. The allocation cursors keep their own lifetime.
+pub fn is_fabric_record(fabric: u8, key: u16) -> bool {
+    RootCertificates::record_key(fabric) == Some(key)
+        || ClientCertificates::record_keys(fabric).is_some_and(|keys| keys.contains(&key))
+        || Endpoints::record_key(fabric) == Some(key)
 }
 
 fn check_id(id: u16) -> Result<(), Error> {

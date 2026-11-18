@@ -2323,5 +2323,48 @@
     "host_architecture_tests_passed": 37,
     "host_hal_boundary_tests_passed": 29,
     "scope": "Native macOS 27.0.1 arm64. Generated credentials, P-256 PKCS #10 and raw ECDSA nonce verification, two fabrics and a real mutual TLS handshake with an intermediate before and after renewal. The same key survives restart. The test verifies rejection of a wrong key and a malformed intermediate, and durable removal of one fabric's records. Matter command admission, large-message interoperability, TLS endpoints and physical release qualification remain open."
+  },
+  "tls_management_protocol": {
+    "fixture": "tls-management",
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "controller": "Matter Server 1.6.0",
+    "source_sha256": {
+      "gateway/matter/src/tls.rs": "122952780e0cc8ab51ce1ec318848a751786398ff244ac16a19a288079017096",
+      "gateway/matter/src/tls/client.rs": "ae4fb5e5e055bba0207f8ea5abeac801e8d9f801a10a6dd9ecdd28dc164942ee",
+      "gateway/matter/src/tls/endpoint.rs": "cf96b3d85859872f626736668fa8f3394a79b9850564b43c9a94e9400c543a66",
+      "gateway/tests/matter_reference.py": "e5a1fa5837a1ee60347674b122cbae221d25ed7f651b3363b9848ae2ae12edd5",
+      "gateway/tests/matter_tls_reference.py": "452ada765d501609bf4ad640d63b5fba087071ffdc20bfef788d86f164256ff1",
+      "gateway/tests/matter/Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8",
+      "gateway/tests/matter/tls-management.patch": "1a0732d3f54008daa1c3321fac65e88bbdcd3a6e64160f18df849c60766b591a",
+      "gateway/tests/matter/versions.json": "85da7a2d939b4ce0f5646015c462a46988b4e2097777f0d8e28e49e2d67bdb30",
+      "tools/prepare-matter-fixture.py": "0ace64246a8cb48fb7fb14f3fe241cecb6f1c73b4fe217141392c78d718a44cb"
+    },
+    "macos_bridge_sha256": "33eeaa745e8613772b1d752ab06010d77a790f0fa046ad0f2872580a79a818bb",
+    "macos_trials": [
+      {
+        "result_sha256": "89f3b9a0809ed1d788faffee417c754499d72022815a3a0db9ed98d68fb3e85b",
+        "root_bytes": 344,
+        "separate_fabrics": true,
+        "certificate_references_protected": true,
+        "endpoint_persisted_and_updated": true,
+        "fabric_records_retired_together": true,
+        "decoded_frames": 30
+      },
+      {
+        "result_sha256": "9aa6fb971c64aae7a38ea31bbfea67c1a4fd25a51a6789abefd351718802583b",
+        "root_bytes": 2118,
+        "separate_fabrics": true,
+        "certificate_references_protected": true,
+        "endpoint_persisted_and_updated": true,
+        "fabric_records_retired_together": true,
+        "decoded_frames": 30
+      }
+    ],
+    "macos_gateway_tests_passed": 25,
+    "host_architecture_tests_passed": 37,
+    "host_hal_boundary_tests_passed": 29,
+    "scope": "Native macOS 27.0.1 arm64, two isolated Matter fabrics, local controller and generated H.264 over the ordinary gateway media path. Verified both root TLS servers, same-fabric references, filtered reads, typed errors, credential retirement and persistence across restart. Certificate commands round-tripped a DER payload above the normal UDP transport limit. Optional Push AV transport, maximum-size and TCP certificate attribute reads, platform coverage, and physical release qualification remain open."
   }
 }

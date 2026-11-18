@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use zeroize::Zeroizing;
 
 pub const MAX_CLIENT_CERTIFICATES: usize = 2;
-const MAX_INTERMEDIATES: usize = 10;
+pub const MAX_INTERMEDIATE_CERTIFICATES: usize = 10;
 const MAX_KEY_BYTES: usize = 256;
 const CURSOR: u16 = 0x1200;
 const RECORDS: std::ops::RangeInclusive<u16> = CURSOR + 1..=CURSOR + 254 * 2;
@@ -41,13 +41,18 @@ pub struct ClientCertificate {
 /// from the authorized Matter interaction. Private DER stays in the store.
 pub struct ClientCertificates<'a> {
     store: &'a mut Store,
+    fabric: u8,
     records: [u16; MAX_CLIENT_CERTIFICATES],
 }
 
 impl<'a> ClientCertificates<'a> {
     pub fn open(store: &'a mut Store, fabric: u8) -> Result<Self, Error> {
         let records = Self::record_keys(fabric).ok_or(Error::Constraint)?;
-        Ok(Self { store, records })
+        Ok(Self {
+            store,
+            fabric,
+            records,
+        })
     }
 
     /// Include these records in the transaction that retires their fabric.
@@ -117,7 +122,7 @@ impl<'a> ClientCertificates<'a> {
         intermediates: &[&[u8]],
         unix_seconds: Option<i64>,
     ) -> Result<(), Error> {
-        if intermediates.len() > MAX_INTERMEDIATES {
+        if intermediates.len() > MAX_INTERMEDIATE_CERTIFICATES {
             return Err(Error::Constraint);
         }
         let chain: Vec<_> = std::iter::once(leaf)
@@ -156,11 +161,23 @@ impl<'a> ClientCertificates<'a> {
         certified_key(entry.key, &entry.certificates)
     }
 
-    /// Remove an unreferenced certificate and its key. The cluster checks
-    /// endpoint references under the same state owner before removal.
+    /// Remove a certificate and key once its endpoints are removed or changed.
     pub fn remove(&mut self, id: u16) -> Result<(), Error> {
         let (slot, _) = self.find(id)?;
+        if super::endpoint::references(self.store, self.fabric, |settings| {
+            settings.client_certificate == Some(id)
+        })? {
+            return Err(Error::InUse);
+        }
         Ok(self.store.remove(slot)?)
+    }
+
+    pub(super) fn contains(&self, id: u16) -> Result<bool, Error> {
+        match self.find(id) {
+            Ok(_) => Ok(true),
+            Err(Error::NotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     fn entries(&self) -> impl Iterator<Item = Result<(u16, Entry<'_>), Error>> {
@@ -269,7 +286,7 @@ fn read(store: &Store, slot: u16) -> Result<Option<Entry<'_>>, Error> {
     let (key, bytes) = take_field(bytes, MAX_KEY_BYTES)?;
     let (count, mut bytes) = bytes.split_first().ok_or(corrupt)?;
     let count = usize::from(*count);
-    if count > MAX_INTERMEDIATES + 1 {
+    if count > MAX_INTERMEDIATE_CERTIFICATES + 1 {
         return Err(corrupt.into());
     }
     let mut certificates = Vec::with_capacity(count);

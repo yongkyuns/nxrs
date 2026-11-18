@@ -18,14 +18,14 @@ def main():
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
     parser.add_argument("--dnssd-archive", type=Path, help="published astro-dnssd crate for scoped LAN builds")
-    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy", "commissioning", "viewer-permissions", "source-admission", "catalogue", "sessions", "snapshots", "shutdown", "final-fabric", "commissioning-recovery", "shutdown-drain", "lan-interface", "stream-continuity", "provisioned-attestation", "camera-endpoints", "root-power-time-zone", "trusted-matter-time", "default-ntp", "dns-sd-time", "dhcp-time")
+    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy", "commissioning", "viewer-permissions", "source-admission", "catalogue", "sessions", "snapshots", "shutdown", "final-fabric", "commissioning-recovery", "shutdown-drain", "lan-interface", "stream-continuity", "provisioned-attestation", "camera-endpoints", "root-power-time-zone", "trusted-matter-time", "default-ntp", "dns-sd-time", "dhcp-time", "tls-management")
     parser.add_argument("--variant", choices=variants, default="camera")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
     # Each variant builds on the preceding fixture, in patch application order.
     patches = ("rs-matter-camera.patch", "bridge-topology.patch", "live-media.patch",
-               "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch", "commissioning-recovery.patch", "shutdown-drain.patch", "lan-interface.patch", "stream-continuity.patch", "provisioned-attestation.patch", "camera-endpoints.patch", "root-power-time-zone.patch", "trusted-matter-time.patch", "default-ntp.patch", "dns-sd-time.patch", "dhcp-time.patch")
+               "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch", "commissioning-recovery.patch", "shutdown-drain.patch", "lan-interface.patch", "stream-continuity.patch", "provisioned-attestation.patch", "camera-endpoints.patch", "root-power-time-zone.patch", "trusted-matter-time.patch", "default-ntp.patch", "dns-sd-time.patch", "dhcp-time.patch", "tls-management.patch")
     sdk_patches = patches[:variants.index(args.variant) + 1]
     engine_patches = ["str0m-rejected-media.patch"]
     if "audio-playback.patch" in sdk_patches:
