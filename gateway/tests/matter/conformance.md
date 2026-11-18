@@ -77,7 +77,8 @@ Implement and qualify these steps in order.
    publication running from default mute through acknowledged unmute.
    The Matter bridge now renews a per-camera capture permit when unmuted.
    A commissioned controller exercised capture changes while video and Opus
-   continued. Terminating the bridge withdrew capture after the permit expired.
+   continued on one independent Matter WebRTC peer and one RTSP publication.
+   Terminating the bridge withdrew capture after the permit expired.
    PCM and JPEG use the same camera clock. Measure the completion observation's offset and drift
    on the board before declaring synchronized physical playback.
    [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).

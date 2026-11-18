@@ -2888,5 +2888,65 @@
     "distinct_annotation_epochs": 1,
     "publication_retired_on_stop": true,
     "scope": "The controller commissioned a disposable Matter bridge. It drove unmute, mute and unmute via the standard attribute, while an independent receiver observed initial silence, tone, silence, tone and silence with advancing H.264 on the same RTSP publication. Abrupt bridge termination caused the fourth camera command and silence by permit expiry. A deterministic gateway test verifies writer and publisher scoping, default denial, expiry and revocation. The mTLS camera produced generated media and emulated acknowledgement of capture changes. Physical microphone timing, the Matter WebRTC and iPhone paths with physical media, and recorder and detector privacy acceptance remain open."
+  },
+  "matter_capture_privacy_webrtc": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/tests/matter/capture-privacy.patch": "f43a0ee3c5058af84d29fe084d5c6a0da8f278b91d5357593f8e5e9d644cc93c",
+      "gateway/tests/matter_reference.py": "5c53648c6028db472c92064371dc5b2af58bbd36991c2ec3c6101c1924c7fc2e",
+      "gateway/tests/ingest_av_reference.py": "76b1d256b12cd52d885ba813b78b20be250f8f05452cea66c994454acde73300"
+    },
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_binary_sha256": "f0f72eae3440e241050c318dd3a4e2e017f255475d0a17e6d55f02b7141cf1d4",
+    "sdk_example_tests_passed": 3,
+    "aiortc": "1.14.0",
+    "matter_webrtc": {
+      "connection": "one bundled receiver-offer WebRTC session",
+      "decoded_video_frames_in_initial_witness": 30,
+      "distinct_images": 14,
+      "dimensions": [
+        320,
+        240
+      ],
+      "decoded_fps": 16.62,
+      "trickled_remote_candidates": 24,
+      "distinct_remote_candidates": 12,
+      "trickled_device_candidates": 1,
+      "quiet_opus_frames_per_measured_silent_phase": [
+        100,
+        100
+      ],
+      "decoded_audio_phases": [
+        "silent",
+        "tone",
+        "silent",
+        "tone"
+      ],
+      "advancing_pictures_per_capture_transition": [
+        12,
+        12,
+        12
+      ],
+      "fresh_video_rtp_packets_per_capture_transition": [
+        27,
+        133,
+        28
+      ],
+      "matter_stop_acknowledged_and_session_retired": true
+    },
+    "parallel_rtsp": {
+      "decoded_and_annotated_video_frames": 185,
+      "decoded_opus_frames": 576,
+      "video_timing_steps_outside_one_ms": 1,
+      "wire_mute_commands": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "last_mute_cause": "bridge killed and capture permit expired",
+      "same_publication_and_source_connection": true
+    },
+    "scope": "The generated mTLS camera fixture feeds the actual ingest, MediaMTX, Matter gateway and independent WebRTC/RTSP receivers. The bundled offer retains duplicate signaling entries while the bridge caps distinct remote candidates at 16. The same Matter session presents silence and tone during capture changes. RTSP continues when the Matter process is terminated. Physical media, handset playback and recorder and detector privacy acceptance remain open."
   }
 }

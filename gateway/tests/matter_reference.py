@@ -14,7 +14,7 @@ import time
 import uuid
 
 import aiohttp
-from aiortc import RTCConfiguration, RTCPeerConnection, RTCRtpSender, RTCSessionDescription
+from aiortc import RTCBundlePolicy, RTCConfiguration, RTCPeerConnection, RTCRtpSender, RTCSessionDescription
 from aiortc.sdp import SessionDescription, candidate_from_sdp, candidate_to_sdp
 
 
@@ -82,8 +82,9 @@ class Controller:
 
 @contextlib.asynccontextmanager
 async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, request_end=True,
-                        audio_observer=None, end_reason=None):
-    peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+                        audio_observer=None, end_reason=None, bundled=False):
+    policy = RTCBundlePolicy.MAX_BUNDLE if bundled else RTCBundlePolicy.BALANCED
+    peer = RTCPeerConnection(RTCConfiguration(iceServers=[], bundlePolicy=policy))
     if audio_observer:
         peer.addTransceiver("audio", direction="recvonly")
     receiver = peer.addTransceiver("video", direction="recvonly")
@@ -97,14 +98,20 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
     target = dict(node_id=node_id, endpoint_id=endpoint_id)
     client_session_key = uuid.uuid4().hex
     candidate_counts = dict(sent=0, received=0)
+    unique_candidates = set()
 
     video_track = None
 
     async def send_candidates(candidates):
         assert candidates, "local ICE gathering produced no candidates"
-        await controller.request("camera_provide_ice_candidates", **target,
-                                 client_session_key=client_session_key, ice_candidates=candidates)
-        candidate_counts["sent"] += len(candidates)
+        # Keep each trickle message within the UDP budget on multi-interface
+        # hosts. Preserve bundled duplicates to exercise provider admission.
+        for start in range(0, len(candidates), 4):
+            batch = candidates[start:start + 4]
+            await controller.request("camera_provide_ice_candidates", **target,
+                                     client_session_key=client_session_key, ice_candidates=batch)
+            candidate_counts["sent"] += len(batch)
+            unique_candidates.update(candidate["candidate"] for candidate in batch)
 
     async def receive(track):
         stamps, hashes, first, last, size = [], set(), None, None, None
@@ -215,6 +222,8 @@ async def measured_peer(controller, node_id, endpoint_id, flow, frame_count, *, 
         assert all(candidate_counts.values()), "bidirectional Matter ICE exchange was not witnessed"
         result.update(flow=flow, negotiated_codec=session["video"]["codec"],
                       trickle_ice=candidate_counts)
+        if bundled:
+            result["distinct_sent_candidates"] = len(unique_candidates)
         yield result, peer, video_track
     finally:
         for task in tasks:

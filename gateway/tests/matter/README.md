@@ -614,10 +614,14 @@ It uses disposable enrollments and generated images and sound.
 
 An independent Matter controller commissions the bridge and writes
 `MicrophoneMuted` three times. The mTLS camera fixture checks the sequenced
-commands and starts or stops its generated PCM. Stopping the Matter bridge
-without cleanup also stops capture when the permit expires. One RTSP receiver
-checks quiet and audible phases, advancing decoded video, exact picture
-annotations, and one publication throughout.
+commands and starts or stops its generated PCM. An aiortc receiver keeps one
+Matter WebRTC session through the writes. It verifies silent and audible
+phases and fresh video RTP during each transition, then closes the session
+through Matter. Its bundled offer repeats candidates across audio and video.
+The provider admits each distinct candidate once and retains its 16-candidate
+limit. After the peer closes, stopping the bridge withdraws capture when its
+permit expires. An independent RTSP receiver checks the resulting silence,
+advancing decoded video and exact picture annotations on the same publication.
 
 ### WebRTC presentation
 

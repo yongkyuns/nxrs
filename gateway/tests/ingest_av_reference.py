@@ -20,6 +20,8 @@ import av
 from matter_attestation_reference import public_test_bundle
 from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller
+from matter_privacy_reference import Samples
+from matter_reference import measured_peer
 from matter_rtsp_reference import ports, start_device, start_media
 from matter_gateway_reference import start
 from tls_reference import Credentials, private
@@ -117,6 +119,7 @@ def receive(port, token, report):
     mono = av.AudioResampler(format="s16", layout="mono", rate=16_000)
     seen = set()
     video_steps = []
+    startup_frames_without_pts = 0
     try:
         with av.open(url, options={'rtsp_transport': 'tcp'}, timeout=(4, 5)) as streams:
             assert [(s.type, s.codec_context.name) for s in streams.streams] == [('video', 'h264'), ('audio', 'opus')]
@@ -160,6 +163,13 @@ def receive(port, token, report):
                     assert metadata['source']['latest']['frame_sequence'] == seq
                     assert metadata['source']['presence'] == ('person' if is_red else 'clear')
                     seen.add(metadata['epoch'])
+                    if frame.pts is None:
+                        # Validate the image and annotation even before the
+                        # RTSP timestamp is established. Start timing at the
+                        # first stamped picture and reject later gaps.
+                        assert not frames and startup_frames_without_pts == 0
+                        startup_frames_without_pts += 1
+                        continue
                     if frames:
                         prev_seq, prev_timestamp = frames[-1]
                         assert seq == prev_seq + 1
@@ -197,6 +207,7 @@ def receive(port, token, report):
     return dict(decoded_video_frames=len(frames), exact_pixel_annotation_matches=len(frames),
                 decoded_opus_frames=audio, distinct_annotation_epochs=len(seen),
                 video_frame_at_each_audio_transition=transition_frames,
+                startup_frames_without_pts=startup_frames_without_pts,
                 rtsp_timing_steps_outside_1ms=rebased)
 
 async def run(args, root):
@@ -266,10 +277,14 @@ async def run(args, root):
             while not gateway.path().get('ready'):
                 assert ingest.poll() is None and not errors and time.monotonic() < deadline, errors
                 await asyncio.sleep(.08)
+            source_id = gateway.path()['source']['id']
             bridge = start_device(processes, root, args, gateway, port, state, initialize=True,
                                   extra_args=('--config', deployment, '--allow-test-attestation',
                                               '--open-commissioning-window'))
-            async with controller(processes, root, args, 'admin', ports(1)[0], 32704) as admin:
+            async with (
+                controller(processes, root, args, 'admin', ports(1)[0], 32704) as admin,
+                asyncio.TaskGroup() as tasks,
+            ):
                 code = json.loads((factory.parent/'onboarding.json').read_bytes())['qrCode']
                 paired = await admin.request('commission_with_code', code=code, network_only=True,
                                              discovery_timeout_s=30)
@@ -278,7 +293,7 @@ async def run(args, root):
                 assert await attribute(admin, node, muted_attribute) is True
                 phases = asyncio.Queue(maxsize=5)
                 loop = asyncio.get_running_loop()
-                listen = asyncio.create_task(asyncio.to_thread(
+                listen = tasks.create_task(asyncio.to_thread(
                     receive, port, gateway.credentials['reader'].read_text(),
                     lambda muted: loop.call_soon_threadsafe(phases.put_nowait, muted),
                 ))
@@ -288,16 +303,60 @@ async def run(args, root):
 
                 await expect(phases, True)
                 assert commands.empty()
-                for muted in (False, True, False):
-                    await admin.request('write_attribute', node_id=node, attribute_path=muted_attribute, value=muted)
-                    assert await attribute(admin, node, muted_attribute) is muted
-                    await expect(commands, muted)
-                    await expect(phases, muted)
+                samples = Samples()
+                async with measured_peer(
+                    admin, node, 1, 'receiver-offer', 30, audio_observer=samples.consume, bundled=True,
+                ) as (matter_video, peer, video):
+                    assert matter_video['trickle_ice']['sent'] > matter_video['distinct_sent_candidates']
+                    async def video_packets():
+                        return sum(stat.packetsReceived for stat in (await peer.getStats()).values()
+                                   if stat.type == 'inbound-rtp' and stat.kind == 'video')
+
+                    sessions = await attribute(admin, node, '1/1363/0')
+                    assert len(sessions) == 1
+                    quiet_frames = [await samples.silence()]
+                    previous_pts = -1
+                    phase_video = []
+                    phase_packets = []
+                    for muted in (False, True, False):
+                        before = await video_packets()
+                        await admin.request(
+                            'write_attribute', node_id=node, attribute_path=muted_attribute, value=muted,
+                        )
+                        assert await attribute(admin, node, muted_attribute) is muted
+                        await expect(commands, muted)
+                        await expect(phases, muted)
+                        if muted:
+                            quiet_frames.append(await samples.silence())
+                        else:
+                            await samples.tone()
+                        async with asyncio.timeout(4):
+                            pictures = [(await video.recv()).pts for _ in range(12)]
+                        assert previous_pts < pictures[0] and all(a < b for a, b in zip(pictures, pictures[1:]))
+                        previous_pts = pictures[-1]
+                        phase_video.append(len(pictures))
+                        advancing = await video_packets() - before
+                        assert advancing > 0
+                        phase_packets.append(advancing)
+                        assert await attribute(admin, node, '1/1363/0') == sessions
+                        assert peer.connectionState == 'connected'
+                async with asyncio.timeout(5):
+                    while await attribute(admin, node, '1/1363/0'):
+                        await asyncio.sleep(.1)
                 bridge.kill()
                 assert await asyncio.to_thread(bridge.wait, 5) != 0
                 await expect(commands, True, 3)
                 await expect(phases, True)
                 result = await listen
+                assert gateway.path()['source']['id'] == source_id
+                matter_video.update(
+                    silent_decoded_opus_frames=quiet_frames,
+                    video_frames_per_capture_transition=phase_video,
+                    video_rtp_packets_during_capture_transition=phase_packets,
+                    decoded_audio_phases=['silent', 'tone', 'silent', 'tone'],
+                    teardown_acknowledged=True,
+                )
+                result['matter_webrtc'] = matter_video
                 result['wire_mute_commands'] = [False, True, False, True]
                 result['last_mute_cause'] = 'expired capture permit after stopping Matter bridge'
             assert received == [True] and not errors

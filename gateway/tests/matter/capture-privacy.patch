@@ -1,7 +1,71 @@
 diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
 --- a/examples/src/bin/webrtc_camera.rs
 +++ b/examples/src/bin/webrtc_camera.rs
-@@ -1671,6 +1671,8 @@
+@@ -289,7 +289,7 @@
+     shutdown_tx: Sender<()>,
+     joined: Receiver<()>,
+     candidate: RefCell<Option<String>>,
+-    remote_candidates: Cell<usize>,
++    remote_candidates: RefCell<Vec<Candidate>>,
+     negotiation: Cell<Option<OutboundWork>>,
+     send_ice: Cell<bool>,
+     end: Cell<Option<WebRTCEndReasonEnum>>,
+@@ -1195,7 +1195,7 @@
+                 shutdown_tx,
+                 joined: finished,
+                 candidate: RefCell::new(Some(local_cand_sdp)),
+-                remote_candidates: Cell::new(0),
++                remote_candidates: RefCell::new(Vec::new()),
+                 negotiation: Cell::new(Some(OutboundWork::Offer { session_id })),
+                 send_ice: Cell::new(true),
+                 end: Cell::new(None),
+@@ -1253,7 +1253,7 @@
+                     shutdown_tx,
+                     joined: finished,
+                     candidate: RefCell::new(Some(local_cand_sdp)),
+-                    remote_candidates: Cell::new(0),
++                    remote_candidates: RefCell::new(Vec::new()),
+                     negotiation: Cell::new(Some(OutboundWork::Answer { session_id })),
+                     send_ice: Cell::new(true),
+                     end: Cell::new(None),
+@@ -1344,19 +1344,29 @@
+         if ctrl.closing.get() || ctrl.revoked.get() || ctrl.joined.is_closed() {
+             return Err(WebRtcError::InvalidInState);
+         }
++        let mut accepted = ctrl.remote_candidates.borrow_mut();
+         let mut parsed = Vec::new();
+-        for entry in candidates.iter() {
++        for (index, entry) in candidates.iter().enumerate() {
+             let entry = entry.map_err(|_| WebRtcError::DynamicConstraint)?;
+             let sdp = entry.candidate().map_err(|_| WebRtcError::DynamicConstraint)?;
+-            if sdp.len() > CAND_LEN || ctrl.remote_candidates.get() + parsed.len() >= MAX_CAND {
++            if sdp.len() > CAND_LEN || index >= MAX_CAND * 2 {
+                 return Err(WebRtcError::ResourceExhausted);
+             }
+-            parsed.push(Candidate::from_sdp_string(sdp.trim_start_matches("a="))
+-                .map_err(|_| WebRtcError::DynamicConstraint)?);
+-        }
+-        ctrl.remote_candidates.set(ctrl.remote_candidates.get() + parsed.len());
++            let candidate = Candidate::from_sdp_string(sdp.trim_start_matches("a="))
++                .map_err(|_| WebRtcError::DynamicConstraint)?;
++            // Bundled media and signaling retries may repeat the same candidate.
++            // Keep one shared transport's limit on distinct candidates.
++            if accepted.contains(&candidate) || parsed.contains(&candidate) {
++                continue;
++            }
++            if accepted.len() + parsed.len() >= MAX_CAND {
++                return Err(WebRtcError::ResourceExhausted);
++            }
++            parsed.push(candidate);
++        }
+         for candidate in parsed {
+-            ctrl.remote_cand_tx.try_send(candidate).map_err(|_| WebRtcError::InvalidInState)?;
++            ctrl.remote_cand_tx.try_send(candidate.clone()).map_err(|_| WebRtcError::InvalidInState)?;
++            accepted.push(candidate);
+         }
+         Ok(())
+     }
+@@ -1671,6 +1681,8 @@
          AUDIO_ALLOCATIONS_KEY,
          initial_video,
      )?);
@@ -10,7 +74,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
      let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
      let webrtc = WEBRTC.init(WebRtcProvHandler::new(
          Dataver::new_rand(&mut rand),
-@@ -1770,6 +1772,15 @@
+@@ -1770,6 +1782,15 @@
              let matter_core =
                  select(matter_core, time_client.run_with_ntp(TIME_REFRESH, &kv, &im, &ntp)).coalesce();
              let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };
