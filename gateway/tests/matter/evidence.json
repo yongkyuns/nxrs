@@ -2543,6 +2543,18 @@
     "patched_cases_passed": 7,
     "defects_reproduced_on_original": 5,
     "valid_controls_passed_on_both": 2,
-    "scope": "Host execution of the pinned IRQ registration, channel and dispatch functions with injected CPU and GDMA state. Hardware interrupt delivery and active DMA buffer retirement remain open."
+    "ordered_sdk_patch_tests_passed": 52,
+    "target_build": {
+      "nxrs_source_revision": "8c686a234e5c8d39416ce5b9395bda0e7daf9493",
+      "profile": "esp32s3-camera-stream-startup",
+      "cpus": 2,
+      "resolved_config_sha256": "99fc288aee50c3ca1b2fcfdb24e28e2eb5ed1bf83886144405c02a2fffe81e49",
+      "elf_sha256": "7b46d0851eb7213a2da3eda1f7889ceeba35947764ed27cd8f8e3c3c537f0a1b",
+      "signed_image_sha256": "5274d253697cd9067ab325398c8c7e63169b376c734c4e23de21f3167d41ecca",
+      "signed_image_bytes": 1900454,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "Host execution of pinned IRQ registration, channel and dispatch functions with injected CPU and GDMA state. The two-core WROOM configuration compiled, linked and passed ABI checks on the same pinned toolchain as the RX submission build. Hardware interrupt delivery and active DMA buffer retirement remain open."
   }
 }

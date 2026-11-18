@@ -122,9 +122,10 @@ covers failure followed by successful retry. [Source regression](../../../tests/
 Patch 0127 keeps the ESP32-S3 RX interrupt route enabled on its registering
 CPU. Transfer start and stop control delivery at the GDMA source. The RX
 handler reads and acknowledges its completion under the queue lock. The
-host witness tests route setup, stop and restart from another CPU, and
-separate RX and TX interrupt delivery.
-[Interrupt regression](../../../tests/host/test_esp_i2s_rx_irq.py).
+host witness checks that the route is enabled once during registration and
+that the RX and TX handlers inspect only their own interrupt sources. The
+two-core WROOM candidate linked and passed 122 ABI witnesses off-device.
+[Interrupt regression](../../../tests/host/test_esp_i2s_rx_irq.py) · [Build evidence](evidence.json).
 
 Two existing interfaces determine the work between capture and playback.
 
