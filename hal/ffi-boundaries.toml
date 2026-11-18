@@ -198,3 +198,8 @@ reason = "Individual GPIO interrupt ioctls only. NuttX owns ISR notifications; t
 path = "hal/display/src/platform/nuttx/ffi/spi.c"
 kind = "abi"
 reason = "Translate a borrowed command and bytes into the NuttX SPI command/data sequence."
+
+[[bridge]]
+path = "hal/audio/src/platform/nuttx/ffi/audio.c"
+kind = "abi"
+reason = "NuttX queued audio ioctls, message queue layout and aligned APB fields. Rust owns descriptor admission, submission, buffer identities, deadlines, sample conversion and retirement."

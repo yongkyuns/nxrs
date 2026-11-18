@@ -1,0 +1,8 @@
+# Off-device build and explicit capture qualification on Freenove FNK0085.
+extends = "esp32s3-camera-stream-startup"
+hal = { audio = "nuttx" }
+nuttx-config = "esp32s3-camera-microphone.conf"
+
+[audio]
+device = "/dev/audio/pcm_in0"
+slot = "left"

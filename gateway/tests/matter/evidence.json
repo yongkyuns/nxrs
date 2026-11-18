@@ -2577,5 +2577,42 @@
       "test_signature_verified": true
     },
     "scope": "Receive-only ESP32-S3. Exact pinned driver functions exercised on the host with injected GDMA and callback state. The same patch content linked into the two-core WROOM target. The explicit stop retry is tested. Abrupt close, the Rust capture provider, device capture and iPhone playback remain open."
+  },
+  "microphone_capture_provider": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "source_sha256": {
+      "hal/audio/Cargo.toml": "b85cab8aa82a0e4d5cb72bbf3ccbcb595f15cf03c398f5c6dd4b1f462fa80b45",
+      "hal/audio/src/lib.rs": "ed9def26423fee4c0d817bee0d5f77974af3c1717cdb3c2f23e853e5aff3a918",
+      "hal/audio/src/platform/mod.rs": "f5f4a1c9eb072d7b69efdcb61ec18381118e032be8afeba1c1d71eda60dd111c",
+      "hal/audio/src/platform/nuttx/ffi/mod.rs": "276b9794f4f09602f39df9c1da0b6e442f0c9a945a60253668e2b3a4a9a288b6",
+      "hal/audio/src/platform/nuttx/mod.rs": "c88830b862975bf123a04863db421a33216be4b63a537bebc4737f6d38aaaf79",
+      "hal/audio/src/platform/unbound.rs": "73247749748b2cf4bc9cd45f3acf47b3853bdabd0a7b425d52622a028e878916",
+      "hal/audio/src/session/tests.rs": "9c29fd4ab75d8db917b63a0507759eeea55baeb2031594dc5e72fc537b384bee",
+      "hal/audio/src/session.rs": "d332ae6f02d1dc43d13a2bb3be781df01a18d73516f15495790338c5617f6034",
+      "hal/audio/src/platform/nuttx/ffi/audio.c": "cc194ace0ad37ceb59a438bf2c878824f11166b18fe541ce9e173c74c1b6718b",
+      "tests/nuttx-std/audio/src/main.rs": "c564223d101d9723db43acd6a3858b579b998da5e6a54d60293e7c4fb5a0435f",
+      "tests/profiles/esp32s3-camera-microphone.toml": "6f0e73c7d7b2944e95188431b4b5354616c69eb53bfecd1eabb3d7e877ba4e88",
+      "tests/profiles/esp32s3-camera-microphone.conf": "2b6d4748dee39ff35cfef3c13b201791a9578d95268b63e3941a8b51c368b7c1"
+    },
+    "host_audio_tests_passed": 5,
+    "host_build_support_tests_passed": 71,
+    "host_home_cam_tests_passed": 10,
+    "target_build": {
+      "profile": "esp32s3-camera-microphone",
+      "app": "audio-capture",
+      "cpus": 2,
+      "sample_rate_hz": 16000,
+      "dma_blocks": 2,
+      "dma_block_bytes": 2560,
+      "notification_slots": 4,
+      "matching_camera_wifi_usb_psram_i2s_settings": 108,
+      "resolved_config_sha256": "59da98bed22beeae7a4ef32116a15737398dee12f41606a5f811bb0842a70f83",
+      "elf_sha256": "abde4aa0bcd6782005a677f0965f772094b62b87977de716ef5ea6c79e21ee54",
+      "signed_image_sha256": "b603da16efa33317e2069350d06d42b47cb6f547d53e43de252aea0cd1f7ec93",
+      "signed_image_bytes": 876140,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "The Rust capture state machine and slot decoder ran on the host. The dedicated two-core WROOM qualification firmware compiled and linked against the exact native headers. The command was not executed on hardware. Camera ingress, shared capture timing, physical mute and iPhone audio remain open."
   }
 }

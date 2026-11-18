@@ -18,6 +18,7 @@ pub const CAPABILITIES: &[&str] = &[
     "ssh",
     "detector",
     "camera",
+    "audio",
     "config",
     "storage",
     "transport",
@@ -34,7 +35,7 @@ pub const CAPABILITIES: &[&str] = &[
     "display",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
-const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi", "rtc", "flash", "display"];
+const NUTTX_ENDPOINTS: &[&str] = &["camera", "audio", "watchdog", "wifi", "rtc", "flash", "display"];
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub data: Value,
@@ -889,13 +890,19 @@ impl Profile {
                 } else {
                     device(&value[field])
                 };
-                let optional: &[&str] = if capability == "watchdog" {
-                    &["mode"]
-                } else {
-                    &[]
+                let (required, optional): (&[&str], &[&str]) = match capability {
+                    "audio" => (&[field, "slot"], &[]),
+                    "watchdog" => (&[field], &["mode"]),
+                    _ => (&[field], &[]),
                 };
-                if !keys(value, &[field], optional) || !valid {
+                if !keys(value, required, optional) || !valid {
                     return Err(format!("{capability} requires a valid profile {field}"));
+                }
+                if capability == "audio"
+                    && (value["device"].as_str() != Some("/dev/audio/pcm_in0")
+                        || !matches!(value["slot"].as_str(), Some("left" | "right")))
+                {
+                    return Err("audio requires the I2S0 capture endpoint and a left or right slot".into());
                 }
                 if capability == "watchdog"
                     && value.get("mode").is_some()
@@ -1053,7 +1060,7 @@ impl Profile {
                         .into(),
                 );
             }
-            "camera" | "watchdog" | "rtc" | "flash" | "display"
+            "camera" | "audio" | "watchdog" | "rtc" | "flash" | "display"
                 if self.binding(capability) == "nuttx" =>
             {
                 env(
@@ -1063,6 +1070,15 @@ impl Profile {
                         .ok_or("missing device path")?
                         .into(),
                 );
+                if capability == "audio" {
+                    env(
+                        "AUDIO_SLOT",
+                        self.data["audio"]["slot"]
+                            .as_str()
+                            .ok_or("missing audio slot")?
+                            .into(),
+                    );
+                }
                 if capability == "watchdog" {
                     env("WATCHDOG_MODE", self.watchdog_mode().into());
                 }
@@ -1154,6 +1170,23 @@ mod tests {
         assert!(!replaced.source_paths().any(|path| path == &parent_fragment));
         assert_eq!(replaced.data["kconfig"], inherited.data["kconfig"]);
     }
+    #[test]
+    fn microphone_profile_admits_only_the_bound_endpoint_and_a_valid_slot() {
+        let root = root();
+        let mut profile = Profile::resolve(&root, "esp32s3-camera-microphone").unwrap();
+        let output = profile.cargo_output(&root, "audio", "nuttx").unwrap();
+        assert!(output
+            .iter()
+            .any(|line| line == "cargo:rustc-env=AUDIO_DEVICE=/dev/audio/pcm_in0"));
+        assert!(output.iter().any(|line| line == "cargo:rustc-env=AUDIO_SLOT=left"));
+
+        profile.data["audio"]["slot"] = json!("center");
+        assert!(profile.validate_resources().is_err());
+        profile.data["audio"]["slot"] = json!("right");
+        profile.data["audio"]["device"] = json!("/dev/audio/pcm_in1");
+        assert!(profile.validate_resources().is_err());
+    }
+
     #[test]
     fn registered_endpoints_are_explicit_validated_profile_inputs() {
         let root = root();

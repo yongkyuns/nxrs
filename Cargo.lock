@@ -665,6 +665,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-audio"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
+]
+
+[[package]]
 name = "nxrs-ble"
 version = "0.1.0"
 dependencies = [
@@ -1167,6 +1175,13 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-std-audio"
+version = "0.1.0"
+dependencies = [
+ "nxrs-audio",
 ]
 
 [[package]]

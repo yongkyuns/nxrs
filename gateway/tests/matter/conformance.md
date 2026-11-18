@@ -34,9 +34,10 @@ Do not call the video-only fixture a conforming product.
 
 ## Microphone delivery
 
-The release requires capture from a real microphone at the camera. Physical
-audio qualification is waiting for microphone hardware. The Freenove OV3660
-profile still needs an audio binding and Nxrs needs an audio capture HAL.
+The release requires capture from a real microphone at the camera. The
+`esp32s3-camera-microphone` qualification profile enables the audio HAL
+alongside the Freenove camera configuration. Physical audio qualification
+is waiting for microphone hardware.
 Implement and qualify these steps in order.
 
 1. Select a microphone and verify its clock, data format and wiring against
@@ -46,15 +47,13 @@ Implement and qualify these steps in order.
    and 7, all occupied by the camera. Check the schematic, flash/PSRAM, USB,
    boot straps, DMA capacity and the effective NuttX configuration before
    admitting an I2S receive resource in a derived product profile.
-2. Use the BSP's existing receive endpoint. By default port 0 registers
-   `/dev/audio/pcm_in0` and port 1 registers `/dev/audio/pcm_in1`. Derive
-   the path from the chosen BSP configuration. Rust opens the descriptor with
-   `std::fs`. The generic I²S lower half has no read operation, so a plain
-   `File::read` on this endpoint returns zero bytes. The NuttX provider must
-   reserve and configure capture, register a notification queue, enqueue a
-   fixed pool of audio buffers and process dequeues in task context. Keep the
-   target-header translations private to the provider. Check the returned
-   sample count, active capture generation and accepted format.
+2. Qualify the Rust capture HAL against `/dev/audio/pcm_in0`. It owns two
+   aligned 2,560-byte DMA blocks and a four-message nonblocking completion
+   queue. It reads the selected I²S slot into a 320-sample PCM16 block,
+   rejects unexpected buffer identities and lengths, and records the sample
+   offset and monotonic completion observation. The observation includes
+   queue delay. Measure the capture-time relationship to video before using
+   it to synchronize tracks. [Rust capture provider](../../../hal/audio/src/platform/nuttx/mod.rs).
 3. Negotiate a versioned audio-capable stream with the gateway. Preserve the
    existing JPEG and optional detection path for older peers. Start with signed
    16-bit mono PCM at 16 kHz. A 20 ms chunk contains 320 samples (640 bytes),
@@ -92,16 +91,14 @@ Verify the slot layout and discard startup samples within the microphone's
 settling interval. [Freenove pinout](https://github.com/Freenove/Freenove_ESP32_S3_WROOM_Board/blob/main/ESP32S3_Pinout.png) · [INMP441 electrical and timing specifications](https://invensense.tdk.com/wp-content/uploads/2015/02/INMP441.pdf).
 
 ```sh
-cargo nxrs config show --app home-cam --platform wroom \
-  --kconfig-enable AUDIO --kconfig-enable DRIVERS_AUDIO --kconfig-enable AUDIO_I2S \
-  --kconfig-enable ESPRESSIF_I2S0 --kconfig-enable ESPRESSIF_I2S0_RX \
-  --kconfig-enable ESPRESSIF_I2S0_ROLE_MASTER \
-  --kconfig-enable ESPRESSIF_I2S0_DATA_BIT_WIDTH_32BIT \
-  --kconfig-disable ESPRESSIF_I2S0_TX --kconfig-disable ESPRESSIF_I2S0_MCLK \
-  --kconfig-set ESPRESSIF_I2S0_SAMPLE_RATE=16000 \
-  --kconfig-set ESPRESSIF_I2S0_BCLKPIN=14 --kconfig-set ESPRESSIF_I2S0_WSPIN=21 \
-  --kconfig-set ESPRESSIF_I2S0_DINPIN=1
+cargo nxrs build --manifest-path tests/nuttx-std/audio/Cargo.toml \
+  --profile esp32s3-camera-microphone --stack-size 16384
 ```
+
+The qualification command checks two capture sessions and reports only
+block counts and successful retirement. Kernel capture is enabled by the
+profile's NuttX fragment. Build with a disposable signing identity for this
+test image. [Profile](../../../tests/profiles/esp32s3-camera-microphone.toml) · [Qualification command](../../../tests/nuttx-std/audio/src/main.rs).
 
 Native `olddefconfig` accepted every override on the current WROOM startup
 profile. Camera, Wi-Fi, USB and PSRAM settings matched the default profile.
@@ -161,13 +158,13 @@ starting capture again after a full pool is returned. The two-core WROOM
 firmware linked and passed 122 ABI witnesses off-device.
 [Stop regression](../../../tests/host/test_esp_i2s_rx_stop.py) · [Build evidence](evidence.json).
 
-The queued NuttX provider must retain its descriptor and buffer pool until
-stop succeeds. Use a nonblocking completion queue sized for the outstanding
-buffers and terminal notification. Mark the capture as retiring before
-stopping and discard its queued samples. The generic I²S audio adapter
-returns canceled buffers as ordinary dequeues and emits completion for the
-last canceled buffer. A successful stop also covers an empty pool. Abrupt
-close and physical stop, mute and reopen remain unqualified. Inject an RX
+The Rust provider stops delivering samples as soon as retirement begins.
+It keeps the descriptors and buffer pool until stop succeeds. If dropping
+the capture cannot retire immediately, a later open retries first. The
+generic I²S audio adapter returns canceled buffers as ordinary dequeues and
+emits completion for the last canceled buffer. A successful stop also
+covers an empty pool. An abrupt native close and physical stop, mute and
+reopen remain unqualified. Inject an RX
 fault and verify that the provider reports an observable discontinuity or a
 terminal failure. Verify mute and revocation with a known acoustic cue.
 [I²S audio operations and callback](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/drivers/audio/audio_i2s.c) · [Audio upper half](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/audio/audio.c).
