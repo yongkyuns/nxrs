@@ -8,6 +8,7 @@ use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 const REQUEST_CAPACITY: usize = 1024;
+const _: () = assert!(REQUEST_CAPACITY <= crate::HEADER_CAPACITY);
 const WRITE_BUDGET: usize = 4096;
 // An inline empty icon avoids a second browser request competing for the
 // deliberately single-client server while the image connection is admitted.
@@ -262,14 +263,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
 /// Request and frame storage are reused until this session is retired.
 pub struct HttpSession<W, B> {
     buffer: Option<B>,
+    // The request and outgoing part headers use this allocation in turn.
     header: Option<Box<[u8]>>,
     client: Option<Client<W, B>>,
     options: Options,
     stats: ServerStats,
     last_now_ms: Option<u64>,
-    // Keep the bounded request storage in one place. Moving the client state
-    // between poll steps must not copy a KiB array onto nested task stacks.
-    request_bytes: [u8; REQUEST_CAPACITY],
 }
 
 impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
@@ -296,7 +295,6 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             options,
             stats: ServerStats::default(),
             last_now_ms: None,
-            request_bytes: [0; REQUEST_CAPACITY],
         })
     }
 
@@ -371,7 +369,6 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             options: self.options,
             stats: self.stats,
             last_now_ms: self.last_now_ms,
-            request_bytes: self.request_bytes,
         }
     }
 
@@ -423,7 +420,10 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             return false;
         }
         self.stats.accepted = self.stats.accepted.saturating_add(1);
-        self.request_bytes[..prefix.len()].copy_from_slice(prefix);
+        self.header
+            .as_mut()
+            .expect("idle server owns header storage")[..prefix.len()]
+            .copy_from_slice(prefix);
         self.client = Some(Client::Request(Request {
             socket,
             length: prefix.len(),
@@ -512,10 +512,9 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                 if now >= request.deadline {
                     return self.fail(Client::Request(request), Failure::RequestDeadline);
                 }
-                match request
-                    .socket
-                    .read(&mut self.request_bytes[request.length..])
-                {
+                let bytes = &mut self.header.as_mut().expect("request owns header storage")
+                    [..REQUEST_CAPACITY];
+                match request.socket.read(&mut bytes[request.length..]) {
                     Ok(0) => return self.close(Client::Request(request), false),
                     Ok(count) => request.length += count,
                     Err(error) if retryable(&error) => return Some(Client::Request(request)),
@@ -523,11 +522,11 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                         return self.fail(Client::Request(request), Failure::Read(error.kind()))
                     }
                 }
-                let kind = if let Some(end) = self.request_bytes[..request.length]
+                let kind = if let Some(end) = bytes[..request.length]
                     .windows(4)
                     .position(|bytes| bytes == b"\r\n\r\n")
                 {
-                    match request_path(&self.request_bytes[..end]) {
+                    match request_path(&bytes[..end]) {
                         Some(
                             path @ ("/stream" | "/stream.mjpg" | "/stream?metadata=1" | AV_PATH
                             | CONTROLLED_AV_PATH),
@@ -546,6 +545,8 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                 }
                                 _ => AudioMode::Disabled,
                             };
+                            let metadata_enabled =
+                                path == "/stream?metadata=1" || audio != AudioMode::Disabled;
                             let buffer = self
                                 .buffer
                                 .take()
@@ -564,8 +565,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                 read_closed: false,
                                 last_write_ms: now,
                                 ready: false,
-                                metadata_enabled: path == "/stream?metadata=1"
-                                    || audio != AudioMode::Disabled,
+                                metadata_enabled,
                                 metadata_revision: 0,
                                 microphone: (audio == AudioMode::Controlled)
                                     .then(MicrophoneControl::new),
