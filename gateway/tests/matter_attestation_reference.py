@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify file-provisioned Matter identity, camera descriptors and fabric-scoped bindings."""
+"""Verify provisioned Matter identity and persistent camera and root behavior."""
 
 import argparse
 import asyncio
@@ -12,6 +12,7 @@ import re
 import socket
 import struct
 import subprocess
+import time
 
 from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller
@@ -23,6 +24,52 @@ from matter_source_access import private_file
 
 BINDING = "1/30/0"
 WEBRTC_REQUESTOR = 0x0554
+
+
+async def read_host_power(client, node, expected_current_type):
+    result = await client.request("read_attribute", node_id=node, attribute_path="0/47/*")
+    assert result["0/47/65532"] == 1  # Wired
+    assert result["0/47/0"] == 1 and result["0/47/1"] == 0  # Active, first source
+    assert result["0/47/31"] == [0, 2]
+    assert result["0/47/5"] == expected_current_type
+    return result["0/47/5"]
+
+
+async def check_time_zone(client, node, *, configure):
+    target = dict(node_id=node, endpoint_id=0, cluster_id=56)
+    assert await attribute(client, node, "0/56/65532") == 1  # TimeZone
+    if configure:
+        reply = await client.request(
+            "device_command", **target, command_name="SetTimeZone",
+            payload={"timeZone": [{"offset": -18000, "validAt": 0, "name": "Fixture standard time"}]},
+        )
+        assert reply["dstOffsetRequired"]
+        reply = await client.request(
+            "device_command", **target, command_name="SetDSTOffset",
+            payload={"dstOffset": [{"offset": 3600, "validStarting": 0, "validUntil": None}]},
+        )
+        assert reply is None
+        try:
+            await client.request(
+                "device_command", **target, command_name="SetTimeZone",
+                payload={"timeZone": [{"offset": 0, "validAt": 1}]},
+            )
+        except RuntimeError as error:
+            assert "(Matter status 135)" in str(error), error  # ConstraintError
+        else:
+            raise AssertionError("invalid time-zone activation accepted")
+    assert await attribute(client, node, "0/56/5") == [{"0": -18000, "1": 0, "2": "Fixture standard time"}]
+    assert await attribute(client, node, "0/56/6") == [{"0": 3600, "1": 0, "2": None}]
+    utc_us = (int(time.time()) - 946684800) * 1_000_000  # Matter epoch starts in 2000.
+    reply = await client.request(
+        "device_command", **target, command_name="SetUTCTime",
+        payload={"utcTime": utc_us, "granularity": 2},
+    )
+    assert reply is None
+    before = int(await attribute(client, node, "0/56/0"))
+    local = int(await attribute(client, node, "0/56/7"))
+    after = int(await attribute(client, node, "0/56/0"))
+    assert before <= local + 14_400 * 1_000_000 <= after
 
 
 def binding_record(snapshot):
@@ -126,6 +173,7 @@ async def run(args):
             factory_data=str(factory),
             state_directory=str(state),
             snapshot_ffmpeg=str(args.ffmpeg.resolve(strict=True)),
+            host_power_source="dc",
         )
         config = root / "matter.json"
         private_file(config, json.dumps(settings))
@@ -149,6 +197,14 @@ async def run(args):
         settings["attestation_directory"] = str(bundle)
         config.write_text(json.dumps(settings))
         await refuse("development-chain-on-default-path", *init)
+        settings.pop("host_power_source")
+        config.write_text(json.dumps(settings))
+        await refuse("missing-host-power-source", *dev_init)
+        settings["host_power_source"] = "battery"
+        config.write_text(json.dumps(settings))
+        await refuse("unsupported-host-power-source", *dev_init)
+        settings["host_power_source"] = "dc"
+        config.write_text(json.dumps(settings))
 
         key.chmod(0o644)
         await refuse("exposed-key", *dev_init)
@@ -194,6 +250,11 @@ async def run(args):
             assert await attribute(admin, node, "0/40/2") == identity["vendor_id"]
             assert await attribute(admin, node, "0/40/4") == identity["product_id"]
             assert await attribute(admin, node, "0/40/15") == identity["serial_number"]
+            root_types = await attribute(admin, node, "0/29/0")
+            assert {item["0"] for item in root_types} == {0x0011, 0x0016}
+            assert {0x002F, 0x0038}.issubset(await attribute(admin, node, "0/29/1"))
+            initial_power = await read_host_power(admin, node, expected_current_type=1)
+            await check_time_zone(admin, node, configure=True)
             servers = await attribute(admin, node, "1/29/1")
             clients = await attribute(admin, node, "1/29/2")
             parts = await attribute(admin, node, "2/29/3")
@@ -251,6 +312,16 @@ async def run(args):
             await refuse("changed-durable-identity", "--allow-test-attestation")
             assert snapshot.read_bytes() == before
             identity_file.write_text(json.dumps(identity))
+            settings.pop("host_power_source")
+            config.write_text(json.dumps(settings))
+            inspection = boot("older-config-maintenance", "--fabric-status", "--allow-test-attestation")
+            assert await asyncio.to_thread(inspection.wait, 6) == 0
+            assert json.loads((root / "older-config-maintenance.log").read_bytes())["fabric_indices"] == sorted(
+                [admin_target[-1], second_target[-1]]
+            )
+            assert snapshot.read_bytes() == before
+            settings["host_power_source"] = "dc"
+            config.write_text(json.dumps(settings))
             device = boot("restarted", "--allow-test-attestation")
             await ready()
             assert await attribute(admin, node, "0/62/3") == 2
@@ -274,6 +345,8 @@ async def run(args):
         start_at, end_at = binding_record(clean)
         interrupted = clean[:start_at] + before[old_start:old_end] + clean[end_at:-32]
         snapshot.write_bytes(interrupted + sha256(interrupted).digest())
+        settings["host_power_source"] = "ac"
+        config.write_text(json.dumps(settings))
         device = boot("interrupted-removal-restart", "--allow-test-attestation")
         await ready()
         async with controller(
@@ -281,6 +354,8 @@ async def run(args):
         ) as restored:
             assert await attribute(restored, node, "0/62/3") == 1
             assert await read_bindings(restored, node, filtered=False) == [admin_target]
+            restored_power = await read_host_power(restored, node, expected_current_type=0)
+            await check_time_zone(restored, node, configure=False)
             repaired = snapshot.read_bytes()
             repaired_start, repaired_end = binding_record(repaired)
             assert repaired[repaired_start:repaired_end] == clean[start_at:end_at]
@@ -310,6 +385,13 @@ async def run(args):
         binding_restart_persistence=True,
         binding_selective_removal=True,
         binding_interrupted_removal_repaired=True,
+        refused_missing_or_unsupported_power_source=True,
+        older_configuration_allows_offline_maintenance=True,
+        wired_current_types=[initial_power, restored_power],
+        host_power_endpoints=[0, 2],
+        time_zone_rejected_invalid_change=True,
+        time_zone_and_dst_survived_restart=True,
+        verified_local_time=True,
     )
 
 

@@ -13,6 +13,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HostPowerSource {
+    Ac,
+    Dc,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Deployment {
@@ -29,6 +36,7 @@ pub struct Deployment {
     pub ice_address: Ipv4Addr,
     pub lan_interface: Option<String>,
     pub snapshot_ffmpeg: Option<PathBuf>,
+    pub host_power_source: Option<HostPowerSource>,
 }
 
 impl Deployment {

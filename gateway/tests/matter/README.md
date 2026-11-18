@@ -640,7 +640,7 @@ The `--code manualCode` trial starts with the manually entered code.
 
 ## Provisioned device attestation and camera endpoints
 
-Prepare the pinned host SDK with `--variant camera-endpoints` and the
+Prepare the pinned host SDK with `--variant root-power-time-zone` and the
 same DNS-SD archive as the scoped LAN build. The bridge's deployment JSON
 requires an absolute `attestation_directory`. Keep that directory on the
 trusted host filesystem with mode 0700 and its regular files with mode 0600.
@@ -677,6 +677,21 @@ The surviving enrollment plays video after recovery.
 Use product-issued credentials for real device qualification. Production
 credential issuance and protected-key lifecycle have separate release gates.
 [Results](evidence.json).
+
+### Bridge power and timezone
+
+Set `host_power_source` in the deployment JSON to `"ac"` or `"dc"` to
+describe the gateway's single wired supply. The bridge lists its root and
+aggregator as powered endpoints. The camera and occupancy endpoints are
+independently powered. Starting network service requires the setting.
+Offline fabric inspection still works with earlier deployment files.
+
+The test reads the configured power source on the root before and after
+restart. It sets standard time and a DST offset through Matter, checks
+local time against administrator-provided UTC, rejects an invalid time
+zone, and reads the settings again after restart with the same enrollment.
+The TimeZone feature uses the SDK's durable tables. NTP, Matter-sourced time
+and TLS management remain release work.
 
 ## Two controllers on the same fabric
 

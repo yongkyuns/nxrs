@@ -51,7 +51,8 @@
     "stream-continuity.patch": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
     "lan-interface.patch": "76604ff02c29aa6b80b1758179bd2c9ea288bdd125402da74cdbbf443e865b98",
     "astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b",
-    "camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e"
+    "camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
+    "root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b"
   },
   "home_assistant": {
     "version": "2026.11.2",

@@ -2113,5 +2113,43 @@
     "binding_selective_removal": true,
     "binding_interrupted_removal_repaired": true,
     "scope": "Native macOS 27.0.1 arm64, independent Matter Server 1.6.0, development attestation and generated H.264. The interrupted-removal snapshot recreates the durable gap between fabric deletion and Binding cleanup. Root conditions, product attestation and physical microphone, camera and iPhone qualification remain open."
+  },
+  "root_power_and_time_zone": {
+    "fixture": "root-power-time-zone",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "7d1ab3da81778114c737199952cf7e819e1bdddd01d0796e1689f62f652d428a",
+    "source_sha256": {
+      "gateway/matter/src/config.rs": "450fdf54a7a2d73e3dc0f923f6c6d11faadda41c44f5a418b109694f555521f7",
+      "gateway/tests/matter/root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b",
+      "gateway/tests/matter/camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
+      "gateway/tests/matter_attestation_reference.py": "2aeb2756abb6fc804e63b789f6a99317de01612c244066d11e0472a5c41a9b51",
+      "tools/prepare-matter-fixture.py": "632adff4e3afec799fa43ab93c1bf6690481af6328154807523c9e1685267d11",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "b564e6e2daf39834cb85ef20e2db49a3a8154a729fafe663620bdbaaa5e10fa0",
+    "flows": [
+      "receiver-offer",
+      "camera-offer"
+    ],
+    "frames": [
+      45,
+      45
+    ],
+    "original_enrollment_restored": true,
+    "wired_current_types": [
+      1,
+      0
+    ],
+    "host_power_endpoints": [
+      0,
+      2
+    ],
+    "refused_missing_or_unsupported_power_source": true,
+    "older_configuration_allows_offline_maintenance": true,
+    "time_zone_rejected_invalid_change": true,
+    "time_zone_and_dst_survived_restart": true,
+    "verified_local_time": true,
+    "scope": "Native macOS 27.0.1 arm64, independent Matter Server 1.6.0, generated H.264 and administrator-supplied UTC. Power readings verify the configured wired supply. Independent time clients, TLS management, product attestation and physical camera, microphone and iPhone qualification remain open."
   }
 }
