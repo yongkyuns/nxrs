@@ -106,8 +106,11 @@ cargo nxrs config show --app home-cam --platform wroom \
 Native `olddefconfig` accepted every override on the current WROOM startup
 profile. Camera, Wi-Fi, USB and PSRAM settings matched the default profile.
 The I²S selection adds one NuttX high-priority worker with a 2 KiB stack.
-The candidate still needs a target build, a logic-analyzer trace and device
-capture tests. [Configuration evidence](evidence.json).
+The WROOM startup firmware linked with the receive driver, GDMA and board
+registration present. It passed 122 Xtensa ABI witnesses. The 1,900,440-byte
+image fits the 2 MiB MCUboot slot and verified against a disposable test root.
+The logic-analyzer trace and device capture are still open.
+[Configuration and build evidence](evidence.json).
 
 Patch 0126 rejects incomplete receive frames and descriptor setup failures
 before DMA submission. Failed submission releases any retained audio-buffer

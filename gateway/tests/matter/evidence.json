@@ -2519,6 +2519,22 @@
     "defects_reproduced_on_original": 6,
     "valid_controls_passed_on_both": 3,
     "ordered_sdk_patch_tests_passed": 52,
-    "scope": "Pinned C source executed on the host with injected mutex, DMA and register outcomes. Active stop and immediate reopen still require a DMA and callback barrier. Target linking and physical capture remain open."
+    "target_build": {
+      "nxrs_source_revision": "a3dd54303f90f40eb17281f83cea0fcccde024c4",
+      "nuttx_apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "esp_hal_revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "profile": "esp32s3-camera-stream-startup",
+      "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "gcc": "esp-14.2.0_20241119",
+      "resolved_config_sha256": "99fc288aee50c3ca1b2fcfdb24e28e2eb5ed1bf83886144405c02a2fffe81e49",
+      "elf_sha256": "05ce3495dd122e3ce093da6184fab7a13ceb165ce196a064270f1036bd96e08c",
+      "signed_image_sha256": "237036fd19944727b82e97792063b974cfe6ef4fd43c4853f8ffd7e3243220bc",
+      "signed_image_bytes": 1900440,
+      "slot_bytes": 2097152,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true,
+      "linked_symbols": ["audio_i2s_initialize", "board_i2sdev_initialize", "esp32s3_dma_setup", "esp_i2sbus_initialize", "i2s_receive"]
+    },
+    "scope": "Pinned C source executed on the host with injected mutex, DMA and register outcomes. The candidate also linked and passed ABI checks with the exact WROOM startup profile and RX overrides. Signing used a disposable development identity and the firmware was not flashed. Active stop, immediate reopen and physical capture remain open."
   }
 }
