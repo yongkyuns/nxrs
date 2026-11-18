@@ -54,17 +54,17 @@ async def session_count():
         return len(data[path])
 
 
-def publish(stack, root, args, rtsp, token, color, size, rate):
+def publish(stack, root, args, rtsp, token, color, size, rate, *, path="cam", username="publisher"):
     command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                 "-re", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}",
                 "-vf", f"drawbox=x=0:y=0:w=iw/4:h=ih/4:color={color}:t=fill",
                 "-c:v", "libx264", "-threads", "2", "-profile:v", "baseline",
                 "-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0", "-g", str(rate),
                 "-f", "mpegts", "pipe:1"]
-    return publish_encoded(stack, root, args, rtsp, token, command)
+    return publish_encoded(stack, root, args, rtsp, token, command, path=path, username=username)
 
 
-def publish_encoded(stack, root, args, rtsp, token, command, formats=()):
+def publish_encoded(stack, root, args, rtsp, token, command, formats=(), *, path="cam", username="publisher"):
     # The publisher consumes credentials from stdin. The encoder inherits the
     # same pipe after the preamble and only ever sees public media arguments.
     with ExitStack() as pipes:
@@ -73,7 +73,7 @@ def publish_encoded(stack, root, args, rtsp, token, command, formats=()):
         out = pipes.enter_context(os.fdopen(write, "wb", buffering=0))
         out.write(token.encode())
         with (root / "publisher.log").open("ab") as log:
-            pub = subprocess.Popen([args.publisher, f"127.0.0.1:{rtsp}", "publisher", "cam", *formats],
+            pub = subprocess.Popen([args.publisher, f"127.0.0.1:{rtsp}", username, path, *formats],
                                    stdin=inp, stdout=log, stderr=log)
             stack.callback(stop, pub)
         with (root / "encoder.log").open("ab") as log:
@@ -88,7 +88,7 @@ def start_control(stack, root, args, gateway, revoked=False):
     return process
 
 
-def start_media(stack, root, args):
+def start_media(stack, root, args, *, paths=("cam",)):
     rtsp, api, control, internal, whep, ice = ports(6)
     gateway = StrictMedia(root, api, control, internal)
     config = root / "mediamtx.json"
@@ -97,7 +97,7 @@ def start_media(stack, root, args):
         moq=False, playback=False, webrtc=True, webrtcAddress=f"127.0.0.1:{whep}", webrtcLocalUDPAddress=f"127.0.0.1:{ice}",
         webrtcIPsFromInterfaces=False, webrtcAdditionalHosts=["127.0.0.1"], webrtcICEServers2=[],
         authMethod="http", authHTTPExclude=[], authHTTPAddress=f"http://127.0.0.1:{internal}/internal/mediamtx/auth",
-        paths={"cam":{"overridePublisher":False, "maxReaders":8}})))
+        paths={path: {"overridePublisher":False, "maxReaders":8} for path in paths})))
     server = start(stack, root, "mtx", [args.mediamtx.resolve(), config], cwd=root)
     deadline = time.monotonic() + 10
     while True:

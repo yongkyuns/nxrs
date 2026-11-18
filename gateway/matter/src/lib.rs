@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod commissioning;
+pub mod config;
 mod credential;
 pub mod media;
 pub mod occupancy;

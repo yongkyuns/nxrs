@@ -1259,5 +1259,52 @@
       }
     },
     "scope": "A commissioned host fixture consumed one authenticated RTSP input and terminated two distinct pending negotiations on source replacement. Physical camera and microphone, iPhone playback and joined worker retirement under load remain open."
+  },
+  "configured_camera": {
+    "host": "macOS arm64 with isolated Matter Server, generated H.264 and detection fixtures, MediaMTX and strict gateway control",
+    "fixture": "catalogue",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/control/src/policy.rs": "18265f884166bca67cd1a972dadea13cb55f8977a5dcf390e57090415a974cfb",
+      "gateway/control/src/lib.rs": "2a0763cc5718a9c48f924a26ac60f8c964147c18ac02c290bf606c920b6c3725",
+      "gateway/control/src/detections.rs": "ec36c134e794b93b8a9c7ca0eb25764da78847af69781cca826f2afa9ef40153",
+      "gateway/control/src/security.rs": "9e70a4903495908567a317151c4ba0b5212a10426eac5f8e6222be7a563ed15d",
+      "gateway/matter/src/config.rs": "cec62e461ebd93eedab96caa09e312ab0663c566851caaa1f96aa4eb0da173c4",
+      "gateway/matter/src/media.rs": "088fa0d49f2f8a8015fed0207e8d908e423db5b7fe38f545f7d5abae6788fc5b",
+      "gateway/matter/src/media/input.rs": "08b1cd1cdc19a01415dcd9fe13d70ea6ca1ef6763220ef99bd55f6165b21d9b8",
+      "gateway/matter/src/occupancy.rs": "8e3deb3183b54b85f9a8313ee4c7701d0a53c72ba4f95b4e427a150e8297c09a",
+      "gateway/tests/matter/catalogue.patch": "f11e19aa7f750413eb019f5be7e0214b1dbdd5a40105b3ac1d59f7b254e3bf94",
+      "gateway/tests/matter_catalogue_reference.py": "114b252dbd385b996034684add44e84399ac225c2489d100f35e3796019a684f",
+      "gateway/tests/matter/versions.json": "12d83b3dce37bd3fb9c423f99a304cf5fb86a0a72e306aeccdbb7facbe4f1f81"
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+    "per_run": {
+      "original_frames": 45,
+      "remapped_frames": 45,
+      "restarted_frames": 45,
+      "frames_match_selected_dimensions": true,
+      "selected_ice_address_verified": true,
+      "retained_endpoint_ids": true,
+      "rejected_site_and_camera_changes": true,
+      "old_mapping_rtsp_status": 401,
+      "selected_camera_occupancy": [
+        "unavailable",
+        "person",
+        "clear"
+      ],
+      "media_revocation_end_reason": 5,
+      "occupancy_observed_after_media_revocation": true,
+      "publisher_ready_and_independent_rtsp_describe_allowed_after_revocation": true
+    },
+    "verification": {
+      "gateway_tests_passed": 76,
+      "additional_native_ffmpeg_tests_passed": 1,
+      "sdk_camera_example_tests_passed": 3,
+      "architecture_tests_passed": 37,
+      "hal_boundary_tests_passed": 29,
+      "linux_x86_64_cargo_check": true
+    },
+    "scope": "This fixture exercises one Matter camera and its occupancy endpoint. A second configured gateway camera was used to check source selection. Multi-camera endpoint allocation, discovery on selected Linux/macOS interfaces, physical playback and microphone remain release work."
   }
 }

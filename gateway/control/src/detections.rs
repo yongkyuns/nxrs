@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use detection_wire::{self as wire, Presence, Snapshot, Update, Version};
-use futures_util::{stream, Stream};
+use futures_util::stream;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -241,7 +241,7 @@ pub(crate) async fn subscribe(
     State(shared): State<Shared>,
     Path(camera): Path<String>,
     headers: HeaderMap,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Failure> {
+) -> Result<impl axum::response::IntoResponse, Failure> {
     let token = bearer(&headers)?.to_owned();
     let cursor = headers
         .get("last-event-id")
@@ -251,10 +251,10 @@ pub(crate) async fn subscribe(
     }) {
         return Err(Failure(StatusCode::BAD_REQUEST));
     }
-    let permits = {
+    let (permits, site) = {
         let p = shared.lock().await;
         let viewer = p.detection_viewer(&token, &camera).map_err(Failure)?;
-        p.detections.subscribe(&viewer).map_err(Failure)?
+        (p.detections.subscribe(&viewer.viewer_id).map_err(Failure)?, viewer.site_id.clone())
     };
     let started = Instant::now();
     let events = stream::unfold(
@@ -283,12 +283,12 @@ pub(crate) async fn subscribe(
                 .json_data(&s)
                 .ok()?;
             Some((
-                Ok(event),
+                Ok::<_, Infallible>(event),
                 (shared, camera, token, Some(id), permits, started, true),
             ))
         },
     );
-    Ok(Sse::new(events))
+    Ok(([("x-nxrs-site-id", site)], Sse::new(events)))
 }
 
 #[cfg(test)]

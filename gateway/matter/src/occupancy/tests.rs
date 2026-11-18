@@ -49,6 +49,7 @@ fn snapshot_identity_order_and_deadline() {
 async fn silent_partial_record_expires_and_cancellation_withdraws_recovered_level() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let feed = Feed {
+        site: None,
         control: listener.local_addr().unwrap(),
         camera: "cam_one".into(),
         authorization: header::HeaderValue::from_static("Bearer fixture"),

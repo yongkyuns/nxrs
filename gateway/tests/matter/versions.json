@@ -35,7 +35,8 @@
     "privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1",
     "commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3",
     "viewer-permissions.patch": "a5b5d539c6733a56452bc1c8ff6b1eaa5d2d857594dba3abb17f88f5f09c2d76",
-    "source-admission.patch": "d7c96edd7d236fc6c0ade644728e205d060a18491302681ac5692f088be32a1e"
+    "source-admission.patch": "d7c96edd7d236fc6c0ade644728e205d060a18491302681ac5692f088be32a1e",
+    "catalogue.patch": "f11e19aa7f750413eb019f5be7e0214b1dbdd5a40105b3ac1d59f7b254e3bf94"
   },
   "home_assistant": {
     "version": "2026.11.2",

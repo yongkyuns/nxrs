@@ -4,6 +4,41 @@ The external Matter fixture uses the gateway’s durable identity store, detecti
 subscription and shared encoded video input.
 [Reproduction and host evidence](../tests/matter/README.md).
 
+## Configure the bridge
+
+Prepare the `catalogue` SDK fixture and start its camera executable with
+`--config` and an absolute path to a private JSON file. This variant exposes
+one existing catalogue camera and its occupancy sensor. The executable uses
+the configured IPv4 address for the WebRTC socket and its ICE candidate.
+
+```json
+{
+  "version": 1,
+  "site_id": "home",
+  "camera_id": "porch",
+  "control": "127.0.0.1:18080",
+  "rtsp": "127.0.0.1:8554",
+  "ice_address": "192.0.2.10",
+  "media_token_file": "/absolute/private/camera-source.token",
+  "detection_token_file": "/absolute/private/detections.token",
+  "factory_data": "/absolute/private/factory.json",
+  "state_directory": "/absolute/private/matter-state"
+}
+```
+
+Use a local address reachable by the intended receiver as `ice_address`.
+Enroll separate `camera_source` and `detections` credentials for the selected
+camera. The bridge resolves the RTSP path from the strict gateway catalogue
+on each reconnect. The detector subscription verifies the authorized site.
+
+Use `--initialize-state --open-commissioning-window` on first installation
+to create the state and pair. Subsequent starts use `--config` alone.
+Endpoint assignments and unique IDs persist across catalogue reordering and
+path changes. A deployment selecting a different site or camera needs its own
+state and enrollment. [Configured bridge test](../tests/matter/README.md#configured-camera-and-durable-endpoints).
+
+## Gateway services
+
 For each camera, run one `media::Reader` on the owning executor. It opens a
 credentialed loopback RTSP/TCP connection and forwards H.264 pictures with their
 source timestamps. Each viewer subscribes through `Video`. Eight access units
@@ -54,5 +89,5 @@ The store creates no workers. It bounds state to 512 keys, 64 KiB per value and
 1 MiB total. The macOS fixture restarts independent controllers after a process
 interruption during a viewer permission update or a second fabric’s record
 deletion. The visible access follows the committed snapshot. Transactions
-across SDK records, schema migrations, persistent endpoint identities and
+across SDK records, schema migrations, multi-camera endpoint allocation and
 system power loss remain open. [Recovery test](../tests/matter/README.md#interrupted-access-changes).

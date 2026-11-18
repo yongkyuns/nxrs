@@ -57,6 +57,10 @@ async fn health() -> Json<Value> { Json(json!({"status": "ok"})) }
 async fn catalog(State(shared): State<Shared>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
     shared.lock().await.catalog(bearer(&headers)?).map(Json).map_err(Failure)
 }
+async fn source_mapping(State(shared): State<Shared>, Path((site, camera)): Path<(String, String)>,
+    headers: HeaderMap) -> Result<Json<Value>, Failure> {
+    shared.lock().await.source_mapping(bearer(&headers)?, &site, &camera).map(Json).map_err(Failure)
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Empty {}
@@ -117,6 +121,7 @@ pub fn routers(config: config::Config) -> Result<(Router, Router), &'static str>
 pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Result<(Router, Router, Maintenance), &'static str> {
     let shared = Arc::new(Mutex::new(GatewayPolicy::new(config, settings.clone())?));
     let control = Router::new().route("/healthz", get(health)).route("/v1/cameras", get(catalog))
+        .route("/service/v1/sites/{site}/cameras/{camera}/source", get(source_mapping))
         .route("/v1/cameras/{camera}/detections", get(detections::subscribe))
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone());
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))

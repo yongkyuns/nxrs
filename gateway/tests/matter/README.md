@@ -303,6 +303,21 @@ both offer commands directly and checks that the offline provider returns
 this build, run `matter_privacy_reference.py` with the same paths, a fresh
 runtime and `--operator-commissioning`. [Host measurements](evidence.json).
 
+## Configured camera and durable endpoints
+
+Prepare the pinned SDK with `--variant catalogue` and use the build command
+above. Run `gateway/tests/matter_catalogue_reference.py` with the same
+arguments as the [commissioning test](#operator-initiated-commissioning)
+and a fresh runtime directory. The test provisions the deployment JSON
+and isolated service enrollments.
+
+Two publishers have different frame sizes and report independent occupancy.
+The controller verifies the selected video, occupancy and nominated ICE
+address, then repeats the checks after swapping media paths and reordering
+the catalogue. It checks durable endpoint IDs, rejects site or camera changes
+against the original state, and withdraws the media credential while the
+selected camera continues to report occupancy. [Results](evidence.json).
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with

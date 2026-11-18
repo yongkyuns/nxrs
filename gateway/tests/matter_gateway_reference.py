@@ -34,29 +34,9 @@ def start(stack, root, name, command, env=None, *, cwd=None):
     return child
 
 
-class Gateway:
-    def __init__(self, root):
-        # Reserve both ports together so they are distinct.
-        with socket.socket() as a, socket.socket() as b:
-            a.bind(("127.0.0.1", 0))
-            b.bind(("127.0.0.1", 0))
-            self.api, self.internal = a.getsockname()[1], b.getsockname()[1]
-        self.publisher = secrets.token_hex(32)
-        token = secrets.token_hex(32)
-        self.token_file = root / "subscriber.token"
-        fd = os.open(self.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as file:
-            file.write(token)
-        def digest(value):
-            return hashlib.sha256(value.encode()).hexdigest()
-        self.config = root / "control.json"
-        self.config.write_text(json.dumps(dict(
-            listen=f"127.0.0.1:{self.api}", auth_listen=f"127.0.0.1:{self.internal}",
-            grant_ttl_seconds=20, max_grants=4, media_origins=["https://media.test"],
-            cameras=[dict(camera_id=CAMERA, gateway_id="gw", site_id="site", name="Test camera",
-                          source="synthetic", stream_path="one", whep_endpoint="https://media.test/one/whep")],
-            viewers=[dict(viewer_id="matter", scope="detections", site_id="site", camera_ids=[CAMERA], token_sha256=digest(token))],
-            publishers=[dict(username="publisher", camera_id=CAMERA, token_sha256=digest(self.publisher))])))
+class DetectionPublisher:
+    def __init__(self, internal, camera, username, token):
+        self.internal, self.camera, self.username, self.publisher = internal, camera, username, token
         self.source = json.loads((ROOT / "clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json")
                                  .read_text())["source"]
         self.sequence = 20
@@ -64,21 +44,11 @@ class Gateway:
     def post(self, endpoint, data):
         conn = http.client.HTTPConnection("127.0.0.1", self.internal, timeout=3)
         try:
-            conn.request("POST", f"/internal/cameras/{CAMERA}/{endpoint}", json.dumps(data),
-                         {"Authorization": "Bearer " + self.publisher, "x-nxrs-publisher": "publisher",
+            conn.request("POST", f"/internal/cameras/{self.camera}/{endpoint}", json.dumps(data),
+                         {"Authorization": "Bearer " + self.publisher, "x-nxrs-publisher": self.username,
                           "Content-Type": "application/json"})
             res = conn.getresponse()
             return res.status, res.read(1024)
-        finally:
-            conn.close()
-
-    def viewer_status(self, method, path):
-        conn = http.client.HTTPConnection("127.0.0.1", self.api, timeout=3)
-        try:
-            conn.request(method, path, "{}" if method == "POST" else None,
-                         {"Authorization": "Bearer " + self.token_file.read_text(),
-                          "Content-Type": "application/json"})
-            return conn.getresponse().status
         finally:
             conn.close()
 
@@ -106,6 +76,41 @@ class Gateway:
         status, _ = self.post("detections", dict(source_session_id=session, frame_sequence=self.sequence,
                                                 frame_capture_ms=now, source=source))
         return status
+
+
+class Gateway(DetectionPublisher):
+    def __init__(self, root):
+        # Reserve both ports together so they are distinct.
+        with socket.socket() as a, socket.socket() as b:
+            a.bind(("127.0.0.1", 0))
+            b.bind(("127.0.0.1", 0))
+            self.api, self.internal = a.getsockname()[1], b.getsockname()[1]
+        super().__init__(self.internal, CAMERA, "publisher", secrets.token_hex(32))
+        token = secrets.token_hex(32)
+        self.token_file = root / "subscriber.token"
+        fd = os.open(self.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as file:
+            file.write(token)
+        def digest(value):
+            return hashlib.sha256(value.encode()).hexdigest()
+        self.config = root / "control.json"
+        self.config.write_text(json.dumps(dict(
+            listen=f"127.0.0.1:{self.api}", auth_listen=f"127.0.0.1:{self.internal}",
+            grant_ttl_seconds=20, max_grants=4, media_origins=["https://media.test"],
+            cameras=[dict(camera_id=CAMERA, gateway_id="gw", site_id="site", name="Test camera",
+                          source="synthetic", stream_path="one", whep_endpoint="https://media.test/one/whep")],
+            viewers=[dict(viewer_id="matter", scope="detections", site_id="site", camera_ids=[CAMERA], token_sha256=digest(token))],
+            publishers=[dict(username="publisher", camera_id=CAMERA, token_sha256=digest(self.publisher))])))
+
+    def viewer_status(self, method, path):
+        conn = http.client.HTTPConnection("127.0.0.1", self.api, timeout=3)
+        try:
+            conn.request(method, path, "{}" if method == "POST" else None,
+                         {"Authorization": "Bearer " + self.token_file.read_text(),
+                          "Content-Type": "application/json"})
+            return conn.getresponse().status
+        finally:
+            conn.close()
 
 
 def run(args):

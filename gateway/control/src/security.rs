@@ -121,12 +121,19 @@ impl GatewayPolicy {
         }
         Ok(catalog)
     }
-    pub(crate) fn detection_viewer(&self, token: &str, camera: &str) -> Result<String, StatusCode> {
+    pub(crate) fn detection_viewer(&self, token: &str, camera: &str) -> Result<&config::Viewer, StatusCode> {
         let viewer = self.inner.detection_viewer(token, camera)?;
         if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
         Ok(viewer)
+    }
+    pub(crate) fn source_mapping(&self, token: &str, site: &str, camera: &str) -> Result<Value, StatusCode> {
+        let mapping = self.inner.source_mapping(token, site, camera)?;
+        if !self.enforcement.as_ref().is_some_and(|e| e.ready(Transport::Rtsp, Instant::now())) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        Ok(mapping)
     }
     pub(crate) fn detection_publisher(&self, token: &str, user: &str, camera: &str) -> bool {
         self.inner.publisher(token, user, camera)

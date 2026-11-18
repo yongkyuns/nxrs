@@ -20,6 +20,8 @@ use tokio::{
 };
 use url::Url;
 
+mod input;
+use input::{Input, Resolved};
 mod paired;
 mod silence;
 
@@ -215,8 +217,7 @@ impl Pictures {
 }
 
 pub struct Reader {
-    url: Url,
-    credentials: Credentials,
+    input: Input,
     sender: broadcast::Sender<Message>,
     sound: broadcast::Sender<Option<(u64, AudioPacket)>>,
     current: watch::Sender<u64>,
@@ -243,6 +244,26 @@ impl Reader {
             username: user.into(),
             password: crate::credential::read(token_file)?,
         };
+        Ok(Self::new(Input::Fixed(Resolved { url, credentials })))
+    }
+
+    pub(crate) fn catalogue(
+        control: SocketAddr,
+        media: SocketAddr,
+        site: &str,
+        camera: &str,
+        token_file: &Path,
+    ) -> Result<(Self, Video), &'static str> {
+        Ok(Self::new(Input::Catalogue {
+            control,
+            media,
+            site: site.to_owned(),
+            camera: camera.to_owned(),
+            token: crate::credential::read(token_file)?,
+        }))
+    }
+
+    fn new(input: Input) -> (Self, Video) {
         let sender = broadcast::Sender::new(QUEUE);
         let sound = broadcast::Sender::new(16);
         let (current, published) = watch::channel(0);
@@ -253,27 +274,36 @@ impl Reader {
             opus_generation: opus_generation.clone(),
             current: published,
         };
-        Ok((
+        (
             Self {
                 sound,
-                url,
-                credentials,
+                input,
                 opus_generation,
                 sender,
                 current,
             },
             video,
-        ))
+        )
+    }
+
+    pub(crate) async fn check_mapping(&self) -> Result<(), &'static str> {
+        self.input
+            .resolve()
+            .await
+            .map(|_| ())
+            .map_err(|_| "camera mapping unavailable")
     }
 
     /// Own the input on the caller's executor. Dropping this future closes the
     /// interleaved TCP session; no reconnect or teardown task outlives the owner.
     pub async fn run(self) {
         for generation in 1..=u64::MAX {
-            tokio::select! {
-                biased;
-                _ = self.check_permission() => {},
-                _ = self.receive(generation) => {},
+            if let Ok(input) = self.input.resolve().await {
+                tokio::select! {
+                    biased;
+                    _ = Self::check_permission(&input) => {},
+                    _ = self.receive(generation, &input) => {},
+                }
             }
             self.retire();
             time::sleep(Duration::from_secs(1)).await;
@@ -295,23 +325,14 @@ impl Reader {
         let _ = self.sound.send(None);
     }
 
-    async fn describe(&self) -> Result<Session<retina::client::Described>, ()> {
-        let options = SessionOptions::default()
-            .creds(Some(self.credentials.clone()))
-            .teardown(TeardownPolicy::Never);
-        Session::describe(self.url.clone(), options)
-            .await
-            .map_err(|_| ())
-    }
-
     // MediaMTX authenticates DESCRIBE through the same path-scoped HTTP policy
     // as SETUP. DESCRIBE alone opens no media reader. Run it alongside packet
     // delivery so a dead controller cannot leave an established stream open.
-    async fn check_permission(&self) {
+    async fn check_permission(input: &Resolved) {
         loop {
             time::sleep(Duration::from_secs(3)).await;
             if !matches!(
-                time::timeout(Duration::from_secs(2), self.describe()).await,
+                time::timeout(Duration::from_secs(2), input.describe()).await,
                 Ok(Ok(_))
             ) {
                 return;
@@ -319,9 +340,9 @@ impl Reader {
         }
     }
 
-    async fn receive(&self, generation: u64) -> Result<(), ()> {
+    async fn receive(&self, generation: u64, input: &Resolved) -> Result<(), ()> {
         let opening = async {
-            let mut session = self.describe().await?;
+            let mut session = input.describe().await?;
             let mut videos = session
                 .streams()
                 .iter()

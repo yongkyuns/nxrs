@@ -88,7 +88,7 @@ impl Policy {
         Ok(json!({"api_version": "1", "cameras": cameras}))
     }
 
-    pub fn detection_viewer(&self, token: &str, camera: &str) -> Result<String> {
+    pub(crate) fn detection_viewer(&self, token: &str, camera: &str) -> Result<&Viewer> {
         let viewer = self.viewer(token, ViewerScope::Detections)?;
         if !self.config.cameras.iter().any(|c| {
             c.camera_id == camera
@@ -97,18 +97,28 @@ impl Policy {
         }) {
             return Err(StatusCode::NOT_FOUND);
         }
-        Ok(viewer.viewer_id.clone())
+        Ok(viewer)
     }
+    pub(crate) fn source_mapping(&self, token: &str, site: &str, camera: &str) -> Result<Value> {
+        let viewer = self.viewer(token, ViewerScope::CameraSource)?;
+        if viewer.scope != ViewerScope::CameraSource {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        let entry = self.config.cameras.iter().find(|c| c.site_id == site && c.camera_id == camera
+            && viewer.site_id == site && viewer.camera_ids.contains(&c.camera_id))
+            .ok_or(StatusCode::NOT_FOUND)?;
+        Ok(json!({"version": 1, "camera_id": entry.camera_id, "site_id": entry.site_id,
+            "stream_path": entry.stream_path, "username": viewer.viewer_id}))
+    }
+
     /// Only a dedicated service enrollment can read encoded source media.
     pub(crate) fn camera_source(&self, request: &MediaAuth) -> bool {
-        request.query.is_empty() && request.token == request.password
-            && self.config.viewers.iter().any(|v| {
-                v.scope == ViewerScope::CameraSource && v.viewer_id == request.user
-                    && !self.disabled_viewers.contains(&v.viewer_id)
-                    && matches(&request.password, &v.token_sha256)
-                    && self.config.cameras.iter().any(|c| c.stream_path == request.path
-                        && c.site_id == v.site_id && v.camera_ids.contains(&c.camera_id))
-            })
+        let Ok(viewer) = self.viewer(&request.password, ViewerScope::CameraSource) else { return false; };
+        if request.token != request.password || viewer.scope != ViewerScope::CameraSource
+            || viewer.viewer_id != request.user { return false; }
+        self.config.cameras.iter().any(|c| c.stream_path == request.path && c.site_id == viewer.site_id
+            && viewer.camera_ids.contains(&c.camera_id) && (request.query.is_empty()
+                || request.query == format!("nxrs_source={}.{}", c.site_id, c.camera_id)))
     }
     pub fn publisher(&self, token: &str, user: &str, camera: &str) -> bool {
         self.config
@@ -236,12 +246,39 @@ mod tests {
         cfg.viewers[0].scope = ViewerScope::Detections;
         let mut policy = Policy::new(cfg).unwrap();
         let token = "a".repeat(64);
-        assert_eq!(policy.detection_viewer(&token, "cam_one").unwrap(), "viewer_one");
-        assert_eq!(policy.detection_viewer(&token, "other"), Err(StatusCode::NOT_FOUND));
+        assert_eq!(policy.detection_viewer(&token, "cam_one").unwrap().viewer_id, "viewer_one");
+        assert_eq!(policy.detection_viewer(&token, "other").err(), Some(StatusCode::NOT_FOUND));
         assert_eq!(policy.catalog(&token), Err(StatusCode::FORBIDDEN));
         assert_eq!(policy.issue(&token, "cam_one", 0, Instant::now()), Err(StatusCode::FORBIDDEN));
         policy.revoke("viewer_one").unwrap();
-        assert_eq!(policy.detection_viewer(&token, "cam_one"), Err(StatusCode::FORBIDDEN));
+        assert_eq!(policy.detection_viewer(&token, "cam_one").err(), Some(StatusCode::FORBIDDEN));
+    }
+
+    #[test]
+    fn catalogue_media_read_checks_selected_camera_after_path_resolution() {
+        let mut cfg = config();
+        let mut second = cfg.cameras[0].clone();
+        second.camera_id = "cam_two".into();
+        second.stream_path = "two".into();
+        second.whep_endpoint = "https://media.test/two/whep".into();
+        cfg.cameras.push(second);
+        cfg.viewers[0].scope = ViewerScope::CameraSource;
+        cfg.viewers[0].camera_ids.push("cam_two".into());
+        let policy = Policy::new(cfg).unwrap();
+        let token = "a".repeat(64);
+        let mapping = policy.source_mapping(&token, "site_one", "cam_one").unwrap();
+        let mut req = media(&token);
+        req.protocol = "rtsp".into();
+        req.user = mapping["username"].as_str().unwrap().into();
+        req.password = token;
+        req.path = mapping["stream_path"].as_str().unwrap().into();
+        req.query = "nxrs_source=site_one.cam_one".into();
+        assert!(policy.camera_source(&req));
+        req.path = "two".into();
+        assert!(!policy.camera_source(&req));
+        // Established clients that use path-only authorization still work.
+        req.query.clear();
+        assert!(policy.camera_source(&req));
     }
 
     #[test]

@@ -18,6 +18,7 @@ const SILENCE: Duration = Duration::from_millis(2 * SOURCE_TIMEOUT_MS);
 pub struct Feed {
     control: SocketAddr,
     camera: String,
+    site: Option<String>,
     authorization: header::HeaderValue,
 }
 
@@ -40,8 +41,14 @@ impl Feed {
         Ok(Self {
             control,
             camera: camera.into(),
+            site: None,
             authorization,
         })
+    }
+
+    pub(crate) fn at_site(mut self, site: &str) -> Self {
+        self.site = Some(site.to_owned());
+        self
     }
 
     /// Emits the current level only. A disconnected, expired or malformed stream
@@ -83,6 +90,13 @@ impl Feed {
                 .map_err(|_| ())?
                 .map_err(|_| ())?;
             if response.status() != StatusCode::OK
+                || self.site.as_ref().is_some_and(|site| {
+                    response
+                        .headers()
+                        .get("x-nxrs-site-id")
+                        .and_then(|v| v.to_str().ok())
+                        != Some(site.as_str())
+                })
                 || response
                     .headers()
                     .get(header::CONTENT_TYPE)

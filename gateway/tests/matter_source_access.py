@@ -56,9 +56,9 @@ class StrictMedia:
         private_file(self.security, json.dumps(dict(revocations_file=str(revocations),
                      media_api=f"127.0.0.1:{api}", media_api_token=self.management)))
 
-    def path(self):
+    def path(self, name="cam"):
         try:
-            status, body = request(self.api, "GET", "/v3/paths/get/cam", self.management)
+            status, body = request(self.api, "GET", f"/v3/paths/get/{name}", self.management)
         except ConnectionRefusedError:
             return {}
         return json.loads(body) if status == 200 else {}
