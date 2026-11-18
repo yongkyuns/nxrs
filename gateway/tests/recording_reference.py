@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 import urllib.request
@@ -65,7 +66,11 @@ def exercise(gateway, media, publisher):
     roles = {name: prefix+'-'+name for name in ['media', 'volume', 'backup', 'backup-init', 'network']}
     restore_template = prefix+'-restore@.service'
     repo = backup/'repository'
-    helper = root/'volume-check'
+    # /run can be noexec, and PrivateTmp hides host /tmp and /var/tmp.
+    programs = tempfile.TemporaryDirectory(prefix=prefix+'-', dir='/opt')
+    binaries = Path(programs.name)
+    helper = binaries/'volume-check'
+    media_binary = binaries/'mediamtx'
     created, accounts, loops, children = [], [], [], []
     previous_core = Path('/proc/sys/kernel/core_pattern').read_text()
     previous_swaps = [row.split()[0] for row in Path('/proc/swaps').read_text().splitlines()[1:]]
@@ -127,8 +132,8 @@ def exercise(gateway, media, publisher):
         config = root/'bundle'
         strict_vpn.generate(config, 'camera.test', '10.77.0.1', '10.77.0.2', 'endpoint.test',
             base64.b64encode(secrets.token_bytes(32)).decode(), recording_volume=source_id)
-        (root/'bin').mkdir(mode=0o755)
-        shutil.copyfile(media, root/'bin/mediamtx'); (root/'bin/mediamtx').chmod(0o755)
+        binaries.chmod(0o755)
+        shutil.copyfile(media, media_binary); media_binary.chmod(0o755)
         (root/'accounts').write_text(adapt((config/'nxrs-recording.sysusers').read_text()))
         for account in [roles['media'], roles['backup']]:
             try:
@@ -197,14 +202,14 @@ def exercise(gateway, media, publisher):
             webrtcAdditionalHosts=['127.0.0.1'])
         (config/'mediamtx.json').write_text(json.dumps(media_config))
         text = (config/'nxrs-media.service').read_text().replace(
-            '/usr/local/libexec/nxrs-mediamtx-recording', str(root/'bin/mediamtx'))
+            '/usr/local/libexec/nxrs-mediamtx-recording', str(media_binary))
         text = adapt(text)
         text += '\n[Service]\nEnvironment=GOMAXPROCS=1\n'  # Exercise queued recording retirement.
         for dependency in ['nxrs-control.service', 'wg-quick@wg-nxrs.service', 'nxrs-firewall.service']:
             text = text.replace(dependency, roles['network']+'.service')
         text = text.replace('nxrs-monitor.target', roles['network']+'.service')
         text = text.replace('/etc/nxrs-monitor/mediamtx.json', str(config/'mediamtx.json'))
-        require('ExecStart='+str(root/'bin/mediamtx')+' %d/config\n' in text,
+        require('ExecStart='+str(media_binary)+' %d/config\n' in text,
             'fixture role substitution preserves the real media executable')
         install_unit(roles['media']+'.service', text)
         command(['systemctl', 'daemon-reload'])
@@ -382,7 +387,7 @@ def exercise(gateway, media, publisher):
         # Leave the genuine approved mapper active, but substitute a plain ext4 mount.
         command(['mount', destination, store])
         require(command([helper, source_id], check=False).returncode != 0, 'plain mounted source refused')
-        mutant = root/'binding-control'
+        mutant = binaries/'binding-control'
         mutant.write_text(helper.read_text().replace('test "$(cat "/sys/dev/block/$device/dm/uuid")" = "$expected"\n', ''))
         mutant.chmod(0o755)
         require(command([mutant, source_id], check=False).returncode == 0, 'binding refusal has a live positive control')
@@ -447,6 +452,7 @@ def exercise(gateway, media, publisher):
         Path('/proc/sys/kernel/core_pattern').write_text(previous_core)
         for source in previous_swaps:
             command(['swapon', source])
+        programs.cleanup()
         require(not failures, 'recording fixture cleanup failed')
         shutil.rmtree(root)
 
