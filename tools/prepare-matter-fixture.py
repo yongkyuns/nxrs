@@ -17,15 +17,15 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True, help="fresh clean rs-matter checkout")
     parser.add_argument("--webrtc-archive", type=Path, required=True,
                         help="published str0m crate archive; checked against its registry checksum")
-    parser.add_argument("--dnssd-archive", type=Path, help="published astro-dnssd crate for lan-interface")
-    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy", "commissioning", "viewer-permissions", "source-admission", "catalogue", "sessions", "snapshots", "shutdown", "final-fabric", "commissioning-recovery", "shutdown-drain", "lan-interface")
+    parser.add_argument("--dnssd-archive", type=Path, help="published astro-dnssd crate for scoped LAN builds")
+    variants = ("camera", "bridge", "rtsp", "audio-control", "audio-playback", "privacy", "commissioning", "viewer-permissions", "source-admission", "catalogue", "sessions", "snapshots", "shutdown", "final-fabric", "commissioning-recovery", "shutdown-drain", "lan-interface", "stream-continuity")
     parser.add_argument("--variant", choices=variants, default="camera")
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     pins = json.loads((FIXTURE / "versions.json").read_text())
     # Each variant builds on the preceding fixture, in patch application order.
     patches = ("rs-matter-camera.patch", "bridge-topology.patch", "live-media.patch",
-               "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch", "commissioning-recovery.patch", "shutdown-drain.patch", "lan-interface.patch")
+               "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch", "commissioning-recovery.patch", "shutdown-drain.patch", "lan-interface.patch", "stream-continuity.patch")
     sdk_patches = patches[:variants.index(args.variant) + 1]
     engine_patches = ["str0m-rejected-media.patch"]
     if "audio-playback.patch" in sdk_patches:
@@ -41,7 +41,7 @@ def main():
         args.dnssd_archive is None
         or hashlib.sha256(args.dnssd_archive.read_bytes()).hexdigest() != pins["astro_dnssd"]["archive_sha256"]
     ):
-        raise SystemExit("lan-interface requires the checksum-verified --dnssd-archive")
+        raise SystemExit("The selected variant requires the checksum-verified --dnssd-archive")
     git = ["git", "-C", str(sdk)]
     revision = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
     if revision != pins["rs_matter"]["revision"]:

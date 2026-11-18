@@ -1923,5 +1923,48 @@
     "longest_surviving_gap_during_replacement_commissioning_seconds": 1.934,
     "decoded_timestamp_step_after_pause_seconds": 0.067,
     "replacement_playback_end_reason": 0
+  },
+  "stream_continuity": {
+    "fixture": "stream-continuity",
+    "status": "short host rehearsal and two-interface regression passed",
+    "scope": "Debian 13.7 ARM64 with native Avahi and generated H.264. The 24-hour result and physical ESP32, iPhone and audio qualification are separate.",
+    "sdk_patch_sha256": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
+    "linux_release_binary_sha256": "ff931996b364b5ae95501d65bd9fc03b28d0ef42f0656602a943585123374ac4",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "receipts_sha256": {
+      "result.json": "2ce2ae3599f1a08a0be0a4532ff059e0f7ed94c7797040562e627ecd15495837",
+      "samples.jsonl": "e4d33e8b74bffa5b39d5daf54e9fe3174e030e3c7b659e6ab33201196eecda08",
+      "lan-result.json": "c4e66cec559c31c39ffca5268f2cfa64b294b348a3db3e31f4c7fb320cc4a819"
+    },
+    "diagnosis": {
+      "baseline_wire_gap_seconds": 2.071,
+      "baseline_max_rtsp_packet_gap_seconds_in_confirmation": 0.071,
+      "blocked_stack": "AstroMdns::update_services was waiting for DNSServiceRegisterReply",
+      "early_answer_reply": "Matter NotFound, followed by successful delivery of the ICE candidate; the SDK discarded command status"
+    },
+    "rehearsal_seconds": 120.414,
+    "viewers": 4,
+    "fifth_offer_status": 137,
+    "source_fps_range": [
+      14.973,
+      15.076
+    ],
+    "decoded_fps_range": [
+      14.951,
+      15.023
+    ],
+    "rendered_fps": null,
+    "unanswered_offer_retired_seconds": 20.197,
+    "restart_to_four_viewers_seconds": 5.959,
+    "replacement_startup_seconds": 1.795,
+    "longest_surviving_gap_during_replacement_seconds": 0.089,
+    "revoked_viewer_new_rtp_packets": 0,
+    "final_session_and_allocation_release_confirmed": true,
+    "lan_ipv4_ipv6_scope_verified": true,
+    "lan_ipv6_tcp_snapshot_bytes": 17484,
+    "lan_same_enrollment_after_restart_frames": 45,
+    "macos_im_core_tests": 26,
+    "host_architecture_tests": 37,
+    "host_hal_boundary_tests": 29
   }
 }

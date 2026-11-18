@@ -167,7 +167,8 @@ behavior, use the `shutdown-drain` binary and `--expect-unscoped`.
 
 ## Four-viewer Linux soak
 
-In the same disposable Linux guest, build the `lan-interface` SDK fixture
+In the same disposable Linux guest, prepare the `stream-continuity` variant
+with the same DNS-SD archive. Build the SDK fixture
 with `cargo build --release` and the same features and pins above. Run
 `gateway/tests/matter_soak_reference.py` with the same executable arguments
 as the LAN test and a fresh runtime directory. The default is 24 hours with
@@ -185,6 +186,15 @@ is written after a successful teardown. Keep controller state and raw logs
 private. See the [release rehearsal](evidence.json).
 This fixture uses generated video in a guest. Physical ESP32 streaming,
 iPhone rendering and microphone audio require separate tests.
+
+The isolated packet trace from the `lan-interface` build showed that RTSP
+continued while new DNS-SD registration blocked the bridge thread and paused
+all three surviving RTP streams. The new variant gives registration and
+deregistration to a bounded worker that joins on exit. It also retries an
+SDP Answer explicitly rejected with Matter `NotFound`, while the original
+session and its permission still apply. The SDK reads the peer's command
+status before completing the invoke, so the retry can distinguish this
+registration race from transport and authorization failures.
 
 ## Automated persistence qualification
 
