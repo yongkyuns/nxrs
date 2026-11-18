@@ -3239,5 +3239,36 @@
       }
     },
     "scope": "The private Home Assistant copy omitted zero dimensions and the unmodified Matter Server returned a valid JPEG. Requests with unspecified or explicit positive dimensions passed on stock and patched Home Assistant. A negative dimension remained invalid. Both browser regressions verified live generated H.264 while camera capture stayed muted and the Matter session closed. The stock Home Assistant fix and physical iPhone acceptance remain open."
+  },
+  "nxrs_home_matter_concurrent_simulator": {
+    "nxrs_ios_source_revision": "11011b10a90223bf2c301ee0aad1d84154d5fbc4",
+    "nxrs_ios_executable_sha256": "a8b61150837ac4cb81c06f2b1d616f257d07facee7867079d50ce0a8aa4725d3",
+    "nxrs_matter_build_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "nxrs_matter_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "xcode": "27.1 (27A9275)",
+    "simulator": {
+      "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+      "type": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"
+    },
+    "home_assistant": "2026.11.2",
+    "webkit": "27.2",
+    "overlap_window_seconds": 7.13,
+    "browser_frames": 120,
+    "browser_presented_fps": 16.68,
+    "browser_peer_closed": true,
+    "overlapping_simulator_screen_samples": 16,
+    "changing_native_colors": [
+      "blue",
+      "red"
+    ],
+    "media_readers_during_playback": [
+      "rtspSession",
+      "webRTCSession"
+    ],
+    "same_rtsp_publication": true,
+    "native_view_after_browser_closed": true,
+    "whep_session_retired_after_backgrounding": true,
+    "whep_delete_http_status": 404,
+    "scope": "The stock Nxrs app enrolled over HTTPS using a private simulator trust root. A UI-only test held its dashboard open as WebKit rendered the Home Assistant Matter dialog. A separate screenshot observer sampled the generated source marker, and MediaMTX reported both readers on the same publication around each sample. After browser close the app still rendered the marker. Backgrounding left only the Matter bridge's RTSP reader. The physical iPhone render rate and real-camera concurrency remain open."
   }
 }

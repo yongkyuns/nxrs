@@ -395,6 +395,14 @@ the authorized receiver can reopen. Only `result.json` is intended for
 sharing. The fabric witness below exercises independent administrators. Physical
 camera input, product access policy and iPhone rendering still need qualification.
 
+The concurrent Nxrs Home trial used the [ingest A/V fixture](#matter-microphone-mute-and-live-privacy)
+with a private HTTPS viewer and a disposable iPhone simulator. The app used
+its ordinary enrollment and WHEP playback. While the Home Assistant dialog
+presented video, simulator screen captures showed both source marker colors
+and MediaMTX showed both readers on one publication. Backgrounding the app
+retired its WHEP reader. The physical release trial measures rendering on the
+iPhone. [Concurrent playback results](evidence.json).
+
 ## Source replacement during negotiation
 
 Prepare the pinned SDK with `--variant stream-continuity`. Run
