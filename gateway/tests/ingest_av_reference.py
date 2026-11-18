@@ -299,6 +299,7 @@ async def run(args, root):
                         subprocess.run,
                         [args.browser_python, Path(__file__).with_name('matter_browser_reference.py'),
                          '--entity', args.camera_entity, '--storage-state', args.storage_state,
+                         '--browser-engine', args.browser_engine,
                          '--output', browser_output],
                         stdout=subprocess.DEVNULL, check=True, timeout=95,
                     )
@@ -403,6 +404,7 @@ if __name__ == '__main__':
     p.add_argument('--ip', required=True)
     p.add_argument('--runtime', type=Path)
     p.add_argument('--browser-python', type=Path, help='the isolated Home Assistant browser Python')
+    p.add_argument('--browser-engine', choices=('chrome', 'webkit'), default='chrome')
     p.add_argument('--storage-state', type=Path, help='the isolated Home Assistant browser storage state')
     p.add_argument('--camera-entity', help='camera discovered by isolated Home Assistant on the fixture controller')
     args = p.parse_args()

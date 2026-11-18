@@ -268,11 +268,16 @@ python gateway/tests/matter_browser_reference.py --entity camera.acme_test \
 ```
 
 The witness opens the normal camera dialog without rewriting its offer. It
-requires 60 presented frames with increasing media time and changing sampled
-pixels, records video dimensions and presentation/decoder counters, and closes
-the dialog. Repeat to exercise session reuse. Browser peer closure is distinct
-from proving that all SDK tasks joined. Headless presentation FPS is diagnostic;
-it is not the physical iPhone performance acceptance measurement.
+requires 60 presented frames with changing sampled pixels, records video
+dimensions and presentation/decoder counters, and closes the dialog. Chrome
+must report increasing media time. For macOS WebKit, use the same environment
+to run `python -m playwright install webkit` and pass `--browser-engine webkit`
+to the browser witness or to `ingest_av_reference.py` with its browser
+arguments. WebKit must report increasing RTP timestamps, compositor frame
+counts and presentation times because its live MediaStream callback can
+report zero for media time. Repeat to exercise session reuse. The combined
+ingest witness also checks release of the Matter session. The physical release
+trial measures rendering on the iPhone.
 
 ## Bridge and occupancy automation
 

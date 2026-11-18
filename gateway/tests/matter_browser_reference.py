@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Home Assistant's actual camera dialog in an isolated Chrome browser.
+"""Exercise Home Assistant's actual camera dialog in an isolated browser.
 
 Use an authenticated Playwright storage state from the private HA fixture.
 Print only media counters and errors with fixed labels, never SDP or credentials.
@@ -51,7 +51,10 @@ def observe_candidate_responses(page):
 
 def run(args):
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(channel="chrome", headless=True)
+        if args.browser_engine == "webkit":
+            browser = playwright.webkit.launch(headless=True)
+        else:
+            browser = playwright.chromium.launch(channel="chrome", headless=True)
         try:
             context = browser.new_context(storage_state=str(args.storage_state),
                                           viewport={"width": 1280, "height": 900})
@@ -108,13 +111,20 @@ def run(args):
                     let hash = 2166136261;
                     for (const byte of ctx.getImageData(0, 0, canvas.width, canvas.height).data)
                         hash = Math.imul(hash ^ byte, 16777619) >>> 0;
-                    hashes.add(hash); times.push({now, media: metadata.mediaTime, rtp: metadata.rtpTimestamp});
+                    hashes.add(hash);
+                    times.push({now, media: metadata.mediaTime, rtp: metadata.rtpTimestamp,
+                        frames: metadata.presentedFrames, presentation: metadata.presentationTime});
                     if (times.length < 60) { video.requestVideoFrameCallback(frame); return; }
                     clearTimeout(timeout);
                     const steps = times.slice(1).map((t,i) => (t.rtp-times[i].rtp) >>> 0);
                     const mediaSteps = times.slice(1).map((t,i) => Math.round((t.media-times[i].media)*90000));
-                    resolve({...(rate ? {rtp_clock_valid: times.every(t => Number.isInteger(t.rtp)) &&
-                        steps.every(t => t > 0 && t % (90000/rate) === 0),
+                    const rtpAdvances = times.every(t => Number.isInteger(t.rtp)) &&
+                        steps.every(step => step > 0 && step < 0x80000000);
+                    const compositorAdvances = times.every((t, i) => Number.isInteger(t.frames) &&
+                        Number.isFinite(t.presentation) && (!i || t.frames > times[i-1].frames &&
+                            t.presentation > times[i-1].presentation));
+                    resolve({...(rate ? {rtp_clock_valid: rtpAdvances &&
+                        steps.every(t => t % (90000/rate) === 0),
                         min_step_90khz: Math.min(...steps), max_step_90khz: Math.max(...steps),
                         media_time_min_step_90khz: Math.min(...mediaSteps)} : {}),
                         ...(marker ? {fixture_marker: marker, first_presented_ms:
@@ -122,6 +132,8 @@ def run(args):
                         performance.timeOrigin + times.at(-1).now} : {}), presented_frames: times.length, distinct_sampled_images: hashes.size,
                         dimensions: [video.videoWidth, video.videoHeight],
                         advancing_media_time: times.every((t, i) => !i || t.media > times[i-1].media),
+                        advancing_rtp_clock: rtpAdvances,
+                        advancing_compositor: compositorAdvances,
                         presented_fps: (times.length-1)*1000/(times.at(-1).now-times[0].now),
                         playback_quality: {
                             total: video.getVideoPlaybackQuality().totalVideoFrames,
@@ -132,9 +144,15 @@ def run(args):
             if args.fixture_rate and not result["rtp_clock_valid"]:
                 print("Unexpected fixture RTP steps", result["min_step_90khz"], result["max_step_90khz"])
                 raise AssertionError("encoded RTP clock")
-            assert result["advancing_media_time"] and result["distinct_sampled_images"] > 1
+            assert result["distinct_sampled_images"] > 1
+            if args.browser_engine == "webkit":
+                # WebKit's MediaStream player can leave callback mediaTime at zero.
+                assert result["advancing_rtp_clock"] and result["advancing_compositor"]
+            else:
+                assert result["advancing_media_time"]
             result["presented_fps"] = round(result["presented_fps"], 2)
-            result.update(kind="generated-source Home Assistant dialog; headless Chrome",
+            engine = "WebKit" if args.browser_engine == "webkit" else "Chrome"
+            result.update(kind=f"generated-source Home Assistant dialog; headless {engine}",
                           browser=browser.version, offered_media=page.evaluate("window.nxrsOffers"))
             result["peers"] = page.evaluate("""async () => {
                 const result = [];
@@ -183,6 +201,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://127.0.0.1:18123")
+    parser.add_argument("--browser-engine", choices=("chrome", "webkit"), default="chrome")
     parser.add_argument("--entity", required=True)
     parser.add_argument("--storage-state", type=Path, required=True)
     parser.add_argument("--screenshot", type=Path)

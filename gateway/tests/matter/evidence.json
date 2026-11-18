@@ -3113,5 +3113,45 @@
     "offline_qr_round_trip": true,
     "fixture_removed_and_matter_port_released": true,
     "scope": "The phone pairing fixture was rehearsed on macOS using an independent Matter controller and generated media. A phone, Google Home hub and physical camera were not used."
+  },
+  "home_assistant_webkit_playback_qualification": {
+    "nxrs_build_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "matter_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "macos": "27.0.1 arm64",
+    "home_assistant": "2026.11.2",
+    "playwright": "1.65.2",
+    "webkit": {
+      "version": "27.2",
+      "dimensions": [
+        320,
+        240
+      ],
+      "presented_frames": 60,
+      "distinct_sampled_images": 20,
+      "presented_fps": 16.62,
+      "decoded_frames": 61,
+      "callback_media_time_strictly_advances": false,
+      "callback_rtp_clock_and_compositor_advance": true,
+      "browser_peer_closed_and_matter_session_retired": true,
+      "rtsp_timing_steps_outside_1ms": 1,
+      "preview_resolution_errors": 1
+    },
+    "chrome": {
+      "version": "157.0.8103.80",
+      "dimensions": [
+        320,
+        240
+      ],
+      "presented_frames": 60,
+      "distinct_sampled_images": 24,
+      "presented_fps": 16.54,
+      "decoded_frames": 62,
+      "callback_media_time_strictly_advances": true,
+      "callback_rtp_clock_and_compositor_advance": true,
+      "browser_peer_closed_and_matter_session_retired": true,
+      "rtsp_timing_steps_outside_1ms": 0,
+      "preview_resolution_errors": 1
+    },
+    "scope": "The stock Home Assistant dialog presented generated H.264 while capture stayed muted in both macOS browsers. WebKit's callback media time did not advance, so its witness requires advancing RTP and compositor metadata and changing pixels. Both browsers completed live playback despite a preview request rejected by the Matter controller's resolution check. Physical microphone and iPhone playback and snapshots remain open."
   }
 }
