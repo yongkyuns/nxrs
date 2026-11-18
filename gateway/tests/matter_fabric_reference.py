@@ -17,9 +17,12 @@ from matter_rtsp_reference import ports, publish, start_device, start_media, wai
 
 
 @asynccontextmanager
-async def controller(stack, root, args, label, port, fabric):
-    storage = root / label
-    storage.mkdir(mode=0o700)
+async def controller(stack, root, args, label, port, fabric, *, existing_storage=None):
+    storage = existing_storage or root / label
+    if existing_storage is None:
+        storage.mkdir(mode=0o700)
+    else:
+        assert storage.is_dir(), "missing enrolled controller"
     process = start(stack, root, label, [args.controller, "--storage-path", storage,
         "--primary-interface", args.interface, "--port", str(port), "--listen-address", "127.0.0.1",
         "--fabricid", str(fabric), "--enable-test-net-dcl", "--dcl-offline", "--disable-ota",
@@ -38,7 +41,9 @@ async def controller(stack, root, args, label, port, fabric):
             c = Controller(ws)
             job = asyncio.create_task(c.read())
             try:
-                assert not await c.request("start_listening")
+                nodes = await c.request("start_listening")
+                if existing_storage is None:
+                    assert not nodes
                 yield c
             finally:
                 job.cancel()

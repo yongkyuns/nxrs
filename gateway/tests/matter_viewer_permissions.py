@@ -18,14 +18,16 @@ from matter_rtsp_reference import ports, start_device, start_media, wait_path
 
 
 @asynccontextmanager
-async def viewer(root, args, port):
+async def viewer(root, args, port, *, existing_storage=None):
+    if existing_storage is not None:
+        assert existing_storage.is_dir(), "missing enrolled viewer"
     install = args.controller.absolute().parent.parent.parent
     with (root / "viewer.log").open("xb") as log:
         child = await asyncio.create_subprocess_exec(
             "node",
             Path(__file__).with_name("matter") / "viewer.cjs",
             install,
-            root / "viewer-state",
+            existing_storage or root / "viewer-state",
             args.interface,
             str(port),
             stderr=log,

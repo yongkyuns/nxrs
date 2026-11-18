@@ -17,8 +17,9 @@ opens no media track. Failure retires the source even if the original media
 socket can still deliver video. Revoking the shared source ends every Matter
 peer using it. At the Matter layer, removing one commissioned fabric stopped
 its active stream while a viewer on the surviving fabric kept receiving frames
-from the same reader. Camera permissions for individual nodes within one fabric
-and joining all retired session resources still need qualification.
+from the same reader. With two viewers on one fabric, withdrawing a viewer’s
+endpoint grant also ended its pending and active offers. Joining all retired
+session resources under load still needs qualification.
 
 `occupancy::Feed::open` takes a loopback control address, a camera ID and
 a private credential file. Run the subscription on the owning executor. Its
@@ -47,6 +48,8 @@ file locks, atomic rename and sync semantics. State is private, not encrypted;
 the checksum detects corruption, not malicious replacement by the same user.
 
 The store creates no workers. It bounds state to 512 keys, 64 KiB per value and
-1 MiB total. SDK blob writes are individually atomic; SDK-wide transactions,
-schema migrations, endpoint identities and fabric-removal recovery still need
-qualification. Process-kill tests are not proof of power-loss durability.
+1 MiB total. The macOS fixture restarts independent controllers after a process
+interruption during a viewer permission update or a second fabric’s record
+deletion. The visible access follows the committed snapshot. Transactions
+across SDK records, schema migrations, persistent endpoint identities and
+system power loss remain open. [Recovery test](../tests/matter/README.md#interrupted-access-changes).

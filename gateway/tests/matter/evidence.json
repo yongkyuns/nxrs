@@ -1119,5 +1119,59 @@
       "hal_boundary_regressions_passed": 29
     },
     "scope": "WebRTC offer permission at camera endpoint 1, including an established viewer and an unanswered offer. Full process-loss recovery during administration, production admission, Linux and physical device/audio qualification remain open."
+  },
+  "interrupted_access_changes": {
+    "host": "macOS arm64, LLDB 2103.0.34.103, generated video, independent operational nodes",
+    "fixture": "viewer-permissions",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/tests/matter_recovery_reference.py": "4a444466f4c1c05041ff53c43693e10d9fd408ea17052b032f11296f28f59830",
+      "gateway/tests/matter/commit_breakpoint.py": "1c945f4bb40e0b9362796aec36ab78bd9ecf3b40621612d767f81246edfa47b2",
+      "gateway/tests/matter_viewer_permissions.py": "28712e6ebb0d9d6b2631b419fd2bc6ec81cd50e90ca93ec6230272bd4e9a3856",
+      "gateway/tests/matter_fabric_reference.py": "d43e9335702ae0a6bd0fb5609ce2dbd696df76fe5f38f81989bbb3e59cde59db",
+      "gateway/matter/src/persistence.rs": "27e8429008f9795e87b7112dcb32cd2f462729e402fc6c0f4dc73fbb85c20065"
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "774b165026b502da44c80e8b0f80bd0f1954b640ea697a66ad0d6977d92c2bec",
+    "per_run": {
+      "acl_change_recovery": [
+        {
+          "change": "revoke",
+          "process_terminated": "before-replace",
+          "viewer_permitted_after_restart": true
+        },
+        {
+          "change": "revoke",
+          "process_terminated": "after-sync",
+          "viewer_permitted_after_restart": false
+        },
+        {
+          "change": "grant",
+          "process_terminated": "before-replace",
+          "viewer_permitted_after_restart": false
+        },
+        {
+          "change": "grant",
+          "process_terminated": "after-sync",
+          "viewer_permitted_after_restart": true
+        },
+        {
+          "change": "revoke",
+          "process_terminated": "after-reply",
+          "viewer_permitted_after_restart": false
+        }
+      ],
+      "recovered_fabric_counts": [
+        2,
+        1
+      ],
+      "separate_fabric_frames_after_interrupted_pre_replace_removal": 45,
+      "removed_fabric_read_after_synced_removal": "no response within 20 seconds",
+      "measured_boots": 9,
+      "administrator_decoded_frames_per_boot": 45,
+      "administrator_decoded_frames_total": 405,
+      "commissioning_closed_and_sessions_empty_on_all_measured_boots": true
+    },
+    "scope": "Each fresh process reused its original enrollment. The debugger interrupted the actual ACL update or fabric-key deletion in the published SDK fixture. Other per-fabric records, interrupted commissioning, machine power loss, Linux and physical media need separate qualification."
   }
 }

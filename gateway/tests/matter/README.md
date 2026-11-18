@@ -141,10 +141,9 @@ The last case requires the node to stop. Recovery playback has one 30-second
 budget, including controller retries. The private runtime retains raw logs and
 sanitized `results.json`; only the latter belongs in evidence.
 
-This proves process recovery and modeled interrupted staging, not sudden power
-loss or atomicity across several SDK blob mutations. Semantic SDK-state/version
-validation and commissioning interrupted during a multi-admin mutation remain
-open. The two-administrator test below covers a completed fabric removal.
+This fixture covers a corrupt snapshot and modeled interrupted staging. For
+process loss during actual administrative writes, run the
+[access recovery test](#interrupted-access-changes).
 
 ## Home Assistant browser qualification
 
@@ -442,6 +441,33 @@ subject against the endpoint and offer command on ACL changes, fabric removal
 and fail-safe expiry. Each stream requires a fresh negotiation after withdrawal.
 In-place SDP renegotiation is unsupported by this fixture.
 
+## Interrupted access changes
+
+Build the same unstripped `viewer-permissions` camera from this checkout.
+On macOS, run the following command with the pinned Node on `PATH` and a
+debugger permitted to attach to the new test process.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_recovery_reference.py \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" \
+  --device "$matter_sdk/target/debug/webrtc_camera" --gateway gateway/target/debug/nxrs-gateway-control \
+  --mediamtx /absolute/path/to/mediamtx --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --runtime "$matter_runtime/access-recovery" --interface en1 --ip <fixture-lan-ip>
+```
+
+The test terminates its own camera process either just before the snapshot
+rename or after the directory sync, before the controller receives a reply.
+It exercises a viewer grant, its withdrawal and removal of a second fabric.
+For fabric removal, the debugger checks the actual key being deleted because
+the SDK also writes an allocation cursor. A separate trial terminates the
+process after a successful withdrawal reply.
+
+Each restart uses the original identities in fresh processes. Controllers
+read the fabric list or ACL directly, check access and decode changing video.
+An interrupted rename preserves the previous access. A completed sync makes
+the new access visible after restart. System power loss, interrupted initial
+commissioning and consistency across multiple SDK records need separate tests.
+
 ## Two administrators and active fabric removal
 
 With the other test processes stopped, use the receiver Python environment,
@@ -486,7 +512,7 @@ See [conformance.md](conformance.md) for mandatory audio/snapshot/root behavior
 and the bridged endpoint topology. The video-only fixture is not a conforming
 Matter Camera product.
 
-A physical iPhone, real camera media, bridge conformance,
-authorization of individual controllers within a fabric, Linux, remote access and the 24-hour soak remain
-separate acceptance gates. This fixture establishes no NuttX support and adds
+A physical iPhone, real camera media, bridge conformance, production access
+control, Linux, remote access and the 24-hour soak remain separate acceptance
+gates. This fixture establishes no NuttX support and adds
 no mandatory integration CI job or production SDK dependency. The Rust store and occupancy tests run in the existing gateway workspace check using Rust 1.90.
