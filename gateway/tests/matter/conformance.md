@@ -65,8 +65,10 @@ Implement and qualify these steps in order.
    Host tests exercise the versioned camera writer and ingest reader together
    under short reads and writes, including retained sample gaps, detection
    metadata and rejection of malformed audio. The legacy path decoded changing
-   frames through the actual ingest process and MediaMTX. The microphone feed
-   and timed encoder input still need to be connected. [Wire contract](../../ingest/README.md#camera-audio-framing).
+   frames through the actual ingest process and MediaMTX. The paired encoder
+   preserved irregular video timestamps and a three-block audio gap in a
+   generated-media trial. The firmware microphone, annotated RTSP publication,
+   and on-device clock alignment remain open. [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).
 4. Publish synchronized H.264 and Opus tracks and derive the Matter audio
    capability from the acquired format and negotiated encoding. Exercise
    allocation, deallocation, microphone mute, gain where supported, privacy

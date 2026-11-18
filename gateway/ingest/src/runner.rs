@@ -1,4 +1,4 @@
-use crate::{tls::Prepared, config::Config, protocol::{line, Reader, Frame}, Error, Result};
+use crate::{tls::Prepared, config::Config, protocol::{line, Reader}, Error, Result};
 use std::{process::Stdio, time::Duration};
 use tokio::{io::{AsyncWriteExt, BufReader}, net::TcpStream, process::{Command, Child},
     sync::watch, time::{Instant, timeout, timeout_at, sleep}};
@@ -11,12 +11,12 @@ pub(crate) struct Lag {
     best: i128,
 }
 impl Lag {
-    pub(crate) fn observe(&mut self, frame: Frame, now: Instant) -> Result<()> {
+    pub(crate) fn observe(&mut self, capture_ms: u64, now: Instant) -> Result<()> {
         let Some((start,device))=self.baseline else {
-            self.baseline=Some((now,frame.capture_ms)); return Ok(());
+            self.baseline=Some((now,capture_ms)); return Ok(());
         };
         let elapsed=now.duration_since(start).as_millis() as i128;
-        let delta=elapsed-(i128::from(frame.capture_ms)-i128::from(device));
+        let delta=elapsed-(i128::from(capture_ms)-i128::from(device));
         self.best=self.best.min(delta);
         if delta-self.best>1000 {
             eprintln!("nxrs-camera-ingest: source backlog exceeded freshness limit");
@@ -29,30 +29,39 @@ impl Lag {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EncodedMedia { MpegTs, AnnexB }
 
-pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
-    let elementary = format == EncodedMedia::AnnexB;
+pub(crate) fn ffmpeg(config: &Config) -> Command {
     let mut command=Command::new(&config.ffmpeg);
     // No shell, environment-proxy fallback, image looping, or constant-rate frame duplication.
-    // image2pipe wallclock PTS can collide when Wi-Fi delivers frame bursts.
-    let fps_mode=if elementary { "passthrough" } else { "vfr" };
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args(["-nostdin","-hide_banner","-loglevel","quiet","-nostats","-stats_period","0.5",
             "-xerror","-err_detect","explode","-progress","pipe:2",
-            "-threads","2","-filter_threads","2","-f","image2pipe","-c:v","mjpeg",
+            "-threads","2","-filter_threads","2"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    command
+}
+pub(crate) fn h264(command: &mut Command, fps_mode: &str) {
+    command.args(["-c:v","libx264",
+        "-threads","2","-preset","ultrafast","-tune","zerolatency","-profile:v","baseline",
+        "-pix_fmt","yuv420p","-bf","0","-g","30","-fps_mode",fps_mode,
+        "-b:v","1500k","-maxrate","1500k","-bufsize","1500k"]);
+}
+pub(crate) fn encoder(config: &Config, format: EncodedMedia) -> Command {
+    let elementary = format == EncodedMedia::AnnexB;
+    // image2pipe wallclock PTS can collide when Wi-Fi delivers frame bursts.
+    let fps_mode=if elementary { "passthrough" } else { "vfr" };
+    let mut command=ffmpeg(config);
+    command.args(["-f","image2pipe","-c:v","mjpeg",
             // Input is already explicit MJPEG; do not accumulate a byte-sized probe
             // whose startup delay depends on scene size and camera cadence.
             "-framerate","30","-probesize","32","-analyzeduration","1"]);
     if !elementary { command.args(["-use_wallclock_as_timestamps","1"]); }
-    command.args(["-i","pipe:0","-an","-c:v","libx264",
-            "-threads","2","-preset","ultrafast","-tune","zerolatency","-profile:v","baseline",
-            "-pix_fmt","yuv420p","-bf","0","-g","30","-fps_mode",fps_mode,
-            "-b:v","1500k","-maxrate","1500k","-bufsize","1500k"]);
+    command.args(["-i","pipe:0","-an"]);
+    h264(&mut command, fps_mode);
     match format {
         EncodedMedia::MpegTs => { command.args(["-f","mpegts","-muxdelay","0"]); }
         EncodedMedia::AnnexB => { command.args(["-x264-params","aud=1","-f","h264"]); }
     }
-    command.args(["-flush_packets","1","pipe:1"])
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    command.args(["-flush_packets","1","pipe:1"]);
     command
 }
 pub(crate) fn publisher(config: &Config, format: EncodedMedia) -> Command {
@@ -93,7 +102,7 @@ async fn pump(mut source: Reader<crate::tls::Socket>, mut sink: tokio::process::
         // Neither a partial TCP byte nor a partial pipe write resets it.
         timeout(budget,async {
             let frame=source.next_frame().await?;
-            lag.observe(frame,Instant::now())?;
+            lag.observe(frame.capture_ms,Instant::now())?;
             sink.write_all(source.payload(frame)).await?;
             Ok::<(),Error>(())
         }).await.map_err(|_|Error::Timeout)??;
@@ -312,10 +321,10 @@ mod tests {
     }
     #[test] fn arrival_clock_is_relative_not_device_epoch() {
         let mut lag=Lag::default(); let t=Instant::now();
-        let f=Frame{length:4,sequence:1,capture_ms:9_000_000};
-        assert!(lag.observe(f,t).is_ok());
-        assert!(lag.observe(Frame{capture_ms:f.capture_ms+100,..f},t+Duration::from_millis(100)).is_ok());
-        assert_eq!(lag.observe(Frame{capture_ms:f.capture_ms+150,..f},t+Duration::from_millis(1200)),Err(Error::Stale));
+        let captured=9_000_000;
+        assert!(lag.observe(captured,t).is_ok());
+        assert!(lag.observe(captured+100,t+Duration::from_millis(100)).is_ok());
+        assert_eq!(lag.observe(captured+150,t+Duration::from_millis(1200)),Err(Error::Stale));
     }
     #[tokio::test] async fn already_cancelled_does_not_connect_or_spawn() {
         let c:Config=serde_json::from_value(serde_json::json!({

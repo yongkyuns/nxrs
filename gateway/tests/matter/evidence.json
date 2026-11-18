@@ -2645,5 +2645,29 @@
       "test_signature_verified": true
     },
     "scope": "Host tests exercise an explicitly admitted version 1 stream under fragmented I/O, malformed input, sample gaps and independent video receipts. Legacy RTSP playback used generated images. The WROOM executable linked without I2S and was not flashed. Firmware microphone integration, timestamped encoder input and physical A/V playback remain open."
+  },
+  "camera_av_encoder": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/ingest/src/av.rs": "320b67f5b1a3e4f251760d7271453052539db2e8dbb9a57889d5c5e1f0574632",
+      "gateway/ingest/src/av/matroska.rs": "103781ce345efcc3fb0dd9c50a326ef192d45ae9cfc10a725a2edef9b480c0aa",
+      "gateway/ingest/src/protocol.rs": "7e0e43f669f861adb982b2a8d927ff26f81b07e9943e327aa0a6f28aec765294",
+      "gateway/ingest/src/runner.rs": "3115125683b6849869342d7246c5d217f1e46ce6276ea2d6ee4afd3defe21748",
+      "gateway/ingest/tests/av_transport.rs": "e4d79ff88c72f060eecbfc6e0cba7a1ee084244be40657aa032dc10136bea411"
+    },
+    "ffmpeg_version": "9.0.2",
+    "encoded_tracks": [
+      "H.264",
+      "Mono Opus with a 48 kHz decoder sample rate"
+    ],
+    "source_video_pts_matched_at_90khz": 8,
+    "pcm16_blocks_offered": 27,
+    "missing_pcm_blocks": 3,
+    "ordinary_opus_pts_step_ms": 20,
+    "gap_opus_pts_step_ms": 80,
+    "opus_step_tolerance_ms": 1,
+    "video_deadline_budget_ms": 250,
+    "audio_progress_did_not_extend_video_deadline": true,
+    "scope": "Generated version 1 camera multipart input exercised the gateway parser, timing, bounded encoder input and real FFmpeg. FFprobe checked encoded tracks and packet timestamps. This does not measure hardware timing, decoded-frame annotations, RTSP or iPhone playback of the paired stream."
   }
 }

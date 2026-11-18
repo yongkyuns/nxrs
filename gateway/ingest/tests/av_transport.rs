@@ -2,10 +2,16 @@
 use camera::{Capture, Format, Frame, PixelFormat};
 use capture_wire::{AudioBlock, AudioStamp, AUDIO_TYPE, AV_PATH, BLOCK_BYTES};
 use nxrs_camera_ingest::{
+    av::{encoder, EncoderInput},
+    config::Config,
     protocol::{Packet, Reader},
     Error,
 };
-use std::io::{self, Cursor, Read, Write};
+use std::{
+    io::{self, Cursor, Read, Write},
+    process::Stdio,
+    time::Duration,
+};
 use stream_service::{HttpSession, Metadata, Options};
 use tokio::io::AsyncWriteExt;
 
@@ -226,12 +232,244 @@ fn response(version: Option<&str>) -> Vec<u8> {
 }
 
 fn write_audio(output: &mut Vec<u8>, sample: u64, capture_ms: u64, length: usize) {
+    write_pcm(output, sample, capture_ms, length, &PCM);
+}
+
+fn write_pcm(
+    output: &mut Vec<u8>,
+    sample: u64,
+    capture_ms: u64,
+    length: usize,
+    pcm: &[u8; BLOCK_BYTES],
+) {
     write!(
         output,
         "--nxrs-frame\r\nContent-Type: {AUDIO_TYPE}\r\nContent-Length: {length}\r\nX-First-Sample: {sample}\r\nX-Capture-Ms: {capture_ms}\r\n\r\n",
     ).unwrap();
-    output.extend(PCM);
+    output.extend(pcm);
     output.extend(b"\r\n");
+}
+
+fn write_jpeg(output: &mut Vec<u8>, sequence: u64, capture_ms: u64, jpeg: &[u8]) {
+    write!(output, "--nxrs-frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Sequence: {sequence}\r\nX-Capture-Ms: {capture_ms}\r\n\r\n", jpeg.len()).unwrap();
+    output.extend(jpeg);
+    output.extend(b"\r\n");
+}
+
+fn encoder_config(timeout_ms: u64) -> Config {
+    serde_json::from_value(serde_json::json!({
+        "camera": "127.0.0.1:8080", "allow_insecure_camera_http": true,
+        "rtsp": "127.0.0.1:8554", "stream_path": "reference", "publisher_user": "fixture",
+        "publisher_token_file": "/private/fixture-token", "publisher": "/unused/publisher",
+        "ffmpeg": std::env::var("NXRS_TEST_FFMPEG").unwrap_or_else(|_| "/usr/bin/ffmpeg".into()),
+        "width": 320, "height": 240, "frame_timeout_ms": timeout_ms,
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn advancing_audio_cannot_extend_the_video_deadline() {
+    let (mut writer, source) = tokio::io::duplex(4096);
+    let producer = async move {
+        writer.write_all(&response(Some("1"))).await.unwrap();
+        let mut part = Vec::new();
+        for index in 0..100 {
+            part.clear();
+            write_audio(&mut part, index * 320, index * 20, BLOCK_BYTES);
+            if writer.write_all(&part).await.is_err() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let consumer = async move {
+        let source = Reader::start_av(source, 320, 240).await.unwrap();
+        let mut input = EncoderInput::start(source, tokio::io::sink(), &encoder_config(250))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            let mut complete = 0;
+            loop {
+                match input.next().await {
+                    Ok(None) => complete += 1,
+                    Err(Error::Timeout) => break,
+                    other => panic!("unexpected part result: {other:?}"),
+                }
+            }
+            assert!(complete >= 2);
+        })
+        .await
+        .unwrap();
+    };
+    tokio::join!(producer, consumer);
+}
+
+#[tokio::test]
+#[ignore = "requires FFmpeg with libx264/libopus and ffprobe; run in media qualification"]
+async fn camera_timestamps_and_sample_gaps_survive_the_native_encoder() {
+    let config = encoder_config(3000);
+    let jpeg = tokio::process::Command::new(&config.ffmpeg)
+        .args([
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=white:s=320x240",
+            "-frames:v",
+            "1",
+            "-threads",
+            "1",
+            "-c:v",
+            "mjpeg",
+            "-f",
+            "image2pipe",
+            "pipe:1",
+        ])
+        .output()
+        .await
+        .unwrap();
+    assert!(jpeg.status.success());
+
+    let mut wire = response(Some("1"));
+    let mut parts = 0;
+    let mut camera = 1..=8;
+    let mut expected_video = Vec::new();
+    let mut pcm = [0; BLOCK_BYTES];
+    // A 1 kHz square wave on each nonzero block. No household audio or images.
+    for (index, sample) in pcm.chunks_exact_mut(2).enumerate() {
+        let amplitude = if index % 16 < 8 {
+            14_000i16
+        } else {
+            -14_000i16
+        };
+        sample.copy_from_slice(&amplitude.to_le_bytes());
+    }
+    for index in 0..30 {
+        let capture_ms = 8_000_000 + 20 * index;
+        if !(7..=9).contains(&index) {
+            // Arrival jitter in source observations must not stretch the sample clock.
+            write_pcm(
+                &mut wire,
+                (index + 2) * 320,
+                capture_ms + index % 3,
+                BLOCK_BYTES,
+                &pcm,
+            );
+            parts += 1;
+        }
+        if index.is_multiple_of(4) {
+            let sequence = camera.next().unwrap();
+            let offset = 13 - sequence % 3;
+            write_jpeg(&mut wire, sequence, capture_ms - offset, &jpeg.stdout);
+            expected_video.push(3020 + 20 * index - offset);
+            parts += 1;
+        }
+    }
+
+    let mut child = encoder(&config).spawn().unwrap();
+    let source = Reader::start_av(wire.as_slice(), 320, 240).await.unwrap();
+    let mut input = EncoderInput::start(source, child.stdin.take().unwrap(), &config)
+        .await
+        .unwrap();
+    let send = async move {
+        let mut offered = Vec::new();
+        for _ in 0..parts {
+            if let Some(picture) = input.next().await.unwrap() {
+                assert_eq!(picture.frame.sequence, offered.len() as u64 + 1);
+                offered.push(picture.pts_ms);
+            }
+        }
+        offered
+    };
+    let (encoded, offered) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(child.wait_with_output(), send)
+    })
+    .await
+    .unwrap();
+    let encoded = encoded.unwrap();
+    assert!(
+        encoded.status.success(),
+        "paired encoder failed: {:?}",
+        encoded.status.code()
+    );
+    assert_eq!(offered, expected_video);
+
+    let ffprobe = std::env::var("NXRS_TEST_FFPROBE").unwrap_or_else(|_| "/usr/bin/ffprobe".into());
+    let mut probe = tokio::process::Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-show_packets",
+            "-show_streams",
+            "-show_entries",
+            "stream=codec_name,sample_rate,channels,time_base:packet=codec_type,pts",
+            "-of",
+            "json",
+            "pipe:0",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut pipe = probe.stdin.take().unwrap();
+    let read = async move { pipe.write_all(&encoded.stdout).await.unwrap() };
+    let (observed, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(probe.wait_with_output(), read)
+    })
+    .await
+    .unwrap();
+    let observed = observed.unwrap();
+    assert!(observed.status.success());
+    let observed: serde_json::Value = serde_json::from_slice(&observed.stdout).unwrap();
+    let streams = observed["streams"].as_array().unwrap();
+    assert_eq!(streams.len(), 2);
+    assert_eq!(
+        (
+            streams[0]["codec_name"].as_str(),
+            streams[1]["codec_name"].as_str()
+        ),
+        (Some("h264"), Some("opus"))
+    );
+    assert_eq!(streams[1]["sample_rate"], "48000");
+    assert_eq!(streams[1]["channels"], 1);
+    assert!(streams
+        .iter()
+        .all(|stream| stream["time_base"] == "1/90000"));
+    let timestamps = |kind| {
+        observed["packets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(move |p| p["codec_type"] == kind)
+            .map(|p| p["pts"].as_u64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        timestamps("video"),
+        offered.iter().map(|ms| ms * 90).collect::<Vec<_>>()
+    );
+    let audio = timestamps("audio");
+    assert!((27..=28).contains(&audio.len())); // Every block, plus optional encoder tail.
+    assert!(audio[0].abs_diff(3020 * 90 - 585) <= 90); // 6.5 ms Opus priming.
+    let differences: Vec<_> = audio.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    assert_eq!(
+        differences
+            .iter()
+            .filter(|d| d.abs_diff(7200) <= 90)
+            .count(),
+        1
+    );
+    assert_eq!(
+        differences
+            .iter()
+            .filter(|d| d.abs_diff(1800) <= 90)
+            .count(),
+        differences.len() - 1
+    );
 }
 
 #[tokio::test]

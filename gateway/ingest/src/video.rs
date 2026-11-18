@@ -108,7 +108,7 @@ async fn pump(
     loop {
         timeout(budget, async {
             let frame = source.next_frame().await?;
-            lag.observe(frame, Instant::now())?;
+            lag.observe(frame.capture_ms, Instant::now())?;
             identities
                 .try_send(VideoFrame {
                     api_version: Version::V1,

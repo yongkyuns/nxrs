@@ -80,6 +80,10 @@ impl<R: AsyncRead + Unpin> Reader<R> {
         Self::start_version(input, width, height, true).await
     }
 
+    pub(crate) fn av_dimensions(&self) -> Option<(u16, u16)> {
+        self.audio.then_some((self.width, self.height))
+    }
+
     async fn start_version(input: R, width: u16, height: u16, audio: bool) -> Result<Self> {
         let mut input = BufReader::with_capacity(8192, input);
         let status = line(&mut input, 128).await?;
