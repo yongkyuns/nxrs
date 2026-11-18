@@ -27,6 +27,11 @@ mismatched timestamp retires the publication. The publisher inserts the matched
 annotation as H.264 SEI, omits the text track from RTSP and reports packet progress
 independently for H.264 and Opus.
 
+FFmpeg can report the ingest encoder's 16 kHz input rate in its Matroska
+Opus track. The publisher accepts that rate for this track and advertises
+the required 48 kHz Opus RTP clock, preserving the packet timestamps through
+rescaling. [Opus RTP clock](https://www.rfc-editor.org/rfc/rfc7587.html#section-4.1).
+
 Build explicitly from `gateway/` with installed FFmpeg development headers,
 libraries, libclang and pkg-config:
 

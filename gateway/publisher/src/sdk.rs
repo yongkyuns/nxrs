@@ -48,6 +48,7 @@ pub enum AnnotatedPacket<'a> {
 }
 
 const MAX_PICTURE_BYTES: i32 = 1_048_576;
+const OPUS_RTP_SAMPLE_RATE: i32 = 48_000;
 
 impl Source {
     pub fn open(format: EncodedMedia) -> Result<Self> {
@@ -149,7 +150,10 @@ impl Source {
                             && source.audio.is_none()
                             && parameters.codec_id == av::AVCodecID::AV_CODEC_ID_OPUS
                             && parameters.ch_layout.nb_channels == 1
-                            && parameters.sample_rate == 48_000
+                            && (parameters.sample_rate == OPUS_RTP_SAMPLE_RATE
+                                // FFmpeg 7 reports the ingest encoder's input
+                                // sample rate from its live Matroska track.
+                                || (annotated && parameters.sample_rate == 16_000))
                             && parameters.extradata_size == 19
                             && !parameters.extradata.is_null() =>
                     {
@@ -312,6 +316,11 @@ impl Publication {
                     return Err(Failure::Output);
                 }
                 (*(*stream).codecpar).codec_tag = 0;
+                if source.audio == Some(index as i32) {
+                    // Opus over RTP always uses the 48 kHz clock (RFC 7587).
+                    // Keep the input time base and rescale the original packets.
+                    (*(*stream).codecpar).sample_rate = OPUS_RTP_SAMPLE_RATE;
+                }
                 (*stream).time_base = (*input).time_base;
             }
             if av::avformat_write_header(output.context, &mut options.0) < 0 {

@@ -24,6 +24,11 @@ receipt identifies both source revisions, the prepared lockfile and the
 target platform. Pairing material, device state and live services are managed
 separately.
 
+On Linux, install the native build and DNS-SD dependencies from the
+[Debian qualification instructions](../tests/matter/README.md#reproduce-the-linux-runtime-checks).
+The Debian ARM64 trial built with `CARGO_BUILD_JOBS=1`, 5 GiB of RAM and
+4 GiB of temporary swap.
+
 ## Configure the bridge
 
 Start `nxrs-matter-camera` with `--config` and an absolute path to a private

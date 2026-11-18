@@ -3031,5 +3031,64 @@
       true
     ],
     "scope": "The receipt hash was verified before running the optimized package through isolated Matter commissioning, Home Assistant Chrome playback, microphone privacy transitions and permit loss. It used a generated camera and explicitly allowed development attestation for the trial. The ordinary startup policy refused those certificates. Linux packaging at this exact revision, production attestation, physical media and iPhone playback remain open."
+  },
+  "matter_gateway_linux_candidate": {
+    "receipt": {
+      "version": 1,
+      "nxrs_revision": "b2b27b9318302639e7ce27c2d953314da1cac79a",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-unknown-linux-gnu",
+      "pin_file_sha256": "1ef25077be1d8af74dd8c8a23698bcfd5a63b17c9c8a8046f3d0506364ea6e8d",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "3fb09c272339c3a4a562af779a9401a14441e4d26ac5f2081ba9f607f96810ed"
+    },
+    "executable_bytes": 12025312,
+    "developer_attestation_rejected_by_default": true,
+    "retained_fabric_count": 1,
+    "build": "Offline Cargo release with locked dependencies on Debian 13 ARM64 in QEMU. One build job, 5 GiB RAM and 4 GiB temporary swap.",
+    "native_runtime": {
+      "discovery": "Avahi",
+      "ffmpeg": "7.1.5-0+deb13u1",
+      "mediamtx": "1.21.2",
+      "aiortc": "1.14.0"
+    },
+    "publisher_executable_sha256": "2793547141099afec2998e330ff333c9350601de79809f1b883751fd4445894e",
+    "publisher_sdk_source_sha256": "68f51eff5e37edf60a1bc61236e4f9b08d3f88d1083edd00079bdeff3c79c06b",
+    "matroska_reported_opus_sample_rate_hz": 16000,
+    "opus_rtp_clock_hz": 48000,
+    "rtsp_decoded_and_annotated_frames": 185,
+    "rtsp_decoded_opus_frames": 559,
+    "rtsp_timing_steps_outside_1ms": 0,
+    "matter_webrtc_decoded_video_frames": 30,
+    "matter_webrtc_silent_decoded_opus_frames": [
+      100,
+      100
+    ],
+    "matter_webrtc_video_rtp_packets_per_capture_transition": [
+      30,
+      130,
+      28
+    ],
+    "matter_webrtc_teardown_acknowledged": true,
+    "wire_mute_commands": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "authenticated_camera_connections": 1,
+    "publication_retired_on_stop": true,
+    "macos_publisher_regression": {
+      "rtsp_decoded_and_annotated_frames": 185,
+      "rtsp_decoded_opus_frames": 618,
+      "rtsp_timing_steps_outside_1ms": 0,
+      "home_assistant_chrome_presented_frames": 60,
+      "home_assistant_chrome_presented_fps": 16.54,
+      "browser_peers_closed": true
+    },
+    "scope": "The verified Linux release executable paired and streamed generated media to an independent Matter controller. Debian FFmpeg exposed the 16 kHz encoder input rate and the publisher preserved its encoded packets and timing on the 48 kHz RTP clock. The macOS publisher regression also exercised the stock Home Assistant dialog with the prior verified macOS Matter executable. These trials used explicit test attestation. Google Home, physical media and iPhone playback remain unverified."
   }
 }
