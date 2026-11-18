@@ -740,8 +740,24 @@ the selected link's advertised clock supersedes the configured fallback,
 and that removing it restores fallback and playback on the same enrollment
 after restart. Use the macOS trusted-clock test with `--default-ntp` on
 a network without an advertised NTP source to check fallthrough.
-DHCP time-source integration and TLS management remain open.
 [mDNS queries](https://www.rfc-editor.org/rfc/rfc6762#section-6.7) · [DNS-SD](https://www.rfc-editor.org/rfc/rfc6763) · [Results](evidence.json).
+
+### DHCP time sources
+
+Prepare `--variant dhcp-time`. The bridge reads the selected link's DHCP
+time servers on each synchronization attempt. On Linux it reads
+systemd-networkd's per-link report, verifies the interface and local address,
+and tries DHCPv6 literals before DHCPv4. It ignores static or runtime
+time-server entries. On macOS it reads DHCPv4 option 42 through
+`ipconfig getoption`. The existing DNS-SD, trusted Matter and configured
+SNTP sources follow DHCP in that order.
+
+Install `dnsmasq-base` in the disposable Linux guest and add `--dhcp` to the
+two-link witness. The DHCP server replies on the private selected veth
+link with distinct clocks, so precedence is observable through Matter
+across restarts. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and TLS
+management remain open.
+[DHCPv4 NTP option](https://www.rfc-editor.org/rfc/rfc2132#section-8.3) · [DHCPv6 NTP option](https://www.rfc-editor.org/rfc/rfc5908) · [Results](evidence.json).
 
 ## Two controllers on the same fabric
 

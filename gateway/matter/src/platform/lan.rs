@@ -56,6 +56,11 @@ impl Lan {
         self.ipv4
     }
 
+    /// Read time servers supplied by the host's DHCP client for this link.
+    pub async fn dhcp_time_servers(self) -> Vec<IpAddr> {
+        super::dhcp::time_servers(self.index(), self.ipv4()).await
+    }
+
     fn socket(self, addr: SocketAddr, kind: Type, protocol: Protocol) -> io::Result<Socket> {
         let socket = Socket::new(Domain::for_address(addr), kind, Some(protocol))?;
         if addr.is_ipv6() {

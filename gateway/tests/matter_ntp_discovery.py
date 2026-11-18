@@ -32,10 +32,13 @@ SERVICE = "_ntp._udp.local."
 INSTANCE = "Nxrs-clock." + SERVICE
 HOST = "nxrs-clock.local."
 DEFAULT_ADDRESS = "fd3f:388:1::3"
+DHCPV6_ADDRESS = "fd3f:388:1::4"
 CLOCKS = {
     "selected": (SELECTED[5], -3600, True),
     "excluded": (EXCLUDED[5], 3600, True),
     "fallback": (DEFAULT_ADDRESS, 1200, False),
+    "dhcp": (SELECTED[4], -7200, False),
+    "dhcpv6": (DHCPV6_ADDRESS, -10800, False),
 }
 
 
@@ -43,7 +46,8 @@ def clock(args):
     address, offset, advertise = CLOCKS[args.clock]
     with ExitStack() as resources:
         poller = resources.enter_context(selectors.DefaultSelector())
-        ntp = resources.enter_context(socket.socket(socket.AF_INET6, socket.SOCK_DGRAM))
+        family = socket.AF_INET6 if ":" in address else socket.AF_INET
+        ntp = resources.enter_context(socket.socket(family, socket.SOCK_DGRAM))
         ntp.bind((address, 123))
         poller.register(ntp, selectors.EVENT_READ)
         if advertise:
@@ -110,7 +114,10 @@ async def peer(args):
                 while await attribute(client, node, "0/56/2") != 4:
                     await asyncio.sleep(0.2)
                 observed = int(await attribute(client, node, "0/56/0"))
-            offset = CLOCKS["selected" if args.peer == "discovered" else "fallback"][1]
+            clock_name = {"discovered": "selected", "dhcp": "dhcp", "dhcpv6": "dhcpv6"}.get(
+                args.peer, "fallback"
+            )
+            offset = CLOCKS[clock_name][1]
             expected = (int(time.time()) - 946684800 + offset) * 1_000_000
             assert abs(observed - expected) < 20_000_000
             return await receive(client, node)
@@ -135,6 +142,51 @@ def run(args):
             SELECTED[0], "--peer", mode, "--controller", args.controller,
         ), timeout=85)
         return json.loads(output)
+
+    def enable_dhcp(services, *, dual_stack):
+        target = "/run/systemd/network/05-nxrs-dhcp-time-test.network"
+        assert not Path(target).exists()
+        config = root / "dhcp-test.network"
+        value = (
+            f"[Match]\nName={SELECTED[1]}\n"
+            f"[Network]\nDHCP={'yes' if dual_stack else 'ipv4'}\n"
+            "KeepConfiguration=static\nIPv6AcceptRA=no\n"
+            "[DHCPv4]\nUseDNS=no\nUseRoutes=no\nUseGateway=no\nUseNTP=yes\n"
+        )
+        expected = {("DHCPv4", socket.inet_aton(SELECTED[4]))}
+        extra = []
+        if dual_stack:
+            value += "[DHCPv6]\nWithoutRA=solicit\nUseDNS=no\nUseNTP=yes\n"
+            extra = [
+                f"--dhcp-range={SELECTED[3]},{SELECTED[3]},64,120s",
+                f"--dhcp-option=option6:ntp-server,[{DHCPV6_ADDRESS}]",
+            ]
+            expected.add(("DHCPv6", socket.inet_pton(socket.AF_INET6, DHCPV6_ADDRESS)))
+        config.write_text(value)
+        subprocess.run(["sudo", "-n", "install", "-d", "/run/systemd/network"], check=True)
+        subprocess.run(["sudo", "-n", "install", "-m", "0644", config, target], check=True)
+        services.callback(subprocess.run, ["sudo", "-n", "rm", "-f", target], check=True)
+        server = start(services, root, "dhcp-server", [
+            "sudo", "-n", "ip", "netns", "exec", SELECTED[0], "/usr/sbin/dnsmasq",
+            "--keep-in-foreground", "--conf-file=/dev/null", "--port=0", "--bind-interfaces",
+            "--interface=" + PEER_LINK, "--dhcp-authoritative", "--leasefile-ro", "--no-ping",
+            f"--dhcp-range={SELECTED[2]},{SELECTED[2]},255.255.255.0,120s",
+            "--dhcp-option=option:router", "--dhcp-option=option:ntp-server," + SELECTED[4],
+            *extra,
+        ])
+        subprocess.run(["sudo", "-n", "networkctl", "reload"], check=True)
+        subprocess.run(["sudo", "-n", "networkctl", "reconfigure", SELECTED[1]], check=True)
+        deadline = time.monotonic() + 15
+        while server.poll() is None and time.monotonic() < deadline:
+            result = subprocess.run(["networkctl", "--json=short", "--no-pager", "status", SELECTED[1]],
+                                    capture_output=True)
+            if result.returncode == 0:
+                servers = json.loads(result.stdout).get("NTP", [])
+                actual = {(rec.get("ConfigSource"), bytes(rec.get("Address", []))) for rec in servers}
+                if expected <= actual:
+                    return
+            time.sleep(0.2)
+        raise AssertionError("selected test link did not acquire its DHCP NTP options")
 
     with ExitStack() as services:
         network(services, SELECTED)
@@ -180,13 +232,31 @@ def run(args):
         assert (root / "selected.used").is_file()
         stop(device)
         stop(selected)
-        boot("fallback-boot")
+        device = boot("fallback-boot")
         fallback = observe("fallback-again")
+        frames = [before, discovered, fallback]
+        if args.dhcp:
+            stop(device)
+            (root / "selected.ready").unlink()
+            start_clock("selected", SELECTED[0])
+            start_clock("dhcp", SELECTED[0])
+            with ExitStack() as dhcpv4:
+                enable_dhcp(dhcpv4, dual_stack=False)
+                device = boot("dhcp-boot")
+                frames.append(observe("dhcp"))
+                stop(device)
+            assert (root / "dhcp.used").is_file()
+            ip("-n", SELECTED[0], "-6", "addr", "add", DHCPV6_ADDRESS + "/64", "dev", PEER_LINK, "nodad")
+            start_clock("dhcpv6", SELECTED[0])
+            enable_dhcp(services, dual_stack=True)
+            boot("dhcpv6-boot")
+            frames.append(observe("dhcpv6"))
+            assert (root / "dhcpv6.used").is_file()
         assert not (root / "excluded.used").exists()
     return dict(
         selected_lan_dns_sd=True, excluded_lan_clock_unused=True,
         preferred_discovered_clock=True, fallback_after_withdrawal=True,
-        frames=[before, discovered, fallback],
+        frames=frames, dhcpv4_preferred=args.dhcp, dhcpv6_preferred=args.dhcp,
     )
 
 
@@ -195,7 +265,8 @@ if __name__ == "__main__":
     for name in ("runtime", "sdk", "controller", "device", "gateway", "publisher", "mediamtx", "ffmpeg"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--clock", choices=CLOCKS)
-    parser.add_argument("--peer", choices=("initialize", "discovered", "fallback-again"))
+    parser.add_argument("--peer", choices=("initialize", "discovered", "fallback-again", "dhcp", "dhcpv6"))
+    parser.add_argument("--dhcp", action="store_true")
     args = parser.parse_args()
     if args.clock:
         clock(args)

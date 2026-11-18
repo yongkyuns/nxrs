@@ -1,0 +1,14 @@
+--- a/examples/src/bin/ntp/mod.rs
++++ b/examples/src/bin/ntp/mod.rs
+@@ -142,6 +142,11 @@
+     }
+ 
+     async fn discover(&self) -> Option<u64> {
++        for addr in self.lan.dhcp_time_servers().await {
++            if let Some(sample) = self.sample(addr).await {
++                return Some(sample);
++            }
++        }
+         let group_v6 = SocketAddrV6::new(MDNS_IPV6_BROADCAST_ADDR, MDNS_PORT, 0, self.lan.index());
+         let group_v4 = SocketAddr::new(IpAddr::V4(MDNS_IPV4_BROADCAST_ADDR), MDNS_PORT);
+         let (v6, v4) = tokio::join!(

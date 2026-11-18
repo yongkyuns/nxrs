@@ -2242,5 +2242,45 @@
     ],
     "macos_trusted_and_configured_fallback": true,
     "scope": "Debian 13 arm64 QEMU with private veth links, generated IPv6 DNS-SD and SNTP lab clocks, independent Matter Server 1.6.0 and generated H.264. Native macOS 27.0.1 arm64 qualified fallthrough to trusted Matter and configured public IPv6 SNTP. UDP loopback checks cover separate DNS records, mismatched transactions, and zero-lifetime records. DHCP, remaining source-priority rules, TLS management and physical release qualification remain open."
+  },
+  "dhcp_time_sources": {
+    "fixture": "dhcp-time",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "kernel": "6.12.117+deb13-cloud-arm64",
+    "test": {
+      "selected_lan_dns_sd": true,
+      "excluded_lan_clock_unused": true,
+      "preferred_discovered_clock": true,
+      "fallback_after_withdrawal": true,
+      "frames": [
+        30,
+        30,
+        30,
+        30,
+        30
+      ],
+      "dhcpv4_preferred": true,
+      "dhcpv6_preferred": true
+    },
+    "linux_result_sha256": "2af3ac1b3d06b27a5b99f6e884eb8a5d012770a10286dbf489ea9e2491f0fd7b",
+    "linux_bridge_sha256": "5313f97b16465c588b87b107f25619c90ea7aa5e2a8035d9c6af0f437c3931f7",
+    "source_sha256": {
+      "gateway/matter/src/platform/dhcp.rs": "091e0b40b3718393568116e1a5299dd2c860bda0eae30d50e2fdc77297894683",
+      "gateway/matter/src/platform/lan.rs": "27b4f79277721c606e388c95bafdfc445f56a0be82d57d8f4958e74585d762e1",
+      "gateway/matter/src/platform/mod.rs": "957e3232a7d000793ea3bcadcfd36dfde821445d676d21b708742dc62ddaa67c",
+      "gateway/tests/matter_ntp_discovery.py": "91689bd64c180e2762dc7b13bdf7150c4dfe99760829ff004a9b3f8980e4d3f2",
+      "gateway/tests/matter/dhcp-time.patch": "f6f3bd21adfe788eb8eb47aef7a5d5293539a0dbe15d5a162be8f7330683e609",
+      "gateway/tests/matter/versions.json": "9d28041a10db10d13ccd1591dbdf4b80c00888cd1c7e9d9f2b7a434bc15f00b8",
+      "tools/prepare-matter-fixture.py": "2f47906c1bcec1b55e0933d556e4de2bf3f62eff0badea70a791f26e19922aca"
+    },
+    "macos_result_sha256": "4ba0aff169766e58a87c975afe8837f7240cd46e3f95c64fff513f454c6b2d90",
+    "macos_bridge_sha256": "70bc7084a9541f25ebfd2b21ce0600a1e9070025fc02120c66eff300059bacef",
+    "macos_frames": [
+      30,
+      30
+    ],
+    "macos_trusted_and_configured_fallback": true,
+    "scope": "Debian 13 arm64 QEMU with systemd-networkd and real DHCPv4/v6 replies from dnsmasq on a private veth link. Distinct lab clocks and generated H.264 verified source precedence and playback across five boots on one enrollment. Native macOS 27.0.1 arm64 verified trusted Matter and configured IPv6 SNTP fallback on a link without a DHCP time option. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and remaining TLS and physical release gates stay open."
   }
 }
