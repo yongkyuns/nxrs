@@ -8,5 +8,7 @@ pub mod media;
 pub mod occupancy;
 pub mod persistence;
 mod platform;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use platform::lan;
 pub mod privacy;
 pub mod snapshot;

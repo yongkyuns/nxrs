@@ -19,6 +19,7 @@ the configured IPv4 address for the WebRTC socket and its ICE candidate.
   "control": "127.0.0.1:18080",
   "rtsp": "127.0.0.1:8554",
   "ice_address": "192.0.2.10",
+  "lan_interface": "enp1s0",
   "media_token_file": "/absolute/private/camera-source.token",
   "detection_token_file": "/absolute/private/detections.token",
   "factory_data": "/absolute/private/factory.json",
@@ -26,7 +27,12 @@ the configured IPv4 address for the WebRTC socket and its ICE candidate.
 }
 ```
 
-Use a local address reachable by the intended receiver as `ice_address`.
+For the `lan-interface` variant, choose a LAN with IPv6 for Matter discovery
+and control. Set `ice_address` to its IPv4 address for media. If `lan_interface`
+is omitted, the bridge resolves that address to one LAN interface. An explicit
+interface must own the address. DNS-SD, IPv4 and IPv6 Matter transport, and
+WebRTC sockets all use the resolved interface. Keep the controller reachable
+through the selected LAN. [Isolation test](../tests/matter/README.md#lan-interface-isolation).
 Enroll separate `camera_source` and `detections` credentials for the selected
 camera. The bridge resolves the RTSP path from the strict gateway catalogue
 on each reconnect. The detector subscription verifies the authorized site.

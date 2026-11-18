@@ -26,6 +26,7 @@ pub struct Deployment {
     pub factory_data: PathBuf,
     pub state_directory: PathBuf,
     pub ice_address: Ipv4Addr,
+    pub lan_interface: Option<String>,
     pub snapshot_ffmpeg: Option<PathBuf>,
 }
 
@@ -57,6 +58,10 @@ impl Deployment {
             || config.ice_address.is_unspecified()
             || config.ice_address.is_multicast()
             || config.ice_address.is_broadcast()
+            || config
+                .lan_interface
+                .as_ref()
+                .is_some_and(|name| name.is_empty() || name.contains('\0'))
             || [
                 &config.factory_data,
                 &config.state_directory,

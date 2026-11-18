@@ -1759,5 +1759,122 @@
       "macos_hal_boundary_tests": 29
     },
     "scope": "Discovery, configured ICE route, occupancy and independent media access, JPEG, retirement and persistence on the isolated Linux guest. The cross-platform shutdown regression verifies cancellation and controller stream release before exit, plus playback after restart with the same enrollment. Multi-interface scoping, physical traffic, iPhone presentation and soak require separate qualification."
+  },
+  "lan_interface": {
+    "fixture": "lan-interface",
+    "base_nxrs_revision": "5edf37d06f0806d0ca6b3b282663e4806e94f82d",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/Cargo.lock": "89c22bd3bfcf409ba7bae641f9712e8f1030b015cf3072b481c4f539a9f60eb2",
+      "gateway/matter/Cargo.toml": "65f07df26f900b511b707fb6bf7685b53629de3c8479e0ab2a8ee3a7385f94d1",
+      "gateway/matter/src/platform/lan.rs": "d1cb2e16bea598872b6badbfbe322e460a35bfad434d4665344f84c6e429e11e",
+      "gateway/matter/src/config.rs": "0a6068563ad1ea72be4d9b3dab61592ae977d67772230272ec9dc0ec3bfbec54",
+      "gateway/tests/matter/Cargo.lock": "0d0e89ce374495d3d1513238ea836aa71ffb295f9fe84d476da8fe8811a9b03c",
+      "gateway/tests/matter/astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b",
+      "gateway/tests/matter/lan-interface.patch": "76604ff02c29aa6b80b1758179bd2c9ea288bdd125402da74cdbbf443e865b98",
+      "gateway/tests/matter/versions.json": "5564f326dccba431327b2a48f59ba49f970cf7b8685a52903dfd44bc43fa65c2",
+      "gateway/tests/matter_lan_reference.py": "aaa11154f05b66d3143813134a306cf123e563867ffb7f7399302190d2d538b9",
+      "gateway/tests/matter_catalogue_reference.py": "f1ee6f16cabd71271a7e39abfc51d8d49461c2973f728fa03d0d995584d2bc66",
+      "tools/prepare-matter-fixture.py": "bff40194929395d9ea6d0caee382c0242cdeec9ee0b2d9ce37f809a3088bf9dd"
+    },
+    "linux_device_binary_sha256": "009bdad2922fdcea5a63c67f396aee05ebef1907333aed65804a7963b7f8127c",
+    "linux": "Debian 13.7 ARM64, Linux 6.12.117, native Avahi 0.8-16. Distinct peers on two veth IPv4 and IPv6 networks.",
+    "unscoped_linux_baseline": {
+      "result_json_sha256": "1fd28f2fbbeb528cda87da190d9b52c3d4e5ec807bf6db4525482071d8137a25",
+      "selected": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "ipv6_dns_sd": true
+      },
+      "excluded": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "cross_link_tcp4": true,
+        "cross_link_udp4": true,
+        "cross_link_tcp6": true,
+        "cross_link_udp6": true,
+        "ipv6_dns_sd": true
+      }
+    },
+    "scoped_linux": {
+      "result_json_sha256": "aaf930a927b77858f39032b95efba7d35cd7ac76a5e774f0092f60111074e805",
+      "selected": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "ipv6_dns_sd": true
+      },
+      "excluded": {
+        "tcp4": false,
+        "udp4": false,
+        "tcp6": false,
+        "udp6": false,
+        "cross_link_tcp4": false,
+        "cross_link_udp4": false,
+        "cross_link_tcp6": false,
+        "cross_link_udp6": false,
+        "ipv6_dns_sd": false
+      },
+      "rejected_wrong_interface": true,
+      "playback": {
+        "frames": 45,
+        "snapshot_bytes": 17484,
+        "matter_ipv6_tcp": true
+      },
+      "operational_selected": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "ipv6_dns_sd": true
+      },
+      "operational_excluded": {
+        "tcp4": false,
+        "udp4": false,
+        "tcp6": false,
+        "udp6": false,
+        "cross_link_tcp4": false,
+        "cross_link_udp4": false,
+        "cross_link_tcp6": false,
+        "cross_link_udp6": false,
+        "ipv6_dns_sd": false
+      },
+      "inferred_interface_after_restart": {
+        "frames": 45,
+        "snapshot_bytes": 17986,
+        "matter_ipv6_tcp": true
+      }
+    },
+    "scoped_macos_catalogue": {
+      "result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+      "original_frames": 45,
+      "remapped_frames": 45,
+      "restarted_frames": 45,
+      "frames_match_selected_dimensions": true,
+      "selected_ice_address_verified": true,
+      "retained_endpoint_ids": true,
+      "rejected_site_and_camera_changes": true,
+      "old_mapping_rtsp_status": 401,
+      "selected_camera_occupancy": [
+        "unavailable",
+        "person",
+        "clear"
+      ],
+      "media_revocation_end_reason": 5,
+      "publisher_and_independent_reader_survived": true,
+      "occupancy_observed_after_media_revocation": true
+    },
+    "regressions": {
+      "macos_gateway_tests": 76,
+      "macos_sdk_camera_tests": 3,
+      "macos_architecture_tests": 37,
+      "macos_hal_boundary_tests": 29
+    },
+    "scope": "Linux commissioning and operational IPv6 multicast on one selected link, IPv4 and IPv6 Matter TCP and UDP isolation including cross-link traffic to selected addresses, actual IPv6 Matter JPEG and IPv4 WebRTC, and same-enrollment restart with interface inference. macOS qualified the scoped build on its selected interface through discovery, decoded video, remapping and persistence. The Linux witness does not substitute for macOS two-link, physical iPhone, or wide-area tests."
   }
 }

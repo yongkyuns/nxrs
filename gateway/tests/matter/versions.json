@@ -20,8 +20,12 @@
     "source_revision": "5d23b8fe2f1884b1f49529c7c6024294e6412193",
     "patch": "str0m-rejected-media.patch"
   },
+  "astro_dnssd": {
+    "version": "0.3.10",
+    "archive_sha256": "661c82dba25552a2d5c0d0783d6161dfbe8c875fc734a7171bbef3882dbb7acc"
+  },
   "sha256": {
-    "Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+    "Cargo.lock": "0d0e89ce374495d3d1513238ea836aa71ffb295f9fe84d476da8fe8811a9b03c",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
@@ -42,7 +46,9 @@
     "shutdown.patch": "63a62d901f5e637cf097f00a0e68c775824f1f46cf5e96d4a08246741844caf6",
     "final-fabric.patch": "8929823be0fa777cb7d2f7da048b4f517173b66b24225ab14e0a8aa9f2ee3234",
     "commissioning-recovery.patch": "87b12231653b1cb97f9a7441565bac2f6f9b3a07cd3d5806d9f701d32745b2f8",
-    "shutdown-drain.patch": "4733b5f32d6ebb5cf1230bbee2a77f4ff1054e8de57aae77e3fabec945f9e962"
+    "shutdown-drain.patch": "4733b5f32d6ebb5cf1230bbee2a77f4ff1054e8de57aae77e3fabec945f9e962",
+    "lan-interface.patch": "76604ff02c29aa6b80b1758179bd2c9ea288bdd125402da74cdbbf443e865b98",
+    "astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b"
   },
   "home_assistant": {
     "version": "2026.11.2",

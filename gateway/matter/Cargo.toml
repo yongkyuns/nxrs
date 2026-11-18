@@ -24,6 +24,8 @@ tokio = { version = "=1.51.6", features = ["io-util", "macros", "net", "process"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = "=0.2.191"
+if-addrs = "=0.15.0"
+socket2 = { version = "=0.6.5", features = ["all"] }
 
 [dev-dependencies]
 tokio = { version = "=1.51.6", features = ["rt", "io-util", "test-util"] }

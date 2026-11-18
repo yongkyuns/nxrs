@@ -146,6 +146,25 @@ the standard Matter port during their own run. The Linux removal trial uses
 the normal command path. The debugger interruption trials use macOS.
 [Linux evidence](evidence.json).
 
+## LAN interface isolation
+
+Prepare the SDK with `--variant lan-interface` and provide the published
+`astro-dnssd-0.3.10.crate` as `--dnssd-archive`. The preparer verifies its
+checksum and applies an interface option to native DNS-SD browse. Build
+with `--features webrtc,astro-dnssd` and the same native packages above.
+
+Run `gateway/tests/matter_lan_reference.py` with the
+[snapshot test](#matter-jpeg-snapshots) arguments except `--interface` and
+`--ip`. Run it in a disposable Linux guest with Avahi and sudo access. It
+creates two private veth networks and removes them on exit. It checks
+IPv6 multicast discovery and TCP/UDP on both networks, including attempts
+to reach the selected addresses through the excluded network. The selected
+peer commissions over IPv6, decodes H.264 and reads a JPEG over IPv6 TCP.
+A restart without an explicit interface field exercises inference from
+`ice_address` with the original enrollment. To reproduce the older
+behavior, use the `shutdown-drain` binary and `--expect-unscoped`.
+[Results](evidence.json).
+
 ## Automated persistence qualification
 
 With those manual fixture processes stopped, this command owns fresh isolated
