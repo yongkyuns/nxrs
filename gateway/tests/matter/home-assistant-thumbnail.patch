@@ -1,0 +1,14 @@
+--- a/homeassistant/components/matter/camera.py
++++ b/homeassistant/components/matter/camera.py
+@@ -275,9 +275,9 @@
+     ) -> bytes | None:
+         """Return a snapshot from the camera."""
+         resolution: CameraResolutionTarget = {}
+-        if width is not None:
++        if width:
+             resolution["width"] = width
+-        if height is not None:
++        if height:
+             resolution["height"] = height
+         try:
+             result = await self.matter_client.camera_snapshot(

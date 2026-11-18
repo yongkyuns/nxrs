@@ -279,6 +279,18 @@ report zero for media time. Repeat to exercise session reuse. The combined
 ingest witness also checks release of the Matter session. The physical release
 trial measures rendering on the iPhone.
 
+For thumbnail qualification on Home Assistant 2026.11.2, the frontend's
+width-only request sends a zero height. The Matter Server API requires every
+supplied dimension to be positive. Apply [the thumbnail patch](home-assistant-thumbnail.patch)
+to a private copy of the installed `homeassistant/` source tree and run the
+fixture with that copy first on `PYTHONPATH`. The patch omits zero dimensions
+when Home Assistant constructs the Matter snapshot request.
+[Matter Server snapshot API](https://github.com/matter-js/matterjs-server/blob/fc8aa79611aebbe3090a30813e7211f707b2131f/docs/websockets_api.md#camera_snapshot).
+
+Add `--check-thumbnail` to either browser test. It sends the frontend's
+`width=1024&height=0` request through the Home Assistant camera proxy and
+requires HTTP 200 with a decodable JPEG while the live view is open.
+
 ## Bridge and occupancy automation
 
 Prepare a fresh SDK checkout with `--variant bridge`, then rebuild the same

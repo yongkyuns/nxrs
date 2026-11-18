@@ -295,13 +295,15 @@ async def run(args, root):
                 browser = None
                 if args.browser_python:
                     browser_output = root / 'home-assistant-browser.json'
+                    browser_command = [
+                        args.browser_python, Path(__file__).with_name('matter_browser_reference.py'),
+                        '--entity', args.camera_entity, '--storage-state', args.storage_state,
+                        '--browser-engine', args.browser_engine, '--output', browser_output,
+                    ]
+                    if args.check_thumbnail:
+                        browser_command.append('--check-thumbnail')
                     await asyncio.to_thread(
-                        subprocess.run,
-                        [args.browser_python, Path(__file__).with_name('matter_browser_reference.py'),
-                         '--entity', args.camera_entity, '--storage-state', args.storage_state,
-                         '--browser-engine', args.browser_engine,
-                         '--output', browser_output],
-                        stdout=subprocess.DEVNULL, check=True, timeout=95,
+                        subprocess.run, browser_command, stdout=subprocess.DEVNULL, check=True, timeout=95,
                     )
                     assert commands.empty(), 'opening the Home Assistant dialog started microphone capture'
                     assert await attribute(admin, node, muted_attribute) is True
@@ -405,12 +407,15 @@ if __name__ == '__main__':
     p.add_argument('--runtime', type=Path)
     p.add_argument('--browser-python', type=Path, help='the isolated Home Assistant browser Python')
     p.add_argument('--browser-engine', choices=('chrome', 'webkit'), default='chrome')
+    p.add_argument('--check-thumbnail', action='store_true', help='verify the Home Assistant JPEG thumbnail')
     p.add_argument('--storage-state', type=Path, help='the isolated Home Assistant browser storage state')
     p.add_argument('--camera-entity', help='camera discovered by isolated Home Assistant on the fixture controller')
     args = p.parse_args()
     browser_inputs = args.browser_python, args.storage_state, args.camera_entity
     if any(browser_inputs) and not all(browser_inputs):
         p.error('set all three Home Assistant browser arguments together')
+    if args.check_thumbnail and not args.browser_python:
+        p.error('--check-thumbnail requires the Home Assistant browser arguments')
     if args.runtime:
         root = args.runtime.resolve()
         root.mkdir(mode=0o700)

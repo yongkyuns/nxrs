@@ -173,6 +173,27 @@ def run(args):
             assert result["peers"][0]["state"] == "connected"
             assert result["peers"][0]["codec"] == "video/H264"
             assert result["peers"][0]["decoded_frames"] >= result["presented_frames"]
+            if args.check_thumbnail:
+                result["thumbnail"] = page.evaluate("""async entity => {
+                    const picture = document.querySelector('home-assistant')
+                        .hass.states[entity].attributes.entity_picture;
+                    const url = new URL(picture, location.origin);
+                    if (url.origin !== location.origin || url.pathname !== '/api/camera_proxy/' + entity) {
+                        throw new Error('Unexpected fixture thumbnail endpoint');
+                    }
+                    url.searchParams.set('width', '1024');
+                    url.searchParams.set('height', '0');
+                    const response = await fetch(url, {cache: 'no-store'});
+                    if (!response.ok) return {status: response.status};
+                    const image = await response.blob();
+                    if (image.type !== 'image/jpeg') throw new Error('Expected a JPEG thumbnail');
+                    const bitmap = await createImageBitmap(image);
+                    const report = {status: response.status, dimensions: [bitmap.width, bitmap.height]};
+                    bitmap.close();
+                    return report;
+                }""", args.entity)
+                assert result["thumbnail"]["status"] == 200, "Home Assistant thumbnail HTTP status"
+                assert all(result["thumbnail"]["dimensions"]), "empty Home Assistant thumbnail"
             if args.audio_cue:
                 # Unlock Web Audio with a user gesture. Read only the incoming track.
                 page.keyboard.press("Shift")
@@ -202,6 +223,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://127.0.0.1:18123")
     parser.add_argument("--browser-engine", choices=("chrome", "webkit"), default="chrome")
+    parser.add_argument("--check-thumbnail", action="store_true",
+                        help="decode a JPEG from the width-only frontend thumbnail request")
     parser.add_argument("--entity", required=True)
     parser.add_argument("--storage-state", type=Path, required=True)
     parser.add_argument("--screenshot", type=Path)

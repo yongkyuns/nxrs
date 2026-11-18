@@ -3153,5 +3153,91 @@
       "preview_resolution_errors": 1
     },
     "scope": "The stock Home Assistant dialog presented generated H.264 while capture stayed muted in both macOS browsers. WebKit's callback media time did not advance, so its witness requires advancing RTP and compositor metadata and changing pixels. Both browsers completed live playback despite a preview request rejected by the Matter controller's resolution check. Physical microphone and iPhone playback and snapshots remain open."
+  },
+  "home_assistant_thumbnail_qualification": {
+    "nxrs_build_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "matter_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "home_assistant": "2026.11.2",
+    "matter_server": "1.6.0",
+    "home_assistant_patch_sha256": "0b77e009da4affa535f3571b25c7881fc17c55a5b81ff3841ffac7f6f1494e0c",
+    "browser_request_width": 1024,
+    "stock_matter_resolution": {
+      "width": 1024,
+      "height": 0
+    },
+    "patched_matter_resolution": {
+      "width": 1024
+    },
+    "camera_proxy_requests": [
+      {
+        "request": [],
+        "stock_status": 200,
+        "patched_status": 200,
+        "decoded_jpeg": [
+          640,
+          360
+        ]
+      },
+      {
+        "request": [
+          1024,
+          0
+        ],
+        "stock_status": 500,
+        "patched_status": 200,
+        "decoded_jpeg": [
+          640,
+          360
+        ]
+      },
+      {
+        "request": [
+          320,
+          180
+        ],
+        "stock_status": 200,
+        "patched_status": 200,
+        "decoded_jpeg": [
+          320,
+          180
+        ]
+      },
+      {
+        "request": [
+          320,
+          -1
+        ],
+        "stock_status": 500,
+        "patched_status": 500,
+        "decoded_jpeg": null
+      }
+    ],
+    "browser_regressions": {
+      "chrome": {
+        "version": "157.0.8103.80",
+        "presented_frames": 60,
+        "presented_fps": 16.7,
+        "thumbnail": {
+          "status": 200,
+          "dimensions": [
+            640,
+            360
+          ]
+        }
+      },
+      "webkit": {
+        "version": "27.2",
+        "presented_frames": 60,
+        "presented_fps": 16.7,
+        "thumbnail": {
+          "status": 200,
+          "dimensions": [
+            640,
+            360
+          ]
+        }
+      }
+    },
+    "scope": "The private Home Assistant copy omitted zero dimensions and the unmodified Matter Server returned a valid JPEG. Requests with unspecified or explicit positive dimensions passed on stock and patched Home Assistant. A negative dimension remained invalid. Both browser regressions verified live generated H.264 while camera capture stayed muted and the Matter session closed. The stock Home Assistant fix and physical iPhone acceptance remain open."
   }
 }
