@@ -466,6 +466,8 @@ Prepare the pinned SDK with `--variant stream-continuity`. Run
 `gateway/tests/matter_snapshot_reference.py` with the
 [commissioning test](#operator-initiated-commissioning) arguments plus an
 absolute `--ffmpeg` path and a fresh runtime directory.
+For the packaged bridge, pass the pinned checkout as `--sdk` to provision
+the test attestation bundle and bind to the selected LAN interface.
 
 Two independently commissioned fabrics request the same JPEG stream. The
 first capture holds the encoder while the second fabric receives Matter

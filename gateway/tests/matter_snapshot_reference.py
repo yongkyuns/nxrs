@@ -14,6 +14,7 @@ import sys
 
 import av
 
+from matter_attestation_reference import public_test_bundle
 from matter_commissioning_reference import provision
 from matter_fabric_reference import Frames, attribute, controller
 from matter_gateway_reference import start
@@ -100,24 +101,26 @@ async def run(args):
         ffmpeg = args.ffmpeg.resolve(strict=True)
         encoder, delay_encoder, pid_file = encoder_probe(root, ffmpeg)
         config = root / "matter.json"
-        private_file(
-            config,
-            json.dumps(
-                dict(
-                    version=1,
-                    site_id="lab",
-                    camera_id="cam",
-                    ice_address=args.ip,
-                    control=f"127.0.0.1:{gateway.control}",
-                    rtsp=f"127.0.0.1:{rtsp}",
-                    media_token_file=str(gateway.credentials["reader"]),
-                    detection_token_file=str(gateway.credentials["independent"]),
-                    factory_data=str(factory),
-                    state_directory=str(root / "state"),
-                    snapshot_ffmpeg=str(encoder),
-                )
-            ),
+        settings = dict(
+            version=1,
+            site_id="lab",
+            camera_id="cam",
+            ice_address=args.ip,
+            control=f"127.0.0.1:{gateway.control}",
+            rtsp=f"127.0.0.1:{rtsp}",
+            media_token_file=str(gateway.credentials["reader"]),
+            detection_token_file=str(gateway.credentials["independent"]),
+            factory_data=str(factory),
+            state_directory=str(root / "state"),
+            snapshot_ffmpeg=str(encoder),
         )
+        attestation_flags = []
+        if args.sdk is not None:
+            bundle = root / "attestation"
+            public_test_bundle(args.sdk, bundle)
+            settings.update(attestation_directory=str(bundle), host_power_source="dc", lan_interface=args.interface)
+            attestation_flags = ["--allow-test-attestation"]
+        private_file(config, json.dumps(settings))
         device = start(
             fixtures,
             root,
@@ -128,6 +131,7 @@ async def run(args):
                 config,
                 "--initialize-state",
                 "--open-commissioning-window",
+                *attestation_flags,
             ],
             dict(os.environ, RUST_LOG="error", TMPDIR=str(root)),
         )
@@ -301,6 +305,7 @@ if __name__ == "__main__":
     for name in ("runtime", "device", "controller", "gateway", "publisher", "mediamtx"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--ffmpeg", required=True, type=Path)
+    parser.add_argument("--sdk", type=Path, help="pinned SDK checkout for the provisioned attestation variant")
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
     args = parser.parse_args()
