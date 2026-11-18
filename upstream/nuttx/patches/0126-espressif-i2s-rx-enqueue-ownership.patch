@@ -1,0 +1,72 @@
+--- a/arch/xtensa/src/common/espressif/esp_i2s.c
++++ b/arch/xtensa/src/common/espressif/esp_i2s.c
+@@ -1228,7 +1228,7 @@
+       i2serr("Failed to enqueue I2S buffer "
+              "(%" PRIu32 " bytes of %" PRIu32 ")\n",
+              bytes_queued, bfcontainer->nbytes);
+-      return -bytes_queued;
++      return -EIO;
+     }
+ 
+   /* Writeback DMA descriptors from data cache to physical memory.
+@@ -3077,10 +3077,12 @@
+               (unsigned long)apb->nmaxbytes,
+               priv->channels, priv->data_width,
+               (unsigned long)frame_size, (unsigned long)nbytes);
+-      if (frame_size > 0)
+-        {
+-          nbytes -= (nbytes % frame_size);
+-        }
++      if (frame_size == 0 || nbytes < frame_size)
++        {
++          return -EINVAL;
++        }
++
++      nbytes -= (nbytes % frame_size);
+ 
+       i2sinfo("i2s_receive: aligned nbytes=%lu\n",
+               (unsigned long)nbytes);
+@@ -3116,18 +3118,17 @@
+       bfcontainer->result   = -EBUSY;
+ 
+       ret = i2s_rxdma_setup(priv, bfcontainer);
+-
+-      if (ret != OK)
+-        {
++      nxmutex_unlock(&priv->lock);
++
++      if (ret < 0)
++        {
++          apb_free(apb);
+           goto errout_with_buf;
+         }
+ 
+-      nxmutex_unlock(&priv->lock);
+-
+       return OK;
+ 
+ errout_with_buf:
+-      nxmutex_unlock(&priv->lock);
+       i2s_buf_free(priv, bfcontainer);
+       return ret;
+     }
+--- a/arch/xtensa/src/esp32s3/esp32s3_dma.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_dma.c
+@@ -245,7 +245,7 @@
+ uint32_t esp32s3_dma_setup(struct esp32s3_dmadesc_s *dmadesc, uint32_t num,
+                            uint8_t *pbuf, uint32_t len, bool tx, int chan)
+ {
+-  int i;
++  uint32_t i;
+   uint32_t regval;
+   uint32_t bytes = len;
+   uint8_t *pdata = pbuf;
+@@ -321,7 +321,7 @@
+       dmadesc[i].next = &dmadesc[i + 1];
+ 
+       bytes -= data_len;
+-      if (bytes == 0)
++      if (bytes == 0 || i + 1 == num)
+         {
+           break;
+         }

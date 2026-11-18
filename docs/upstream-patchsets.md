@@ -38,6 +38,7 @@ and retired investigation tools are not silently renumbered.
 | ESP32-S3 IRAM product layout | 0107 | Include an empty-by-default product linker fragment; the build frontend stages and hashes a profile-selected synchronization layout |
 | ESP32-S3 SIMPLE_BOOT image parsing | 0108 | Skip a declared ROM prefix digest before parsing flash-mapped segments |
 | Signed ESP32-S3 SMP | 0115–0118 | Acknowledge peer flash-cache restoration, serialize station reconnect and stop, backport the heap mutex fix and select PSRAM-safe atomics |
+| Espressif I²S receive and GDMA | 0126 | Roll back failed receive submissions and terminate a short ESP32-S3 descriptor list within its capacity |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps

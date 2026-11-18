@@ -2511,5 +2511,14 @@
     "selected_camera_network_and_memory_settings_match_baseline": true,
     "added_kernel_worker": {"workers": 1, "priority": 224, "stack_bytes": 2048},
     "scope": "Configuration and pinout review only. Target link, PCB revision, physical clocks, capture, DMA lifetime, mute, and iPhone audio remain open."
+  },
+  "microphone_rx_submission": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "patch": "0126-espressif-i2s-rx-enqueue-ownership.patch",
+    "patched_cases_passed": 9,
+    "defects_reproduced_on_original": 6,
+    "valid_controls_passed_on_both": 3,
+    "ordered_sdk_patch_tests_passed": 52,
+    "scope": "Pinned C source executed on the host with injected mutex, DMA and register outcomes. Active stop and immediate reopen still require a DMA and callback barrier. Target linking and physical capture remain open."
   }
 }

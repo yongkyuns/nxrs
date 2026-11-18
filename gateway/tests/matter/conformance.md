@@ -109,6 +109,13 @@ The I²S selection adds one NuttX high-priority worker with a 2 KiB stack.
 The candidate still needs a target build, a logic-analyzer trace and device
 capture tests. [Configuration evidence](evidence.json).
 
+Patch 0126 rejects incomplete receive frames and descriptor setup failures
+before DMA submission. Failed submission releases any retained audio-buffer
+reference and returns the container to its pool. The ESP32-S3 descriptor
+builder terminates exhausted lists at the last available entry and returns
+the short byte count. The host witness compiles the pinned source and
+covers failure followed by successful retry. [Source regression](../../../tests/host/test_esp_i2s_rx_enqueue.py).
+
 Two existing interfaces determine the work between capture and playback.
 
 - Current camera ingest sends H.264. The publisher's raw Annex-B mode timestamps
@@ -140,11 +147,12 @@ during stop. The generic audio I²S callback passes `OK` upward on dequeue.
 Mark the retiring capture before stop, discard its completions and account
 for every buffer before reuse. The normal RX completion releases the
 driver's audio-buffer reference. The active and pending stop drains clear
-the container without that release. Exercise a full buffer pool through
-stop and reopen, and verify both the references and DMA retirement. The
-upper half already has a separate `AUDIO_MSG_IOERR` event for faults.
-Inject an RX failure separately and verify it
-becomes an observable discontinuity or terminal fault. If the native interface
+the container without that release. Returning active buffers requires
+confirmation that GDMA is idle and that no worker or interrupt can
+rearm the retired transfer. Exercise a full buffer pool through stop and
+reopen. The upper half already has a separate `AUDIO_MSG_IOERR` event for faults.
+Inject an RX failure and verify it becomes an observable discontinuity or
+terminal fault. If the native interface
 cannot distinguish the error, correct that boundary before admitting the
 hardware profile. Verify mute and revocation with a known acoustic cue so a
 listener cannot hear queued samples from an earlier capture. [ESP32-S3 I²S stop](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/common/espressif/esp_i2s.c#L3184-L3241) · [I²S audio operations and callback](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/drivers/audio/audio_i2s.c) · [Audio upper half](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/audio/audio.c#L287-L305).
