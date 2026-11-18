@@ -37,12 +37,16 @@ Endpoint assignments and unique IDs persist across catalogue reordering and
 path changes. A deployment selecting a different site or camera needs its own
 state and enrollment. [Configured bridge test](../tests/matter/README.md#configured-camera-and-durable-endpoints).
 
-The `snapshots` variant also needs an absolute `snapshot_ffmpeg` path in
+The `snapshots` and `shutdown` variants also need an absolute `snapshot_ffmpeg` path in
 that JSON. It captures JPEGs from the same authorized H.264 reader used for
 live playback. The gateway allows one capture at a time with a one-second
 interval between captures. It limits JPEG output to 48 KiB, checks live privacy
 and publication identity through delivery, and reaps the encoder before
 releasing the capture slot. [Snapshot test](../tests/matter/README.md#matter-jpeg-snapshots).
+
+The `shutdown` variant bounds pending offers, ICE and outbound signaling.
+SIGTERM and SIGINT drop the node's transport and media futures and join the
+snapshot worker before exit. [Lifecycle test](../tests/matter/README.md#negotiation-deadlines-and-graceful-shutdown).
 
 ## Gateway services
 

@@ -1399,5 +1399,67 @@
       "linux_x86_64_cargo_check": true
     },
     "scope": "JPEG allocation, scaling, capture, reuse, immediate rate-limit rejection, unavailable and private admission, and encoder reaping before an in-flight source-loss rejection. Concurrent Matter command responsiveness, production conformance, privacy changes made during encoding through an independent access path, and physical capture remain open."
+  },
+  "graceful_shutdown": {
+    "fixture": "shutdown",
+    "host": "macOS arm64, two isolated Matter Server fabrics, generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "ffmpeg_version": "9.0.2",
+    "sha256": {
+      "gateway/tests/matter/shutdown.patch": "63a62d901f5e637cf097f00a0e68c775824f1f46cf5e96d4a08246741844caf6",
+      "gateway/tests/matter/versions.json": "e5992eb1087a3d766d393317c69b4fa04a6bd0c70e53cac22025792609e738b1",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "tools/prepare-matter-fixture.py": "436a6bacd830df9395814e25cc6333e566437efed3fa744a5c841da62121dbf4",
+      "gateway/tests/matter_shutdown_reference.py": "91db0949ee77a8fcd480dd4e34e6a92d7bec6c4d35adbbf44c26c093a2c518e9",
+      "gateway/tests/matter_fabric_reference.py": "1e632d76f0653a16d7994edbdc6440760c19cb2befa3a511fbcaf15174366c1a"
+    },
+    "clean_runs": 2,
+    "per_run": [
+      {
+        "result_json_sha256": "7795646b06615501a4edc91bff17a72c93a1fb05166cd2eba7053bd91d703506",
+        "baseline_frames": 30,
+        "timed_out_peers": 2,
+        "timeout_seconds": 20.058,
+        "offline_fabric_rows_released_seconds": 23.115,
+        "outbound_delivery_timeouts": 2,
+        "negotiation_sockets_and_refs_released": true,
+        "live_frames": 45,
+        "live_frames_after_peer_timeouts": 15,
+        "matter_read_during_delayed_snapshot": true,
+        "graceful_exit_seconds": 0.002,
+        "active_and_pending_sockets_closed": true,
+        "running_snapshot_encoder_reaped": true,
+        "same_publisher": true,
+        "enrollment_preserved": true,
+        "frames_after_restart": 45
+      },
+      {
+        "result_json_sha256": "3fd4448d41062498acc8d656cf44cef62556ee7a1d693f13795ed38f19394899",
+        "baseline_frames": 30,
+        "timed_out_peers": 2,
+        "timeout_seconds": 20.043,
+        "offline_fabric_rows_released_seconds": 23.113,
+        "outbound_delivery_timeouts": 2,
+        "negotiation_sockets_and_refs_released": true,
+        "live_frames": 45,
+        "live_frames_after_peer_timeouts": 15,
+        "matter_read_during_delayed_snapshot": true,
+        "graceful_exit_seconds": 0.005,
+        "active_and_pending_sockets_closed": true,
+        "running_snapshot_encoder_reaped": true,
+        "same_publisher": true,
+        "enrollment_preserved": true,
+        "frames_after_restart": 45
+      }
+    ],
+    "snapshot_regression_result_json_sha256": "3a1aaf1aea2b76e710f6bd0eec3c209951dcaf46827f59dd96875f79bf93357c",
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Separate unanswered SDP and incomplete ICE, two failed outbound deliveries while their controller is suspended, retirement and continuing decoded video on another fabric. Joined SIGTERM with an established peer, a pending peer and a blocked JPEG encoder, followed by playback on the same publication and preserved enrollment. A separate Matter read completes during capture. Final-fabric cleanup, physical audio/video, production wide-area timing and soak remain open."
   }
 }

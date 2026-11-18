@@ -357,6 +357,26 @@ has exited before a source-loss error returns to the controller.
 to 48 KiB within the pinned SDK's 64 KiB interaction buffer.
 [Pinned cluster model](https://raw.githubusercontent.com/project-chip/connectedhomeip/v1.5.1.0/src/app/zap-templates/zcl/data-model/chip/camera-av-stream-management-cluster.xml) · [Results](evidence.json).
 
+## Negotiation deadlines and graceful shutdown
+
+Prepare the pinned SDK with `--variant shutdown`. Run
+`gateway/tests/matter_shutdown_reference.py` with the
+[snapshot test](#matter-jpeg-snapshots) arguments and a fresh runtime.
+
+The bridge gives peers 20 seconds to establish ICE and DTLS, including time
+spent waiting for an answer. A single outbound Matter exchange can occupy the
+signaling loop for three seconds. Local peer teardown joins before attempting
+an outbound End notification.
+
+The test opens an unanswered offer and a separate peer that never supplies ICE,
+then pauses their disposable controller. Both peers release their UDP ports and
+stream references while the other fabric keeps decoding. The paused controller
+cannot acknowledge either End notification. During shutdown, the process has a decoding peer, a
+pending offer and an active JPEG encoder. A separate Matter read completes while
+the capture is pending. SIGTERM then closes the peers and reaps the encoder.
+The same publisher and enrolled controller resume playback after restart.
+[Results](evidence.json).
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with

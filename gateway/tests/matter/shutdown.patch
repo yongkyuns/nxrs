@@ -1,0 +1,365 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -33,11 +33,12 @@
+ use nxrs_gateway_matter::media::{AccessUnit, Audio, AudioPacket, Pictures, Video};
+ use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+ use std::rc::Rc;
+-use std::time::Instant;
++use std::time::{Duration, Instant};
+
+ use async_channel::{Receiver, Sender};
+ use futures_util::stream::{FuturesUnordered, StreamExt};
+-use async_io::Async;
++use async_io::{Async, Timer};
++use async_signal::{Signal, Signals};
+
+ use log::{info, warn};
+
+@@ -132,6 +133,7 @@
+ // ---------------------------------------------------------------------------
+
+ const N_SESSIONS: usize = 4;
++const NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(20);
+ const SDP_LEN: usize = 8 * 1024;
+ // Must be large enough to hold an outbound `Answer(sdp)` invoke payload,
+ // i.e. the full SDP plus TLV framing overhead.
+@@ -298,6 +300,7 @@
+ /// A new session handed from `on_offer` over to the driver task.
+ struct NewSession {
+     id: u16,
++    negotiate_by: Instant,
+     local_video_mid: Option<Mid>,
+     local_audio_mid: Option<Mid>,
+     sound: Option<Audio>,
+@@ -368,6 +371,8 @@
+     new_session_rx: Receiver<NewSession>,
+     signal_tx: Sender<()>,
+     signal_rx: Receiver<()>,
++    pending_tx: Sender<()>,
++    pending_rx: Receiver<()>,
+     video: Video,
+ }
+
+@@ -375,6 +380,7 @@
+     fn new(ice_address: Ipv4Addr, video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
+         let (new_session_tx, new_session_rx) = async_channel::bounded(N_SESSIONS);
+         let (signal_tx, signal_rx) = async_channel::bounded(1);
++        let (pending_tx, pending_rx) = async_channel::bounded(1);
+         Self {
+             ice_address,
+             inner: RefCell::new(Str0mInner {
+@@ -385,6 +391,8 @@
+             new_session_rx,
+             signal_tx,
+             signal_rx,
++            pending_tx,
++            pending_rx,
+             video,
+         }
+     }
+@@ -469,19 +477,21 @@
+                 }
+             }
+         };
+-        let retire_pending = async || {
+-            for (_, ctrl) in &self.inner.borrow().sessions.entries {
+-                let mut pending = ctrl.pending_offer.borrow_mut();
+-                let Some((_, peer)) = pending.as_ref() else { continue };
+-                let reason = if peer.refs.view.retired() {
+-                    WebRTCEndReasonEnum::PrivacyMode
+-                } else if peer.pictures.retired() {
+-                    WebRTCEndReasonEnum::NoUserMedia
+-                } else {
+-                    continue;
++        let retire_pending = async || { self.retire_pending(); };
++        let deadlines = async {
++            loop {
++                let next = self.retire_pending();
++                let deadline = async {
++                    if let Some(at) = next {
++                        Timer::at(at).await;
++                    } else {
++                        std::future::pending::<()>().await;
++                    }
+                 };
+-                pending.take();
+-                self.end(ctrl, reason);
++                tokio::select! {
++                    _ = deadline => {},
++                    _ = self.pending_rx.recv() => {},
++                }
+             }
+         };
+         let changes = async {
+@@ -491,7 +501,29 @@
+             ).await;
+             Ok(())
+         };
+-        futures_lite::future::or(jobs, changes).await
++        futures_lite::future::or(jobs, futures_lite::future::or(changes, deadlines)).await
++    }
++
++    fn retire_pending(&self) -> Option<Instant> {
++        let now = Instant::now();
++        let mut next = None;
++        for (_, ctrl) in &self.inner.borrow().sessions.entries {
++            let mut pending = ctrl.pending_offer.borrow_mut();
++            let Some((_, peer)) = pending.as_ref() else { continue };
++            let reason = if peer.refs.view.retired() {
++                WebRTCEndReasonEnum::PrivacyMode
++            } else if peer.pictures.retired() {
++                WebRTCEndReasonEnum::NoUserMedia
++            } else if now >= peer.negotiate_by {
++                WebRTCEndReasonEnum::ICEFailed
++            } else {
++                next = Some(next.map_or(peer.negotiate_by, |at: Instant| at.min(peer.negotiate_by)));
++                continue;
++            };
++            pending.take();
++            self.end(ctrl, reason);
++        }
++        next
+     }
+ }
+
+@@ -557,7 +589,7 @@
+ /// via `EndSession`, or a fatal I/O / str0m error occurs.
+ async fn session_loop(session: NewSession) -> (u16, WebRTCEndReasonEnum, Sender<()>) {
+     let NewSession {
+-        id,
++        id, negotiate_by,
+         local_video_mid, local_audio_mid, mut sound, mut refs,
+         mut rtc,
+         socket,
+@@ -592,6 +624,9 @@
+     });
+     let mut connected = false;
+     'outer: loop {
++        if !connected && Instant::now() >= negotiate_by {
++            break;
++        }
+         if refs.revoked.get() || pictures.retired() {
+             end_reason = WebRTCEndReasonEnum::NoUserMedia;
+             break;
+@@ -652,6 +687,7 @@
+                         break 'outer;
+                     }
+                     _ = refs.view.changed() => continue,
++                    _ = Timer::at(negotiate_by), if !connected => break 'outer,
+                     result = socket.send_to(&t.contents, t.destination) => result,
+                 };
+                 if let Err(e) = sent {
+@@ -661,7 +697,7 @@
+             }
+             Output::Timeout(at) => {
+                 let now = Instant::now();
+-                let deadline = at;
++                let deadline = if connected { at } else { at.min(negotiate_by) };
+                 if deadline <= now {
+                     // If the str0m deadline is past, feed it a Timeout.
+                     if at <= now {
+@@ -719,10 +755,8 @@
+                         break 'outer;
+                     }
+                     DriverEvent::Timeout => {
+-                        // Could be either the str0m deadline or the frame
+-                        // deadline. Only feed Timeout if str0m's time has
+-                        // elapsed; the frame check at the top of the loop
+-                        // will handle the media side.
++                        // Only feed str0m its own deadline. The loop checks
++                        // the separate connection deadline before polling again.
+                         let now = Instant::now();
+                         if at <= now {
+                             if let Err(e) = rtc.handle_input(Input::Timeout(now)) {
+@@ -1122,6 +1156,10 @@
+ }
+
+ impl WebRtcHooks for Str0mHooks {
++    fn signaling_timeout(&self) -> Option<rs_matter::utils::timers::Duration> {
++        Some(rs_matter::utils::timers::Duration::from_secs(3))
++    }
++
+     fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool) {
+         for (_, ctrl) in &self.shared.inner.borrow().sessions.entries {
+             if allowed(&ctrl.access) || ctrl.revoked.replace(true) {
+@@ -1155,6 +1193,7 @@
+         let (joined, finished) = async_channel::bounded(1);
+         let new = NewSession {
+             id: session_id,
++            negotiate_by: Instant::now() + NEGOTIATION_TIMEOUT,
+             local_video_mid: Some(mid), local_audio_mid: audio_mid, sound, refs,
+             rtc,
+             socket,
+@@ -1184,6 +1223,7 @@
+                 pending_offer: RefCell::new(Some((pending, new))),
+             },
+         );
++        let _ = self.shared.pending_tx.try_send(());
+         self.shared.notify_signaling();
+         Ok(SolicitOutcome {
+             deferred: false,
+@@ -1250,6 +1290,7 @@
+
+         let peer = NewSession {
+             id: session_id,
++            negotiate_by: Instant::now() + NEGOTIATION_TIMEOUT,
+             local_video_mid: None, local_audio_mid: None, sound, refs,
+             rtc, socket, local_addr, remote_cand_rx, shutdown_rx, pictures, joined,
+         };
+@@ -1265,6 +1306,7 @@
+     }
+
+     async fn on_answer(&self, session_id: u16, sdp: &str) -> Result<(), WebRtcError> {
++        self.shared.retire_pending();
+         let answer = SdpAnswer::from_sdp_string(sdp).map_err(|_| WebRtcError::DynamicConstraint)?;
+         let inner = self.shared.inner.borrow();
+         let ctrl = inner.sessions.get(&session_id).ok_or(WebRtcError::InvalidInState)?;
+@@ -1682,8 +1724,7 @@
+         return Err(ErrorCode::StdIoError.into());
+     }
+     let responder = DefaultResponder::new(&im);
+-    let mut respond = pin!(responder.run::<4, 4>());
+-    let mut im_job = pin!(im.run());
++    let mut signals = Signals::new([Signal::Term, Signal::Int])?;
+
+     let udp_socket = Async::<UdpSocket>::bind(MATTER_SOCKET_BIND_ADDR)?;
+
+@@ -1718,38 +1759,46 @@
+         (net_send, net_recv, &udp_socket)
+     };
+
+-    let mut mdns = pin!(mdns::run_mdns(matter, &crypto));
+-    let mut transport = pin!(rs_matter::utils::futures::select(
+-        matter.run(&crypto, &mut net_send, &mut net_recv, &mut net_multicast),
+-        tcp.run(),
+-    )
+-    .coalesce());
+-    let mut driver = pin!(shared.drive());
+-
+     if open_window {
+         matter.open_basic_comm_window(MIN_COMM_WINDOW_TIMEOUT_SECS, &crypto, &())?;
+     }
+
+-    let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();
+-    let media = async { reader.run().await; Err(Error::from(ErrorCode::StdIoError)) };
+-    let all = select(select(matter_core, &mut driver).coalesce(), media).coalesce();
+-    let failed_store = async {
+-        let _ = persistence_failure.recv().await;
+-        Err(Error::from(ErrorCode::StdIoError))
+-    };
+-    let controls = topology::drive(feed, &im, &sensor, &occupancy);
+     runtime.block_on(async {
+         let (stop, stopped) = tokio::sync::watch::channel(false);
+         let mut worker = pin!(snapshot_worker.run(stopped));
+-        let result = select(select(all, failed_store).coalesce(), controls).coalesce();
+-        tokio::select! {
+-            result = result => {
+-                stop.send_replace(true);
+-                worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
+-                result
++        let service = async {
++            let mut respond = pin!(responder.run::<4, 4>());
++            let mut im_job = pin!(im.run());
++            let mut mdns = pin!(mdns::run_mdns(matter, &crypto));
++            let mut transport = pin!(select(
++                matter.run(&crypto, &mut net_send, &mut net_recv, &mut net_multicast),
++                tcp.run(),
++            ).coalesce());
++            let driver = shared.drive();
++            let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();
++            let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };
++            let all = select(select(matter_core, driver).coalesce(), media).coalesce();
++            let failed_store = async {
++                let _ = persistence_failure.recv().await;
++                Err(ErrorCode::StdIoError.into())
++            };
++            let controls = topology::drive(feed, &im, &sensor, &occupancy);
++            select(select(all, failed_store).coalesce(), controls).coalesce().await
++        };
++        // This select owns the service future. Retire peers and transport
++        // before joining the snapshot worker, which reaps its encoder child.
++        let result = tokio::select! {
++            biased;
++            signal = signals.next() => match signal {
++                Some(Ok(_)) => Ok(()),
++                _ => Err(ErrorCode::StdIoError.into()),
+             },
+-            _ = &mut worker => Err(ErrorCode::StdIoError.into()),
+-        }
++            result = service => result,
++            _ = &mut worker => return Err(ErrorCode::StdIoError.into()),
++        };
++        stop.send_replace(true);
++        worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
++        result
+     })
+ }
+
+--- a/rs-matter-dm/src/clusters/app/webrtc_prov.rs
++++ b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+@@ -94,6 +94,7 @@
+ use crate::utils::storage::{String, Vec};
+ use crate::utils::sync::blocking::Mutex;
+ use crate::utils::sync::{MaybeSend, MaybeSendSync, Notification};
++use crate::utils::timers::{Duration, Timer};
+ use crate::{with, Matter};
+ use rs_matter_node::Transaction as _;
+
+@@ -313,6 +314,12 @@
+ /// All methods are `async` and invoked inline from the handler's command
+ /// dispatch. Implementations MUST NOT perform blocking I/O.
+ pub trait WebRtcHooks: MaybeSendSync {
++    /// Maximum time one outbound exchange may occupy the signaling loop.
++    /// Local session retirement always completes before attempting delivery.
++    fn signaling_timeout(&self) -> Option<Duration> {
++        None
++    }
++
+     /// Synchronously retire media whose original offer permission was withdrawn.
+     fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool);
+
+@@ -448,6 +455,10 @@
+ where
+     T: WebRtcHooks,
+ {
++    fn signaling_timeout(&self) -> Option<Duration> {
++        (*self).signaling_timeout()
++    }
++
+     fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool) {
+         (*self).recheck_access(allowed)
+     }
+@@ -821,6 +832,24 @@
+             self.set_state(*session_id, SessionState::AwaitingAnswer);
+         }
+
++        let delivery = self.send_outbound(ctx, session, &work, sdp);
++        if let Some(timeout) = self.hooks.signaling_timeout() {
++            match select(delivery, Timer::after(timeout)).await {
++                Either::First(result) => result,
++                Either::Second(()) => Err(ErrorCode::TxTimeout.into()),
++            }
++        } else {
++            delivery.await
++        }
++    }
++
++    async fn send_outbound(
++        &self,
++        ctx: &impl HandlerContext,
++        session: SessionEntry,
++        work: &OutboundWork,
++        sdp: &str,
++    ) -> Result<(), Error> {
+         // A WebRTC peer session is always on a real (non-zero) fabric.
+         let fab_idx = core::num::NonZeroU8::new(session.fab_idx).ok_or(ErrorCode::Invalid)?;
+         let exchange =
+@@ -836,7 +865,7 @@
+         // changing hook (e.g. consuming the trickle-ICE queue) runs
+         // *outside* the closure.
+         let endpoint = session.peer_endpoint_id;
+-        match &work {
++        match work {
+             OutboundWork::Offer { session_id } => {
+                 let session_id = *session_id;
+                 exchange

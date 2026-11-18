@@ -17,7 +17,7 @@ from matter_rtsp_reference import ports, publish, start_device, start_media, wai
 
 
 @asynccontextmanager
-async def controller(stack, root, args, label, port, fabric, *, existing_storage=None):
+async def controller(stack, root, args, label, port, fabric, *, existing_storage=None, process_started=None):
     storage = existing_storage or root / label
     if existing_storage is None:
         storage.mkdir(mode=0o700)
@@ -27,6 +27,8 @@ async def controller(stack, root, args, label, port, fabric, *, existing_storage
         "--primary-interface", args.interface, "--port", str(port), "--listen-address", "127.0.0.1",
         "--fabricid", str(fabric), "--enable-test-net-dcl", "--dcl-offline", "--disable-ota",
         "--disable-thread-diagnostics", "--log-level", "warning"])
+    if process_started is not None:
+        process_started(process)
     async with aiohttp.ClientSession() as http:
         deadline = time.monotonic() + 12
         while True:
