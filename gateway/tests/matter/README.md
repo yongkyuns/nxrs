@@ -690,8 +690,23 @@ The test reads the configured power source on the root before and after
 restart. It sets standard time and a DST offset through Matter, checks
 local time against administrator-provided UTC, rejects an invalid time
 zone, and reads the settings again after restart with the same enrollment.
-The TimeZone feature uses the SDK's durable tables. NTP, Matter-sourced time
-and TLS management remain release work.
+The TimeZone feature uses the SDK's durable tables.
+
+### Trusted Matter time
+
+Prepare `--variant trusted-matter-time` and run
+`gateway/tests/matter_time_reference.py` with the same arguments as the
+attestation test. The runner commissions an independent Matter.js clock
+onto a second fabric and grants the bridge read access to its time cluster.
+It verifies that the bridge uses CASE to read UTC and derives local time
+from its timezone and DST settings. Restart reads a fresh sample using the
+same enrollment.
+
+Removing the source's fabric cancels a pending refresh and leaves the last
+accepted clock sample in use. An interrupted-removal snapshot verifies that
+startup discards a trusted-source record whose fabric is gone. The first
+administrator retains playback. NTP and TLS management remain release work.
+[Results](evidence.json).
 
 ## Two controllers on the same fabric
 

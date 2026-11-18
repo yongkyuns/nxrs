@@ -2151,5 +2151,30 @@
     "time_zone_and_dst_survived_restart": true,
     "verified_local_time": true,
     "scope": "Native macOS 27.0.1 arm64, independent Matter Server 1.6.0, generated H.264 and administrator-supplied UTC. Power readings verify the configured wired supply. Independent time clients, TLS management, product attestation and physical camera, microphone and iPhone qualification remain open."
+  },
+  "trusted_matter_time": {
+    "fixture": "trusted-matter-time",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "bf984ce6876a35f114545460bd29d0203792db2619ba0d699cb753ce3e6f1281",
+    "source_sha256": {
+      "gateway/tests/matter/trusted-matter-time.patch": "dc9b0d5384a132f69a0e400ccbd9429300f3936bdc7ae019dcdf95952c9eb50a",
+      "gateway/tests/matter/time-source.cjs": "141ea25433ab2e63e91ccda04a597eb60d7cc01db2a747e415317d1fc0d43086",
+      "gateway/tests/matter_time_reference.py": "011e3159991eaf4aae78fad5d8656eddbfa0c8b40c304009ce819f16923188e3",
+      "tools/prepare-matter-fixture.py": "079a4ba79ef18096f962d233caa62752cabb850569bdcd9b50e5e37cddb95cb0",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "42a76b73c9d3e51093b70b84989069b5bc84bc7abbf5c97e8f6cfb896cc11f3e",
+    "case_authenticated_clock": true,
+    "picked_fresh_sample_after_restart": true,
+    "removed_trust_during_refresh": true,
+    "kept_previous_clock_on_revocation": true,
+    "repaired_interrupted_fabric_removal": true,
+    "verified_local_time": true,
+    "frames": [
+      30,
+      30
+    ],
+    "scope": "Native macOS 27.0.1 arm64, Matter Server 1.6.0, independent Matter.js clock, development attestation and generated H.264. The independent clock provides known offsets. The interrupted-removal snapshot models the durable gap after deleting a fabric. NTP, TLS management and physical release qualification remain open."
   }
 }
