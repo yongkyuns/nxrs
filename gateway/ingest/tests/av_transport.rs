@@ -1,6 +1,8 @@
 //! Exercise the actual camera multipart writer and gateway reader together.
 use camera::{Capture, Format, Frame, PixelFormat};
-use capture_wire::{AudioBlock, AudioStamp, AUDIO_TYPE, AV_PATH, BLOCK_BYTES};
+use capture_wire::{
+    AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_PATH, BLOCK_BYTES, CONTROLLED_AV_PATH,
+};
 use nxrs_camera_ingest::{
     av::{encoder, EncoderInput},
     config::Config,
@@ -13,7 +15,7 @@ use std::{
     time::Duration,
 };
 use stream_service::{HttpSession, Metadata, Options};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
 const JPEG: &[u8] = &[
     255, 216, 255, 192, 0, 11, 8, 0, 240, 1, 64, 1, 1, 17, 0, 255, 218, 0, 2, 255, 217,
@@ -31,7 +33,10 @@ struct Transport {
 
 impl Read for Transport {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.request.read(bytes)
+        match Read::read(&mut self.request, bytes)? {
+            0 => Err(io::ErrorKind::WouldBlock.into()),
+            count => Ok(count),
+        }
     }
 }
 
@@ -53,13 +58,17 @@ impl Write for Transport {
     }
 }
 
-fn session(path: &str, authorized: bool) -> HttpSession<Transport, [u8; 64]> {
-    let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
-    let transport = Transport {
+fn transport(path: &str) -> Transport {
+    Transport {
         request: Cursor::new(format!("GET {path} HTTP/1.1\r\n\r\n").into_bytes()),
         output: Vec::new(),
         written: 0,
-    };
+    }
+}
+
+fn session(path: &str, authorized: bool) -> HttpSession<Transport, [u8; 64]> {
+    let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+    let transport = transport(path);
     if authorized {
         assert!(http.accept_with_audio(transport, 100, &[]));
     } else {
@@ -103,6 +112,199 @@ fn frame(sequence: u64, timestamp_ms: u64) -> Frame<'static> {
             len: JPEG.len(),
         },
         bytes: JPEG,
+    }
+}
+
+fn camera_input(http: &mut HttpSession<Transport, [u8; 64]>, input: &[u8]) {
+    http.transport_mut()
+        .unwrap()
+        .request
+        .get_mut()
+        .extend(input);
+}
+
+async fn camera_output(
+    http: &mut HttpSession<Transport, [u8; 64]>,
+    peer: &mut DuplexStream,
+    now: u64,
+) {
+    drain(http, now);
+    let output = std::mem::take(&mut http.transport_mut().unwrap().output);
+    peer.write_all(&output).await.unwrap();
+}
+
+async fn command(
+    reader: &mut Reader<DuplexStream>,
+    peer: &mut DuplexStream,
+    muted: bool,
+) -> MicrophoneState {
+    let state = reader.request_microphone(muted).await.unwrap();
+    let mut bytes = [0; MicrophoneState::BYTES];
+    peer.read_exact(&mut bytes).await.unwrap();
+    assert_eq!(state.encode(), bytes);
+    assert!(matches!(
+        reader.request_microphone(!muted).await,
+        Err(Error::Protocol)
+    ));
+    state
+}
+
+#[tokio::test]
+async fn controlled_capture_acknowledges_mute_after_retirement_and_resumes_with_fresh_audio() {
+    let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+    assert!(http.accept_with_microphone_control(transport(CONTROLLED_AV_PATH), 100, &[]));
+    http.poll(100, None);
+    let (mut peer, input) = tokio::io::duplex(4096);
+    camera_output(&mut http, &mut peer, 100).await;
+    let mut reader = Reader::start_controlled(input, 320, 240).await.unwrap();
+
+    let unmute = command(&mut reader, &mut peer, false).await;
+    camera_input(&mut http, &unmute.encode()[..2]);
+    http.poll(100, None);
+    assert_eq!(http.microphone_change(), None);
+    camera_input(&mut http, &unmute.encode()[2..]);
+    let progress = http.poll_media(101, Some(frame(1, 101)), None, Some(audio(0, 101)));
+    assert_eq!(http.microphone_change(), Some(unmute));
+    assert!(progress.frame_accepted && !progress.audio_accepted);
+    camera_output(&mut http, &mut peer, 101).await;
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Video(frame) if frame.sequence == 1)
+    );
+
+    assert!(http.confirm_microphone_state(unmute));
+    http.poll(102, None);
+    camera_output(&mut http, &mut peer, 102).await;
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Microphone { state, changed: true } if state == unmute)
+    );
+    assert!(
+        http.poll_media(120, None, None, Some(audio(320, 120)))
+            .audio_accepted
+    );
+    assert!(!http.ready_for_frame()); // Part of the old PCM block is on the transport.
+
+    let mute = command(&mut reader, &mut peer, true).await;
+    camera_input(&mut http, &mute.encode());
+    let old = Some(audio(640, 140));
+    assert!(!http.poll_media(140, None, None, old).audio_accepted);
+    assert_eq!(http.microphone_change(), Some(mute));
+    assert!(!http.confirm_microphone_state(unmute));
+    assert!(http.confirm_microphone_state(mute)); // Capture owner joined before confirming.
+    drain(&mut http, 140);
+    assert!(!http.poll_media(141, None, None, old).audio_accepted);
+    camera_output(&mut http, &mut peer, 141).await;
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Audio(block) if block.stamp.first_sample == 320)
+    );
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Microphone { state, changed: true } if state == mute)
+    );
+
+    let progress = http.poll_media(150, Some(frame(2, 150)), None, old);
+    assert!(progress.frame_accepted && !progress.audio_accepted);
+    camera_output(&mut http, &mut peer, 150).await;
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Video(frame) if frame.sequence == 2)
+    );
+
+    let resume = command(&mut reader, &mut peer, false).await;
+    camera_input(&mut http, &resume.encode());
+    http.poll(160, None);
+    assert!(http.confirm_microphone_state(resume));
+    http.poll(161, None);
+    drain(&mut http, 161);
+    assert!(
+        http.poll_media(180, None, None, Some(audio(0, 180)))
+            .audio_accepted
+    );
+    camera_output(&mut http, &mut peer, 180).await;
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Microphone { state, .. } if state == resume)
+    );
+    assert!(
+        matches!(reader.next_packet().await.unwrap(), Packet::Audio(block) if block.stamp == audio(0, 180).stamp)
+    );
+
+    camera_input(&mut http, &resume.encode());
+    assert!(!http.poll(181, None).active);
+}
+
+#[test]
+fn controlled_audio_requires_admission_and_cannot_downgrade() {
+    for (path, admitted) in [(CONTROLLED_AV_PATH, false), (AV_PATH, true)] {
+        let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+        let transport = transport(path);
+        if admitted {
+            assert!(http.accept_with_microphone_control(transport, 100, &[]));
+        } else {
+            assert!(http.accept(transport, 100));
+        }
+        assert!(http.poll(100, None).active);
+        assert!(!http.audio_requested());
+        assert_eq!(http.microphone_change(), None);
+        // The rejection may itself need several short writes.
+        for now in 101..108 {
+            http.poll(now, None);
+        }
+        assert!(http.transport_mut().is_none());
+        assert_eq!(
+            http.stats().last_failure,
+            Some(stream_service::Failure::InvalidRequest)
+        );
+    }
+}
+
+#[test]
+fn fragmented_microphone_command_has_one_deadline() {
+    let mut http = HttpSession::new([0; 64], Options::default()).unwrap();
+    assert!(http.accept_with_microphone_control(transport(CONTROLLED_AV_PATH), 100, &[]));
+    http.poll(100, None);
+    drain(&mut http, 100);
+    let command = MicrophoneState {
+        sequence: std::num::NonZeroU64::new(1).unwrap(),
+        muted: false,
+    }
+    .encode();
+    camera_input(&mut http, &command[..1]);
+    assert!(http.poll(100, None).active);
+    camera_input(&mut http, &command[1..2]);
+    assert!(http.poll(2099, None).active);
+    camera_input(&mut http, &command[2..]);
+    assert!(!http.poll(2100, None).active);
+    assert_eq!(
+        http.stats().last_failure,
+        Some(stream_service::Failure::RequestDeadline)
+    );
+}
+
+#[tokio::test]
+async fn controlled_reader_refuses_audio_before_an_exact_acknowledgement() {
+    for forged_ack in [false, true] {
+        let (mut peer, input) = tokio::io::duplex(2048);
+        peer.write_all(&response(Some("2"))).await.unwrap();
+        let mut reader = Reader::start_controlled(input, 320, 240).await.unwrap();
+        let unmute = command(&mut reader, &mut peer, false).await;
+        let mut reply = Vec::new();
+        if forged_ack {
+            let wrong = MicrophoneState {
+                muted: true,
+                ..unmute
+            }
+            .encode();
+            write!(
+                reply,
+                "--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+                capture_wire::MICROPHONE_STATE_TYPE,
+                wrong.len()
+            )
+            .unwrap();
+            reply.extend(wrong);
+            reply.extend(b"\r\n");
+        } else {
+            write_audio(&mut reply, 0, 100, BLOCK_BYTES);
+        }
+        peer.write_all(&reply).await.unwrap();
+        assert!(matches!(reader.next_packet().await, Err(Error::Protocol)));
     }
 }
 
@@ -193,7 +395,7 @@ async fn legacy_and_unauthorized_transports_do_not_send_audio() {
     struct Reply(Vec<u8>, Cursor<&'static [u8]>);
     impl Read for Reply {
         fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-            self.1.read(bytes)
+            Read::read(&mut self.1, bytes)
         }
     }
     impl Write for Reply {

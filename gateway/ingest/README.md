@@ -56,7 +56,8 @@ and places ingest plus FFmpeg in one bounded unprivileged cgroup. The generator
 never installs/starts services or initializes existing enrollment state. Opt-in
 requires an explicit camera endpoint and insecure-HTTP acknowledgement.
 
-Source addresses are literal RFC1918/loopback IPv4 with fixed `/stream`. There is
+Source addresses are literal RFC1918/loopback IPv4. Ingest selects the fixed
+request path for the configured media mode. There is
 no discovery, DNS, redirect or proxy fallback. RTSP publication is loopback-only.
 Use a **publisher** token, never a viewer or management token. Stop the synthetic
 publisher before using its path: overridePublisher remains disabled. Do not run
@@ -128,6 +129,23 @@ little-endian mono PCM at 16 kHz, with `X-First-Sample` and `X-Capture-Ms`.
 Sample offsets are aligned to 320 samples. Gaps preserve dropped blocks, and
 overlap or a backwards capture time invalidates the response.
 
+Firmware and authenticated ingest use `GET /stream?av=2` with `X-Nxrs-AV: 2`.
+Capture starts muted on each fresh connection. After receiving the response
+header, the enrolled gateway can send a nine-byte microphone command on the
+same TLS transport. It contains a big-endian 64-bit sequence from one and a
+mute byte (zero or one). Only one command may be outstanding. The camera returns
+the same value as an `application/vnd.nxrs.microphone-state.v2` part after capture
+has changed. A fragmented command has an absolute deadline. Disconnect ends the
+capture session.
+
+An in-progress PCM part may finish before a mute acknowledgement. Pending
+samples are discarded and capture is joined before the acknowledgement, while
+JPEG delivery stays eligible. Unmuting opens a new sample sequence and requires
+a complete capture block before acknowledging. Controlled firmware rejects the
+version 1 audio route. Current ingest requests unmute when `camera_audio` is
+enabled. Propagating a Matter privacy write and maintaining the paired encoder
+while the source is muted remain separate integration steps.
+
 The A/V encoder input writes bounded MJPEG/PCM Matroska blocks to FFmpeg. Video
 uses its capture time directly. Audio uses the first block's capture time and
 later sample offsets, preserving capture gaps. Both tracks have independent
@@ -135,9 +153,9 @@ deadlines that include writing each complete part to the encoder. FFmpeg emits
 H.264 and mono Opus with a private timed annotation track. The RTSP publisher
 requires the annotation for the exact picture timestamp before inserting its
 SEI and publishes only the video and audio tracks. Ingest monitors their
-progress independently. Set `camera_audio: true` only for a mutually authenticated camera that
-authorizes access and implements version 1. The existing ESP32 camera firmware
-still needs microphone capture wiring.
+progress independently. Set `camera_audio: true` for a mutually authenticated
+camera that authorizes access and implements version 2. The ESP32 microphone
+qualification profile includes that capture path.
 
 ```sh
 NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \

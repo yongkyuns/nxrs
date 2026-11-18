@@ -69,9 +69,10 @@ Implement and qualify these steps in order.
    preserved irregular video timestamps and a three-block audio gap in a
    generated-media trial. The opt-in TLS ingest and RTSP publisher decoded
    generated audio and video with exact source annotations on the Mac.
-   The microphone qualification firmware starts only on a negotiated and
-   authenticated request. A dedicated capture worker owns the DMA wait and
-   cancels through the shared NuttX poll/pipe binding. PCM and JPEG use the
+   The microphone qualification firmware starts capture on an authenticated
+   version 2 unmute command and acknowledges mute after canceling and joining
+   the DMA worker. JPEG delivery stays eligible during mute. Propagating
+   Matter privacy state into ingest remains open. PCM and JPEG use the
    same camera clock. Measure the completion observation's offset and drift
    on the board before declaring synchronized physical playback.
    [Wire contract and encoder test](../../ingest/README.md#camera-audio-framing).
@@ -142,9 +143,10 @@ Two existing interfaces determine the work between capture and playback.
 - Current camera ingest sends H.264. The publisher's raw Annex-B mode timestamps
   pictures at gateway receipt. Its new `mpegts-av` mode accepts timestamped
   H.264 and mono Opus together. The generated cue test reaches an independent
-  RTSP decoder. Firmware and ingest must still preserve capture timestamps
-  through the mux and retain the picture identity metadata. Exercise transport
-  delays, lost audio chunks and simultaneous video-only playback. [Publisher input](../../publisher/src/sdk.rs) · [Publisher clock](../../publisher/src/main.rs).
+  RTSP decoder. The paired Matroska path qualified timestamp and picture
+  identity preservation with generated input. Exercise transport delays,
+  capture timing and simultaneous video-only playback on the deployed source.
+  [Publisher input](../../publisher/src/sdk.rs) · [Publisher clock](../../publisher/src/main.rs).
 - The pinned Matter Server intersects the offered audio codecs with the
   camera's microphone capabilities. Its default request uses 64 kbit/s. Test
   mono Opus allocation with that request, release it on the last viewer, and

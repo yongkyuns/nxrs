@@ -47,9 +47,13 @@ async def camera(reader, writer, cert, frames, received):
         peer = writer.get_extra_info('ssl_object').getpeercert(binary_form=True)
         assert peer == cert
         request = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), 3)
-        assert request.split(b'\r\n', 1)[0] == b'GET /stream?av=1 HTTP/1.1'
+        assert request.split(b'\r\n', 1)[0] == b'GET /stream?av=2 HTTP/1.1'
         received.append(True)
-        writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nX-Nxrs-AV: 1\r\nConnection: close\r\n\r\n')
+        writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nX-Nxrs-AV: 2\r\nConnection: close\r\n\r\n')
+        await writer.drain()
+        command = await asyncio.wait_for(reader.readexactly(9), 3)
+        assert command == struct.pack('>QB', 1, 0)
+        writer.write(part('application/vnd.nxrs.microphone-state.v2', command, ''))
         tone = struct.pack('<320h', *(round(18_000 * math.sin(i * math.pi / 8)) for i in range(SAMPLES)))
         template = json.loads((ROOT / 'clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json').read_text())['source']
         began = time.monotonic()

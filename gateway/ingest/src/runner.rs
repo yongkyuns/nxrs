@@ -196,11 +196,13 @@ pub(crate) async fn camera_source(config:&Config, policy:&Prepared, stop:&mut wa
             let socket=TcpStream::connect(config.camera).await?;
             socket.set_nodelay(true)?;
             let mut socket=policy.connect(socket).await?;
-            let path=if config.camera_audio { capture_wire::AV_PATH } else if config.detections.is_some() { "/stream?metadata=1" } else { "/stream" };
+            let path=if config.camera_audio { capture_wire::CONTROLLED_AV_PATH } else if config.detections.is_some() { "/stream?metadata=1" } else { "/stream" };
             let request=format!("GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
             socket.write_all(request.as_bytes()).await?;
             if config.camera_audio {
-                Reader::start_av(socket,config.width,config.height).await
+                let mut source = Reader::start_controlled(socket,config.width,config.height).await?;
+                source.request_microphone(false).await?;
+                Ok(source)
             } else {
                 Reader::start(socket,config.width,config.height).await
             }

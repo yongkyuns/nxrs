@@ -1,8 +1,9 @@
 //! Bounded camera multipart framing shared with the camera stream writer.
 use crate::{Error, Result};
-use capture_wire::{AudioBlock, AudioStamp, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES};
+use capture_wire::{AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES, CONTROLLED_AV_VERSION, MICROPHONE_STATE_TYPE};
 use std::collections::BTreeMap;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
+use std::num::NonZeroU64;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 pub const MAX_FRAME: usize = 153_600;
 const HTTP_LIMIT: usize = 4096;
@@ -58,12 +59,19 @@ pub struct Frame {
 pub enum Packet<'a> {
     Video(Frame),
     Audio(AudioBlock<'a>),
+    Microphone { state: MicrophoneState, changed: bool },
+}
+struct Control {
+    muted: bool,
+    sequence: u64,
+    pending: Option<MicrophoneState>,
 }
 pub struct Reader<R> {
     input: BufReader<R>,
     payload: Vec<u8>,
     last: Option<Frame>,
     audio: bool,
+    control: Option<Control>,
     last_audio: Option<AudioStamp>,
     width: u16,
     height: u16,
@@ -71,20 +79,44 @@ pub struct Reader<R> {
 }
 impl<R: AsyncRead + Unpin> Reader<R> {
     pub async fn start(input: R, width: u16, height: u16) -> Result<Self> {
-        Self::start_version(input, width, height, false).await
+        Self::start_version(input, width, height, None).await
     }
 
     /// Parse the response to an explicitly requested A/V stream. The caller
     /// must authenticate the transport before issuing that request.
     pub async fn start_av(input: R, width: u16, height: u16) -> Result<Self> {
-        Self::start_version(input, width, height, true).await
+        Self::start_version(input, width, height, Some(AV_VERSION)).await
+    }
+
+    /// A mutually authenticated A/V source starts with capture stopped.
+    pub async fn start_controlled(input: R, width: u16, height: u16) -> Result<Self> {
+        Self::start_version(input, width, height, Some(CONTROLLED_AV_VERSION)).await
+    }
+
+    /// Submit one command after the preceding change has been acknowledged.
+    /// Retire the transport on an I/O failure so partial commands are never retried.
+    pub async fn request_microphone(&mut self, muted: bool) -> Result<MicrophoneState>
+    where
+        R: AsyncWrite,
+    {
+        let control = self.control.as_mut().ok_or(Error::Protocol)?;
+        if control.pending.is_some() {
+            return Err(Error::Protocol);
+        }
+        let sequence = control.sequence.checked_add(1).and_then(NonZeroU64::new).ok_or(Error::Protocol)?;
+        let state = MicrophoneState { sequence, muted };
+        control.pending = Some(state);
+        let output = self.input.get_mut();
+        output.write_all(&state.encode()).await?;
+        output.flush().await?;
+        Ok(state)
     }
 
     pub(crate) fn av_dimensions(&self) -> Option<(u16, u16)> {
         self.audio.then_some((self.width, self.height))
     }
 
-    async fn start_version(input: R, width: u16, height: u16, audio: bool) -> Result<Self> {
+    async fn start_version(input: R, width: u16, height: u16, expected: Option<&str>) -> Result<Self> {
         let mut input = BufReader::with_capacity(8192, input);
         let status = line(&mut input, 128).await?;
         if status != b"HTTP/1.1 200 OK\r\n" { return Err(Error::Protocol); }
@@ -93,7 +125,6 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             != Some("multipart/x-mixed-replace; boundary=nxrs-frame")
             || ["transfer-encoding", "content-encoding", "content-length"].iter().any(|k| header.contains_key(*k))
         { return Err(Error::Protocol); }
-        let expected = audio.then_some(AV_VERSION);
         if header.get(AV_HEADER).map(String::as_str) != expected {
             return Err(Error::Protocol);
         }
@@ -101,7 +132,12 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             input,
             payload: vec![0; MAX_FRAME],
             last: None,
-            audio,
+            audio: expected.is_some(),
+            control: (expected == Some(CONTROLLED_AV_VERSION)).then_some(Control {
+                muted: true,
+                sequence: 0,
+                pending: None,
+            }),
             last_audio: None,
             width,
             height,
@@ -111,7 +147,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
     pub async fn next_frame(&mut self) -> Result<Frame> {
         match self.next_packet().await? {
             Packet::Video(frame) => Ok(frame),
-            Packet::Audio(_) => Err(Error::Protocol),
+            Packet::Audio(_) | Packet::Microphone { .. } => Err(Error::Protocol),
         }
     }
 
@@ -123,6 +159,9 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             let stamp = self.audio_packet(&header).await?;
             let pcm = self.payload[..BLOCK_BYTES].try_into().expect("fixed PCM length");
             return Ok(Packet::Audio(AudioBlock { stamp, pcm }));
+        }
+        if header.get("content-type").map(String::as_str) == Some(MICROPHONE_STATE_TYPE) {
+            return self.microphone_acknowledgement(&header).await;
         }
         if header.get("content-type").map(String::as_str)
             == Some(detection_wire::METADATA_TYPE)
@@ -188,6 +227,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
 
     async fn audio_packet(&mut self, header: &BTreeMap<String, String>) -> Result<AudioStamp> {
         if !self.audio
+            || self.control.as_ref().is_some_and(|control| control.muted)
             || header.len() != 4
             || integer(header, "content-length")? != BLOCK_BYTES as u64
         {
@@ -206,6 +246,30 @@ impl<R: AsyncRead + Unpin> Reader<R> {
         self.read_payload(BLOCK_BYTES).await?;
         self.last_audio = Some(stamp);
         Ok(stamp)
+    }
+
+    async fn microphone_acknowledgement(&mut self, header: &BTreeMap<String, String>) -> Result<Packet<'_>> {
+        if self.control.as_ref().and_then(|control| control.pending).is_none()
+            || header.len() != 2
+            || integer(header, "content-length")? != MicrophoneState::BYTES as u64
+        {
+            return Err(Error::Protocol);
+        }
+        self.read_payload(MicrophoneState::BYTES).await?;
+        let bytes = self.payload[..MicrophoneState::BYTES].try_into().expect("fixed state length");
+        let state = MicrophoneState::decode(bytes).ok_or(Error::Protocol)?;
+        let control = self.control.as_mut().expect("expected acknowledgement");
+        if control.pending != Some(state) {
+            return Err(Error::Protocol);
+        }
+        let changed = control.muted != state.muted;
+        if changed {
+            self.last_audio = None;
+        }
+        control.muted = state.muted;
+        control.sequence = state.sequence.get();
+        control.pending = None;
+        Ok(Packet::Microphone { state, changed })
     }
 
     async fn read_payload(&mut self, length: usize) -> Result<()> {

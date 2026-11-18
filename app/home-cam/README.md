@@ -86,10 +86,11 @@ storage. Explicit shutdown can wait for an in-progress cryptographic/time call;
 it is not a capture-loop operation. A stopped TLS output cannot restart.
 
 The `esp32s3-camera-microphone` qualification profile authorizes its enrolled
-gateway to request `/stream?av=1`. An authenticated JPEG-only request leaves
-the microphone idle. An authenticated A/V request starts one microphone worker
-with a 16 KiB stack and receives a successful response once the first PCM block
-is available.
+gateway to request `/stream?av=2`. Each connection starts with capture muted.
+An unmute command starts one microphone worker with a 16 KiB stack and receives
+an acknowledgement once the first PCM block is available. Mute stops capture
+and drops pending blocks before acknowledging. JPEG-only requests leave the
+microphone idle.
 The worker waits for DMA completions independently of TLS and keeps one latest
 block. Sample offsets identify blocks skipped by a slow writer. Disconnect
 cancels the native wait and joins the worker before accepting another session.

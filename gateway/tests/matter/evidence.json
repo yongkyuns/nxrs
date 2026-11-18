@@ -2759,5 +2759,55 @@
       }
     ],
     "scope": "The selected microphone profile links I2S capture, the cancellation pipe and the application worker. Unit tests check bounded latest-block delivery, join after waking a blocked reader, the no-response state before PCM and sample offsets on the camera clock. Native TLS host exercise uses generated video and an unbound microphone. Neither image was flashed. Physical board capture, mute with buffers in flight, A/V offset and drift, power and iPhone playback still require qualification."
+  },
+  "camera_microphone_control": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "service/capture-wire/src/lib.rs": "0dd772214fda2b969408ebccc7e7e58ddc2ecdcca8942600d80fc0e506208f7f",
+      "service/stream/src/lib.rs": "8d9591a08ccd3ef6b16410fed9461130db450c3854e566f5c95b75b67a0302a5",
+      "service/stream/src/server.rs": "1cdd8331117bf0ec29400b855b1e1d473fcb6ea4bd05684fd86bd361f663fb13",
+      "app/home-cam/src/tls.rs": "6580d71f3f4111c90f19d4a59df75feb14ec1cf0989f1155550e9ef4a9504d8b",
+      "gateway/ingest/src/protocol.rs": "69b481b26495784e607d301be380262867cebf316f6f2a926770819c46b9c34e",
+      "gateway/ingest/src/runner.rs": "0929db820702dbb3f30ced37bcaef2a25a10e8c62a712455f4bed12d7aa03669",
+      "gateway/ingest/src/av.rs": "51c83af98c3520c05b6e39aa72df5bb195db69d7f53c2c4f96b0a2c49b0b269b",
+      "gateway/ingest/tests/av_transport.rs": "bebce0d4dd03a8ad79f0917330edd8b5ec694e23dd1d9f8329c065e1d0ead48b",
+      "gateway/tests/ingest_av_reference.py": "2f9f3085d420ca4bfad8989fd7805a5857aeec896038e693ad7fb412e2c4e291"
+    },
+    "av_transport_tests_passed": 8,
+    "native_ffmpeg_av_transport_test_passed": true,
+    "native_loopback": {
+      "ffmpeg": "9.0.2",
+      "mediamtx": "1.21.2",
+      "receiver_pyav": "16.1.0",
+      "mutually_authenticated_camera_connections": 1,
+      "decoded_h264_pictures": 45,
+      "exact_pixel_annotation_matches": 45,
+      "decoded_opus_frames": 210,
+      "rtsp_video_timing_steps_outside_one_ms_of_60_ms": 1,
+      "publication_retired_on_stop": true
+    },
+    "target_builds": [
+      {
+        "platform": "wroom",
+        "profile": "esp32s3-camera-microphone",
+        "signed_image_sha256": "9ee467514cbfad73f5c35f84689c0545b3d6e9d2b7af06c36605d24c03d05e6d",
+        "signed_image_bytes": 1901371,
+        "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true,
+        "linked_microphone_capture": true
+      },
+      {
+        "platform": "wroom",
+        "profile": "wroom",
+        "signed_image_sha256": "e27c448d20b593828590e29758e80e976341a60941b8cdaa70dd779f5a269ca5",
+        "signed_image_bytes": 1899959,
+        "resolved_config_sha256": "36b70b7e1cf6f7872c083aec8b0bc159640d43fbe151af002c293d079eb7acce",
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true,
+        "linked_microphone_capture": false
+      }
+    ],
+    "scope": "The in-memory writer and reader exercise default mute, fragmented command deadlines, exact acknowledgement, continued JPEG delivery and a fresh audio sequence on resume. An already-started PCM part can finish before a mute acknowledgement. The generated mTLS camera verifies initial unmute through the actual ingest, publisher and RTSP server. Signed images were verified off-device. Matter-to-ingest policy, continuing the Opus track while source capture is muted, physical capture and A/V timing remain open."
   }
 }

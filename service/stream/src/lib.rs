@@ -4,12 +4,13 @@ mod server;
 pub use server::{CompletedFrame, Failure, HttpSession, Options, Progress, Server, ServerStats};
 
 use camera::{Frame, PixelFormat};
-use capture_wire::{AudioBlock, AUDIO_TYPE, BLOCK_BYTES};
+use capture_wire::{AudioBlock, MicrophoneState, AUDIO_TYPE, BLOCK_BYTES, MICROPHONE_STATE_TYPE};
 use core::fmt;
 use std::io::{self, Write};
 
 const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 const AV_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nX-Nxrs-AV: 1\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+const CONTROLLED_AV_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nX-Nxrs-AV: 2\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 const MAX_WRITE_CALLS: u8 = 8;
 // Fit one full camera write budget into a single TLS application record.
 const WRITE_BATCH_BYTES: usize = 4096;
@@ -87,9 +88,16 @@ enum State {
     Ready,
     PartHeader { position: usize, length: usize },
     Payload { position: usize, length: usize },
-    Audio { position: usize, length: usize },
+    SmallPart { position: usize, length: usize },
     Tail(usize),
     Closed,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AudioMode {
+    Disabled,
+    Legacy,
+    Controlled,
 }
 
 /// One-client multipart MJPEG output state. The caller owns scheduling, the
@@ -99,7 +107,7 @@ pub struct MjpegSession<W, B> {
     buffer: B,
     state: State,
     part_header: Box<[u8]>,
-    audio: bool,
+    audio: AudioMode,
     payload_len: usize,
     deadline_ms: Option<u64>,
     timeout_ms: u64,
@@ -117,16 +125,16 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
             vec![0; HEADER_CAPACITY].into_boxed_slice(),
             now_ms,
             send_deadline_ms,
-            false,
+            AudioMode::Disabled,
         )
     }
-    pub(crate) fn with_header(
+    fn with_header(
         writer: W,
         buffer: B,
         part_header: Box<[u8]>,
         now_ms: u64,
         send_deadline_ms: u64,
-        audio: bool,
+        audio: AudioMode,
     ) -> Self {
         Self {
             writer,
@@ -232,7 +240,7 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         if let Some(result) = self.offer_status(now_ms) {
             return result;
         }
-        if !self.audio || block.stamp.end_sample().is_none() {
+        if self.audio == AudioMode::Disabled || block.stamp.end_sample().is_none() {
             return OfferResult::Rejected(RejectReason::InvalidAudio);
         }
 
@@ -249,7 +257,29 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         append(output, &mut length, PART_END);
         append(output, &mut length, block.pcm);
         append(output, &mut length, PART_TAIL);
-        self.state = State::Audio {
+        self.state = State::SmallPart {
+            position: 0,
+            length,
+        };
+        self.deadline_ms = Some(now_ms.saturating_add(self.timeout_ms));
+        OfferResult::Accepted
+    }
+
+    fn offer_microphone_state(&mut self, state: MicrophoneState, now_ms: u64) -> OfferResult {
+        if let Some(result) = self.offer_status(now_ms) {
+            return result;
+        }
+        let body = state.encode();
+        let mut length = 0;
+        let output = &mut self.part_header;
+        append(output, &mut length, b"--nxrs-frame\r\nContent-Type: ");
+        append(output, &mut length, MICROPHONE_STATE_TYPE.as_bytes());
+        append(output, &mut length, b"\r\nContent-Length: ");
+        append_number(output, &mut length, body.len() as u64);
+        append(output, &mut length, PART_END);
+        append(output, &mut length, &body);
+        append(output, &mut length, PART_TAIL);
+        self.state = State::SmallPart {
             position: 0,
             length,
         };
@@ -328,10 +358,15 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
 
     fn segment(&self, state: State) -> Option<(&[u8], usize)> {
         match state {
-            State::Response(position) => {
-                Some((if self.audio { AV_RESPONSE } else { RESPONSE }, position))
-            }
-            State::PartHeader { position, length } | State::Audio { position, length } => {
+            State::Response(position) => Some((
+                match self.audio {
+                    AudioMode::Disabled => RESPONSE,
+                    AudioMode::Legacy => AV_RESPONSE,
+                    AudioMode::Controlled => CONTROLLED_AV_RESPONSE,
+                },
+                position,
+            )),
+            State::PartHeader { position, length } | State::SmallPart { position, length } => {
                 Some((&self.part_header[..length], position))
             }
             State::Payload { position, length } => {
@@ -382,13 +417,13 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
                 State::Response(_) => State::Response(position),
                 State::PartHeader { length, .. } => State::PartHeader { position, length },
                 State::Payload { length, .. } => State::Payload { position, length },
-                State::Audio { length, .. } => State::Audio { position, length },
+                State::SmallPart { length, .. } => State::SmallPart { position, length },
                 State::Tail(_) => State::Tail(position),
                 state => state,
             };
         }
         match state {
-            State::Response(_) | State::Tail(_) | State::Audio { .. } => State::Ready,
+            State::Response(_) | State::Tail(_) | State::SmallPart { .. } => State::Ready,
             State::PartHeader { .. } => State::Payload {
                 position: 0,
                 length: self.payload_len,

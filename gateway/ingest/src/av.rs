@@ -121,14 +121,14 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
         })
     }
 
-    /// Read and write one complete camera part. `None` means audio advanced.
+    /// Read a complete camera part and return a picture only for video.
     /// On error the caller must retire the encoder and discard the connection.
     pub async fn next(&mut self) -> Result<Option<Picture>> {
         let deadline = self.deadlines[0].min(self.deadlines[1]);
         if Instant::now() >= deadline {
             return Err(Error::Timeout);
         }
-        let (track, picture) = timeout_at(deadline, async {
+        let media = timeout_at(deadline, async {
             match self.source.next_packet().await? {
                 Packet::Video(frame) => {
                     let track = Track::Video;
@@ -148,7 +148,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
                     self.output
                         .write(track, pts_ms, self.source.payload(frame))
                         .await?;
-                    Ok::<_, Error>((track, Some(Picture { frame, pts_ms })))
+                    Ok::<_, Error>(Some((track, Some(Picture { frame, pts_ms }))))
                 }
                 Packet::Audio(block) => {
                     let track = Track::Audio;
@@ -161,7 +161,13 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
                         .ok_or(Error::Stale)?;
                     let pts = self.timeline.pts(track, sample_time, stamp.capture_ms)?;
                     self.output.write(track, pts, block.pcm).await?;
-                    Ok((track, None))
+                    Ok(Some((track, None)))
+                }
+                Packet::Microphone { changed, .. } => {
+                    if changed {
+                        self.audio = None;
+                    }
+                    Ok(None)
                 }
             }
         })
@@ -171,8 +177,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
         if finished >= deadline {
             return Err(Error::Timeout);
         }
-        self.deadlines[track as usize] = finished + self.budget;
-        Ok(picture)
+        Ok(media.and_then(|(track, picture)| {
+            self.deadlines[track as usize] = finished + self.budget;
+            picture
+        }))
     }
 }
 

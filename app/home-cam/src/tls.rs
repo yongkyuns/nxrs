@@ -617,7 +617,7 @@ fn serve<
     }
     let mut http = storage.retire();
     if microphone_origin.is_some() {
-        http.accept_with_audio(connection, request_now, &prefix[..used]);
+        http.accept_with_microphone_control(connection, request_now, &prefix[..used]);
     } else {
         http.accept_with_prefix(connection, request_now, &prefix[..used]);
     }
@@ -690,14 +690,24 @@ fn poll_media<B: AsRef<[u8]> + AsMut<[u8]>>(
         return Ok(false);
     }
     reject_busy(listener, counters);
-    if http.audio_requested() {
-        if microphone.is_none() {
-            let origin = microphone_origin.ok_or(::tls::Error::InvalidInput)?;
-            *microphone = Some(Microphone::start(origin)?);
+    if let Some(state) = http.microphone_change() {
+        let applied = if state.muted {
+            if let Some(mut capture) = microphone.take() {
+                capture.stop()?;
+            }
+            true
+        } else {
+            if microphone.is_none() {
+                let origin = microphone_origin.ok_or(::tls::Error::InvalidInput)?;
+                *microphone = Some(Microphone::start(origin)?);
+            }
+            microphone.as_mut().ok_or(::tls::Error::Io)?.ready()?
+        };
+        if applied && !http.confirm_microphone_state(state) {
+            return Err(::tls::Error::Io);
         }
-        if !microphone.as_mut().expect("started on request").ready()? {
-            return Ok(true);
-        }
+    } else if http.audio_requested() {
+        microphone.as_mut().ok_or(::tls::Error::Io)?.ready()?;
     }
     let packet = lock(shared).pending.take();
     let input = packet.as_ref().filter(|p| p.epoch == epoch);
