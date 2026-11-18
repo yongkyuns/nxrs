@@ -2499,5 +2499,17 @@
     "forwarded_udp_packets": 22,
     "wireguard_bidirectional": true,
     "scope": "The LAN controller commissioned the bridge. The remote receiver used the test WebSocket over WireGuard. It decoded video after opening the routed UDP media path. The namespace teardown completed. Home Assistant on cellular, the physical camera and the deployed Tailscale network remain separate acceptance tests."
+  },
+  "microphone_native_configuration": {
+    "nxrs_source_revision": "dd52ec597316139319717d08a439087e6abb143b",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "profile": "esp32s3-camera-stream-startup",
+    "configuration_stage": "native olddefconfig",
+    "baseline_config_sha256": "9f9ce544314d90428f413b4dae5d77bed79c0f0e13604bfd4e31684267dafd90",
+    "rx_only_config_sha256": "25ecec221ca14099d225dc070f9387d8b035d1be39c0254b0bf7a1516ee84f70",
+    "audio": {"port": 0, "sample_rate_hz": 16000, "slot_bits": 32, "gpio": {"bclk": 14, "ws": 21, "data_in": 1}},
+    "selected_camera_network_and_memory_settings_match_baseline": true,
+    "added_kernel_worker": {"workers": 1, "priority": 224, "stack_bytes": 2048},
+    "scope": "Configuration and pinout review only. Target link, PCB revision, physical clocks, capture, DMA lifetime, mute, and iPhone audio remain open."
   }
 }

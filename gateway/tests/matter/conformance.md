@@ -79,6 +79,36 @@ Implement and qualify these steps in order.
    iPhone app, measure A/V skew and drift, and verify mute, disconnect,
    reconfiguration and recovery. Keep private household audio out of evidence.
 
+### Receive-only I²S candidate
+
+On the published FNK0085 pinout, GPIO14, GPIO21 and GPIO1 are brought out
+and unused by the current camera, SD card, USB and LED wiring. Try GPIO14
+for I²S0 bit clock, GPIO21 for word select and GPIO1 for data input after
+confirming the actual PCB revision. For an INMP441-format reference, use
+Philips I²S with two 32-bit slots at 16 kHz (1.024 MHz bit clock). Select the
+microphone's populated slot, then convert its signed 24-bit values to PCM16.
+A 20 ms stereo DMA block is 2,560 bytes and yields 640 bytes of mono PCM16.
+Verify the slot layout and discard startup samples within the microphone's
+settling interval. [Freenove pinout](https://github.com/Freenove/Freenove_ESP32_S3_WROOM_Board/blob/main/ESP32S3_Pinout.png) · [INMP441 electrical and timing specifications](https://invensense.tdk.com/wp-content/uploads/2015/02/INMP441.pdf).
+
+```sh
+cargo nxrs config show --app home-cam --platform wroom \
+  --kconfig-enable AUDIO --kconfig-enable DRIVERS_AUDIO --kconfig-enable AUDIO_I2S \
+  --kconfig-enable ESPRESSIF_I2S0 --kconfig-enable ESPRESSIF_I2S0_RX \
+  --kconfig-enable ESPRESSIF_I2S0_ROLE_MASTER \
+  --kconfig-enable ESPRESSIF_I2S0_DATA_BIT_WIDTH_32BIT \
+  --kconfig-disable ESPRESSIF_I2S0_TX --kconfig-disable ESPRESSIF_I2S0_MCLK \
+  --kconfig-set ESPRESSIF_I2S0_SAMPLE_RATE=16000 \
+  --kconfig-set ESPRESSIF_I2S0_BCLKPIN=14 --kconfig-set ESPRESSIF_I2S0_WSPIN=21 \
+  --kconfig-set ESPRESSIF_I2S0_DINPIN=1
+```
+
+Native `olddefconfig` accepted every override on the current WROOM startup
+profile. Camera, Wi-Fi, USB and PSRAM settings matched the default profile.
+The I²S selection adds one NuttX high-priority worker with a 2 KiB stack.
+The candidate still needs a target build, a logic-analyzer trace and device
+capture tests. [Configuration evidence](evidence.json).
+
 Two existing interfaces determine the work between capture and playback.
 
 - Current camera ingest sends H.264. The publisher's raw Annex-B mode timestamps
@@ -108,7 +138,12 @@ Exercise stop, mute and immediate reopen with every capture buffer in flight.
 The ESP driver calls back with `-ECANCELED` for active and pending buffers
 during stop. The generic audio I²S callback passes `OK` upward on dequeue.
 Mark the retiring capture before stop, discard its completions and account
-for every buffer before reuse. Inject an RX failure separately and verify it
+for every buffer before reuse. The normal RX completion releases the
+driver's audio-buffer reference. The active and pending stop drains clear
+the container without that release. Exercise a full buffer pool through
+stop and reopen, and verify both the references and DMA retirement. The
+upper half already has a separate `AUDIO_MSG_IOERR` event for faults.
+Inject an RX failure separately and verify it
 becomes an observable discontinuity or terminal fault. If the native interface
 cannot distinguish the error, correct that boundary before admitting the
 hardware profile. Verify mute and revocation with a known acoustic cue so a
