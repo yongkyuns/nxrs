@@ -119,6 +119,13 @@ builder terminates exhausted lists at the last available entry and returns
 the short byte count. The host witness compiles the pinned source and
 covers failure followed by successful retry. [Source regression](../../../tests/host/test_esp_i2s_rx_enqueue.py).
 
+Patch 0127 keeps the ESP32-S3 RX interrupt route enabled on its registering
+CPU. Transfer start and stop control delivery at the GDMA source. The RX
+handler reads and acknowledges its completion under the queue lock. The
+host witness tests route setup, stop and restart from another CPU, and
+separate RX and TX interrupt delivery.
+[Interrupt regression](../../../tests/host/test_esp_i2s_rx_irq.py).
+
 Two existing interfaces determine the work between capture and playback.
 
 - Current camera ingest sends H.264. The publisher's raw Annex-B mode timestamps

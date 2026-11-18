@@ -2536,5 +2536,13 @@
       "linked_symbols": ["audio_i2s_initialize", "board_i2sdev_initialize", "esp32s3_dma_setup", "esp_i2sbus_initialize", "i2s_receive"]
     },
     "scope": "Pinned C source executed on the host with injected mutex, DMA and register outcomes. The candidate also linked and passed ABI checks with the exact WROOM startup profile and RX overrides. Signing used a disposable development identity and the firmware was not flashed. Active stop, immediate reopen and physical capture remain open."
+  },
+  "microphone_rx_interrupt": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "patch": "0127-esp32s3-i2s-rx-interrupt-route.patch",
+    "patched_cases_passed": 7,
+    "defects_reproduced_on_original": 5,
+    "valid_controls_passed_on_both": 2,
+    "scope": "Host execution of the pinned IRQ registration, channel and dispatch functions with injected CPU and GDMA state. Hardware interrupt delivery and active DMA buffer retirement remain open."
   }
 }

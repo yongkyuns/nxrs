@@ -110,7 +110,8 @@
       "0123-esp32s3-cores3-display-resources.patch",
       "0124-esp32s3-maintenance-volume.patch",
       "0125-esp32s3-camera-smp-irq-lifetime.patch",
-      "0126-espressif-i2s-rx-enqueue-ownership.patch"
+      "0126-espressif-i2s-rx-enqueue-ownership.patch",
+      "0127-esp32s3-i2s-rx-interrupt-route.patch"
     ]
   },
   "mcuboot": {
