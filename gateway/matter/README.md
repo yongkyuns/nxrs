@@ -1,15 +1,35 @@
-# Matter service foundation
+# Matter gateway
 
-The external Matter fixture uses the gateway’s durable identity store, detection
-subscription and shared encoded video input.
-[Reproduction and host evidence](../tests/matter/README.md).
+The Matter gateway exposes one existing Nxrs camera and its occupancy sensor.
+It uses the gateway's durable identity store, detection subscription and
+shared encoded video input. [Host qualification](../tests/matter/README.md).
+
+## Build the gateway candidate
+
+Use Python 3.12, a local rs-matter Git checkout containing the pinned
+revision, the two crate archives from [the dependency pins](../tests/matter/versions.json),
+and that file's Rust toolchain. Build from the committed Nxrs sources.
+
+```sh
+python3.12 tools/build-matter-gateway.py "$new_build_directory" \
+  --sdk "$rs_matter_checkout" \
+  --webrtc-archive "$str0m_archive" --dnssd-archive "$astro_dnssd_archive"
+```
+
+Pass `--offline` when the lockfile dependencies are cached. The build uses
+the `capture-privacy` variant in a disposable checkout and writes
+`nxrs-matter-camera` and a `build.json` receipt. Verify the executable SHA-256
+against the receipt before copying the binary to the gateway host. The
+receipt identifies both source revisions, the prepared lockfile and the
+target platform. Pairing material, device state and live services are managed
+separately.
 
 ## Configure the bridge
 
-Prepare the `catalogue` SDK fixture and start its camera executable with
-`--config` and an absolute path to a private JSON file. This variant exposes
-one existing catalogue camera and its occupancy sensor. The executable uses
-the configured IPv4 address for the WebRTC socket and its ICE candidate.
+Start `nxrs-matter-camera` with `--config` and an absolute path to a private
+JSON file. Use provisioned attestation material and specify the gateway
+host's wired power source. The executable uses the configured IPv4 address
+for the WebRTC socket and its ICE candidate.
 
 ```json
 {
@@ -23,12 +43,15 @@ the configured IPv4 address for the WebRTC socket and its ICE candidate.
   "media_token_file": "/absolute/private/camera-source.token",
   "detection_token_file": "/absolute/private/detections.token",
   "factory_data": "/absolute/private/factory.json",
-  "state_directory": "/absolute/private/matter-state"
+  "attestation_directory": "/absolute/private/matter-attestation",
+  "state_directory": "/absolute/private/matter-state",
+  "snapshot_ffmpeg": "/usr/bin/ffmpeg",
+  "host_power_source": "ac"
 }
 ```
 
-For the `lan-interface` variant, choose a LAN with IPv6 for Matter discovery
-and control. Set `ice_address` to its IPv4 address for media. If `lan_interface`
+Choose a LAN with IPv6 for Matter discovery and control. Set `ice_address`
+to its IPv4 address for media. If `lan_interface`
 is omitted, the bridge resolves that address to one LAN interface. An explicit
 interface must own the address. DNS-SD, IPv4 and IPv6 Matter transport, and
 WebRTC sockets all use the resolved interface. Keep the controller reachable
@@ -55,15 +78,13 @@ Endpoint assignments and unique IDs persist across catalogue reordering and
 path changes. A deployment selecting a different site or camera needs its own
 state and enrollment. [Configured bridge test](../tests/matter/README.md#configured-camera-and-durable-endpoints).
 
-The `snapshots` and later variants also need an absolute `snapshot_ffmpeg` path in
-that JSON. It captures JPEGs from the same authorized H.264 reader used for
+An absolute `snapshot_ffmpeg` path provides JPEGs from the same authorized H.264 reader used for
 live playback. The gateway allows one capture at a time with a one-second
 interval between captures. It limits JPEG output to 48 KiB, checks live privacy
 and publication identity through delivery, and reaps the encoder before
 releasing the capture slot. [Snapshot test](../tests/matter/README.md#matter-jpeg-snapshots).
 
-For source-side microphone control, use the `capture-privacy` SDK variant
-and pass `--microphone` to `stage_matter.py`. Add
+For source-side microphone control, pass `--microphone` to `stage_matter.py`. Add
 `"microphone_control": {"address": "127.0.0.1:18081", "token_file": "/absolute/private/microphone.token"}`
 to the bridge deployment JSON, substituting the gateway's internal listener
 and staged credential. Ingest must use that listener too. The controller
@@ -91,9 +112,9 @@ For a failed first enrollment with no reachable administrator, stop the
 bridge and use the same deployment configuration to inspect the saved indices.
 
 ```sh
-webrtc_camera --config "$deployment" --fabric-status
-webrtc_camera --config "$deployment" --remove-sole-fabric "$fabric_index"
-webrtc_camera --config "$deployment" --open-commissioning-window
+nxrs-matter-camera --config "$deployment" --fabric-status
+nxrs-matter-camera --config "$deployment" --remove-sole-fabric "$fabric_index"
+nxrs-matter-camera --config "$deployment" --open-commissioning-window
 ```
 
 Run the removal command only for the operator-confirmed abandoned enrollment.
