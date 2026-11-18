@@ -318,6 +318,26 @@ the catalogue. It checks durable endpoint IDs, rejects site or camera changes
 against the original state, and withdraws the media credential while the
 selected camera continues to report occupancy. [Results](evidence.json).
 
+## Session capacity and retirement
+
+Prepare the pinned SDK with `--variant sessions`. This variant uses the
+same deployment configuration as `catalogue`. Run
+`gateway/tests/matter_session_reference.py` with the arguments used by the
+[commissioning test](#operator-initiated-commissioning) and a fresh runtime.
+
+The test commissions two fabrics and fills four slots with two decoding peers
+and two unanswered offers. A fifth offer must return `RESOURCE_EXHAUSTED`
+with the same camera stream reference count. A successful `EndSession` reply
+requires the receiver's nominated camera UDP port to be available for rebinding.
+The test opens a replacement peer, removes the second fabric, and verifies that
+its UDP port is released while the surviving controller still decodes video.
+After closing the remaining sessions, the original stream reference count
+must be restored.
+
+The driver polls its peers as an owned group. Each session has one pending
+negotiation signal, one ICE signal and one terminal reason. The peer accepts
+at most 16 remote ICE candidates within one negotiation.
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with
@@ -535,11 +555,10 @@ and verifies its session list is empty before opening video. Only sanitized
 
 ## Scope of the evidence
 
-`evidence.json` records host results. Neither a teardown acknowledgement nor
-repeated sessions establishes joined worker cleanup. The upstream example still
-uses placeholder capability declarations, unbounded queues and detached tasks.
-Production needs truthful capabilities, bounded session ownership, revocation,
-complete persistent identity and failure recovery under #388's release criteria.
+`evidence.json` records host results. The session capacity test verifies UDP
+socket ownership and stream reference counts through the Matter commands.
+Production still needs truthful capabilities, deadline qualification under
+slow or offline requestors, and lifecycle tests for full process shutdown.
 
 See [conformance.md](conformance.md) for mandatory audio/snapshot/root behavior
 and the bridged endpoint topology. The video-only fixture is not a conforming

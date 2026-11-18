@@ -1306,5 +1306,47 @@
       "linux_x86_64_cargo_check": true
     },
     "scope": "This fixture exercises one Matter camera and its occupancy endpoint. A second configured gateway camera was used to check source selection. Multi-camera endpoint allocation, discovery on selected Linux/macOS interfaces, physical playback and microphone remain release work."
+  },
+  "joined_sessions": {
+    "host": "macOS arm64, two independent Matter controllers, generated H.264",
+    "fixture": "sessions",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/tests/matter/sessions.patch": "ef295792ea924fc1dd55bb492b9eec9b9e957291e19ee8f62915e6f664d7b7f1",
+      "gateway/tests/matter/Cargo.lock": "4b10398da089bab0cf6b54da8c8c7232015bb47c913858ba046e75ccc713b46d",
+      "gateway/tests/matter/versions.json": "e813419f155edbd11115d90c5bbb50baa3e9c7d71ea8ec11420f6adaba4887b6",
+      "gateway/tests/matter_session_reference.py": "16a98ecb4b55e6e1c552f8c73265102be9a83466178ffad9788612e47a1b4c1e",
+      "tools/prepare-matter-fixture.py": "0e9070194ed3fd2e49ecdad890b5ffa9552f568b5219b0bcf64f6316b9380481"
+    },
+    "comparison": {
+      "previous_commit": "b84b21362b40b24d506a26d444fe5dcfe5bcb632",
+      "references_after_four_offers": 4,
+      "references_after_rejected_fifth_offer": 5
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "94b33440ab8171cbbd8c5f53fe11cb8aeda3a7a33ae015bfc996a82884acb912",
+    "per_run": {
+      "limit": 4,
+      "next_offer_status": 137,
+      "decoded_frames": [
+        45,
+        45,
+        45
+      ],
+      "sockets_released_after_end_ack": 2,
+      "removed_fabric_socket_released": true,
+      "survivor_frames_after_fabric_removal": 20,
+      "allocations_released": true,
+      "sessions_remaining": 0
+    },
+    "regressions": {
+      "configured_camera": true,
+      "gateway_tests": 76,
+      "native_ffmpeg_tests": 1,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Joined peer resource release for explicit EndSession, cancellation of pending offers and removal of one of two fabrics. The test checks each live peer’s actual nominated UDP port. Long offline signaling deadlines, full process shutdown under load, physical cameras and iPhone remain separate tests."
   }
 }

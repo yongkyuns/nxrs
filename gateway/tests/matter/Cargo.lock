@@ -3886,6 +3886,7 @@ dependencies = [
  "embassy-time-queue-utils",
  "env_logger",
  "futures-lite",
+ "futures-util",
  "if-addrs",
  "log",
  "nxrs-gateway-matter",
