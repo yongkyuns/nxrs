@@ -2486,5 +2486,18 @@
     "existing_viewer_catalogue_access_preserved": true,
     "source_revocation_ended_playback_with_occupancy_and_other_reader_surviving": true,
     "scope": "The staging command left its original input byte-for-byte intact. The test started a separate gateway on the staged copy and verified the two service credentials against two cameras. Physical playback and activation on the existing gateway are separate."
+  },
+  "routed_wireguard_playback": {
+    "bridge_source_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
+    "environment": "Debian 13 ARM64 QEMU, WireGuard with nftables source NAT, Matter Server 1.6.0 and generated H.264",
+    "signalling_with_media_blocked": true,
+    "blocked_session_retired": true,
+    "decoded_frames": {"receiver_offer": 45, "camera_offer": 45},
+    "direct_matter_tcp_blocked": true,
+    "sessions_retired": true,
+    "dropped_udp_packets": 5,
+    "forwarded_udp_packets": 22,
+    "wireguard_bidirectional": true,
+    "scope": "The LAN controller commissioned the bridge. The remote receiver used the test WebSocket over WireGuard. It decoded video after opening the routed UDP media path. The namespace teardown completed. Home Assistant on cellular, the physical camera and the deployed Tailscale network remain separate acceptance tests."
   }
 }

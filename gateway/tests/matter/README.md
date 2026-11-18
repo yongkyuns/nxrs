@@ -165,6 +165,22 @@ A restart without an explicit interface field exercises inference from
 behavior, use the `shutdown-drain` binary and `--expect-unscoped`.
 [Results](evidence.json).
 
+## Playback across a routed VPN
+
+In a disposable Debian guest with WireGuard and nftables, run
+`gateway/tests/matter_routed_reference.py` with the same fixture arguments as
+the [Linux soak](#four-viewer-linux-soak). It uses two private network namespaces.
+The Matter controller commissions from the selected LAN; the receiver reaches
+its test WebSocket through WireGuard.
+
+The first trial forwards signaling while dropping the camera's WebRTC UDP.
+It checks that UDP reached the router and that the unanswered session retires.
+The second trial routes media to the same Matter bridge through source NAT.
+Both offer directions must decode changing H.264 images and release their
+sessions. The VPN viewer cannot connect to the bridge's Matter TCP port.
+This qualifies the routed media path on Linux. The Home Assistant iPhone app
+on cellular and the deployment's Tailscale routing still need physical tests.
+
 ## Four-viewer Linux soak
 
 In the same disposable Linux guest, prepare the `tls-management` variant
