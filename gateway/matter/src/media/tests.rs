@@ -16,7 +16,7 @@ fn frame(tick: u64, keyframe: bool) -> Message {
 #[tokio::test]
 async fn slow_peer_resumes_on_new_keyframe_and_retired_frames_are_inaccessible() {
     let sender = broadcast::Sender::new(2);
-    let current = Arc::new(AtomicU64::new(1));
+    let (source, current) = watch::channel(1);
     let video = Video {
         sender: sender.downgrade(),
         sound: broadcast::Sender::new(2).downgrade(),
@@ -39,7 +39,7 @@ async fn slow_peer_resumes_on_new_keyframe_and_retired_frames_are_inaccessible()
     sender.send(frame(5, false)).ok().unwrap();
     sender.send(frame(6, true)).ok().unwrap();
     assert_eq!(slow.next().await.unwrap().pts_90khz, 6);
-    current.store(2, Ordering::Release);
+    source.send_replace(2);
     assert!(fast.next().await.is_none());
     assert!(slow.next().await.is_none());
 }
@@ -51,7 +51,7 @@ async fn an_offline_source_cannot_keep_an_opening_peer_alive() {
         sender: sender.downgrade(),
         sound: broadcast::Sender::new(2).downgrade(),
         opus_generation: Arc::new(AtomicU64::new(0)),
-        current: Arc::new(AtomicU64::new(0)),
+        current: watch::channel(0).1,
     };
     let mut peer = video.subscribe().unwrap();
     let start = Instant::now();
@@ -71,7 +71,7 @@ async fn an_offline_source_cannot_keep_an_opening_peer_alive() {
 #[tokio::test]
 async fn microphone_queue_skips_lag_and_cannot_deliver_retired_audio() {
     let sound = broadcast::Sender::new(2);
-    let current = Arc::new(AtomicU64::new(1));
+    let (source, current) = watch::channel(1);
     let video = Video {
         sender: broadcast::Sender::new(1).downgrade(),
         sound: sound.downgrade(),
@@ -100,7 +100,30 @@ async fn microphone_queue_skips_lag_and_cannot_deliver_retired_audio() {
         }
     );
     send(4);
-    current.store(2, Ordering::Release);
+    source.send_replace(2);
     assert!(audio.next().await.is_none());
     assert!(video.subscribe_audio().is_none());
+}
+
+#[tokio::test]
+async fn unanswered_offer_cannot_read_a_replacement_as_its_first_picture() {
+    let sender = broadcast::Sender::new(2);
+    let (published, current) = watch::channel(0);
+    let video = Video {
+        sender: sender.downgrade(),
+        sound: broadcast::Sender::new(1).downgrade(),
+        opus_generation: Arc::new(AtomicU64::new(0)),
+        current,
+    };
+    assert!(video.subscribe_current().is_none());
+    published.send_replace(7);
+    let mut old_offer = video.subscribe_current().unwrap();
+    published.send_replace(0);
+    // Coalesce loss and replacement before the pending peer's next poll.
+    published.send_replace(1);
+    let mut fresh_offer = video.subscribe_current().unwrap();
+    sender.send(frame(42, true)).ok().unwrap();
+    old_offer.wait_until_retired().await;
+    assert!(old_offer.next().await.is_none());
+    assert_eq!(fresh_offer.next().await.unwrap().pts_90khz, 42);
 }

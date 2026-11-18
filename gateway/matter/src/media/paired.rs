@@ -185,7 +185,7 @@ pub(super) async fn receive(
                         dimensions,
                         annex_b: data,
                     };
-                    let _ = reader.sender.send(Message::Picture(generation, unit));
+                    reader.publish_picture(generation, unit);
                 } else {
                     let _ = reader.sound.send(Some((
                         generation,

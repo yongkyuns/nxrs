@@ -285,6 +285,24 @@ the authorized receiver can reopen. Only `result.json` is intended for
 sharing. The fabric witness below exercises independent administrators. Physical
 camera input, product access policy and iPhone rendering still need qualification.
 
+## Source replacement during negotiation
+
+Prepare the pinned SDK with `--variant source-admission` and build the debug
+camera using the commissioning build command. Run
+`gateway/tests/matter_publication_reference.py` with the same arguments as
+the [commissioning test](#operator-initiated-commissioning) and a fresh
+private runtime directory.
+
+The controller decodes a 640×360 publication, leaves a camera offer
+unanswered, and withholds ICE candidates on a second session after receiving
+the answer. Replacing the publisher must end both negotiations with
+`NoUserMedia` and clear the camera’s session list. A new session must decode
+the replacement at 320×240 and end on source loss. The controller then sends
+both offer commands directly and checks that the offline provider returns
+`InvalidInState`. To repeat the generated Opus and privacy regression on
+this build, run `matter_privacy_reference.py` with the same paths, a fresh
+runtime and `--operator-commissioning`. [Host measurements](evidence.json).
+
 ## Timestamped audio/video publication
 
 Run this isolated host test with the pinned receiver environment, FFmpeg with

@@ -1173,5 +1173,91 @@
       "commissioning_closed_and_sessions_empty_on_all_measured_boots": true
     },
     "scope": "Each fresh process reused its original enrollment. The debugger interrupted the actual ACL update or fabric-key deletion in the published SDK fixture. Other per-fabric records, interrupted commissioning, machine power loss, Linux and physical media need separate qualification."
+  },
+  "source_bound_offers": {
+    "host": "macOS arm64, independent Matter Server, aiortc receiver and generated H.264 publications",
+    "fixture": "source-admission",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/media.rs": "83b181282b9bff66f7cf598552995083d8c2a5a72d2094609618ce20e25e90fa",
+      "gateway/matter/src/media/paired.rs": "a4d7b4e55250363ca60d033052117ba96aaabc287416b722fdd1fb1a4d020798",
+      "gateway/tests/matter_publication_reference.py": "922c560f6484033c1c2ea7ddbb677e1d93ce64f1c140b0e133c2d819ef0b9e78",
+      "gateway/tests/matter/source-admission.patch": "d7c96edd7d236fc6c0ade644728e205d060a18491302681ac5692f088be32a1e",
+      "gateway/tests/matter_privacy_reference.py": "6c27b5e27ca9f07bae711cf6a78e4b0bc8bab28e9f77d37cfbc38716d838cbd6"
+    },
+    "comparison": {
+      "previous_commit": "78c354a61502e0b7d17abfcd5edf531cc6be9e47",
+      "observation_seconds_after_replacement": 12,
+      "previous_sessions_still_listed": [
+        "unanswered camera offer",
+        "controller offer answered with ICE withheld"
+      ]
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "42c2e8421be3244e6a6ec9139c12d7481568a9cb8ca95bfe5af8e2a6a68097d0",
+    "per_run": {
+      "original_frames": 45,
+      "original_dimensions": [
+        640,
+        360
+      ],
+      "unanswered_end_reason": 5,
+      "no_ice_end_reason": 5,
+      "replacement_frames": 45,
+      "replacement_dimensions": [
+        320,
+        240
+      ],
+      "active_end_reason": 5,
+      "offline_solicit_status": 203,
+      "offline_provide_status": 203,
+      "final_sessions": 0
+    },
+    "regressions": {
+      "gateway_tests": 75,
+      "additional_native_ffmpeg_tests": 1,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_example_tests": 3,
+      "linux_x86_64_cargo_check": true,
+      "generated_opus_privacy": {
+        "initial_zero_pcm_frames": 100,
+        "live_muted_zero_pcm_frames": 100,
+        "muted_video_frames": 36,
+        "unmute_recovered_tone": true,
+        "privacy_end_reason": 11,
+        "active_audio_and_video_stopped": true,
+        "blocked_before_and_after_restart": true,
+        "restarted_with_same_enrollment": true,
+        "restarted_zero_pcm_frames": 100,
+        "recording_privacy_independent": true,
+        "publisher_continued": true,
+        "unmuted_tone_after_second_restart": true,
+        "allocations_preserved_across_restarts": true,
+        "direct_solicit_denied_while_private": true,
+        "pending_offer_retired": true,
+        "reboot_cleared_session_references": true
+      },
+      "same_fabric_access": {
+        "camera_fabrics": 1,
+        "distinct_controller_nodes": 2,
+        "viewer_read_restored": true,
+        "viewer_revoked_status": 126,
+        "simultaneous_decoded_frames": [
+          20,
+          20
+        ],
+        "revoked_end_reason": 5,
+        "revoked_observation_seconds": 4,
+        "revoked_rtp_packets": 0,
+        "revoked_decoded_frames": 0,
+        "continuing_frames": 60,
+        "new_session_decoded_frames": 15,
+        "same_upstream_reader": true,
+        "pending_revoked_end_reason": 5
+      }
+    },
+    "scope": "A commissioned host fixture consumed one authenticated RTSP input and terminated two distinct pending negotiations on source replacement. Physical camera and microphone, iPhone playback and joined worker retirement under load remain open."
   }
 }

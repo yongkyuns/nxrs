@@ -14,6 +14,7 @@ import av
 
 from matter_audio_allocation import CLUSTER, LIVE_OPUS, rejected
 from matter_audio_reference import publish_av
+from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller
 from matter_reference import measured_peer
 from matter_rtsp_reference import ports, start_device, start_media, wait_path
@@ -62,6 +63,7 @@ async def run(args):
     root = args.runtime.resolve()
     root.mkdir(mode=0o700)
     state = root / "state"
+    factory = provision(root / "factory", args.controller) if args.operator_commissioning else None
     with socket.socket(type=socket.SOCK_DGRAM) as check:
         check.bind((args.ip, 5540))
     with ExitStack() as stack:
@@ -70,16 +72,25 @@ async def run(args):
         def boot(name, initialize=False):
             runtime = root / name
             runtime.mkdir(mode=0o700)
-            return start_device(stack, runtime, args, gateway, port, state, initialize=initialize)
+            flags = ["--factory-data", factory] if factory else []
+            if factory and initialize:
+                flags.append("--open-commissioning-window")
+            return start_device(stack, runtime, args, gateway, port, state, initialize=initialize,
+                                extra_args=flags)
 
         device = boot("first", True)
         children = publish_av(stack, root, args, port, gateway.publisher)
         path = wait_path(gateway, lambda p: p.get("ready") and len(p["readers"]) == 1, (*children, device))
         original_source = path["source"]["id"]
         async with controller(stack, root, args, "admin", ports(1)[0], 32704) as admin:
-            paired = await admin.request(
-                "commission_on_network", setup_pin_code=20202021, ip_addr=args.ip, discovery_timeout_s=60
-            )
+            if factory:
+                code = json.loads((factory.parent / "onboarding.json").read_bytes())["qrCode"]
+                paired = await admin.request("commission_with_code", code=code, network_only=True,
+                                             discovery_timeout_s=60)
+            else:
+                paired = await admin.request(
+                    "commission_on_network", setup_pin_code=20202021, ip_addr=args.ip, discovery_timeout_s=60
+                )
             node = paired["node_id"]
 
             async def read(attr):
@@ -275,6 +286,8 @@ if __name__ == "__main__":
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
+    parser.add_argument("--operator-commissioning", action="store_true",
+                        help="provision a fresh controller code for SDK variants with operator commissioning")
     args = parser.parse_args()
     result = asyncio.run(run(args))
     (args.runtime / "result.json").write_text(json.dumps(result, indent=2) + "\n")

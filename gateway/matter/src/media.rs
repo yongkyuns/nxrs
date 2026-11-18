@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::broadcast,
+    sync::{broadcast, watch},
     time::{self, Instant},
 };
 use url::Url;
@@ -50,7 +50,7 @@ enum Message {
 pub struct Video {
     sender: broadcast::WeakSender<Message>,
     sound: broadcast::WeakSender<Option<(u64, AudioPacket)>>,
-    current: Arc<AtomicU64>,
+    current: watch::Receiver<u64>,
     opus_generation: Arc<AtomicU64>,
 }
 
@@ -58,7 +58,7 @@ impl Video {
     /// Listen to the current authorized microphone. Replacement retires this subscription.
     pub fn subscribe_audio(&self) -> Option<Audio> {
         let queue = self.sound.upgrade()?.subscribe();
-        let generation = self.current.load(Ordering::Acquire);
+        let generation = *self.current.borrow();
         (generation != 0 && self.opus_generation.load(Ordering::Acquire) == generation).then(|| {
             Audio {
                 queue,
@@ -70,10 +70,34 @@ impl Video {
 
     /// Both tracks of the current authorized source have supplied timed media.
     pub fn has_opus_track(&self) -> bool {
-        let generation = self.current.load(Ordering::Acquire);
+        let generation = *self.current.borrow();
         generation != 0 && generation == self.opus_generation.load(Ordering::Acquire)
     }
 
+    /// Bind a new offer to the publication that has supplied a decodable picture.
+    pub fn subscribe_current(&self) -> Option<Pictures> {
+        let mut pictures = self.subscribe()?;
+        let generation = *pictures.current.borrow();
+        if generation == 0 {
+            return None;
+        }
+        pictures.generation = Some(generation);
+        Some(pictures)
+    }
+
+    /// Wake the owner of unanswered offers on publication changes, even without media consumers.
+    pub async fn observe_source(&self, mut changed: impl AsyncFnMut()) {
+        let mut source = self.current.clone();
+        loop {
+            source.mark_unchanged();
+            changed().await;
+            if source.changed().await.is_err() {
+                break;
+            }
+        }
+    }
+
+    /// Wait for a publication, then bind to its first delivered keyframe.
     pub fn subscribe(&self) -> Option<Pictures> {
         Some(Pictures {
             queue: self.sender.upgrade()?.subscribe(),
@@ -95,7 +119,7 @@ pub struct AudioPacket {
 pub struct Audio {
     queue: broadcast::Receiver<Option<(u64, AudioPacket)>>,
     generation: u64,
-    current: Arc<AtomicU64>,
+    current: watch::Receiver<u64>,
 }
 
 impl Audio {
@@ -103,7 +127,7 @@ impl Audio {
         self.queue = self.queue.resubscribe();
     }
     pub fn is_current(&self) -> bool {
-        self.generation == self.current.load(Ordering::Acquire)
+        self.generation == *self.current.borrow()
     }
 
     pub async fn next(&mut self) -> Option<AudioPacket> {
@@ -113,9 +137,7 @@ impl Audio {
                 return None;
             }
             match time::timeout_at(deadline, self.queue.recv()).await.ok()? {
-                Ok(Some((g, p)))
-                    if g == self.generation && g == self.current.load(Ordering::Acquire) =>
-                {
+                Ok(Some((g, p))) if g == self.generation && g == *self.current.borrow() => {
                     return Some(p)
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -129,21 +151,33 @@ impl Audio {
 
 pub struct Pictures {
     queue: broadcast::Receiver<Message>,
-    current: Arc<AtomicU64>,
+    current: watch::Receiver<u64>,
     generation: Option<u64>,
     need_keyframe: bool,
     deadline: Option<Instant>,
 }
 
 impl Pictures {
+    pub fn retired(&self) -> bool {
+        self.generation
+            .is_some_and(|id| id != *self.current.borrow())
+    }
+
+    /// Park an admitted peer during negotiation, until its publication ends.
+    /// A subscriber still waiting for its first publication has no identity to retire.
+    pub async fn wait_until_retired(&mut self) {
+        if let Some(id) = self.generation {
+            let _ = self.current.wait_for(|current| *current != id).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    }
+
     /// A peer starts or recovers from lag at a keyframe. A retired source ends
     /// its peers so a replacement cannot inherit the original RTP clock.
     pub async fn next(&mut self) -> Option<AccessUnit> {
         loop {
-            if self
-                .generation
-                .is_some_and(|g| g != self.current.load(Ordering::Acquire))
-            {
+            if self.retired() {
                 return None;
             }
             let deadline = *self
@@ -154,7 +188,7 @@ impl Pictures {
             }
             match time::timeout_at(deadline, self.queue.recv()).await.ok()? {
                 Ok(Message::Picture(g, frame)) => {
-                    if g != self.current.load(Ordering::Acquire) {
+                    if g != *self.current.borrow() {
                         continue;
                     }
                     if self.generation.is_some_and(|old| old != g) {
@@ -168,7 +202,7 @@ impl Pictures {
                     self.deadline = Some(Instant::now() + SILENCE);
                     return Some(frame);
                 }
-                Ok(Message::End) if self.generation.is_some() => return None,
+                Ok(Message::End) if self.retired() => return None,
                 Ok(Message::End) => {}
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     self.queue = self.queue.resubscribe();
@@ -185,7 +219,7 @@ pub struct Reader {
     credentials: Credentials,
     sender: broadcast::Sender<Message>,
     sound: broadcast::Sender<Option<(u64, AudioPacket)>>,
-    current: Arc<AtomicU64>,
+    current: watch::Sender<u64>,
     opus_generation: Arc<AtomicU64>,
 }
 
@@ -211,13 +245,13 @@ impl Reader {
         };
         let sender = broadcast::Sender::new(QUEUE);
         let sound = broadcast::Sender::new(16);
-        let current = Arc::new(AtomicU64::new(0));
+        let (current, published) = watch::channel(0);
         let opus_generation = Arc::new(AtomicU64::new(0));
         let video = Video {
             sound: sound.downgrade(),
             sender: sender.downgrade(),
             opus_generation: opus_generation.clone(),
-            current: current.clone(),
+            current: published,
         };
         Ok((
             Self {
@@ -236,7 +270,6 @@ impl Reader {
     /// interleaved TCP session; no reconnect or teardown task outlives the owner.
     pub async fn run(self) {
         for generation in 1..=u64::MAX {
-            self.current.store(generation, Ordering::Release);
             tokio::select! {
                 biased;
                 _ = self.check_permission() => {},
@@ -247,8 +280,17 @@ impl Reader {
         }
     }
 
+    fn publish_picture(&self, generation: u64, unit: AccessUnit) {
+        // Both input paths start on a validated random-access picture.
+        if unit.keyframe {
+            self.current
+                .send_if_modified(|id| std::mem::replace(id, generation) != generation);
+        }
+        let _ = self.sender.send(Message::Picture(generation, unit));
+    }
+
     fn retire(&self) {
-        self.current.store(0, Ordering::Release);
+        self.current.send_if_modified(|id| std::mem::take(id) != 0);
         let _ = self.sender.send(Message::End);
         let _ = self.sound.send(None);
     }
@@ -373,7 +415,7 @@ impl Reader {
                 dimensions: (w, h),
                 annex_b: frame.into_data().into(),
             };
-            let _ = self.sender.send(Message::Picture(generation, unit));
+            self.publish_picture(generation, unit);
             deadline = Instant::now() + SILENCE;
         }
     }

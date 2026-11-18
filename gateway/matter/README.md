@@ -8,7 +8,10 @@ For each camera, run one `media::Reader` on the owning executor. It opens a
 credentialed loopback RTSP/TCP connection and forwards H.264 pictures with their
 source timestamps. Each viewer subscribes through `Video`. Eight access units
 are shared across viewers. A lagging viewer resumes at a new keyframe. Source
-loss or replacement ends viewers of the retired source. The caller can cancel
+loss or replacement ends viewers of the retired source. Matter offer handlers
+use `subscribe_current()` at admission. It requires a validated H.264 keyframe
+and binds the peer to that publication while it waits for SDP or ICE. The
+next publication requires a fresh offer. The caller can cancel
 the reader by dropping its future. Give it a strict gateway `camera_source`
 credential scoped to the camera. The gateway reconciles active RTSP sessions
 against its durable denials. The reader also rechecks the same path with RTSP
