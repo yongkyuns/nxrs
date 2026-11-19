@@ -3583,7 +3583,19 @@
     "shared_bridge_reader": true,
     "matter_session_released": true,
     "media_persisted": false,
-    "scope": "An existing encrypted viewer received the real ESP32 feed. The isolated relay decoded and re-encoded it at the original dimensions in memory. The exact merged bridge commissioned with development attestation, and an independent controller obtained the JPEG during playback. The experimental packet-copy relay returned InvalidInState before playback. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
+    "home_assistant_camera_proxy": {
+      "home_assistant": "2026.11.2",
+      "patch_sha256": "0b77e009da4affa535f3571b25c7881fc17c55a5b81ff3841ffac7f6f1494e0c",
+      "width_only_request": [1024, 0],
+      "stock_width_only_status": 500,
+      "patched_width_only_status": 200,
+      "patched_width_only_jpeg_dimensions": [640, 360],
+      "stock_positive_dimensions_status": 200,
+      "stock_positive_jpeg_dimensions": [320, 180],
+      "decoded_matter_frames": 30,
+      "live_session_remained_active_and_released": true
+    },
+    "scope": "An existing encrypted viewer received the real ESP32 feed. The isolated relay decoded and re-encoded it at the original dimensions in memory. The exact merged bridge commissioned with development attestation. An independent controller and two isolated Home Assistant instances exercised JPEG requests during live playback. The experimental packet-copy relay returned InvalidInState before playback. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
   },
   "macos_merged_release_physical_occupancy": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
