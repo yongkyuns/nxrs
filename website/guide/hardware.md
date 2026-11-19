@@ -35,6 +35,12 @@ Use existing Rust bus traits where they express the operation. Keep controller i
 
 The current adapters are concrete integrations. For example, the [I²C adapter](../../driver/i2c/) owns NuttX bus transactions, and the [GPIO adapter](../../driver/gpio/) currently supports rising-edge interrupt registration and input reads. Chip drivers consume the relevant Rust traits. A host test can inject a scripted bus to exercise the protocol without introducing a pretend host hardware backend.
 
+### How a bus reaches a chip driver
+
+A resource adapter sits below the chip protocol. Product composition selects the bus configuration and device address, opens the resource, and explicitly moves that Rust value into the chip driver. The driver uses a bus trait and owns the supplied adapter; ordinary Rust construction carries the dependency. There is no implicit bus injection.
+
+A static catalogue handle identifies the configured device. For the composed acquisition devices, opening an exclusive session constructs the driver/resource path, and joined retirement releases it. Multiple aliases can identify the same physical instance without creating a second session. See [device identity and acquisition](#device-identity-and-acquisition).
+
 ## Capability HALs
 
 A capability HAL presents a subsystem interface, such as storage, transport, a camera, or a data-acquisition device. It owns its public Rust API, errors, resource lifetime, and OS-specific implementation selection.

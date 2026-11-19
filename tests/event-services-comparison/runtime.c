@@ -223,6 +223,7 @@ static int run_allocation(const char *name) {
     }
   }
   if (!queues && !threads && strcmp(name, "alloc-baseline")) return 1;
+  if (requested > es_platform_worker_capacity()) return 1;
   es_platform_alloc_report("baseline", requested);
   if (threads) {
     atomic_store(&allocation_worker_errors, 0);
@@ -265,6 +266,9 @@ int es_run_main(int argc, const char *const *argv) {
   printf("ES_INSTRUMENTATION mode=%s histogram_bins=%u\n",
          ES_LEAN ? "lean" : "full", ES_LEAN ? 0u : ES_HIST_BINS);
   if (!strncmp(argv[1], "alloc-", 6)) return run_allocation(argv[1]);
+  /* Ask across the adapter boundary so the application workload and its
+   * storage remain linked in reduced-capacity allocation controls as well. */
+  if (es_platform_worker_capacity() != ES_SERVICES) return 1;
   if (!strcmp(argv[1], "saturation"))
     return es_run_saturation();
   if (!strcmp(argv[1], "normal"))

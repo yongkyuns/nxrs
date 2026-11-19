@@ -90,6 +90,9 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(len(pages), len(set(pages)))
         for name in pages:
             self.assertTrue((ROOT / 'docs' / name).is_file(), name)
+            self.assertTrue(self.config['reference_descriptions'].get(name), name)
+        for name in self.config['reference_descriptions']:
+            self.assertTrue((ROOT / 'docs' / name).is_file(), name)
 
     def test_documented_std_cases_exist(self):
         source = (ROOT / 'app/std-demo/src/main.rs').read_text()

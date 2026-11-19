@@ -1,5 +1,7 @@
 # Nxrs: portable embedded architecture and roadmap
 
+> **Design history.** These stages preserve earlier decisions and migration scope. Start with [architecture and source ownership](architecture.md) for the implemented boundaries and [current status](../website/guide/status.md) for validation.
+
 **Revision:** 10 — product-platform selection plus qualified multi-app/multi-instance composition.
 **Updated:** September 29, 2026.
 **Documentation baseline:** `686d59c46484a66d12085ab946e6a882970a869f` (merged PR #2).

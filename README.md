@@ -92,7 +92,16 @@ cargo test --locked
 python3 tools/check-architecture.py
 ```
 
-Performance and memory remain part of ongoing development. Evaluations include image size, stacks, heap use, queues, event latency, and throughput, with reference comparisons such as Zephyr. See the [test index](tests/README.md), [performance guide](website/guide/performance.md), [event-path measurements](docs/std-channel-performance.md), [footprint study](docs/rust-std-footprint.md), and [RTOS comparisons](docs/rtos-comparison.md).
+Start with the [performance guide](website/guide/performance.md) to choose a measurement, or read the findings by question:
+
+| Question | Read |
+| --- | --- |
+| How do delivery, RAM and deadlines compare with Zephyr and Embassy? | [RTOS comparison results](docs/rtos-comparison.md) |
+| What do bounded Rust channels cost and how do they wait? | [Channel behavior and performance](docs/std-channel-performance.md) |
+| What consumes RAM and flash as services are added? | [Memory and image size](docs/rust-std-footprint.md) |
+| Which tests can I run? | [Test and fixture index](tests/README.md) |
+
+Each summary states the tested workload, useful conclusion and measurement limits. Detailed historical experiments remain linked as evidence.
 
 ## Documentation and examples
 

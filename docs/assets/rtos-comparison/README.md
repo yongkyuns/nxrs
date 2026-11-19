@@ -1,6 +1,6 @@
 # RTOS comparison figures
 
-Figures for the [RTOS analysis](../../rtos-comparison.md), rendered from the
+Figures for the [historical native-adapter study](../../history/native-rtos-study.md), rendered from the
 committed public JSON cohorts. Timing cohorts are not pooled.
 
 From the repository root:

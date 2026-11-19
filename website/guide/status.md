@@ -31,10 +31,10 @@ Existing validation includes host unit and integration tests, target build and A
 | Simulator execution | [NuttX simulator](../../docs/nuttx-sim.md) |
 | Emulated target execution | [NuttX QEMU](../../docs/nuttx-qemu.md) |
 | Event delivery | [Channel performance](../../docs/std-channel-performance.md) |
-| Resource use | [Rust std footprint](../../docs/rust-std-footprint.md) |
-| Reference comparisons | [RTOS comparisons](../../docs/rtos-comparison.md) |
+| Resource use | [Memory and image size](../../docs/rust-std-footprint.md) |
+| Reference comparisons | [Same-board RTOS results](../../docs/rtos-comparison.md) |
 
-Each report records its tested configuration. Application-specific results are linked from [Examples](examples.md).
+Start with the [performance guide](performance.md) to distinguish a result summary, a measurement method and a historical report. Each report records its tested configuration. Application-specific results are linked from [Examples](examples.md).
 
 The [characterization campaign](../../tests/rtos-characterization/README.md) adds controlled messaging, memory, progress, and lifecycle observations. Read the results' source/image/configuration scope when using them. Historical reports retain their original cohorts; a later source change is not automatically covered by an earlier physical run.
 

@@ -1,189 +1,126 @@
-# Rust std footprint on NuttX
+# Rust std memory and image size
 
-Rust std is a viable candidate for nxrs services, provided runtime APIs,
-logging and buffers are chosen deliberately. Most support code is shared,
-but adding new API families, generic types or concurrent owners still adds
-code or storage. The measurements do not establish zero overhead or qualify
-a complete 250 kB product.
+This report assesses two costs of using Rust on NuttX: the RAM needed for ordinary std workers and inboxes, and the linked image size of a matched C/Rust application. The studies use different firmware and workloads. Their results are reported separately and cannot be combined into a single “Rust overhead” figure. A fresh native C control also separates NuttX/Zephyr resource costs from equal stack and payload budgets.
 
-This analysis covers the historical ESP32-S3 footprint fixture through
-October 3, 2026. The [demo and before/after recipes](../tests/service-footprint/README.md)
-preserve the choices to try. [Recorded evidence](../tests/service-footprint/results/esp32s3-2026-10-03.json)
-contains accounting and hashes; cleaned sources are not byte-identical to
-those firmware images. The later [RTOS comparison](rtos-comparison.md) uses
-different workloads and compiler cohorts, not additional samples of this test.
+<a id="matched-work-not-just-matching-names"></a>
 
-## Matched work, not just matching names
+## Test setup
 
-The first skeleton was unfair because C did less. The replacement LED service
-matched HAL control/readback, a worker, commands, replies and shutdown.
-The larger packet fixture matches four producers, fifteen workers, one
-collector, sixty POSIX queues and twenty spawned threads. Both languages
-validate 5,760 event/reply pairs.
+### RAM: ordinary Rust workers and inboxes
 
-Each 248-byte event carries 32 XYZ sample frames. Workers validate packets
-and update three fixed-point filter states per stream; the collector checks
-their replies independently. This is not the earlier artificial checksum.
-C/Rust share the kernel configuration, poll selection, stack reservations,
-clock and release gate. Host transports are different and cannot establish
-device performance.
+| Item | Tested configuration |
+| --- | --- |
+| Hardware and OS | Physical ESP32-S3 WROOM, one 240 MHz core, flat NuttX; networking and external RAM disabled |
+| Build | `esp32s3-ram-footprint` profile; ordinary `fn main` binaries with allocation probes and stack coloration; source `ab7fdc45` |
+| Workloads | Instrumented baseline, std threads, std inbox services, Crossbeam selection services; 0, 1, 5, 10 and 20 owners |
+| Worker storage | 4,096-byte requested stack per worker; controller provision in the fixture recipe is 16,384 bytes |
+| Std service inbox | One 24-slot FIFO per owner, with 64-byte inline events |
+| Crossbeam service inbox | Three eight-slot FIFOs per owner, with 64-byte inline events and three-arm `select_biased!` |
+| Repetition | Three rotated passes of 26 cases: 78 physical captures |
+| Lifecycle | Construction, capacity fill/drain, first timeout, eight repeated wait cycles, joined teardown |
+| Correctness | Payload and ordering validation; full-queue rejection returns the submitted value |
 
-## Image size
+The observer sampled Rust allocations and native heap at quiescent gates, with printing outside the measured phase. First-use reporting machinery was warmed before the workload baseline. Separate queue-only controls distinguished channel storage from thread storage. The linked-image totals came from the corresponding images. [Fixture and build procedure](../tests/ram-footprint-std/README.md).
 
-### Which choices mattered?
+### Cross-RTOS RAM control: native C workers and queues
 
-The early roughly 230 kB increase was an **ELF file-size** difference, not
-230 kB of deployed code. Debug symbols and metadata need not enter the flash
-binary. Inspect final code + initialized data after optimization/LTO;
-do not strip the relocatable Rust input before NuttX's final link.
+On November 17, 2026, the WROOM ran separately linked 0/1/20-worker C images under NuttX `2b5c0de5e933` and Zephyr 4.5.0 `41d10b597304`, using the same GCC 14.2.0. The fixture provides 60 queues with 480 × 64-byte slots, lean reporting, stack coloration, one 240 MHz core, 1 ms ticks and 10 ms timeslices; radio and PSRAM are disabled. Three rotated passes exercised thread-only creation/join, queue-only fill/drain, and saturation with twenty workers alive. A further paired control supplied at least 4 KiB **usable** stack per worker. All 24 boots / 48 profiles passed replay. This uses native pthread/POSIX and Zephyr APIs, with no ordinary Rust runtime. [Setup and evidence](../tests/rtos-characterization/WROOM-REVIEW.md).
 
-These are separate controlled builds, not an additive optimization ladder:
+### Image size: matched C/Rust packet application
 
-| Matched application and Rust choice | Extra code + initialized data over C |
-| --- | ---: |
-| Concurrent LED/payload, custom one-slot MPSC | 19,750 B |
-| Same application, std MPSC | 40,130 B |
-| Same application, Crossbeam | 42,062 B |
-| Silent LED, ordinary Rust entry and std worker | 13,042 B |
-| Same silent LED, embedded entry and native pthread adapter | 1,956 B |
+| Item | Tested configuration |
+| --- | --- |
+| Hardware | Freenove ESP32-S3 WROOM, 240 MHz; measurements recorded October 3, 2026 |
+| Software | NuttX `2f3eb6d`, apps `85539a1`; Rust `esp-1.90.0.0` / `abf50ae2e` / LLVM 20.1.1; C GCC 14.2.0 |
+| Workload | Four producers, 15 workers, one collector; 60 POSIX queues; 248-byte events containing 32 XYZ frames |
+| Matched controls | Kernel configuration, queue/poll behavior, stack provisions, clock and release gate; 5,760 event/reply pairs validated |
+| Stack reservations | 83,968 bytes for 20 spawned threads, plus an 8,192-byte command stack |
+| Measurement | Final linked code and initialized data, flat binary size and mutable static storage from each image |
 
-Crossbeam's multi-queue selection and channel semantics provide more than
-a narrow one-slot mailbox. Choose a transport for its contract, then measure
-the linked cost; these figures are not prices per queue.
+This older fixture uses native adapters and retained formatted reporting. It does **not** measure the ordinary std inbox implementation above. Original source hashes, configuration identity and per-image records are in the [packet evidence](../tests/service-footprint/results/esp32s3-2026-10-03.json). The later cleanup checkout is not byte-identical to those measured sources.
 
-Formatting means converting values into text. `println!` also retains stdout
-locking, buffering and error paths. Removing output saved 3,788 B in the
-controlled Rust LED build versus 180 B in C, whose shell already retained
-output support. Even a constant print can bring in that machinery.
+### Assumptions and accounting boundaries
 
-Ordinary Rust entry retained process startup/cleanup for descriptors, signals,
-arguments and stdout. An embedded entry removed 3,284 B in that silent build,
-but omits services some applications need. The native pthread adapter similarly
-omits std naming, parking, thread-local and join/result/panic bookkeeping;
-it is not a drop-in replacement for every `std::thread` use.
+- **Native heap includes Rust allocations and worker storage.** Rust requested-byte counters are a subset, so adding the two would double-count memory.
+- **Heap growth is relative to a warmed workload baseline.** It is neither total firmware RAM nor a per-channel price. Linked resident RAM, baseline heap and platform reservations remain separate.
+- **Equal capacity does not mean equal semantics.** At 20 owners both inbox variants hold 480 events, or 30,720 payload bytes. Crossbeam provides three independently admitted queues per owner; std provides one shared FIFO.
+- **Image contents differ from storage span.** A flat binary includes layout gaps. The full ELF file also contains non-deployed metadata. Neither is interchangeable with linked code/data.
+- **Lifecycle observations are bounded by the exercised paths.** A stable retained allocation is not evidence of a continuing leak, and observed stack high water is not a worst-case bound.
 
-An independent twenty-idle-thread control, with equal kernel, entry and stacks,
-found **10,808 B additional code + initialized data and 4,792 B peak heap**
-for std threads. Common worker stacks are excluded. That is a measured
-twenty-thread point, not a universal per-thread charge or messaging speed tax.
-The [thread evidence](../tests/event-services-comparison/results/thread-wrapper-costs-2026-10-03.json)
-records the narrower adapter's contract.
+## RAM results
 
-### Final packet fixture
+<a id="ram"></a>
+<a id="ordinary-rust-scaling-controls"></a>
 
-| Diagnostic packet application | C | Rust | Rust − C |
+| Image / workload | Linked resident RAM | Observed native heap increase |
+| --- | ---: | ---: |
+| Instrumented baseline | 57,688 B | Reference baseline |
+| 20 std workers | 57,704 B | 90,448 B |
+| 20 services with std inboxes | 57,720 B | 124,064 B |
+| 20 services with Crossbeam selection | 62,040 B | 152,232 B |
+
+The std inbox configuration added 33,616 bytes of observed heap growth beyond the thread-only control. Its inline payload capacity accounts for 30,720 bytes; the remainder includes queue/control storage and allocator effects. The Crossbeam configuration used more storage under its different queue and selection contract. These differences describe the tested 20-owner cases, not universal per-owner costs.
+
+After joined teardown, worker cases retained 112 bytes above the warmed baseline. Queue-only controls returned to baseline. The repeated lifecycle controls distinguish this observed retained state from the storage released with queues and workers. [Physical RAM results](../tests/rtos-characterization/PHYSICAL-RESULTS.md#ram).
+
+## Native RAM control results
+
+| Twenty workers and 30,720 payload bytes | NuttX C | Zephyr C |
+| --- | ---: | ---: |
+| Equal 4,096-byte stack requests | 218,948 B | 204,076 B |
+| At least 4,096 **usable** bytes per worker | **223,748 B** | **204,076 B** |
+
+NuttX's 4,096-byte request yielded 3,864–3,872 usable bytes; its 4,336-byte request yielded 4,104–4,112. Zephyr provided exactly 4,096. The latter control therefore retains 8–16 extra aligned bytes per NuttX worker. All passes produced the same total RAM. NuttX totals combine ELF reservations and observed native heap high water; Zephyr's reserved stacks and heap arena already belong to its ELF. The lower apparent NuttX total with equal requests does not provide equal usable capacity.
+
+The final **19,672 B / 9.6%** difference reconciles to +27,656 B queue storage/controls, +6,864 B worker storage, −13,304 B RAM instructions/vectors, and −1,544 B net remaining reservations/baseline/measurement storage. Equal payload and usable stack budgets do not explain the difference. The [detailed ledger](../tests/rtos-characterization/WROOM-REVIEW.md#ram-separate-requests-usable-stacks-and-queue-costs) identifies queue headers, allocator alignment, descriptor-related creation and spare preallocated pool storage. These are configured native API costs, not a Rust tax or unavoidable fixed kernel memory. Code-placement policies also differ from each other and from the MPSC timing images.
+
+For the cooperative Embassy results and the associated deadline behavior, see [service RAM and deadlines](rtos-comparison.md#service-ram-and-deadline-behavior).
+
+<a id="image-size"></a>
+<a id="final-packet-fixture"></a>
+<a id="which-choices-mattered"></a>
+
+## Image-size results
+
+| Matched packet image | C | Rust | Rust minus C |
 | --- | ---: | ---: | ---: |
-| Code + initialized data | 135,400 B | 155,418 B | +20,018 B |
-| Flash binary size[^flash-size] | 214,440 B | 215,116 B | +676 B |
+| Linked code + initialized data | 135,400 B | 155,418 B | +20,018 B |
+| Flat binary | 214,440 B | 215,116 B | +676 B |
 
-The code/data delta comprises 19,262 B instructions, 676 B read-only data and
-80 B initialized RAM data. Another 104 B of BSS affects RAM only. This fixture
-retains formatted reports; its result is not the silent LED's runtime floor.
+Rust retained about 14.8% more linked code/data in this fixture. Its much smaller binary-size difference reflects image layout and padding; it does not mean the additional code occupies only 676 bytes. Mutable static storage also increased by 104 bytes. Detailed section accounting remains in the [original packet study](history/rust-footprint-study.md#final-packet-fixture).
 
-Binary offset/alignment padding absorbs much of the extra code in this pair.
-Those bytes still exist and later growth can cross the boundary. Debug symbols
-are in neither column.
+<a id="a-memory-budget-you-can-use"></a>
+<a id="what-grows-with-another-owner"></a>
+<a id="one-time-versus-recurring-growth"></a>
+<a id="speed"></a>
+<a id="keep-footprint-and-speed-separate"></a>
+<a id="what-to-adapt"></a>
+<a id="measure-your-application"></a>
 
-### One-time versus recurring growth
+## Interpretation
 
-Reused runtime, output and transport routines normally link once. New
-handlers, strings, error paths and generic message/closure/container types can
-retain additional specializations; inlining and LTO affect sharing.
+**Stack provision dominates the ordinary std worker configuration.** Twenty 4,096-byte requests reserve 81,920 bytes before native metadata. That provision is about 91% of the 90,448-byte thread-only heap increase and 66% of the std-service increase. These are comparisons with requested capacity, not allocator attribution. They explain this application's total, not its excess over another RTOS.
 
-Adding matched packet computation increased C by 972 B and Rust by 1,104 B:
-the gap grew by **132 B**, not another 20 kB. In a separate silent growth
-study, the Rust delta rose from 1,484 B for one service to 2,428 B for three.
-Neither is a universal growth rate.
+**Inline payload capacity dominates the added std inbox storage.** The 30,720 payload bytes account arithmetically for about 91% of the 33,616-byte increase above the thread-only control. Crossbeam adds 28,168 heap bytes and 4,320 linked resident bytes over the std-service image. Its three queues and selection machinery provide different admission isolation; these aggregate differences do not isolate selector overhead. Consolidating queues saves resources only if a shared FIFO preserves the required stop/control behavior.
 
-First-use container probes added 316 B for the tested `Vec`, 4,684 B for a
-default `HashMap`, 1,556 B for decimal formatting and 224 B for parsing.
-These depend on types and operations, not instance count. Reserve capacities
-and check the final application's retained symbols rather than banning std
-containers.
+**The packet image difference is primarily instructions.** Of the 20,018 extra linked bytes, 19,262 are instructions, 676 read-only data and 80 initialized RAM data. The section ledger establishes where the bytes reside, but does not assign them all to formatting, runtime support or generic specialization. Shared support can link once, while each new type or handler may retain specialized code. The small flat-binary delta reflects padding, not free executable storage. [Section breakdown](history/rust-footprint-study.md#final-packet-fixture).
 
-## RAM
+**The native control identifies recurring costs without calling the remainder fixed RTOS overhead.** Zephyr's separately linked images add 4,256 B per worker: 4,096 stack and 160 object/entry/observation bytes. NuttX's one-worker control adds 4,328 heap plus 28 static bytes for an equal request, before whole-section alignment. Raising NuttX's request to meet the usable-stack floor adds 4,800 B across twenty workers. Queue bookkeeping is still the largest positive cross-RTOS difference. Native POSIX message nodes and descriptor-backed queues have different storage policies from both Zephyr's static queue and Rust's typed ring. The older October ledger remains historical; its 15,728-byte difference must not be combined with these new values.
 
-The packet stress fixture's **205,792 B C / 209,528 B Rust** totals include
-kernel/static memory, heap, diagnostics and 83,968 B of common spawned-thread
-stack reservations. They are not messaging-only costs or minimum nxrs budgets.
+## Conclusions
 
-| Increment above live idle threads | C | Rust | Rust − C |
-| --- | ---: | ---: | ---: |
-| Workload ready-point heap | 20,816 B | 22,936 B | +2,120 B |
-| Peak workload heap | 36,220 B | 38,244 B | +2,024 B |
+The first RAM optimization should target provisioned execution and payload storage. Budget one worker for an execution need, choose queue capacity from the tolerated burst, and keep large buffers out of inline messages when a bounded ownership transfer suffices. A buffer handle changes where memory is counted; the backing pool still belongs in the budget.
 
-This increment still includes queues, application state, diagnostics and
-transient activity. The total Rust/C difference is larger because their idle
-and resident resources also differ. Accepted repeated runs showed no further
-retained heap after initialization.
+For image size, inspect retained symbols and their callers before removing APIs. Removing required thread cleanup or diagnostics changes the product contract. The measured packet delta is not a charge repeated for every new service, and these fixtures omit costs such as networking and model state.
 
-Queue payloads/metadata, active send buffers and owner-specific buffers are
-recurring costs. NuttX can allocate a message before waiting for a slot, so
-configured queue capacity alone does not bound concurrent sender storage.
-Existing static pools must not be counted again as heap.
+### Focused follow-up
 
-The newer lean LED demo has a different event size, queue layout and startup;
-its much smaller language RAM delta is documented in the RTOS guide.
-Do not substitute it for this stress workload. Common stack sizing is a
-separate product decision, not an explanation for Rust messaging overhead.
+- **Target the measured native queue cost before changing execution structure.** Review spare pool capacity and descriptor/message bookkeeping against the required admission semantics. Compare one change with the same saturation and lifecycle checks. Smaller stacks require actual handler, error and teardown coverage; the observed 720-byte NuttX / 372-byte Zephyr worker high water does not qualify a new safe size. Neither zero-worker image is a bare-kernel baseline: application and queue reservations remain linked.
+- **Attribute flash growth with one matched build change.** Use the final map/symbol inventory to select the largest retained optional component, rebuild with it removed or simplified, and compare linked sections as well as binary span. Keep behavior checks fixed; do not infer current savings from the older fixture's formatting controls.
 
-### Ordinary Rust scaling controls
+## Evidence and reproduction
 
-The [RAM scaling fixture](../tests/ram-footprint-std/README.md) adds four
-separate ordinary-entry binaries: baseline, std threads, actual Nxrs bounded
-inboxes, and the pinned Crossbeam selection candidate. It measures 0, 1, 5,
-10 and 20 owners, with queue-only and complete worker/queue lifecycle cases.
-All capacity cases use 64-byte events and 24 slots per owner. The std service
-uses one 24-slot FIFO; Crossbeam uses three isolated eight-slot FIFOs, so their
-admission and selection semantics remain explicit.
-
-The [November 10 host evidence](../tests/ram-footprint-std/results/README.md)
-contains 78 fresh-process invocations. All reclaimed requested Rust allocation
-bytes and blocks after cleanup, and repeated timeout rounds allocated nothing
-further after the first completed wait. These are host functional/allocation
-observations, not MCU footprints. The target helper records native heap and
-live-thread stack coloration through actual NuttX headers; those observations
-remain unavailable in host records. Native heap already includes Rust backing
-allocations, so the two counters must never be summed.
-
-The new `esp32s3-ram-footprint` profile keeps ordinary std support, a common
-NSH baseline, one core, stack coloration and no PSRAM. Use the same compiler,
-profile, command name and main-stack request for every binary. This profile
-is separate from the older shell-free native-API size comparison. Physical
-target runs are required before assigning a per-thread or per-channel MCU
-cost or choosing reduced stack requests.
-
-## Speed
-
-The timed interval starts after setup and ends at the last validated reply;
-construction, printing and final teardown are excluded. Separately flashed
-C/Rust images gave a large but unstable difference. Alternating languages
-inside the same image gave paired median Rust/C ratios of **1.125 transport,
-1.055 packet processing and 1.068 direct-fill packet processing**.
-
-Thus the packet path was about 5–7% slower in those historical controls,
-not proven equal. Scheduling and placement still affect the result; it is
-not an isolated queue-operation measurement or a prediction for newer images.
-
-The suspected extra 248-byte Rust wire copy was already optimized away.
-Directly filling packet samples removed a real 192-byte temporary and reduced
-producer stack high-water, not its reservation. It did not demonstrate a
-reliable end-to-end speed win.
-
-## What to adapt
-
-Use bounded capacities, reuse buffers and shared byte-level transport helpers,
-and keep rich diagnostic output optional. Use std lifecycle APIs when their
-behavior is needed; use the narrow native layer only within its explicit
-contract. Measure code/data, actual binary, full-capacity RAM and timing tails
-separately.
-
-The historical demo does not qualify cancellation, disconnect, peer failure
-or partial-startup recovery. The newer [service qualification](../tests/service-qualification/README.md)
-adds bounded lifecycle evidence, not universal production guarantees.
-Driver memory, worst-case concurrency and business logic still need a product
-budget.
-
-[^flash-size]: The flash binary includes boot components, headers and
-    offset/alignment padding. Debug symbols enlarge the separate ELF artifact,
-    not either column; uninitialized RAM such as `.bss` is also excluded.
+- [Physical RAM summary](../tests/rtos-characterization/PHYSICAL-RESULTS.md#ram), [ordinary Rust fixture](../tests/ram-footprint-std/README.md) and [separate host allocation records](../tests/ram-footprint-std/results/README.md).
+- [Matched packet fixture](../tests/service-footprint/README.md), [recorded image data](../tests/service-footprint/results/esp32s3-2026-10-03.json) and [original footprint study](history/rust-footprint-study.md). The archive retains the earlier entry, formatting and computation controls.
+- [Allocation observation](memory-qualification.md), [native heap and stack measurement](nuttx-memory-qualification.md) and [application budgeting procedure](../website/guide/performance.md).
+- [Bounded-channel implementation](std-channel-performance.md) and [message-delivery comparison](rtos-comparison.md) for the separate timing question.
