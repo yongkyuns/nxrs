@@ -183,13 +183,12 @@ on cellular and the deployment's Tailscale routing still need physical tests.
 
 ## Four-viewer Linux soak
 
-In the same disposable Linux guest, prepare the `tls-management` variant
-with the same DNS-SD archive. Build the SDK fixture
-with `cargo build --release` and the same features and pins above. Run
-`gateway/tests/matter_soak_reference.py` with the same executable arguments
-as the LAN test, `--sdk` for the pinned SDK's test attestation chain, and a
-fresh runtime directory. The default is 24 hours with
-samples every 60 seconds. For a rehearsal, add `--duration 120 --interval 10`.
+Build the [gateway candidate](../../matter/README.md#build-the-gateway-candidate)
+in the disposable Linux guest. Run `gateway/tests/matter_soak_reference.py`
+with the same executable arguments as the LAN test, `--sdk` for the pinned
+SDK's test attestation chain, and a fresh runtime directory. The default is
+24 hours with samples every 60 seconds. For a rehearsal, add
+`--duration 120 --interval 10`.
 
 Four independently commissioned Matter fabrics decode the same H.264
 publication over WebRTC. A fifth offer must fail at capacity. The run checks
@@ -200,7 +199,11 @@ under one second during offer expiry and fabric replacement.
 `samples.jsonl` records source and per-viewer
 decoded FPS, frame gaps, bridge RSS, threads and descriptors. `result.json`
 is written after a successful teardown. Keep controller state and raw logs
-private. See the [release rehearsal](evidence.json).
+private. The earlier TLS fixture completed 24 hours at 14.55–15.446 decoded
+FPS, and all four viewers recovered in 5.955 seconds after the restart.
+The merged release at `fd89e5c7` recovered four viewers in 6.946 seconds in
+its two-minute rehearsal.
+[Measured results](evidence.json).
 This fixture uses generated video in a guest. Physical ESP32 streaming,
 iPhone rendering and microphone audio require separate tests.
 
