@@ -3492,6 +3492,30 @@
     "linked_i2s_receive": true,
     "scope": "Off-device build of the merged revision. Physical microphone capture, mute, and iPhone playback remain open."
   },
+  "physical_camera_capture_timing_baseline": {
+    "physical_camera": true,
+    "running_firmware_version_confirmed": false,
+    "viewer_h264_access_units": 1556,
+    "median_relative_delay_growth_ms_per_second": 17.335,
+    "viewer_windows": [
+      {
+        "stamped_access_units": 784,
+        "capture_span_seconds": 44.427,
+        "delivery_span_seconds": 45.097,
+        "accumulated_relative_delay_ms": 670.2,
+        "freshness_rejection_seconds_from_observer_start": 52.582
+      },
+      {
+        "stamped_access_units": 772,
+        "capture_span_seconds": 44.263,
+        "delivery_span_seconds": 45.157,
+        "accumulated_relative_delay_ms": 894.5,
+        "freshness_rejection_seconds_from_observer_start": 50.245
+      }
+    ],
+    "qualified_receive_queue_samples": 0,
+    "scope": "A read-only viewer sampled the existing physical camera and deployed Nxrs gateway across two naturally starting publications. The per-frame capture stamps advanced more slowly than Mac RTP delivery time in both windows. The gateway freshness guard retired each publication. This relative comparison includes path delay. The time-aligned TCP queue probe did not match the ingress socket, and the active firmware version and cause of the timing gap remain unverified."
+  },
   "esp32s3_monotonic_clock_emulator": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
