@@ -3478,6 +3478,20 @@
     },
     "scope": "ESP32-S3 firmware was built and signed off-device. The two macOS trials used the same generated mTLS camera, encoder and RTSP path. The gateway-only run drove the real gateway permission endpoint and checked explicit mute and lease expiry. The full run retained the commissioned Matter controller and WebRTC assertions. Physical capture and iPhone playback remain open."
   },
+  "wroom_merged_microphone_build": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "app": "home-cam",
+    "platform": "wroom",
+    "profile": "esp32s3-camera-microphone",
+    "target": "xtensa-esp32s3-nuttx",
+    "abi_witnesses": 122,
+    "signed_image_bytes": 1901322,
+    "signed_image_sha256": "2e98cc656d41882d6c470c53208e38dc73cfc05d2652932a3c899d6287fb80b2",
+    "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+    "disposable_signature_verified": true,
+    "linked_i2s_receive": true,
+    "scope": "Off-device build of the merged revision. Physical microphone capture, mute, and iPhone playback remain open."
+  },
   "linux_24_hour_tls_fixture": {
     "nxrs_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
     "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
