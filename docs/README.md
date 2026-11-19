@@ -23,7 +23,7 @@ Start with the [performance guide](../website/guide/performance.md) to choose a 
 
 | Question | Reference |
 | --- | --- |
-| How does message delivery compare on WROOM and Pico 2 W? | [NXRS, NuttX and Zephyr](rtos-comparison.md) |
+| How do delivery, RAM and deadlines compare with Zephyr and Embassy? | [RTOS comparison results](rtos-comparison.md) |
 | How do bounded std inboxes work, and where does their cost come from? | [Bounded channels](std-channel-performance.md) |
 | What consumes RAM and flash as the application grows? | [Memory and image size](rust-std-footprint.md) |
 | How do I detect allocation, retention and stack pressure? | [Rust allocation](memory-qualification.md), [NuttX heap and stacks](nuttx-memory-qualification.md) |

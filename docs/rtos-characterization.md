@@ -234,11 +234,11 @@ implementation references.
 | [Physical timer and camera checks](../tests/rtos-characterization/PHYSICAL-RESULTS.md#supplemental-board-checks) | A Pico timer alarm woke a blocked Rust worker under load. A WROOM camera recovered from an injected read error in the same boot and Wi-Fi session. | Physical IMU IRQ-to-sample latency and protected recovery require separate qualification. |
 | [Architecture and capability contracts](concurrency-event-communication.md) | Ownership, independent admission, failure retention and shutdown requirements are explicit. | A requirement is not an executed witness; each chosen provider/runtime still needs qualification. |
 
-The old lean RAM figures put native-adapter NuttX Rust at 221,108 B and Zephyr C
-at 205,380 B in that fixture. This is a 15,728 B configured-image difference,
-not a measured price for NXRS. Embassy's separate 61,172 B row is useful as an
-async execution reference, but the earlier near-threefold full-image ratio
-cannot rank the three application environments covered by this document.
+For measured totals and their implications, see the
+[service RAM and deadline comparison](rtos-comparison.md#service-ram-and-deadline-behavior).
+The four-way service case compares cooperative and threaded execution. The
+matched usable-stack control separates stack and queue costs for native NuttX
+and Zephyr. The ordinary Rust case measures the std path used by NXRS.
 
 ## Reporting discipline
 
