@@ -256,12 +256,18 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> EncoderInput<R, W> {
 struct Permit {
     id: [u8; 16],
     valid_for_ms: u64,
+    #[serde(default)]
+    muted: bool,
+    #[serde(default)]
+    hold_audio: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct CapturePermission {
     id: [u8; 16],
     deadline: Instant,
+    muted: bool,
+    hold_audio: bool,
 }
 
 fn current(receiver: &watch::Receiver<Option<CapturePermission>>) -> Option<CapturePermission> {
@@ -280,16 +286,24 @@ pub(crate) async fn pump<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Unpi
     let control = config.microphone_control.ok_or(Error::Configuration)?;
     let enrollment = config.camera_tls.as_ref().ok_or(Error::Configuration)?;
     let (permits, permit) = watch::channel(None);
+    let (applied, observed) = watch::channel::<Option<([u8; 16], Instant)>>(None);
     let poll = async {
         loop {
             let requested = Instant::now();
+            let receipt = observed
+                .borrow()
+                .filter(|(_, time)| {
+                    requested.saturating_duration_since(*time) < Duration::from_millis(600)
+                })
+                .map(|(id, _)| id);
+            let report = serde_json::json!({ "version": 2, "applied": receipt }).to_string();
             let body = crate::control::publisher_post(
                 control,
                 &enrollment.camera_id,
                 &config.publisher_user,
                 publisher_token,
                 "microphone-permit",
-                b"{}",
+                report.as_bytes(),
             )
             .await;
             let received = body
@@ -299,6 +313,8 @@ pub(crate) async fn pump<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Unpi
                 .filter(|permit| (1..=1500).contains(&permit.valid_for_ms))
                 .map(|permit| CapturePermission {
                     id: permit.id,
+                    muted: permit.muted,
+                    hold_audio: permit.hold_audio,
                     // Time in the request/response already consumes the lease.
                     deadline: requested + Duration::from_millis(permit.valid_for_ms),
                 })
@@ -311,7 +327,7 @@ pub(crate) async fn pump<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Unpi
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     };
-    let encode = pump_with_permits(source, output, config, metadata, permit);
+    let encode = pump_with_permits(source, output, config, metadata, permit, applied);
     tokio::select! { result = encode => result, () = poll => Err(Error::Stopped) }
 }
 
@@ -321,11 +337,12 @@ async fn pump_with_permits<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Un
     config: &Config,
     metadata: watch::Sender<Option<Sample>>,
     permit: watch::Receiver<Option<CapturePermission>>,
+    applied: watch::Sender<Option<([u8; 16], Instant)>>,
 ) -> Result<()> {
     let mut input = EncoderInput::start(source, output, config).await?;
     let mut authorized = None;
     loop {
-        let granted = current(&permit).map(|permission| permission.id);
+        let granted = current(&permit).filter(|p| !p.muted).map(|p| p.id);
         if authorized.is_some() && granted != authorized {
             if input.microphone_deadline.is_some() {
                 // The pending unmute is superseded. Closing transport cancels
@@ -338,8 +355,9 @@ async fn pump_with_permits<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Un
             authorized = granted;
             input.request_microphone(false).await?;
         }
-        let part =
-            input.next_admitted(|| current(&permit).is_some_and(|p| Some(p.id) == authorized));
+        let part = input.next_admitted(|| {
+            current(&permit).is_some_and(|p| !p.muted && !p.hold_audio && Some(p.id) == authorized)
+        });
         let retire_stalled = async {
             if authorized.is_none() {
                 std::future::pending::<()>().await;
@@ -347,9 +365,9 @@ async fn pump_with_permits<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Un
             let mut changes = permit.clone();
             loop {
                 let permission = *changes.borrow_and_update();
-                let Some(permission) =
-                    permission.filter(|p| Some(p.id) == authorized && p.deadline > Instant::now())
-                else {
+                let Some(permission) = permission.filter(|p| {
+                    !p.muted && Some(p.id) == authorized && p.deadline > Instant::now()
+                }) else {
                     break;
                 };
                 tokio::select! {
@@ -364,6 +382,18 @@ async fn pump_with_permits<R: AsyncRead + AsyncWrite + Unpin, W: AsyncWrite + Un
             _ = retire_stalled => return Err(Error::Stale),
             result = part => result?,
         };
+        // Report only a settled, current command from this authenticated session.
+        // A pending mute suppresses PCM immediately, but is not confirmation.
+        let receipt = current(&permit).filter(|p| {
+            input.microphone_deadline.is_none()
+                && p.muted == input.source.microphone_muted()
+                && if p.muted {
+                    authorized.is_none()
+                } else {
+                    authorized == Some(p.id)
+                }
+        });
+        applied.send_replace(receipt.map(|p| (p.id, Instant::now())));
         if let Some(picture) = picture {
             if let Some(sample) = &input.source.metadata {
                 metadata.send_replace(Some(Sample {

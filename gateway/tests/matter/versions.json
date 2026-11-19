@@ -60,6 +60,7 @@
     "h264-negotiation.patch": "97bdeedfde4ad613b3c001ec4472e0abb745252154c575ddf50a1cc954d6d07a",
     "str0m-h264-sender.patch": "39b7fcfa1b4d72031c509b9f855b1ffb0bb898f63edfdfab9def596d6b62145c",
     "capture-privacy.patch": "fb72ca6fa911d77243c9e8a265437a617f24e61a69bbafc563cf14a5c367e61a",
+    "capture-confirmation.patch": "7fb6efc2cc82e343d881219a3bd538d14106f3093d71b1d815047c0bbc40ba9c",
     "tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537"
   },
   "home_assistant": {

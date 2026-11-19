@@ -31,6 +31,7 @@ BOUNDARY = b'--nxrs-frame\r\n'
 SEI = b'nxrs-video-v1\x00\x00\x00'
 SAMPLES = 320
 CLOCK_START = 8_000_000
+ACK_DELAY = .5
 ROOT = Path(__file__).resolve().parents[2]
 
 def part(kind, body, headers):
@@ -61,6 +62,7 @@ async def camera(reader, writer, cert, frames, received, commands):
         await writer.drain()
         read_command = asyncio.create_task(reader.readexactly(9))
         first_audio = None
+        pending_ack = None
         sequence = 1
         tone = struct.pack('<320h', *(round(18_000 * math.sin(i * math.pi / 8)) for i in range(SAMPLES)))
         template = json.loads((ROOT / 'clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json').read_text())['source']
@@ -68,15 +70,23 @@ async def camera(reader, writer, cert, frames, received, commands):
         for index in range(6000):
             stamp = CLOCK_START + index * 20
             seq = index // 3 + 1
-            if read_command.done():
+            if pending_ack is None and read_command.done():
                 command = read_command.result()
                 word, muted = struct.unpack('>QB', command)
                 assert word == sequence and muted in (0, 1)
                 assert bool(muted) == (first_audio is not None)
-                commands.put_nowait(bool(muted))
+                pending_ack = time.monotonic() + ACK_DELAY, command, bool(muted)
+            if pending_ack is not None and time.monotonic() >= pending_ack[0]:
+                _, command, muted = pending_ack
+                # Keep publishing video during the delay. Record the time this
+                # authenticated camera first makes its acknowledgement available.
+                ack_time = time.monotonic()
                 writer.write(part('application/vnd.nxrs.microphone-state.v2', command, ''))
+                await writer.drain()
+                commands.put_nowait((muted, ack_time))
                 first_audio = None if muted else index
                 sequence += 1
+                pending_ack = None
                 read_command = asyncio.create_task(reader.readexactly(9))
             if first_audio is not None:
                 writer.write(part('application/vnd.nxrs.pcm16.v1', tone,
@@ -225,6 +235,11 @@ def watch_media(tasks, gateway, port):
 async def expect(queue, muted, deadline=5):
     assert await asyncio.wait_for(queue.get(), deadline) is muted
 
+async def expect_ack(commands, muted, deadline=5):
+    actual, timestamp = await asyncio.wait_for(commands.get(), deadline)
+    assert actual is muted
+    return timestamp
+
 async def verify_gateway(gateway, stage, port, commands):
     url = f'http://127.0.0.1:{gateway.internal}/internal/cameras/cam/microphone'
     headers = {'Authorization': 'Bearer ' + (stage/'microphone.token').read_text().strip()}
@@ -246,14 +261,14 @@ async def verify_gateway(gateway, stage, port, commands):
         assert commands.empty()
         for generation in (1, 2):
             refresh = tasks.create_task(renew([generation] * 16))
-            await expect(commands, False)
+            await expect_ack(commands, False)
             await expect(phases, False)
             refresh.cancel()
             with suppress(asyncio.CancelledError):
                 await refresh
             if generation == 1:
                 await publish(None)
-            await expect(commands, True, 3)
+            await expect_ack(commands, True, 3)
             await expect(phases, True)
         result = await listen
     result['wire_mute_commands'] = [False, True, False, True]
@@ -295,7 +310,14 @@ async def verify_matter(args, root, processes, gateway, stage, port, commands):
         stream, = await attribute(admin, node, '1/1361/15')
         assert stream['2'] == 0 and stream['5'] == dimensions
         muted_attribute = '1/1361/29'
-        assert await attribute(admin, node, muted_attribute) is True
+        async with asyncio.timeout(3):
+            while True:
+                current = await admin.request('read_attribute', node_id=node,
+                                              attribute_path=muted_attribute)
+                if muted_attribute in current:
+                    assert current[muted_attribute] is True
+                    break
+                await asyncio.sleep(.1)
         browser = None
         if args.browser_python:
             browser_output = root / 'home-assistant-browser.json'
@@ -337,13 +359,18 @@ async def verify_matter(args, root, processes, gateway, stage, port, commands):
             previous_pts = -1
             phase_video = []
             phase_packets = []
+            acknowledgement_to_reply_ms = []
             for muted in (False, True, False):
                 before = await video_packets()
-                await admin.request(
+                outcome, = await admin.request(
                     'write_attribute', node_id=node, attribute_path=muted_attribute, value=muted,
                 )
+                reply = time.monotonic()
+                assert outcome['Status'] == 0, outcome
+                confirmation = await expect_ack(commands, muted)
+                assert reply >= confirmation, 'Matter reported success before the camera acknowledged'
+                acknowledgement_to_reply_ms.append(round((reply - confirmation) * 1000, 1))
                 assert await attribute(admin, node, muted_attribute) is muted
-                await expect(commands, muted)
                 await expect(phases, muted)
                 if muted:
                     quiet_frames.append(await samples.silence())
@@ -364,7 +391,7 @@ async def verify_matter(args, root, processes, gateway, stage, port, commands):
                 await asyncio.sleep(.1)
         bridge.kill()
         assert await asyncio.to_thread(bridge.wait, 5) != 0
-        await expect(commands, True, 3)
+        await expect_ack(commands, True, 3)
         await expect(phases, True)
         result = await listen
         matter_video.update(
@@ -373,6 +400,8 @@ async def verify_matter(args, root, processes, gateway, stage, port, commands):
             video_rtp_packets_during_capture_transition=phase_packets,
             decoded_audio_phases=['silent', 'tone', 'silent', 'tone'],
             teardown_acknowledged=True,
+            injected_camera_ack_delay_ms=round(ACK_DELAY * 1000),
+            camera_ack_to_matter_success_ms=acknowledgement_to_reply_ms,
         )
         result['matter_webrtc'] = matter_video
         if browser:

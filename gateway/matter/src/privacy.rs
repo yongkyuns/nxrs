@@ -15,6 +15,7 @@ pub enum Setting {
 pub enum Error {
     InvalidRecord,
     Storage,
+    Unavailable,
 }
 
 #[derive(Clone, Copy)]

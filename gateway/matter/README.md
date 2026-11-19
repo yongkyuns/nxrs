@@ -179,9 +179,14 @@ For source-side microphone control, pass `--microphone` to `stage_matter.py`. Ad
 to the bridge deployment JSON, substituting the gateway's internal listener
 and staged credential. Ingest must use that listener too. The controller
 credential applies to one camera. The bridge renews a 1.5-second capture
-permit only while a fabric is commissioned and the persisted microphone
-setting allows capture. Ingest reads the permit using its own publisher
-identity. [End-to-end witness](../tests/matter/README.md#microphone-capture-control).
+permit only while a fabric is commissioned. Ingest uses its own publisher
+identity and reports confirmation after the authenticated camera acknowledges.
+Mute closes audio admission while that confirmation is pending. Unmute keeps
+the publication silent until the camera confirms and the gateway saves the
+setting. A pending or unavailable state returns Matter Busy. Mute remains
+requested after a timeout. Update control and ingest before enabling this
+configuration on the bridge.
+[End-to-end witness](../tests/matter/README.md#microphone-capture-control).
 
 The `shutdown-drain` variant bounds pending offers, ICE and outbound signaling.
 SIGTERM and SIGINT close peer admission and join the snapshot worker. The
