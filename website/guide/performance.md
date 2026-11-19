@@ -10,7 +10,7 @@ Choose the question first. Each report states its tested setup, assumptions and 
 
 | Your question | Start with | What you can take from it |
 | --- | --- | --- |
-| How close is message delivery to Zephyr? | [RTOS comparison results](../../docs/rtos-comparison.md) | Same-board latency, throughput and interrupt observations, with remaining differences |
+| How do delivery, RAM and deadlines compare? | [RTOS comparison results](../../docs/rtos-comparison.md) | Zephyr delivery measurements and the RAM and deadline tradeoff with Embassy |
 | Why does the std channel behave this way? | [Bounded channels](../../docs/std-channel-performance.md) | Queue ownership, waiting, target implementation and where time goes |
 | How much RAM and flash will my application need? | [Memory and image size](../../docs/rust-std-footprint.md) | Ordinary std worker/inbox measurements and a usable accounting model |
 | Is my code allocating or retaining memory? | [Rust allocation probes](../../docs/memory-qualification.md) and [NuttX heap/stack checks](../../docs/nuttx-memory-qualification.md) | Construction, first-use, steady-state and teardown observations |

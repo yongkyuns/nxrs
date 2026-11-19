@@ -106,7 +106,7 @@
     "browser-threads.md": "Emscripten worker/thread qualification, separate from native firmware.",
     "std-channel-performance.md": "How bounded channels wait, why the NuttX implementation differs, and what to measure.",
     "rust-std-footprint.md": "Account for code, stacks, inboxes and payloads as an application grows.",
-    "rtos-comparison.md": "Read the WROOM and Pico results without mixing transports or experiments.",
+    "rtos-comparison.md": "Compare std and Zephyr delivery, and see how Embassy trades worker RAM for cooperative scheduling.",
     "rtos-characterization.md": "Design equivalent workloads for resources, response, recovery and portability.",
     "memory-qualification.md": "Observe Rust allocation across setup, first use, steady operation and teardown.",
     "nuttx-memory-qualification.md": "Measure native heap reclamation and thread stack high water.",

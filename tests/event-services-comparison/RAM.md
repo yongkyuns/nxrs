@@ -11,8 +11,9 @@ the difference between twenty 4 KiB worker requests and Embassy's 8 KiB shared
 stack plus 4,320 B service task pool. The task pool includes executor headers
 as well as future state. Both sides had 30,720 B of payload capacity. There
 were no per-worker stack observations proving the 4 KiB requests necessary.
-See the [review](../../docs/rtos-comparison.md#what-the-ram-ratio-establishes)
-for the accounting limits.
+See the [October accounting](../../docs/rtos-comparison-accounting.md#what-the-ram-ratio-establishes)
+and [later four-way physical results](../rtos-characterization/PHYSICAL-RESULTS.md#ram)
+for the measured deadline outcomes alongside RAM.
 
 ## Experiments
 

@@ -96,7 +96,7 @@ Start with the [performance guide](website/guide/performance.md) to choose a mea
 
 | Question | Read |
 | --- | --- |
-| How does delivery compare with Zephyr on the same board? | [RTOS comparison results](docs/rtos-comparison.md) |
+| How do delivery, RAM and deadlines compare with Zephyr and Embassy? | [RTOS comparison results](docs/rtos-comparison.md) |
 | What do bounded Rust channels cost and how do they wait? | [Channel behavior and performance](docs/std-channel-performance.md) |
 | What consumes RAM and flash as services are added? | [Memory and image size](docs/rust-std-footprint.md) |
 | Which tests can I run? | [Test and fixture index](tests/README.md) |

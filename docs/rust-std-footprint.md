@@ -74,6 +74,8 @@ NuttX's 4,096-byte request yielded 3,864–3,872 usable bytes; its 4,336-byte re
 
 The final **19,672 B / 9.6%** difference reconciles to +27,656 B queue storage/controls, +6,864 B worker storage, −13,304 B RAM instructions/vectors, and −1,544 B net remaining reservations/baseline/measurement storage. Equal payload and usable stack budgets do not explain the difference. The [detailed ledger](../tests/rtos-characterization/WROOM-REVIEW.md#ram-separate-requests-usable-stacks-and-queue-costs) identifies queue headers, allocator alignment, descriptor-related creation and spare preallocated pool storage. These are configured native API costs, not a Rust tax or unavoidable fixed kernel memory. Code-placement policies also differ from each other and from the MPSC timing images.
 
+For the cooperative Embassy results and the associated deadline behavior, see [service RAM and deadlines](rtos-comparison.md#service-ram-and-deadline-behavior).
+
 <a id="image-size"></a>
 <a id="final-packet-fixture"></a>
 <a id="which-choices-mattered"></a>
