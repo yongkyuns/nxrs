@@ -3504,6 +3504,47 @@
     "effective_configuration_delta": ["ARCH_HAVE_TICKLESS", "ESP32S3_TICKLESS", "SCHED_TICKLESS"],
     "scope": "The same Rust Instant witness ran at a 1 ms scheduler tick on both firmware builds. It held interrupts while the emulated SYSTIMER advanced by each requested interval. Ordinary sleeps completed in both builds. This used the ESP32-S3 emulator with NuttX SMP disabled. The camera firmware and its camera, Wi-Fi, and detector throughput require physical qualification."
   },
+  "esp32s3_smp_tickless_alarm_recovery": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "esp_qemu_release": "esp-develop-9.0.0-20240606",
+    "scheduler_cpus": 2,
+    "interrupt_mask_us": [
+      20000,
+      40000,
+      80000
+    ],
+    "periodic_monotonic_elapsed_us_by_cpu": [
+      [
+        1000,
+        1000,
+        1000
+      ],
+      [
+        2000,
+        2000,
+        2000
+      ]
+    ],
+    "unpatched_tickless_individual_max_error_us": 317,
+    "unpatched_pending_watchdog_with_idle_cores": true,
+    "unpatched_concurrent_timeout_with_raw_systimer_and_cpu_cycle_counter": true,
+    "timer_ordering_patch_sha256": "92911617afdae2719eb9557db32e988e95eb673b8680bd518427e744972dda04",
+    "patched_qemu_boots": {
+      "individual": 3,
+      "normal": 3,
+      "systimer": 8,
+      "cycles": 8
+    },
+    "patched_qemu_image_sha256": "7ccec5347e028050a71d97a0b458a3c54b487d94a34e93c0a92684fd6ac291a2",
+    "patched_wroom_profile": "esp32s3-camera-stream-startup",
+    "patched_wroom_signed_bytes": 1899886,
+    "patched_wroom_slot_bytes": 2097152,
+    "patched_wroom_image_sha256": "093c32bb287a4cd6cdc08e4f73e796b7a5823353452598fca9062356a03087f2",
+    "patched_wroom_abi_witnesses": 122,
+    "patched_wroom_test_signature_verified": true,
+    "scope": "The unmodified tickless timer could leave a sleeping peer with a pending watchdog and no timer interrupt after a cross-core interrupt mask. Clearing the old interrupt before arming the alarm passed 22 fresh two-core QEMU boots. The full WROOM camera build links the same fix and uses a disposable test signature. Physical boot, camera timing and continuity remain open."
+  },
   "wroom_timer_signed_update_preflight": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "archived_firmware_version": "0.7.15+0",
