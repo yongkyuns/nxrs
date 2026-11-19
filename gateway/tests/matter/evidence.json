@@ -3710,6 +3710,44 @@
     },
     "scope": "An existing encrypted viewer received the real ESP32 feed. The exact merged bridge commissioned with development attestation. An independent controller and two isolated Home Assistant instances exercised JPEG requests on the re-encoded relay. A later relay reassembled original access units and re-muxed them with RTP timestamps. Its witness compared hashes of H.264 coded slices at publication and at the Matter receiver. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
   },
+  "macos_merged_release_home_assistant_live_browser": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "home_assistant_version": "2026.11.2",
+    "dimensions": [
+      320,
+      240
+    ],
+    "webkit": {
+      "browser": "27.2",
+      "presented_frames": 60,
+      "presented_fps": 14.88,
+      "distinct_sampled_images": 60,
+      "decoded_frames": 69,
+      "advancing_rtp_clock": true,
+      "advancing_compositor": true,
+      "session_closed": true,
+      "relayed_access_units": 198,
+      "advancing_media_time": false
+    },
+    "chrome": {
+      "browser": "157.0.8103.80",
+      "presented_frames": 60,
+      "presented_fps": 10.38,
+      "distinct_sampled_images": 60,
+      "decoded_frames": 62,
+      "advancing_rtp_clock": true,
+      "advancing_compositor": true,
+      "session_closed": true,
+      "relayed_access_units": 158,
+      "advancing_media_time": true
+    },
+    "earlier_concurrent_chrome_media_time_assertion_failed": true,
+    "video_reencoded": false,
+    "media_persisted": false,
+    "sessions_after_each_run": 0,
+    "scope": "Stock Home Assistant in an isolated macOS lab, with one browser per successful run. The existing authenticated viewer supplied original ESP32 H.264 through an in-memory remux. Browser FPS reflects separate live intervals. Physical iPhone playback, sustained streaming and the stock thumbnail issue remain open."
+  },
   "macos_merged_release_physical_occupancy": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",

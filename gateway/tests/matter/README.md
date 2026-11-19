@@ -280,8 +280,10 @@ to the browser witness or to `ingest_av_reference.py` with its browser
 arguments. WebKit must report increasing RTP timestamps, compositor frame
 counts and presentation times because its live MediaStream callback can
 report zero for media time. Repeat to exercise session reuse. The combined
-ingest witness also checks release of the Matter session. The physical release
-trial measures rendering on the iPhone.
+ingest witness also checks release of the Matter session. The merged macOS
+bridge passed both browser witnesses in separate runs using the real camera's
+original H.264. Each run closed its Matter session. Physical iPhone rendering
+requires its own trial. [Browser results](evidence.json).
 
 For thumbnail qualification on Home Assistant 2026.11.2, the frontend's
 width-only request sends a zero height. The Matter Server API requires every
