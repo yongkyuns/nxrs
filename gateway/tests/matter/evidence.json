@@ -3492,6 +3492,18 @@
     "linked_i2s_receive": true,
     "scope": "Off-device build of the merged revision. Physical microphone capture, mute, and iPhone playback remain open."
   },
+  "esp32s3_monotonic_clock_emulator": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "esp_qemu_release": "esp-develop-9.0.0-20240606",
+    "darwin_arm64_archive_sha256": "fb4ca6be7b1a4dbcf153879cf0582300f974371def0826c0c5b728f12812ad08",
+    "paired_fresh_boot_runs": 2,
+    "requested_interrupt_mask_ms": [20, 40, 80],
+    "periodic_instant_elapsed_ms": [1, 1, 1],
+    "tickless_largest_error_from_systimer_us": 312,
+    "effective_configuration_delta": ["ARCH_HAVE_TICKLESS", "ESP32S3_TICKLESS", "SCHED_TICKLESS"],
+    "scope": "The same Rust Instant witness ran at a 1 ms scheduler tick on both firmware builds. It held interrupts while the emulated SYSTIMER advanced by each requested interval. Ordinary sleeps completed in both builds. This used the ESP32-S3 emulator with NuttX SMP disabled. The camera firmware and its camera, Wi-Fi, and detector throughput require physical qualification."
+  },
   "linux_24_hour_tls_fixture": {
     "nxrs_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
     "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
