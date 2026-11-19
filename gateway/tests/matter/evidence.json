@@ -3573,6 +3573,34 @@
     "media_persisted": false,
     "scope": "An existing encrypted viewer received the real ESP32 feed. The isolated relay decoded and re-encoded it at the original dimensions in memory. The exact merged bridge commissioned with development attestation, and an independent controller obtained the JPEG during playback. The experimental packet-copy relay returned InvalidInState before playback. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
   },
+  "macos_merged_release_physical_occupancy": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "physical_detector_probe": {
+      "samples": 170,
+      "source_generations": 4,
+      "natural_unavailable_and_recovery_cycles": 3
+    },
+    "home_assistant": {
+      "forwarded_reports": 54,
+      "automation_transitions": ["on", "unavailable", "on", "unavailable", "on"],
+      "freshness_withdrawal_observed_ms_after_relay_loss": 1364,
+      "natural_upstream_outage_and_recovery_reached_automation": true
+    },
+    "deployed_gateway_detector_site_header_present": false,
+    "scope": "The isolated relay forwarded the enrolled physical detector's reports and supplied the site identity from the authenticated catalogue. The merged bridge used development attestation. Independent Matter reads confirmed a reachable Occupied sensor, and a loopback-only Home Assistant automation logged loss and recovery. Controlled clear and occupied conditions, direct production deployment and iPhone presentation remain open."
+  },
+  "macos_merged_release_existing_catalogue_preflight": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "gateway_executable_sha256": "b23d73c526ae05285475b9ea8fc3db700259d90b3358fe233528d4546f2419ca",
+    "deployed_gateway_strict_mode": false,
+    "existing_viewer_authenticated": true,
+    "original_viewer_and_publisher_records_preserved": true,
+    "scoped_detection_credential_and_site_header_verified": true,
+    "scoped_media_mapping_matched_existing_camera": true,
+    "absent_detector_source_reported_unavailable": true,
+    "scope": "The merged controller used a private copy of the active catalogue, a new fixture-only revocation store and a separate loopback MediaMTX. Verified API admission and source mapping before deployment. Live configuration, persistence and media cutover remain open."
+  },
   "macos_merged_release_publication_recovery": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "platform": "macOS ARM64",
