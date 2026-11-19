@@ -3595,7 +3595,16 @@
       "decoded_matter_frames": 30,
       "live_session_remained_active_and_released": true
     },
-    "scope": "An existing encrypted viewer received the real ESP32 feed. The isolated relay decoded and re-encoded it at the original dimensions in memory. The exact merged bridge commissioned with development attestation. An independent controller and two isolated Home Assistant instances exercised JPEG requests during live playback. The experimental packet-copy relay returned InvalidInState before playback. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
+    "original_h264_relay": {
+      "upstream_access_units_forwarded": 123,
+      "matching_coded_pictures_at_matter_receiver": 60,
+      "decoded_matter_frames": 30,
+      "jpeg_dimensions": [320, 180],
+      "relay_attempts": 3,
+      "matter_session_released": true,
+      "video_reencoded": false
+    },
+    "scope": "An existing encrypted viewer received the real ESP32 feed. The exact merged bridge commissioned with development attestation. An independent controller and two isolated Home Assistant instances exercised JPEG requests on the re-encoded relay. A later relay reassembled original access units and re-muxed them with RTP timestamps. Its witness compared hashes of H.264 coded slices at publication and at the Matter receiver. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
   },
   "macos_merged_release_physical_occupancy": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
