@@ -62,7 +62,8 @@
     "capture-privacy.patch": "fb72ca6fa911d77243c9e8a265437a617f24e61a69bbafc563cf14a5c367e61a",
     "capture-confirmation.patch": "7fb6efc2cc82e343d881219a3bd538d14106f3093d71b1d815047c0bbc40ba9c",
     "recording-privacy.patch": "c35c93045fbc4cec8482d367d533b3e22c8e8e38db67be559d2d6d4aaeadee4c",
-    "tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537"
+    "tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537",
+    "udp-interaction-bounds.patch": "f2d38b799f988bc26b8ea98d0af2789f78fd15641d8e185b3818b029e0b01ba8"
   },
   "home_assistant": {
     "version": "2026.11.2",

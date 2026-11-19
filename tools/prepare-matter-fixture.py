@@ -26,7 +26,7 @@ def main():
     # Each variant builds on the preceding fixture, in patch application order.
     patches = ("rs-matter-camera.patch", "bridge-topology.patch", "live-media.patch",
                "audio-control.patch", "audio-playback.patch", "privacy.patch", "commissioning.patch", "viewer-permissions.patch", "source-admission.patch", "catalogue.patch", "sessions.patch", "snapshots.patch", "shutdown.patch", "final-fabric.patch", "commissioning-recovery.patch", "shutdown-drain.patch", "lan-interface.patch", "stream-continuity.patch", "provisioned-attestation.patch", "camera-endpoints.patch", "root-power-time-zone.patch", "trusted-matter-time.patch", "default-ntp.patch", "dns-sd-time.patch", "dhcp-time.patch", "tls-management.patch", "capture-privacy.patch")
-    sdk_patches = patches[:variants.index(args.variant) + 1]
+    sdk_patches = patches[:variants.index(args.variant) + 1] + ("udp-interaction-bounds.patch",)
     engine_patches = ["str0m-rejected-media.patch"]
     if "audio-playback.patch" in sdk_patches:
         engine_patches.append("str0m-sync.patch")

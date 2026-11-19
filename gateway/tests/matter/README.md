@@ -800,6 +800,28 @@ occupancy sensors. The standard Matter Camera type is absent from its
 Remove the trial device in the app before entering `quit`. Each new trial
 uses a new directory and pairing code.
 
+See the [iPhone results](../../matter/README.md#iphone-compatibility-on-the-lan)
+for what was verified in Google Home and Home Assistant.
+
+### UDP report regression
+
+Run these tests from the prepared SDK checkout using the Rust version in
+`versions.json`. With large buffers enabled and UDP as the transport,
+the wildcard read and subscription must return all attributes in multiple
+reports. The reboot test also checks that a persisted wildcard subscription
+delivers all its attributes in chunks after restart.
+
+In the macOS LAN replay, an independent controller retrieved all 154
+attributes in each of two reads with the UDP limit enforced. It received
+12 datagrams across both reads. The largest was 1,191 bytes.
+
+```sh
+RUST_MIN_STACK=8388608 cargo test --locked -p rs-matter --features large-buffers \
+  --test data_model_tests test_long_read
+RUST_MIN_STACK=8388608 cargo test --locked -p rs-matter --features large-buffers,persistent-subscriptions \
+  --test im_tests test_report_data_handler_catches_server_report
+```
+
 ## Provisioned device attestation and camera endpoints
 
 Prepare the pinned host SDK with `--variant root-power-time-zone` and the

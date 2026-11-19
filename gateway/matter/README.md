@@ -4,6 +4,28 @@ The Matter gateway exposes one existing Nxrs camera and its occupancy sensor.
 It uses the gateway's durable identity store, detection subscription and
 shared encoded video input. [Host qualification](../tests/matter/README.md).
 
+## iPhone compatibility on the LAN
+
+In the November 2026 tests, **Home Assistant** played live video from the
+Freenove ESP32-S3 with its OV3660 camera. The iPhone showed the real image
+updating. An independent receiver decoded 30 H.264 frames at 320×240, and the
+bridge reported zero active WebRTC peers after the iPhone live view closed.
+The controller also retrieved two distinct 640×360 JPEGs.
+
+**Google Home** commissioned the development bridge through a Google Matter
+hub with a Control Bridge test integration. The iPhone showed both Camera
+and Occupancy Sensor tiles, and the sensor displayed Occupied when the test
+fixture published that state. The Camera tile offered no playback control.
+The bridge received no Camera AV Stream Management or WebRTC commands when
+the tile was opened with a generated video source ready.
+
+The Google trial exposed oversized UDP reports during metadata discovery and
+after a bridge restart. The SDK patch sizes both report paths for the
+exchange's transport, so UDP reports are chunked within the 1,232-byte
+datagram budget. TCP keeps its large payload support for camera signaling
+and snapshots. Both iPhone trials used development attestation on the LAN.
+[Pairing and UDP regression tests](../tests/matter/README.md#pair-from-a-phone-on-the-lan).
+
 ## Build the gateway candidate
 
 Use Python 3.12, a local rs-matter Git checkout containing the pinned
