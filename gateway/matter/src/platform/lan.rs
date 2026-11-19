@@ -7,6 +7,16 @@ use std::{
     num::NonZeroU32,
 };
 
+cfg_if::cfg_if! {
+    if #[cfg(target_os = "macos")] {
+        mod macos;
+        use macos as native;
+    } else {
+        mod linux;
+        use linux as native;
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Lan {
     index: NonZeroU32,
@@ -95,12 +105,31 @@ impl Lan {
         Ok(socket)
     }
 
-    pub fn listen_tcp(self, addr: SocketAddr) -> io::Result<TcpListener> {
-        let socket = self.socket(addr, Type::STREAM, Protocol::TCP)?;
-        socket.set_reuse_address(true)?;
-        socket.bind(&addr.into())?;
-        socket.listen(16)?;
-        Ok(socket.into())
+    pub fn bind_matter_udp(self, addr: SocketAddr) -> io::Result<UdpSocket> {
+        let socket = self.bind_udp(addr)?;
+        native::enable_packet_info(&socket, addr.is_ipv6())?;
+        Ok(socket)
+    }
+
+    pub fn recv_matter_udp(
+        self,
+        socket: &UdpSocket,
+        buffer: &mut [u8],
+    ) -> io::Result<Option<(usize, SocketAddr)>> {
+        native::recv_matter_udp(self, socket, buffer)
+    }
+
+    pub fn listen_tcp(self, port: u16) -> io::Result<Vec<TcpListener>> {
+        native::tcp_addresses(self, port)?
+            .into_iter()
+            .map(|addr| {
+                let socket = self.socket(addr, Type::STREAM, Protocol::TCP)?;
+                socket.set_reuse_address(true)?;
+                socket.bind(&addr.into())?;
+                socket.listen(16)?;
+                Ok(socket.into())
+            })
+            .collect()
     }
 
     pub async fn connect_tcp(self, addr: SocketAddr) -> io::Result<TcpStream> {

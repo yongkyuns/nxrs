@@ -166,6 +166,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cfg_aliases"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
+
+[[package]]
 name = "clang-sys"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -712,6 +718,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -736,6 +751,19 @@ name = "mpeg4-audio-const"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96a1fe2275b68991faded2c80aa4a33dba398b77d276038b8f50701a22e55918"
+
+[[package]]
+name = "nix"
+version = "0.31.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bc81ce8148d3b4f3274da811f11cdd824ae661ee4ef732cdb229825cf5be7f7"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+ "memoffset",
+]
 
 [[package]]
 name = "nom"
@@ -832,7 +860,7 @@ dependencies = ["axum", "bytes", "futures-util", "getrandom 0.3.4", "http-body-u
 [[package]]
 name = "nxrs-gateway-matter"
 version = "0.1.0"
-dependencies = ["base64 0.22.1", "bytes", "cfg-if", "domain", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nxrs-detection-wire", "rcgen", "retina", "ring", "rustls", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "x509-parser", "zeroize"]
+dependencies = ["base64 0.22.1", "bytes", "cfg-if", "domain", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nix", "nxrs-detection-wire", "rcgen", "retina", "ring", "rustls", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "x509-parser", "zeroize"]
 
 [[package]]
 name = "nxrs-parser-fuzz"

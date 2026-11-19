@@ -140,8 +140,8 @@
      let mut signals = Signals::new([Signal::Term, Signal::Int])?;
 
 -    let udp_socket = Async::<UdpSocket>::bind(MATTER_SOCKET_BIND_ADDR)?;
-+    let udp4 = Async::new(lan.bind_udp((Ipv4Addr::UNSPECIFIED, MATTER_PORT).into())?)?;
-+    let udp6 = Async::new(lan.bind_udp((Ipv6Addr::UNSPECIFIED, MATTER_PORT).into())?)?;
++    let udp4 = Async::new(lan.bind_matter_udp((Ipv4Addr::UNSPECIFIED, MATTER_PORT).into())?)?;
++    let udp6 = Async::new(lan.bind_matter_udp((Ipv6Addr::UNSPECIFIED, MATTER_PORT).into())?)?;
 
      // WebRTC ICE / STUN / DTLS messages routed over Matter can easily
      // exceed Matter's UDP MRU (~1200 B post-PASE); attach a TCP transport
@@ -153,7 +153,7 @@
          .uninit()
          .init_with(rs_matter::transport::network::tcp::TcpNetworkBuffers::init());
      let tcp = rs_matter::transport::network::tcp::TcpNetwork::new(
-@@ -1794,19 +1798,15 @@
+@@ -1794,19 +1798,17 @@
          rs_matter::transport::network::tcp::TcpCapability::ClientAndServer(
              rs_matter::transport::MAX_RX_BUF_SIZE as u32,
          ),
@@ -169,16 +169,18 @@
 -        let net_send = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, &udp_socket);
 -        let net_recv = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, &udp_socket);
 -        (net_send, net_recv, &udp_socket)
-+        let udp = || ChainedNetwork::new(|addr: &Address| addr.udp().is_some_and(|a| a.is_ipv6()),
-+            &udp6, &udp4);
-+        let net_send = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, udp());
-+        let net_recv = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, udp());
++        let is_ipv6 = |addr: &Address| addr.udp().is_some_and(|a| a.is_ipv6());
++        let udp_send = ChainedNetwork::new(is_ipv6, &udp6, &udp4);
++        let udp_recv = ChainedNetwork::new(is_ipv6,
++            lan::UdpReceiver { lan, socket: &udp6 }, lan::UdpReceiver { lan, socket: &udp4 });
++        let net_send = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, udp_send);
++        let net_recv = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, udp_recv);
 +        (net_send, net_recv, lan::Multicast { lan, v4: udp4.get_ref(), v6: udp6.get_ref() })
      };
 
      if open_window {
          matter.open_basic_comm_window(MIN_COMM_WINDOW_TIMEOUT_SECS, &crypto, &())?;
-@@ -1817,9 +1817,10 @@
+@@ -1817,9 +1819,10 @@
          let mut worker = pin!(snapshot_worker.run(stopped));
          let mut service = pin!(async {
              let mut respond = pin!(responder.run::<4, 4>());
@@ -301,32 +303,28 @@
              builder = builder.with_key_value(k.to_string(), v.to_string());
 --- /dev/null
 +++ b/examples/src/bin/lan/mod.rs
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,84 @@
 +//! Adapt the scoped host sockets to the pinned SDK transport contracts.
 +
-+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
++use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 +
 +use async_io::Async;
 +use nxrs_gateway_matter::lan::Lan;
 +use rs_matter::{
 +    error::Error,
-+    transport::network::{tcp::TcpNetworkSockets, NetworkMulticast},
-+    utils::futures::{select, Coalesce},
++    transport::network::{tcp::TcpNetworkSockets, Address, NetworkMulticast, NetworkReceive},
 +};
 +
 +pub struct TcpSockets {
 +    lan: Lan,
-+    v4: Async<TcpListener>,
-+    v6: Async<TcpListener>,
++    listeners: Vec<Async<TcpListener>>,
 +}
 +
 +impl TcpSockets {
 +    pub fn bind(lan: Lan, port: u16) -> Result<Self, Error> {
-+        Ok(Self {
-+            lan,
-+            v4: Async::new(lan.listen_tcp((Ipv4Addr::UNSPECIFIED, port).into())?)?,
-+            v6: Async::new(lan.listen_tcp((Ipv6Addr::UNSPECIFIED, port).into())?)?,
-+        })
++        let listeners = lan.listen_tcp(port)?.into_iter().map(Async::new)
++            .collect::<std::io::Result<_>>()?;
++        Ok(Self { lan, listeners })
 +    }
 +}
 +
@@ -334,16 +332,36 @@
 +    type Socket = Async<TcpStream>;
 +
 +    async fn accept(&self) -> Result<(SocketAddr, Self::Socket), Error> {
-+        select(
-+            TcpNetworkSockets::accept(&self.v4),
-+            TcpNetworkSockets::accept(&self.v6),
-+        ).coalesce().await
++        let listeners = self.listeners.iter().map(|listener| Box::pin(TcpNetworkSockets::accept(listener)));
++        futures_util::future::select_all(listeners).await.0
 +    }
 +
 +    async fn connect(&self, addr: SocketAddr) -> Result<Self::Socket, Error> {
 +        let stream = self.lan.connect_tcp(addr).await?;
 +        let _ = stream.set_nodelay(true);
 +        Ok(Async::new(stream)?)
++    }
++}
++
++pub struct UdpReceiver<'a> {
++    pub lan: Lan,
++    pub socket: &'a Async<UdpSocket>,
++}
++
++impl NetworkReceive for UdpReceiver<'_> {
++    async fn wait_available(&mut self) -> Result<(), Error> {
++        Ok(self.socket.readable().await?)
++    }
++
++    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, Address), Error> {
++        loop {
++            let datagram = self.socket.read_with(|socket| self.lan.recv_matter_udp(socket, buffer)).await?;
++            if let Some((count, peer)) = datagram {
++                return Ok((count, Address::Udp(peer)));
++            }
++            // An excluded interface must not monopolize the shared transport.
++            futures_lite::future::yield_now().await;
++        }
 +    }
 +}
 +

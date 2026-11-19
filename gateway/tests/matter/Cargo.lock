@@ -3109,6 +3109,7 @@ dependencies = [
  "hyper-util",
  "if-addrs",
  "libc",
+ "nix 0.31.4",
  "nxrs-detection-wire",
  "rcgen",
  "retina",

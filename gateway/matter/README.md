@@ -61,6 +61,11 @@ is omitted, the bridge resolves that address to one LAN interface. An explicit
 interface must own the address. DNS-SD, IPv4 and IPv6 Matter transport, and
 WebRTC sockets all use the resolved interface. Keep the controller reachable
 through the selected LAN. [Isolation test](../tests/matter/README.md#lan-interface-isolation).
+
+On macOS, Matter TCP binds the configured IPv4 address and the selected
+interface's IPv6 addresses at startup. Restart the bridge after those addresses
+change. UDP checks the incoming interface, including for multicast traffic.
+
 Stage separate credentials for one existing camera using its catalogue ID.
 Use a fresh service identity prefix for each enrollment.
 

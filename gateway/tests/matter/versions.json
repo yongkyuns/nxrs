@@ -25,7 +25,7 @@
     "archive_sha256": "661c82dba25552a2d5c0d0783d6161dfbe8c875fc734a7171bbef3882dbb7acc"
   },
   "sha256": {
-    "Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8",
+    "Cargo.lock": "fb6ce1c6cec653b4d38de7a021b64aacbb5d57090e57b4f7b5342fb5f64f6223",
     "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
     "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
     "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
@@ -49,7 +49,7 @@
     "shutdown-drain.patch": "6e473990b2ae4a97b8c363b48763d233a0502d66353291efc9c93119a83fa89f",
     "provisioned-attestation.patch": "c7002dacd95911abf729ec9fe148ce310bea4e33543880f1702b5c4429828607",
     "stream-continuity.patch": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
-    "lan-interface.patch": "76604ff02c29aa6b80b1758179bd2c9ea288bdd125402da74cdbbf443e865b98",
+    "lan-interface.patch": "3df0c25c848335678b182065050b39de99a4574a9a7ce670db162236d4823eee",
     "astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b",
     "camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
     "root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b",
