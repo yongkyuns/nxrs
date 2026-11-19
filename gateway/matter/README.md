@@ -142,11 +142,16 @@ sudo systemctl enable --now nxrs-matter.service
 ```
 
 The bridge reconnects to its authorized source after a gateway or media
-restart. Investigate an exited bridge before restarting `nxrs-matter.service`.
-The unit preserves its fabric across restart and the gateway control and media
+restart. A LAN outage can end an active WebRTC session. Open a fresh stream
+with the existing enrollment once the link returns. After the selected LAN
+IPv4 address changes, update `ice_address` and restart the bridge with its
+existing state directory.
+
+Investigate an exited bridge before restarting `nxrs-matter.service`. The
+unit preserves its fabric across restart and the gateway control and media
 services manage their own processes. The release unit uses the default device
 attestation policy. [Service file](../deploy/nxrs-matter.service) ·
-[Debian service and cold-boot results](../tests/matter/evidence.json).
+[Debian deployment and network recovery results](../tests/matter/evidence.json).
 
 ### Run in a macOS login session
 

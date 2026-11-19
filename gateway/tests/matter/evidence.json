@@ -3582,6 +3582,31 @@
     "matter_session_released": true,
     "scope": "The existing encrypted viewer supplied the live ESP32 feed. Its original H.264 was re-muxed in memory and streamed over SSH to the isolated Linux gateway. The controller commissioned with development attestation and obtained video and a JPEG across a veth link. The fixture ran in a different VM from the 24-hour soak. Direct production deployment and physical iPhone rendering remain open."
   },
+  "linux_merged_release_network_recovery": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "link_outage": {
+      "elapsed_seconds": 2.736,
+      "original_session_retired": true,
+      "old_peer_rtp_after_restore": 0,
+      "new_session_decoded_frames": 30,
+      "jpeg_bytes": 17484,
+      "recovery_and_teardown_seconds": 5.792,
+      "bridge_restarted": false
+    },
+    "ipv4_ipv6_address_change": {
+      "startup_with_stale_address_rejected": true,
+      "new_session_decoded_frames": 30,
+      "jpeg_bytes": 17632,
+      "reconfiguration_recovery_and_teardown_seconds": 19.995
+    },
+    "same_matter_enrollment_and_camera_identity": true,
+    "same_rtsp_publication": true,
+    "sessions_remaining_after_each_test": 0,
+    "test_network_released": true,
+    "scope": "Generated H.264 in an isolated Linux veth network. A fresh controller process reused the original fabric after link restoration and after restarting the bridge on new IPv4 and IPv6 addresses. Both trials verified video, JPEG and teardown. Physical LAN transitions and iPhone reconnection remain open."
+  },
   "macos_merged_release_h264_admission": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
