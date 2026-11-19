@@ -3504,6 +3504,19 @@
     "effective_configuration_delta": ["ARCH_HAVE_TICKLESS", "ESP32S3_TICKLESS", "SCHED_TICKLESS"],
     "scope": "The same Rust Instant witness ran at a 1 ms scheduler tick on both firmware builds. It held interrupts while the emulated SYSTIMER advanced by each requested interval. Ordinary sleeps completed in both builds. This used the ESP32-S3 emulator with NuttX SMP disabled. The camera firmware and its camera, Wi-Fi, and detector throughput require physical qualification."
   },
+  "wroom_timer_signed_update_preflight": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "archived_firmware_version": "0.7.15+0",
+    "archived_security_counter": 5,
+    "archived_image_verified_with_its_public_root": true,
+    "protected_image_class_matches": true,
+    "disposable_trial_version": "0.7.16+0",
+    "disposable_trial_security_counter": 5,
+    "disposable_trial_image_bytes": 1899904,
+    "timer_payload_unchanged_after_packaging": true,
+    "archived_root_rejects_disposable_signature": true,
+    "scope": "The release packager accepted the timer payload in the archived image's class and security epoch with a disposable signing key. The archived public root verified its own baseline artifact. The current flash contents, a camera-trusted candidate signature, physical trial and restoration remain open."
+  },
   "linux_24_hour_tls_fixture": {
     "nxrs_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
     "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
