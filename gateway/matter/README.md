@@ -139,10 +139,11 @@ for directories and `0600` for files. Set `state_directory` to
 `/var/lib/nxrs-matter/state`. The unit mounts the configuration read-only and
 gives the service write access to `/var/lib/nxrs-matter`.
 
-For a new enrollment, create the private parent directory and run the initial
-commissioning with the service stopped. After pairing, stop the foreground
-command and enable the service. Preserve the existing state directory on
-subsequent installations or restarts.
+For a new enrollment, start gateway control and MediaMTX so the bridge can
+validate the configured camera mapping before creating state. Create the private
+parent directory and commission with the service stopped. After pairing, stop
+the foreground command and enable the service. Preserve the existing state
+directory on subsequent installations or restarts.
 
 ```sh
 sudo install -d -m 0700 -o nxrs-matter -g nxrs-matter /var/lib/nxrs-matter
@@ -151,11 +152,12 @@ sudo -u nxrs-matter /usr/local/libexec/nxrs-matter-camera \
 sudo systemctl enable --now nxrs-matter.service
 ```
 
-The bridge reconnects to its authorized source after a gateway or media
-restart. A LAN outage can end an active WebRTC session. Open a fresh stream
-with the existing enrollment once the link returns. After the selected LAN
-IPv4 address changes, update `ice_address` and restart the bridge with its
-existing state directory.
+An enrolled bridge can start with gateway control and MediaMTX offline. It
+keeps its fabric and camera identity and accepts new streams when its
+authorized source returns. A LAN outage can end an active WebRTC session.
+Open a fresh stream with the existing enrollment once the link returns.
+After the selected LAN IPv4 address changes, update `ice_address` and restart
+the bridge with its existing state directory.
 
 Investigate an exited bridge before restarting `nxrs-matter.service`. The
 unit preserves its fabric across restart and the gateway control and media

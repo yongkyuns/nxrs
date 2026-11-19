@@ -3719,6 +3719,27 @@
     "test_network_released": true,
     "scope": "Generated H.264 in an isolated Linux veth network. A fresh controller process reused the original fabric after link restoration and after restarting the bridge on new IPv4 and IPv6 addresses. Both trials verified video, JPEG and teardown. Physical LAN transitions and iPhone reconnection remain open."
   },
+  "linux_merged_release_systemd": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "platform": "Debian 13 ARM64 in QEMU, systemd 257.13",
+    "running_bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "source_unit_sha256": "d7bd53869410ba0dc858becaf2b6d394222feff919e2c5ec87f1c9de58f5023f",
+    "sandbox": {"unprivileged": true, "effective_capabilities": 0, "no_new_privileges": true, "config_read_only": true, "state_writable": true},
+    "rejected_startup": ["missing_state", "development_attestation_default", "initial_setup_without_catalogue"],
+    "initial_enrollment_playback_frames": 30,
+    "jpeg_dimensions": [640, 360],
+    "mediamtx_failure_end_reason": 5,
+    "mediamtx_recovery_frames_on_same_process": 30,
+    "systemd_stop_seconds": 2.045,
+    "systemd_stop_end_reason": 2,
+    "publisher_survived_bridge_stop": true,
+    "restarted_playback_frames": 30,
+    "enrolled_fabric_and_camera_identity_available_without_upstreams": true,
+    "partial_start_recovery_frames_on_same_process": 30,
+    "partial_start_to_decoded_frames_seconds": 5.296,
+    "test_unit_paths_and_listener_removed": true,
+    "scope": "Disposable unit derived from the checked-in deployment unit with private test paths. Commissioning used an explicit development-attestation override. Playback used generated video. Recovery time includes launching the upstream services and decoding 30 frames."
+  },
   "macos_merged_release_h264_admission": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
