@@ -225,11 +225,14 @@ impl GatewayPolicy {
     /// The HTTP handler executes this on a blocking worker; cancellation cannot undo a denial.
     pub fn revoke(&mut self, viewer: &str) -> Result<StatusCode, StatusCode> {
         self.inner.revoke(viewer)?;
-        if let Some(camera) = self.config.viewers.iter()
-            .find(|v| v.viewer_id == viewer && v.scope == config::ViewerScope::MicrophoneControl)
-            .and_then(|v| v.camera_ids.first())
-        {
-            self.microphone.clear(camera);
+        if let Some(principal) = self.config.viewers.iter().find(|v| v.viewer_id == viewer) {
+            match principal.scope {
+                config::ViewerScope::MicrophoneControl => self.microphone.clear(&principal.camera_ids[0]),
+                config::ViewerScope::RecordingControl => self.detections.set_analysis(
+                    &principal.camera_ids[0], None, Instant::now(),
+                ),
+                _ => {},
+            }
         }
         let Some(e) = &mut self.enforcement else { return Ok(StatusCode::NO_CONTENT); };
         e.permits.retain(|_, permit| permit.viewer != viewer);

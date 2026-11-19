@@ -647,8 +647,11 @@ independently decodes the resulting archive.
 
 The same camera publication survives privacy changes and bridge restart.
 The archive must stop growing at the confirmed privacy write, during lost
-renewal, and after restart with the saved private setting. A second camera
-path and a revoked controller must refuse access.
+renewal, and after restart with the saved private setting. The gateway must
+withdraw occupied status as unavailable and refuse a new observation while
+privacy is enabled. After resuming, the first cached observation provides a
+sequence boundary before fresh detections become visible. A second camera path
+and a revoked controller must refuse access.
 
 ## Matter microphone mute and live privacy
 

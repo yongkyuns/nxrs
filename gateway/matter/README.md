@@ -183,8 +183,11 @@ to the bridge configuration. Substitute the actual gateway internal listener.
 Each camera has its own recorder credential. Managed recording starts private.
 An explicit Matter write allows recording and persists the setting. Turning
 privacy on confirms native recorder retirement before the write succeeds.
-The native permission expires when the bridge stops renewing it. Camera
-detection and viewer-side clips have separate controls.
+The native permission expires when the bridge stops renewing it. The same
+permission controls the gateway detection feed. Closing privacy withdraws its
+publisher session and marks Matter occupancy unavailable. Resuming requires
+a fresh observation after a new session starts. In-band video annotations and
+on-camera processing still need privacy enforcement across the media path.
 [Guarded recording qualification](../tests/matter/README.md#guarded-recording-privacy).
 
 For source-side microphone control, pass `--microphone` to `stage_matter.py`. Add

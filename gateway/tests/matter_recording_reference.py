@@ -8,13 +8,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+from urllib.request import Request, urlopen
 
 import av
 
 from matter_attestation_reference import public_test_bundle
 from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller
-from matter_gateway_reference import ROOT, start, stop
+from matter_gateway_reference import ROOT, DetectionPublisher, start, stop
 from matter_rtsp_reference import ports, publish, start_control, start_media_server, wait_path
 from matter_source_access import StrictMedia, private_file, request
 
@@ -58,6 +59,18 @@ async def run(args):
         return (path.get("ready") and path.get("recordingEnabled") is enabled
                 and path.get("recorderPresent") is enabled)
 
+    detections = DetectionPublisher(internal, "cam", "publisher", gateway.publisher)
+    detection_token = (enrollment / "detections.token").read_text().strip()
+
+    def snapshot():
+        req = Request(f"http://127.0.0.1:{control}/v1/cameras/cam/detections",
+                      headers={"Authorization": "Bearer " + detection_token})
+        with urlopen(req, timeout=2) as stream:
+            for line in stream:
+                if line.startswith(b"data:"):
+                    return json.loads(line[5:])
+        raise AssertionError("missing detection snapshot")
+
     with ExitStack() as stack:
         server = start_media_server(stack, root, args, rtsp)
         gateway_process = start_control(stack, root, args, gateway)
@@ -99,8 +112,26 @@ async def run(args):
                 assert recording(gateway.path(), not value), "Matter replied before the native transition"
                 await read(value)
 
+            async def reachability(expected):
+                async with asyncio.timeout(5):
+                    while await attribute(admin, node, "3/57/17") is not expected:
+                        await asyncio.sleep(.1)
+
+            async def publish_fresh_detection():
+                source = detections.register(gateway_process)
+                # The first post-registration frame can still carry a cached box.
+                assert detections.publish(source, True) == 204
+                fence = snapshot()
+                assert fence["presence"] == "unavailable" and fence["source"] is None
+                assert detections.publish(source, True) == 204
+                assert snapshot()["presence"] == "person"
+                await reachability(True)
+                assert await attribute(admin, node, "3/1030/0") == 1
+                return source
+
             await read(True)
             assert not archive()
+            assert detections.post("detection-sessions", {})[0] == 503
             await write(False)
             await asyncio.sleep(3.5)
             assert recording(gateway.path(), True) and archive()
@@ -111,13 +142,31 @@ async def run(args):
             device = boot("allow-restart")
             await read(False)
             wait_path(gateway, lambda p: recording(p, True), (*children, device))
-            await asyncio.sleep(1)
+            source = await publish_fresh_detection()
             start_stop = time.monotonic()
-            await write(True)
+            if args.minimum_stop_ms:
+                stopping = asyncio.create_task(write(True))
+                try:
+                    async with asyncio.timeout(2):
+                        while snapshot()["presence"] != "unavailable":
+                            await asyncio.sleep(.02)
+                    assert not stopping.done(), "detection survived until recorder confirmation"
+                    await stopping
+                finally:
+                    stopping.cancel()
+                    await asyncio.gather(stopping, return_exceptions=True)
+            else:
+                await write(True)
             stop_ms = round((time.monotonic()-start_stop)*1000, 2)
             assert stop_ms >= args.minimum_stop_ms
             final = gateway.path()
             assert final["source"]["id"] == active["source"]["id"] == initial["source"]["id"]
+            private = snapshot()
+            assert private["presence"] == "unavailable" and private["source"] is None
+            assert private["source_session_id"] is None
+            assert detections.publish(source, False) == 503
+            await reachability(False)
+            assert await attribute(admin, node, "3/1030/0") == 1
             frozen = archive()
             await asyncio.sleep(1)
             assert frozen and archive() == frozen
@@ -139,7 +188,8 @@ async def run(args):
                     frames += sum(1 for _ in content.decode(video=0))
             assert frames >= 30, "recorded pictures did not independently decode"
             return dict(decoded_frames=frames, stop_ms=stop_ms, durable_allow_and_deny=True,
-                        same_source=True, wrong_camera_and_revoked_identity_refused=True)
+                        same_source=True, wrong_camera_and_revoked_identity_refused=True,
+                        occupied_sensor_became_unavailable=True, cached_detection_fenced=True)
 
 
 if __name__ == "__main__":

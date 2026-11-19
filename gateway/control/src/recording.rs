@@ -7,7 +7,10 @@ use axum::{
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Mutex;
 
 pub(crate) struct Target {
@@ -44,6 +47,9 @@ pub(crate) struct Status {
 }
 
 const UNAVAILABLE: Failure = Failure(StatusCode::SERVICE_UNAVAILABLE);
+// Match the native recorder's permission limit. Start accounting before the
+// native exchange so detection can never inherit extra time from its reply.
+const PERMISSION: Duration = Duration::from_secs(3);
 
 impl Target {
     async fn path(&self) -> Result<NativePath, Failure> {
@@ -129,18 +135,33 @@ pub(crate) async fn write(
     let recorder = target(&shared, token, &camera).await?;
     let Json(change) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
     let _slot = recorder.slot.try_lock().map_err(|_| UNAVAILABLE)?;
+    if !change.enabled {
+        shared
+            .lock()
+            .await
+            .detections
+            .set_analysis(&camera, None, Instant::now());
+    }
     let path = recorder.path().await?;
     // Check revocation again after the native lookup, without holding the
     // policy lock through I/O. MediaMTX uses that lock to authorize its API call.
     target(&shared, token, &camera).await?;
+    let began = Instant::now();
     let applied = recorder
         .apply(&path.recording_permit, change.enabled)
         .await?;
-    if let Err(failure) = target(&shared, token, &camera).await {
+    let mut policy = shared.lock().await;
+    if let Err(status) = policy.recording_target(token, &camera) {
+        drop(policy);
         if change.enabled {
             let _ = recorder.apply(&applied, false).await;
         }
-        return Err(failure);
+        return Err(Failure(status));
+    }
+    if change.enabled {
+        policy
+            .detections
+            .set_analysis(&camera, Some(began + PERMISSION), Instant::now());
     }
     Ok(StatusCode::NO_CONTENT)
 }
