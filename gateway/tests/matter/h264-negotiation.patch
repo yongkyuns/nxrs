@@ -10,7 +10,25 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
  use str0m::media::{Direction, Frequency, MediaKind, MediaTime, Mid, Pt};
  use str0m::net::{Protocol, Receive};
  use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
-@@ -944,7 +944,7 @@
+@@ -165,12 +165,13 @@
+ /// currently relevant to WebRTC signaling with SmartThings / Google Home.
+ const CAM_AV_STREAM_USAGES: &[StreamUsageEnum] = &[StreamUsageEnum::LiveView];
+
+-/// One advertised `RateDistortionTradeOffPoints` operating point: H.264
+-/// at 640x360 minimum, 500 kbps minimum bitrate. SmartThings inspects
+-/// this list before issuing a `VideoStreamAllocate`.
++// The home camera publishes QVGA. The bridge also accepts larger H.264
++// publications within the camera cluster's bounds.
++const CAM_AV_MIN_RESOLUTION: (u16, u16) = (320, 240);
++
+ const CAM_AV_RATE_DISTORTION: &[RateDistortionPoint] = &[RateDistortionPoint {
+     codec: VideoCodecEnum::H264,
+-    min_resolution: (640, 360),
++    min_resolution: CAM_AV_MIN_RESOLUTION,
+     min_bit_rate: 500_000,
+ }];
+
+@@ -944,7 +945,7 @@
  // ---------------------------------------------------------------------------
 
  fn new_peer(
@@ -19,7 +37,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
  ) -> Result<(Rtc, Async<UdpSocket>, SocketAddr, String), WebRtcError> {
      let bind_addr: SocketAddr = (lan.ipv4(), 0).into();
      let socket = lan.bind_udp(bind_addr).and_then(Async::new).map_err(|e| {
-@@ -956,11 +956,10 @@
+@@ -956,11 +957,10 @@
          WebRtcError::Failure
      })?;
 
@@ -35,7 +53,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
      if audio {
          rtc.sdp_api().synchronize_local_tracks();
      }
-@@ -1026,6 +1025,30 @@
+@@ -1026,6 +1026,30 @@
          changes.apply().unwrap().0
      }
 
@@ -66,7 +84,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
      fn video_peer() -> Rtc {
          Rtc::builder()
              .clear_codecs()
-@@ -1196,8 +1219,19 @@
+@@ -1196,8 +1220,19 @@
          params: &OfferParams,
      ) -> Result<SolicitOutcome, WebRtcError> {
          let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
@@ -87,7 +105,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
          let mut changes = rtc.sdp_api();
          let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
          let audio_mid = sound
-@@ -1260,14 +1294,18 @@
+@@ -1260,14 +1295,18 @@
              sdp.len()
          );
 
@@ -108,7 +126,7 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
          let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
          let answer_sdp = answer.to_sdp_string();
 
-@@ -1339,8 +1377,19 @@
+@@ -1339,8 +1378,19 @@
          {
              return Err(WebRtcError::DynamicConstraint);
          }
@@ -129,3 +147,23 @@ diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.
              drop(peer);
              self.shared.end(ctrl, WebRTCEndReasonEnum::ICEFailed);
              return Err(WebRtcError::DynamicConstraint);
+@@ -1670,7 +1720,7 @@
+             max_fps: 30,
+             max_hdrfps: None,
+         },
+-        min_viewport: (640, 360),
++        min_viewport: CAM_AV_MIN_RESOLUTION,
+         max_content_buffer_size: nxrs_gateway_matter::snapshot::MAX_JPEG as u32,
+         max_network_bandwidth: 10_000,
+         supported_stream_usages: CAM_AV_STREAM_USAGES,
+@@ -1698,8 +1748,8 @@
+         video_codec: VideoCodecEnum::H264,
+         min_frame_rate: 1,
+         max_frame_rate: 30,
+-        min_width: 640,
+-        min_height: 360,
++        min_width: CAM_AV_MIN_RESOLUTION.0,
++        min_height: CAM_AV_MIN_RESOLUTION.1,
+         max_width: 1920,
+         max_height: 1080,
+         min_bit_rate: 500_000,

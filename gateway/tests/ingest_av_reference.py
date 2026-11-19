@@ -288,6 +288,12 @@ async def verify_matter(args, root, processes, gateway, stage, port, commands):
         paired = await admin.request('commission_with_code', code=code, network_only=True,
                                      discovery_timeout_s=30)
         node = paired['node_id']
+        dimensions = {'0': 320, '1': 240}
+        assert await attribute(admin, node, '1/1361/4') == dimensions
+        rate, = await attribute(admin, node, '1/1361/5')
+        assert rate['0'] == 0 and rate['1'] == dimensions
+        stream, = await attribute(admin, node, '1/1361/15')
+        assert stream['2'] == 0 and stream['5'] == dimensions
         muted_attribute = '1/1361/29'
         assert await attribute(admin, node, muted_attribute) is True
         browser = None

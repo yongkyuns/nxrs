@@ -57,7 +57,7 @@
     "default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285",
     "dns-sd-time.patch": "1226a01f9a27e71b591307e428473df2dc8b71b490d0ba543aeb9f30a51be249",
     "dhcp-time.patch": "f6f3bd21adfe788eb8eb47aef7a5d5293539a0dbe15d5a162be8f7330683e609",
-    "h264-negotiation.patch": "2ebd5164d354bf01fbf85ad2365da1eb8f0a6858e7e21df681a93ccfb058f42a",
+    "h264-negotiation.patch": "97bdeedfde4ad613b3c001ec4472e0abb745252154c575ddf50a1cc954d6d07a",
     "str0m-h264-sender.patch": "39b7fcfa1b4d72031c509b9f855b1ffb0bb898f63edfdfab9def596d6b62145c",
     "capture-privacy.patch": "fb72ca6fa911d77243c9e8a265437a617f24e61a69bbafc563cf14a5c367e61a",
     "tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537"

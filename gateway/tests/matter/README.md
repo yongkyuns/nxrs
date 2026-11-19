@@ -646,12 +646,13 @@ It uses disposable enrollments and generated images and sound.
   --interface en1 --ip <fixture-lan-ip>
 ```
 
-An independent Matter controller commissions the bridge and writes
-`MicrophoneMuted` three times. The mTLS camera fixture checks the sequenced
-commands and starts or stops its generated PCM. An aiortc receiver keeps one
-Matter WebRTC session through the writes. It verifies silent and audible
-phases and fresh video RTP during each transition, then closes the session
-through Matter. Its bundled offer repeats candidates across audio and video.
+An independent Matter controller commissions the bridge, checks the 320×240
+H.264 minimum in the camera profile, and writes `MicrophoneMuted` three times.
+The mTLS camera fixture checks the sequenced commands and starts or stops its
+generated PCM. An aiortc receiver keeps one Matter WebRTC session through the
+writes. It verifies silent and audible phases and fresh video RTP during each
+transition, then closes the session through Matter. Its bundled offer repeats
+candidates across audio and video.
 The provider admits each distinct candidate once and retains its 16-candidate
 limit. After the peer closes, stopping the bridge withdraws capture when its
 permit expires. An independent RTSP receiver checks the resulting silence,
