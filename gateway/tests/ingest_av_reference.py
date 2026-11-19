@@ -276,9 +276,10 @@ async def verify_gateway(gateway, stage, port, commands):
     return result
 
 async def verify_matter(args, root, processes, gateway, stage, port, commands):
-    factory = provision(root / 'factory', args.controller)
+    # Attestation setup launches subprocesses while the camera task is already streaming.
+    factory = await asyncio.to_thread(provision, root / 'factory', args.controller)
     attestation = root / 'attestation'
-    public_test_bundle(args.sdk, attestation)
+    await asyncio.to_thread(public_test_bundle, args.sdk, attestation)
     state = root / 'state'
     deployment = root / 'matter.json'
     private(deployment, json.dumps(dict(
@@ -312,11 +313,11 @@ async def verify_matter(args, root, processes, gateway, stage, port, commands):
         muted_attribute = '1/1361/29'
         async with asyncio.timeout(3):
             while True:
-                current = await admin.request('read_attribute', node_id=node,
-                                              attribute_path=muted_attribute)
-                if muted_attribute in current:
-                    assert current[muted_attribute] is True
+                current = await admin.request('read', node_id=node, attribute_paths=[muted_attribute])
+                if muted_attribute in current['attributes']:
+                    assert current['attributes'][muted_attribute] is True
                     break
+                assert current['attribute_status'][muted_attribute]['status'] == 156  # Matter Busy
                 await asyncio.sleep(.1)
         browser = None
         if args.browser_python:
