@@ -3582,6 +3582,35 @@
     "matter_session_released": true,
     "scope": "The existing encrypted viewer supplied the live ESP32 feed. Its original H.264 was re-muxed in memory and streamed over SSH to the isolated Linux gateway. The controller commissioned with development attestation and obtained video and a JPEG across a veth link. The fixture ran in a different VM from the 24-hour soak. Direct production deployment and physical iPhone rendering remain open."
   },
+  "macos_merged_release_h264_admission": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "platform": "macOS 27.0.1 ARM64",
+    "compatible_negotiation": [
+      {"offer": "receiver", "dimensions": [640, 360], "sdp_profile_level": "42e01f", "rtp_sps_profile_level": "42c016", "decoded_frames": 30},
+      {"offer": "camera", "dimensions": [640, 360], "sdp_profile_level": "42e01f", "rtp_sps_profile_level": "42c016", "decoded_frames": 30},
+      {"offer": "receiver", "dimensions": [1920, 1080], "sdp_profile_level": "42e028", "rtp_sps_profile_level": "42c028", "decoded_frames": 30},
+      {"offer": "camera", "dimensions": [1920, 1080], "sdp_profile_level": "42c028", "rtp_sps_profile_level": "42c028", "decoded_frames": 30}
+    ],
+    "incompatible_1080p": {
+      "receiver_offer_matter_status": 207,
+      "camera_offer_downgraded_answer_matter_status": 207,
+      "receiver_sps_packets_observed": 0,
+      "sessions_after_each_rejection": 0
+    },
+    "mid_gop_join": {
+      "source_fps": 15,
+      "source_gop_frames": 30,
+      "first_coded_nal_types": [5, 5],
+      "decoded_frames": [6, 24],
+      "consecutive_idr_seconds": 1.999,
+      "second_viewer_wait_seconds": 1.606,
+      "existing_viewer_new_rtp_packets": 489,
+      "upstream_readers": 1,
+      "sessions_after_teardown": 0
+    },
+    "scope": "Isolated strict macOS gateway, generated H.264, development attestation and independent Matter controllers. The late viewer joined on the next IDR while the existing viewer kept receiving the original publication. Physical iPhone rendering and production recovery remain open."
+  },
   "macos_merged_release_interface_scope": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
