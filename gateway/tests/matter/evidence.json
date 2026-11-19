@@ -3548,5 +3548,36 @@
     "retained_camera_identity": true,
     "final_sessions": 0,
     "scope": "Isolated LAN fixture with development attestation and generated H.264. The same enrollment reopened after MediaMTX process loss."
+  },
+  "macos_merged_release_capture_and_attestation": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "platform": "macOS ARM64",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "capture": {
+      "authenticated_camera_connections": 1,
+      "decoded_rtsp_video_frames": 219,
+      "exact_pixel_annotation_matches": 219,
+      "decoded_rtsp_opus_frames": 714,
+      "rtsp_timing_steps_outside_1ms": 0,
+      "decoded_webrtc_video_frames": 30,
+      "webrtc_decoded_fps": 16.67,
+      "rendered_fps": null,
+      "decoded_audio_phases": ["silent", "tone", "silent", "tone"],
+      "camera_ack_to_matter_success_ms": [145.0, 151.0, 148.7],
+      "permit_expired_after_bridge_stop": true,
+      "publication_retired_on_stop": true
+    },
+    "attestation": {
+      "inadmissible_bundles": ["missing", "development_on_default_path", "exposed_key", "wrong_key", "altered_declaration", "wrong_product"],
+      "new_state_untouched_on_rejection": true,
+      "changed_identity_preserved_durable_state": true,
+      "binding_fabric_isolation": true,
+      "binding_restart_persistence": true,
+      "binding_interrupted_removal_repaired": true,
+      "time_zone_and_dst_survived_restart": true,
+      "decoded_video_frames_per_offer_direction": [45, 45],
+      "original_enrollment_restored": true
+    },
+    "scope": "Isolated gateway fixture with a generated mTLS camera source, independent decoder and explicit development attestation."
   }
 }
