@@ -1,0 +1,28 @@
+--- a/mediamtx/internal/core/path.go
++++ b/mediamtx/internal/core/path.go
+@@ -707,9 +707,11 @@
+ 
+ 	req.res <- pathAPIPathsGetRes{
+ 		data: &defs.APIPath{
+-			Name:     pa.name,
+-			ConfName: pa.conf.Name,
+-			Ready:    pa.isAvailable(),
++			Name:             pa.name,
++			ConfName:         pa.conf.Name,
++			RecordingEnabled: pa.conf.Record,
++			RecorderPresent:  pa.recorder != nil,
++			Ready:            pa.isAvailable(),
+ 			ReadyTime: func() *time.Time {
+ 				if !pa.isAvailable() {
+ 					return nil
+--- a/mediamtx/internal/defs/api_path.go
++++ b/mediamtx/internal/defs/api_path.go
+@@ -73,6 +73,8 @@
+ type APIPath struct {
+ 	Name                 string              `json:"name"`
+ 	ConfName             string              `json:"confName"`
++	RecordingEnabled     bool                `json:"recordingEnabled"`
++	RecorderPresent      bool                `json:"recorderPresent"`
+ 	Ready                bool                `json:"ready" deprecated:"true"`
+ 	ReadyTime            *time.Time          `json:"readyTime" deprecated:"true"`
+ 	Available            bool                `json:"available"`

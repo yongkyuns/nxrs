@@ -287,7 +287,9 @@ def exercise(gateway, media, publisher):
                     request = urllib.request.Request(f'http://127.0.0.1:{ports[3]}/v3/paths/get/reference',
                         headers={'Authorization': 'Bearer '+security['media_api_token']})
                     with urllib.request.urlopen(request, timeout=1) as response:
-                        return json.loads(response.read(8192)).get('ready') is False
+                        path = json.loads(response.read(8192))
+                    return (path['ready'] is False and path['recordingEnabled'] is True
+                            and path['recorderPresent'] is False)
                 until(retired, 'native publisher retirement and recorder finalization')
 
         print('RECORDING STAGE: native recording and decoded playback', flush=True)

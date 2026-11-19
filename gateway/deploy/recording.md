@@ -26,12 +26,20 @@ python3 tools/build-recording-media.py /tmp/nxrs-recording-build
 ```
 
 The builder selects Go 1.27.3, verifies pinned upstream module sums, and applies
-the small [recorder queue patch](../../upstream/mediamtx/recorder-drain.patch).
+the [recorder queue](../../upstream/mediamtx/recorder-drain.patch) and
+[path state](../../upstream/mediamtx/recording-state.patch) patches.
 Install its `nxrs-mediamtx-recording` output root-owned and executable at
 `/usr/local/libexec/nxrs-mediamtx-recording`. Recording units require this separate
 binary: upstream 1.21.2 discards queued samples during recorder retirement.
 The patch drains only recorder queues before native fMP4 finalization; live
 viewer cancellation and finite service stop/resource limits still apply.
+
+The authenticated loopback `GET /v3/paths/get/<path>` exposes
+`recordingEnabled` from the effective path configuration and `recorderPresent`
+from its recorder owner. After a configuration change disables recording, the
+path reports both values as false after the recorder has joined. A configuration
+PATCH can return before that join. Runtime changes are volatile and startup
+uses the operator's file configuration.
 
 * Install the generated strict units and `var-lib-nxrs\x2drecordings.mount` under
   `/etc/systemd/system/`. Include `nxrs-recording-volume.service`,

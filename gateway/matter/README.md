@@ -174,6 +174,12 @@ interval between captures. It limits JPEG output to 48 KiB, checks live privacy
 and publication identity through delivery, and reaps the encoder before
 releasing the capture slot. [Snapshot test](../tests/matter/README.md#matter-jpeg-snapshots).
 
+Software live privacy covers Matter viewers and snapshots. The bridge persists
+software recording privacy, while the optional encrypted archive and camera
+detection still follow their own controls. Use the recording-disabled profile
+for Matter trials that exercise recording privacy until the bridge can confirm
+that the recorder has stopped and verify the detector's privacy behavior.
+
 For source-side microphone control, pass `--microphone` to `stage_matter.py`. Add
 `"microphone_control": {"address": "127.0.0.1:18081", "token_file": "/absolute/private/microphone.token"}`
 to the bridge deployment JSON, substituting the gateway's internal listener
