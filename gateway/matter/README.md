@@ -174,11 +174,18 @@ interval between captures. It limits JPEG output to 48 KiB, checks live privacy
 and publication identity through delivery, and reaps the encoder before
 releasing the capture slot. [Snapshot test](../tests/matter/README.md#matter-jpeg-snapshots).
 
-Software live privacy covers Matter viewers and snapshots. The bridge persists
-software recording privacy, while the optional encrypted archive and camera
-detection still follow their own controls. Use the recording-disabled profile
-for Matter trials that exercise recording privacy until the bridge can confirm
-that the recorder has stopped and verify the detector's privacy behavior.
+Software live privacy covers Matter viewers and snapshots. For Matter control
+of the encrypted archive, render the strict bundle with
+`--recording-volume UUID --recording-privacy`. Stage the camera with
+`stage_matter.py --recording` and add
+`"recording_control": {"address": "127.0.0.1:18081", "token_file": "/absolute/private/recording.token"}`
+to the bridge configuration. Substitute the actual gateway internal listener.
+Each camera has its own recorder credential. Managed recording starts private.
+An explicit Matter write allows recording and persists the setting. Turning
+privacy on confirms native recorder retirement before the write succeeds.
+The native permission expires when the bridge stops renewing it. Camera
+detection and viewer-side clips have separate controls.
+[Guarded recording qualification](../tests/matter/README.md#guarded-recording-privacy).
 
 For source-side microphone control, pass `--microphone` to `stage_matter.py`. Add
 `"microphone_control": {"address": "127.0.0.1:18081", "token_file": "/absolute/private/microphone.token"}`

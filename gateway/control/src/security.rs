@@ -4,8 +4,9 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::{HashMap, HashSet}, net::{IpAddr, SocketAddr}, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet}, net::{IpAddr, SocketAddr}, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
 use subtle::ConstantTimeEq;
+use tokio::sync::Mutex;
 
 pub const MAX_SESSIONS: usize = 256;
 const MAX_PER_VIEWER: usize = 4;
@@ -96,6 +97,7 @@ pub struct GatewayPolicy {
     enforcement: Option<Enforcement>,
     pub(crate) detections: crate::detections::Store,
     pub(crate) microphone: crate::microphone::Leases,
+    recording_slots: HashMap<String, Arc<Mutex<()>>>,
 }
 impl GatewayPolicy {
     pub fn new(config: Config, settings: Option<Settings>) -> Result<Self, &'static str> {
@@ -113,7 +115,9 @@ impl GatewayPolicy {
                 sessions: Default::default() })
         } else { None };
         let detections = crate::detections::Store::new(&config);
-        Ok(Self { inner, config, enforcement, detections, microphone: Default::default() })
+        let recording_slots = config.viewers.iter().filter(|viewer| viewer.scope == config::ViewerScope::RecordingControl)
+            .map(|viewer| (viewer.camera_ids[0].clone(), Arc::new(Mutex::new(())))).collect();
+        Ok(Self { inner, config, enforcement, detections, microphone: Default::default(), recording_slots })
     }
     pub fn catalog(&self, token: &str) -> Result<Value, StatusCode> {
         let catalog = self.inner.catalog(token)?;
@@ -144,6 +148,17 @@ impl GatewayPolicy {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
         self.inner.microphone_controller(token, camera)
+    }
+    pub(crate) fn recording_target(&self, token: &str, camera: &str) -> Result<crate::recording::Target, StatusCode> {
+        let device = self.inner.camera_controller(token, camera, config::ViewerScope::RecordingControl)?;
+        let enforcement = self.enforcement.as_ref().filter(|e| !e.storage_failed)
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        let slot = self.recording_slots.get(camera).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        Ok(crate::recording::Target {
+            path: device.stream_path.clone(),
+            settings: enforcement.settings.clone(),
+            slot: Arc::clone(slot),
+        })
     }
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value, StatusCode> {
         if let Some(e) = &mut self.enforcement {

@@ -1,0 +1,144 @@
+--- a/rs-matter-dm/src/clusters/app/cam_av_stream.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+@@ -192,6 +192,15 @@
+         async move { self.write_privacy(AttributeId::MicrophoneMuted, value, kv) }
+     }
+
++    /// Return success only when recording privacy has taken effect.
++    fn write_recording(
++        &self,
++        value: bool,
++        kv: impl KvBlobStoreAccess,
++    ) -> impl Future<Output = Result<(), Error>> + MaybeSend {
++        async move { self.write_privacy(AttributeId::SoftRecordingPrivacyModeEnabled, value, kv) }
++    }
++
+     /// Called when a new video stream has been validated and assigned a
+     /// stable ID. The implementation should provision encoder resources;
+     /// returning `Err` aborts the allocation (the stream is NOT added to
+@@ -255,6 +264,14 @@
+         kv: impl KvBlobStoreAccess,
+     ) -> impl Future<Output = Result<(), Error>> + MaybeSend {
+         (*self).write_microphone(value, kv)
++    }
++
++    fn write_recording(
++        &self,
++        value: bool,
++        kv: impl KvBlobStoreAccess,
++    ) -> impl Future<Output = Result<(), Error>> + MaybeSend {
++        (*self).write_recording(value, kv)
+     }
+
+     fn allocate_video(&self, stream: &VideoStream) -> impl Future<Output = Result<(), CamAvError>> {
+@@ -964,11 +981,7 @@
+         ctx: impl WriteContext,
+         value: bool,
+     ) -> Result<(), Error> {
+-        self.hooks.write_privacy(
+-            AttributeId::SoftRecordingPrivacyModeEnabled,
+-            value,
+-            ctx.kv(),
+-        )?;
++        self.hooks.write_recording(value, ctx.kv()).await?;
+         self.dataver.changed();
+         ctx.notify_changed();
+         Ok(())
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -83,7 +83,7 @@
+ mod ntp;
+ mod tls;
+ mod persistence;
+-use nxrs_gateway_matter::privacy::{self, LiveView, Microphone, Privacy, Setting};
++use nxrs_gateway_matter::privacy::{self, LiveView, Microphone, Privacy, Recording, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+ use rs_matter::persist::{KvBlobStoreAccess, VENDOR_KEYS_START};
+
+@@ -186,6 +186,7 @@
+     Privacy,
+     nxrs_gateway_matter::snapshot::Snapshots,
+     Option<&'static Microphone>,
++    Option<&'static Recording>,
+ );
+
+ impl CameraAvStreamHooks for Str0mCamHooks {
+@@ -207,6 +208,9 @@
+     }
+
+     fn read_privacy(&self, id: CameraAttr) -> Result<bool, Error> {
++        if let (CameraAttr::SoftRecordingPrivacyModeEnabled, Some(recording)) = (id, self.4) {
++            return recording.read(&self.1).map_err(|_| ErrorCode::Busy.into());
++        }
+         if let (CameraAttr::MicrophoneMuted, Some(microphone)) = (id, self.3) {
+             return microphone.read(&self.1).map_err(|_| ErrorCode::Busy.into());
+         }
+@@ -232,6 +236,19 @@
+             return self.write_privacy(CameraAttr::MicrophoneMuted, value, kv);
+         };
+         microphone.set(&self.1, value, |record| {
++            kv.access(|store, buf| store.store(CAMERA_PRIVACY_KEY, record, buf))
++                .map_err(|_| privacy::Error::Storage)
++        }).await.map_err(|error| match error {
++            privacy::Error::Unavailable => ErrorCode::Busy.into(),
++            _ => ErrorCode::StdIoError.into(),
++        })
++    }
++
++    async fn write_recording(&self, value: bool, kv: impl KvBlobStoreAccess) -> Result<(), Error> {
++        let Some(recording) = self.4 else {
++            return self.write_privacy(CameraAttr::SoftRecordingPrivacyModeEnabled, value, kv);
++        };
++        recording.set(&self.1, value, |record| {
+             kv.access(|store, buf| store.store(CAMERA_PRIVACY_KEY, record, buf))
+                 .map_err(|_| privacy::Error::Storage)
+         }).await.map_err(|error| match error {
+@@ -1596,6 +1613,7 @@
+     rs_matter::utils::timers::Duration::from_secs(3600);
+ static SHARED: StaticCell<Str0mShared> = StaticCell::new();
+ static MICROPHONE: StaticCell<Option<Microphone>> = StaticCell::new();
++static RECORDING: StaticCell<Option<Recording>> = StaticCell::new();
+
+ // ---------------------------------------------------------------------------
+ // Main
+@@ -1758,12 +1776,15 @@
+     let microphone = MICROPHONE
+         .init(deployment.microphone().map_err(|_| ErrorCode::Invalid)?)
+         .as_ref();
++    let recording = RECORDING
++        .init(deployment.recording().map_err(|_| ErrorCode::Invalid)?)
++        .as_ref();
+     let cam_av = CameraAvStreamHandler::new(
+         Dataver::new_rand(&mut rand),
+         1,
+         cam_av_config,
+         CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits() | CameraFeature::PRIVACY.bits() | CameraFeature::SNAPSHOT.bits(),
+-        Str0mCamHooks(video.clone(), privacy.clone(), snapshots, microphone),
++        Str0mCamHooks(video.clone(), privacy.clone(), snapshots, microphone, recording),
+     );
+     // The first commissioning sees one allocated video stream. A stored empty
+     // allocation table is a valid controller choice and survives a restart.
+@@ -1791,6 +1812,7 @@
+         initial_video,
+     )?);
+     let microphone_privacy = privacy.clone();
++    let recording_privacy = privacy.clone();
+     let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+@@ -1901,6 +1923,15 @@
+                 Err(ErrorCode::StdIoError.into())
+             };
+             let media = select(media, capture_control).coalesce();
++            let recording_control = async {
++                if let Some(recording) = recording {
++                    recording.run(&recording_privacy, || matter.has_fabrics() && !shared.stopping.get()).await;
++                } else {
++                    core::future::pending::<()>().await;
++                }
++                Err(ErrorCode::StdIoError.into())
++            };
++            let media = select(media, recording_control).coalesce();
+             let all = select(select(matter_core, driver).coalesce(), media).coalesce();
+             let failed_store = async {
+                 let _ = persistence_failure.recv().await;

@@ -3,6 +3,10 @@ use tokio::sync::watch;
 
 mod microphone;
 pub use microphone::Microphone;
+mod recording;
+pub use recording::Recording;
+
+const MANAGED_RECORDING: u8 = 8;
 
 #[derive(Clone, Copy)]
 pub enum Setting {
@@ -36,6 +40,7 @@ impl Privacy {
         let flags = match record {
             None => Setting::MicrophoneMuted as u8,
             Some(&[1, flags]) if flags & !7 == 0 => flags,
+            Some(&[2, flags]) if flags & !15 == 0 && flags & MANAGED_RECORDING != 0 => flags,
             _ => return Err(Error::InvalidRecord),
         };
         Ok(Self(watch::Sender::new(State {
@@ -59,6 +64,23 @@ impl Privacy {
         enabled: bool,
         save: impl FnOnce(&[u8]) -> Result<(), Error>,
     ) -> Result<(), Error> {
+        self.set_flags(setting, enabled, 0, save)
+    }
+
+    fn recording_private(&self) -> bool {
+        let state = self.0.borrow();
+        state.failed || state.flags & MANAGED_RECORDING == 0
+            || state.flags & Setting::RecordingPrivacy as u8 != 0
+    }
+
+    fn set_recording(&self, private: bool, save: impl FnOnce(&[u8]) -> Result<(), Error>) -> Result<(), Error> {
+        self.set_flags(Setting::RecordingPrivacy, private, MANAGED_RECORDING, save)
+    }
+
+    fn set_flags(
+        &self, setting: Setting, enabled: bool, required: u8,
+        save: impl FnOnce(&[u8]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         let bit = setting as u8;
         let mut result = Ok(());
         self.0.send_if_modified(|state| {
@@ -66,15 +88,16 @@ impl Privacy {
                 result = Err(Error::Storage);
                 return false;
             }
-            let flags = if enabled {
+            let flags = (if enabled {
                 state.flags | bit
             } else {
                 state.flags & !bit
-            };
+            }) | required;
             if flags == state.flags {
                 return false;
             }
-            if save(&[1, flags]).is_err() {
+            let version = if flags & MANAGED_RECORDING == 0 { 1 } else { 2 };
+            if save(&[version, flags]).is_err() {
                 state.failed = true;
                 result = Err(Error::Storage);
             } else {
@@ -140,6 +163,24 @@ impl LiveView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_explicit_managed_setting_allows_recording_after_restart() {
+        let policy = Privacy::load(Some(&[1, 0])).unwrap();
+        assert!(policy.recording_private());
+        let mut record = Vec::new();
+        policy.set_recording(false, |bytes| {
+            record = bytes.to_vec();
+            Ok(())
+        }).unwrap();
+        let policy = Privacy::load(Some(&record)).unwrap();
+        assert!(!policy.recording_private());
+        policy.set_recording(true, |bytes| {
+            record = bytes.to_vec();
+            Ok(())
+        }).unwrap();
+        assert!(Privacy::load(Some(&record)).unwrap().recording_private());
+    }
 
     #[test]
     fn retired_sessions_cannot_reappear_after_unblocking_or_storage_failure() {

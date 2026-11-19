@@ -41,9 +41,11 @@ does so again on each restart. Its `recordingPermit` identifies the current
 path incarnation and revision. An authenticated `POST /v3/paths/recording-permit/<path>`
 accepts those IDs and an `enable` boolean. Permission expires after three
 seconds without renewal. Explicit denial replies after recorder finalization.
-Stale updates return HTTP 409, including across restart. The strict recording
-renderer continues to configure standalone archival. Matter staging and
-durable policy still need to be wired to the guarded recorder.
+Stale updates return HTTP 409, including across restart. Select
+`--recording-privacy` when rendering a strict deployment with a Matter bridge.
+Standalone archival uses the operator's recording configuration. The
+[Matter bridge setup](../matter/README.md#capture-and-privacy) configures scoped
+renewal and durable policy for a guarded path.
 
 * Install the generated strict units and `var-lib-nxrs\x2drecordings.mount` under
   `/etc/systemd/system/`. Include `nxrs-recording-volume.service`,

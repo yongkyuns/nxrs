@@ -6,6 +6,7 @@ mod revocations;
 pub mod security;
 mod media_control;
 mod microphone;
+mod recording;
 pub use media_control::Maintenance;
 
 use axum::{
@@ -139,6 +140,7 @@ pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Re
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
         .route("/internal/cameras/{camera}/microphone", post(microphone::write))
         .route("/internal/cameras/{camera}/microphone-permit", post(microphone::read))
+        .route("/internal/cameras/{camera}/recording", get(recording::read).post(recording::write))
         .route("/internal/cameras/{camera}/detection-sessions", post(detections::register))
         .route("/internal/cameras/{camera}/detections", post(detections::publish))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))

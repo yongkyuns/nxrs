@@ -2,7 +2,7 @@
 use crate::{security::{session_id, RemoteSession, Settings, Transport, MAX_SESSIONS}, Shared};
 use axum::http::{header, Method, Request, StatusCode};
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty, Limited};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
 use serde::Deserialize;
 use std::{collections::HashSet, time::{Duration, Instant}};
@@ -38,17 +38,20 @@ impl Transport {
 struct Driver(JoinHandle<()>);
 impl Drop for Driver { fn drop(&mut self) { self.0.abort(); } }
 
-async fn exchange(settings: &Settings, method: Method, path: &str) -> Result<(StatusCode, Vec<u8>), ()> {
+pub(crate) async fn exchange(
+    settings: &Settings, method: Method, path: &str, body: Option<Bytes>,
+) -> Result<(StatusCode, Vec<u8>), ()> {
     tokio::time::timeout(Duration::from_secs(2), async {
         let socket = TcpStream::connect(settings.media_api).await.map_err(|_| ())?;
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket)).await.map_err(|_| ())?;
         let _driver = Driver(tokio::spawn(async move { let _ = connection.await; }));
-        let request = Request::builder().method(method).uri(path)
+        let mut request = Request::builder().method(method).uri(path)
             .header(header::HOST, settings.media_api.to_string())
             .header(header::AUTHORIZATION, format!("Bearer {}", settings.media_api_token))
             .header(header::ACCEPT, "application/json")
-            .header(header::CONNECTION, "close")
-            .body(Empty::<Bytes>::new()).map_err(|_| ())?;
+            .header(header::CONNECTION, "close");
+        if body.is_some() { request = request.header(header::CONTENT_TYPE, "application/json"); }
+        let request = request.body(Full::new(body.unwrap_or_default())).map_err(|_| ())?;
         let response = sender.send_request(request).await.map_err(|_| ())?;
         let status = response.status();
         // No redirects, decompression, cookies, proxy environment, DNS or alternate origins.
@@ -70,7 +73,7 @@ impl Maintenance {
     pub(crate) fn new(shared: Shared, settings: Option<Settings>) -> Self { Self { shared, settings } }
     async fn reconcile(&self, settings: &Settings, transport: Transport) -> Result<(), ()> {
         let snapshot_started = Instant::now();
-        let (status, bytes) = exchange(settings, Method::GET, &format!("/v3/{}/list?itemsPerPage=256", transport.api())).await?;
+        let (status, bytes) = exchange(settings, Method::GET, &format!("/v3/{}/list?itemsPerPage=256", transport.api()), None).await?;
         if status != StatusCode::OK { return Err(()); }
         let listing = transport.listing(&bytes)?;
         if listing.pages > 1 || listing.count != listing.items.len() || listing.items.len() > MAX_SESSIONS
@@ -83,7 +86,7 @@ impl Maintenance {
         for id in denied {
             // Recheck after the HTTP/list await: a fresh legitimate admission can race the snapshot.
             if !self.shared.lock().await.still_forbidden(transport, &id) { continue; }
-            exchange(settings, Method::POST, &format!("/v3/{}/kick/{id}", transport.api())).await?;
+            exchange(settings, Method::POST, &format!("/v3/{}/kick/{id}", transport.api()), None).await?;
             self.shared.lock().await.retired(transport, &id);
         }
         Ok(())

@@ -51,6 +51,8 @@ pub enum ViewerScope {
     CameraSource,
     #[serde(rename = "microphone_control")]
     MicrophoneControl,
+    #[serde(rename = "recording_control")]
+    RecordingControl,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -113,6 +115,7 @@ impl Config {
         let mut principals = HashSet::new();
         let mut credentials = HashSet::new();
         let mut microphone_controllers = HashSet::new();
+        let mut recording_controllers = HashSet::new();
         for v in &self.viewers {
             if !identifier(&v.viewer_id) || !identifier(&v.site_id) || !principals.insert(&v.viewer_id)
                 || !hex_token(&v.token_sha256) || !credentials.insert(&v.token_sha256)
@@ -123,6 +126,11 @@ impl Config {
                 && (v.camera_ids.len() != 1 || !microphone_controllers.insert(&v.camera_ids[0]))
             {
                 return Err("one microphone controller per camera");
+            }
+            if v.scope == ViewerScope::RecordingControl
+                && (v.camera_ids.len() != 1 || !recording_controllers.insert(&v.camera_ids[0]))
+            {
+                return Err("one recording controller per camera");
             }
             let mut visible = HashSet::new();
             for id in &v.camera_ids {

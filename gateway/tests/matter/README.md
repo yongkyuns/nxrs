@@ -627,6 +627,29 @@ light from the displayed video. Their observed time difference includes
 browser scheduling and the analyser window. Physical microphone capture,
 speaker/display timing and iPhone playback require physical qualification.
 
+## Guarded recording privacy
+
+Build the pinned `capture-privacy` bridge, the gateway and its SDK publisher,
+and the recording variant with `tools/build-recording-media.py`. Use an
+isolated interface and the pinned Matter Server. The trial generates fresh
+attestation and scoped enrollment, publishes H.264 through the SDK, and
+independently decodes the resulting archive.
+
+```sh
+"$matter_runtime/venv/bin/python" gateway/tests/matter_recording_reference.py \
+  --sdk "$matter_sdk" --device "$matter_sdk/target/debug/webrtc_camera" \
+  --controller "$matter_runtime/node_modules/.bin/matter-server" \
+  --gateway gateway/target/debug/nxrs-gateway-control \
+  --publisher gateway/target/debug/nxrs-rtsp-publisher \
+  --mediamtx "$recording_build/nxrs-mediamtx-recording" \
+  --runtime "$matter_runtime/recording-privacy" --interface en1 --ip <fixture-lan-ip>
+```
+
+The same camera publication survives privacy changes and bridge restart.
+The archive must stop growing at the confirmed privacy write, during lost
+renewal, and after restart with the saved private setting. A second camera
+path and a revoked controller must refuse access.
+
 ## Matter microphone mute and live privacy
 
 ### Microphone capture control

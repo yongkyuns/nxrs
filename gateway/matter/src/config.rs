@@ -37,12 +37,13 @@ pub struct Deployment {
     pub lan_interface: Option<String>,
     pub snapshot_ffmpeg: Option<PathBuf>,
     pub host_power_source: Option<HostPowerSource>,
-    microphone_control: Option<MicrophoneControl>,
+    microphone_control: Option<PrivacyControl>,
+    recording_control: Option<PrivacyControl>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MicrophoneControl {
+struct PrivacyControl {
     address: SocketAddr,
     token_file: PathBuf,
 }
@@ -68,10 +69,10 @@ impl Deployment {
                 .iter()
                 .any(|s| !s.ip().is_loopback() || s.port() == 0)
             || config.control == config.rtsp
-            || config.microphone_control.as_ref().is_some_and(|microphone| {
-                !microphone.address.ip().is_loopback() || microphone.address.port() == 0
-                    || microphone.address == config.rtsp || microphone.address == config.control
-                    || !microphone.token_file.is_absolute()
+            || [&config.microphone_control, &config.recording_control].into_iter().flatten().any(|control| {
+                !control.address.ip().is_loopback() || control.address.port() == 0
+                    || control.address == config.rtsp || control.address == config.control
+                    || !control.token_file.is_absolute()
             })
             || config
                 .attestation_directory
@@ -107,6 +108,12 @@ impl Deployment {
     ) -> Result<Option<crate::privacy::Microphone>, &'static str> {
         self.microphone_control.as_ref().map(|control| {
             crate::privacy::Microphone::open(control.address, &self.camera_id, &control.token_file)
+        }).transpose()
+    }
+
+    pub fn recording(&self) -> Result<Option<crate::privacy::Recording>, &'static str> {
+        self.recording_control.as_ref().map(|control| {
+            crate::privacy::Recording::open(control.address, &self.camera_id, &control.token_file)
         }).transpose()
     }
 

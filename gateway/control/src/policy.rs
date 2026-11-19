@@ -1,5 +1,5 @@
 //! Application authorization, deliberately independent of VPN peers and IP addresses.
-use crate::config::{hex_token, Config, Viewer, ViewerScope};
+use crate::config::{hex_token, Camera, Config, Viewer, ViewerScope};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -128,14 +128,16 @@ impl Policy {
     }
 
     pub(crate) fn microphone_controller(&self, token: &str, camera: &str) -> Result<()> {
-        let principal = self.viewer(token, ViewerScope::MicrophoneControl)?;
-        if principal.scope == ViewerScope::MicrophoneControl
-            && principal.camera_ids.iter().any(|id| id == camera)
-        {
-            Ok(())
-        } else {
-            Err(StatusCode::FORBIDDEN)
+        self.camera_controller(token, camera, ViewerScope::MicrophoneControl).map(|_| ())
+    }
+
+    pub(crate) fn camera_controller(&self, token: &str, camera: &str, scope: ViewerScope) -> Result<&Camera> {
+        let principal = self.viewer(token, scope)?;
+        if principal.scope != scope || !principal.camera_ids.iter().any(|id| id == camera) {
+            return Err(StatusCode::FORBIDDEN);
         }
+        self.config.cameras.iter().find(|entry| entry.camera_id == camera && entry.site_id == principal.site_id)
+            .ok_or(StatusCode::FORBIDDEN)
     }
 
 

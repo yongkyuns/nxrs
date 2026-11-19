@@ -65,7 +65,10 @@ def media_config(address, ports=vpn.PORTS, management_port=MANAGEMENT_PORT):
 
 def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
              width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic',
-             camera_detections=False, camera_tls=None, camera_audio=False, recording_volume=None):
+             camera_detections=False, camera_tls=None, camera_audio=False, recording_volume=None,
+             recording_privacy=False):
+    if recording_privacy and recording_volume is None:
+        raise ValueError('guarded recording requires an encrypted recording volume')
     if recording_volume is not None:
         import recording_service
         recording_service.volume_id(recording_volume)
@@ -96,7 +99,8 @@ def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
                                         else 'SYNTHETIC Rust camera-stream reference')
         files['config.json'] = json.dumps(catalog, indent=2) + '\n'
     if recording_volume is not None:
-        files.update(recording_service.files(recording_volume, files['nxrs-media.service'], files['mediamtx.json']))
+        files.update(recording_service.files(recording_volume, files['nxrs-media.service'],
+                                             files['mediamtx.json'], recording_privacy=recording_privacy))
     for name, content in files.items():
         with open(directory / name, 'w', opener=lambda p, flags: os.open(p, flags, 0o600)) as f:
             f.write(content)
@@ -159,6 +163,7 @@ def main():
     render.add_argument('--camera-audio', action='store_true', help='request microphone audio from a compatible TLS camera')
     render.add_argument('--source-kind', choices=['synthetic', 'physical'], default='synthetic')
     render.add_argument('--recording-volume', help='opt in to a separately provisioned LUKS2/ext4 recording volume UUID')
+    render.add_argument('--recording-privacy', action='store_true', help='require permission from a Matter bridge to record')
     seed = commands.add_parser('init-state', help='FIRST enrollment only; never reset deployed state')
     seed.add_argument('directory', type=Path)
     args = parser.parse_args()
@@ -177,7 +182,7 @@ def main():
                      camera=args.camera, width=args.width, height=args.height,
                      allow_insecure_camera_http=args.allow_insecure_camera_http, source_kind=args.source_kind,
                      camera_detections=args.camera_detections, camera_tls=camera_tls, camera_audio=args.camera_audio,
-                     recording_volume=args.recording_volume)
+                     recording_volume=args.recording_volume, recording_privacy=args.recording_privacy)
         else:
             initialize_state(args.directory)
     except (ValueError, OSError, subprocess.SubprocessError):
