@@ -12,6 +12,7 @@ import socket
 
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCRtpSender
 
+from matter_attestation_reference import public_test_bundle
 from matter_audio_allocation import CLUSTER
 from matter_commissioning_reference import provision
 from matter_fabric_reference import attribute, controller, packets
@@ -69,30 +70,33 @@ async def run(args):
     with ExitStack() as services:
         gateway, server, control, rtsp = start_media(services, root, args)
         config = root / "matter.json"
-        private_file(
-            config,
-            json.dumps(
-                dict(
-                    version=1,
-                    site_id="lab",
-                    camera_id="cam",
-                    lan_interface=args.interface,
-                    ice_address=args.ip,
-                    control=f"127.0.0.1:{gateway.control}",
-                    rtsp=f"127.0.0.1:{rtsp}",
-                    media_token_file=str(gateway.credentials["reader"]),
-                    detection_token_file=str(gateway.credentials["independent"]),
-                    factory_data=str(factory),
-                    state_directory=str(root / "state"),
-                    snapshot_ffmpeg=str(args.ffmpeg.resolve(strict=True)),
-                )
-            ),
+        settings = dict(
+            version=1,
+            site_id="lab",
+            camera_id="cam",
+            lan_interface=args.interface,
+            ice_address=args.ip,
+            control=f"127.0.0.1:{gateway.control}",
+            rtsp=f"127.0.0.1:{rtsp}",
+            media_token_file=str(gateway.credentials["reader"]),
+            detection_token_file=str(gateway.credentials["independent"]),
+            factory_data=str(factory),
+            state_directory=str(root / "state"),
+            snapshot_ffmpeg=str(args.ffmpeg.resolve(strict=True)),
         )
+        attestation_flags = []
+        if args.sdk is not None:
+            bundle = root / "attestation"
+            public_test_bundle(args.sdk, bundle)
+            settings.update(attestation_directory=str(bundle), host_power_source="dc")
+            attestation_flags = ["--allow-test-attestation"]
+        private_file(config, json.dumps(settings))
         device = start(
             services,
             root,
             "matter",
-            [args.device, "--config", config, "--initialize-state", "--open-commissioning-window"],
+            [args.device, "--config", config, "--initialize-state", "--open-commissioning-window",
+             *attestation_flags],
             dict(os.environ, RUST_LOG="error", TMPDIR=str(root)),
         )
 
@@ -255,6 +259,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("runtime", "controller", "device", "gateway", "publisher", "mediamtx", "ffmpeg"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--sdk", type=Path, help="pinned SDK checkout for the packaged bridge")
     parser.add_argument("--interface", required=True)
     parser.add_argument("--ip", required=True)
     args = parser.parse_args()

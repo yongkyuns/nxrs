@@ -411,7 +411,8 @@ iPhone. [Concurrent playback results](evidence.json).
 Prepare the pinned SDK with `--variant stream-continuity`. Run
 `gateway/tests/matter_publication_reference.py` with the
 [snapshot test](#matter-jpeg-snapshots) arguments and a fresh private
-runtime directory.
+runtime directory. Use `--sdk` with the packaged bridge to provision its
+development attestation in the fixture.
 
 The controller decodes a 640×360 publication, leaves a camera offer
 unanswered, and withholds ICE candidates on a second session after receiving
@@ -422,7 +423,9 @@ checks that the peer retires and stops receiving RTP. Both offer commands
 return `InvalidInState` during the outage and after the media server starts
 with an empty path. A third publication yields 45 decoded frames through
 the same enrollment and stable camera identity, with the bridge and
-gateway control process still running. [Host measurements](evidence.json).
+gateway control process still running. The merged macOS package at
+`fd89e5c7` recovered in 5.882 seconds and ended with zero sessions.
+[Host measurements](evidence.json).
 
 ## Configured camera and durable endpoints
 

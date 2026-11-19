@@ -3529,5 +3529,24 @@
     "longest_surviving_gap_seconds": 0.082,
     "fifth_offer_rejections": 4,
     "scope": "Two-minute rehearsal of the exact merged package with development attestation and generated H.264. It exercised slow-offer expiry, restart, selective revocation, replacement commissioning and session release."
+  },
+  "macos_merged_release_publication_recovery": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "platform": "macOS ARM64",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "original_frames": 45,
+    "original_dimensions": [640, 360],
+    "unanswered_end_reason": 5,
+    "no_ice_end_reason": 5,
+    "replacement_frames": 45,
+    "replacement_dimensions": [320, 240],
+    "active_end_reason": 5,
+    "offline_solicit_status": 203,
+    "offline_provide_status": 203,
+    "media_server_recovery_seconds": 5.882,
+    "restored_frames": 45,
+    "retained_camera_identity": true,
+    "final_sessions": 0,
+    "scope": "Isolated LAN fixture with development attestation and generated H.264. The same enrollment reopened after MediaMTX process loss."
   }
 }
