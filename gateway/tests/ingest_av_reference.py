@@ -438,6 +438,7 @@ async def run(args, root):
                 result = await verify_gateway(gateway, stage, port, commands)
             else:
                 result = await verify_matter(args, root, processes, gateway, stage, port, commands)
+            assert commands.empty(), 'unexpected microphone capture commands'
             assert gateway.path()['source']['id'] == source_id
             assert received == [True] and not errors
             ingest.terminate()

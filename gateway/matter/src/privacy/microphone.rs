@@ -2,7 +2,7 @@
 use super::{Privacy, Setting};
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::{client::conn::http1, header, Request, StatusCode};
+use hyper::{Request, StatusCode, client::conn::http1, header};
 use hyper_util::rt::TokioIo;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::{net::SocketAddr, path::Path, time::Duration};
@@ -90,6 +90,60 @@ impl Microphone {
                 .then_some(())
                 .ok_or(())
         };
-        tokio::select! { biased; result = send => result, _ = connection => Err(()) }
+        tokio::pin!(send);
+        tokio::select! {
+            biased;
+            result = &mut send => result,
+            closed = connection => {
+                closed.map_err(|_| ())?;
+                // A normal close can arrive in the same poll as the complete response.
+                send.await
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+        net::TcpListener,
+    };
+
+    #[tokio::test]
+    async fn successful_reply_survives_http_connection_close() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let microphone = Microphone {
+            control: listener.local_addr().unwrap(),
+            path: "/internal/cameras/test/microphone".into(),
+            authorization: header::HeaderValue::from_static("Bearer fixture"),
+        };
+        let server = async {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = BufReader::new(socket);
+            loop {
+                let mut line = String::new();
+                assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut body = [0; b"{\"permit\":null}".len()];
+            socket.read_exact(&mut body).await.unwrap();
+            assert_eq!(&body, b"{\"permit\":null}");
+            let socket = socket.get_mut();
+            socket
+                .write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        };
+        let ((), result) = timeout(Duration::from_secs(2), async {
+            tokio::join!(server, microphone.publish(None))
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, Ok(()));
     }
 }
