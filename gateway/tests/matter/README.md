@@ -1075,16 +1075,28 @@ and verifies its session list is empty before opening video. Only sanitized
 
 ## Scope of the evidence
 
-`evidence.json` records host results. The session capacity test verifies UDP
-socket ownership and stream reference counts through the Matter commands.
-Production still needs truthful capabilities, deadline qualification under
-slow or offline requestors, and lifecycle tests for full process shutdown.
+[Issue #388](https://github.com/yongkyuns/nxrs/issues/388) is the release
+checklist. [Evidence](evidence.json) identifies the revision and scope of each
+run. The merged macOS and Linux builds decoded the original ESP32 H.264 and
+returned JPEG snapshots in isolated deployments. Separate macOS rehearsals
+verified concurrent Nxrs and Matter playback with the existing Nxrs viewer
+credential, selective revocation and gateway rollback. The earlier Home Assistant
+iPhone playback demonstrated feasibility.
 
-See [conformance.md](conformance.md) for mandatory audio/snapshot/root behavior
-and the bridged endpoint topology. The video-only fixture is not a conforming
-Matter Camera product.
-
-A physical iPhone, real camera media, bridge conformance, production access
-control, Linux, remote access and the 24-hour soak remain separate acceptance
-gates. This fixture establishes no NuttX support and adds
-no mandatory integration CI job or production SDK dependency. The Rust store and occupancy tests run in the existing gateway workspace check using Rust 1.90.
+- **Deployment.** The live gateway still needs the scoped authorization
+  cutover and verification of existing enrollments, revocation and recovery.
+  Exercise restart, session limits, slow receivers and LAN changes under load,
+  including interface exclusion across networks.
+- **Client playback and occupancy.** Verify the release gateway with a physical
+  iPhone over the LAN and remotely. Include snapshots, stream teardown and
+  concurrent Nxrs Home and Matter rendering. The tested stock Home Assistant
+  snapshot proxy fails the width-only request. The real detector exercised
+  unavailable and recovery in the isolated bridge. A controlled clear-to-occupied
+  trial on the deployed gateway is pending.
+- **Performance.** The completed 24-hour Linux fixture used pre-merge code and
+  generated media. The merged-build soak and sustained real-camera playback
+  remain release gates.
+- **Camera conformance.** Physical microphone capture, iPhone A/V timing and
+  privacy, production attestation and conformance qualification remain open.
+  See [camera qualification boundaries](conformance.md). Direct Matter on
+  NuttX is tracked separately in phase 6.
