@@ -3652,7 +3652,18 @@
     "existing_viewer_admitted_over_test_https": true,
     "original_catalogue_principals_preserved": true,
     "media_persisted": false,
-    "scope": "The existing encrypted viewer supplied live ESP32 video. An in-memory relay re-encoded it at its original dimensions into isolated MediaMTX. The exact strict controller admitted the existing viewer and a scoped Matter reader to the same publication. Client receivers ran on macOS. Production cutover, direct ingest, and physical iPhone rendering and performance remain open."
+    "original_bitstream_selective_revocation": {
+      "relayed_access_units": 171,
+      "relay_attempts": 3,
+      "concurrent_decoded_frames_per_viewer": [24, 24],
+      "matter_reader_and_session_retired_ms_after_ack": 319,
+      "matter_packets_after_retirement": 0,
+      "surviving_nxrs_new_rtp_packets": 106,
+      "surviving_nxrs_decoded_frames": 24,
+      "original_publication_retained": true,
+      "revocation_persisted": true
+    },
+    "scope": "The existing encrypted viewer supplied live ESP32 video. The first in-memory relay re-encoded it at its original dimensions. The revocation trial re-muxed the existing H.264 with RTP timestamps into isolated MediaMTX. The exact strict controller withdrew the fixture's Matter credential while the existing Nxrs viewer stayed on that publication. Client receivers ran on macOS. Production cutover, direct ingest, physical iPhone rendering and performance remain open."
   },
   "macos_merged_release_publication_recovery": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
