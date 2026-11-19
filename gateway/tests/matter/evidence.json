@@ -3599,7 +3599,14 @@
     "scoped_detection_credential_and_site_header_verified": true,
     "scoped_media_mapping_matched_existing_camera": true,
     "absent_detector_source_reported_unavailable": true,
-    "scope": "The merged controller used a private copy of the active catalogue, a new fixture-only revocation store and a separate loopback MediaMTX. Verified API admission and source mapping before deployment. Live configuration, persistence and media cutover remain open."
+    "rollback_rehearsal": {
+      "archived_configurations_and_executables_verified": true,
+      "decoded_real_frames_original_strict_restored": [24, 24, 24],
+      "seconds_from_service_start_to_frame_check_original_strict_restored": [5.392, 17.478, 5.582],
+      "strict_phase_relay_attempts": 2,
+      "same_existing_viewer_credential": true
+    },
+    "scope": "The merged controller used a private copy of the active catalogue, a new fixture-only revocation store and a separate loopback MediaMTX. A second fixture switched from the saved gateway binaries and configuration to strict mode and back. All three phases decoded the live ESP32 feed through an in-memory relay with the same enrolled viewer. Timing covers fixture startup, relay negotiation and decoding. Live configuration, persistence and media cutover remain open."
   },
   "macos_merged_release_shared_physical_publication": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
