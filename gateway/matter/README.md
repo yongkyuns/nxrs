@@ -84,6 +84,11 @@ interface must own the address. DNS-SD, IPv4 and IPv6 Matter transport, and
 WebRTC sockets all use the resolved interface. Keep the controller reachable
 through the selected LAN. [Isolation test](../tests/matter/README.md#lan-interface-isolation).
 
+For direct playback through a VPN, the viewer needs a route to Home Assistant
+for signaling and UDP access to the bridge's advertised ICE address for media.
+Keep Matter commissioning and control on the selected LAN.
+[Routed playback test](../tests/matter/README.md#playback-across-a-routed-vpn).
+
 On macOS, Matter TCP binds the configured IPv4 address and the selected
 interface's IPv6 addresses at startup. Restart the bridge after those addresses
 change. UDP checks the incoming interface, including for multicast traffic.

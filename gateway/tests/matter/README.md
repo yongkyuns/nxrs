@@ -178,8 +178,9 @@ It checks that UDP reached the router and that the unanswered session retires.
 The second trial routes media to the same Matter bridge through source NAT.
 Both offer directions must decode changing H.264 images and release their
 sessions. The VPN viewer cannot connect to the bridge's Matter TCP port.
-This qualifies the routed media path on Linux. The Home Assistant iPhone app
-on cellular and the deployment's Tailscale routing still need physical tests.
+The merged Linux build also decoded the original ESP32 H.264 in both offer
+directions over this route. The Home Assistant iPhone app on cellular and the
+deployment's Tailscale routing still need physical tests. [Results](evidence.json).
 
 ## Four-viewer Linux soak
 

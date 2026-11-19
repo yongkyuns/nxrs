@@ -3582,6 +3582,30 @@
     "matter_session_released": true,
     "scope": "The existing encrypted viewer supplied the live ESP32 feed. Its original H.264 was re-muxed in memory and streamed over SSH to the isolated Linux gateway. The controller commissioned with development attestation and obtained video and a JPEG across a veth link. The fixture ran in a different VM from the 24-hour soak. Direct production deployment and physical iPhone rendering remain open."
   },
+  "linux_merged_release_routed_wireguard": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "generated_h264_control": {
+      "signalling_with_media_blocked": true,
+      "blocked_playback_session_released": true,
+      "dropped_udp_packets": 5,
+      "forwarded_udp_packets": 26,
+      "decoded_frames": {"receiver_offer": 45, "camera_offer": 45}
+    },
+    "original_esp32_h264": {
+      "relayed_access_units": 231,
+      "dimensions": [320, 240],
+      "forwarded_udp_packets": 21,
+      "decoded_frames": {"receiver_offer": 45, "camera_offer": 45},
+      "video_reencoded": false,
+      "media_persisted": false
+    },
+    "direct_matter_tcp_blocked": true,
+    "bidirectional_wireguard_transfer": true,
+    "sessions_and_test_networks_released": true,
+    "scope": "The controller commissioned on the selected LAN. An independent receiver used Matter Server signaling and WebRTC over an isolated WireGuard route. The Mac remuxed the real ESP32 H.264 from its existing authenticated viewer in memory. An earlier trial ended on source loss; the successful trial began at the next natural publication. Physical iPhone playback, Home Assistant's remote UI and the production Tailscale route remain open."
+  },
   "linux_merged_release_network_recovery": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
