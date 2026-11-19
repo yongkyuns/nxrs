@@ -3578,13 +3578,21 @@
       "cycles": 8
     },
     "patched_qemu_image_sha256": "7ccec5347e028050a71d97a0b458a3c54b487d94a34e93c0a92684fd6ac291a2",
+    "patched_single_boot": {
+      "interrupt_mask_cases": {"systimer": 128, "cycle_counter": 128},
+      "unmasked_controls": 8,
+      "advancing_peer_samples": 8448,
+      "clock_comparisons": 54,
+      "max_abs_clock_error_us_by_cpu": [186, 293],
+      "scope": "The same two-core emulator image completed one run with paced serial input. An earlier run stopped when the emulator did not echo the next shell command after the witness returned to the prompt. The measured errors compare Rust Instant with the emulated hardware counter."
+    },
     "patched_wroom_profile": "esp32s3-camera-stream-startup",
     "patched_wroom_signed_bytes": 1899886,
     "patched_wroom_slot_bytes": 2097152,
     "patched_wroom_image_sha256": "093c32bb287a4cd6cdc08e4f73e796b7a5823353452598fca9062356a03087f2",
     "patched_wroom_abi_witnesses": 122,
     "patched_wroom_test_signature_verified": true,
-    "scope": "The unmodified tickless timer could leave a sleeping peer with a pending watchdog and no timer interrupt after a cross-core interrupt mask. Clearing the old interrupt before arming the alarm passed 22 fresh two-core QEMU boots. The full WROOM camera build links the same fix and uses a disposable test signature. Physical boot, camera timing and continuity remain open."
+    "scope": "The unmodified tickless timer could leave a sleeping peer with a pending watchdog and no timer interrupt after a cross-core interrupt mask. Clearing the old interrupt before arming the alarm passed 22 fresh two-core QEMU boots and repeated masks in one boot. The full WROOM camera build links the same fix and uses a disposable test signature. Physical boot, camera timing and continuity remain open."
   },
   "wroom_timer_signed_update_preflight": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
