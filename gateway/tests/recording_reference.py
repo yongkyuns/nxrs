@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import uuid
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'deploy'))
@@ -257,7 +258,25 @@ def exercise(gateway, media, publisher):
             except OSError:
                 return False
 
-        def publish(accepted=True):
+        def media_request(method, route, data=None, *, expected=200):
+            headers = {'Authorization': 'Bearer '+security['media_api_token']}
+            body = None if data is None else json.dumps(data).encode()
+            if body is not None:
+                headers['Content-Type'] = 'application/json'
+            request = urllib.request.Request(f'http://127.0.0.1:{ports[3]}/v3/{route}/reference',
+                data=body, headers=headers, method=method)
+            try:
+                with urllib.request.urlopen(request, timeout=3) as response:
+                    require(response.status == expected, 'unexpected media management status')
+                    return json.loads(response.read(8192))
+            except urllib.error.HTTPError as error:
+                with error:
+                    require(error.code == expected, 'unexpected media management refusal')
+
+        def path_state():
+            return media_request('GET', 'paths/get')
+
+        def publish(accepted=True, progress=None, guarded=False):
             until(ready, 'recording media authorization ready')
             child = subprocess.Popen([str(publisher), f'127.0.0.1:{ports[2]}', 'publisher_reference', 'reference'],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -267,6 +286,8 @@ def exercise(gateway, media, publisher):
                 chunk = (len(payload)+120)//121
                 for offset in range(0, len(payload), chunk):
                     child.stdin.write(payload[offset:offset+chunk]); child.stdin.flush()
+                    if progress is not None:
+                        progress(offset/len(payload))
                     time.sleep(.1 if offset < len(payload)*9//10 else 0)  # Burst the final queued frames.
             except BrokenPipeError:
                 pass
@@ -284,11 +305,8 @@ def exercise(gateway, media, publisher):
                 require(child.returncode == 0, 'private-pipe SDK publication')
                 require(published == 121, 'every source packet reaches the native publisher')
                 def retired():
-                    request = urllib.request.Request(f'http://127.0.0.1:{ports[3]}/v3/paths/get/reference',
-                        headers={'Authorization': 'Bearer '+security['media_api_token']})
-                    with urllib.request.urlopen(request, timeout=1) as response:
-                        path = json.loads(response.read(8192))
-                    return (path['ready'] is False and path['recordingEnabled'] is True
+                    path = path_state()
+                    return (path['ready'] is False and path['recordingEnabled'] is (not guarded)
                             and path['recorderPresent'] is False)
                 until(retired, 'native publisher retirement and recorder finalization')
 
@@ -400,6 +418,63 @@ def exercise(gateway, media, publisher):
         require((store/'media/metadata.bin').read_bytes() == auxiliary, 'recording state survives locked-volume restart')
         publish(); unit(roles['media']+'.service', 'stop')
         require(decode(list((store/'media').rglob('*.mp4'))) == 120, 'fresh recording after remount')
+
+        print('RECORDING STAGE: expire and retire guarded native recording', flush=True)
+        media_config['paths']['reference']['recordRequiresPermit'] = True
+        (config/'mediamtx.json').write_text(json.dumps(media_config))
+        before = set((store/'media').rglob('*.mp4'))
+        unit(roles['media']+'.service', 'start')
+        revisions = []
+        source = None
+
+        def set_permit(revision, enable, expected=200):
+            return media_request('POST', 'paths/recording-permit', dict(revision, enable=enable), expected=expected)
+
+        def check_guarded_path(fraction):
+            nonlocal source
+            if not revisions and fraction >= 0.20:
+                path = path_state()
+                require(path['ready'] and not path['recordingEnabled'] and not path['recorderPresent'],
+                    'guarded recorder starts closed during publication')
+                require(set((store/'media').rglob('*.mp4')) == before, 'no footage before the first permit')
+                source = path['source']['id']
+                initial = path['recordingPermit']
+                revisions.extend([initial, set_permit(initial, True)])
+                require(path_state()['recorderPresent'], 'permit admits native recording')
+            elif len(revisions) == 2 and fraction >= 0.33:
+                permitted = revisions[-1]
+                revisions.append(set_permit(permitted, False))
+                path = path_state()
+                require(not path['recordingEnabled'] and not path['recorderPresent'],
+                    'successful denial confirms native retirement')
+                set_permit(permitted, True, expected=409)
+            elif len(revisions) == 3 and fraction >= 0.46:
+                revisions.append(set_permit(revisions[-1], True))
+            elif len(revisions) == 4 and fraction >= 0.83:
+                until(lambda: not path_state()['recorderPresent'], 'missing renewal retires the recorder', seconds=5)
+                path = path_state()
+                require(path['ready'] and path['source']['id'] == source and not path['recordingEnabled'],
+                    'permit expiry preserves the live source')
+                set_permit(revisions[-1], True, expected=409)
+                revisions.append(path['recordingPermit'])
+
+        publish(progress=check_guarded_path, guarded=True)
+        require(len(revisions) == 5, 'all guarded recording transitions executed')
+        guarded_clips = set((store/'media').rglob('*.mp4'))-before
+        require(0 < decode(guarded_clips) < 120, 'only the permitted intervals archived')
+        unit(roles['media']+'.service', 'stop')
+        unit(roles['media']+'.service', 'start')
+        def closed_after_restart():
+            try:
+                path = path_state()
+            except OSError:
+                return False
+            return (path['recordingPermit']['pathId'] != revisions[0]['pathId']
+                and not path['recordingEnabled'] and not path['recorderPresent'])
+        until(closed_after_restart, 'restart creates a new closed recorder incarnation')
+        set_permit(revisions[-1], True, expected=409)
+        unit(roles['media']+'.service', 'stop')
+
         print('RECORDING PASS: actual LUKS2 admission/key refusals, native recording/retention/capacity/restart; '
             'restic backup, wrong-key/corruption refusal, interrupted isolated restore and exact decoded recovery; hosted only', flush=True)
     except BaseException:

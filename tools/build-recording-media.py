@@ -38,14 +38,14 @@ def build(output, go):
         for path in [destination, *destination.rglob('*')]:
             path.chmod(0o755 if path.is_dir() else 0o644)
 
-    patches = [str(HERE/name) for name in ('recorder-drain.patch', 'recording-state.patch')]
+    patches = [str(HERE/name) for name in ('recorder-drain.patch', 'recording-permit.patch')]
     run('git', 'apply', '--check', *patches)
     run('git', 'apply', *patches)
     media = output/'mediamtx'
     with (media/'go.mod').open('a') as stream:
         stream.write('\nreplace github.com/bluenviron/gortsplib/v5 => ../gortsplib\n')
     run(go, 'generate', './internal/servers/hls', cwd=media)  # Upstream verifies its asset hash.
-    (media/'internal/core/VERSION').write_text(pin['modules']['mediamtx']['version']+'-nxrs-recording2')
+    (media/'internal/core/VERSION').write_text(pin['modules']['mediamtx']['version']+'-nxrs-recording3')
     binary = output/'nxrs-mediamtx-recording'
     run(go, 'build', '-trimpath', '-mod=readonly', '-o', str(binary), '.', cwd=media)
     run(go, 'mod', 'verify', cwd=media)

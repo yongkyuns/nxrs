@@ -27,19 +27,23 @@ python3 tools/build-recording-media.py /tmp/nxrs-recording-build
 
 The builder selects Go 1.27.3, verifies pinned upstream module sums, and applies
 the [recorder queue](../../upstream/mediamtx/recorder-drain.patch) and
-[path state](../../upstream/mediamtx/recording-state.patch) patches.
+[recorder permit](../../upstream/mediamtx/recording-permit.patch) patches.
 Install its `nxrs-mediamtx-recording` output root-owned and executable at
 `/usr/local/libexec/nxrs-mediamtx-recording`. Recording units require this separate
 binary: upstream 1.21.2 discards queued samples during recorder retirement.
 The patch drains only recorder queues before native fMP4 finalization; live
 viewer cancellation and finite service stop/resource limits still apply.
 
-The authenticated loopback `GET /v3/paths/get/<path>` exposes
-`recordingEnabled` from the effective path configuration and `recorderPresent`
-from its recorder owner. After a configuration change disables recording, the
-path reports both values as false after the recorder has joined. A configuration
-PATCH can return before that join. Runtime changes are volatile and startup
-uses the operator's file configuration.
+The authenticated loopback `GET /v3/paths/get/<path>` reports effective
+`recordingEnabled` and whether the native recorder is still present. An
+optional `recordRequiresPermit` path setting starts recording disabled and
+does so again on each restart. Its `recordingPermit` identifies the current
+path incarnation and revision. An authenticated `POST /v3/paths/recording-permit/<path>`
+accepts those IDs and an `enable` boolean. Permission expires after three
+seconds without renewal. Explicit denial replies after recorder finalization.
+Stale updates return HTTP 409, including across restart. The strict recording
+renderer continues to configure standalone archival. Matter staging and
+durable policy still need to be wired to the guarded recorder.
 
 * Install the generated strict units and `var-lib-nxrs\x2drecordings.mount` under
   `/etc/systemd/system/`. Include `nxrs-recording-volume.service`,
