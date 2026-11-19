@@ -3865,6 +3865,24 @@
     "sessions_after_each_run": 0,
     "scope": "Stock Home Assistant in an isolated macOS lab, with one browser per successful run. The existing authenticated viewer supplied original ESP32 H.264 through an in-memory remux. Browser FPS reflects separate live intervals. Physical iPhone playback, sustained streaming and the stock thumbnail issue remain open."
   },
+  "macos_merged_release_concurrent_browser_playback": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "platform": "macOS ARM64",
+    "home_assistant": "2026.11.2",
+    "browser": "Headless WebKit 27.2",
+    "dimensions": [320, 240],
+    "original_esp32_h264_access_units_relayed": 200,
+    "same_publication_witnessed": true,
+    "video_reencoded": false,
+    "media_persisted": false,
+    "common_measurement_window_ms": 6003,
+    "matter": {"presented_frames": 99, "distinct_sampled_images": 99, "presented_fps": 16.492, "max_presentation_gap_ms": 155},
+    "nxrs_whep": {"presented_frames": 98, "distinct_sampled_images": 98, "presented_fps": 16.325, "max_presentation_gap_ms": 152},
+    "matter_session_released": true,
+    "test_listeners_released": true,
+    "scope": "The original real camera H.264 was remuxed in memory into one isolated strict publication. Stock Home Assistant and a separate video element admitted through the existing Nxrs viewer credential were observed in the same browser using requestVideoFrameCallback. Earlier trials saw paused Home Assistant playback. The successful trial waited for the Matter image to advance before opening WHEP. Native iPhone rendering and sustained playback remain open."
+  },
   "macos_merged_release_physical_occupancy": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
