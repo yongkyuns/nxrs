@@ -29,7 +29,13 @@ def build(source_root, output):
         subprocess.run(args+['-o', str(destination)], check=True, timeout=60)
         return destination
     compile_file(sources[0], 'camera', library=True)
-    compile_file(sources[1], 'stream_service', ['camera'], library=True)
+    dependencies = ['camera']
+    capture_wire = source_root/'service/capture-wire/src/lib.rs'
+    if capture_wire.is_file():
+        compile_file(capture_wire, 'capture_wire', library=True)
+        dependencies.append('capture_wire')
+        sources.append(capture_wire)
+    compile_file(sources[1], 'stream_service', dependencies, library=True)
     result = compile_file(Path(__file__).with_name('camera_source.rs'), 'nxrs_camera_source',
                           ['camera', 'stream_service'])
     for source in sources:

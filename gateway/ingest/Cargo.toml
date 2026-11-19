@@ -10,6 +10,7 @@ publish = false
 probe = []
 
 [dependencies]
+nxrs-capture-wire = { path = "../../service/capture-wire" }
 nxrs-enrollment = { path = "../../service/enrollment" }
 rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "x509-parser"] }
 time = "=0.3.55"
@@ -28,3 +29,7 @@ tokio-rustls = { version = "=0.26.6", default-features = false, features = ["rin
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 x509-parser = { version = "=0.18.1", default-features = false }
 zeroize = "=1.9.1"
+
+[dev-dependencies]
+nxrs-camera = { path = "../../hal/camera" }
+nxrs-stream-service = { path = "../../service/stream" }

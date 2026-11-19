@@ -1,0 +1,3481 @@
+{
+  "recorded_utc": "2026-11-17T19:14:06.534889+00:00",
+  "kind": "Generated-source Matter camera, Home Assistant Core and headless Chrome on one Mac",
+  "host": {
+    "os": "macOS",
+    "version": "27.0.1",
+    "arch": "arm64"
+  },
+  "nxrs_base": "af949aa54076f3a58e0d319a6ec66f17cb2f7bc5",
+  "fixture_pins": "https://github.com/yongkyuns/nxrs/blob/491aeaf6117db972eadc90108ad9da1fc351f52a/gateway/tests/matter/versions.json",
+  "pins_sha256": "309db970bda195f6026e67a2746ac108ff737ca99ceacbdd23625bcc4eb4ff52",
+  "generated_video_sha256": "6bbdfc4d3267e7abd0516bba090b0f6bb3660bf6f81754806f57c36d06b61bba",
+  "source_sha256": {
+    "tools/prepare-matter-fixture.py": "1520e3439152efb7965472880fe19fdf3a618416443e9324551f3761c6dcf35c",
+    "gateway/tests/matter_browser_reference.py": "0b872cadfc52e5221a419c8d43cb76168262ce1994f148ba612fb1b6d41b3137",
+    "gateway/tests/matter_reference.py": "8b172d2465d7f505f91e60891541686997ba91dec5cdf5ce31c46d64cbbee6d6",
+    "gateway/tests/matter_state_reference.py": "d5e31f3e02d3e7d6f228583f72e36b332327cf78a9c709950fd07a18f68eff06",
+    "gateway/tests/matter_topology_reference.py": "ef91d05b63ad1ee72c448de583e24e68e8bf1ce642e567807db6028e0a72813b"
+  },
+  "earlier_store_evidence": "https://github.com/yongkyuns/nxrs/blob/bcf9f7435013ceb46d2a960076d0bf2d313527b4/gateway/tests/matter/evidence.json",
+  "browser": [
+    {
+      "advancing_media_time": true,
+      "browser": "157.0.8103.79",
+      "browser_peers_closed": true,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_sampled_images": 59,
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "codec": "video/H264",
+          "decoded_frames": 63,
+          "dropped_frames": 0,
+          "packets_lost": 0,
+          "state": "connected"
+        }
+      ],
+      "playback_quality": {
+        "dropped": 2,
+        "total": 63
+      },
+      "presented_fps": 29.26,
+      "presented_frames": 60
+    },
+    {
+      "advancing_media_time": true,
+      "browser": "157.0.8103.79",
+      "browser_peers_closed": true,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_sampled_images": 55,
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "codec": "video/H264",
+          "decoded_frames": 71,
+          "dropped_frames": 0,
+          "packets_lost": 0,
+          "state": "connected"
+        }
+      ],
+      "playback_quality": {
+        "dropped": 7,
+        "total": 71
+      },
+      "presented_fps": 27.66,
+      "presented_frames": 60
+    },
+    {
+      "advancing_media_time": true,
+      "browser": "157.0.8103.79",
+      "browser_peers_closed": true,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "distinct_sampled_images": 55,
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "codec": "video/H264",
+          "decoded_frames": 67,
+          "dropped_frames": 0,
+          "packets_lost": 0,
+          "state": "connected"
+        }
+      ],
+      "playback_quality": {
+        "dropped": 1,
+        "total": 67
+      },
+      "presented_fps": 27.44,
+      "presented_frames": 60
+    }
+  ],
+  "recovery": [
+    {
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "schema_version": 15,
+      "camera_capabilities_read": true,
+      "decoded_frames": 60,
+      "distinct_images": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "decoded_fps": 29.98,
+      "connection_state": "connected",
+      "flow": "receiver-offer",
+      "negotiated_codec": "H264",
+      "trickle_ice": {
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "commission",
+      "seconds": 4.27,
+      "transient_failures": 0
+    },
+    {
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "schema_version": 15,
+      "camera_capabilities_read": true,
+      "decoded_frames": 60,
+      "distinct_images": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "decoded_fps": 29.94,
+      "connection_state": "connected",
+      "flow": "camera-offer",
+      "negotiated_codec": "H264",
+      "trickle_ice": {
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "after-process-kill",
+      "seconds": 3.3,
+      "transient_failures": 0
+    },
+    {
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "schema_version": 15,
+      "camera_capabilities_read": true,
+      "decoded_frames": 60,
+      "distinct_images": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "decoded_fps": 29.91,
+      "connection_state": "connected",
+      "flow": "receiver-offer",
+      "negotiated_codec": "H264",
+      "trickle_ice": {
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "abandoned-stage",
+      "seconds": 4.3,
+      "transient_failures": 1
+    },
+    {
+      "case": "corrupt-state-refused",
+      "exit_code": 1
+    },
+    {
+      "controller": "matter-server/1.6.0 (matter.js/0.18.1-alpha.0-20261114-e4326a175)",
+      "schema_version": 15,
+      "camera_capabilities_read": true,
+      "decoded_frames": 60,
+      "distinct_images": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "decoded_fps": 29.96,
+      "connection_state": "connected",
+      "flow": "camera-offer",
+      "negotiated_codec": "H264",
+      "trickle_ice": {
+        "sent": 12,
+        "received": 1
+      },
+      "teardown_acknowledged": true,
+      "case": "restored-checkpoint",
+      "seconds": 3.0,
+      "transient_failures": 0
+    },
+    {
+      "case": "runtime-storage-failure-stops-node",
+      "exit_code": 1
+    }
+  ],
+  "coverage": [
+    "Independent audio-first browser SDP, negotiated H264, changing rendered pixels, browser peer closed",
+    "Fresh SDK and checksum-verified WebRTC sources reproduce the tested corrections",
+    "Two camera negotiation regressions passed, including rejected browser audio",
+    "Architecture audit of 79 packages and 37 host regressions passed"
+  ],
+  "limitations": [
+    "Generated video on one host. Physical microphone, camera, iPhone, Linux and remote access remain open.",
+    "Browser peer closure and process recovery do not prove joined SDK retirement or machine power-loss durability.",
+    "Endpoint topology, authorization/revocation, occupancy and 24-hour soak remain open."
+  ],
+  "topology": {
+    "parts": {
+      "0": [
+        1,
+        2,
+        3
+      ],
+      "1": [],
+      "2": [
+        1,
+        3
+      ],
+      "3": []
+    },
+    "negative_control": {
+      "previously_clear_then_recovered_person": [
+        "off",
+        "on"
+      ],
+      "previously_person_then_recovered_clear": [
+        "on",
+        "off"
+      ]
+    },
+    "automation_transitions": [
+      "on",
+      "unavailable",
+      "off",
+      "unavailable",
+      "on",
+      "off",
+      "on",
+      "unavailable"
+    ],
+    "video_during_sensor_unavailable": {
+      "presented_frames": 60,
+      "distinct_sampled_images": 59,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "advancing_media_time": true,
+      "presented_fps": 25.29,
+      "playback_quality": {
+        "total": 76,
+        "dropped": 13
+      },
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "browser": "157.0.8103.79",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "state": "connected",
+          "codec": "video/H264",
+          "decoded_frames": 76,
+          "dropped_frames": 0,
+          "packets_lost": 0
+        }
+      ],
+      "browser_peers_closed": true
+    },
+    "limitations": "Directly injected fixture states. Expiry from the gateway source, reconnect and multiple subscriptions need independent tests."
+  },
+  "gateway_occupancy": {
+    "recorded_utc": "2026-11-17T20:13:42.494740+00:00",
+    "source": "Labelled detector publications through Nxrs gateway control; generated H.264 in a commissioned bridge.",
+    "fixture_pins": "https://github.com/yongkyuns/nxrs/blob/a1d07affc550b7b2b794007cfe185309904eff65/gateway/tests/matter/versions.json",
+    "pins_sha256": "4c4780faf53a09bfbb85060683bfaee5d5ba2e00d5c217ba09adf0f63de48d7d",
+    "source_sha256": {
+      "gateway/control/src/detections.rs": "6c388b0fab99c71ec7c5983cb728ca35337f93f96089f98ed992c2c87b98e4fe",
+      "gateway/control/src/config.rs": "818fbeba222237ed6db672813c9b53cd8162982da01d3ccef2a645ebb242d4df",
+      "gateway/control/src/policy.rs": "59dcf43febaea099616c15644ae729eb7aebb7bbe94af8a3e7d6d61947ebb3d4",
+      "gateway/matter/src/occupancy.rs": "271352046799c422992fe450bfa294d335f5aec98be5606510f53e724cc1ae96",
+      "gateway/tests/matter_gateway_reference.py": "7ad6c9ad911d037a8ed6b75d2f77cd80dc5ea40b40232e5e8f077796f55a1ce7",
+      "gateway/tests/matter_topology_reference.py": "2051a55050f7f2e0a3dd7937b0135673dda97006a3040d6436eb275c518b48da",
+      "gateway/tests/matter_browser_reference.py": "d5f5dec32ebd3b5a5a54c8aea8d81aa16a7d388d178aa453e6e33f517ab28c00",
+      "tools/prepare-matter-fixture.py": "18e4ebb1565c566f998a39da3fae409ea9aa6f6a655d3056eae1c848cc0c992e"
+    },
+    "automation_transitions": [
+      "on",
+      "unavailable",
+      "off",
+      "unavailable",
+      "on",
+      "unavailable"
+    ],
+    "retired_source_http_status": 409,
+    "gateway_restart_recovered": true,
+    "subscriber_revoked": true,
+    "catalogue_and_playback_denied": true,
+    "video_during_sensor_unavailable": {
+      "presented_frames": 60,
+      "distinct_sampled_images": 59,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "advancing_media_time": true,
+      "presented_fps": 29.02,
+      "playback_quality": {
+        "total": 67,
+        "dropped": 7
+      },
+      "kind": "generated-source Home Assistant dialog; headless Chrome",
+      "browser": "157.0.8103.79",
+      "offered_media": [
+        {
+          "bytes": 7092,
+          "media": [
+            "audio",
+            "video"
+          ]
+        }
+      ],
+      "peers": [
+        {
+          "state": "connected",
+          "codec": "video/H264",
+          "decoded_frames": 67,
+          "dropped_frames": 0,
+          "packets_lost": 0
+        }
+      ],
+      "browser_peers_closed": true
+    },
+    "regressions": {
+      "gateway_tests_passed": 63,
+      "gateway_ffmpeg_tests_ignored": 1,
+      "strict_gateway_clippy": "passed",
+      "architecture_packages": 79,
+      "architecture_host_regressions": 37,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 2
+    },
+    "limitations": [
+      "The first development run passed the automation sequence but failed the browser playback witness before the diagnostic location was recorded. Subsequent host runs passed; browser startup reliability remains a qualification item.",
+      "One local fabric and wildcard subscription. Physical camera/audio, iPhone, split subscriptions, multi-admin access and active media revocation require separate evidence."
+    ]
+  },
+  "live_media": {
+    "recorded_utc": "2026-11-17T21:19:19.272019+00:00",
+    "host": "macOS arm64, Home Assistant Core and headless Chrome",
+    "source": "FFmpeg 9.0.2 testsrc2 with red or blue marker, Nxrs RTSP publisher and loopback MediaMTX. No physical camera or microphone.",
+    "fixture_pins": "versions.json",
+    "pins_sha256": "8d2546d09635ca85b9ab67a260e8ba6f31f58f1ea37ff411854d77e37d51364c",
+    "source_sha256": {
+      "gateway/matter/src/media.rs": "b34503bc4098cf4fb1888cc472fc3543261873f822afcf42198bc87fd5796a4e",
+      "gateway/matter/src/media/tests.rs": "13301837f8ca3e2e50f89968a27af1b2508c677a4704ec8c336da51d96533731",
+      "gateway/tests/matter/live-media.patch": "76daffe46f28bf551840032dc0cedd79b0aca5fbbc837ce882d5e352190ce9f0",
+      "gateway/tests/matter_rtsp_reference.py": "07db3c8d8cbf44b2c4fa5382e326f0e6096d9602a3951e86f89a7ac4f52e9149",
+      "gateway/tests/matter_browser_reference.py": "c79c6a7438a3691f422fd0af241c4d56208643b5f1e3320d1e128bc537c9215c",
+      "tools/prepare-matter-fixture.py": "57cf9f9e21b9bbc032308e4767a67d98988cefef8ab941d39b826526f75ac220"
+    },
+    "qualification": [
+      {
+        "marker": "red",
+        "source_size": "640x360",
+        "source_fps": 15,
+        "concurrent_views": 2,
+        "overlap_seconds": 4.23,
+        "upstream_readers": 1,
+        "presented_frames": [
+          60,
+          60
+        ],
+        "presented_fps": [
+          13.94,
+          13.94
+        ],
+        "decoded_clock_min_step_90khz": [
+          6000,
+          6000
+        ],
+        "active_views_ended_on_source_loss": 2,
+        "remaining_matter_sessions": 0
+      },
+      {
+        "marker": "blue",
+        "source_size": "320x240",
+        "source_fps": 10,
+        "concurrent_views": 1,
+        "overlap_seconds": 5.85,
+        "upstream_readers": 1,
+        "presented_frames": [
+          60
+        ],
+        "presented_fps": [
+          10.09
+        ],
+        "decoded_clock_min_step_90khz": [
+          9000
+        ],
+        "reader_released_while_publisher_live": true
+      }
+    ],
+    "negative_control": "Before local End removed its SDK entry, both browser peers observed source loss but a direct CurrentSessions read still returned two rows after five seconds.",
+    "regressions": {
+      "gateway_tests_passed": 65,
+      "gateway_ffmpeg_tests_ignored": 1,
+      "strict_gateway_clippy": "passed",
+      "architecture_packages": 79,
+      "architecture_host_regressions": 37,
+      "clean_sdk_data_model_tests": 366,
+      "clean_sdk_camera_tests": 2
+    },
+    "limitations": [
+      "The two viewers used the same commissioned fabric and isolated MediaMTX internal authorization. Nxrs strict media admission, per-fabric revocation and simultaneous Nxrs Home playback require qualification.",
+      "The bounded share queue admits at most eight access units of at most 1 MiB each. Maximum memory used by the RTSP library during packet assembly remains unmeasured.",
+      "Browser presentation with generated video does not qualify physical camera, microphone, iPhone, Linux, remote access or soak performance."
+    ],
+    "revision": "c595571604a9fa52fc6a749769c03d74d32a74af"
+  },
+  "strict_media_access": {
+    "recorded_utc": "2026-11-17T21:42:57.354317+00:00",
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "pins_sha256": "8d2546d09635ca85b9ab67a260e8ba6f31f58f1ea37ff411854d77e37d51364c",
+    "source": "Generated FFmpeg video through the Nxrs RTSP publisher and private MediaMTX with HTTP authorization by real strict Nxrs gateway control. Pinned macOS SDK, commissioned Home Assistant and headless Chrome; independent RTSP readers used PyAV 16.1.0.",
+    "source_sha256": {
+      "gateway/control/src/config.rs": "7624ee9bfadd5be94dc62384bc2b3aa83ed7045950d64ccd8d084c485a6e635f",
+      "gateway/control/src/media_control.rs": "1fdaec5610ea0da0b3664db1a7a33df84fbb886ff912442e98a47c2b0e211651",
+      "gateway/control/src/policy.rs": "b5d8f493017f3a3b04485da7b7957adaab802542f644705d1e7ffe9f9b2c8bbf",
+      "gateway/control/src/security.rs": "a8c87154a6cf71cfab46da69b5daa55b984c21a1cc6947bd72da7d194416a767",
+      "gateway/matter/src/media.rs": "92d9d5ee416a42f864be97ac69f1dabd626df7839f9262b47603acde07989242",
+      "gateway/tests/matter_rtsp_reference.py": "1bb3c18d3a15dad818ef0ec82b79df54bbc34f4ec9eb26f51da5a726e226ea60"
+    },
+    "trials": {
+      "credential_revocation": [
+        {
+          "marker": "red",
+          "source_size": "640x360",
+          "source_fps": 15,
+          "concurrent_views": 2,
+          "overlap_seconds": 4.38,
+          "upstream_readers": 3,
+          "presented_frames": [
+            60,
+            60
+          ],
+          "presented_fps": [
+            13.46,
+            13.41
+          ],
+          "decoded_clock_min_step_90khz": [
+            6000,
+            6000
+          ],
+          "fault": "revoke",
+          "ended_views": 2,
+          "retirement_seconds": 0.6,
+          "remaining_matter_sessions": 0,
+          "independent_reader_advanced_after_revocation": true,
+          "revoked_rtsp_status_after_restart": 401,
+          "independent_reader_reopened": true
+        }
+      ],
+      "control_outage": [
+        {
+          "marker": "red",
+          "source_size": "640x360",
+          "source_fps": 15,
+          "concurrent_views": 2,
+          "overlap_seconds": 3.9,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60,
+            60
+          ],
+          "presented_fps": [
+            15.13,
+            14.87
+          ],
+          "decoded_clock_min_step_90khz": [
+            6000,
+            6000
+          ],
+          "fault": "control-loss",
+          "ended_views": 2,
+          "retirement_seconds": 3.79,
+          "remaining_matter_sessions": 0,
+          "source_reauthenticated_after_control_restart": true
+        },
+        {
+          "marker": "blue",
+          "source_size": "320x240",
+          "source_fps": 10,
+          "concurrent_views": 1,
+          "overlap_seconds": 5.85,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60
+          ],
+          "presented_fps": [
+            10.09
+          ],
+          "decoded_clock_min_step_90khz": [
+            9000
+          ],
+          "reader_released_while_publisher_live": true
+        }
+      ],
+      "source_replacement": [
+        {
+          "marker": "red",
+          "source_size": "640x360",
+          "source_fps": 15,
+          "concurrent_views": 2,
+          "overlap_seconds": 3.9,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60,
+            60
+          ],
+          "presented_fps": [
+            15.13,
+            15.13
+          ],
+          "decoded_clock_min_step_90khz": [
+            6000,
+            6000
+          ],
+          "fault": "source",
+          "ended_views": 2,
+          "retirement_seconds": 0.1,
+          "remaining_matter_sessions": 0
+        },
+        {
+          "marker": "blue",
+          "source_size": "320x240",
+          "source_fps": 10,
+          "concurrent_views": 1,
+          "overlap_seconds": 5.85,
+          "upstream_readers": 1,
+          "presented_frames": [
+            60
+          ],
+          "presented_fps": [
+            10.09
+          ],
+          "decoded_clock_min_step_90khz": [
+            9000
+          ],
+          "reader_released_while_publisher_live": true
+        }
+      ]
+    },
+    "qualification_notes": [
+      "Retirement time runs from fault injection to a direct Matter CurrentSessions read showing zero entries. Browser presented FPS is diagnostic. All three experiments used the same isolated commissioning and account state in Home Assistant and fresh gateway enrollments per run.",
+      "The revocation experiment had three upstream readers: one shared Matter input and two independent RTSP decoders. Only the revoked source and its non-renewing decoder were retired before the gateway restart. The other decoder advanced at least 15 more frames and the publisher kept its session ID. Existing readers are reconciled as unowned after the gateway restarts."
+    ],
+    "regressions": {
+      "default_gateway_tests_passed": 66,
+      "opt_in_ffmpeg_tests_ignored": 1,
+      "strict_clippy": "passed",
+      "architecture_packages": 79,
+      "architecture_host_regressions": 37
+    },
+    "open": [
+      "Selective removal of one Matter fabric/controller while another uses the same source, runtime ownership barriers, physical input and concurrent Nxrs Home/iPhone playback, microphone, Linux/remote qualification and soak."
+    ],
+    "revision": "80a78a45b566b2c7bc9618329224c088d885e8a6"
+  },
+  "audio_publication": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "source": "One FFmpeg generator produces a timed light pattern and matching 1 kHz tone on a shared clock. The Nxrs publisher sends H.264 and mono Opus in one session to MediaMTX under strict gateway authorization. PyAV decodes both tracks over RTSP/TCP.",
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "source_sha256": {
+      "gateway/publisher/src/main.rs": "f0849e0918042809493cf4b5a795a1b86165581412ae8ca02f670a39ffe41165",
+      "gateway/publisher/src/sdk.rs": "116e97bb215eb56b5f389789d2667cbaa54de7371afc3426b85c9a8a276a2854",
+      "gateway/tests/matter_audio_reference.py": "22ed685fbf3785fde253eaf4d7d60ae59f0edde2e5ef32af8f4cd2bf25f6748d",
+      "gateway/tests/matter_rtsp_reference.py": "eb91c3d7a4383626967680d719f1c6db6338077cc955a3b1b8dd8eae661b9a21"
+    },
+    "runs": [
+      {
+        "video_frames": 86,
+        "audio_frames": 316,
+        "median_tone_hz": 1000.0,
+        "maximum_cue_difference_ms": 59.4,
+        "video_pulses": 6,
+        "audio_pulses": 7,
+        "rejected_inputs": [
+          "missing audio",
+          "stereo",
+          "AAC",
+          "extra track",
+          "paired input in video-only mode"
+        ]
+      },
+      {
+        "video_frames": 86,
+        "audio_frames": 316,
+        "median_tone_hz": 1000.0,
+        "maximum_cue_difference_ms": 57.6,
+        "video_pulses": 6,
+        "audio_pulses": 7,
+        "rejected_inputs": [
+          "missing audio",
+          "stereo",
+          "AAC",
+          "extra track",
+          "paired input in video-only mode"
+        ]
+      }
+    ],
+    "controls": {
+      "legacy_sdk_publisher_controls_passed": 8,
+      "publisher_clock_test_passed": 1
+    },
+    "scope": "Opt-in timestamped publication on the host. Cue differences use decoded timestamps at 15 fps, with 20 ms audio. They do not measure microphone capture latency, rendered iPhone lip sync or long-run drift. The existing camera ingest, Matter reader and iPhone have no newly qualified audio path."
+  },
+  "multi_admin": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "pins_sha256": "8d2546d09635ca85b9ab67a260e8ba6f31f58f1ea37ff411854d77e37d51364c",
+    "source_sha256": {
+      "gateway/tests/matter_fabric_reference.py": "37d369ab86a1767101ff80fd99a31b45a32e524122ed6793376281751d1bc4f7",
+      "gateway/tests/matter_reference.py": "64f7f01d52b36ca87896394933ce3f01dc6171d77598beb45a6057609f8fe97c",
+      "gateway/tests/matter_gateway_reference.py": "3f714da2dbc89e420443510e1f36ff74ba3411d1bd125ec49a922a5c70259880",
+      "gateway/tests/matter_rtsp_reference.py": "eb91c3d7a4383626967680d719f1c6db6338077cc955a3b1b8dd8eae661b9a21"
+    },
+    "source": "One isolated FFmpeg video generator, Nxrs publisher, MediaMTX, gateway under strict authorization, RTSP bridge and independent matter-server controllers with distinct CA stores. Both receivers used aiortc on the same Mac.",
+    "normal_commissioning": {
+      "initial_frames": [
+        30,
+        30
+      ],
+      "post_removal_seconds": 4,
+      "surviving_frames": 60,
+      "removed_frames": 0,
+      "removed_rtp_packets": 0,
+      "same_upstream_reader": true,
+      "surviving_playback_after_restart": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 14.97,
+        "connection_state": "connected",
+        "flow": "receiver-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "new_fabric_playback": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 14.97,
+        "connection_state": "connected",
+        "flow": "camera-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "retired_controller_read": "no reply within 12 seconds",
+      "authorized_fabric_ids_and_indices_verified": true,
+      "commissioning_window_closed_after_restart": true,
+      "commissioning_cycles_after_restart": 1,
+      "fabric_index_reused_with_empty_sessions": false
+    },
+    "qualification_notes": [
+      "Allow two seconds for packets in flight after successful RemoveFabric. Keep both receiver peers open for the following four measured seconds. The removed receiver sends no EndSession. The surviving viewer and the original publisher and reader stay connected.",
+      "After restart the authorized administrator read the complete device fabric table. It contained only the surviving fabric, then the surviving and the new fabric after commissioning. The retired controller read outcome is reported separately. A transport timeout establishes only that no authenticated response was observed during the measured interval.",
+      "For index wrap, the surviving administrator removed each replacement fabric using OperationalCredentials.RemoveFabric. A fresh controller store and CA were used per enrolment. The 253rd replacement received the retired index. The original controller returned an error for an operational read; the surviving administrator directly verified the replacement's membership. An earlier stress attempt using one repeatedly recycled controller store stopped at AddNOC InvalidNOC with the device allocation cursor at 128; this distinct controller-reuse case is unqualified."
+    ],
+    "open": [
+      "Individual node permissions within a fabric, interrupted multi-admin mutations, joined worker cleanup, physical audio/video, iPhone, Linux, remote access and soak."
+    ],
+    "index_wrap": {
+      "initial_frames": [
+        30,
+        30
+      ],
+      "post_removal_seconds": 4,
+      "surviving_frames": 60,
+      "removed_frames": 0,
+      "removed_rtp_packets": 0,
+      "same_upstream_reader": true,
+      "surviving_playback_after_restart": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 15.06,
+        "connection_state": "connected",
+        "flow": "receiver-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "new_fabric_playback": {
+        "decoded_frames": 30,
+        "distinct_images": 30,
+        "dimensions": [
+          640,
+          360
+        ],
+        "decoded_fps": 15.05,
+        "connection_state": "connected",
+        "flow": "camera-offer",
+        "negotiated_codec": "H264",
+        "trickle_ice": {
+          "sent": 12,
+          "received": 1
+        },
+        "teardown_acknowledged": true
+      },
+      "retired_controller_read": "controller rejected",
+      "authorized_fabric_ids_and_indices_verified": true,
+      "commissioning_window_closed_after_restart": true,
+      "commissioning_cycles_after_restart": 253,
+      "fabric_index_reused_with_empty_sessions": true
+    },
+    "index_wrap_launch_inputs": {
+      "gateway_publisher_revision": "80a78a45b566b2c7bc9618329224c088d885e8a6",
+      "rtsp_fixture_before_publisher_helper_extraction_sha256": "9959d5c8f2e950b36d329a9af4f44989a078200222ca904abd8a18b0aec95635"
+    }
+  },
+  "audio_allocation": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "audio-control",
+    "fixture_pins": "gateway/tests/matter/versions.json",
+    "pins_sha256": "63f2a78579a211a85b99b7a46e8857bb4e31c7b58e6c6f2a74580efc2eb44db1",
+    "source_sha256": {
+      "gateway/matter/src/media.rs": "2009a5b78a853d7e4bab3ebbba6fa3c6710d0f9c7c92f2f7f513abde5c4f5069",
+      "gateway/tests/matter/audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7",
+      "gateway/tests/matter_audio_allocation.py": "9b40aadbef6132252a6aeca5be923c9d1387f89ea81b03be82756ca5cb21edac",
+      "gateway/tests/matter_audio_reference.py": "715543bef9c39d7338e79102175518c782bc0f7193de5981ebae29248ff665b8",
+      "tools/prepare-matter-fixture.py": "53d8d9703c557a0bab60e3d3c44d89141a8e72da308d6bc366244f664c37da7f"
+    },
+    "report": {
+      "feature_map": 3,
+      "supported_sample_rates": [
+        16000
+      ],
+      "allocation_commands_present": true,
+      "duplicate_reused_id": true,
+      "incompatible_requests_rejected": 4,
+      "offline_and_video_only_denied": true,
+      "revoked_source_denied_while_publishing": true,
+      "retired_id_rejected": true,
+      "final_allocations": 0
+    },
+    "regressions": {
+      "pinned_sdk_dm_tests": 366,
+      "sdk_camera_tests": 2,
+      "default_gateway_tests": 66,
+      "opt_in_gateway_ffmpeg_test_ignored": 1,
+      "architecture_packages": 79,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "gateway_clippy_warnings_denied": true
+    },
+    "scope": "One independent Matter Server commissioned a macOS test node. The strict gateway authorized one RTSP source reader and generated video/Opus. This verifies camera-cluster commands and the table read from the device. The WebRTC path still sends video only. Neither audible Matter playback nor hardware microphone capture, mute, privacy or active audio-reference ownership is qualified."
+  },
+  "matter_microphone_playback": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "audio-playback",
+    "source_sha256": {
+      "gateway/matter/src/media.rs": "10b9f5cded2006d1966298bac00a2f89803e2860ec1367117304487b831b4ec3",
+      "gateway/matter/src/media/paired.rs": "5ce8dcee8fe35c7e819ad71e7b698ae29ede094e603ab7d1f06556fe36c8b17f",
+      "gateway/tests/matter/versions.json": "a9b6163d9e9b44fc41e75af184d14a908d0f9a97335fa3afa81c9ce38d8150f1",
+      "gateway/tests/matter/str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012",
+      "gateway/tests/matter/audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
+      "gateway/tests/matter/audio-cue.js": "13d53a7105a439d012645a045746ff0bbd62d454ca214508e52b04ead64fc11d",
+      "gateway/tests/matter_audio_dialog.py": "01147a01f71f33b477d9b9389576ee8320d89b5d2c7734c1a201a59c392cf804",
+      "gateway/tests/matter_audio_allocation.py": "2369403cca6a93bd05e9cffd3fa1c6a4c7029406d67a84c67576ca7b3a643bed",
+      "gateway/tests/matter_reference.py": "24e5f271455b68f6b5367711cf916c610849f0df789c261ff030de41c3402a95",
+      "gateway/tests/matter_browser_reference.py": "85fa75cf8c6574c1ee2bd6cf623f0322d6dd94cf76059793d5bdaaf02725f39d",
+      "tools/prepare-matter-fixture.py": "dd870617c4b55e38a2dc9c910a0656e981696243be0e988695399a1a9578cf8b"
+    },
+    "controller": {
+      "playback": [
+        {
+          "flow": "receiver-offer",
+          "video_frames": 60,
+          "decoded_audio_frames": 224,
+          "pulses": 5,
+          "median_hz": 1000.0
+        },
+        {
+          "flow": "camera-offer",
+          "video_frames": 60,
+          "decoded_audio_frames": 250,
+          "pulses": 5,
+          "median_hz": 1000.0
+        }
+      ],
+      "active_revocation_stopped_both_tracks": true,
+      "feature_map": 3,
+      "supported_sample_rates": [
+        16000
+      ],
+      "allocation_commands_present": true,
+      "duplicate_reused_id": true,
+      "incompatible_requests_rejected": 4,
+      "offline_and_video_only_denied": true,
+      "revoked_source_denied_while_publishing": true,
+      "retired_id_rejected": true,
+      "final_allocations": 0
+    },
+    "browser": {
+      "product": "Home Assistant 2026.11.2 camera dialog",
+      "browser": "157.0.8103.79",
+      "runs": [
+        {
+          "presented_frames": 60,
+          "presented_fps": 15.0,
+          "display_drops": 1,
+          "decoded_video_frames": 61,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 169
+        },
+        {
+          "presented_frames": 60,
+          "presented_fps": 14.94,
+          "display_drops": 1,
+          "decoded_video_frames": 61,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 174
+        },
+        {
+          "presented_frames": 60,
+          "presented_fps": 13.77,
+          "display_drops": 5,
+          "decoded_video_frames": 66,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 160
+        },
+        {
+          "presented_frames": 60,
+          "presented_fps": 15.0,
+          "display_drops": 1,
+          "decoded_video_frames": 61,
+          "dimensions": [
+            320,
+            240
+          ],
+          "codec": "audio/opus",
+          "shared_timing_context": true,
+          "frequency_hz": 984,
+          "light_pulses": 6,
+          "tone_pulses": 6,
+          "maximum_observed_cue_difference_ms": 172
+        }
+      ]
+    },
+    "regressions": {
+      "pinned_sdk_dm_tests": 366,
+      "sdk_camera_tests": 3,
+      "default_gateway_tests": 70,
+      "opt_in_gateway_ffmpeg_test_ignored": 1,
+      "architecture_packages": 79,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "gateway_clippy_warnings_denied": true
+    },
+    "scope": "Generated H.264/Opus through one authorized source reader per trial. The browser light-to-tone offsets use requestVideoFrameCallback and a Web Audio analyser on the incoming track. They include browser scheduling and analysis delay. Hardware capture, acoustic playout, iPhone timing, long-run drift, microphone mute and privacy remain open."
+  },
+  "matter_viewer_privacy": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "privacy",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/privacy.rs": "9f56af7563e9cfd08c281f0c046cc4cbfe9da33ddeea562519f23f5f8e30fc69",
+      "gateway/matter/src/media.rs": "b83f6f866995d992a6494c6145fc651ac453723b1ef2f6326d25e41d39ad3d1f",
+      "gateway/matter/src/media/silence.rs": "7b76473dbf3efde11959c60e37206ad789ec7f621f805322bd3aa1cd51838081",
+      "gateway/tests/matter/privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1",
+      "gateway/tests/matter_privacy_reference.py": "3c68fb8bc402d9354b4b2dfa12a40e894f2ec4a2ed4a023b43fc0dba3fef7a5e",
+      "gateway/tests/matter_reference.py": "a5445ee064540c7764612825d457e0aa4d5bee2c7ac0975758a2f806de2bd2b3",
+      "tools/prepare-matter-fixture.py": "cbe6357632675b3cfeef8116d224d29a77306e417fefd513c44712b27eef3c47"
+    },
+    "receiver": "Commissioned Matter Server and independent aiortc peer using generated H.264 and pulsed mono Opus.",
+    "result": {
+      "initial_zero_pcm_frames": 100,
+      "live_muted_zero_pcm_frames": 100,
+      "muted_video_frames": 36,
+      "unmute_recovered_tone": true,
+      "privacy_end_reason": 11,
+      "active_audio_and_video_stopped": true,
+      "blocked_before_and_after_restart": true,
+      "restarted_with_same_enrollment": true,
+      "restarted_zero_pcm_frames": 100,
+      "recording_privacy_independent": true,
+      "publisher_continued": true,
+      "unmuted_tone_after_second_restart": true,
+      "allocations_preserved_across_restarts": true,
+      "direct_solicit_denied_while_private": true,
+      "pending_offer_retired": true,
+      "reboot_cleared_session_references": true
+    },
+    "direct_offer_rejection_status": 203,
+    "regressions": {
+      "pinned_sdk_dm_tests": 366,
+      "sdk_camera_tests": 3,
+      "default_gateway_tests": 72,
+      "additional_native_ffmpeg_tests": 1,
+      "architecture_packages": 79,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "gateway_clippy_warnings_denied": true
+    },
+    "scope": "The Matter endpoint and receiving peer ran on macOS. The source produced a known generated tone. Physical microphone capture, effects on non-Matter recording and detection, iPhone playback and physical A/V timing remain open."
+  },
+  "operator_commissioning": {
+    "host": {
+      "os": "macOS",
+      "version": "27.0.1",
+      "arch": "arm64"
+    },
+    "fixture": "commissioning",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/commissioning.rs": "0048e1f16aeac23172ef4a78bd36c96046abca66cae9f78c433563687582a5f7",
+      "gateway/tests/matter/commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3",
+      "gateway/tests/matter/provision.cjs": "fa6f76b3e05e69366ef61ea6307547014a413aeef6b8fb5a7607d6231059e1b3",
+      "gateway/tests/matter_commissioning_reference.py": "fcc740bba8af5a00b7950876516219ef187d86c43bd09d07d1cdee8e0b85dff3",
+      "gateway/tests/matter_rtsp_reference.py": "a6a254f40e6ce5d66f10a9be00fc80209c27cb777733712adbc8e011596a7269",
+      "tools/prepare-matter-fixture.py": "c5dfb5a209d5856b8011c08228805dab1bb609b825c6ed81bf2534b954b3ca12",
+      "gateway/tests/matter/Cargo.lock": "438fe16d73024641d1b2e4ff687f59a028e208c6f160b4e68f594f71ce24245e"
+    },
+    "window_seconds": 180,
+    "checks_passed_in_both_runs": [
+      "initialization_closed",
+      "empty_restart_closed",
+      "commissioned_restart_closed",
+      "last_fabric_removal_closed",
+      "replacement_and_world_readable_factory_rejected",
+      "invalid_curve_point_rejected_before_state_creation",
+      "commissioned_local_open_rejected",
+      "expired_window_denied_commissioning",
+      "commissioned_with_independent_verifier"
+    ],
+    "runs": [
+      {
+        "first_code": "qrCode",
+        "code_after_last_fabric_removed": "manualCode",
+        "decoded_frames_before_and_after_restart": [
+          30,
+          30
+        ],
+        "fresh_discovery_complete_seconds_after_launch": 185.34,
+        "original_controller_still_listed_expired": true
+      },
+      {
+        "first_code": "manualCode",
+        "code_after_last_fabric_removed": "qrCode",
+        "decoded_frames_before_and_after_restart": [
+          30,
+          30
+        ],
+        "fresh_discovery_complete_seconds_after_launch": 185.26,
+        "original_controller_still_listed_expired": true
+      }
+    ],
+    "macos_bonjour": {
+      "trial_first_code": "qrCode",
+      "removal_seconds_after_launch": 181.3,
+      "interfaces_with_removal": 2
+    },
+    "regressions": {
+      "default_gateway_tests": 74,
+      "additional_ffmpeg_tests": 1,
+      "sdk_dm_tests": 366,
+      "sdk_example_tests": 3,
+      "gateway_clippy_warnings_denied": true,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "A real independent Matter Server commissioned a generated-media node on the Mac with the SDK development attestation chain. The passcode stayed with the operator. Physical iPhone scanning, production attestation, interrupted fabric removal, Linux discovery and physical media remain open."
+  },
+  "same_fabric_camera_access": {
+    "host": "macOS arm64, isolated generated H.264 publication, pinned Matter Server and a separately commissioned Matter.js requestor",
+    "fixture": "viewer-permissions",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/tests/matter/viewer-permissions.patch": "a5b5d539c6733a56452bc1c8ff6b1eaa5d2d857594dba3abb17f88f5f09c2d76",
+      "gateway/tests/matter/viewer.cjs": "66cd85e4865f1f9f754dfd203525a93bf37564ed1cdb9a3ba65de29413edef93",
+      "gateway/tests/matter_viewer_permissions.py": "7d5da755bf24553ecf31551df6f129c2294b01fdc8bfde6c34b2f2977c78fabc",
+      "gateway/tests/matter_fabric_reference.py": "6b8a6ce083a25d183352eefa42694eb1b22543901f02f362b4c1c218bfb44d0f",
+      "tools/prepare-matter-fixture.py": "f37d64a1bd251b87f69f571d6b082991c8fd06196b0ea3b49dd14116a2d06f7e",
+      "gateway/tests/matter/versions.json": "35d399635f6337afe2ee8f0bbfacf405ba7ac8b5150a49d1ba21cad5982f1c40"
+    },
+    "clean_runs": 2,
+    "result_in_each_run": {
+      "camera_fabrics": 1,
+      "distinct_controller_nodes": 2,
+      "viewer_read_restored": true,
+      "viewer_revoked_status": 126,
+      "simultaneous_decoded_frames": [
+        20,
+        20
+      ],
+      "revoked_end_reason": 5,
+      "revoked_observation_seconds": 4,
+      "revoked_rtp_packets": 0,
+      "revoked_decoded_frames": 0,
+      "continuing_frames": 60,
+      "new_session_decoded_frames": 15,
+      "same_upstream_reader": true,
+      "pending_revoked_end_reason": 5
+    },
+    "measurement": "Both controllers decoded 20 frames concurrently and appeared under distinct node IDs on the same fabric. After the revoked controller received NoUserMedia, allow one second to drain in-flight media, then count received RTP and decoded frames at both receivers for four seconds. The restored endpoint grant admitted a new session after restoration.",
+    "regressions": {
+      "gateway_default_tests_passed": 74,
+      "native_ffmpeg_tests_passed": 1,
+      "gateway_clippy": "passed",
+      "sdk_data_model_tests_passed": 366,
+      "sdk_camera_example_tests_passed": 3,
+      "sdk_camera_stub": "compiled",
+      "architecture_host_regressions_passed": 37,
+      "hal_boundary_regressions_passed": 29
+    },
+    "scope": "WebRTC offer permission at camera endpoint 1, including an established viewer and an unanswered offer. Full process-loss recovery during administration, production admission, Linux and physical device/audio qualification remain open."
+  },
+  "interrupted_access_changes": {
+    "host": "macOS arm64, LLDB 2103.0.34.103, generated video, independent operational nodes",
+    "fixture": "viewer-permissions",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/tests/matter_recovery_reference.py": "4a444466f4c1c05041ff53c43693e10d9fd408ea17052b032f11296f28f59830",
+      "gateway/tests/matter/commit_breakpoint.py": "1c945f4bb40e0b9362796aec36ab78bd9ecf3b40621612d767f81246edfa47b2",
+      "gateway/tests/matter_viewer_permissions.py": "28712e6ebb0d9d6b2631b419fd2bc6ec81cd50e90ca93ec6230272bd4e9a3856",
+      "gateway/tests/matter_fabric_reference.py": "d43e9335702ae0a6bd0fb5609ce2dbd696df76fe5f38f81989bbb3e59cde59db",
+      "gateway/matter/src/persistence.rs": "27e8429008f9795e87b7112dcb32cd2f462729e402fc6c0f4dc73fbb85c20065"
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "774b165026b502da44c80e8b0f80bd0f1954b640ea697a66ad0d6977d92c2bec",
+    "per_run": {
+      "acl_change_recovery": [
+        {
+          "change": "revoke",
+          "process_terminated": "before-replace",
+          "viewer_permitted_after_restart": true
+        },
+        {
+          "change": "revoke",
+          "process_terminated": "after-sync",
+          "viewer_permitted_after_restart": false
+        },
+        {
+          "change": "grant",
+          "process_terminated": "before-replace",
+          "viewer_permitted_after_restart": false
+        },
+        {
+          "change": "grant",
+          "process_terminated": "after-sync",
+          "viewer_permitted_after_restart": true
+        },
+        {
+          "change": "revoke",
+          "process_terminated": "after-reply",
+          "viewer_permitted_after_restart": false
+        }
+      ],
+      "recovered_fabric_counts": [
+        2,
+        1
+      ],
+      "separate_fabric_frames_after_interrupted_pre_replace_removal": 45,
+      "removed_fabric_read_after_synced_removal": "no response within 20 seconds",
+      "measured_boots": 9,
+      "administrator_decoded_frames_per_boot": 45,
+      "administrator_decoded_frames_total": 405,
+      "commissioning_closed_and_sessions_empty_on_all_measured_boots": true
+    },
+    "scope": "Each fresh process reused its original enrollment. The debugger interrupted the actual ACL update or fabric-key deletion in the published SDK fixture. Other per-fabric records, interrupted commissioning, machine power loss, Linux and physical media need separate qualification."
+  },
+  "source_bound_offers": {
+    "host": "macOS arm64, independent Matter Server, aiortc receiver and generated H.264 publications",
+    "fixture": "source-admission",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/media.rs": "83b181282b9bff66f7cf598552995083d8c2a5a72d2094609618ce20e25e90fa",
+      "gateway/matter/src/media/paired.rs": "a4d7b4e55250363ca60d033052117ba96aaabc287416b722fdd1fb1a4d020798",
+      "gateway/tests/matter_publication_reference.py": "922c560f6484033c1c2ea7ddbb677e1d93ce64f1c140b0e133c2d819ef0b9e78",
+      "gateway/tests/matter/source-admission.patch": "d7c96edd7d236fc6c0ade644728e205d060a18491302681ac5692f088be32a1e",
+      "gateway/tests/matter_privacy_reference.py": "6c27b5e27ca9f07bae711cf6a78e4b0bc8bab28e9f77d37cfbc38716d838cbd6"
+    },
+    "comparison": {
+      "previous_commit": "78c354a61502e0b7d17abfcd5edf531cc6be9e47",
+      "observation_seconds_after_replacement": 12,
+      "previous_sessions_still_listed": [
+        "unanswered camera offer",
+        "controller offer answered with ICE withheld"
+      ]
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "42c2e8421be3244e6a6ec9139c12d7481568a9cb8ca95bfe5af8e2a6a68097d0",
+    "per_run": {
+      "original_frames": 45,
+      "original_dimensions": [
+        640,
+        360
+      ],
+      "unanswered_end_reason": 5,
+      "no_ice_end_reason": 5,
+      "replacement_frames": 45,
+      "replacement_dimensions": [
+        320,
+        240
+      ],
+      "active_end_reason": 5,
+      "offline_solicit_status": 203,
+      "offline_provide_status": 203,
+      "final_sessions": 0
+    },
+    "regressions": {
+      "gateway_tests": 75,
+      "additional_native_ffmpeg_tests": 1,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_example_tests": 3,
+      "linux_x86_64_cargo_check": true,
+      "generated_opus_privacy": {
+        "initial_zero_pcm_frames": 100,
+        "live_muted_zero_pcm_frames": 100,
+        "muted_video_frames": 36,
+        "unmute_recovered_tone": true,
+        "privacy_end_reason": 11,
+        "active_audio_and_video_stopped": true,
+        "blocked_before_and_after_restart": true,
+        "restarted_with_same_enrollment": true,
+        "restarted_zero_pcm_frames": 100,
+        "recording_privacy_independent": true,
+        "publisher_continued": true,
+        "unmuted_tone_after_second_restart": true,
+        "allocations_preserved_across_restarts": true,
+        "direct_solicit_denied_while_private": true,
+        "pending_offer_retired": true,
+        "reboot_cleared_session_references": true
+      },
+      "same_fabric_access": {
+        "camera_fabrics": 1,
+        "distinct_controller_nodes": 2,
+        "viewer_read_restored": true,
+        "viewer_revoked_status": 126,
+        "simultaneous_decoded_frames": [
+          20,
+          20
+        ],
+        "revoked_end_reason": 5,
+        "revoked_observation_seconds": 4,
+        "revoked_rtp_packets": 0,
+        "revoked_decoded_frames": 0,
+        "continuing_frames": 60,
+        "new_session_decoded_frames": 15,
+        "same_upstream_reader": true,
+        "pending_revoked_end_reason": 5
+      }
+    },
+    "scope": "A commissioned host fixture consumed one authenticated RTSP input and terminated two distinct pending negotiations on source replacement. Physical camera and microphone, iPhone playback and joined worker retirement under load remain open."
+  },
+  "configured_camera": {
+    "host": "macOS arm64 with isolated Matter Server, generated H.264 and detection fixtures, MediaMTX and strict gateway control",
+    "fixture": "catalogue",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/control/src/policy.rs": "18265f884166bca67cd1a972dadea13cb55f8977a5dcf390e57090415a974cfb",
+      "gateway/control/src/lib.rs": "2a0763cc5718a9c48f924a26ac60f8c964147c18ac02c290bf606c920b6c3725",
+      "gateway/control/src/detections.rs": "ec36c134e794b93b8a9c7ca0eb25764da78847af69781cca826f2afa9ef40153",
+      "gateway/control/src/security.rs": "9e70a4903495908567a317151c4ba0b5212a10426eac5f8e6222be7a563ed15d",
+      "gateway/matter/src/config.rs": "cec62e461ebd93eedab96caa09e312ab0663c566851caaa1f96aa4eb0da173c4",
+      "gateway/matter/src/media.rs": "088fa0d49f2f8a8015fed0207e8d908e423db5b7fe38f545f7d5abae6788fc5b",
+      "gateway/matter/src/media/input.rs": "08b1cd1cdc19a01415dcd9fe13d70ea6ca1ef6763220ef99bd55f6165b21d9b8",
+      "gateway/matter/src/occupancy.rs": "8e3deb3183b54b85f9a8313ee4c7701d0a53c72ba4f95b4e427a150e8297c09a",
+      "gateway/tests/matter/catalogue.patch": "f11e19aa7f750413eb019f5be7e0214b1dbdd5a40105b3ac1d59f7b254e3bf94",
+      "gateway/tests/matter_catalogue_reference.py": "114b252dbd385b996034684add44e84399ac225c2489d100f35e3796019a684f",
+      "gateway/tests/matter/versions.json": "12d83b3dce37bd3fb9c423f99a304cf5fb86a0a72e306aeccdbb7facbe4f1f81"
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+    "per_run": {
+      "original_frames": 45,
+      "remapped_frames": 45,
+      "restarted_frames": 45,
+      "frames_match_selected_dimensions": true,
+      "selected_ice_address_verified": true,
+      "retained_endpoint_ids": true,
+      "rejected_site_and_camera_changes": true,
+      "old_mapping_rtsp_status": 401,
+      "selected_camera_occupancy": [
+        "unavailable",
+        "person",
+        "clear"
+      ],
+      "media_revocation_end_reason": 5,
+      "occupancy_observed_after_media_revocation": true,
+      "publisher_ready_and_independent_rtsp_describe_allowed_after_revocation": true
+    },
+    "verification": {
+      "gateway_tests_passed": 76,
+      "additional_native_ffmpeg_tests_passed": 1,
+      "sdk_camera_example_tests_passed": 3,
+      "architecture_tests_passed": 37,
+      "hal_boundary_tests_passed": 29,
+      "linux_x86_64_cargo_check": true
+    },
+    "scope": "This fixture exercises one Matter camera and its occupancy endpoint. A second configured gateway camera was used to check source selection. Multi-camera endpoint allocation, discovery on selected Linux/macOS interfaces, physical playback and microphone remain release work."
+  },
+  "joined_sessions": {
+    "host": "macOS arm64, two independent Matter controllers, generated H.264",
+    "fixture": "sessions",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/tests/matter/sessions.patch": "ef295792ea924fc1dd55bb492b9eec9b9e957291e19ee8f62915e6f664d7b7f1",
+      "gateway/tests/matter/Cargo.lock": "4b10398da089bab0cf6b54da8c8c7232015bb47c913858ba046e75ccc713b46d",
+      "gateway/tests/matter/versions.json": "e813419f155edbd11115d90c5bbb50baa3e9c7d71ea8ec11420f6adaba4887b6",
+      "gateway/tests/matter_session_reference.py": "16a98ecb4b55e6e1c552f8c73265102be9a83466178ffad9788612e47a1b4c1e",
+      "tools/prepare-matter-fixture.py": "0e9070194ed3fd2e49ecdad890b5ffa9552f568b5219b0bcf64f6316b9380481"
+    },
+    "comparison": {
+      "previous_commit": "b84b21362b40b24d506a26d444fe5dcfe5bcb632",
+      "references_after_four_offers": 4,
+      "references_after_rejected_fifth_offer": 5
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "94b33440ab8171cbbd8c5f53fe11cb8aeda3a7a33ae015bfc996a82884acb912",
+    "per_run": {
+      "limit": 4,
+      "next_offer_status": 137,
+      "decoded_frames": [
+        45,
+        45,
+        45
+      ],
+      "sockets_released_after_end_ack": 2,
+      "removed_fabric_socket_released": true,
+      "survivor_frames_after_fabric_removal": 20,
+      "allocations_released": true,
+      "sessions_remaining": 0
+    },
+    "regressions": {
+      "configured_camera": true,
+      "gateway_tests": 76,
+      "native_ffmpeg_tests": 1,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Joined peer resource release for explicit EndSession, cancellation of pending offers and removal of one of two fabrics. The test checks each live peer’s actual nominated UDP port. Long offline signaling deadlines, full process shutdown under load, physical cameras and iPhone remain separate tests."
+  },
+  "jpeg_snapshots": {
+    "fixture": "snapshots",
+    "host": "macOS arm64, pinned Matter Server, generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "ffmpeg_version": "9.0.2",
+    "sha256": {
+      "gateway/matter/src/config.rs": "8819573843e41b6cd962b6810d69b9dad311ac510d67b54aeed5ff6f76502527",
+      "gateway/matter/src/snapshot.rs": "a3dc18a3fb7a6050d56743d08beb710c9335d217ce1f6539f7cdc619a0c08528",
+      "gateway/matter/Cargo.toml": "175f087c7a0173cb054ec133425db28aa23010e39ff277b38d646bf3e4708053",
+      "gateway/tests/matter/snapshots.patch": "30af589da63606a6944d16988b715d9c20589822f84dfb28b182151b1e292d4e",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "gateway/tests/matter/versions.json": "545910f12bc10cf7a5ee1de5a1b27e858a63565532eeaf1c1c2bf006ae961f05",
+      "gateway/tests/matter_snapshot_reference.py": "0855c73804634ba033b0aa3d4eb7b32d8937ba84bee208808e9d8e9ff61ddbe8",
+      "tools/prepare-matter-fixture.py": "2210a584d95fd98bc2350d0c3f942267cbd1621bca757014632caeec790ebd4a"
+    },
+    "clean_runs": 2,
+    "identical_result_json_sha256": "3a1aaf1aea2b76e710f6bd0eec3c209951dcaf46827f59dd96875f79bf93357c",
+    "per_run": {
+      "jpeg_bytes": [
+        18209,
+        6769
+      ],
+      "dimensions": [
+        [
+          640,
+          360
+        ],
+        [
+          320,
+          180
+        ]
+      ],
+      "distinct_publications": true,
+      "live_frames_before_capture": 45,
+      "additional_frames_after_capture": 15,
+      "shared_reader": true,
+      "private_and_offline_rejected": true,
+      "rate_limit_busy_status": 156,
+      "source_loss_cancelled_and_reaped_encoder": true,
+      "allocation_reused_and_released": true
+    },
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29,
+      "linux_x86_64_cargo_check": true
+    },
+    "scope": "JPEG allocation, scaling, capture, reuse, immediate rate-limit rejection, unavailable and private admission, and encoder reaping before an in-flight source-loss rejection. Concurrent Matter command responsiveness, production conformance, privacy changes made during encoding through an independent access path, and physical capture remain open."
+  },
+  "graceful_shutdown": {
+    "fixture": "shutdown",
+    "host": "macOS arm64, two isolated Matter Server fabrics, generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "ffmpeg_version": "9.0.2",
+    "sha256": {
+      "gateway/tests/matter/shutdown.patch": "63a62d901f5e637cf097f00a0e68c775824f1f46cf5e96d4a08246741844caf6",
+      "gateway/tests/matter/versions.json": "e5992eb1087a3d766d393317c69b4fa04a6bd0c70e53cac22025792609e738b1",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "tools/prepare-matter-fixture.py": "436a6bacd830df9395814e25cc6333e566437efed3fa744a5c841da62121dbf4",
+      "gateway/tests/matter_shutdown_reference.py": "91db0949ee77a8fcd480dd4e34e6a92d7bec6c4d35adbbf44c26c093a2c518e9",
+      "gateway/tests/matter_fabric_reference.py": "1e632d76f0653a16d7994edbdc6440760c19cb2befa3a511fbcaf15174366c1a"
+    },
+    "clean_runs": 2,
+    "per_run": [
+      {
+        "result_json_sha256": "7795646b06615501a4edc91bff17a72c93a1fb05166cd2eba7053bd91d703506",
+        "baseline_frames": 30,
+        "timed_out_peers": 2,
+        "timeout_seconds": 20.058,
+        "offline_fabric_rows_released_seconds": 23.115,
+        "outbound_delivery_timeouts": 2,
+        "negotiation_sockets_and_refs_released": true,
+        "live_frames": 45,
+        "live_frames_after_peer_timeouts": 15,
+        "matter_read_during_delayed_snapshot": true,
+        "graceful_exit_seconds": 0.002,
+        "active_and_pending_sockets_closed": true,
+        "running_snapshot_encoder_reaped": true,
+        "same_publisher": true,
+        "enrollment_preserved": true,
+        "frames_after_restart": 45
+      },
+      {
+        "result_json_sha256": "3fd4448d41062498acc8d656cf44cef62556ee7a1d693f13795ed38f19394899",
+        "baseline_frames": 30,
+        "timed_out_peers": 2,
+        "timeout_seconds": 20.043,
+        "offline_fabric_rows_released_seconds": 23.113,
+        "outbound_delivery_timeouts": 2,
+        "negotiation_sockets_and_refs_released": true,
+        "live_frames": 45,
+        "live_frames_after_peer_timeouts": 15,
+        "matter_read_during_delayed_snapshot": true,
+        "graceful_exit_seconds": 0.005,
+        "active_and_pending_sockets_closed": true,
+        "running_snapshot_encoder_reaped": true,
+        "same_publisher": true,
+        "enrollment_preserved": true,
+        "frames_after_restart": 45
+      }
+    ],
+    "snapshot_regression_result_json_sha256": "3a1aaf1aea2b76e710f6bd0eec3c209951dcaf46827f59dd96875f79bf93357c",
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Separate unanswered SDP and incomplete ICE, two failed outbound deliveries while their controller is suspended, retirement and continuing decoded video on another fabric. Joined SIGTERM with an established peer, a pending peer and a blocked JPEG encoder, followed by playback on the same publication and preserved enrollment. A separate Matter read completes during capture. Final-fabric cleanup, physical audio/video, production wide-area timing and soak remain open."
+  },
+  "final_fabric_removal": {
+    "fixture": "final-fabric",
+    "host": "macOS arm64, pinned Matter Server, generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/persistence.rs": "b3f3d21afe2f2b90688228e813b6af8edc6ffd2ef86718f6284c561f6af80c3a",
+      "gateway/tests/matter/final-fabric.patch": "8929823be0fa777cb7d2f7da048b4f517173b66b24225ab14e0a8aa9f2ee3234",
+      "gateway/tests/matter_final_fabric_reference.py": "2ac22734683bffb2b0cb00d3c453a1e90dbecd92f3b363d900846cb898f58fb4",
+      "gateway/tests/matter/commit_breakpoint.py": "1c945f4bb40e0b9362796aec36ab78bd9ecf3b40621612d767f81246edfa47b2",
+      "gateway/tests/matter/versions.json": "fb61255ddab02f0a66e744ce85e65f2da89cbda49e204c23a42e1e11eddc417e",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "tools/prepare-matter-fixture.py": "2ca5879d19258ec70988cfd52096fcf1ace5738817282e5ebdc1d13358db44f3"
+    },
+    "baseline": "The shutdown fixture removed the last fabric but retained the changed label and camera installation records on disk.",
+    "trials": [
+      {
+        "result_json_sha256": "f922092e7c120dea3c8ba395b47b8355ee97ef31372149d942fa9fbc498861a9",
+        "interruption": null,
+        "pre_commit_installation_recovered": false,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": true,
+        "old_invitation_rejected": true,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      },
+      {
+        "result_json_sha256": "8ac363a49b8f742ee367d3ea44406eb83b038ab69efbe75f5f695c5d797fcb5f",
+        "interruption": "before-replace",
+        "pre_commit_installation_recovered": true,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": null,
+        "old_invitation_rejected": null,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      },
+      {
+        "result_json_sha256": "295e26efe027a1ea710eca6823eb9e1a55d4e8cff3d7c245e63a2f5d9c4dfe4d",
+        "interruption": "after-sync",
+        "pre_commit_installation_recovered": false,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": null,
+        "old_invitation_rejected": null,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      }
+    ],
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_last_fabric_tests": 2,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Last-fabric removal, selective removal with one survivor, invitation closure, existing playback retirement, settings and subscription cleanup, and recovery across the durable rename while using configured endpoint identity. No live camera or production enrollments were used. Interrupted addition of a fabric, physical microphone and production root-node conformance remain open."
+  },
+  "interrupted_commissioning": {
+    "fixture": "commissioning-recovery",
+    "host": "macOS arm64, pinned Matter Server, wired bridge fixture with generated H.264",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/matter/src/config.rs": "c96cbf4553210d7dfa038fa7b982507ba5dcb9f63023e7eec9bd9228496bc048",
+      "gateway/matter/src/persistence.rs": "d2dcfcbce9ac62a3f3298123c4febadf0fd2903c88942976c4590d3ef48e5648",
+      "gateway/tests/matter/commit_breakpoint.py": "4e5a1e9fa0de10ff572e09db6539f2bf3e5880ff0f536b8f67028177e7fc9747",
+      "gateway/tests/matter_recovery_reference.py": "a2610e1a321998c1bd02e000133f16939a18f2cd0c566d60cee55a7c7eb4513b",
+      "gateway/tests/matter_commissioning_recovery_reference.py": "0912b1b217efdd8dd6f4024b6c9d1192d5b235cc6214ec6a868f5d2f46c971e4",
+      "gateway/tests/matter/commissioning-recovery.patch": "87b12231653b1cb97f9a7441565bac2f6f9b3a07cd3d5806d9f701d32745b2f8",
+      "gateway/tests/matter/versions.json": "d3c160609f1c876df37a4edd66234ae265e6fdeb18acf9dd62d8659ddcbfb701",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "tools/prepare-matter-fixture.py": "bd0053d4931deb17056f2d4264768b691d4561c9f9a2fc9d60320a23df48b6d9"
+    },
+    "baseline": {
+      "revision": "4af638ba8eed25d85318b53d68ac2062ad45f977",
+      "scenario": "First enrollment killed after storage sync and before the reply. The completed fabric remained but the original Matter Server had no commissioned node on restart.",
+      "result_json_sha256": "ba85d2cc2cfbe3869df01e7767abf81972606195e64f5d15e15f03d4191c36c8"
+    },
+    "trials": [
+      {
+        "result_json_sha256": "0ee3931e214034589315dea2108ec55fac67407162fa61c005ed969729788d78",
+        "boundary": "before-replace",
+        "existing_fabric": false,
+        "cursor_atomic": true,
+        "stock_controller_recovered": null,
+        "local_recovery": false,
+        "original_admin_frames": null,
+        "recommissioned_frames": 45
+      },
+      {
+        "result_json_sha256": "eece047f8d9dedf11c09aa3dfbc84aeef13db57de9463bd432f1bcc4470ff4b3",
+        "boundary": "after-sync",
+        "existing_fabric": false,
+        "cursor_atomic": true,
+        "stock_controller_recovered": false,
+        "local_recovery": true,
+        "original_admin_frames": null,
+        "recommissioned_frames": 45
+      },
+      {
+        "result_json_sha256": "217f528b00006dad893e828fc306dfebc5c8a31f6a038c7c5f469121542442f5",
+        "boundary": "before-replace",
+        "existing_fabric": true,
+        "cursor_atomic": true,
+        "stock_controller_recovered": null,
+        "local_recovery": false,
+        "original_admin_frames": 45,
+        "recommissioned_frames": 45
+      },
+      {
+        "result_json_sha256": "9f3039515fc319c5576ebda691408bf7e6d14affbcd8e7f9472ac452c9abd8c2",
+        "boundary": "after-sync",
+        "existing_fabric": true,
+        "cursor_atomic": true,
+        "stock_controller_recovered": null,
+        "local_recovery": false,
+        "original_admin_frames": 45,
+        "recommissioned_frames": 45
+      }
+    ],
+    "last_fabric_removal_regression_sha256": "8ac363a49b8f742ee367d3ea44406eb83b038ab69efbe75f5f695c5d797fcb5f",
+    "regressions": {
+      "gateway_tests": 76,
+      "sdk_persist_core_tests": 20,
+      "sdk_last_fabric_tests": 2,
+      "sdk_data_model_tests": 366,
+      "sdk_camera_tests": 3,
+      "architecture_tests": 37,
+      "hal_boundary_tests": 29
+    },
+    "scope": "Process interruption before the atomic replacement and after directory sync on first and additional Ethernet-host enrollment. A fresh operator-opened window restores an abandoned first enrollment. A surviving administrator can withdraw an abandoned additional enrollment. No live camera, physical commissioning, wireless credentials, or direct NuttX behavior was exercised."
+  },
+  "linux_runtime": {
+    "fixture": "shutdown-drain",
+    "base_nxrs_revision": "bb69dbf184eae4db6f3c6bd0ea4a196967b45929",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "environment": {
+      "os": "Debian GNU/Linux 13.7 (trixie), Linux 6.12.117+deb13-cloud-arm64",
+      "execution": "QEMU 11.1.2 with HVF, ARM64 guest binaries",
+      "arm64_cloud_image_sha512": "ecbb14df864d2f8842539733c10d7251c58294f86b85a487b23b2c959a9b75f003df6b289deb20e1aee03ef65de2b1429818689e1fbc4b727d579c61b247fee9",
+      "discovery": "Astro DNS-SD linked to Avahi compat 0.8-16",
+      "guest_interface": "enp0s1",
+      "ffmpeg_package": "7:7.1.5-0+deb13u1",
+      "mediamtx_linux_arm64_archive_sha256": "180a235374a548d9133cdd5e20f5dbd8b01317be1c86e0d7e66df585dc42ed6f",
+      "node_linux_arm64_archive_sha256": "6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c",
+      "node": "24.22.3",
+      "python": "3.12.16",
+      "aiortc": "1.14.0",
+      "pyav": "16.1.0"
+    },
+    "sha256": {
+      "gateway/tests/matter/shutdown-drain.patch": "4733b5f32d6ebb5cf1230bbee2a77f4ff1054e8de57aae77e3fabec945f9e962",
+      "gateway/tests/matter/versions.json": "37db1b24df44742db51b6196e4ca17645d5882cfd9ce8a7b5840dffdb3d6e572",
+      "gateway/tests/matter/Cargo.lock": "9b32b3ab60fb954c771d06ed6b79dc36a27137f0590d4c2d9aa7a967ba77fd30",
+      "gateway/tests/matter_catalogue_reference.py": "f1ee6f16cabd71271a7e39abfc51d8d49461c2973f728fa03d0d995584d2bc66",
+      "gateway/tests/matter_shutdown_reference.py": "528216f839897a761e726a232aed1d7f77f89eb07ee5ce2ea4770ec620d76839",
+      "gateway/tests/matter_snapshot_reference.py": "0855c73804634ba033b0aa3d4eb7b32d8937ba84bee208808e9d8e9ff61ddbe8",
+      "gateway/tests/matter_final_fabric_reference.py": "2ac22734683bffb2b0cb00d3c453a1e90dbecd92f3b363d900846cb898f58fb4",
+      "tools/prepare-matter-fixture.py": "c01c888e6a7890294e2e9737ddbb6a4e9597d8f382483ab5fcd0f982aa58edd6"
+    },
+    "linux_device_binary_sha256": "3f5e770ea48afa8c7b9b5986f2d90e4c562f6a03b6fccd9cd2d82a715257c075",
+    "tested_sdk_camera_source_sha256": "3837449cfbed595677d0f703da8585d8e74deb6989908232a7c5b08e52d90ea1",
+    "negative_control": "With the previous shutdown path, an active snapshot lost the TCP connection during restart. The independent controller logged ECONNREFUSED and scheduled a two-minute retry, exceeding the unchanged 35-second operational recovery check.",
+    "linux": {
+      "catalogue": {
+        "result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+        "original_frames": 45,
+        "remapped_frames": 45,
+        "restarted_frames": 45,
+        "frames_match_selected_dimensions": true,
+        "selected_ice_address_verified": true,
+        "retained_endpoint_ids": true,
+        "rejected_site_and_camera_changes": true,
+        "old_mapping_rtsp_status": 401,
+        "selected_camera_occupancy": [
+          "unavailable",
+          "person",
+          "clear"
+        ],
+        "media_revocation_end_reason": 5,
+        "publisher_and_independent_reader_survived": true,
+        "occupancy_observed_after_media_revocation": true
+      },
+      "shutdown": {
+        "result_json_sha256": "22700ff4f9c878cea06244a1ed445fdf94f0c1d97598ebb5941a1d66303d445a",
+        "baseline_frames": 30,
+        "timed_out_peers": 2,
+        "timeout_seconds": 20.063,
+        "offline_fabric_rows_released_seconds": 23.108,
+        "outbound_delivery_timeouts": 2,
+        "negotiation_sockets_and_refs_released": true,
+        "live_frames": 45,
+        "live_frames_after_peer_timeouts": 15,
+        "matter_read_during_delayed_snapshot": true,
+        "shutdown_capture_rejected_and_released": true,
+        "graceful_exit_seconds": 1.054,
+        "active_and_pending_sockets_closed": true,
+        "running_snapshot_encoder_reaped": true,
+        "same_publisher": true,
+        "enrollment_preserved": true,
+        "frames_after_restart": 45
+      },
+      "snapshot": {
+        "result_json_sha256": "932c1dd48aea1f2bc90d1ba63f1d32c9d3a81a16548d40a1b9501fa39922ef1d",
+        "jpeg_bytes": [
+          18176,
+          6784
+        ],
+        "dimensions": [
+          [
+            640,
+            360
+          ],
+          [
+            320,
+            180
+          ]
+        ],
+        "distinct_publications": true,
+        "live_frames_before_capture": 45,
+        "additional_frames_after_capture": 15,
+        "shared_reader": true,
+        "private_and_offline_rejected": true,
+        "rate_limit_busy_status": 156,
+        "source_loss_cancelled_and_reaped_encoder": true,
+        "allocation_reused_and_released": true
+      },
+      "final_fabric": {
+        "result_json_sha256": "f922092e7c120dea3c8ba395b47b8355ee97ef31372149d942fa9fbc498861a9",
+        "interruption": null,
+        "pre_commit_installation_recovered": false,
+        "separate_controller_commissioned": true,
+        "persisted_settings_and_subscriptions_removed": true,
+        "device_and_endpoint_identity_preserved": true,
+        "default_privacy_restored": true,
+        "selective_removal_preserved_settings": true,
+        "old_invitation_rejected": true,
+        "live_socket_released": true,
+        "decoded_frames_before_removal": 45,
+        "decoded_frames_after_recommissioning": 45
+      }
+    },
+    "macos_catalogue": {
+      "result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+      "original_frames": 45,
+      "remapped_frames": 45,
+      "restarted_frames": 45,
+      "frames_match_selected_dimensions": true,
+      "selected_ice_address_verified": true,
+      "retained_endpoint_ids": true,
+      "rejected_site_and_camera_changes": true,
+      "old_mapping_rtsp_status": 401,
+      "selected_camera_occupancy": [
+        "unavailable",
+        "person",
+        "clear"
+      ],
+      "media_revocation_end_reason": 5,
+      "publisher_and_independent_reader_survived": true,
+      "occupancy_observed_after_media_revocation": true
+    },
+    "macos_shutdown": {
+      "result_json_sha256": "c76c330e0a256e5ca4f8c40b88ffa40178b0621f3b825b3b21e0f1ef0c519edb",
+      "baseline_frames": 30,
+      "timed_out_peers": 2,
+      "timeout_seconds": 20.111,
+      "offline_fabric_rows_released_seconds": 23.086,
+      "outbound_delivery_timeouts": 2,
+      "negotiation_sockets_and_refs_released": true,
+      "live_frames": 45,
+      "live_frames_after_peer_timeouts": 15,
+      "matter_read_during_delayed_snapshot": true,
+      "shutdown_capture_rejected_and_released": true,
+      "graceful_exit_seconds": 1.056,
+      "active_and_pending_sockets_closed": true,
+      "running_snapshot_encoder_reaped": true,
+      "same_publisher": true,
+      "enrollment_preserved": true,
+      "frames_after_restart": 45
+    },
+    "regressions": {
+      "linux_gateway_tests": 76,
+      "linux_sdk_camera_tests": 3,
+      "macos_architecture_tests": 37,
+      "macos_hal_boundary_tests": 29
+    },
+    "scope": "Discovery, configured ICE route, occupancy and independent media access, JPEG, retirement and persistence on the isolated Linux guest. The cross-platform shutdown regression verifies cancellation and controller stream release before exit, plus playback after restart with the same enrollment. Multi-interface scoping, physical traffic, iPhone presentation and soak require separate qualification."
+  },
+  "lan_interface": {
+    "fixture": "lan-interface",
+    "base_nxrs_revision": "5edf37d06f0806d0ca6b3b282663e4806e94f82d",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sha256": {
+      "gateway/Cargo.lock": "89c22bd3bfcf409ba7bae641f9712e8f1030b015cf3072b481c4f539a9f60eb2",
+      "gateway/matter/Cargo.toml": "65f07df26f900b511b707fb6bf7685b53629de3c8479e0ab2a8ee3a7385f94d1",
+      "gateway/matter/src/platform/lan.rs": "d1cb2e16bea598872b6badbfbe322e460a35bfad434d4665344f84c6e429e11e",
+      "gateway/matter/src/config.rs": "0a6068563ad1ea72be4d9b3dab61592ae977d67772230272ec9dc0ec3bfbec54",
+      "gateway/tests/matter/Cargo.lock": "0d0e89ce374495d3d1513238ea836aa71ffb295f9fe84d476da8fe8811a9b03c",
+      "gateway/tests/matter/astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b",
+      "gateway/tests/matter/lan-interface.patch": "76604ff02c29aa6b80b1758179bd2c9ea288bdd125402da74cdbbf443e865b98",
+      "gateway/tests/matter/versions.json": "5564f326dccba431327b2a48f59ba49f970cf7b8685a52903dfd44bc43fa65c2",
+      "gateway/tests/matter_lan_reference.py": "aaa11154f05b66d3143813134a306cf123e563867ffb7f7399302190d2d538b9",
+      "gateway/tests/matter_catalogue_reference.py": "f1ee6f16cabd71271a7e39abfc51d8d49461c2973f728fa03d0d995584d2bc66",
+      "tools/prepare-matter-fixture.py": "bff40194929395d9ea6d0caee382c0242cdeec9ee0b2d9ce37f809a3088bf9dd"
+    },
+    "linux_device_binary_sha256": "009bdad2922fdcea5a63c67f396aee05ebef1907333aed65804a7963b7f8127c",
+    "linux": "Debian 13.7 ARM64, Linux 6.12.117, native Avahi 0.8-16. Distinct peers on two veth IPv4 and IPv6 networks.",
+    "unscoped_linux_baseline": {
+      "result_json_sha256": "1fd28f2fbbeb528cda87da190d9b52c3d4e5ec807bf6db4525482071d8137a25",
+      "selected": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "ipv6_dns_sd": true
+      },
+      "excluded": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "cross_link_tcp4": true,
+        "cross_link_udp4": true,
+        "cross_link_tcp6": true,
+        "cross_link_udp6": true,
+        "ipv6_dns_sd": true
+      }
+    },
+    "scoped_linux": {
+      "result_json_sha256": "aaf930a927b77858f39032b95efba7d35cd7ac76a5e774f0092f60111074e805",
+      "selected": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "ipv6_dns_sd": true
+      },
+      "excluded": {
+        "tcp4": false,
+        "udp4": false,
+        "tcp6": false,
+        "udp6": false,
+        "cross_link_tcp4": false,
+        "cross_link_udp4": false,
+        "cross_link_tcp6": false,
+        "cross_link_udp6": false,
+        "ipv6_dns_sd": false
+      },
+      "rejected_wrong_interface": true,
+      "playback": {
+        "frames": 45,
+        "snapshot_bytes": 17484,
+        "matter_ipv6_tcp": true
+      },
+      "operational_selected": {
+        "tcp4": true,
+        "udp4": true,
+        "tcp6": true,
+        "udp6": true,
+        "ipv6_dns_sd": true
+      },
+      "operational_excluded": {
+        "tcp4": false,
+        "udp4": false,
+        "tcp6": false,
+        "udp6": false,
+        "cross_link_tcp4": false,
+        "cross_link_udp4": false,
+        "cross_link_tcp6": false,
+        "cross_link_udp6": false,
+        "ipv6_dns_sd": false
+      },
+      "inferred_interface_after_restart": {
+        "frames": 45,
+        "snapshot_bytes": 17986,
+        "matter_ipv6_tcp": true
+      }
+    },
+    "scoped_macos_catalogue": {
+      "result_json_sha256": "00c42eb274543b925761ba1e805ac6e10f5c637d66d2f6b2744f5b4d8a8ba222",
+      "original_frames": 45,
+      "remapped_frames": 45,
+      "restarted_frames": 45,
+      "frames_match_selected_dimensions": true,
+      "selected_ice_address_verified": true,
+      "retained_endpoint_ids": true,
+      "rejected_site_and_camera_changes": true,
+      "old_mapping_rtsp_status": 401,
+      "selected_camera_occupancy": [
+        "unavailable",
+        "person",
+        "clear"
+      ],
+      "media_revocation_end_reason": 5,
+      "publisher_and_independent_reader_survived": true,
+      "occupancy_observed_after_media_revocation": true
+    },
+    "regressions": {
+      "macos_gateway_tests": 76,
+      "macos_sdk_camera_tests": 3,
+      "macos_architecture_tests": 37,
+      "macos_hal_boundary_tests": 29
+    },
+    "scope": "Linux commissioning and operational IPv6 multicast on one selected link, IPv4 and IPv6 Matter TCP and UDP isolation including cross-link traffic to selected addresses, actual IPv6 Matter JPEG and IPv4 WebRTC, and same-enrollment restart with interface inference. macOS qualified the scoped build on its selected interface through discovery, decoded video, remapping and persistence. The Linux witness does not substitute for macOS two-link, physical iPhone, or wide-area tests."
+  },
+  "four_viewer_soak_rehearsal": {
+    "fixture": "lan-interface",
+    "scope": "A 120-second rehearsal in Debian 13.7 ARM64 with an isolated veth interface and generated 640x360 H.264. It failed before teardown. The full-duration and physical release gates remain open.",
+    "status": "failed during fabric replacement",
+    "sha256": {
+      "gateway/tests/matter_soak_reference.py": "52365db173c1affdc3bda7467d5da1657e8ecd7b11397797d4d8d91c05b3d640",
+      "gateway/tests/matter_reference.py": "be52e17c05d1e1efe78691cdf683ecdc47cb8e6401509c97d496637b0f1ad20f",
+      "gateway/tests/matter_rtsp_reference.py": "aa6c34ebda401c1a20d9d56775d88fe458808bd1669f0057696b85374301072f"
+    },
+    "bridge_build": "rs-matter release profile, Rust 1.98.1",
+    "bridge_binary_sha256": "dc94c80985bf3ae27ef19332ff1564477ba4bc5a532adf11006b40a72d12a68d",
+    "samples_jsonl_sha256": "e02d5cec011fc355e2c28e0cfae76ed40fb7df9a10056bd3d8a3e390c550de07",
+    "viewers": 4,
+    "samples": 9,
+    "fifth_offer_status": 137,
+    "steady_source_fps_range": [
+      14.966,
+      15.048
+    ],
+    "steady_decoded_fps_range": [
+      14.966,
+      15.048
+    ],
+    "rendered_fps": null,
+    "bridge_rss_kib_range": [
+      9824,
+      10292
+    ],
+    "bridge_threads_range": [
+      11,
+      13
+    ],
+    "bridge_descriptors_range": [
+      51,
+      56
+    ],
+    "unanswered_offer_retired_seconds": 20.036,
+    "restart_to_four_viewers_seconds": 9.983,
+    "longest_surviving_gap_during_removal_and_shutdown_seconds": 0.094,
+    "revoked_viewer_new_frames_and_rtp_packets_after_drain": [
+      0,
+      0
+    ],
+    "longest_surviving_gap_during_replacement_commissioning_seconds": 1.934,
+    "decoded_timestamp_step_after_pause_seconds": 0.067,
+    "replacement_playback_end_reason": 0
+  },
+  "stream_continuity": {
+    "fixture": "stream-continuity",
+    "status": "short host rehearsal and two-interface regression passed",
+    "scope": "Debian 13.7 ARM64 with native Avahi and generated H.264. The 24-hour result and physical ESP32, iPhone and audio qualification are separate.",
+    "sdk_patch_sha256": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
+    "linux_release_binary_sha256": "ff931996b364b5ae95501d65bd9fc03b28d0ef42f0656602a943585123374ac4",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "receipts_sha256": {
+      "result.json": "2ce2ae3599f1a08a0be0a4532ff059e0f7ed94c7797040562e627ecd15495837",
+      "samples.jsonl": "e4d33e8b74bffa5b39d5daf54e9fe3174e030e3c7b659e6ab33201196eecda08",
+      "lan-result.json": "c4e66cec559c31c39ffca5268f2cfa64b294b348a3db3e31f4c7fb320cc4a819"
+    },
+    "diagnosis": {
+      "baseline_wire_gap_seconds": 2.071,
+      "baseline_max_rtsp_packet_gap_seconds_in_confirmation": 0.071,
+      "blocked_stack": "AstroMdns::update_services was waiting for DNSServiceRegisterReply",
+      "early_answer_reply": "Matter NotFound, followed by successful delivery of the ICE candidate; the SDK discarded command status"
+    },
+    "rehearsal_seconds": 120.414,
+    "viewers": 4,
+    "fifth_offer_status": 137,
+    "source_fps_range": [
+      14.973,
+      15.076
+    ],
+    "decoded_fps_range": [
+      14.951,
+      15.023
+    ],
+    "rendered_fps": null,
+    "unanswered_offer_retired_seconds": 20.197,
+    "restart_to_four_viewers_seconds": 5.959,
+    "replacement_startup_seconds": 1.795,
+    "longest_surviving_gap_during_replacement_seconds": 0.089,
+    "revoked_viewer_new_rtp_packets": 0,
+    "final_session_and_allocation_release_confirmed": true,
+    "lan_ipv4_ipv6_scope_verified": true,
+    "lan_ipv6_tcp_snapshot_bytes": 17484,
+    "lan_same_enrollment_after_restart_frames": 45,
+    "macos_im_core_tests": 26,
+    "host_architecture_tests": 37,
+    "host_hal_boundary_tests": 29
+  },
+  "concurrent_jpeg_capture": {
+    "fixture": "stream-continuity",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "sdk_patch_sha256": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
+    "test_sha256": "58d9340e513131bfed0b6d6fd3c6f96e88d85de1b366b2b96f1a229c41097d76",
+    "macos_device_binary_sha256": "81a9b71f02e45ae2994b8cc8e0b320bb97b86bed0d967553b4494fa1baf603d8",
+    "environment": "macOS 27.0.1 ARM64 with native DNS-SD, Matter Server 1.6.0, Python 3.12.16 and MediaMTX 1.21.2",
+    "result_json_sha256": [
+      "8172200eb5f4d826484030b4e18bf9424bafebd9859202970e61569656ce9cff",
+      "8172200eb5f4d826484030b4e18bf9424bafebd9859202970e61569656ce9cff"
+    ],
+    "fresh_trials": 2,
+    "independent_fabrics_per_trial": 2,
+    "second_fabric_rejected_while_first_encoder_held_status": 156,
+    "live_frames_decoded_while_encoder_held": [
+      15,
+      15
+    ],
+    "successful_JPEGs": {
+      "first_fabric": [
+        640,
+        360
+      ],
+      "second_fabric_after_source_change": [
+        320,
+        180
+      ]
+    },
+    "shared_reader_and_released_snapshot_allocation": true,
+    "source_loss_cancelled_and_reaped_encoder": true,
+    "scope": "Generated H.264 on the native macOS bridge. Physical ESP32 source and iPhone snapshots remain open."
+  },
+  "media_server_restart": {
+    "fixture": "stream-continuity",
+    "macos_device_binary_sha256": "81a9b71f02e45ae2994b8cc8e0b320bb97b86bed0d967553b4494fa1baf603d8",
+    "source_sha256": {
+      "gateway/tests/matter_publication_reference.py": "f53a876d4070c88de1e48d58a106f3c93b773ae57cc06818f80a7089d0de0b66",
+      "gateway/tests/matter_rtsp_reference.py": "3695639558a798041a4cb23cec001ab3ccfe71e2acb28002d9875cf68d76086e",
+      "gateway/tests/matter/stream-continuity.patch": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea"
+    },
+    "result_json_sha256": "60e188954a617fe215c78c13f216a61965f840aa7fe9c3c5df18c0f2bd1a78de",
+    "original_frames": 45,
+    "original_dimensions": [
+      640,
+      360
+    ],
+    "unanswered_end_reason": 5,
+    "no_ice_end_reason": 5,
+    "replacement_frames": 45,
+    "replacement_dimensions": [
+      320,
+      240
+    ],
+    "active_end_reason": 5,
+    "offline_solicit_status": 203,
+    "offline_provide_status": 203,
+    "media_server_restarted_after_sigkill": true,
+    "media_server_recovery_seconds": 5.893,
+    "restored_frames": 45,
+    "retained_camera_identity": true,
+    "final_sessions": 0,
+    "scope": "Native macOS 27.0.1 ARM64, generated H.264. The same control process, bridge and Matter enrollment survived an abrupt MediaMTX exit. Physical camera and production deployment recovery remain open."
+  },
+  "provisioned_device_attestation": {
+    "fixture": "provisioned-attestation",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "macos_device_binary_sha256": "167a8b0be767e0b13702a0d2420cddc365d40a023ec76e22a983999319976bd7",
+    "source_sha256": {
+      "gateway/matter/src/attestation.rs": "9c32498b33110f6e271ac5ace9b26fcb35d9aa8a0658eca588ee4484095785f1",
+      "gateway/matter/src/config.rs": "a72bdb9de7ca3ac69a702ca91775fb44beea15b0022480fc5151961b088516e0",
+      "gateway/tests/matter_attestation_reference.py": "be65f6b36afcd4529ca85b3c370d2d76345afe96110580f4fdf2c1745f965018",
+      "gateway/tests/matter/provisioned-attestation.patch": "c7002dacd95911abf729ec9fe148ce310bea4e33543880f1702b5c4429828607",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "8e34d5b1e673cba89550012532d393606f525b00f9ff61063d9623a163606760",
+    "inadmissible_bundles": [
+      "missing",
+      "development_on_default_path",
+      "exposed_key",
+      "wrong_key",
+      "altered_declaration",
+      "wrong_product"
+    ],
+    "new_state_untouched_on_rejection": true,
+    "provided_basic_information": true,
+    "changed_identity_preserved_durable_state": true,
+    "frames": [
+      45,
+      45
+    ],
+    "original_enrollment_restored": true,
+    "scope": "Native macOS 27.0.1 ARM64 with an independent Matter Server 1.6.0 and the pinned public development credentials. No production credential or protected signer was qualified."
+  },
+  "camera_endpoint_bindings": {
+    "fixture": "camera-endpoints",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "8b55ea1029bdd9a9d45a3898d98ecba3b0be4cd7c4c3b26f5c4f4d4796df6cc4",
+    "source_sha256": {
+      "gateway/tests/matter/camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
+      "gateway/tests/matter_attestation_reference.py": "f5af8872e9e24441d3573933c5585edf6e927999b3430b13e096d548dadc2ff5",
+      "tools/prepare-matter-fixture.py": "63a2564c4a761e5e70d4369e8ee8d29bc9a68b355d67c7a0147baf01902d6d08",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "d5df115f7966defd0bdc94e14bbebce857192c1bf2236c86f70d31d7f121a5b9",
+    "inadmissible_bundles": [
+      "missing",
+      "development_on_default_path",
+      "exposed_key",
+      "wrong_key",
+      "altered_declaration",
+      "wrong_product"
+    ],
+    "new_state_untouched_on_rejection": true,
+    "provided_basic_information": true,
+    "changed_identity_preserved_durable_state": true,
+    "flows": [
+      "receiver-offer",
+      "camera-offer"
+    ],
+    "frames": [
+      45,
+      45
+    ],
+    "original_enrollment_restored": true,
+    "camera_server_clusters": [
+      29,
+      4,
+      1361,
+      30,
+      1363,
+      57
+    ],
+    "camera_client_clusters": [
+      1364
+    ],
+    "aggregator_parts": [
+      1,
+      3
+    ],
+    "binding_fabric_isolation": true,
+    "binding_overflow_preserves_entries": true,
+    "binding_restart_persistence": true,
+    "binding_selective_removal": true,
+    "binding_interrupted_removal_repaired": true,
+    "scope": "Native macOS 27.0.1 arm64, independent Matter Server 1.6.0, development attestation and generated H.264. The interrupted-removal snapshot recreates the durable gap between fabric deletion and Binding cleanup. Root conditions, product attestation and physical microphone, camera and iPhone qualification remain open."
+  },
+  "root_power_and_time_zone": {
+    "fixture": "root-power-time-zone",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "7d1ab3da81778114c737199952cf7e819e1bdddd01d0796e1689f62f652d428a",
+    "source_sha256": {
+      "gateway/matter/src/config.rs": "450fdf54a7a2d73e3dc0f923f6c6d11faadda41c44f5a418b109694f555521f7",
+      "gateway/tests/matter/root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b",
+      "gateway/tests/matter/camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
+      "gateway/tests/matter_attestation_reference.py": "2aeb2756abb6fc804e63b789f6a99317de01612c244066d11e0472a5c41a9b51",
+      "tools/prepare-matter-fixture.py": "632adff4e3afec799fa43ab93c1bf6690481af6328154807523c9e1685267d11",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "b564e6e2daf39834cb85ef20e2db49a3a8154a729fafe663620bdbaaa5e10fa0",
+    "flows": [
+      "receiver-offer",
+      "camera-offer"
+    ],
+    "frames": [
+      45,
+      45
+    ],
+    "original_enrollment_restored": true,
+    "wired_current_types": [
+      1,
+      0
+    ],
+    "host_power_endpoints": [
+      0,
+      2
+    ],
+    "refused_missing_or_unsupported_power_source": true,
+    "older_configuration_allows_offline_maintenance": true,
+    "time_zone_rejected_invalid_change": true,
+    "time_zone_and_dst_survived_restart": true,
+    "verified_local_time": true,
+    "scope": "Native macOS 27.0.1 arm64, independent Matter Server 1.6.0, generated H.264 and administrator-supplied UTC. Power readings verify the configured wired supply. Independent time clients, TLS management, product attestation and physical camera, microphone and iPhone qualification remain open."
+  },
+  "trusted_matter_time": {
+    "fixture": "trusted-matter-time",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "bf984ce6876a35f114545460bd29d0203792db2619ba0d699cb753ce3e6f1281",
+    "source_sha256": {
+      "gateway/tests/matter/trusted-matter-time.patch": "dc9b0d5384a132f69a0e400ccbd9429300f3936bdc7ae019dcdf95952c9eb50a",
+      "gateway/tests/matter/time-source.cjs": "141ea25433ab2e63e91ccda04a597eb60d7cc01db2a747e415317d1fc0d43086",
+      "gateway/tests/matter_time_reference.py": "011e3159991eaf4aae78fad5d8656eddbfa0c8b40c304009ce819f16923188e3",
+      "tools/prepare-matter-fixture.py": "079a4ba79ef18096f962d233caa62752cabb850569bdcd9b50e5e37cddb95cb0",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "42a76b73c9d3e51093b70b84989069b5bc84bc7abbf5c97e8f6cfb896cc11f3e",
+    "case_authenticated_clock": true,
+    "picked_fresh_sample_after_restart": true,
+    "removed_trust_during_refresh": true,
+    "kept_previous_clock_on_revocation": true,
+    "repaired_interrupted_fabric_removal": true,
+    "verified_local_time": true,
+    "frames": [
+      30,
+      30
+    ],
+    "scope": "Native macOS 27.0.1 arm64, Matter Server 1.6.0, independent Matter.js clock, development attestation and generated H.264. The independent clock provides known offsets. The interrupted-removal snapshot models the durable gap after deleting a fabric. NTP, TLS management and physical release qualification remain open."
+  },
+  "configured_sntp_fallback": {
+    "fixture": "default-ntp",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "macos_device_binary_sha256": "3c739587300d39cbf897e9c75f886976167a3708f2e86c3c149974754c7e460c",
+    "source_sha256": {
+      "gateway/matter/src/ntp.rs": "eeefc046f0483253e9b614fb6f119acec7742bd049039319c723d22a69c8ba99",
+      "gateway/tests/matter/default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285",
+      "gateway/tests/matter_time_reference.py": "a79904738d9dcf74d2b30fc4a38a6b063738732b07c3e7d4f942a052091c324e",
+      "gateway/tests/matter/time-source.cjs": "141ea25433ab2e63e91ccda04a597eb60d7cc01db2a747e415317d1fc0d43086",
+      "tools/prepare-matter-fixture.py": "e04315a3f62b773be6b7bc0278d9ca3450adfa9ff97058cbd7cb22e767d99841",
+      "gateway/tests/matter/Cargo.lock": "823f8380499f08cdf4f8f3bb8f0583d3452d8a79480f640e980aedaa7feb4caa"
+    },
+    "result_json_sha256": "4ba0aff169766e58a87c975afe8837f7240cd46e3f95c64fff513f454c6b2d90",
+    "fallback_sntp_applied": true,
+    "trusted_matter_clock_preferred": true,
+    "fallback_restored_after_trust_removal": true,
+    "fallback_configuration_persisted_and_cleared": true,
+    "malformed_and_unsupported_addresses_rejected": true,
+    "frames": [
+      30,
+      30
+    ],
+    "scope": "Native macOS 27.0.1 arm64, Matter Server 1.6.0, independent Matter.js clock, Cloudflare public IPv6 SNTP, development attestation and generated H.264. Separate loopback tests checked validity, era rollover and silent-server timeout. DHCP and DNS-SD time-source discovery, authenticated network time, TLS management and physical release qualification remain outside this witness."
+  },
+  "dns_sd_time_sources": {
+    "fixture": "dns-sd-time",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "kernel": "6.12.117+deb13-cloud-arm64",
+    "arch": "aarch64",
+    "test": {
+      "selected_lan_dns_sd": true,
+      "excluded_lan_clock_unused": true,
+      "preferred_discovered_clock": true,
+      "fallback_after_withdrawal": true,
+      "frames": [
+        30,
+        30,
+        30
+      ]
+    },
+    "linux_result_sha256": "896ed092075a22cfc0a46d6aaa85803831fcdfe2970968a6c12cb15a2bb8bcb0",
+    "linux_bridge_sha256": "bc585021b715d42677580793da8eb1bbda87653f54ea09903470656bedafb2a8",
+    "linux_gateway_sha256": "6aad6ab86e0dbbcf65d831e64b81df9fe72f4ef293daafeae217441934717626",
+    "linux_publisher_sha256": "f33882bc745b0d7dbb0f8ebbf78706dd3df28002c3961bb5c75bcf0d5d3d174d",
+    "source_sha256": {
+      "gateway/Cargo.lock": "0b178da7b1661df54fae98326af35b11f672bb40632597d8bf52dd452c94ebf9",
+      "gateway/matter/Cargo.toml": "8133122630962d7a69590695ca381b8de3473ad17665a6650eddfbe7bfe8651d",
+      "gateway/matter/src/ntp.rs": "01d232dc34099c3bd206134e3f06b4394594c8db55b98a0b890ededc70d034e1",
+      "gateway/matter/src/ntp/discovery.rs": "52e044acfff1db8cc9c1f878b9572865869e6519a5b3165b901c282792afed9e",
+      "gateway/matter/src/platform/lan.rs": "3f6fc880830ac0f93d52ec9ddb8a3e5e40c0e7970d6324df2578c84680ffe2b1",
+      "gateway/tests/matter/Cargo.lock": "70e150a186e717fe34ef4a6dd78fa3ad215c1519c6406e7e9d64fdd70f18df32",
+      "gateway/tests/matter/dns-sd-time.patch": "1226a01f9a27e71b591307e428473df2dc8b71b490d0ba543aeb9f30a51be249",
+      "gateway/tests/matter_ntp_discovery.py": "dbd3b81c8eeccf421fc87b24e55ee1542886152ea41b5318c863a1fce7166f03",
+      "tools/prepare-matter-fixture.py": "036fedf9e21036b5d8df3baacaf39e1b11c998df6d74fa5f4cbdf6e884a71145"
+    },
+    "macos_bridge_sha256": "1558d3884a8ced3c8a8fb92cf7087ae87017ed505cb6eb6e4f64622b5256fdff",
+    "macos_result_sha256": "4ba0aff169766e58a87c975afe8837f7240cd46e3f95c64fff513f454c6b2d90",
+    "macos_frames": [
+      30,
+      30
+    ],
+    "macos_trusted_and_configured_fallback": true,
+    "scope": "Debian 13 arm64 QEMU with private veth links, generated IPv6 DNS-SD and SNTP lab clocks, independent Matter Server 1.6.0 and generated H.264. Native macOS 27.0.1 arm64 qualified fallthrough to trusted Matter and configured public IPv6 SNTP. UDP loopback checks cover separate DNS records, mismatched transactions, and zero-lifetime records. DHCP, remaining source-priority rules, TLS management and physical release qualification remain open."
+  },
+  "dhcp_time_sources": {
+    "fixture": "dhcp-time",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "kernel": "6.12.117+deb13-cloud-arm64",
+    "test": {
+      "selected_lan_dns_sd": true,
+      "excluded_lan_clock_unused": true,
+      "preferred_discovered_clock": true,
+      "fallback_after_withdrawal": true,
+      "frames": [
+        30,
+        30,
+        30,
+        30,
+        30
+      ],
+      "dhcpv4_preferred": true,
+      "dhcpv6_preferred": true
+    },
+    "linux_result_sha256": "2af3ac1b3d06b27a5b99f6e884eb8a5d012770a10286dbf489ea9e2491f0fd7b",
+    "linux_bridge_sha256": "5313f97b16465c588b87b107f25619c90ea7aa5e2a8035d9c6af0f437c3931f7",
+    "source_sha256": {
+      "gateway/matter/src/platform/dhcp.rs": "091e0b40b3718393568116e1a5299dd2c860bda0eae30d50e2fdc77297894683",
+      "gateway/matter/src/platform/lan.rs": "27b4f79277721c606e388c95bafdfc445f56a0be82d57d8f4958e74585d762e1",
+      "gateway/matter/src/platform/mod.rs": "957e3232a7d000793ea3bcadcfd36dfde821445d676d21b708742dc62ddaa67c",
+      "gateway/tests/matter_ntp_discovery.py": "91689bd64c180e2762dc7b13bdf7150c4dfe99760829ff004a9b3f8980e4d3f2",
+      "gateway/tests/matter/dhcp-time.patch": "f6f3bd21adfe788eb8eb47aef7a5d5293539a0dbe15d5a162be8f7330683e609",
+      "gateway/tests/matter/versions.json": "9d28041a10db10d13ccd1591dbdf4b80c00888cd1c7e9d9f2b7a434bc15f00b8",
+      "tools/prepare-matter-fixture.py": "2f47906c1bcec1b55e0933d556e4de2bf3f62eff0badea70a791f26e19922aca"
+    },
+    "macos_result_sha256": "4ba0aff169766e58a87c975afe8837f7240cd46e3f95c64fff513f454c6b2d90",
+    "macos_bridge_sha256": "70bc7084a9541f25ebfd2b21ce0600a1e9070025fc02120c66eff300059bacef",
+    "macos_frames": [
+      30,
+      30
+    ],
+    "macos_trusted_and_configured_fallback": true,
+    "scope": "Debian 13 arm64 QEMU with systemd-networkd and real DHCPv4/v6 replies from dnsmasq on a private veth link. Distinct lab clocks and generated H.264 verified source precedence and playback across five boots on one enrollment. Native macOS 27.0.1 arm64 verified trusted Matter and configured IPv6 SNTP fallback on a link without a DHCP time option. NetworkManager, DHCPv6 hostnames, macOS DHCPv6 and remaining TLS and physical release gates stay open."
+  },
+  "tls_root_storage": {
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "source_sha256": {
+      "gateway/Cargo.lock": "1bd000fa1ce9857993181310300ba70b3b04752a2f6669154217338952f6b161",
+      "gateway/matter/Cargo.toml": "7afdb1b1c8ae9acc4d4a7928e7d049197409131c6259e5e5b12a08dd53f9ee4b",
+      "gateway/matter/src/persistence.rs": "c44571db49552bc16250780efdc46132863c3bcbfc4fa1292c49b9d3a129139e",
+      "gateway/matter/src/persistence/tests.rs": "94619468089109b7b611a6164bdd90e8faa06080e6c8b7a2c11cbf74d3252ac4",
+      "gateway/matter/src/tls.rs": "c6ee98556fe77831350de5998938f6230bdec7703ca9e4398fa89cc4edb695d5",
+      "gateway/tests/matter/Cargo.lock": "bbb133df6a7c9528d6c93164b194320140fe9389a4ef1c8ad288946dccc63969"
+    },
+    "macos_bridge_sha256": "69d944f6eb32c47c8cf578078e3a4d822fffe2c41300828baea551edaaf804b9",
+    "macos_bridge_build": "dhcp-time from a fresh SDK clone using the verified archives and locked dependency graph",
+    "test": "persistence::tests::files::tls_roots_rotate_and_retire_with_their_fabric",
+    "macos_gateway_tests_passed": 24,
+    "host_architecture_tests_passed": 37,
+    "host_hal_boundary_tests_passed": 29,
+    "scope": "Native macOS arm64. Generated X.509 roots, durable store reopen and in-memory Rustls handshakes verify capacity, authenticated fabric scope supplied by the test, validation, rotation and durable removal. Matter command admission, protocol transport, TLS client credentials and endpoint management remain open."
+  },
+  "tls_client_credentials": {
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "source_sha256": {
+      "gateway/Cargo.lock": "fdee99514aaed77eee215b1d4b7a221daba366800e344fda0185dd107998d0f2",
+      "gateway/matter/Cargo.toml": "701876bbbeca3da28a78a3f196d8472355c0c725c4d0e80ef0d50542d9afe396",
+      "gateway/matter/src/persistence.rs": "d9f270d03d0502c406d21656f0b2e948c5f948276238dd25003de178ab03a4f9",
+      "gateway/matter/src/persistence/tests.rs": "8738f029c5923b02683d79b9df1401a301da1176e6c465000852950035a5bdcf",
+      "gateway/matter/src/tls.rs": "b06d1750a3e9649d74ea80840aeb15d3d08ceabe148fa4d569e1cd01e441f6c5",
+      "gateway/matter/src/tls/client.rs": "aad7f9287ec461cce6b670c9736d3b9dfbcebc16e09f1dca6fc47852aa7ddd3c",
+      "gateway/tests/matter/Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8"
+    },
+    "macos_bridge_sha256": "225ab7fda9506f61094b10258021e351559d42aa83b896821b3a3eb70b4db0d6",
+    "macos_bridge_build": "dhcp-time from a fresh SDK clone using the verified archives and locked dependency graph",
+    "test": "persistence::tests::files::tls_client_key_survives_restart_and_authenticates_after_renewal",
+    "macos_gateway_tests_passed": 25,
+    "host_architecture_tests_passed": 37,
+    "host_hal_boundary_tests_passed": 29,
+    "scope": "Native macOS 27.0.1 arm64. Generated credentials, P-256 PKCS #10 and raw ECDSA nonce verification, two fabrics and a real mutual TLS handshake with an intermediate before and after renewal. The same key survives restart. The test verifies rejection of a wrong key and a malformed intermediate, and durable removal of one fabric's records. Matter command admission, large-message interoperability, TLS endpoints and physical release qualification remain open."
+  },
+  "tls_management_protocol": {
+    "fixture": "tls-management",
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "controller": "Matter Server 1.6.0",
+    "source_sha256": {
+      "gateway/matter/src/tls.rs": "122952780e0cc8ab51ce1ec318848a751786398ff244ac16a19a288079017096",
+      "gateway/matter/src/tls/client.rs": "ae4fb5e5e055bba0207f8ea5abeac801e8d9f801a10a6dd9ecdd28dc164942ee",
+      "gateway/matter/src/tls/endpoint.rs": "cf96b3d85859872f626736668fa8f3394a79b9850564b43c9a94e9400c543a66",
+      "gateway/tests/matter_reference.py": "e5a1fa5837a1ee60347674b122cbae221d25ed7f651b3363b9848ae2ae12edd5",
+      "gateway/tests/matter_tls_reference.py": "452ada765d501609bf4ad640d63b5fba087071ffdc20bfef788d86f164256ff1",
+      "gateway/tests/matter/Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8",
+      "gateway/tests/matter/tls-management.patch": "1a0732d3f54008daa1c3321fac65e88bbdcd3a6e64160f18df849c60766b591a",
+      "gateway/tests/matter/versions.json": "85da7a2d939b4ce0f5646015c462a46988b4e2097777f0d8e28e49e2d67bdb30",
+      "tools/prepare-matter-fixture.py": "0ace64246a8cb48fb7fb14f3fe241cecb6f1c73b4fe217141392c78d718a44cb"
+    },
+    "macos_bridge_sha256": "33eeaa745e8613772b1d752ab06010d77a790f0fa046ad0f2872580a79a818bb",
+    "macos_trials": [
+      {
+        "result_sha256": "89f3b9a0809ed1d788faffee417c754499d72022815a3a0db9ed98d68fb3e85b",
+        "root_bytes": 344,
+        "separate_fabrics": true,
+        "certificate_references_protected": true,
+        "endpoint_persisted_and_updated": true,
+        "fabric_records_retired_together": true,
+        "decoded_frames": 30
+      },
+      {
+        "result_sha256": "9aa6fb971c64aae7a38ea31bbfea67c1a4fd25a51a6789abefd351718802583b",
+        "root_bytes": 2118,
+        "separate_fabrics": true,
+        "certificate_references_protected": true,
+        "endpoint_persisted_and_updated": true,
+        "fabric_records_retired_together": true,
+        "decoded_frames": 30
+      }
+    ],
+    "macos_gateway_tests_passed": 25,
+    "host_architecture_tests_passed": 37,
+    "host_hal_boundary_tests_passed": 29,
+    "scope": "Native macOS 27.0.1 arm64, two isolated Matter fabrics, local controller and generated H.264 over the ordinary gateway media path. Verified both root TLS servers, same-fabric references, filtered reads, typed errors, credential retirement and persistence across restart. Certificate commands round-tripped a DER payload above the normal UDP transport limit. Optional Push AV transport, maximum-size and TCP certificate attribute reads, platform coverage, and physical release qualification remain open."
+  },
+  "tls_maximum_chain": {
+    "fixture": "tls-management",
+    "rust": "1.98.1",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_device_model_revision": "abcc720b48c5e59c0edcfe65c516f76ca9448aa3",
+    "controller": "Matter Server 1.6.0",
+    "source_sha256": {
+      "gateway/tests/matter/tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537",
+      "gateway/tests/matter/versions.json": "d740da711b5481e1eb61befc4379206b979c4f9329c30d4bcb80a8a24e37b3d2",
+      "gateway/tests/matter/Cargo.lock": "26efc6e5084a6d9342dc27034da86b1bdc5344a0077c46feb9730b418f8f8da8",
+      "gateway/tests/matter_tls_reference.py": "716cccafe28bf83d727e15746f6abaa6bc3cacfc69813fa1065595c803d686ea"
+    },
+    "macos_bridge_sha256": "f5312eaa606001349c8fa7b29b90b031b810c9a10e6bf26d02256e7c7c8d9521",
+    "macos_result_sha256": "3d883320ce0a166779c7135d47e5153b35ecf7a5da79d8d3bb8c735ee41a46ae",
+    "linux_kernel": "6.12.117+deb13-cloud-arm64",
+    "linux_bridge_sha256": "4842765320c1acb0fe413a30c841ebb3f8f92ffc84ab6ccf039d908d97431b4a",
+    "linux_result_sha256": "3d883320ce0a166779c7135d47e5153b35ecf7a5da79d8d3bb8c735ee41a46ae",
+    "result_on_both_hosts": {
+      "root_bytes": 3000,
+      "separate_fabrics": true,
+      "certificate_references_protected": true,
+      "endpoint_persisted_and_updated": true,
+      "fabric_records_retired_together": true,
+      "decoded_frames": 30,
+      "maximum_client_der_bytes": 66000,
+      "oversized_command_rejected_without_disconnect": true,
+      "complete_certificate_attribute_read": true,
+      "cross_fabric_certificate_bytes_withheld": true
+    },
+    "scope": "Native macOS 27.0.1 ARM64 and Debian 13 ARM64 QEMU. A combined 66,000-byte DER command reply exceeds the encrypted frame budget. The bounded bridge returns ResourceExhausted, returns each full chain by ID, and delivers both chains together through a chunked attribute read. A separate fabric receives no certificate bytes. Both runs decode 30 generated H.264 frames after restart. The witness does not establish physical camera, microphone, iPhone rendering, or complete certification.",
+    "sdk_transport_tests_passed": 238,
+    "linux_gateway_sha256": "7e301def29c2893682e4d349d59644918878b7d299c6c2448a6e515c1b140698",
+    "linux_publisher_sha256": "2ba69525cb77bcbe82fbf1c1e180eef30b2e636046e2d42cc3407e5759985f75"
+  },
+  "tls_release_soak_rehearsal": {
+    "fixture": "tls-management",
+    "linux_kernel": "6.12.117+deb13-cloud-arm64",
+    "linux_release_bridge_sha256": "cb4319111f105b3a6124a22934b61307b71e9466031baf86ee32a0d63514f136",
+    "soak_script_sha256": "d564923cc24b7b07be029729ff8544edfa0667dfc05b213578021bef9f26dc3c",
+    "result": {
+      "duration_seconds": 120.244,
+      "viewers": 4,
+      "samples": 13,
+      "checks": [
+        "slow_offer",
+        "restart",
+        "revoke"
+      ],
+      "media": "generated H.264",
+      "rendered_fps": null
+    },
+    "result_sha256": "c5ede9a06cd1a328824084b8f4e4d6df417d8cf266690ad9b2d7633de27e970f",
+    "samples_sha256": "ce4f191ca08481fdf15e31056debfd6cbc2ec890750fb55cadef794433afe9c5",
+    "observed": [
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 0.001,
+        "fifth_offer_status": 137
+      },
+      {
+        "kind": "slow_offer",
+        "elapsed_seconds": 51.98,
+        "recovery_seconds": 21.965,
+        "offer_retired_seconds": 20.196,
+        "replacement_startup_seconds": 1.755
+      },
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 51.985,
+        "fifth_offer_status": 137
+      },
+      {
+        "kind": "restart",
+        "elapsed_seconds": 65.982,
+        "recovery_seconds": 5.968,
+        "startup_seconds": [
+          1.795,
+          1.002,
+          0.999,
+          1.001
+        ]
+      },
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 66.022,
+        "fifth_offer_status": 137
+      },
+      {
+        "kind": "revoke",
+        "elapsed_seconds": 107.982,
+        "recovery_seconds": 17.978,
+        "revoked_fabric_replaced": true,
+        "removed_rtp_packets": 0,
+        "surviving_frames": [
+          60,
+          60,
+          60
+        ],
+        "longest_surviving_gap_seconds": 0.072,
+        "replacement_commission_seconds": 2.782,
+        "replacement_startup_seconds": 1.152
+      },
+      {
+        "kind": "saturation",
+        "elapsed_seconds": 107.984,
+        "fifth_offer_status": 137
+      }
+    ],
+    "scope": "120-second Debian ARM64 QEMU rehearsal of the capped TLS-capable release bridge and the generated H.264 publication. Verified four independent viewers, rejection at capacity, offer retirement, bridge restart, selective fabric removal and replacement, and joined teardown. The separately started 24-hour run has its own acceptance."
+  },
+  "gateway_enrollment_staging": {
+    "bridge_source_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
+    "environment": "Native macOS, isolated strict gateway, Matter Server 1.6.0 and generated H.264",
+    "decoded_frames_before_remap_after_remap_and_after_restart": [45, 45, 45],
+    "staged_identities_scoped_to_selected_camera": true,
+    "duplicate_identity_rejected": true,
+    "existing_viewer_catalogue_access_preserved": true,
+    "source_revocation_ended_playback_with_occupancy_and_other_reader_surviving": true,
+    "scope": "The staging command left its original input byte-for-byte intact. The test started a separate gateway on the staged copy and verified the two service credentials against two cameras. Physical playback and activation on the existing gateway are separate."
+  },
+  "routed_wireguard_playback": {
+    "bridge_source_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
+    "environment": "Debian 13 ARM64 QEMU, WireGuard with nftables source NAT, Matter Server 1.6.0 and generated H.264",
+    "signalling_with_media_blocked": true,
+    "blocked_session_retired": true,
+    "decoded_frames": {"receiver_offer": 45, "camera_offer": 45},
+    "direct_matter_tcp_blocked": true,
+    "sessions_retired": true,
+    "dropped_udp_packets": 5,
+    "forwarded_udp_packets": 22,
+    "wireguard_bidirectional": true,
+    "scope": "The LAN controller commissioned the bridge. The remote receiver used the test WebSocket over WireGuard. It decoded video after opening the routed UDP media path. The namespace teardown completed. Home Assistant on cellular, the physical camera and the deployed Tailscale network remain separate acceptance tests."
+  },
+  "microphone_native_configuration": {
+    "nxrs_source_revision": "dd52ec597316139319717d08a439087e6abb143b",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "profile": "esp32s3-camera-stream-startup",
+    "configuration_stage": "native olddefconfig",
+    "baseline_config_sha256": "9f9ce544314d90428f413b4dae5d77bed79c0f0e13604bfd4e31684267dafd90",
+    "rx_only_config_sha256": "25ecec221ca14099d225dc070f9387d8b035d1be39c0254b0bf7a1516ee84f70",
+    "audio": {"port": 0, "sample_rate_hz": 16000, "slot_bits": 32, "gpio": {"bclk": 14, "ws": 21, "data_in": 1}},
+    "selected_camera_network_and_memory_settings_match_baseline": true,
+    "added_kernel_worker": {"workers": 1, "priority": 224, "stack_bytes": 2048},
+    "scope": "Configuration and pinout review only. Target link, PCB revision, physical clocks, capture, DMA lifetime, mute, and iPhone audio remain open."
+  },
+  "microphone_rx_submission": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "patch": "0126-espressif-i2s-rx-enqueue-ownership.patch",
+    "patched_cases_passed": 9,
+    "defects_reproduced_on_original": 6,
+    "valid_controls_passed_on_both": 3,
+    "ordered_sdk_patch_tests_passed": 52,
+    "target_build": {
+      "nxrs_source_revision": "a3dd54303f90f40eb17281f83cea0fcccde024c4",
+      "nuttx_apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "esp_hal_revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "profile": "esp32s3-camera-stream-startup",
+      "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "gcc": "esp-14.2.0_20241119",
+      "resolved_config_sha256": "99fc288aee50c3ca1b2fcfdb24e28e2eb5ed1bf83886144405c02a2fffe81e49",
+      "elf_sha256": "05ce3495dd122e3ce093da6184fab7a13ceb165ce196a064270f1036bd96e08c",
+      "signed_image_sha256": "237036fd19944727b82e97792063b974cfe6ef4fd43c4853f8ffd7e3243220bc",
+      "signed_image_bytes": 1900440,
+      "slot_bytes": 2097152,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true,
+      "linked_symbols": ["audio_i2s_initialize", "board_i2sdev_initialize", "esp32s3_dma_setup", "esp_i2sbus_initialize", "i2s_receive"]
+    },
+    "scope": "Pinned C source executed on the host with injected mutex, DMA and register outcomes. The candidate also linked and passed ABI checks with the exact WROOM startup profile and RX overrides. Signing used a disposable development identity and the firmware was not flashed. Active stop, immediate reopen and physical capture remain open."
+  },
+  "microphone_rx_interrupt": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "patch": "0127-esp32s3-i2s-rx-interrupt-route.patch",
+    "patched_cases_passed": 7,
+    "defects_reproduced_on_original": 5,
+    "valid_controls_passed_on_both": 2,
+    "ordered_sdk_patch_tests_passed": 52,
+    "target_build": {
+      "nxrs_source_revision": "8c686a234e5c8d39416ce5b9395bda0e7daf9493",
+      "profile": "esp32s3-camera-stream-startup",
+      "cpus": 2,
+      "resolved_config_sha256": "99fc288aee50c3ca1b2fcfdb24e28e2eb5ed1bf83886144405c02a2fffe81e49",
+      "elf_sha256": "7b46d0851eb7213a2da3eda1f7889ceeba35947764ed27cd8f8e3c3c537f0a1b",
+      "signed_image_sha256": "5274d253697cd9067ab325398c8c7e63169b376c734c4e23de21f3167d41ecca",
+      "signed_image_bytes": 1900454,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "Host execution of pinned IRQ registration, channel and dispatch functions with injected CPU and GDMA state. The two-core WROOM configuration compiled, linked and passed ABI checks on the same pinned toolchain as the RX submission build. Hardware interrupt delivery and active DMA buffer retirement remain open."
+  },
+  "microphone_rx_stop": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "patch": "0128-esp32s3-i2s-rx-stop-ownership.patch",
+    "patched_cases_passed": 7,
+    "defects_reproduced_before_patch": 5,
+    "normal_completion_passed_on_both": true,
+    "asan_ubsan_passed": true,
+    "ordered_sdk_patch_tests_passed": 52,
+    "target_build": {
+      "patch_sha256": "e365fb00330c4d85d22d3bd58d099d98ee3cf5c26bafc88c000f44d43345f468",
+      "profile": "esp32s3-camera-stream-startup",
+      "cpus": 2,
+      "resolved_config_sha256": "99fc288aee50c3ca1b2fcfdb24e28e2eb5ed1bf83886144405c02a2fffe81e49",
+      "elf_sha256": "c7de5c63b559714509860b9d7aaa742651909af6cca9de8789cff491e2aabf07",
+      "signed_image_sha256": "93016007945a1f3e3e449b45f7dc3887c2e0df8e698dfef3f017b460674ccb3b",
+      "signed_image_bytes": 1900462,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "Receive-only ESP32-S3. Exact pinned driver functions exercised on the host with injected GDMA and callback state. The same patch content linked into the two-core WROOM target. The explicit stop retry is tested. Abrupt close, the Rust capture provider, device capture and iPhone playback remain open."
+  },
+  "microphone_capture_provider": {
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "source_sha256": {
+      "hal/audio/Cargo.toml": "b85cab8aa82a0e4d5cb72bbf3ccbcb595f15cf03c398f5c6dd4b1f462fa80b45",
+      "hal/audio/src/lib.rs": "ed9def26423fee4c0d817bee0d5f77974af3c1717cdb3c2f23e853e5aff3a918",
+      "hal/audio/src/platform/mod.rs": "f5f4a1c9eb072d7b69efdcb61ec18381118e032be8afeba1c1d71eda60dd111c",
+      "hal/audio/src/platform/nuttx/ffi/mod.rs": "276b9794f4f09602f39df9c1da0b6e442f0c9a945a60253668e2b3a4a9a288b6",
+      "hal/audio/src/platform/nuttx/mod.rs": "c88830b862975bf123a04863db421a33216be4b63a537bebc4737f6d38aaaf79",
+      "hal/audio/src/platform/unbound.rs": "73247749748b2cf4bc9cd45f3acf47b3853bdabd0a7b425d52622a028e878916",
+      "hal/audio/src/session/tests.rs": "9c29fd4ab75d8db917b63a0507759eeea55baeb2031594dc5e72fc537b384bee",
+      "hal/audio/src/session.rs": "d332ae6f02d1dc43d13a2bb3be781df01a18d73516f15495790338c5617f6034",
+      "hal/audio/src/platform/nuttx/ffi/audio.c": "cc194ace0ad37ceb59a438bf2c878824f11166b18fe541ce9e173c74c1b6718b",
+      "tests/nuttx-std/audio/src/main.rs": "c564223d101d9723db43acd6a3858b579b998da5e6a54d60293e7c4fb5a0435f",
+      "tests/profiles/esp32s3-camera-microphone.toml": "6f0e73c7d7b2944e95188431b4b5354616c69eb53bfecd1eabb3d7e877ba4e88",
+      "tests/profiles/esp32s3-camera-microphone.conf": "2b6d4748dee39ff35cfef3c13b201791a9578d95268b63e3941a8b51c368b7c1"
+    },
+    "host_audio_tests_passed": 5,
+    "host_build_support_tests_passed": 71,
+    "host_home_cam_tests_passed": 10,
+    "target_build": {
+      "profile": "esp32s3-camera-microphone",
+      "app": "audio-capture",
+      "cpus": 2,
+      "sample_rate_hz": 16000,
+      "dma_blocks": 2,
+      "dma_block_bytes": 2560,
+      "notification_slots": 4,
+      "matching_camera_wifi_usb_psram_i2s_settings": 108,
+      "resolved_config_sha256": "59da98bed22beeae7a4ef32116a15737398dee12f41606a5f811bb0842a70f83",
+      "elf_sha256": "abde4aa0bcd6782005a677f0965f772094b62b87977de716ef5ea6c79e21ee54",
+      "signed_image_sha256": "b603da16efa33317e2069350d06d42b47cb6f547d53e43de252aea0cd1f7ec93",
+      "signed_image_bytes": 876140,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "The Rust capture state machine and slot decoder ran on the host. The dedicated two-core WROOM qualification firmware compiled and linked against the exact native headers. The command was not executed on hardware. Camera ingress, shared capture timing, physical mute and iPhone audio remain open."
+  },
+  "camera_av_wire": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "service/capture-wire/src/lib.rs": "59d1fc6722ea8d456ca8f9c0422a7aaf03cc0590f12c76a36c49e1cb002afde0",
+      "service/stream/src/lib.rs": "ed3f5d81733fbb870b7f6a5ace11fc84f092c376e2e7e22d6becb492e04e76b0",
+      "service/stream/src/server.rs": "971b1e8657ec099dbe342b4f32db729fcd6991c44f99e012241820ad7d711390",
+      "gateway/ingest/src/protocol.rs": "f32a79978478389513ed3eab9ebb0a55f3ccef4ecfe21bb8720a9cfd69a37282",
+      "gateway/ingest/tests/av_transport.rs": "cd17493fad6f0814c00bbce4aef9973bc961f915b6d0739d4831a0d0204b1140"
+    },
+    "ingest_host_tests_passed": 27,
+    "av_transport_tests_included": 3,
+    "stream_service_tests_passed": 27,
+    "home_cam_host_tests_passed": 17,
+    "legacy_playback": {
+      "source": "Alternating generated JPEGs from the repository camera source fixture, using the camera HTTP stream writer",
+      "path": "Nxrs camera ingest, FFmpeg, Nxrs RTSP publisher, MediaMTX, FFmpeg RTSP decoder",
+      "decoded_frames": 45,
+      "distinct_decoded_frame_hashes": 2
+    },
+    "target_build": {
+      "profile": "wroom",
+      "app": "home-cam",
+      "i2s_enabled": false,
+      "resolved_config_sha256": "36b70b7e1cf6f7872c083aec8b0bc159640d43fbe151af002c293d079eb7acce",
+      "signed_image_sha256": "4e0b4e5a00c4ad625548bd0e0cd123bcaaf24b34262dd109ebae80a529400475",
+      "signed_image_bytes": 1899623,
+      "abi_witnesses_passed": 122,
+      "test_signature_verified": true
+    },
+    "scope": "Host tests exercise an explicitly admitted version 1 stream under fragmented I/O, malformed input, sample gaps and independent video receipts. Legacy RTSP playback used generated images. The WROOM executable linked without I2S and was not flashed. Firmware microphone integration, timestamped encoder input and physical A/V playback remain open."
+  },
+  "camera_av_encoder": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/ingest/src/av.rs": "320b67f5b1a3e4f251760d7271453052539db2e8dbb9a57889d5c5e1f0574632",
+      "gateway/ingest/src/av/matroska.rs": "103781ce345efcc3fb0dd9c50a326ef192d45ae9cfc10a725a2edef9b480c0aa",
+      "gateway/ingest/src/protocol.rs": "7e0e43f669f861adb982b2a8d927ff26f81b07e9943e327aa0a6f28aec765294",
+      "gateway/ingest/src/runner.rs": "3115125683b6849869342d7246c5d217f1e46ce6276ea2d6ee4afd3defe21748",
+      "gateway/ingest/tests/av_transport.rs": "e4d79ff88c72f060eecbfc6e0cba7a1ee084244be40657aa032dc10136bea411"
+    },
+    "ffmpeg_version": "9.0.2",
+    "encoded_tracks": [
+      "H.264",
+      "Mono Opus with a 48 kHz decoder sample rate"
+    ],
+    "source_video_pts_matched_at_90khz": 8,
+    "pcm16_blocks_offered": 27,
+    "missing_pcm_blocks": 3,
+    "ordinary_opus_pts_step_ms": 20,
+    "gap_opus_pts_step_ms": 80,
+    "opus_step_tolerance_ms": 1,
+    "video_deadline_budget_ms": 250,
+    "audio_progress_did_not_extend_video_deadline": true,
+    "scope": "Generated version 1 camera multipart input exercised the gateway parser, timing, bounded encoder input and real FFmpeg. FFprobe checked encoded tracks and packet timestamps. This does not measure hardware timing, decoded-frame annotations, RTSP or iPhone playback of the paired stream."
+  },
+  "camera_av_rtsp": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/ingest/src/av.rs": "92d4ca8f95b8a9ebd9dc7d81ea41327a678a67526c36667c45301e7e4cd55f4c",
+      "gateway/ingest/src/av/matroska.rs": "3909aebd6262e33f41be21620e2e32936cbf06404268bb5f8143433b2f4839b0",
+      "gateway/ingest/src/config.rs": "c53569896e6a2fe6a579a372bc4f91155e82c3c6c0755c733b3359c505b42898",
+      "gateway/ingest/src/runner.rs": "352a5bdf3e177cc1e59e495a34921094d1f2c36800d06e5ecf5e8958e0992081",
+      "gateway/ingest/src/video.rs": "b8d34ae88f2e3aa97067e4116e3b7ce959840e8c2f730ae9474bff61789e9443",
+      "gateway/publisher/src/annotations.rs": "d0367f6a1dda36d970f9afcf18314afc3548830e9892a5ef1d7d86584c8f05e2",
+      "gateway/publisher/src/main.rs": "407b86c9ea592b481398ff980c9c38f1c2488b97071e00d33e75277ae0c06478",
+      "gateway/publisher/src/sdk.rs": "5db6f56ba02f2bb6bd957f902ca4d995fffc140da48447ec44742dafcbdbc7f4",
+      "gateway/tests/ingest_av_reference.py": "74f96a2ebcb78d6e2890312b9ae015d81b95f46515673453603b33fe5c569ca5",
+      "service/detection-wire/src/lib.rs": "8518355cc06033a19bf8cb15facfe8e67cb765e23a06ccdda174ffa91b862298"
+    },
+    "versions": {
+      "ffmpeg": "9.0.2",
+      "mediamtx": "1.21.2",
+      "receiver_pyav": "16.1.0"
+    },
+    "loopback_trials": 2,
+    "each_trial": {
+      "mutually_authenticated_camera_connections": 1,
+      "decoded_h264_pictures": 45,
+      "exact_pixel_annotation_matches": 45,
+      "decoded_opus_frames": 210,
+      "annotation_epochs": 1,
+      "rtsp_video_timing_steps_outside_one_ms_of_60_ms": 1,
+      "publication_retired_on_stop": true
+    },
+    "rtp_packetization_control": {
+      "access_units_examined_per_trial": 52,
+      "units_with_duplicate_annotations_at_default_1472_bytes": 1,
+      "units_with_duplicate_annotations_at_1200_bytes": 0
+    },
+    "encoder_only_hard_cut_diagnostic": {
+      "source": "Two generated JPEGs with alternating colors and inverted backgrounds, switched every 60 ms",
+      "matched_picture_and_annotation_pts": 50,
+      "decoded_color_matches_at_1500_kbps": 14,
+      "decoded_color_matches_at_6000_kbps": 50
+    },
+    "scope": "A generated camera used disposable TLS credentials and exact ingress headers. The actual gateway ingest, FFmpeg encoder, Rust RTSP publisher and strict MediaMTX served a fresh independent decoder. There was one startup RTSP receiver timestamp step in each trial. The hard-cut diagnostic separated encoder color fidelity from timing and used 6000 kbps only as a comparison. The production bitrate remains 1500 kbps. Physical microphone capture, camera firmware publication, Matter/iPhone playback of this source, and hardware A/V skew and drift remain open."
+  },
+  "camera_firmware_microphone": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "app/home-cam/src/microphone.rs": "9caf146706a7b7fe8ddbd8a6b6ffeccee8c837547dbba77c567cd98af4de83e6",
+      "app/home-cam/src/runtime.rs": "a83ca04568c5e5c4cb490c515707b27ded0006f89a0465f13e2dae7e70e9e5b6",
+      "app/home-cam/src/tls.rs": "19b8e9fd7fa184ed5e4aff76265c20c8b4e2e68e61fb2ecbf2a8104c85dd6eca",
+      "hal/acquisition/src/platform/nuttx/ffi/events.c": "48fca07facef0d6e2f1e9660c6938783b7afac923d8c561b1ddba5769fdf0ed3",
+      "hal/audio/src/worker.rs": "5619431ef97a0f7484a77cc0466b8bdf0cdb1c0948d4b22d226f84ddb0a43465",
+      "hal/audio/src/platform/nuttx/mod.rs": "7fa9ca981b5bedf192f3619f05cb8a5b5928bf3b3138e2728af513f45a5af7ad",
+      "hal/audio/src/platform/nuttx/ffi/audio.c": "ec5393bb8bcda83ddde6d29f91693fcdb67970f8692fa7f80d7462d0cc9c5099",
+      "service/stream/src/server.rs": "a0be8227371edae038ebeeca0501d8d3a9f12f86a44bda1050f0bef2f193ed15",
+      "tests/profiles/esp32s3-camera-microphone.conf": "d9a3027f904fa8c37b3478f59723b247259abe0e83ce83b502ff6fda449079a0"
+    },
+    "host_audio_tests_passed": 6,
+    "host_home_cam_tests_passed": 18,
+    "host_stream_service_tests_passed": 27,
+    "host_tls_sdk_tests_passed": 15,
+    "host_tls_control_tests_passed": 20,
+    "tls_address_and_undefined_behavior_sanitizers_passed": true,
+    "host_poll_gpio_abi_tests_passed": 3,
+    "target_builds": [
+      {
+        "app": "home-cam",
+        "platform": "wroom",
+        "profile": "esp32s3-camera-microphone",
+        "cpus": 2,
+        "microphone_and_cancel_pipe_linked": true,
+        "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+        "signed_image_sha256": "5fd1b3ba002890c302a96a7eb29dee13f0dca133e436ce83fe045cda2c3ad9e4",
+        "signed_image_bytes": 1901092,
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true
+      },
+      {
+        "app": "home-cam",
+        "platform": "wroom",
+        "profile": "wroom",
+        "cpus": 2,
+        "microphone_and_cancel_pipe_linked": false,
+        "resolved_config_sha256": "36b70b7e1cf6f7872c083aec8b0bc159640d43fbe151af002c293d079eb7acce",
+        "signed_image_sha256": "7e6b9d43fd89656af271a7f6eb9995445d36a981be76fb782059c7c008ed753f",
+        "signed_image_bytes": 1899686,
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true
+      }
+    ],
+    "scope": "The selected microphone profile links I2S capture, the cancellation pipe and the application worker. Unit tests check bounded latest-block delivery, join after waking a blocked reader, the no-response state before PCM and sample offsets on the camera clock. Native TLS host exercise uses generated video and an unbound microphone. Neither image was flashed. Physical board capture, mute with buffers in flight, A/V offset and drift, power and iPhone playback still require qualification."
+  },
+  "camera_microphone_control": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "service/capture-wire/src/lib.rs": "0dd772214fda2b969408ebccc7e7e58ddc2ecdcca8942600d80fc0e506208f7f",
+      "service/stream/src/lib.rs": "8d9591a08ccd3ef6b16410fed9461130db450c3854e566f5c95b75b67a0302a5",
+      "service/stream/src/server.rs": "1cdd8331117bf0ec29400b855b1e1d473fcb6ea4bd05684fd86bd361f663fb13",
+      "app/home-cam/src/tls.rs": "6580d71f3f4111c90f19d4a59df75feb14ec1cf0989f1155550e9ef4a9504d8b",
+      "gateway/ingest/src/protocol.rs": "69b481b26495784e607d301be380262867cebf316f6f2a926770819c46b9c34e",
+      "gateway/ingest/src/runner.rs": "0929db820702dbb3f30ced37bcaef2a25a10e8c62a712455f4bed12d7aa03669",
+      "gateway/ingest/src/av.rs": "51c83af98c3520c05b6e39aa72df5bb195db69d7f53c2c4f96b0a2c49b0b269b",
+      "gateway/ingest/tests/av_transport.rs": "bebce0d4dd03a8ad79f0917330edd8b5ec694e23dd1d9f8329c065e1d0ead48b",
+      "gateway/tests/ingest_av_reference.py": "2f9f3085d420ca4bfad8989fd7805a5857aeec896038e693ad7fb412e2c4e291"
+    },
+    "av_transport_tests_passed": 8,
+    "native_ffmpeg_av_transport_test_passed": true,
+    "native_loopback": {
+      "ffmpeg": "9.0.2",
+      "mediamtx": "1.21.2",
+      "receiver_pyav": "16.1.0",
+      "mutually_authenticated_camera_connections": 1,
+      "decoded_h264_pictures": 45,
+      "exact_pixel_annotation_matches": 45,
+      "decoded_opus_frames": 210,
+      "rtsp_video_timing_steps_outside_one_ms_of_60_ms": 1,
+      "publication_retired_on_stop": true
+    },
+    "target_builds": [
+      {
+        "platform": "wroom",
+        "profile": "esp32s3-camera-microphone",
+        "signed_image_sha256": "9ee467514cbfad73f5c35f84689c0545b3d6e9d2b7af06c36605d24c03d05e6d",
+        "signed_image_bytes": 1901371,
+        "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true,
+        "linked_microphone_capture": true
+      },
+      {
+        "platform": "wroom",
+        "profile": "wroom",
+        "signed_image_sha256": "e27c448d20b593828590e29758e80e976341a60941b8cdaa70dd779f5a269ca5",
+        "signed_image_bytes": 1899959,
+        "resolved_config_sha256": "36b70b7e1cf6f7872c083aec8b0bc159640d43fbe151af002c293d079eb7acce",
+        "abi_witnesses_passed": 122,
+        "test_signature_verified": true,
+        "linked_microphone_capture": false
+      }
+    ],
+    "scope": "The in-memory writer and reader exercise default mute, fragmented command deadlines, exact acknowledgement, continued JPEG delivery and a fresh audio sequence on resume. An already-started PCM part can finish before a mute acknowledgement. The generated mTLS camera verifies initial unmute through the actual ingest, publisher and RTSP server. Signed images were verified off-device. Matter-to-ingest policy, continuing the Opus track while source capture is muted, physical capture and A/V timing remain open."
+  },
+  "muted_audio_publication": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/ingest/src/av.rs": "15b0f2f306094459efcdf074c508dacc1da558903845b92cebff9fcaa296c3b0",
+      "gateway/ingest/src/protocol.rs": "8ef829fe4f80cd4629012a35bbccf27d5ba2bf00d7aa2a0aac2bb120a46d952f",
+      "gateway/ingest/src/runner.rs": "b5d5ae75148fd0e9aa826516adaf08f4850fddafbec90b40a19cac03236d537c",
+      "gateway/ingest/tests/av_transport.rs": "c7d70af1e92f9309d8f7c78b0676d4b949e6586d54d15c0420a1983be5c6a07d",
+      "gateway/tests/ingest_av_reference.py": "1146408e060fca5ab0c9ad09c049ccef5f18cf18253b8e82ba955a6b83ba830f"
+    },
+    "versions": {
+      "ffmpeg": "9.0.2",
+      "mediamtx": "1.21.2",
+      "receiver_pyav": "16.1.0"
+    },
+    "ingest_tests_passed": 36,
+    "native_ffmpeg_tests_passed": 2,
+    "native_loopback_trials": [
+      {
+        "decoded_video_frames": 45,
+        "exact_pixel_annotation_matches": 45,
+        "decoded_opus_frames": 205,
+        "decoded_silent_opus_frames_before_camera_ack": 87
+      },
+      {
+        "decoded_video_frames": 45,
+        "exact_pixel_annotation_matches": 45,
+        "decoded_opus_frames": 209,
+        "decoded_silent_opus_frames_before_camera_ack": 90
+      }
+    ],
+    "each_trial": {
+      "authenticated_camera_connections": 1,
+      "distinct_annotation_epochs": 1,
+      "rtsp_timing_steps_outside_1ms": 1,
+      "tone_decoded_after_unmute": true,
+      "publication_retired_on_stop": true
+    },
+    "scope": "An isolated generated mTLS camera delayed its initial unmute acknowledgement until the native receiver had decoded silent Opus and advancing video from the live RTSP publication. The same connection then carried the camera tone. The in-memory input test also drove mute during streaming and confirmed the old in-flight PCM, plus the first overlapping resumed block, never entered the encoder. A missing command acknowledgement still expired while both streams advanced. This does not exercise a later mute through Matter, encoded output already queued at a mute transition, physical capture, or handset playback."
+  },
+  "matter_microphone_capture_privacy": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/control/src/microphone.rs": "d1cae6809be04fc9d59278ba405cecda55f79bb25c864938f268e86677cfff6e",
+      "gateway/control/src/security.rs": "28c0ca1be3f9c3c3e8a929e51f1d62a1fcc64d5535268850965b0e97ca54a572",
+      "gateway/ingest/src/av.rs": "ce2d1de86dbcb38974298fe07dd2c503264fd03351d93e54364a07bb357a3e85",
+      "gateway/ingest/src/control.rs": "eb8f368c57122671b500fbc1a06b1bf07e8f63d584f91e1faef3a524b65b223d",
+      "gateway/matter/src/privacy/microphone.rs": "767ebff0a293e1292833d0bef0d2815cff35d012323dcf541fb8391aa3ba4c83",
+      "gateway/tests/matter/capture-privacy.patch": "6abd83b5298f98319e727acf25a33940c69369bf2ae8eee89205461b5ba70c51",
+      "gateway/tests/ingest_av_reference.py": "f76d200be79d912b1f1ead8aae7eba873b20404fd67e413b4dc016fe2ae813e1",
+      "gateway/tools/stage_matter.py": "579d8028600fba101704dfa49f5331e7569a7ca4abdb9cca2029f7b2baaa5875"
+    },
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_binary_sha256": "5a8d294d135e49dabd71cbc211ae66b5d6ffd81252797a8e1b324fcb2d5e9b00",
+    "control_binary_sha256": "33569018ac6a02df7bf80f461a27e173ce8c81de3a332c16c06d1af212f18919",
+    "ingest_binary_sha256": "86428e4ca6aaad21e95fc21b851cabd41217185173d9fc2b1182899a166f9da9",
+    "capture_permit_ms": 1500,
+    "rust_tests_passed": 95,
+    "native_ffmpeg_tests_passed": 2,
+    "decoded_video_frames": 84,
+    "exact_pixel_annotation_matches": 84,
+    "decoded_opus_frames": 253,
+    "video_frame_at_each_audio_transition": [
+      4,
+      36,
+      46,
+      56,
+      84
+    ],
+    "received_wire_commands_muted": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "authenticated_camera_connections": 1,
+    "distinct_annotation_epochs": 1,
+    "publication_retired_on_stop": true,
+    "scope": "The controller commissioned a disposable Matter bridge. It drove unmute, mute and unmute via the standard attribute, while an independent receiver observed initial silence, tone, silence, tone and silence with advancing H.264 on the same RTSP publication. Abrupt bridge termination caused the fourth camera command and silence by permit expiry. A deterministic gateway test verifies writer and publisher scoping, default denial, expiry and revocation. The mTLS camera produced generated media and emulated acknowledgement of capture changes. Physical microphone timing, the Matter WebRTC and iPhone paths with physical media, and recorder and detector privacy acceptance remain open."
+  },
+  "matter_capture_privacy_webrtc": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/tests/matter/capture-privacy.patch": "f43a0ee3c5058af84d29fe084d5c6a0da8f278b91d5357593f8e5e9d644cc93c",
+      "gateway/tests/matter_reference.py": "5c53648c6028db472c92064371dc5b2af58bbd36991c2ec3c6101c1924c7fc2e",
+      "gateway/tests/ingest_av_reference.py": "76b1d256b12cd52d885ba813b78b20be250f8f05452cea66c994454acde73300"
+    },
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_binary_sha256": "f0f72eae3440e241050c318dd3a4e2e017f255475d0a17e6d55f02b7141cf1d4",
+    "sdk_example_tests_passed": 3,
+    "aiortc": "1.14.0",
+    "matter_webrtc": {
+      "connection": "one bundled receiver-offer WebRTC session",
+      "decoded_video_frames_in_initial_witness": 30,
+      "distinct_images": 14,
+      "dimensions": [
+        320,
+        240
+      ],
+      "decoded_fps": 16.62,
+      "trickled_remote_candidates": 24,
+      "distinct_remote_candidates": 12,
+      "trickled_device_candidates": 1,
+      "quiet_opus_frames_per_measured_silent_phase": [
+        100,
+        100
+      ],
+      "decoded_audio_phases": [
+        "silent",
+        "tone",
+        "silent",
+        "tone"
+      ],
+      "advancing_pictures_per_capture_transition": [
+        12,
+        12,
+        12
+      ],
+      "fresh_video_rtp_packets_per_capture_transition": [
+        27,
+        133,
+        28
+      ],
+      "matter_stop_acknowledged_and_session_retired": true
+    },
+    "parallel_rtsp": {
+      "decoded_and_annotated_video_frames": 185,
+      "decoded_opus_frames": 576,
+      "video_timing_steps_outside_one_ms": 1,
+      "wire_mute_commands": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "last_mute_cause": "bridge killed and capture permit expired",
+      "same_publication_and_source_connection": true
+    },
+    "scope": "The generated mTLS camera fixture feeds the actual ingest, MediaMTX, Matter gateway and independent WebRTC/RTSP receivers. The bundled offer retains duplicate signaling entries while the bridge caps distinct remote candidates at 16. The same Matter session presents silence and tone during capture changes. RTSP continues when the Matter process is terminated. Physical media, handset playback and recorder and detector privacy acceptance remain open."
+  },
+  "home_assistant_muted_camera_dialog": {
+    "host": "macOS arm64",
+    "source_sha256": {
+      "gateway/tests/matter/capture-privacy.patch": "fb72ca6fa911d77243c9e8a265437a617f24e61a69bbafc563cf14a5c367e61a",
+      "gateway/tests/matter_browser_reference.py": "08d16a80302f0bddfc571e614c48a4d4b478b348af1f2159bd7d79911bdbaa53",
+      "gateway/tests/ingest_av_reference.py": "ee521ec37ab818592790594b0ad4c8cbe4049651fffe35e3fcb077fa6f37ad46"
+    },
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_binary_sha256": "9ebe34feabbc5a95804ba268bb691e485ca0ca95c865157d8f40d5f27e23d2a0",
+    "home_assistant": "2026.11.2",
+    "home_assistant_frontend": "20261028.6",
+    "matter_server": "1.6.0",
+    "chrome": "157.0.8103.80",
+    "presented_frames": 60,
+    "distinct_sampled_images": 25,
+    "dimensions": [
+      320,
+      240
+    ],
+    "presented_fps": 16.7,
+    "decoded_frames": 61,
+    "video_rtp_packets_lost": 0,
+    "video_playback_quality": {
+      "total": 61,
+      "dropped": 1
+    },
+    "candidate_responses_before_fix": {
+      "accepted": {
+        "other": 2
+      },
+      "rejected": {
+        "mdns": 4
+      }
+    },
+    "candidate_responses_after_fix": {
+      "accepted": {
+        "mdns": 4,
+        "other": 2
+      },
+      "rejected": {}
+    },
+    "websocket_offer_media": [
+      "audio",
+      "video"
+    ],
+    "browser_peer_closed_and_matter_session_retired": true,
+    "capture_commands_while_browser_open": 0,
+    "sdk_example_tests_passed": 4,
+    "scope": "The stock Home Assistant camera dialog rendered generated camera images across the full mTLS, ingest, RTSP and Matter gateway path. The selected bridge interface retained working local ICE while browser mDNS candidates were ignored without signaling failure. The browser never triggered microphone capture. This measures headless Chrome presentation. Physical camera publication, microphone audio and iPhone playback remain separate gates."
+  },
+  "matter_gateway_candidate_build": {
+    "receipt": {
+      "version": 1,
+      "nxrs_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-apple-darwin",
+      "pin_file_sha256": "1ef25077be1d8af74dd8c8a23698bcfd5a63b17c9c8a8046f3d0506364ea6e8d",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d"
+    },
+    "executable_bytes": 9622192,
+    "builder_sha256": "c1fcbbcf463178014bc30ec8e2ce0986be71bd2b9c737bfd1fda6e6a2adc44e8",
+    "build": "Offline Cargo release, locked dependencies, macOS arm64",
+    "rejected_existing_output": true,
+    "rejected_modified_webrtc_archive": true,
+    "default_policy_rejected_development_attestation": true,
+    "explicit_test_attestation_read_retained_fabric": true,
+    "home_assistant_browser_presented_frames": 60,
+    "home_assistant_browser_presentation_fps": 16.54,
+    "browser_webrtc_candidate_errors": 0,
+    "independent_webrtc_decoded_frames": 30,
+    "independent_rtsp_decoded_and_annotated_frames": 186,
+    "wire_mute_commands": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "scope": "The receipt hash was verified before running the optimized package through isolated Matter commissioning, Home Assistant Chrome playback, microphone privacy transitions and permit loss. It used a generated camera and explicitly allowed development attestation for the trial. The ordinary startup policy refused those certificates. Linux packaging at this exact revision, production attestation, physical media and iPhone playback remain open."
+  },
+  "matter_gateway_linux_candidate": {
+    "receipt": {
+      "version": 1,
+      "nxrs_revision": "b2b27b9318302639e7ce27c2d953314da1cac79a",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-unknown-linux-gnu",
+      "pin_file_sha256": "1ef25077be1d8af74dd8c8a23698bcfd5a63b17c9c8a8046f3d0506364ea6e8d",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "3fb09c272339c3a4a562af779a9401a14441e4d26ac5f2081ba9f607f96810ed"
+    },
+    "executable_bytes": 12025312,
+    "developer_attestation_rejected_by_default": true,
+    "retained_fabric_count": 1,
+    "build": "Offline Cargo release with locked dependencies on Debian 13 ARM64 in QEMU. One build job, 5 GiB RAM and 4 GiB temporary swap.",
+    "native_runtime": {
+      "discovery": "Avahi",
+      "ffmpeg": "7.1.5-0+deb13u1",
+      "mediamtx": "1.21.2",
+      "aiortc": "1.14.0"
+    },
+    "publisher_executable_sha256": "2793547141099afec2998e330ff333c9350601de79809f1b883751fd4445894e",
+    "publisher_sdk_source_sha256": "68f51eff5e37edf60a1bc61236e4f9b08d3f88d1083edd00079bdeff3c79c06b",
+    "matroska_reported_opus_sample_rate_hz": 16000,
+    "opus_rtp_clock_hz": 48000,
+    "rtsp_decoded_and_annotated_frames": 185,
+    "rtsp_decoded_opus_frames": 559,
+    "rtsp_timing_steps_outside_1ms": 0,
+    "matter_webrtc_decoded_video_frames": 30,
+    "matter_webrtc_silent_decoded_opus_frames": [
+      100,
+      100
+    ],
+    "matter_webrtc_video_rtp_packets_per_capture_transition": [
+      30,
+      130,
+      28
+    ],
+    "matter_webrtc_teardown_acknowledged": true,
+    "wire_mute_commands": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "authenticated_camera_connections": 1,
+    "publication_retired_on_stop": true,
+    "macos_publisher_regression": {
+      "rtsp_decoded_and_annotated_frames": 185,
+      "rtsp_decoded_opus_frames": 618,
+      "rtsp_timing_steps_outside_1ms": 0,
+      "home_assistant_chrome_presented_frames": 60,
+      "home_assistant_chrome_presented_fps": 16.54,
+      "browser_peers_closed": true
+    },
+    "scope": "The verified Linux release executable paired and streamed generated media to an independent Matter controller. Debian FFmpeg exposed the 16 kHz encoder input rate and the publisher preserved its encoded packets and timing on the 48 kHz RTP clock. The macOS publisher regression also exercised the stock Home Assistant dialog with the prior verified macOS Matter executable. These trials used explicit test attestation. Google Home, physical media and iPhone playback remain unverified."
+  },
+  "matter_phone_pairing_fixture": {
+    "macos_build_nxrs_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "macos_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "independent_controller_discovered": true,
+    "independent_controller_paired": true,
+    "independent_controller_occupancy": [
+      "clear",
+      "occupied",
+      "unavailable",
+      "clear"
+    ],
+    "generated_video_frames_decoded": 30,
+    "same_source_clear_after_occupied": true,
+    "catalogue_video_frames_before_remap_after_remap_and_after_restart": [
+      45,
+      45,
+      45
+    ],
+    "onboarding_file_mode": "0600",
+    "offline_qr_round_trip": true,
+    "fixture_removed_and_matter_port_released": true,
+    "scope": "The phone pairing fixture was rehearsed on macOS using an independent Matter controller and generated media. A phone, Google Home hub and physical camera were not used."
+  },
+  "home_assistant_webkit_playback_qualification": {
+    "nxrs_build_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "matter_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "macos": "27.0.1 arm64",
+    "home_assistant": "2026.11.2",
+    "playwright": "1.65.2",
+    "webkit": {
+      "version": "27.2",
+      "dimensions": [
+        320,
+        240
+      ],
+      "presented_frames": 60,
+      "distinct_sampled_images": 20,
+      "presented_fps": 16.62,
+      "decoded_frames": 61,
+      "callback_media_time_strictly_advances": false,
+      "callback_rtp_clock_and_compositor_advance": true,
+      "browser_peer_closed_and_matter_session_retired": true,
+      "rtsp_timing_steps_outside_1ms": 1,
+      "preview_resolution_errors": 1
+    },
+    "chrome": {
+      "version": "157.0.8103.80",
+      "dimensions": [
+        320,
+        240
+      ],
+      "presented_frames": 60,
+      "distinct_sampled_images": 24,
+      "presented_fps": 16.54,
+      "decoded_frames": 62,
+      "callback_media_time_strictly_advances": true,
+      "callback_rtp_clock_and_compositor_advance": true,
+      "browser_peer_closed_and_matter_session_retired": true,
+      "rtsp_timing_steps_outside_1ms": 0,
+      "preview_resolution_errors": 1
+    },
+    "scope": "The stock Home Assistant dialog presented generated H.264 while capture stayed muted in both macOS browsers. WebKit's callback media time did not advance, so its witness requires advancing RTP and compositor metadata and changing pixels. Both browsers completed live playback despite a preview request rejected by the Matter controller's resolution check. Physical microphone and iPhone playback and snapshots remain open."
+  },
+  "home_assistant_thumbnail_qualification": {
+    "nxrs_build_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "matter_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "home_assistant": "2026.11.2",
+    "matter_server": "1.6.0",
+    "home_assistant_patch_sha256": "0b77e009da4affa535f3571b25c7881fc17c55a5b81ff3841ffac7f6f1494e0c",
+    "browser_request_width": 1024,
+    "stock_matter_resolution": {
+      "width": 1024,
+      "height": 0
+    },
+    "patched_matter_resolution": {
+      "width": 1024
+    },
+    "camera_proxy_requests": [
+      {
+        "request": [],
+        "stock_status": 200,
+        "patched_status": 200,
+        "decoded_jpeg": [
+          640,
+          360
+        ]
+      },
+      {
+        "request": [
+          1024,
+          0
+        ],
+        "stock_status": 500,
+        "patched_status": 200,
+        "decoded_jpeg": [
+          640,
+          360
+        ]
+      },
+      {
+        "request": [
+          320,
+          180
+        ],
+        "stock_status": 200,
+        "patched_status": 200,
+        "decoded_jpeg": [
+          320,
+          180
+        ]
+      },
+      {
+        "request": [
+          320,
+          -1
+        ],
+        "stock_status": 500,
+        "patched_status": 500,
+        "decoded_jpeg": null
+      }
+    ],
+    "browser_regressions": {
+      "chrome": {
+        "version": "157.0.8103.80",
+        "presented_frames": 60,
+        "presented_fps": 16.7,
+        "thumbnail": {
+          "status": 200,
+          "dimensions": [
+            640,
+            360
+          ]
+        }
+      },
+      "webkit": {
+        "version": "27.2",
+        "presented_frames": 60,
+        "presented_fps": 16.7,
+        "thumbnail": {
+          "status": 200,
+          "dimensions": [
+            640,
+            360
+          ]
+        }
+      }
+    },
+    "scope": "The private Home Assistant copy omitted zero dimensions and the unmodified Matter Server returned a valid JPEG. Requests with unspecified or explicit positive dimensions passed on stock and patched Home Assistant. A negative dimension remained invalid. Both browser regressions verified live generated H.264 while camera capture stayed muted and the Matter session closed. The stock Home Assistant fix and physical iPhone acceptance remain open."
+  },
+  "nxrs_home_matter_concurrent_simulator": {
+    "nxrs_ios_source_revision": "11011b10a90223bf2c301ee0aad1d84154d5fbc4",
+    "nxrs_ios_executable_sha256": "a8b61150837ac4cb81c06f2b1d616f257d07facee7867079d50ce0a8aa4725d3",
+    "nxrs_matter_build_revision": "0426d12bc0ac831aa55f2a32d1ec97d2edce7260",
+    "nxrs_matter_executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+    "xcode": "27.1 (27A9275)",
+    "simulator": {
+      "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+      "type": "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"
+    },
+    "home_assistant": "2026.11.2",
+    "webkit": "27.2",
+    "overlap_window_seconds": 7.13,
+    "browser_frames": 120,
+    "browser_presented_fps": 16.68,
+    "browser_peer_closed": true,
+    "overlapping_simulator_screen_samples": 16,
+    "changing_native_colors": [
+      "blue",
+      "red"
+    ],
+    "media_readers_during_playback": [
+      "rtspSession",
+      "webRTCSession"
+    ],
+    "same_rtsp_publication": true,
+    "native_view_after_browser_closed": true,
+    "whep_session_retired_after_backgrounding": true,
+    "whep_delete_http_status": 404,
+    "scope": "The stock Nxrs app enrolled over HTTPS using a private simulator trust root. A UI-only test held its dashboard open as WebKit rendered the Home Assistant Matter dialog. A separate screenshot observer sampled the generated source marker, and MediaMTX reported both readers on the same publication around each sample. After browser close the app still rendered the marker. Backgrounding left only the Matter bridge's RTSP reader. The physical iPhone render rate and real-camera concurrency remain open."
+  },
+  "matter_gateway_systemd_qualification": {
+    "system": "Debian 13 ARM64 in QEMU with systemd 257.13",
+    "nxrs_build_revision": "b2b27b9318302639e7ce27c2d953314da1cac79a",
+    "unit_sha256": "d7bd53869410ba0dc858becaf2b6d394222feff919e2c5ec87f1c9de58f5023f",
+    "executable_sha256": "3fb09c272339c3a4a562af779a9401a14441e4d26ac5f2081ba9f607f96810ed",
+    "unprivileged": true,
+    "effective_capabilities": 0,
+    "no_new_privileges": true,
+    "config_read_only": true,
+    "state_writable": true,
+    "failed_closed_with_missing_state": true,
+    "stock_unit_rejected_development_attestation": true,
+    "paired_before_publication": true,
+    "first_frames": 30,
+    "jpeg_size": [
+      640,
+      360
+    ],
+    "media_server_outage_end_reason": 5,
+    "media_server_recovery_frames": 30,
+    "original_bridge_survived_media_restart": true,
+    "systemd_shutdown_seconds": 1.04,
+    "source_continued_after_service_stop": true,
+    "restart_retained_fabric_and_endpoints": true,
+    "restarted_frames": 30,
+    "cold_boot": {
+      "boot_changed": true,
+      "enabled_service_started_without_gateway": true,
+      "previous_fabric_authenticated_before_source": true,
+      "same_service_process_recovered": true,
+      "decoded_frames": 30,
+      "unprivileged": true,
+      "effective_capabilities": 0,
+      "no_new_privileges": true,
+      "config_read_only": true,
+      "state_writable": true
+    },
+    "scope": "An actual systemd service commissioned and streamed generated video under a dedicated account with protected configuration and writable durable state. The service proof enabled test attestation only in a disposable unit override. Cold boot used the already-enrolled service with both upstream listeners absent. It authenticated the saved fabric before the gateway came up and recovered video on the same service process. Physical deployment and production attestation remain open."
+  },
+  "matter_launchd_shutdown_order": {
+    "system": "macOS 27.0.1 ARM64",
+    "controller": "Matter Server 1.6.0",
+    "source": "generated H.264",
+    "build": {
+      "version": 1,
+      "nxrs_revision": "afa05b686fd0ab5f1874eedc7998aa193cff7e14",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-apple-darwin",
+      "pin_file_sha256": "d78bc8e7735aaa8f44363b7b780fba2508532d5a2dc67431a3117630ddb7bfe3",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "f8851f74099abb18680de0fd58ff84a48f982a3b60dd5d653189f5b67d08cdeb"
+    },
+    "prior_launchd_bootout": {
+      "executable_sha256": "836dd47ab0a36bd1419cbb807623ea70457f2f8359b904b5595674727d52208d",
+      "continued_playback_after_restart": true,
+      "controller_end_within_six_seconds": false
+    },
+    "launchd_bootout": {
+      "executable_sha256": "f8851f74099abb18680de0fd58ff84a48f982a3b60dd5d653189f5b67d08cdeb",
+      "launchd_domain": "gui",
+      "user_uid_nonzero": true,
+      "missing_state_rejected": true,
+      "no_test_attestation_without_opt_in": true,
+      "paired_while_source_offline": true,
+      "frames_before_stop": 30,
+      "supervisor_stop_seconds": 2.081,
+      "controller_end": {
+        "cause": "peer",
+        "reason": 2
+      },
+      "publication_survived_bootout": true,
+      "fabric_and_endpoint_identity_retained": true,
+      "frames_after_bootstrap": 30,
+      "service_unloaded": true
+    },
+    "shutdown_drain_debug": {
+      "executable_sha256": "1fd13b994795420f923427a6728d3fd87c1af6b69436689765ae4e143f6403e2",
+      "baseline_frames": 30,
+      "timed_out_peers": 2,
+      "timeout_seconds": 20.064,
+      "offline_fabric_rows_released_seconds": 23.05,
+      "outbound_delivery_timeouts": 2,
+      "negotiation_sockets_and_refs_released": true,
+      "live_frames": 45,
+      "live_frames_after_peer_timeouts": 15,
+      "matter_read_during_delayed_snapshot": true,
+      "shutdown_media_end_reason": 2,
+      "shutdown_capture_rejected_and_released": true,
+      "graceful_exit_seconds": 2.037,
+      "active_and_pending_sockets_closed": true,
+      "running_snapshot_encoder_reaped": true,
+      "same_publisher": true,
+      "enrollment_preserved": true,
+      "frames_after_restart": 45
+    },
+    "scope": "Native launchd bootout and bootstrap ran in a disposable login-domain job. The previous executable retired the local reader but the controller did not report the End. The updated bridge lets WebRTC termination and capture cancellation reach the controller before publishing the node shutdown event. The full release binary delivered peer UserHangup and retained the fabric, endpoints and active publisher. The separate shutdown-drain regression also exercised two expired offers, snapshot cancellation and encoder reaping. The running Linux soak is on its original binary. Physical deployment remains open."
+  },
+  "matter_linux_shutdown_order": {
+    "system": "Debian 13 ARM64 in QEMU with systemd 257.13 and native Avahi DNS-SD",
+    "controller": "Matter Server 1.6.0",
+    "build": {
+      "version": 1,
+      "nxrs_revision": "88008370aa1b08ed103cc7b115502279b652a3b7",
+      "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+      "variant": "capture-privacy",
+      "rust": "1.98.1",
+      "target": "aarch64-unknown-linux-gnu",
+      "pin_file_sha256": "d78bc8e7735aaa8f44363b7b780fba2508532d5a2dc67431a3117630ddb7bfe3",
+      "sdk_lock_sha256": "62e23d7b924bdc2d83b73b56acef353c06828dc5f9bde38b18cd43baa0096055",
+      "executable": "nxrs-matter-camera",
+      "executable_sha256": "dca33fb7cac47d1737541024316c93bd9dc732fc5fd4c8b48f88f10d3d6e68da"
+    },
+    "systemd": {
+      "unit_sha256": "d7bd53869410ba0dc858becaf2b6d394222feff919e2c5ec87f1c9de58f5023f",
+      "temporary_unit_sha256": "64a9ca84cdb1b656090af60d128c06a98627c698bc4db7b77fcf7c9136c93078",
+      "shutdown_end_reason": 2,
+      "stop_seconds": 2.051,
+      "media_server_outage_end_reason": 5,
+      "media_server_recovery_frames": 30,
+      "paired_before_publication": true,
+      "publisher_survived_stop": true,
+      "fabric_and_endpoints_retained": true,
+      "resumed_frames": 30
+    },
+    "rehearsal": {
+      "duration_seconds": 120.288,
+      "viewers": 4,
+      "samples": 13,
+      "checks": [
+        "slow_offer",
+        "restart",
+        "revoke"
+      ],
+      "media": "generated H.264",
+      "rendered_fps": null,
+      "peak_rss_kib": 11156,
+      "min_decoded_fps": 14.945,
+      "events": [
+        {
+          "kind": "slow_offer",
+          "elapsed_seconds": 50.974,
+          "recovery_seconds": 20.955,
+          "offer_retired_seconds": 20.06,
+          "replacement_startup_seconds": 0.857
+        },
+        {
+          "kind": "restart",
+          "elapsed_seconds": 66.981,
+          "recovery_seconds": 6.963,
+          "startup_seconds": [
+            1.759,
+            0.997,
+            1.0,
+            1.003
+          ]
+        },
+        {
+          "kind": "revoke",
+          "elapsed_seconds": 107.98,
+          "recovery_seconds": 17.973,
+          "revoked_fabric_replaced": true,
+          "removed_rtp_packets": 0,
+          "surviving_frames": [
+            60,
+            60,
+            60
+          ],
+          "longest_surviving_gap_seconds": 0.109,
+          "replacement_commission_seconds": 3.023,
+          "replacement_startup_seconds": 0.875
+        }
+      ]
+    },
+    "scope": "Temporary unit used the checked-in service's constraints with separate paths and a development-attestation override. The otherwise identical unit rejected development attestation by default. The same patched Linux release completed the four-viewer fault rehearsal with generated media. The long soak continues on the prior Linux executable; physical installation and iPhone playback remain open."
+  },
+  "matter_av_ci_separation_and_target_rebuild": {
+    "nxrs_runtime_revision": "5606a8337dadee7b7886824471015ea04d5d0d99",
+    "ingest_witness_sha256": "82a15c89da8682d556a1f09d51b2e7758181e545520f810e9c5918ad493a0add",
+    "firmware": {
+      "platform": "wroom",
+      "profile": "esp32s3-camera-microphone",
+      "abi_witnesses": 122,
+      "signed_image_bytes": 1901316,
+      "signed_image_sha256": "0be4613e83e6a6141219612d0f351117fa29b586cc4404821ada0b7cdabbd31e",
+      "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+      "disposable_signature_verified": true,
+      "linked_i2s_receive": true
+    },
+    "gateway_only": {
+      "decoded_video_frames": 80,
+      "exact_pixel_annotation_matches": 80,
+      "decoded_opus_frames": 312,
+      "explicit_mute_and_permit_expiry_verified": true
+    },
+    "matter": {
+      "bridge_executable_sha256": "f8851f74099abb18680de0fd58ff84a48f982a3b60dd5d653189f5b67d08cdeb",
+      "decoded_rtsp_video_frames": 186,
+      "decoded_rtsp_opus_frames": 609,
+      "decoded_webrtc_video_frames": 30,
+      "capture_transitions_kept_same_webrtc_session": true,
+      "bridge_process_loss_expired_capture": true
+    },
+    "scope": "ESP32-S3 firmware was built and signed off-device. The two macOS trials used the same generated mTLS camera, encoder and RTSP path. The gateway-only run drove the real gateway permission endpoint and checked explicit mute and lease expiry. The full run retained the commissioned Matter controller and WebRTC assertions. Physical capture and iPhone playback remain open."
+  }
+}

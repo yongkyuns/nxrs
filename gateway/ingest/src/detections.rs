@@ -1,12 +1,10 @@
 //! Latest-value forwarding has its own task and deadlines; video never awaits HTTP.
-use crate::{config::DetectionConfig, protocol::Frame, Error, Result};
+use crate::{config::DetectionConfig, control::publisher_post, protocol::Frame, Error};
 use detection_wire::{Source, Update};
 use std::time::Duration;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
     sync::watch,
-    time::{timeout, Instant},
+    time::Instant,
 };
 
 #[derive(Clone)]
@@ -16,26 +14,6 @@ pub(crate) struct Sample {
     pub received: Instant,
 }
 
-async fn post(
-    c: &DetectionConfig,
-    user: &str,
-    token: &str,
-    path: &str,
-    body: &[u8],
-) -> Result<Vec<u8>> {
-    timeout(Duration::from_millis(500), async {
-        let mut socket=TcpStream::connect(c.control).await?;
-        let request=format!("POST /internal/cameras/{}/{path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {token}\r\nX-Nxrs-Publisher: {user}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", c.camera_id,c.control,body.len());
-        socket.write_all(request.as_bytes()).await?; socket.write_all(body).await?;
-        // Bounded local response; no redirects, arbitrary origins, or token diagnostics.
-        let mut response=Vec::new(); socket.take(8193).read_to_end(&mut response).await?;
-        if response.len()>8192 { return Err(Error::Protocol); }
-        let split=response.windows(4).position(|v|v==b"\r\n\r\n").ok_or(Error::Protocol)?;
-        let status=response.get(..12).ok_or(Error::Protocol)?;
-        if status!=b"HTTP/1.1 200" && status!=b"HTTP/1.1 204" { return Err(Error::Protocol); }
-        Ok(response[split+4..].to_vec())
-    }).await.map_err(|_|Error::Timeout)?
-}
 pub(crate) async fn run(
     c: DetectionConfig,
     user: String,
@@ -50,7 +28,7 @@ pub(crate) async fn run(
         }
         let work = async {
             if session.is_none() {
-                let response = post(&c, &user, &token, "detection-sessions", b"{}").await?;
+                let response = publisher_post(c.control, &c.camera_id, &user, &token, "detection-sessions", b"{}").await?;
                 let value: serde_json::Value =
                     serde_json::from_slice(&response).map_err(|_| Error::Protocol)?;
                 let id = value["source_session_id"]
@@ -75,7 +53,7 @@ pub(crate) async fn run(
                     source: sample.source,
                 };
                 let bytes = serde_json::to_vec(&update).map_err(|_| Error::Protocol)?;
-                post(&c, &user, &token, "detections", &bytes).await?;
+                publisher_post(c.control, &c.camera_id, &user, &token, "detections", &bytes).await?;
             }
             Ok::<(), Error>(())
         };
@@ -95,7 +73,7 @@ pub(crate) async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::{io::AsyncBufReadExt, net::TcpListener};
+    use tokio::{io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::timeout};
 
     async fn request(socket: TcpStream) -> (tokio::io::BufReader<TcpStream>, String, Vec<u8>) {
         let mut socket = tokio::io::BufReader::new(socket);

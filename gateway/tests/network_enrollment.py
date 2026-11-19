@@ -77,7 +77,9 @@ class RogueHints:
                                 with context.wrap_socket(connection, server_side=True) as tls:
                                     self.wrong_cert_handshakes += 1
                                     assert tls.recv(1) == b'', 'credentials reached a forged locator'
-                            except (ssl.SSLError, ConnectionResetError): pass
+                            except (ssl.SSLError, ConnectionResetError, BrokenPipeError):
+                                # The rejecting peer can close while OpenSSL is still writing.
+                                pass
             except OSError as error:
                 if not self.closed.is_set(): self.errors.append(type(error).__name__)
             except BaseException as error: self.errors.append(str(error))

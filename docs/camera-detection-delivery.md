@@ -91,10 +91,16 @@ Slow readers have no application queue. Shutdown ends streaming bodies before
 HTTP listeners drain. The nginx route disables buffering and preserves
 Last-Event-ID. The optional local HTTPS fixture proxy also streams incrementally.
 
+An enrolled gateway reader with `"scope": "detections"` can subscribe only
+to detections for its configured cameras. Catalogue and playback-grant requests
+return HTTP 403. Existing viewers retain their original access when scope is
+omitted. Revocation ends an active subscription at the next gateway emission.
+
 Each `event: detection` contains a complete `Snapshot`, including confirmed
-presence, current source data, known observation age and a 1500 ms presentation
-lease. The gateway emits every 500 ms. Source updates older than 1500 ms, or
-observations older than 5000 ms, produce unavailable. Age uses source-owner time
+presence, current source data, known observation age and a presentation deadline
+in `valid_for_ms`. For fresh observations, each 500 ms heartbeat reports only the time remaining until
+either the source update reaches 1500 ms or the observation reaches 5000 ms.
+At either deadline the state becomes unavailable. Age uses source-owner time
 plus monotonic time since receipt; it is not UTC or sensor-exposure freshness.
 
 SSE IDs have the form `source_session_id:event_count`. Last-Event-ID asks for a

@@ -665,6 +665,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-audio"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-acquisition",
+ "nxrs-build-support",
+ "nxrs-messaging",
+]
+
+[[package]]
 name = "nxrs-ble"
 version = "0.1.0"
 dependencies = [
@@ -758,6 +768,10 @@ dependencies = [
  "nxrs-telemetry-service",
  "nxrs-transport",
 ]
+
+[[package]]
+name = "nxrs-capture-wire"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-composition"
@@ -944,9 +958,11 @@ version = "0.1.0"
 name = "nxrs-home-cam"
 version = "0.1.0"
 dependencies = [
+ "nxrs-audio",
  "nxrs-boot",
  "nxrs-camera",
  "nxrs-camera-service",
+ "nxrs-capture-wire",
  "nxrs-config",
  "nxrs-connectivity-service",
  "nxrs-console",
@@ -1170,6 +1186,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-audio"
+version = "0.1.0"
+dependencies = [
+ "nxrs-audio",
+]
+
+[[package]]
 name = "nxrs-std-ble"
 version = "0.1.0"
 dependencies = [
@@ -1285,6 +1308,7 @@ name = "nxrs-stream-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
+ "nxrs-capture-wire",
 ]
 
 [[package]]

@@ -1,5 +1,9 @@
 //! Bounded camera metadata, independent of media distribution and encoder work.
-use crate::{bearer, config::Config, Failure, Shared};
+use crate::{
+    bearer,
+    config::{Config, ViewerScope},
+    Failure, Shared,
+};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -7,7 +11,7 @@ use axum::{
     Json,
 };
 use detection_wire::{self as wire, Presence, Snapshot, Update, Version};
-use futures_util::{stream, Stream};
+use futures_util::stream;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -24,7 +28,83 @@ struct CameraState {
     registered: Option<Instant>,
     last_observation: Option<wire::Observation>,
     revision: u64,
+    analysis: Analysis,
 }
+
+enum Analysis {
+    Unmanaged,
+    Private,
+    Allowed {
+        until: Instant,
+        boundary: Option<Boundary>,
+    },
+}
+
+// One source-relative boundary per permitted publication. The first frame
+// after registration is a fence. Its cached observation and event history
+// may predate permission, so they never reach the subscriber.
+struct Boundary {
+    frame: u64,
+    capture_ms: u64,
+    events: u64,
+}
+
+impl Boundary {
+    fn from(update: &Update) -> Self {
+        Self {
+            frame: update.frame_sequence,
+            capture_ms: update.frame_capture_ms,
+            events: update.source.event_count,
+        }
+    }
+
+    fn admitted_source(&self, update: &Update) -> Option<wire::Source> {
+        if update.frame_sequence <= self.frame {
+            return None;
+        }
+        let mut source = update.source.clone();
+        source.latest = source.latest.filter(|observation| {
+            observation.frame_sequence > self.frame && observation.captured_ms > self.capture_ms
+        });
+        if source.latest.is_none() {
+            source.presence = Presence::Unavailable;
+        }
+        let mut events = wire::Bounded::default();
+        for event in source
+            .events
+            .iter()
+            .filter(|event| event.id > self.events && event.at_ms > self.capture_ms)
+        {
+            events
+                .push(wire::Event {
+                    id: event.id - self.events,
+                    ..*event
+                })
+                .ok()?;
+        }
+        source.event_count = events.iter().last().map_or(0, |event| event.id);
+        source.events = events;
+        Some(source)
+    }
+}
+
+impl CameraState {
+    fn reset_session(&mut self) {
+        self.session = None;
+        self.update = None;
+        self.received = None;
+        self.last_observation = None;
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    fn expire_analysis(&mut self, now: Instant) {
+        if matches!(self.analysis, Analysis::Allowed { until, .. } if until <= now) {
+            self.analysis = Analysis::Private;
+            self.reset_session();
+        }
+    }
+}
+
 pub(crate) struct Store {
     pub(crate) shutting_down: bool,
     cameras: HashMap<String, CameraState>,
@@ -38,9 +118,9 @@ impl Store {
             cameras: c
                 .cameras
                 .iter()
-                .map(|c| {
+                .map(|camera| {
                     (
-                        c.camera_id.clone(),
+                        camera.camera_id.clone(),
                         CameraState {
                             session: None,
                             update: None,
@@ -48,6 +128,14 @@ impl Store {
                             registered: None,
                             last_observation: None,
                             revision: 0,
+                            analysis: if c.viewers.iter().any(|viewer| {
+                                viewer.scope == ViewerScope::RecordingControl
+                                    && viewer.camera_ids.contains(&camera.camera_id)
+                            }) {
+                                Analysis::Private
+                            } else {
+                                Analysis::Unmanaged
+                            },
                         },
                     )
                 })
@@ -78,8 +166,35 @@ impl Store {
             .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
         Ok((a, b))
     }
+
+    pub(crate) fn set_analysis(&mut self, camera: &str, until: Option<Instant>, now: Instant) {
+        let state = self.cameras.get_mut(camera).expect("catalogued camera");
+        state.expire_analysis(now);
+        match (
+            &mut state.analysis,
+            until.filter(|deadline| *deadline > now),
+        ) {
+            (Analysis::Allowed { until, .. }, Some(deadline)) => *until = deadline,
+            (Analysis::Private, Some(until)) => {
+                state.analysis = Analysis::Allowed {
+                    until,
+                    boundary: None,
+                }
+            }
+            (Analysis::Allowed { .. }, None) => {
+                state.analysis = Analysis::Private;
+                state.reset_session();
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn register(&mut self, camera: &str, now: Instant) -> Result<String, StatusCode> {
         let c = self.cameras.get_mut(camera).ok_or(StatusCode::NOT_FOUND)?;
+        c.expire_analysis(now);
+        if matches!(c.analysis, Analysis::Private) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
         if c.registered
             .is_some_and(|v| now.saturating_duration_since(v) < Duration::from_millis(250))
         {
@@ -92,6 +207,9 @@ impl Store {
         c.update = None;
         c.received = None;
         c.last_observation = None;
+        if let Analysis::Allowed { boundary, .. } = &mut c.analysis {
+            *boundary = None;
+        }
         c.registered = Some(now);
         c.revision = c.revision.saturating_add(1);
         Ok(id)
@@ -103,6 +221,10 @@ impl Store {
         now: Instant,
     ) -> Result<(), StatusCode> {
         let c = self.cameras.get_mut(camera).ok_or(StatusCode::NOT_FOUND)?;
+        c.expire_analysis(now);
+        if matches!(c.analysis, Analysis::Private) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
         if c.session.as_ref() != Some(&v.source_session_id) {
             return Err(StatusCode::CONFLICT);
         }
@@ -136,32 +258,58 @@ impl Store {
         if let Some(observation) = &v.source.latest {
             c.last_observation = Some(observation.clone());
         }
+        if let Analysis::Allowed { boundary, .. } = &mut c.analysis {
+            boundary.get_or_insert_with(|| Boundary::from(&v));
+        }
         c.update = Some(v);
         c.received = Some(now);
         c.revision = c.revision.saturating_add(1);
         Ok(())
     }
-    pub(crate) fn snapshot(&self, camera: &str, now: Instant, cursor: Option<&str>) -> Snapshot {
-        let c = &self.cameras[camera];
+    pub(crate) fn snapshot(
+        &mut self,
+        camera: &str,
+        now: Instant,
+        cursor: Option<&str>,
+    ) -> Snapshot {
+        let c = self.cameras.get_mut(camera).expect("catalogued camera");
+        c.expire_analysis(now);
         let elapsed = c
             .received
             .map(|v| now.saturating_duration_since(v).as_millis() as u64);
         let online = elapsed.is_some_and(|v| v < wire::SOURCE_TIMEOUT_MS);
-        let source = c.update.as_ref().map(|u| u.source.clone());
+        let source = c.update.as_ref().and_then(|update| match &c.analysis {
+            Analysis::Unmanaged => Some(update.source.clone()),
+            Analysis::Allowed {
+                boundary: Some(boundary),
+                ..
+            } => boundary.admitted_source(update),
+            _ => None,
+        });
+        let lease_ms = match c.analysis {
+            Analysis::Allowed { until, .. } => {
+                until.saturating_duration_since(now).as_millis() as u64
+            }
+            _ => u64::MAX,
+        };
+        let source = source.filter(|_| lease_ms > 0);
         let age = c.update.as_ref().and_then(|u| {
-            u.source.latest.as_ref().map(|o| {
+            source.as_ref()?.latest.as_ref().map(|o| {
                 u.frame_capture_ms
                     .max(u.source.emitted_ms)
                     .saturating_sub(o.captured_ms)
                     .saturating_add(elapsed.unwrap_or(u64::MAX))
             })
         });
-        let presence = if online && age.is_some_and(|a| a < wire::MAX_AGE_MS) {
-            source
-                .as_ref()
-                .map_or(Presence::Unavailable, |s| s.presence)
-        } else {
-            Presence::Unavailable
+        let remaining_ms = elapsed.zip(age).map_or(0, |(elapsed, age)| {
+            wire::SOURCE_TIMEOUT_MS
+                .saturating_sub(elapsed)
+                .min(wire::MAX_AGE_MS.saturating_sub(age))
+                .min(lease_ms)
+        });
+        let (presence, valid_for_ms) = match (source.as_ref(), remaining_ms) {
+            (Some(s), 1..) => (s.presence, remaining_ms),
+            _ => (Presence::Unavailable, wire::SOURCE_TIMEOUT_MS),
         };
         let event_gap = cursor.is_some_and(|cursor| {
             let Some((session, count)) = cursor.split_once(':') else {
@@ -188,29 +336,21 @@ impl Store {
             presence,
             stream_elapsed_ms: 0,
             observation_age_ms: age,
-            valid_for_ms: 1500,
+            valid_for_ms,
             frame_synchronized: false,
             source,
             event_gap,
         }
     }
 }
-fn publisher(headers: &HeaderMap) -> Result<(&str, &str), Failure> {
-    let user = headers
-        .get("x-nxrs-publisher")
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| crate::config::identifier(v))
-        .ok_or(Failure(StatusCode::UNAUTHORIZED))?;
-    Ok((bearer(headers)?, user))
-}
 pub(crate) async fn register(
     State(shared): State<Shared>,
     Path(camera): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, Failure> {
-    let (token, user) = publisher(&headers)?;
+    let (token, user) = crate::publisher_identity(&headers)?;
     let mut p = shared.lock().await;
-    if !p.detection_publisher(token, user, &camera) {
+    if !p.publisher_authorized(token, user, &camera) {
         return Err(Failure(StatusCode::UNAUTHORIZED));
     }
     let id = p
@@ -225,9 +365,9 @@ pub(crate) async fn publish(
     headers: HeaderMap,
     payload: Result<Json<Update>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, Failure> {
-    let (token, user) = publisher(&headers)?;
+    let (token, user) = crate::publisher_identity(&headers)?;
     let mut p = shared.lock().await;
-    if !p.detection_publisher(token, user, &camera) {
+    if !p.publisher_authorized(token, user, &camera) {
         return Err(Failure(StatusCode::UNAUTHORIZED));
     }
     let Json(v) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
@@ -240,7 +380,7 @@ pub(crate) async fn subscribe(
     State(shared): State<Shared>,
     Path(camera): Path<String>,
     headers: HeaderMap,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Failure> {
+) -> Result<impl axum::response::IntoResponse, Failure> {
     let token = bearer(&headers)?.to_owned();
     let cursor = headers
         .get("last-event-id")
@@ -250,10 +390,13 @@ pub(crate) async fn subscribe(
     }) {
         return Err(Failure(StatusCode::BAD_REQUEST));
     }
-    let permits = {
+    let (permits, site) = {
         let p = shared.lock().await;
         let viewer = p.detection_viewer(&token, &camera).map_err(Failure)?;
-        p.detections.subscribe(&viewer).map_err(Failure)?
+        (
+            p.detections.subscribe(&viewer.viewer_id).map_err(Failure)?,
+            viewer.site_id.clone(),
+        )
     };
     let started = Instant::now();
     let events = stream::unfold(
@@ -263,15 +406,14 @@ pub(crate) async fn subscribe(
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
             // End authorization on every emission, including current durable denial.
-            let p = shared.lock().await;
+            let mut p = shared.lock().await;
             if p.detections.shutting_down || p.detection_viewer(&token, &camera).is_err() {
                 return None;
             }
-            let mut s = p
-                .detections
-                .snapshot(&camera, Instant::now(), cursor.as_deref());
+            let now = Instant::now();
+            let mut s = p.detections.snapshot(&camera, now, cursor.as_deref());
             drop(p);
-            s.stream_elapsed_ms = started.elapsed().as_millis() as u64;
+            s.stream_elapsed_ms = now.duration_since(started).as_millis() as u64;
             let id = format!(
                 "{}:{}",
                 s.source_session_id.as_deref().unwrap_or("none"),
@@ -283,12 +425,12 @@ pub(crate) async fn subscribe(
                 .json_data(&s)
                 .ok()?;
             Some((
-                Ok(event),
+                Ok::<_, Infallible>(event),
                 (shared, camera, token, Some(id), permits, started, true),
             ))
         },
     );
-    Ok(Sse::new(events))
+    Ok(([("x-nxrs-site-id", site)], Sse::new(events)))
 }
 
 #[cfg(test)]
@@ -337,6 +479,10 @@ mod tests {
             store.snapshot("cam_one", t, None).presence,
             Presence::Person
         );
+        // If transport stalls after a heartbeat, the client must still expire
+        // the observation at the gateway's original deadline.
+        let last = store.snapshot("cam_one", t + Duration::from_millis(1499), None);
+        assert_eq!((last.presence, last.valid_for_ms), (Presence::Person, 1));
         assert_eq!(
             store
                 .snapshot("cam_one", t + Duration::from_millis(1500), None)
@@ -371,6 +517,103 @@ mod tests {
             store.snapshot("cam_one", later, None).presence,
             Presence::Unavailable
         );
+    }
+    #[test]
+    fn observation_deadline_can_precede_source_heartbeat_deadline() {
+        let mut store = Store::new(&config());
+        let t = Instant::now();
+        let id = store.register("cam_one", t).unwrap();
+        let mut v = update(id, 20);
+        v.frame_capture_ms = v.source.latest.as_ref().unwrap().captured_ms + wire::MAX_AGE_MS - 10;
+        store.update("cam_one", v, t).unwrap();
+        assert_eq!(store.snapshot("cam_one", t, None).valid_for_ms, 10);
+        let expired = store.snapshot("cam_one", t + Duration::from_millis(10), None);
+        assert!(expired.source_online);
+        assert_eq!(expired.presence, Presence::Unavailable);
+    }
+
+    #[test]
+    fn guarded_analysis_withdraws_the_source_and_fences_history_on_resume() {
+        let mut config = config();
+        let mut controller = config.viewers[0].clone();
+        controller.scope = ViewerScope::RecordingControl;
+        controller.viewer_id = "recorder".into();
+        controller.token_sha256 = "c".repeat(64);
+        config.viewers.push(controller);
+        let mut store = Store::new(&config);
+        let camera = "cam_one";
+        let t = Instant::now();
+        assert_eq!(
+            store.register(camera, t),
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        );
+        store.set_analysis(camera, Some(t + Duration::from_secs(3)), t);
+        let id = store.register(camera, t).unwrap();
+        let first = update(id.clone(), 20);
+        let initial_events = first.source.event_count;
+        store.update(camera, first, t).unwrap();
+        let fence = store.snapshot(camera, t, None);
+        assert_eq!(fence.presence, Presence::Unavailable);
+        assert!(fence.source.is_none());
+
+        store.update(camera, update(id.clone(), 21), t).unwrap();
+        let repeated = store.snapshot(camera, t, None).source.unwrap();
+        assert_eq!(repeated.presence, Presence::Unavailable);
+        assert!(repeated.latest.is_none() && repeated.events.iter().next().is_none());
+
+        let mut fresh = update(id.clone(), 22);
+        fresh.frame_capture_ms = 1200;
+        fresh.source.emitted_ms = 1200;
+        fresh.source.publication_id += 1;
+        let latest = fresh.source.latest.as_mut().unwrap();
+        latest.frame_sequence = 22;
+        latest.captured_ms = 1199;
+        fresh.source.event_count += 1;
+        fresh
+            .source
+            .events
+            .push(wire::Event {
+                id: initial_events + 1,
+                at_ms: 1200,
+                kind: wire::EventKind::PersonEntered,
+            })
+            .unwrap();
+        let near_expiry = t + Duration::from_millis(2990);
+        store.update(camera, fresh, near_expiry).unwrap();
+        let delivered = store.snapshot(camera, near_expiry, None);
+        assert_eq!(
+            (delivered.presence, delivered.valid_for_ms),
+            (Presence::Person, 10)
+        );
+        let source = delivered.source.unwrap();
+        assert_eq!(source.event_count, 1);
+        assert_eq!(source.events.iter().next().unwrap().id, 1);
+        assert!(source.validate().is_ok());
+
+        let expired_at = t + Duration::from_secs(3);
+        let expired = store.snapshot(camera, expired_at, Some(&format!("{id}:1")));
+        assert_eq!(expired.presence, Presence::Unavailable);
+        assert!(
+            expired.source.is_none() && expired.source_session_id.is_none() && expired.event_gap
+        );
+        assert!(expired.revision > delivered.revision);
+        store.set_analysis(
+            camera,
+            Some(expired_at + Duration::from_secs(3)),
+            expired_at,
+        );
+        assert_eq!(
+            store.update(camera, update(id, 23), expired_at),
+            Err(StatusCode::CONFLICT)
+        );
+        let new_id = store.register(camera, expired_at).unwrap();
+        store
+            .update(camera, update(new_id, 24), expired_at)
+            .unwrap();
+        store.set_analysis(camera, None, expired_at);
+        let closed = store.snapshot(camera, expired_at, None);
+        assert_eq!(closed.presence, Presence::Unavailable);
+        assert!(closed.source.is_none() && closed.source_session_id.is_none());
     }
     #[tokio::test]
     async fn live_stream_authorization_revocation_and_bounds() {
@@ -500,8 +743,8 @@ mod tests {
     #[test]
     fn metadata_publishers_are_scoped_and_cannot_use_viewer_credentials() {
         let p = GatewayPolicy::new(config(), None).unwrap();
-        assert!(p.detection_publisher(&"b".repeat(64), "publisher", "cam_one"));
-        assert!(!p.detection_publisher(&"a".repeat(64), "publisher", "cam_one"));
-        assert!(!p.detection_publisher(&"b".repeat(64), "publisher", "other"));
+        assert!(p.publisher_authorized(&"b".repeat(64), "publisher", "cam_one"));
+        assert!(!p.publisher_authorized(&"a".repeat(64), "publisher", "cam_one"));
+        assert!(!p.publisher_authorized(&"b".repeat(64), "publisher", "other"));
     }
 }

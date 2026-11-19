@@ -1,5 +1,5 @@
 //! One TLS owner; capture uses only try-lock transfers of bounded owned data.
-use crate::Error;
+use crate::{microphone::Microphone, Error};
 use camera::{Capture, Frame};
 use std::io::{self, Read};
 use std::net::{TcpListener, TcpStream};
@@ -60,6 +60,7 @@ struct Packet<B> {
 }
 struct State<B> {
     update: Option<crate::update::Update>,
+    microphone_origin: Option<Instant>,
     pending: Option<Packet<B>>,
     returned: Option<Packet<B>>,
     ready_after: Option<u64>,
@@ -96,6 +97,17 @@ impl<B> Worker<B> {
             return Err(Error::Worker);
         }
         state.update = Some(update);
+        Ok(())
+    }
+    pub fn enable_microphone(&mut self, origin: Instant) -> Result<(), Error> {
+        if !audio::AVAILABLE || self.last_now.is_some() || self.stopped() {
+            return Err(Error::Tls(::tls::Error::InvalidInput));
+        }
+        let mut state = lock(&self.shared);
+        if state.microphone_origin.is_some() {
+            return Err(Error::Worker);
+        }
+        state.microphone_origin = Some(origin);
         Ok(())
     }
     pub fn stats(&self) -> (ServerStats, TlsStats) {
@@ -180,6 +192,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 update: None,
+                microphone_origin: None,
                 pending: None,
                 returned: None,
                 ready_after: None,
@@ -525,7 +538,10 @@ fn serve<
     counters.tls.handshakes = counters.tls.handshakes.saturating_add(1);
     // Multiplex only after exact enrolled-peer authentication. Preserve GET's
     // inspected prefix for the existing HTTP parser; no extra TLS context.
-    let update = lock(shared).update.clone();
+    let (update, microphone_origin) = {
+        let state = lock(shared);
+        (state.update.clone(), state.microphone_origin)
+    };
     let request_now = now(shared);
     let deadline = Instant::now() + context.request_timeout;
     let mut prefix = [0; 4];
@@ -600,7 +616,12 @@ fn serve<
         };
     }
     let mut http = storage.retire();
-    http.accept_with_prefix(connection, request_now, &prefix[..used]);
+    if microphone_origin.is_some() {
+        http.accept_with_microphone_control(connection, request_now, &prefix[..used]);
+    } else {
+        http.accept_with_prefix(connection, request_now, &prefix[..used]);
+    }
+    let mut microphone = None;
     let mut refreshed = Instant::now();
     let result = loop {
         if !current(shared, epoch) {
@@ -608,7 +629,15 @@ fn serve<
         }
         if refreshed.elapsed() >= Duration::from_secs(1) && http.ready_for_frame() {
             let result = (context.time)(context.identity, Some(&mut context.channel), &mut || {
-                if !poll_media(shared, listener, &mut http, epoch, counters) {
+                if !poll_media(
+                    shared,
+                    listener,
+                    &mut http,
+                    epoch,
+                    counters,
+                    microphone_origin,
+                    &mut microphone,
+                )? {
                     return Err(::tls::Error::Io);
                 }
                 thread::park_timeout(resources.poll_interval);
@@ -628,12 +657,24 @@ fn serve<
             }
             refreshed = Instant::now();
         }
-        if !poll_media(shared, listener, &mut http, epoch, counters) {
-            break Ok(());
+        match poll_media(
+            shared,
+            listener,
+            &mut http,
+            epoch,
+            counters,
+            microphone_origin,
+            &mut microphone,
+        ) {
+            Ok(true) => {}
+            Ok(false) => break Ok(()),
+            Err(error) => break Err(error),
         }
         thread::park_timeout(resources.poll_interval);
     };
-    (http.retire(), result)
+    let storage = http.retire();
+    let retired = microphone.as_mut().map_or(Ok(()), Microphone::stop);
+    (storage, result.and(retired))
 }
 
 fn poll_media<B: AsRef<[u8]> + AsMut<[u8]>>(
@@ -642,11 +683,32 @@ fn poll_media<B: AsRef<[u8]> + AsMut<[u8]>>(
     http: &mut HttpSession<::tls::Connection<'_>, B>,
     epoch: usize,
     counters: &mut Counters,
-) -> bool {
+    microphone_origin: Option<Instant>,
+    microphone: &mut Option<Microphone>,
+) -> Result<bool, ::tls::Error> {
     if !current(shared, epoch) {
-        return false;
+        return Ok(false);
     }
     reject_busy(listener, counters);
+    if let Some(state) = http.microphone_change() {
+        let applied = if state.muted {
+            if let Some(mut capture) = microphone.take() {
+                capture.stop()?;
+            }
+            true
+        } else {
+            if microphone.is_none() {
+                let origin = microphone_origin.ok_or(::tls::Error::InvalidInput)?;
+                *microphone = Some(Microphone::start(origin)?);
+            }
+            microphone.as_mut().ok_or(::tls::Error::Io)?.ready()?
+        };
+        if applied && !http.confirm_microphone_state(state) {
+            return Err(::tls::Error::Io);
+        }
+    } else if http.audio_requested() {
+        microphone.as_mut().ok_or(::tls::Error::Io)?.ready()?;
+    }
     let packet = lock(shared).pending.take();
     let input = packet.as_ref().filter(|p| p.epoch == epoch);
     let frame = input.and_then(|p| {
@@ -664,7 +726,13 @@ fn poll_media<B: AsRef<[u8]> + AsMut<[u8]>>(
                 bytes: &p.metadata[..length],
             })
     });
-    let progress = http.poll_with_metadata(now(shared), frame, metadata);
+    let audio = microphone.as_ref().and_then(Microphone::block);
+    let progress = http.poll_media(now(shared), frame, metadata, audio);
+    if progress.audio_accepted {
+        if let Some(microphone) = microphone {
+            microphone.accepted();
+        }
+    }
     let mut state = lock(shared);
     if let Some(packet) = packet {
         state.returned = Some(packet);
@@ -676,11 +744,12 @@ fn poll_media<B: AsRef<[u8]> + AsMut<[u8]>>(
         .bytes_written
         .saturating_add(progress.bytes_written);
     state.progress.frame_accepted |= progress.frame_accepted;
+    state.progress.audio_accepted |= progress.audio_accepted;
     state.progress.frames_completed = state
         .progress
         .frames_completed
         .saturating_add(progress.frames_completed);
-    progress.active
+    Ok(progress.active)
 }
 
 #[cfg(test)]
@@ -724,6 +793,7 @@ mod tests {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::<[u8; 4]> {
                 update: None,
+                microphone_origin: None,
                 pending: None,
                 returned: None,
                 ready_after: None,

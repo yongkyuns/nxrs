@@ -56,7 +56,8 @@ and places ingest plus FFmpeg in one bounded unprivileged cgroup. The generator
 never installs/starts services or initializes existing enrollment state. Opt-in
 requires an explicit camera endpoint and insecure-HTTP acknowledgement.
 
-Source addresses are literal RFC1918/loopback IPv4 with fixed `/stream`. There is
+Source addresses are literal RFC1918/loopback IPv4. Ingest selects the fixed
+request path for the configured media mode. There is
 no discovery, DNS, redirect or proxy fallback. RTSP publication is loopback-only.
 Use a **publisher** token, never a viewer or management token. Stop the synthetic
 publisher before using its path: overridePublisher remains disabled. Do not run
@@ -116,6 +117,64 @@ The [service generator](../deploy/ingest-services.md) can stage these gateway
 credentials and enforce TLS at startup. Device TLS, provisioning/custody and
 physical resource qualification remain in #33/#35. Publisher-secret isolation
 remains in #37. This does not make the full system production-qualified.
+
+## Camera audio framing
+
+The stream writer and ingest parser support an explicit `GET /stream?av=1`
+exchange. The caller must authenticate the connection and authorize microphone
+access before admitting the request. The response must carry `X-Nxrs-AV: 1`.
+It interleaves the existing JPEG and detection parts with
+`application/vnd.nxrs.pcm16.v1` parts. Each audio part is 640 bytes of signed
+little-endian mono PCM at 16 kHz, with `X-First-Sample` and `X-Capture-Ms`.
+Sample offsets are aligned to 320 samples. Gaps preserve dropped blocks, and
+overlap or a backwards capture time invalidates the response.
+
+Firmware and authenticated ingest use `GET /stream?av=2` with `X-Nxrs-AV: 2`.
+Capture starts muted on each fresh connection. After receiving the response
+header, the enrolled gateway can send a nine-byte microphone command on the
+same TLS transport. It contains a big-endian 64-bit sequence from one and a
+mute byte (zero or one). Only one command may be outstanding. The camera returns
+the same value as an `application/vnd.nxrs.microphone-state.v2` part after capture
+has changed. A fragmented command has an absolute deadline. Disconnect ends the
+capture session.
+
+An in-progress PCM part may finish before a mute acknowledgement. Pending
+samples are discarded and capture is joined before the acknowledgement, while
+JPEG delivery stays eligible. Unmuting opens a new sample sequence and requires
+a complete capture block before acknowledging. Controlled firmware rejects the
+version 1 audio route. Enable `camera_audio` and set `microphone_control` to
+the gateway's internal loopback address. Ingest starts muted and requires a
+current permit from the camera's authorized Matter controller to request
+unmute. A withdrawn or expired permit mutes capture. If the camera stops
+delivering complete parts during withdrawal, ingest closes the transport.
+
+The A/V encoder input writes bounded MJPEG/PCM Matroska blocks to FFmpeg. Video
+uses its capture time directly. Audio uses the first block's capture time and
+later sample offsets, preserving capture gaps. While capture is muted or a
+mute command awaits acknowledgement, ingest discards microphone blocks and
+fills the audio track with 20 ms silence blocks up to the latest video capture
+time. On resume, it drops sample blocks overlapping that silence boundary.
+A command has a deadline independent of both tracks. Both tracks have independent
+deadlines that include writing each complete part to the encoder. FFmpeg emits
+H.264 and mono Opus with a private timed annotation track. The RTSP publisher
+requires the annotation for the exact picture timestamp before inserting its
+SEI and publishes only the video and audio tracks. Ingest monitors their
+progress independently. Audio requires a mutually authenticated camera that
+authorizes access and implements version 2. The ESP32 microphone
+qualification profile includes that capture path.
+
+```sh
+NXRS_TEST_FFMPEG=/usr/bin/ffmpeg NXRS_TEST_FFPROBE=/usr/bin/ffprobe \
+  cargo test --locked -p nxrs-camera-ingest --test av_transport -- --ignored
+```
+
+[Matroska block timestamps](https://www.rfc-editor.org/rfc/rfc9559.html#section-11.2).
+The [loopback playback witness](../tests/ingest_av_reference.py) checks the
+authenticated ingest and RTSP path with alternating image markers and a
+generated tone, including one annotation per encoded picture. CI uses
+`--gateway-only` to verify capture permit changes and expiry through the
+gateway control API. The full test drives capture from a commissioned Matter
+controller and verifies both tracks through mute, unmute, and bridge process loss.
 
 ## Bounds, freshness and lifecycle
 

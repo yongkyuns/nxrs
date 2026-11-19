@@ -1,0 +1,68 @@
+diff --git a/src/change/sdp.rs b/src/change/sdp.rs
+index 3374bc3..4dd3939 100644
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -100,13 +100,13 @@ impl<'a> SdpApi<'a> {
+         // Ensure setup=active/passive is corresponding remote and init dtls.
+         init_dtls(self.rtc, &offer)?;
+ 
+-        // Extract a=sctp-init from remote offer before apply_offer consumes it.
++        // Extract a=sctp-init from the remote offer.
+         let remote_sctp_init = offer.sctp_init().map(|v| v.to_owned());
+ 
+         let has_snap = process_remote_sctp_init(&mut self.rtc.sctp, remote_sctp_init.as_deref())?;
+ 
+         // Modify session with offer.
+-        apply_offer(&mut self.rtc.session, offer)?;
++        apply_offer(&mut self.rtc.session, &offer)?;
+ 
+         // Handle potentially new m=application line.
+         let client = self.rtc.dtls.is_active().expect("DTLS active to be set");
+@@ -123,7 +123,29 @@ impl<'a> SdpApi<'a> {
+         }
+ 
+         let params = AsSdpParams::new(self.rtc, None);
+-        let sdp = as_sdp(&self.rtc.session, params);
++        let mut sdp = as_sdp(&self.rtc.session, params);
++
++        // RFC 3264 section 6 requires a format even on a rejected (port=0)
++        // m-line. No negotiated codec is available in this case, so preserve
++        // its first offered format solely to make the rejection valid SDP. These
++        // formats must not be added to the session's negotiated codec set.
++        for (answer, offered) in sdp.media_lines.iter_mut().zip(&offer.media_lines) {
++            if answer.disabled && answer.pts.is_empty() && answer.proto == Proto::Srtp {
++                let pt = offered.pts[0]; // The offer has passed assert_consistency.
++                answer.pts.push(pt);
++                answer.attrs.extend(
++                    offered
++                        .attrs
++                        .iter()
++                        .filter(|attr| {
++                            matches!(attr,
++                                MediaAttribute::RtpMap { pt: mapped, .. }
++                                | MediaAttribute::Fmtp { pt: mapped, .. } if *mapped == pt)
++                        })
++                        .cloned(),
++                );
++            }
++        }
+ 
+         debug!("Create answer");
+         Ok(sdp.into())
+@@ -936,13 +958,13 @@ fn as_sdp(session: &Session, params: AsSdpParams) -> Sdp {
+     }
+ }
+ 
+-fn apply_offer(session: &mut Session, offer: SdpOffer) -> Result<(), RtcError> {
++fn apply_offer(session: &mut Session, offer: &SdpOffer) -> Result<(), RtcError> {
+     offer.assert_consistency()?;
+ 
+-    update_session(session, &offer);
++    update_session(session, offer);
+ 
+     let bundle_mids = offer.bundle_mids();
+-    let new_lines = sync_medias(session, &offer, true).map_err(RtcError::RemoteSdp)?;
++    let new_lines = sync_medias(session, offer, true).map_err(RtcError::RemoteSdp)?;
+ 
+     add_new_lines(session, &new_lines, true, bundle_mids).map_err(RtcError::RemoteSdp)?;
+ 

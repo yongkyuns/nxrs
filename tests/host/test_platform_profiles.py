@@ -180,6 +180,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for name, bindings in expected.items():
                     if name.startswith("esp32s3-camera-stream") or name == "esp32s3-camera-tls":
                         bindings.update(console="nuttx", execution="nuttx")
+                expected["esp32s3-camera-microphone"] = {
+                    **expected["esp32s3-camera-stream-startup"], "audio": "nuttx",
+                }
                 self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)

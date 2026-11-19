@@ -8,4 +8,5 @@ publish = false
 
 [dependencies]
 ffmpeg-sys-next = { version = "=9.0.1", default-features = false, features = ["avformat", "avcodec"] }
+nxrs-detection-wire = { path = "../../service/detection-wire" }
 zeroize = "=1.9.1"

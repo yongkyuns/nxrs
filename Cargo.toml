@@ -29,6 +29,7 @@ members = [
     "service/detection-wire",
     "service/firmware-update",
     "service/enrollment",
+    "service/capture-wire",
     "service/stream",
     "service/connectivity",
     "shared/messaging",
@@ -55,6 +56,7 @@ members = [
     "hal/flash",
     "hal/storage",
     "hal/camera",
+    "hal/audio",
     "tests/nuttx/support",
     "tests/allocation-probe",
     "tests/service-footprint",
@@ -79,6 +81,7 @@ members = [
     "tests/nuttx-std/ble",
     "tests/nuttx-std/radio",
     "tests/nuttx-std/camera",
+    "tests/nuttx-std/audio",
     "tests/nuttx-std/stream",
     "tests/rtos-bench/rust",
 ]
@@ -105,6 +108,7 @@ default-members = [
     "hal/storage",
     "hal/config",
     "hal/camera",
+    "hal/audio",
     "hal/detector",
 ]
 

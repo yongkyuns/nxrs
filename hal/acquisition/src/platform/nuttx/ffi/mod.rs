@@ -24,9 +24,29 @@ pub fn wait(device: c_int, cancel: c_int) -> io::Result<bool> {
         _ => Err(io::Error::last_os_error()),
     }
 }
+
+#[derive(Clone, Copy)]
+pub enum Readiness {
+    Device,
+    Cancelled,
+    Timeout,
+}
+
+/// Cancellation wins when both descriptors are readable. An absent cancel
+/// descriptor is ignored by poll. The caller owns the absolute deadline.
+pub fn poll(device: c_int, cancel: Option<c_int>, timeout_ms: c_int) -> io::Result<Readiness> {
+    // SAFETY: synchronous poll over live descriptors, with -1 as the absent fd.
+    match unsafe { acquisition_event_poll(device, cancel.unwrap_or(-1), timeout_ms) } {
+        0 => Ok(Readiness::Cancelled),
+        1 => Ok(Readiness::Device),
+        2 => Ok(Readiness::Timeout),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
 unsafe extern "C" {
     fn acquisition_event_pipe(descriptors: *mut c_int) -> c_int;
     fn acquisition_event_wait(device: c_int, cancel: c_int) -> c_int;
+    fn acquisition_event_poll(device: c_int, cancel: c_int, timeout_ms: c_int) -> c_int;
 }
 
 pub fn tick(cancel: c_int, timeout_ms: c_int) -> io::Result<bool> {

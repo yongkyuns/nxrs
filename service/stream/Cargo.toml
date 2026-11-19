@@ -7,4 +7,5 @@ edition.workspace = true
 name = "stream_service"
 
 [dependencies]
+nxrs-capture-wire = { path = "../capture-wire" }
 nxrs-camera = { path = "../../hal/camera" }

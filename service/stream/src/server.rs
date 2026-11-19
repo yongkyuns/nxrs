@@ -1,12 +1,14 @@
 //! Caller-polled HTTP server with one active client. Extra connections are
 //! accepted and immediately closed; no queue or background worker is created.
 
-use crate::{append, append_number, Metadata, MjpegSession, OfferResult, SessionError};
+use crate::{append, append_number, AudioMode, Metadata, MjpegSession, OfferResult, SessionError};
 use camera::Frame;
+use capture_wire::{AudioBlock, AudioStamp, MicrophoneState, AV_PATH, CONTROLLED_AV_PATH};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 const REQUEST_CAPACITY: usize = 1024;
+const _: () = assert!(REQUEST_CAPACITY <= crate::HEADER_CAPACITY);
 const WRITE_BUDGET: usize = 4096;
 // An inline empty icon avoids a second browser request competing for the
 // deliberately single-client server while the image connection is admitted.
@@ -69,6 +71,7 @@ pub enum Failure {
     IdleDeadline,
     InvalidRequest,
     InvalidFrame,
+    InvalidAudio,
     UnexpectedInput,
     Configure(io::ErrorKind),
     Read(io::ErrorKind),
@@ -81,6 +84,7 @@ pub struct Progress {
     pub active: bool,
     pub bytes_written: usize,
     pub frame_accepted: bool,
+    pub audio_accepted: bool,
     pub frames_completed: u64,
 }
 
@@ -88,6 +92,7 @@ struct Request<W> {
     socket: W,
     length: usize,
     deadline: u64,
+    audio: AudioMode,
 }
 
 struct Reply<W> {
@@ -107,6 +112,78 @@ struct Streaming<W, B> {
     ready: bool,
     metadata_enabled: bool,
     metadata_revision: u64,
+    microphone: Option<MicrophoneControl>,
+    last_audio: Option<AudioStamp>,
+    last_part_audio: bool,
+}
+
+impl<W, B> Streaming<W, B> {
+    fn audio_requested(&self) -> bool {
+        self.session.audio == AudioMode::Legacy
+            || self
+                .microphone
+                .as_ref()
+                .is_some_and(|control| !control.muted && control.change == MicrophoneChange::Idle)
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MicrophoneChange {
+    Idle,
+    Apply(MicrophoneState),
+    Acknowledge(MicrophoneState),
+}
+
+struct MicrophoneControl {
+    bytes: [u8; MicrophoneState::BYTES],
+    received: usize,
+    deadline: Option<u64>,
+    last_sequence: u64,
+    muted: bool,
+    change: MicrophoneChange,
+}
+
+impl MicrophoneControl {
+    fn new() -> Self {
+        Self {
+            bytes: [0; MicrophoneState::BYTES],
+            received: 0,
+            deadline: None,
+            last_sequence: 0,
+            muted: true,
+            change: MicrophoneChange::Idle,
+        }
+    }
+
+    fn read(&mut self, socket: &mut impl Read, now: u64, timeout: u64) -> Result<(), Failure> {
+        if self.change != MicrophoneChange::Idle {
+            return Ok(());
+        }
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            return Err(Failure::RequestDeadline);
+        }
+        match socket.read(&mut self.bytes[self.received..]) {
+            Ok(0) => return Err(Failure::UnexpectedInput),
+            Ok(count) if count <= self.bytes.len() - self.received => {
+                self.received += count;
+                self.deadline.get_or_insert(now.saturating_add(timeout));
+            }
+            Ok(_) => return Err(Failure::UnexpectedInput),
+            Err(error) if retryable(&error) => return Ok(()),
+            Err(error) => return Err(Failure::Read(error.kind())),
+        }
+        if self.received == self.bytes.len() {
+            let requested = MicrophoneState::decode(&self.bytes).ok_or(Failure::UnexpectedInput)?;
+            if Some(requested.sequence.get()) != self.last_sequence.checked_add(1) {
+                return Err(Failure::UnexpectedInput);
+            }
+            self.change = MicrophoneChange::Apply(requested);
+            self.last_sequence = requested.sequence.get();
+            self.received = 0;
+            self.deadline = None;
+        }
+        Ok(())
+    }
 }
 
 enum Client<W, B> {
@@ -186,14 +263,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
 /// Request and frame storage are reused until this session is retired.
 pub struct HttpSession<W, B> {
     buffer: Option<B>,
+    // The request and outgoing part headers use this allocation in turn.
     header: Option<Box<[u8]>>,
     client: Option<Client<W, B>>,
     options: Options,
     stats: ServerStats,
     last_now_ms: Option<u64>,
-    // Keep the bounded request storage in one place. Moving the client state
-    // between poll steps must not copy a KiB array onto nested task stacks.
-    request_bytes: [u8; REQUEST_CAPACITY],
 }
 
 impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
@@ -220,7 +295,6 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             options,
             stats: ServerStats::default(),
             last_now_ms: None,
-            request_bytes: [0; REQUEST_CAPACITY],
         })
     }
 
@@ -232,6 +306,39 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
     /// Transport maintenance must finish before selecting another capture.
     pub fn ready_for_frame(&self) -> bool {
         self.next_frame_after().is_some()
+    }
+
+    /// True after parsing an authorized A/V request. The owner can start the
+    /// microphone before the next poll, which begins the HTTP response.
+    pub fn audio_requested(&self) -> bool {
+        matches!(self.client.as_ref(), Some(Client::Streaming(stream)) if stream.audio_requested())
+    }
+
+    /// A controlled stream starts muted and keeps video running while the
+    /// owner stops or opens its microphone.
+    pub fn microphone_change(&self) -> Option<MicrophoneState> {
+        let Some(Client::Streaming(stream)) = self.client.as_ref() else {
+            return None;
+        };
+        match stream.microphone.as_ref()?.change {
+            MicrophoneChange::Apply(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    /// Queue the acknowledgement only after capture has reached this state.
+    pub fn confirm_microphone_state(&mut self, state: MicrophoneState) -> bool {
+        let Some(Client::Streaming(stream)) = self.client.as_mut() else {
+            return false;
+        };
+        let Some(control) = stream.microphone.as_mut() else {
+            return false;
+        };
+        if control.change != MicrophoneChange::Apply(state) {
+            return false;
+        }
+        control.change = MicrophoneChange::Acknowledge(state);
+        true
     }
 
     /// Sequence a new frame must exceed, when the transport can accept it.
@@ -262,7 +369,6 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             options: self.options,
             stats: self.stats,
             last_now_ms: self.last_now_ms,
-            request_bytes: self.request_bytes,
         }
     }
 
@@ -276,6 +382,33 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
     /// Preserve up to four bytes inspected by an authenticated protocol router.
     /// This is a partial method prefix, never a complete buffered HTTP request.
     pub fn accept_with_prefix(&mut self, socket: W, now_ms: u64, prefix: &[u8]) -> bool {
+        self.accept_transport(socket, now_ms, prefix, AudioMode::Disabled)
+    }
+
+    /// Admit microphone requests on a transport whose peer has already been
+    /// authenticated and authorized for microphone capture by the caller.
+    pub fn accept_with_audio(&mut self, socket: W, now_ms: u64, prefix: &[u8]) -> bool {
+        self.accept_transport(socket, now_ms, prefix, AudioMode::Legacy)
+    }
+
+    /// Admit only controlled A/V for this authenticated transport. The peer
+    /// waits for the response header before sending its first command.
+    pub fn accept_with_microphone_control(
+        &mut self,
+        socket: W,
+        now_ms: u64,
+        prefix: &[u8],
+    ) -> bool {
+        self.accept_transport(socket, now_ms, prefix, AudioMode::Controlled)
+    }
+
+    fn accept_transport(
+        &mut self,
+        socket: W,
+        now_ms: u64,
+        prefix: &[u8],
+        audio: AudioMode,
+    ) -> bool {
         if prefix.len() > 4 {
             return false;
         }
@@ -287,11 +420,15 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
             return false;
         }
         self.stats.accepted = self.stats.accepted.saturating_add(1);
-        self.request_bytes[..prefix.len()].copy_from_slice(prefix);
+        self.header
+            .as_mut()
+            .expect("idle server owns header storage")[..prefix.len()]
+            .copy_from_slice(prefix);
         self.client = Some(Client::Request(Request {
             socket,
             length: prefix.len(),
             deadline: now_ms.saturating_add(self.options.request_timeout_ms),
+            audio,
         }));
         true
     }
@@ -325,12 +462,24 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
     ) -> Progress {
+        self.poll_media(now_ms, latest, metadata, None)
+    }
+
+    /// Offer one audio block on an admitted A/V connection. Audio completions
+    /// never update the successful video-delivery counters.
+    pub fn poll_media(
+        &mut self,
+        now_ms: u64,
+        latest: Option<Frame<'_>>,
+        metadata: Option<Metadata<'_>>,
+        audio: Option<AudioBlock<'_>>,
+    ) -> Progress {
         let mut progress = Progress::default();
         if !self.advance_clock(now_ms) {
             return progress;
         }
         if let Some(client) = self.client.take() {
-            self.client = self.step(client, now_ms, latest, metadata, &mut progress);
+            self.client = self.step(client, now_ms, latest, metadata, audio, &mut progress);
         }
         progress.active = self.client.is_some();
         progress
@@ -355,6 +504,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         now: u64,
         latest: Option<Frame<'_>>,
         metadata: Option<Metadata<'_>>,
+        audio: Option<AudioBlock<'_>>,
         progress: &mut Progress,
     ) -> Option<Client<W, B>> {
         match client {
@@ -362,10 +512,9 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                 if now >= request.deadline {
                     return self.fail(Client::Request(request), Failure::RequestDeadline);
                 }
-                match request
-                    .socket
-                    .read(&mut self.request_bytes[request.length..])
-                {
+                let bytes = &mut self.header.as_mut().expect("request owns header storage")
+                    [..REQUEST_CAPACITY];
+                match request.socket.read(&mut bytes[request.length..]) {
                     Ok(0) => return self.close(Client::Request(request), false),
                     Ok(count) => request.length += count,
                     Err(error) if retryable(&error) => return Some(Client::Request(request)),
@@ -373,12 +522,31 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                         return self.fail(Client::Request(request), Failure::Read(error.kind()))
                     }
                 }
-                let kind = if let Some(end) = self.request_bytes[..request.length]
+                let kind = if let Some(end) = bytes[..request.length]
                     .windows(4)
                     .position(|bytes| bytes == b"\r\n\r\n")
                 {
-                    match request_path(&self.request_bytes[..end]) {
-                        Some(path @ ("/stream" | "/stream.mjpg" | "/stream?metadata=1")) => {
+                    match request_path(&bytes[..end]) {
+                        Some(
+                            path @ ("/stream" | "/stream.mjpg" | "/stream?metadata=1" | AV_PATH
+                            | CONTROLLED_AV_PATH),
+                        ) if (path != AV_PATH || request.audio == AudioMode::Legacy)
+                            && (path != CONTROLLED_AV_PATH
+                                || request.audio == AudioMode::Controlled) =>
+                        {
+                            let audio = match path {
+                                AV_PATH => AudioMode::Legacy,
+                                CONTROLLED_AV_PATH if request.length == end + 4 => {
+                                    AudioMode::Controlled
+                                }
+                                CONTROLLED_AV_PATH => {
+                                    return self
+                                        .fail(Client::Request(request), Failure::UnexpectedInput)
+                                }
+                                _ => AudioMode::Disabled,
+                            };
+                            let metadata_enabled =
+                                path == "/stream?metadata=1" || audio != AudioMode::Disabled;
                             let buffer = self
                                 .buffer
                                 .take()
@@ -390,14 +558,19 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                     self.header.take().expect("idle server owns header storage"),
                                     now,
                                     self.options.send_deadline_ms,
+                                    audio,
                                 ),
                                 last_offered: 0,
                                 last_capture_ms: 0,
                                 read_closed: false,
                                 last_write_ms: now,
                                 ready: false,
-                                metadata_enabled: path == "/stream?metadata=1",
+                                metadata_enabled,
                                 metadata_revision: 0,
+                                microphone: (audio == AudioMode::Controlled)
+                                    .then(MicrophoneControl::new),
+                                last_audio: None,
+                                last_part_audio: false,
                             }));
                         }
                         Some("/clock") => ReplyKind::Clock,
@@ -458,7 +631,15 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                 {
                     return self.fail(Client::Streaming(stream), Failure::IdleDeadline);
                 }
-                if !stream.read_closed {
+                if let Some(control) = stream.microphone.as_mut() {
+                    if let Err(error) = control.read(
+                        stream.session.writer_mut(),
+                        now,
+                        self.options.request_timeout_ms,
+                    ) {
+                        return self.fail(Client::Streaming(stream), error);
+                    }
+                } else if !stream.read_closed {
                     match stream.session.writer_mut().read(&mut [0; 1]) {
                         // A TCP FIN closes only the request direction. The
                         // viewer may still read; writes/deadlines detect loss
@@ -474,17 +655,54 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                         }
                     }
                 }
-                if stream.ready {
-                    if let Some(frame) = latest.filter(|frame| {
-                        frame.sequence > stream.last_offered
-                            && now
-                                .checked_sub(frame.capture.timestamp_ms)
-                                .is_some_and(|age| {
-                                    self.options
-                                        .max_frame_age_ms
-                                        .is_none_or(|limit| age <= limit)
-                                })
-                    }) {
+                let acknowledgement = stream.microphone.as_ref().and_then(|control| match control
+                    .change
+                {
+                    MicrophoneChange::Acknowledge(state) => Some(state),
+                    _ => None,
+                });
+                if let Some(state) = acknowledgement.filter(|_| stream.ready) {
+                    let control = stream.microphone.as_mut().expect("controlled stream");
+                    if stream.session.offer_microphone_state(state, now) != OfferResult::Accepted {
+                        return self.fail(Client::Streaming(stream), Failure::InvalidAudio);
+                    }
+                    if state.muted != control.muted {
+                        stream.last_audio = None;
+                    }
+                    control.muted = state.muted;
+                    control.change = MicrophoneChange::Idle;
+                } else if stream.ready {
+                    let fresh = |capture_ms| {
+                        now.checked_sub(capture_ms).is_some_and(|age| {
+                            self.options
+                                .max_frame_age_ms
+                                .is_none_or(|limit| age <= limit)
+                        })
+                    };
+                    let video = latest.filter(|frame| {
+                        frame.sequence > stream.last_offered && fresh(frame.capture.timestamp_ms)
+                    });
+                    let audio = audio.filter(|block| {
+                        stream.audio_requested()
+                            && fresh(block.stamp.capture_ms)
+                            && stream
+                                .last_audio
+                                .is_none_or(|previous| block.stamp.follows(previous))
+                            && (video.is_none() || !stream.last_part_audio)
+                    });
+                    if let Some(block) = audio {
+                        match stream.session.offer_audio(block, now) {
+                            OfferResult::Accepted => {
+                                stream.last_audio = Some(block.stamp);
+                                stream.last_part_audio = true;
+                                progress.audio_accepted = true;
+                            }
+                            OfferResult::Busy => {}
+                            _ => {
+                                return self.fail(Client::Streaming(stream), Failure::InvalidAudio)
+                            }
+                        }
+                    } else if let Some(frame) = video {
                         let metadata = metadata.filter(|m| {
                             stream.metadata_enabled && m.revision > stream.metadata_revision
                         });
@@ -493,6 +711,7 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
                                 stream.last_offered = frame.sequence;
                                 stream.last_capture_ms = frame.capture.timestamp_ms;
                                 progress.frame_accepted = true;
+                                stream.last_part_audio = false;
                                 if let Some(m) = metadata {
                                     stream.metadata_revision = m.revision;
                                 }

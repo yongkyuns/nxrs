@@ -1,0 +1,88 @@
+--- a/src/browse.rs
++++ b/src/browse.rs
+@@ -60,8 +60,10 @@
+ /// Builder for creating a browser, allowing optionally specifying a domain with chaining (maybe builder is excessive)
+ pub struct ServiceBrowserBuilder {
+     pub(crate) regtype: String,
+     pub(crate) domain: Option<String>,
++    #[cfg(unix)]
++    pub(crate) interface_index: u32,
+     #[cfg(target_vendor = "apple")]
+     pub(crate) peer_to_peer: bool,
+ }
+
+@@ -70,8 +72,10 @@
+     pub fn new(regtype: &str) -> ServiceBrowserBuilder {
+         ServiceBrowserBuilder {
+             regtype: String::from(regtype),
+             domain: None,
++            #[cfg(unix)]
++            interface_index: 0,
+             #[cfg(target_vendor = "apple")]
+             peer_to_peer: false,
+         }
+     }
+@@ -89,8 +93,14 @@
+     pub fn with_peer_to_peer(mut self, enabled: bool) -> ServiceBrowserBuilder {
+         self.peer_to_peer = enabled;
+         self
+     }
++    /// Browse on one interface. Zero lets the daemon browse all interfaces.
++    #[cfg(unix)]
++    pub fn with_interface_index(mut self, index: u32) -> ServiceBrowserBuilder {
++        self.interface_index = index;
++        self
++    }
+     /// Starts the browser
+     pub fn browse(self) -> Result<ServiceBrowser> {
+         crate::os::browse(self)
+     }
+--- a/src/os/apple/browse.rs
++++ b/src/os/apple/browse.rs
+@@ -349,10 +349,11 @@
+         let r = crate::non_blocking::socket_is_ready(socket, timeout)?;
+         Ok(r)
+     }
+
+-    /// Starts browser with type, optional domain & flags
+-    fn start(regtype: String, domain: Option<String>, flags: ffi::DNSServiceFlags) -> Result<Self> {
++    fn start(
++        regtype: String, domain: Option<String>, flags: ffi::DNSServiceFlags, interface_index: u32,
++    ) -> Result<Self> {
+         unsafe {
+             let c_domain: Option<CString>;
+             if let Some(d) = &domain {
+                 c_domain = Some(CString::new(d.as_str()).map_err(|_| BrowseError::InvalidString)?);
+@@ -366,9 +367,9 @@
+             let mut raw: ffi::DNSServiceRef = ptr::null_mut();
+             let r = ffi::DNSServiceBrowse(
+                 &mut raw as _,
+                 flags,
+-                0,
++                interface_index,
+                 service_type.as_ptr(),
+                 // borrow: the CString must outlive the call
+                 c_domain.as_ref().map_or(ptr::null(), |d| d.as_ptr()),
+                 Some(browse_callback),
+@@ -417,9 +418,9 @@
+     #[cfg(target_vendor = "apple")]
+     let flags = super::peer_to_peer_flags(builder.peer_to_peer);
+     #[cfg(not(target_vendor = "apple"))]
+     let flags = 0;
+-    ServiceBrowser::start(builder.regtype, builder.domain, flags)
++    ServiceBrowser::start(builder.regtype, builder.domain, flags, builder.interface_index)
+ }
+ macro_rules! mut_void_ptr {
+     ($var:expr) => {
+         $var as *mut _ as *mut c_void
+@@ -1142,9 +1143,9 @@
+     /// A-6: with_domain() hands DNSServiceBrowse a pointer to a CString that was already freed.
+     #[test]
+     fn browse_domain_pointer_is_alive() {
+         let _browser =
+-            ServiceBrowser::start("_test._tcp".into(), Some("local.".into()), 0).unwrap();
++            ServiceBrowser::start("_test._tcp".into(), Some("local.".into()), 0, 0).unwrap();
+         let seen = SEEN_DOMAIN.lock().unwrap().clone();
+         assert_eq!(
+             seen.as_deref(),
+             Some(&b"local."[..]),

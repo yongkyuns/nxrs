@@ -346,6 +346,10 @@ pub(crate) fn run() -> Result<(), String> {
                     live.enable_updates(update.clone())
                         .map_err(|e| format!("update receiver {e:?}"))?;
                 }
+                if audio::AVAILABLE {
+                    live.enable_microphone(origin)
+                        .map_err(|e| format!("microphone authorization {e:?}"))?;
+                }
                 run_live(
                     live,
                     |elapsed| {

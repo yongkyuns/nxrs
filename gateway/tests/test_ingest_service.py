@@ -114,6 +114,14 @@ class IngestServiceTests(unittest.TestCase):
         self.assertNotIn('camera-ca.key', unit)
         self.assertNotIn('--require-camera-tls', ingest_service.service())
 
+    def test_camera_audio_is_explicit_and_requires_tls(self):
+        source = '192.168.1.2:443'
+        self.assertNotIn('camera_audio', ingest_service.configuration(source, camera_tls=self.enrollment()))
+        self.assertTrue(ingest_service.configuration(source, camera_tls=self.enrollment(),
+                                                     camera_audio=True)['camera_audio'])
+        with self.assertRaises(ValueError):
+            ingest_service.configuration(source, acknowledge_http=True, camera_audio=True)
+
 
     def test_systemd_start_failure_reports_only_safe_phase_status_codes(self):
         import subprocess

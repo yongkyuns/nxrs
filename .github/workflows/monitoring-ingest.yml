@@ -25,6 +25,7 @@ on:
       - 'service/enrollment/**'
       - 'docs/detection-protocol*'
       - 'service/stream/**'
+      - 'service/capture-wire/**'
       - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-ingest.yml'
   workflow_dispatch:
@@ -59,6 +60,7 @@ jobs:
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest small_paced_camera_frames_encode_within_startup_budget -- --ignored
+          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --test av_transport -- --ignored
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher --all-targets -- -D warnings
@@ -88,6 +90,9 @@ jobs:
           test "$result" = 91
           python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-no-decoder.so
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_av_reference.py --gateway-only \
+            --gateway gateway/target/debug/nxrs-gateway-control --ingest gateway/target/debug/nxrs-camera-ingest \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \
