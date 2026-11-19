@@ -3601,6 +3601,19 @@
     "absent_detector_source_reported_unavailable": true,
     "scope": "The merged controller used a private copy of the active catalogue, a new fixture-only revocation store and a separate loopback MediaMTX. Verified API admission and source mapping before deployment. Live configuration, persistence and media cutover remain open."
   },
+  "macos_merged_release_shared_physical_publication": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "real_frames_forwarded": 101,
+    "original_stamped_access_units": 116,
+    "dimensions": [320, 240],
+    "concurrent_nxrs_whep_decoded_frames": 24,
+    "concurrent_matter_webrtc_decoded_frames": 24,
+    "publication_readers": 2,
+    "existing_viewer_admitted_over_test_https": true,
+    "original_catalogue_principals_preserved": true,
+    "media_persisted": false,
+    "scope": "The existing encrypted viewer supplied live ESP32 video. An in-memory relay re-encoded it at its original dimensions into isolated MediaMTX. The exact strict controller admitted the existing viewer and a scoped Matter reader to the same publication. Client receivers ran on macOS. Production cutover, direct ingest, and physical iPhone rendering and performance remain open."
+  },
   "macos_merged_release_publication_recovery": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "platform": "macOS ARM64",
