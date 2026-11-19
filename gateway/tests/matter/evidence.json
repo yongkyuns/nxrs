@@ -3544,6 +3544,35 @@
     "fifth_offer_rejections": 4,
     "scope": "Two-minute rehearsal of the exact merged package with development attestation and generated H.264. It exercised slow-offer expiry, restart, selective revocation, replacement commissioning and session release."
   },
+  "macos_merged_release_interface_scope": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "commissioning_advertised_only_on_wifi": true,
+    "mismatched_interface_rejected": true,
+    "selected_tcp_addresses_reachable": 11,
+    "tcp_excluded": ["loopback_ipv4", "loopback_ipv6", "tailscale_ipv4"],
+    "enrollment_and_camera_identity_retained_with_interface_inference": true,
+    "same_publication_retained": true,
+    "receiver_offer_decoded_frames": 30,
+    "camera_offer_decoded_frames_after_restart": 30,
+    "jpeg_bytes": 7044,
+    "scope": "Native macOS, same-host TCP probe, generated H.264 and development attestation. Tailscale IPv6 failed the wildcard reachability control. Connection attempts from a second physical LAN and remote iPhone access remain open."
+  },
+  "macos_merged_release_esp32_snapshot": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "production_viewer_stamped_access_units": 105,
+    "real_frames_forwarded": 77,
+    "source_dimensions": [320, 240],
+    "decoded_matter_webrtc_frames": 30,
+    "matter_webrtc_dimensions": [320, 240],
+    "jpeg_bytes": 3706,
+    "jpeg_dimensions": [320, 180],
+    "shared_bridge_reader": true,
+    "matter_session_released": true,
+    "media_persisted": false,
+    "scope": "An existing encrypted viewer received the real ESP32 feed. The isolated relay decoded and re-encoded it at the original dimensions in memory. The exact merged bridge commissioned with development attestation, and an independent controller obtained the JPEG during playback. The experimental packet-copy relay returned InvalidInState before playback. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
+  },
   "macos_merged_release_publication_recovery": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "platform": "macOS ARM64",
