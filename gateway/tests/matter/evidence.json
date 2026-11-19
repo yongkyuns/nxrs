@@ -3513,8 +3513,25 @@
         "freshness_rejection_seconds_from_observer_start": 50.245
       }
     ],
-    "qualified_receive_queue_samples": 0,
-    "scope": "A read-only viewer sampled the existing physical camera and deployed Nxrs gateway across two naturally starting publications. The per-frame capture stamps advanced more slowly than Mac RTP delivery time in both windows. The gateway freshness guard retired each publication. This relative comparison includes path delay. The time-aligned TCP queue probe did not match the ingress socket, and the active firmware version and cause of the timing gap remain unverified."
+    "scope": "A read-only viewer sampled the existing physical camera and deployed Nxrs gateway across two automatically started publications. Capture timestamps advanced more slowly than Mac RTP delivery time. In separate passive windows, the ingest process's matched local receive queue stayed empty around three freshness rejections. This rules out observed buildup in that queue. The active firmware version and the contribution of camera timing and other pipeline delays remain unverified.",
+    "passive_ingest_tcp_observations": {
+      "matched_socket_samples": 322,
+      "receive_queue_bytes_min_max": [
+        0,
+        0
+      ],
+      "matched_freshness_rejections": 3,
+      "samples_in_last_five_seconds_per_rejection": [
+        12,
+        12,
+        12
+      ],
+      "last_sample_age_at_log_observation_ms": [
+        408.9,
+        410.8,
+        406.3
+      ]
+    }
   },
   "esp32s3_monotonic_clock_emulator": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
