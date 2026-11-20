@@ -597,6 +597,22 @@ real common preparation path. Confirm `nuttx_helper_ownership.rs` and
 directory through endpoint/model/instance-count/catalog changes and back to the
 original profile, plus stale-target and concurrent-profile negative cases.
 
+The concurrent-profile gate uses `tools/qualify-concurrent-builds.py` and its
+independent `tools/check-concurrent-builds.py` checker. It builds the ordinary
+CoreS3 `event-demo` profile and the existing LSM6DSO overlay in fresh sibling
+outputs, using one frontend compiled from the clean identified source revision.
+Both child builds must remain alive across observation of both complete prepared
+input sets. Final checks retain configuration actually consumed by Cargo,
+per-output native helpers and private SDK/link paths, driver inclusion/exclusion,
+provenance and target artifacts. Host regressions reject contaminated evidence
+and exercise early exit, build failure, timeout, interruption and descendant
+cleanup. The existing ESP32-S3 job runs the pair and uploads a checked finite
+bundle for relocation replay; see
+[concurrent profile qualification](build-system.md#concurrent-profile-qualification).
+Report the exact source revision and observed result for each run. This gate
+does not qualify CPU parallelism, static-memory sizes, allocation behavior or
+physical device concurrency, and does not close the remaining D5/S8 gates.
+
 The implementation acceptance matrix is:
 
 | Area | Required evidence |
