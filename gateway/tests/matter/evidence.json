@@ -3665,6 +3665,25 @@
     "fifth_offer_rejections": 4,
     "scope": "Two-minute rehearsal of the exact merged package with development attestation and generated H.264. It exercised slow-offer expiry, restart, selective revocation, replacement commissioning and session release."
   },
+  "linux_merged_release_soak_interruption": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "last_sample_elapsed_seconds": 30694.529,
+    "last_sample_decoded_fps": [15.007, 15.007, 15.007, 15.007],
+    "failed_frame_age_seconds": 33.002,
+    "source_frames_at_last_sample": 460685,
+    "publisher_writes_before_teardown": 461663,
+    "completed": false,
+    "diagnostic_rehearsal": {
+      "injected_single_viewer_stall_rejected": true,
+      "four_active_sessions_with_advancing_rtp": true,
+      "original_source_and_reader_survived_injection": true,
+      "normal_trial_duration_seconds": 120.269,
+      "normal_trial_samples_sha256": "f7bbc930f1cb98e6fcc99e37df7b295711ea6e68395a3107d8df95f3ded7cc8f",
+      "normal_trial_verified_all_fault_phases_and_teardown": true
+    },
+    "scope": "The generated-video soak stopped before the planned bridge restart. The publisher continued writing while a receiver stopped delivering decoded images. The saved counters cannot identify which layer stopped. The diagnostic rehearsal deliberately stalled one receiver with live RTP and exercised the existing frame-age limit. The 120-second normal rehearsal used the merged bridge and the diagnostic fixture."
+  },
   "linux_merged_release_esp32_original_h264": {
     "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
     "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",

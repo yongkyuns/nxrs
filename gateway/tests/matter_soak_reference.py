@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+from collections import deque
 from contextlib import AsyncExitStack, ExitStack
 import json
 import os
@@ -104,6 +105,16 @@ class Viewer:
         result = dict(frames=self.frames, longest_gap_seconds=round(self.max_gap, 3))
         self.max_gap = 0
         return result
+
+    async def playback_health(self, now):
+        peer = self.peer
+        return dict(
+            frames=self.frames,
+            frame_age_seconds=round(now - self.last, 3) if peer else None,
+            connection=peer.connectionState if peer else None,
+            ice=peer.iceConnectionState if peer else None,
+            received_rtp=await packets(peer) if peer else None,
+        )
 
     async def close(self, *, end=False):
         if end:
@@ -284,11 +295,47 @@ async def serve_viewers(args, reader, writer):
         for index in range(VIEWERS):
             viewers.append(await add(index))
         await respond(await open_all())
+        health = deque(maxlen=45)
+        started = time.monotonic()
+
+        async def observe_playback():
+            while True:
+                now = time.monotonic()
+                snapshots = [await viewer.playback_health(now) for viewer in viewers]
+                health.append(dict(elapsed_seconds=round(now - started, 3), viewers=snapshots))
+                await asyncio.sleep(1)
+
+        observer = asyncio.create_task(observe_playback())
+
+        async def stop_observer():
+            observer.cancel()
+            await asyncio.gather(observer, return_exceptions=True)
+
+        stack.push_async_callback(stop_observer)
         actions = {"full": full, "slow_offer": slow_offer, "restart": restart, "revoke": revoke}
         while line := await reader.readline():
             command = line.decode().strip()
             if command == "sample":
-                result = [viewer.sample() for viewer in viewers]
+                try:
+                    result = [viewer.sample() for viewer in viewers]
+                except AssertionError:
+                    active = None
+                    try:
+                        async with asyncio.timeout(2):
+                            owner = viewers[0]
+                            rows = await owner.client.request(
+                                "read_attribute", node_id=owner.node, attribute_path=SESSIONS,
+                                fabric_filtered=False,
+                            )
+                            sessions = rows.get(SESSIONS)
+                            if isinstance(sessions, list):
+                                active = len(sessions)
+                    except (RuntimeError, TimeoutError):
+                        pass
+                    print("Viewer stall " + json.dumps(dict(
+                        active_sessions=active, recent=list(health),
+                    )), flush=True)
+                    raise
             elif command == "finish":
                 await asyncio.gather(*(viewer.close(end=True) for viewer in viewers))
                 assert not any(await asyncio.gather(*(viewer.sessions() for viewer in viewers)))
@@ -345,7 +392,7 @@ async def run(args):
     username = pwd.getpwuid(os.getuid()).pw_name
     with ExitStack() as stack:
         network(stack, SELECTED)
-        gateway, _, _, rtsp = start_media(stack, root, args)
+        gateway, media, control, rtsp = start_media(stack, root, args)
         progress = root / "source-progress.txt"
         publisher = publish(
             stack, root, args, rtsp, gateway.publisher, "red", "640x360", SOURCE_FPS, progress=progress
@@ -455,7 +502,26 @@ async def run(args):
             samples = 0
             previous = None
             while True:
-                taps = await ask("sample")
+                try:
+                    taps = await ask("sample")
+                except (AssertionError, TimeoutError):
+                    try:
+                        state = gateway.path()
+                    except OSError:
+                        state = {}
+                    print("Publisher at viewer failure " + json.dumps(dict(
+                        source_frames=source_frames(progress),
+                        source_ready=bool(state.get("ready")),
+                        same_publication=(state.get("source") or {}).get("id") == publication,
+                        readers=len(state.get("readers", [])),
+                        received_bytes=state.get("bytesReceived"),
+                        sent_bytes=state.get("bytesSent"),
+                        bridge_running=device.poll() is None,
+                        media_running=media.poll() is None,
+                        control_running=control.poll() is None,
+                        source_running=[child.poll() is None for child in publisher],
+                    )), flush=True)
+                    raise
                 resource = resources(device)
                 state = gateway.path()
                 assert state["source"]["id"] == publication and len(state["readers"]) == 1
