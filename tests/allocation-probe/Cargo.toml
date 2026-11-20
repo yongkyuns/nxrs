@@ -3,3 +3,14 @@ name = "nxrs-allocation-probe"
 version.workspace = true
 edition.workspace = true
 publish = false
+
+[features]
+probe = []
+
+[target.'cfg(unix)'.dev-dependencies]
+nxrs-acquisition = { path = "../../hal/acquisition" }
+
+[[test]]
+name = "acquisition_lifecycle"
+harness = false
+required-features = ["probe"]

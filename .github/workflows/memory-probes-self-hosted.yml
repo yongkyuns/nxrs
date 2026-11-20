@@ -7,8 +7,10 @@ on:
       - 'app/std-demo/**'
       - 'app/ao-stress/**'
       - 'shared/messaging/**'
+      - 'hal/acquisition/**'
       - 'tests/allocation-probe/**'
       - 'tests/host/test_memory_probes.py'
+      - 'docs/memory-qualification.md'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/memory-probes-self-hosted.yml'
@@ -18,8 +20,10 @@ on:
       - 'app/std-demo/**'
       - 'app/ao-stress/**'
       - 'shared/messaging/**'
+      - 'hal/acquisition/**'
       - 'tests/allocation-probe/**'
       - 'tests/host/test_memory_probes.py'
+      - 'docs/memory-qualification.md'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/memory-probes-self-hosted.yml'
@@ -46,7 +50,7 @@ jobs:
           ! mount | grep -F '/Users/' >/dev/null
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Pinned toolchain and provenance
         shell: bash
@@ -56,7 +60,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           rustup toolchain install 1.90.0 --profile minimal --component clippy --component rustfmt
           mkdir -p target/memory-probes
-          { git rev-parse HEAD; uname -a; rustc +1.90.0 -vV; } | tee target/memory-probes/provenance.txt
+          { git rev-parse HEAD; git rev-parse 'HEAD^{tree}'; uname -a; rustc +1.90.0 -vV; } | tee target/memory-probes/provenance.txt
       - name: Observer accounting and transcript controls
         shell: bash
         run: |
@@ -74,6 +78,8 @@ jobs:
               timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p "nxrs-$app" --features probe --test memory_qualification 2>&1 | tee "target/memory-probes/$app-$profile.log"
               python3 tests/host/test_memory_probes.py --app "$app" --log "target/memory-probes/$app-$profile.log"
             done
+            timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p nxrs-allocation-probe --features probe --test acquisition_lifecycle 2>&1 | tee "target/memory-probes/acquisition-$profile.log"
+            python3 tests/host/test_memory_probes.py --app acquisition --log "target/memory-probes/acquisition-$profile.log"
           done
       - name: Check normal builds and dependency boundaries
         shell: bash
@@ -84,7 +90,7 @@ jobs:
           python3 tools/check-architecture.py
           python3 - <<'PY'
           import subprocess
-          for app in ('std-demo', 'ao-stress'):
+          for app in ('std-demo', 'ao-stress', 'acquisition'):
               for features in ([], ['--features', 'probe']):
                   output = subprocess.check_output(['cargo', '+1.90.0', 'tree', '--locked', '-p',
                       'nxrs-' + app, '-e', 'normal,build', *features], text=True)
