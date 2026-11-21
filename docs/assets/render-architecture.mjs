@@ -394,6 +394,117 @@ function cameraPipeline(p) {
 `);
 }
 
+function matterRoomToApp(p) {
+  return guideFigure(p, 'From a room to an app',
+    'The camera board runs Nxrs firmware. It sends video and person updates to the gateway computer. The gateway’s Matter bridge presents a camera and a room sensor. The Home Assistant server adds the device, opens the video session, and runs automations. The phone or browser receives live video directly from the bridge.', 810, `
+  ${panel({ id: 'board', x: 24, y: 24, w: 752, h: 94, title: 'Camera board in the room',
+    lines: ['Nxrs firmware captures video and detects people'], accent: p.blue })}
+  ${group(p, 'host', 24, 171, 752, 315, 'Gateway computer')}
+  ${edge('board', 'gateway', 'M298 118 V224')}
+  ${label(314, 149, 'Video and person updates', 'start')}
+  ${panel({ id: 'gateway', x: 52, y: 226, w: 492, h: 82, title: 'Nxrs gateway',
+    lines: ['Shares live video and room occupancy'] })}
+  ${edge('gateway', 'bridge', 'M298 308 V365')}
+  ${label(314, 342, 'Camera feed and room status', 'start')}
+  ${panel({ id: 'bridge', x: 52, y: 367, w: 492, h: 88, title: 'Matter bridge',
+    lines: ['Presents a camera and a room occupancy sensor'], accent: p.blue })}
+  ${edge('home-assistant', 'bridge', 'M298 538 V457')}
+  ${label(314, 515, 'Pairing and camera commands', 'start')}
+  ${panel({ id: 'home-assistant', x: 52, y: 538, w: 492, h: 88, title: 'Home Assistant server',
+    lines: ['Adds the device, opens live view and runs rules'], accent: p.orange })}
+  ${edge('bridge', 'app', 'M544 411 H669 V697')}
+  ${label(655, 565, 'Live video', 'end')}
+  ${label(655, 588, 'direct to app', 'end')}
+  ${edge('home-assistant', 'app', 'M298 626 V697')}
+  ${label(314, 664, 'Controls and room status', 'start')}
+  ${panel({ id: 'app', x: 52, y: 699, w: 696, h: 87, title: 'Phone app or web dashboard',
+    lines: ['See the live image and check whether the room is occupied'], accent: p.blue })}
+`);
+}
+
+function matterArchitecture(p) {
+  return guideFigure(p, 'Nxrs camera and Matter gateway',
+    'The ESP32 sends one authenticated feed to gateway ingest. MediaMTX serves Nxrs viewers and a shared RTSP reader in the Matter bridge. Gateway control feeds a separate detection subscription. The bridge serves snapshots and occupancy through Matter commands, and streams WebRTC media directly to each receiver.', 970, `
+  ${panel({ id: 'camera', x: 24, y: 24, w: 752, h: 100, title: 'ESP32 camera · Nxrs on NuttX',
+    lines: ['Product profile → camera and detector HALs → home-cam'], accent: p.blue })}
+  ${group(p, 'gateway', 24, 176, 752, 274, 'Nxrs gateway')}
+  ${group(p, 'bridge', 24, 517, 502, 279, 'Matter bridge')}
+  ${edge('camera', 'ingest', 'M400 124 V220')}
+  ${label(416, 152, 'Authenticated camera feed', 'start')}
+  ${panel({ id: 'ingest', x: 224, y: 222, w: 352, h: 80, title: 'Camera ingest',
+    lines: ['Encodes H.264 and optional Opus'] })}
+  ${edge('ingest', 'media', 'M313 302 V327 H203 V349')}
+  ${label(186, 321, 'Encoded media')}
+  ${edge('ingest', 'control', 'M487 302 V327 H597 V349')}
+  ${label(632, 321, 'Validated detection')}
+  ${panel({ id: 'media', x: 46, y: 351, w: 314, h: 80, title: 'RTSP publisher · MediaMTX',
+    lines: ['One publication per camera'] })}
+  ${panel({ id: 'control', x: 440, y: 351, w: 314, h: 80, title: 'Gateway control',
+    lines: ['Catalogue · grants · detection SSE'] })}
+  ${edge('media', 'reader', 'M146 431 V505 H204 V571')}
+  ${label(158, 479, 'Scoped loopback RTSP', 'start')}
+  ${edge('control', 'occupancy', 'M548 431 V496 H406 V571')}
+  ${label(437, 479, 'Scoped loopback SSE')}
+  ${edge('gateway', 'native', 'M662 450 V571')}
+  ${panel({ id: 'native', x: 548, y: 573, w: 228, h: 112, title: 'Nxrs Home / API',
+    lines: ['HTTPS API and WHEP', 'WebRTC media'] })}
+  ${panel({ id: 'reader', x: 40, y: 573, w: 212, h: 80, title: 'Shared RTSP input',
+    lines: ['H.264 and snapshots'] })}
+  ${panel({ id: 'occupancy', x: 284, y: 573, w: 222, h: 80, title: 'Occupancy',
+    lines: ['Freshness · reachability'] })}
+  ${edge('reader', 'peer', 'M146 653 V684')}
+  ${edge('reader', 'matter', 'M220 653 V673 H313 V684')}
+  ${label(268, 667, 'JPEG')}
+  ${edge('occupancy', 'matter', 'M406 653 V684')}
+  ${panel({ id: 'peer', x: 40, y: 686, w: 212, h: 76, title: 'WebRTC per viewer' })}
+  ${panel({ id: 'matter', x: 284, y: 686, w: 222, h: 100, title: 'Matter node',
+    lines: ['0 Root · 1 Camera', '2 Aggregator · 3 Sensor'] })}
+  ${edge('peer', 'receiver', 'M146 762 V847')}
+  ${label(158, 829, 'Direct ICE and media', 'start')}
+  ${edge('controller', 'matter', 'M395 849 V788')}
+  ${label(408, 829, 'LAN discovery and control', 'start')}
+  ${panel({ id: 'receiver', x: 40, y: 849, w: 212, h: 96, title: 'Video receiver',
+    lines: ['Home Assistant or app'] })}
+  ${panel({ id: 'controller', x: 284, y: 849, w: 222, h: 96, title: 'Matter controller',
+    lines: ['Home Assistant or SDK'] })}
+`);
+}
+
+function matterPlayback(p) {
+  const lanes = [
+    { id: 'receiver', x: 106, title: 'Video receiver' },
+    { id: 'controller', x: 302, title: 'Matter controller' },
+    { id: 'bridge', x: 498, title: 'Matter bridge' },
+    { id: 'media', x: 694, title: 'Gateway media' },
+  ];
+  const messages = [
+    [1, 2, 'Commission and discover endpoints'],
+    [1, 2, 'Subscribe to occupancy and reachability'],
+    [0, 1, 'Open with a WebRTC offer'],
+    [1, 2, 'ProvideOffer on Camera'],
+    [2, 3, 'Use the shared RTSP source'],
+    [3, 2, 'H.264 access units', true],
+    [2, 1, 'Session, SDP answer and ICE', true],
+    [1, 0, 'SDP answer and ICE', true],
+    [0, 2, 'Direct ICE negotiation'],
+    [2, 0, 'Encrypted WebRTC media', true],
+    [0, 1, 'Close the live view'],
+    [1, 2, 'EndSession'],
+    [2, 1, 'Release viewer session', true],
+  ];
+  return guideFigure(p, 'Matter camera playback session',
+    'A Matter controller commissions the bridge, subscribes to occupancy, and passes the receiver’s WebRTC offer to the bridge. A shared RTSP stream supplies H.264. The receiver negotiates ICE and receives encrypted video directly from the bridge. Closing the live view sends EndSession through the controller.', 705, `
+  ${lanes.map(({id, x, title}) => `
+  <path d="M${x} 91 V680" stroke="${p.line}" stroke-width="1" stroke-dasharray="4 6"/>
+  ${panel({ id, x: x - 90, y: 24, w: 180, h: 67, title })}`).join('\n')}
+  ${messages.map(([from, to, text, dashed], i) => {
+    const a = lanes[from], b = lanes[to], y = 133 + i * 44;
+    return `  ${edge(a.id + '-' + i, b.id, `M${a.x} ${y} H${b.x}`, dashed)}
+  ${label((a.x + b.x) / 2, y - 8, text)}`;
+  }).join('\n')}
+`);
+}
+
 function deviceAccess(p) {
   return guideFigure(p, 'Typed Rust access to NuttX device endpoints',
     'Portable code calls a capability contract. Its private NuttX provider uses Rust standard-library file operations for ordinary opens and data transfer. Controls that std cannot express use small private target-header ABI helpers. Both paths reach NuttX native operations and the registered VFS driver; NuttX owns lower-half hardware access. Ordinary networking instead uses qualified std::net socket operations.', 792, `
@@ -523,6 +634,9 @@ const guideDiagrams = [
   ['nxrs-service-dependencies', serviceDependencies],
   ['nxrs-ao-stress', aoStress],
   ['nxrs-camera-pipeline', cameraPipeline],
+  ['nxrs-matter-room-to-app', matterRoomToApp],
+  ['nxrs-matter-architecture', matterArchitecture],
+  ['nxrs-matter-playback', matterPlayback],
   ['nxrs-device-access', deviceAccess],
   ['nxrs-priority-inboxes', priorityInboxes],
   ['nxrs-acquisition-boundary', acquisitionBoundary],

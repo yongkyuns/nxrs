@@ -1,8 +1,56 @@
 # Use an Nxrs camera in your application
 
-Nxrs captures video and detects people on the camera. A gateway publishes the
-video and confirmed presence to enrolled viewers. Its optional Matter bridge
-makes the same camera and occupancy sensor available to a Matter controller.
+Start with one device on your home network and one app that uses it. The
+camera below is a working Nxrs example. You can follow the same development
+steps for a sensor or a device that controls something.
+
+## From a room to an app
+
+A connected device reads sensors or controls hardware and communicates over a
+network. This is commonly called the Internet of Things (IoT). **Firmware**
+is the program that runs on the board. In this example it captures video and
+checks whether someone is in the room.
+
+A **gateway** is a computer that receives updates from the board and shares
+them with apps. **Matter** defines how devices are added to a home and how
+controllers read their state or send commands. The **Matter bridge** runs on
+the gateway and presents the Nxrs camera and its room occupancy sensor to a
+**controller** such as the Home Assistant server. Adding a device to the
+controller is called *commissioning*.
+
+<figure>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-matter-room-to-app-dark.svg">
+    <img src="../../docs/assets/nxrs-matter-room-to-app.svg" alt="The camera board sends video and person updates to the gateway computer. Its Matter bridge lets Home Assistant add the camera and read room occupancy. Live video goes directly from the bridge to the phone or browser.">
+  </picture>
+  <figcaption>Follow the camera from the board to the screen. Home Assistant arranges playback and runs automations. The phone or browser receives the video directly from the bridge. <a href="../../docs/assets/nxrs-matter-room-to-app.svg">Open diagram</a>.</figcaption>
+</figure>
+
+## Build your first connected project
+
+1. **Run a program on your computer.** Follow [Your first application](../../website/guide/first-application.md#build-and-run-on-the-host)
+   to see `Hello from NXRS`. The [controller tutorial](../../website/guide/controller.md#run-the-controller-on-your-host)
+   then lets you turn a simulated LED on and off and read its state.
+2. **Try the camera integration.** With a working camera and gateway, follow
+   [Connect Home Assistant](#connect-home-assistant). Without a camera board,
+   use the [phone pairing fixture](../tests/matter/README.md#pair-from-a-phone-on-the-lan),
+   which supplies generated video. Pair on the same home network, open and close
+   the live view, and find the occupancy sensor on the camera’s device page.
+3. **Add one behavior.** Set a Home Assistant automation to notify you when
+   the room changes from clear to occupied. In the fixture terminal, enter
+   `clear` and then `occupied` to test the rule. Enter `unavailable` to
+   check that Home Assistant reports missing updates separately from a
+   clear room.
+4. **Adapt the pattern.** For your own board, use a
+   [hardware profile](../../website/guide/profiles.md) to select its resources.
+   Give the application a small, testable job and report its state through the
+   interface your users need. A custom viewer can use the
+   [Nxrs gateway API](#use-the-nxrs-gateway-api). To expose a different kind of
+   device through Matter, implement its device type and the groups of states
+   and commands it requires, called *clusters*. Pair it and check each
+   advertised operation with the controller you plan to support.
+
+## Choose an integration path
 
 | If you want to… | Start here |
 | --- | --- |
@@ -20,40 +68,13 @@ app. The camera and occupancy results cover the endpoints shown below.
 
 ## How the pieces connect
 
-```mermaid
-flowchart TB
-    Camera["ESP32 camera · Nxrs on NuttX<br/>Product profile → Camera and detector HALs → home-cam"]
-
-    subgraph Gateway["Nxrs gateway"]
-        Ingest["Camera ingest<br/>Encodes H.264 and optional Opus"]
-        Media["RTSP publisher and MediaMTX<br/>One publication per camera"]
-        Control["Gateway control<br/>Catalogue, enrollments, grants and detection SSE"]
-        Ingest --> Media
-        Ingest -->|Validated detection| Control
-    end
-
-    subgraph Bridge["Matter bridge"]
-        Reader["Shared RTSP reader<br/>Feeds WebRTC and JPEG snapshots"]
-        Occupancy["Occupancy<br/>Freshness and reachability"]
-        Peer["WebRTC peer per viewer"]
-        Matter["Matter node · persistent fabric state<br/>0 Root · 1 Camera · 2 Aggregator · 3 Occupancy"]
-        Reader --> Peer
-        Reader -->|Snapshots| Matter
-        Occupancy --> Matter
-    end
-
-    Native["Nxrs Home or<br/>custom gateway API app"]
-    Receiver["Home Assistant view or<br/>custom Matter video receiver"]
-    Controller["Home Assistant Matter Server<br/>or custom Matter controller"]
-
-    Camera -->|Authenticated camera feed| Ingest
-    Media -->|Scoped loopback RTSP| Reader
-    Control -->|Scoped loopback SSE| Occupancy
-    Media <-->|WHEP and WebRTC| Native
-    Control <-->|HTTPS API and grants| Native
-    Matter <-->|LAN commissioning and control| Controller
-    Peer <-->|Direct ICE and WebRTC media| Receiver
-```
+<figure>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-matter-architecture-dark.svg">
+    <img src="../../docs/assets/nxrs-matter-architecture.svg" alt="The ESP32 feeds the Nxrs gateway. Shared RTSP video and detection updates feed the Matter bridge, while Nxrs clients use the gateway directly.">
+  </picture>
+  <figcaption>The gateway shares one publication. The Matter bridge and Nxrs clients negotiate their own viewer sessions. <a href="../../docs/assets/nxrs-matter-architecture.svg">Open diagram</a>.</figcaption>
+</figure>
 
 - **Camera and gateway.** The selected profile supplies the camera and detector
   resources. The firmware sends one authenticated feed. The Linux or macOS
@@ -131,26 +152,13 @@ use Camera AV Stream Management to discover the stream and WebRTC Transport
 Provider to negotiate a session. The diagram shows a controller-provided
 offer. Controllers that solicit an offer use the same media path.
 
-```mermaid
-sequenceDiagram
-    participant V as Phone or video receiver
-    participant C as Matter controller
-    participant B as Nxrs Matter bridge
-    participant M as Nxrs gateway media
-    C->>B: Commission on LAN and discover endpoints
-    C->>B: Subscribe to Occupancy and Reachable
-    V->>C: Open live view with a WebRTC offer
-    C->>B: ProvideOffer on Camera endpoint
-    B->>M: Use authorized shared RTSP source
-    M-->>B: H.264 access units
-    B-->>C: Session and SDP answer
-    C-->>V: SDP answer and ICE signaling
-    V<<->>B: ICE negotiation
-    B-->>V: Encrypted WebRTC media
-    V->>C: Close live view
-    C->>B: EndSession
-    B-->>C: Release viewer session
-```
+<figure>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-matter-playback-dark.svg">
+    <img src="../../docs/assets/nxrs-matter-playback.svg" alt="A Matter controller negotiates the video session. ICE and media travel directly between the receiver and bridge. Closing the view sends EndSession through the controller.">
+  </picture>
+  <figcaption>Matter carries the session commands. The receiver gets video directly from the bridge. <a href="../../docs/assets/nxrs-matter-playback.svg">Open diagram</a>.</figcaption>
+</figure>
 
 Keep the controller authorized on the fabric for the session's lifetime and
 send `EndSession` when the view closes. If the source changes, negotiate a

@@ -88,11 +88,12 @@ class ContentTests(unittest.TestCase):
     def test_reference_groups_are_valid_and_unique(self):
         pages = [name for group in self.config['reference_groups'] for name in group['pages']]
         self.assertEqual(len(pages), len(set(pages)))
+        sources = self.config.get('reference_sources', {})
+        self.assertLessEqual(sources.keys(), set(pages))
         for name in pages:
-            self.assertTrue((ROOT / 'docs' / name).is_file(), name)
             self.assertTrue(self.config['reference_descriptions'].get(name), name)
         for name in self.config['reference_descriptions']:
-            self.assertTrue((ROOT / 'docs' / name).is_file(), name)
+            self.assertTrue((ROOT / (name if name in sources else 'docs/' + name)).is_file(), name)
 
     def test_documented_std_cases_exist(self):
         source = (ROOT / 'app/std-demo/src/main.rs').read_text()
