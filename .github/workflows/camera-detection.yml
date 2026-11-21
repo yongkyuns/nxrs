@@ -9,6 +9,7 @@ on:
       - 'service/detection-wire/**'
       - 'service/firmware-update/**'
       - 'hal/audio/**'
+      - 'shared/acquisition/**'
       - 'hal/detector/**'
       - 'tools/detector-build-support/**'
       - 'upstream/esp-dl/**'

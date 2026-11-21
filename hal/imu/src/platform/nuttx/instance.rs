@@ -1,8 +1,9 @@
 //! Canonical storage remains in the device; a worker borrows it until retirement.
 use super::device_state::DeviceState;
 use super::{device, events};
+use crate::session;
 use crate::{api::Sealed, AppliedConfig, Config, Device, DeviceError, Event, Session};
-use acquisition::{probe::Trace, readiness, Worker};
+use acquisition::{probe::Trace, readiness};
 use peripheral::imu::{Error, Imu};
 use std::sync::Mutex;
 
@@ -67,21 +68,13 @@ impl<S: Imu + Send + 'static, R: 'static> Instance<S, R> {
         let delivery = (sink, Retained(self));
         let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
         let wake = cancel.reader.clone();
-        Worker::start_guarded(
-            "imu-acquire",
-            self.stack_bytes,
-            cancel,
-            delivery.0,
-            delivery.1,
-            Event::Failed,
-            move |stop, emit| {
-                let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
-                storage
-                    .as_mut()
-                    .ok_or(DeviceError::Io)?
-                    .run(stop, &wake, emit)
-            },
-        )
+        session::start(self.stack_bytes, cancel, delivery, move |stop, emit| {
+            let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
+            storage
+                .as_mut()
+                .ok_or(DeviceError::Io)?
+                .run(stop, &wake, emit)
+        })
         .map(|session| (session, applied))
         .map_err(|_| DeviceError::Io)
     }

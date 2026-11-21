@@ -43,8 +43,6 @@ enum RuntimeError {
     TlsDestructor,
 }
 
-fn failed(_: RuntimeError) {}
-
 fn run_cycle(cycle: usize) -> Result<(), RuntimeError> {
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -52,9 +50,8 @@ fn run_cycle(cycle: usize) -> Result<(), RuntimeError> {
         "protected-runtime-witness",
         8192,
         TaskWake(wake_tx),
-        |_| Ok(()),
-        failed,
-        move |stop, _emit| {
+        (),
+        move |stop, ()| {
             TLS_PROBE.with(|_| {});
             ready_tx.send(()).map_err(|_| RuntimeError::WorkerPanic)?;
             wake_rx

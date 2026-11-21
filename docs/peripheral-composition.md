@@ -92,8 +92,8 @@ only when multiple implementations actually need the same operations.
 | `platform/src/nuttx/imu.rs` | Concrete IMU construction |
 | `driver/i2c/`, `driver/spi/` | NuttX-only embedded-hal resource adapters |
 | `driver/gpio/` | NuttX GPIO interrupt owner and embedded-hal input |
-| `hal/acquisition/` | Shared workers, cancellation and native readiness |
-| `hal/acquisition/src/probe/` | Optional acquisition and I²C/SPI timing |
+| `shared/acquisition/` | Shared worker lifetimes, cancellation and native readiness |
+| `shared/acquisition/src/probe/` | Optional acquisition and I²C/SPI timing |
 | `platform/src/nuttx/gnss.rs` | Concrete GNSS construction |
 | `hal/gnss/` | UART acquisition, stream metadata and simulation adapter |
 | `shared/simulation/` | Seeded scenario and logical clock |

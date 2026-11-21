@@ -1,7 +1,6 @@
 //! Signal-driven DMA draining, independent of a slow or preempted consumer.
 use crate::{Block, Capture, DeviceError, Stream, SAMPLES_PER_BLOCK};
 use acquisition::{Wake, Worker};
-use messaging::{DeliveryError, Rejected};
 use std::{
     sync::{atomic::Ordering, Arc, Mutex, TryLockError},
     time::{Duration, Instant},
@@ -23,54 +22,32 @@ impl<C: Wake> Buffered<C> {
     ) -> Result<Self, DeviceError> {
         let block = Arc::new(Mutex::new(None));
         let mailbox = block.clone();
-        let worker = Worker::start(
-            "microphone",
-            stack_bytes,
-            cancel,
-            move |event: Result<Block, DeviceError>| {
-                let Ok(block) = event else {
-                    // The joined result is independent of the sample slot.
-                    return Ok(());
-                };
-                match mailbox.try_lock() {
-                    Ok(mut latest) => {
-                        *latest = Some(block);
-                        Ok(())
-                    }
-                    Err(TryLockError::WouldBlock) => Err(Rejected {
-                        value: Ok(block),
-                        error: DeliveryError::Full,
-                    }),
-                    Err(TryLockError::Poisoned(_)) => Err(Rejected {
-                        value: Ok(block),
-                        error: DeliveryError::Closed,
-                    }),
-                }
-            },
-            Err,
-            move |stop, emit| {
+        let worker = Worker::start("microphone", stack_bytes, cancel, (), move |stop, ()| {
+            if stop.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            let mut input = open()?;
+            let result = loop {
                 if stop.load(Ordering::Acquire) {
-                    return Ok(());
+                    break Ok(());
                 }
-                let mut input = open()?;
-                let result = loop {
-                    if stop.load(Ordering::Acquire) {
-                        break Ok(());
-                    }
-                    let mut samples = [0; SAMPLES_PER_BLOCK];
-                    let read = input.read(Instant::now() + READ_TIMEOUT, &mut samples);
-                    if stop.load(Ordering::Acquire) {
-                        break Ok(());
-                    }
-                    match read {
-                        Ok(frame) if emit(Ok(Block { frame, samples })) => {}
-                        Ok(_) => break Err(DeviceError::Io),
-                        Err(error) => break Err(error),
-                    }
-                };
-                input.stop(Instant::now() + STOP_TIMEOUT).and(result)
-            },
-        )
+                let mut samples = [0; SAMPLES_PER_BLOCK];
+                let read = input.read(Instant::now() + READ_TIMEOUT, &mut samples);
+                if stop.load(Ordering::Acquire) {
+                    break Ok(());
+                }
+                match read {
+                    Ok(frame) => match mailbox.try_lock() {
+                        Ok(mut latest) => *latest = Some(Block { frame, samples }),
+                        // Skip a sample when a consumer owns the slot.
+                        Err(TryLockError::WouldBlock) => {}
+                        Err(TryLockError::Poisoned(_)) => break Err(DeviceError::Io),
+                    },
+                    Err(error) => break Err(error),
+                }
+            };
+            input.stop(Instant::now() + STOP_TIMEOUT).and(result)
+        })
         .map_err(|_| DeviceError::Io)?;
         Ok(Self { block, worker })
     }

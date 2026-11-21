@@ -2,8 +2,8 @@
 use crate::device_state;
 use peripheral::imu::select_rate;
 
+use crate::session;
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
-use acquisition::Worker;
 use nxrs_simulation::{self as simulation, runtime, CancelHandle, Error, Observation, Source};
 use std::io;
 
@@ -68,44 +68,34 @@ impl crate::Device for SelectedDevice {
                 _ => DeviceError::Io,
             })?;
         let cancel = Cancel(endpoint.cancel_handle());
-        Worker::start_guarded(
-            "imu-acquire",
-            65_536,
-            cancel,
-            delivery.0,
-            delivery.1,
-            Event::Failed,
-            move |stop, emit| {
-                while !stop.load(core::sync::atomic::Ordering::Acquire) {
-                    let event = match endpoint.recv() {
-                        Ok(event) => event,
-                        Err(Error::Cancelled)
-                            if stop.load(core::sync::atomic::Ordering::Acquire) =>
-                        {
-                            break
-                        }
-                        Err(_) => return Err(DeviceError::Io),
-                    };
-                    let Observation::Imu(sample) = event.observation else {
-                        return Err(DeviceError::InvalidData);
-                    };
-                    if !emit(Event::Sample(ImuSample {
-                        sequence: event.key.sequence.saturating_add(1),
-                        timestamp_ms: event.key.time_us / 1_000,
-                        sample_interval_us: INTERVAL_US,
-                        accel_mps2: sample
-                            .accel_ug
-                            .map(|value| value as f32 * (9.80665 / 1_000_000.0)),
-                        gyro_rps: sample
-                            .gyro_udps
-                            .map(|value| (value as f32 / 1_000_000.0).to_radians()),
-                    })) {
-                        break;
+        session::start(65_536, cancel, delivery, move |stop, emit| {
+            while !stop.load(core::sync::atomic::Ordering::Acquire) {
+                let event = match endpoint.recv() {
+                    Ok(event) => event,
+                    Err(Error::Cancelled) if stop.load(core::sync::atomic::Ordering::Acquire) => {
+                        break
                     }
+                    Err(_) => return Err(DeviceError::Io),
+                };
+                let Observation::Imu(sample) = event.observation else {
+                    return Err(DeviceError::InvalidData);
+                };
+                if !emit(Event::Sample(ImuSample {
+                    sequence: event.key.sequence.saturating_add(1),
+                    timestamp_ms: event.key.time_us / 1_000,
+                    sample_interval_us: INTERVAL_US,
+                    accel_mps2: sample
+                        .accel_ug
+                        .map(|value| value as f32 * (9.80665 / 1_000_000.0)),
+                    gyro_rps: sample
+                        .gyro_udps
+                        .map(|value| (value as f32 / 1_000_000.0).to_radians()),
+                })) {
+                    break;
                 }
-                Ok(())
-            },
-        )
+            }
+            Ok(())
+        })
         .map(|session| (session, applied))
         .map_err(|_| DeviceError::Io)
     }

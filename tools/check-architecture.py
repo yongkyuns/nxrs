@@ -28,7 +28,7 @@ ALLOWED = {
     'shared': {'shared'},
     'build-support': {'build-support'},
     'build': {'build-support'},
-    'devices': {'hal', 'driver', 'shared'},
+    'devices': {'hal', 'driver', 'shared', 'support'},
     'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'devices', 'test', 'shared', 'build-support'},
 }
@@ -44,9 +44,6 @@ PORTABLE_EXTERNAL: set[str] = {'cfg-if'}
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    # Embedded bus traits for shared acquisition timing observers.
-    # Bus access and chip protocols belong to independent driver packages.
-    'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-composition': {'embedded-hal'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
@@ -65,6 +62,8 @@ def layer(path: Path) -> str:
         return 'build' if parts == ('tools', 'build') else 'build-support'
     if parts == ('platform',):
         return 'devices'
+    if parts == ('shared', 'acquisition'):
+        return 'support'
     if parts[0] == 'hal':
         if parts == ('hal', 'common'):
             return 'api'
@@ -126,7 +125,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: common contains radio identities and bounded payloads only')
                 # A HAL/driver can use generic host helpers or its own SDK build
                 # package. These are build edges only, never target libraries.
-                if (role in {'hal', 'driver', 'devices'} and dep.get('kind') == 'build'
+                if (role in {'hal', 'driver', 'devices', 'support'} and dep.get('kind') == 'build'
                         and (destination == ('tools', 'build-support')
                              or (role == 'hal' and destination == ('tools', source[-1] + '-build-support')))):
                     continue
@@ -519,7 +518,8 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             instance = hal / 'src/platform/nuttx/instance.rs'
             runtime = re.sub(r'\s+', '', instance.read_text()) if instance.is_file() else ''
             if ('state:DeviceState' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
-                    or 'Worker::start_guarded("imu-acquire",self.stack_bytes,' not in runtime
+                    or 'letdelivery=(sink,Retained(self));' not in runtime
+                    or 'session::start(self.stack_bytes,cancel,delivery,' not in runtime
                     or 'device::Device::open(config,self.irq_path,trace,&self.state,' not in runtime):
                 errors.append(f'{relative(instance)}: retain per-device storage and ownership through guarded worker retirement')
             for path in (nuttx, instance, instance.parent / 'device.rs'):
@@ -545,8 +545,10 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
         else:
             runtime = (hal / 'src/platform/nuttx/mod.rs').read_text()
             compact = re.sub(r'\s+', '', source)
+            retirement = re.sub(r'\s+', '', runtime)
             if ('static$name:Instance<' not in compact or '$stack' not in compact
-                    or 'Worker::start_guarded' not in runtime
+                    or 'letdelivery=(sink,Retained(self));' not in retirement
+                    or 'session::start(self.stack_bytes,cancel,delivery,' not in retirement
                     or 'storage: Mutex<Option<Active<R>>>' not in runtime
                     or re.search(r'\bstatic\s+OWNED\b', runtime)):
                 errors.append(f'{relative(nuttx)}: GNSS must retain canonical state through guarded retirement')
@@ -633,14 +635,14 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if path in declared:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
-    native_roots = [root / 'hal', root / 'driver', root / 'tools']
+    native_roots = [root / name for name in ('hal', 'driver', 'shared', 'tools')]
     actual = {path.relative_to(root).as_posix(): path for native_root in native_roots for path in native_root.rglob('*')
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
-        if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
+        if not (re.fullmatch(r'(?:hal|shared)/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'driver/(?:[^/]+/)+src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'tools/[^/]+/src/ffi/.+', relative)
                 or re.fullmatch(r'hal/tls/src/sdk/ffi/.+', relative)):

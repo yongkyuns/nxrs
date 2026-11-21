@@ -1,11 +1,11 @@
 //! NuttX UART resource ownership. Receiver protocol stays in ordinary Rust.
+use crate::session;
 #[cfg(test)]
 use crate::test_support::{events, ffi};
 use crate::{receiver::Receiver, DeviceError, Event, Session};
 #[cfg(not(test))]
 use acquisition::nuttx as events;
 use acquisition::readiness;
-use acquisition::Worker;
 use core::sync::atomic::{AtomicU8, Ordering};
 use peripheral::gnss::Receiver as Protocol;
 use std::sync::Mutex;
@@ -211,48 +211,40 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
         let delivery = (sink, Retained(self));
         let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
         let wake = cancel.reader.clone();
-        Worker::start_guarded(
-            "gnss-acquire",
-            self.stack_bytes,
-            cancel,
-            delivery.0,
-            delivery.1,
-            Event::Failed,
-            move |stop, emit| {
-                let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
-                let device = storage.as_mut().ok_or(DeviceError::Io)?;
-                let origin = std::time::Instant::now();
-                let result = (|| {
-                    while !stop.load(Ordering::Acquire) {
-                        if !readiness::wait(
-                            &device.receiver.source.as_ref().port.file,
-                            &wake,
-                            events::wait,
-                        )
-                        .map_err(|_| DeviceError::Io)?
-                        {
-                            break;
-                        }
-                        let mut connected = true;
-                        let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
-                        device.receiver.read_events(now, |fix| {
-                            if connected {
-                                connected = match fix {
-                                    Ok(fix) => emit(Event::Fix(fix)),
-                                    Err(DeviceError::Busy) => true,
-                                    Err(_) => emit(Event::InvalidFrame),
-                                };
-                            }
-                        })?;
-                        if !connected {
-                            break;
-                        }
+        session::start(self.stack_bytes, cancel, delivery, move |stop, emit| {
+            let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
+            let device = storage.as_mut().ok_or(DeviceError::Io)?;
+            let origin = std::time::Instant::now();
+            let result = (|| {
+                while !stop.load(Ordering::Acquire) {
+                    if !readiness::wait(
+                        &device.receiver.source.as_ref().port.file,
+                        &wake,
+                        events::wait,
+                    )
+                    .map_err(|_| DeviceError::Io)?
+                    {
+                        break;
                     }
-                    Ok(())
-                })();
-                device.cleanup().and(result)
-            },
-        )
+                    let mut connected = true;
+                    let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+                    device.receiver.read_events(now, |fix| {
+                        if connected {
+                            connected = match fix {
+                                Ok(fix) => emit(Event::Fix(fix)),
+                                Err(DeviceError::Busy) => true,
+                                Err(_) => emit(Event::InvalidFrame),
+                            };
+                        }
+                    })?;
+                    if !connected {
+                        break;
+                    }
+                }
+                Ok(())
+            })();
+            device.cleanup().and(result)
+        })
         .map_err(|_| DeviceError::Io)
     }
 }

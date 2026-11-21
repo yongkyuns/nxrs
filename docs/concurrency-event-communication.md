@@ -311,9 +311,9 @@ handling remains integrated into the service's one selection point.
 
 The [GNSS HAL](../hal/gnss/README.md#event-driven-session) implements bounded event
 delivery through `open(sink)` and a session with explicit `request_stop()` and
-`join()`. Its worker mechanics are shared through `hal/acquisition`. The
-existing event-demo topology remains portability/stress evidence, not the
-required product decomposition.
+`join()`. `shared/acquisition` supplies worker lifetimes and readiness; GNSS
+owns queue-full handling and terminal notification. The event demo exercises
+the topology under portable and stress workloads.
 See [architecture.md](architecture.md) and [event-driven-demo.md](event-driven-demo.md).
 
 Tests must cover typed multi-source delivery, isolated capacity, important-full
