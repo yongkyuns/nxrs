@@ -202,8 +202,12 @@ decoded FPS, frame gaps, bridge RSS, threads and descriptors. `result.json`
 is written after a successful teardown. Keep controller state and raw logs
 private. The earlier TLS fixture completed 24 hours at 14.55–15.446 decoded
 FPS, and all four viewers recovered in 5.955 seconds after the restart.
-The merged release at `fd89e5c7` recovered four viewers in 6.946 seconds in
-its two-minute rehearsal.
+The merged release at `fd89e5c7` completed the instrumented 24-hour soak
+with four viewers at 14.975–15.018 decoded FPS. All four resumed within
+6.962 seconds after the restart. Selective revocation stopped RTP for the
+removed viewer while the three survivors' longest frame gap was 0.082 seconds.
+Viewer teardown passed, and the fixture left no running processes or test
+networks.
 [Measured results](evidence.json).
 This fixture uses generated video in a guest. Physical ESP32 streaming,
 iPhone rendering and microphone audio require separate tests.
@@ -1096,9 +1100,10 @@ iPhone playback demonstrated feasibility.
   snapshot proxy fails the width-only request. The real detector exercised
   unavailable and recovery in the isolated bridge. A controlled clear-to-occupied
   trial on the deployed gateway is pending.
-- **Performance.** The completed 24-hour Linux fixture used pre-merge code and
-  generated media. The merged-build soak and sustained real-camera playback
-  remain release gates.
+- **Performance.** The merged gateway completed the
+  [24-hour Linux soak](#four-viewer-linux-soak) with four generated-video
+  viewers. Sustained real-camera playback and physical iPhone rendering
+  measurements remain release gates.
 - **Camera conformance.** Physical microphone capture, iPhone A/V timing and
   privacy, production attestation and conformance qualification remain open.
   See [camera qualification boundaries](conformance.md). Direct Matter on

@@ -293,8 +293,9 @@ socket can still deliver video. Revoking the shared source ends every Matter
 peer using it. At the Matter layer, removing one commissioned fabric stopped
 its active stream while a viewer on the surviving fabric kept receiving frames
 from the same reader. With two viewers on one fabric, withdrawing a viewer’s
-endpoint grant also ended its pending and active offers. Joining all retired
-session resources under load still needs qualification.
+endpoint grant also ended its pending and active offers. The 24-hour Linux
+fixture verified generated-video session teardown under four-viewer load.
+[Soak qualification](../tests/matter/README.md#four-viewer-linux-soak).
 
 `occupancy::Feed::open` takes a loopback control address, a camera ID and
 a private credential file. Run the subscription on the owning executor. Its
