@@ -386,6 +386,9 @@ The repository's [First firmware tutorial workflow](../../.github/workflows/firs
 
 ## Adapt the application
 
+The [Matter LED example](../examples/matter-led/README.md) uses this controller
+to switch the simulated LED from Home Assistant.
+
 Start with the command and state definitions when adding behavior. Keep output effects in the owner, give every new command an explicit result, and decide how failures affect subsequent commands. If the application needs recording or networking, define those operations' completion and capacity contracts before introducing another owner.
 
 [Designing an application](designing-applications.md) covers those choices. [Networking and storage](io.md) links the existing I/O contracts, and [Testing and debugging](testing.md) explains how to move from controlled fixtures to target and physical-device evidence.

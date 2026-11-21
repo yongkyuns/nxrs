@@ -30,7 +30,10 @@ controller is called *commissioning*.
 
 1. **Run a program on your computer.** Follow [Your first application](../../website/guide/first-application.md#build-and-run-on-the-host)
    to see `Hello from NXRS`. The [controller tutorial](../../website/guide/controller.md#run-the-controller-on-your-host)
-   then lets you turn a simulated LED on and off and read its state.
+   then lets you turn a simulated LED on and off and read its state. Use the
+   [Matter LED example](../../website/examples/matter-led/README.md) to
+   switch the same kind of LED from Home Assistant and adapt it to your
+   own project.
 2. **Try the camera integration.** With a working camera and gateway, follow
    [Connect Home Assistant](#connect-home-assistant). Without a camera board,
    use the [phone pairing fixture](../tests/matter/README.md#pair-from-a-phone-on-the-lan),
