@@ -178,18 +178,18 @@ It checks that UDP reached the router and that the unanswered session retires.
 The second trial routes media to the same Matter bridge through source NAT.
 Both offer directions must decode changing H.264 images and release their
 sessions. The VPN viewer cannot connect to the bridge's Matter TCP port.
-This qualifies the routed media path on Linux. The Home Assistant iPhone app
-on cellular and the deployment's Tailscale routing still need physical tests.
+The merged Linux build also decoded the original ESP32 H.264 in both offer
+directions over this route. The Home Assistant iPhone app on cellular and the
+deployment's Tailscale routing still need physical tests. [Results](evidence.json).
 
 ## Four-viewer Linux soak
 
-In the same disposable Linux guest, prepare the `tls-management` variant
-with the same DNS-SD archive. Build the SDK fixture
-with `cargo build --release` and the same features and pins above. Run
-`gateway/tests/matter_soak_reference.py` with the same executable arguments
-as the LAN test, `--sdk` for the pinned SDK's test attestation chain, and a
-fresh runtime directory. The default is 24 hours with
-samples every 60 seconds. For a rehearsal, add `--duration 120 --interval 10`.
+Build the [gateway candidate](../../matter/README.md#build-the-gateway-candidate)
+in the disposable Linux guest. Run `gateway/tests/matter_soak_reference.py`
+with the same executable arguments as the LAN test, `--sdk` for the pinned
+SDK's test attestation chain, and a fresh runtime directory. The default is
+24 hours with samples every 60 seconds. For a rehearsal, add
+`--duration 120 --interval 10`.
 
 Four independently commissioned Matter fabrics decode the same H.264
 publication over WebRTC. A fifth offer must fail at capacity. The run checks
@@ -200,7 +200,15 @@ under one second during offer expiry and fabric replacement.
 `samples.jsonl` records source and per-viewer
 decoded FPS, frame gaps, bridge RSS, threads and descriptors. `result.json`
 is written after a successful teardown. Keep controller state and raw logs
-private. See the [release rehearsal](evidence.json).
+private. The earlier TLS fixture completed 24 hours at 14.55–15.446 decoded
+FPS, and all four viewers recovered in 5.955 seconds after the restart.
+The merged release at `fd89e5c7` completed the instrumented 24-hour soak
+with four viewers at 14.975–15.018 decoded FPS. All four resumed within
+6.962 seconds after the restart. Selective revocation stopped RTP for the
+removed viewer while the three survivors' longest frame gap was 0.082 seconds.
+Viewer teardown passed, and the fixture left no running processes or test
+networks.
+[Measured results](evidence.json).
 This fixture uses generated video in a guest. Physical ESP32 streaming,
 iPhone rendering and microphone audio require separate tests.
 
@@ -276,8 +284,10 @@ to the browser witness or to `ingest_av_reference.py` with its browser
 arguments. WebKit must report increasing RTP timestamps, compositor frame
 counts and presentation times because its live MediaStream callback can
 report zero for media time. Repeat to exercise session reuse. The combined
-ingest witness also checks release of the Matter session. The physical release
-trial measures rendering on the iPhone.
+ingest witness also checks release of the Matter session. The merged macOS
+bridge passed both browser witnesses in separate runs using the real camera's
+original H.264. Each run closed its Matter session. Physical iPhone rendering
+requires its own trial. [Browser results](evidence.json).
 
 For thumbnail qualification on Home Assistant 2026.11.2, the frontend's
 width-only request sends a zero height. The Matter Server API requires every
@@ -408,7 +418,8 @@ iPhone. [Concurrent playback results](evidence.json).
 Prepare the pinned SDK with `--variant stream-continuity`. Run
 `gateway/tests/matter_publication_reference.py` with the
 [snapshot test](#matter-jpeg-snapshots) arguments and a fresh private
-runtime directory.
+runtime directory. Use `--sdk` with the packaged bridge to provision its
+development attestation in the fixture.
 
 The controller decodes a 640×360 publication, leaves a camera offer
 unanswered, and withholds ICE candidates on a second session after receiving
@@ -419,7 +430,9 @@ checks that the peer retires and stops receiving RTP. Both offer commands
 return `InvalidInState` during the outage and after the media server starts
 with an empty path. A third publication yields 45 decoded frames through
 the same enrollment and stable camera identity, with the bridge and
-gateway control process still running. [Host measurements](evidence.json).
+gateway control process still running. The merged macOS package at
+`fd89e5c7` recovered in 5.882 seconds and ended with zero sessions.
+[Host measurements](evidence.json).
 
 ## Configured camera and durable endpoints
 
@@ -1069,16 +1082,29 @@ and verifies its session list is empty before opening video. Only sanitized
 
 ## Scope of the evidence
 
-`evidence.json` records host results. The session capacity test verifies UDP
-socket ownership and stream reference counts through the Matter commands.
-Production still needs truthful capabilities, deadline qualification under
-slow or offline requestors, and lifecycle tests for full process shutdown.
+[Issue #388](https://github.com/yongkyuns/nxrs/issues/388) is the release
+checklist. [Evidence](evidence.json) identifies the revision and scope of each
+run. The merged macOS and Linux builds decoded the original ESP32 H.264 and
+returned JPEG snapshots in isolated deployments. Separate macOS rehearsals
+verified concurrent Nxrs and Matter playback with the existing Nxrs viewer
+credential, selective revocation and gateway rollback. The earlier Home Assistant
+iPhone playback demonstrated feasibility.
 
-See [conformance.md](conformance.md) for mandatory audio/snapshot/root behavior
-and the bridged endpoint topology. The video-only fixture is not a conforming
-Matter Camera product.
-
-A physical iPhone, real camera media, bridge conformance, production access
-control, Linux, remote access and the 24-hour soak remain separate acceptance
-gates. This fixture establishes no NuttX support and adds
-no mandatory integration CI job or production SDK dependency. The Rust store and occupancy tests run in the existing gateway workspace check using Rust 1.90.
+- **Deployment.** The live gateway still needs the scoped authorization
+  cutover and verification of existing enrollments, revocation and recovery.
+  Exercise restart, session limits, slow receivers and LAN changes under load,
+  including interface exclusion across networks.
+- **Client playback and occupancy.** Verify the release gateway with a physical
+  iPhone over the LAN and remotely. Include snapshots, stream teardown and
+  concurrent Nxrs Home and Matter rendering. The tested stock Home Assistant
+  snapshot proxy fails the width-only request. The real detector exercised
+  unavailable and recovery in the isolated bridge. A controlled clear-to-occupied
+  trial on the deployed gateway is pending.
+- **Performance.** The merged gateway completed the
+  [24-hour Linux soak](#four-viewer-linux-soak) with four generated-video
+  viewers. Sustained real-camera playback and physical iPhone rendering
+  measurements remain release gates.
+- **Camera conformance.** Physical microphone capture, iPhone A/V timing and
+  privacy, production attestation and conformance qualification remain open.
+  See [camera qualification boundaries](conformance.md). Direct Matter on
+  NuttX is tracked separately in phase 6.

@@ -3477,5 +3477,566 @@
       "bridge_process_loss_expired_capture": true
     },
     "scope": "ESP32-S3 firmware was built and signed off-device. The two macOS trials used the same generated mTLS camera, encoder and RTSP path. The gateway-only run drove the real gateway permission endpoint and checked explicit mute and lease expiry. The full run retained the commissioned Matter controller and WebRTC assertions. Physical capture and iPhone playback remain open."
+  },
+  "wroom_merged_microphone_build": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "app": "home-cam",
+    "platform": "wroom",
+    "profile": "esp32s3-camera-microphone",
+    "target": "xtensa-esp32s3-nuttx",
+    "abi_witnesses": 122,
+    "signed_image_bytes": 1901322,
+    "signed_image_sha256": "2e98cc656d41882d6c470c53208e38dc73cfc05d2652932a3c899d6287fb80b2",
+    "resolved_config_sha256": "2cd6640831b4de414d8f8a2e2ed2dfd80760aae8fb8891f5049dad100911678b",
+    "disposable_signature_verified": true,
+    "linked_i2s_receive": true,
+    "scope": "Off-device build of the merged revision. Physical microphone capture, mute, and iPhone playback remain open."
+  },
+  "physical_camera_capture_timing_baseline": {
+    "physical_camera": true,
+    "running_firmware_version_confirmed": false,
+    "viewer_h264_access_units": 1556,
+    "median_relative_delay_growth_ms_per_second": 17.335,
+    "viewer_windows": [
+      {
+        "stamped_access_units": 784,
+        "capture_span_seconds": 44.427,
+        "delivery_span_seconds": 45.097,
+        "accumulated_relative_delay_ms": 670.2,
+        "freshness_rejection_seconds_from_observer_start": 52.582
+      },
+      {
+        "stamped_access_units": 772,
+        "capture_span_seconds": 44.263,
+        "delivery_span_seconds": 45.157,
+        "accumulated_relative_delay_ms": 894.5,
+        "freshness_rejection_seconds_from_observer_start": 50.245
+      }
+    ],
+    "scope": "A read-only viewer sampled the existing physical camera and deployed Nxrs gateway across two automatically started publications. Capture timestamps advanced more slowly than Mac RTP delivery time. In separate passive windows, the ingest process's matched local receive queue stayed empty around three freshness rejections. This rules out observed buildup in that queue. The active firmware version and the contribution of camera timing and other pipeline delays remain unverified.",
+    "passive_ingest_tcp_observations": {
+      "matched_socket_samples": 322,
+      "receive_queue_bytes_min_max": [
+        0,
+        0
+      ],
+      "matched_freshness_rejections": 3,
+      "samples_in_last_five_seconds_per_rejection": [
+        12,
+        12,
+        12
+      ],
+      "last_sample_age_at_log_observation_ms": [
+        408.9,
+        410.8,
+        406.3
+      ]
+    }
+  },
+  "esp32s3_monotonic_clock_emulator": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "esp_qemu_release": "esp-develop-9.0.0-20240606",
+    "darwin_arm64_archive_sha256": "fb4ca6be7b1a4dbcf153879cf0582300f974371def0826c0c5b728f12812ad08",
+    "paired_fresh_boot_runs": 2,
+    "requested_interrupt_mask_ms": [20, 40, 80],
+    "periodic_instant_elapsed_ms": [1, 1, 1],
+    "tickless_largest_error_from_systimer_us": 312,
+    "effective_configuration_delta": ["ARCH_HAVE_TICKLESS", "ESP32S3_TICKLESS", "SCHED_TICKLESS"],
+    "scope": "The same Rust Instant witness ran at a 1 ms scheduler tick on both firmware builds. It held interrupts while the emulated SYSTIMER advanced by each requested interval. Ordinary sleeps completed in both builds. This used the ESP32-S3 emulator with NuttX SMP disabled. The camera firmware and its camera, Wi-Fi, and detector throughput require physical qualification."
+  },
+  "esp32s3_smp_tickless_alarm_recovery": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "esp_qemu_release": "esp-develop-9.0.0-20240606",
+    "scheduler_cpus": 2,
+    "interrupt_mask_us": [
+      20000,
+      40000,
+      80000
+    ],
+    "periodic_monotonic_elapsed_us_by_cpu": [
+      [
+        1000,
+        1000,
+        1000
+      ],
+      [
+        2000,
+        2000,
+        2000
+      ]
+    ],
+    "unpatched_tickless_individual_max_error_us": 317,
+    "unpatched_pending_watchdog_with_idle_cores": true,
+    "unpatched_concurrent_timeout_with_raw_systimer_and_cpu_cycle_counter": true,
+    "timer_ordering_patch_sha256": "92911617afdae2719eb9557db32e988e95eb673b8680bd518427e744972dda04",
+    "patched_qemu_boots": {
+      "individual": 3,
+      "normal": 3,
+      "systimer": 8,
+      "cycles": 8
+    },
+    "patched_qemu_image_sha256": "7ccec5347e028050a71d97a0b458a3c54b487d94a34e93c0a92684fd6ac291a2",
+    "patched_single_boot": {
+      "interrupt_mask_cases": {"systimer": 128, "cycle_counter": 128},
+      "unmasked_controls": 8,
+      "advancing_peer_samples": 8448,
+      "clock_comparisons": 54,
+      "max_abs_clock_error_us_by_cpu": [186, 293],
+      "scope": "The same two-core emulator image completed one run with paced serial input. An earlier run stopped when the emulator did not echo the next shell command after the witness returned to the prompt. The measured errors compare Rust Instant with the emulated hardware counter."
+    },
+    "patched_wroom_profile": "esp32s3-camera-stream-startup",
+    "patched_wroom_signed_bytes": 1899886,
+    "patched_wroom_slot_bytes": 2097152,
+    "patched_wroom_image_sha256": "093c32bb287a4cd6cdc08e4f73e796b7a5823353452598fca9062356a03087f2",
+    "patched_wroom_abi_witnesses": 122,
+    "patched_wroom_test_signature_verified": true,
+    "scope": "The unmodified tickless timer could leave a sleeping peer with a pending watchdog and no timer interrupt after a cross-core interrupt mask. Clearing the old interrupt before arming the alarm passed 22 fresh two-core QEMU boots and repeated masks in one boot. The full WROOM camera build links the same fix and uses a disposable test signature. Physical boot, camera timing and continuity remain open."
+  },
+  "wroom_timer_signed_update_preflight": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "archived_firmware_version": "0.7.15+0",
+    "archived_firmware_digest_verified": true,
+    "archived_public_root_verifies_baseline": true,
+    "later_transport_version_in_log_name": "0.7.17",
+    "later_transport_committed": true,
+    "active_firmware_confirmed": false,
+    "disposable_package_version": "0.7.18+0",
+    "archived_epoch": 5,
+    "protected_class_matches": true,
+    "exact_candidate_payload_unchanged": true,
+    "candidate_payload_sha256": "a3b37f3ca39870c04111f3cf10f5ea517cc6402c4aa43829531a46cd4ce401e1",
+    "candidate_signed_bytes": 1899888,
+    "candidate_signed_sha256": "c944048902bc458afc42b4357c14ec80f479c06db7dc02b9e40a8dab193b3d29",
+    "candidate_passes_disposable_signature_verifier": true,
+    "archived_root_refuses_disposable_signature": true,
+    "scope": "Offline signing rehearsal for the camera candidate with the tickless alarm-ordering fix. The archived 0.7.15 image matches the last verified deployment receipt and its public root. A later gateway log labeled 0.7.17 reports committed transfer, which precedes boot and confirmation. The replay uses the archived image class and epoch. Active-slot readback, an operator-trusted signature and physical playback remain open."
+  },
+  "linux_24_hour_tls_fixture": {
+    "nxrs_revision": "dedfc5b6f460ae0a59432c5d0b1ec2c8581f8b35",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_server_version": "1.6.0",
+    "rust": "1.98.1",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "bridge_executable_sha256": "cb4319111f105b3a6124a22934b61307b71e9466031baf86ee32a0d63514f136",
+    "samples_sha256": "85bdd8bd2da7163e7c0e755bca7564c1cd94730634495f07506ed6617f076cbf",
+    "started_utc": "2026-11-18T11:09:59Z",
+    "duration_seconds": 86400.675,
+    "viewers": 4,
+    "samples": 1444,
+    "source_fps_min_max": [14.751, 15.296],
+    "decoded_fps_min_max": [14.55, 15.446],
+    "rendered_fps": null,
+    "longest_frame_gap_seconds": 2.06,
+    "rss_kib_min_max": [10432, 11160],
+    "threads_min_max": [12, 14],
+    "descriptors_min_max": [51, 56],
+    "slow_offer_retired_seconds": 20.019,
+    "restart_recovery_seconds": 5.955,
+    "removed_viewer_rtp_packets": 0,
+    "longest_surviving_gap_seconds": 0.126,
+    "fifth_offer_rejections": 4,
+    "scope": "Four independent Matter fabrics decoded generated H.264. The witness released all sessions on exit. This binary predates the merged UDP change. Rendered FPS and physical camera performance were outside this trial."
+  },
+  "linux_merged_release_rehearsal": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "matter_server_version": "1.6.0",
+    "rust": "1.98.1",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "gateway_control_sha256": "648cd3ae67fdc74f864421e232e5893f7708a57d1fe137165a734f7260669201",
+    "publisher_sha256": "e6af6d16e28c419b129c02287b84e99b2c48651237ecf4bbd12762bb6cbc1e38",
+    "samples_sha256": "9adcc8c664f49d9b9916b77c90e5b0390ed5d235ecb7c5a223cf844632f29ded",
+    "duration_seconds": 120.338,
+    "viewers": 4,
+    "samples": 20,
+    "source_fps_min_max": [14.703, 15.103],
+    "decoded_fps_min_max": [14.881, 15.127],
+    "rendered_fps": null,
+    "rss_kib_min_max": [10812, 11352],
+    "threads_min_max": [12, 14],
+    "descriptors_min_max": [51, 56],
+    "slow_offer_retired_seconds": 20.127,
+    "restart_recovery_seconds": 6.946,
+    "removed_viewer_rtp_packets": 0,
+    "longest_surviving_gap_seconds": 0.082,
+    "fifth_offer_rejections": 4,
+    "scope": "Two-minute rehearsal of the exact merged package with development attestation and generated H.264. It exercised slow-offer expiry, restart, selective revocation, replacement commissioning and session release."
+  },
+  "linux_merged_release_soak_interruption": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "last_sample_elapsed_seconds": 30694.529,
+    "last_sample_decoded_fps": [15.007, 15.007, 15.007, 15.007],
+    "failed_frame_age_seconds": 33.002,
+    "source_frames_at_last_sample": 460685,
+    "publisher_writes_before_teardown": 461663,
+    "completed": false,
+    "diagnostic_rehearsal": {
+      "injected_single_viewer_stall_rejected": true,
+      "four_active_sessions_with_advancing_rtp": true,
+      "original_source_and_reader_survived_injection": true,
+      "normal_trial_duration_seconds": 120.269,
+      "normal_trial_samples_sha256": "f7bbc930f1cb98e6fcc99e37df7b295711ea6e68395a3107d8df95f3ded7cc8f",
+      "normal_trial_verified_all_fault_phases_and_teardown": true
+    },
+    "scope": "The generated-video soak stopped before the planned bridge restart. The publisher continued writing while a receiver stopped delivering decoded images. The saved counters cannot identify which layer stopped. The diagnostic rehearsal deliberately stalled one receiver with live RTP and exercised the existing frame-age limit. The 120-second normal rehearsal used the merged bridge and the diagnostic fixture."
+  },
+  "linux_merged_release_24_hour_soak": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "rs_matter_revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "samples_sha256": "1856751c477a10a7c9a21c1d63be709c645ef737d16a4d72408a4d6e3c8d703c",
+    "media": "generated H.264",
+    "duration_seconds": 86400.838,
+    "viewers": 4,
+    "samples": 1444,
+    "source_fps_min_max": [14.742, 15.25],
+    "decoded_fps_min_max": [14.975, 15.018],
+    "rendered_fps": null,
+    "longest_sampled_gap_seconds": 0.653,
+    "rss_kib_min_max": [10804, 11472],
+    "threads_min_max": [12, 14],
+    "descriptors_min_max": [51, 56],
+    "slow_offer_retired_seconds": 20.022,
+    "restart_recovery_seconds": 6.962,
+    "longest_surviving_gap_seconds": 0.082,
+    "removed_viewer_new_rtp_packets": 0,
+    "fifth_offer_rejections": 4,
+    "viewer_teardown_verified_by_completion": true,
+    "fixture_networks_listeners_and_processes_released": true,
+    "platform": "Debian 13 ARM64 in QEMU",
+    "fixture_revision": "a2703718c63558c04f9bd90e9121d9395e871fec",
+    "fixture_sha256": "cd5726a81e17932fb07a84281f83aad6b74e262f38564e470a55f7e112d47276",
+    "scope": "Four Matter fabrics decoded a single generated H.264 publication using the exact merged bridge, development attestation and the instrumented soak fixture. Observations were sampled every 60 seconds. The run exercised unanswered-offer expiry, restart with retained fabrics, selective revocation and replacement, and session and process teardown. Sustained physical camera streaming and iPhone rendering require separate qualification."
+  },
+  "linux_merged_release_esp32_original_h264": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "relayed_h264_access_units": 147,
+    "decoded_matter_frames": 30,
+    "video_dimensions": [320, 240],
+    "jpeg_dimensions": [320, 180],
+    "jpeg_bytes": 3048,
+    "controller_on_separate_veth": true,
+    "matter_session_released": true,
+    "scope": "The existing encrypted viewer supplied the live ESP32 feed. Its original H.264 was re-muxed in memory and streamed over SSH to the isolated Linux gateway. The controller commissioned with development attestation and obtained video and a JPEG across a veth link. The fixture ran in a different VM from the 24-hour soak. Direct production deployment and physical iPhone rendering remain open."
+  },
+  "linux_merged_release_routed_wireguard": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "generated_h264_control": {
+      "signalling_with_media_blocked": true,
+      "blocked_playback_session_released": true,
+      "dropped_udp_packets": 5,
+      "forwarded_udp_packets": 26,
+      "decoded_frames": {"receiver_offer": 45, "camera_offer": 45}
+    },
+    "original_esp32_h264": {
+      "relayed_access_units": 231,
+      "dimensions": [320, 240],
+      "forwarded_udp_packets": 21,
+      "decoded_frames": {"receiver_offer": 45, "camera_offer": 45},
+      "video_reencoded": false,
+      "media_persisted": false
+    },
+    "direct_matter_tcp_blocked": true,
+    "bidirectional_wireguard_transfer": true,
+    "sessions_and_test_networks_released": true,
+    "scope": "The controller commissioned on the selected LAN. An independent receiver used Matter Server signaling and WebRTC over an isolated WireGuard route. The Mac remuxed the real ESP32 H.264 from its existing authenticated viewer in memory. An earlier trial ended on source loss; the successful trial began at the next natural publication. Physical iPhone playback, Home Assistant's remote UI and the production Tailscale route remain open."
+  },
+  "linux_merged_release_network_recovery": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "platform": "Debian 13 ARM64 in QEMU",
+    "link_outage": {
+      "elapsed_seconds": 2.736,
+      "original_session_retired": true,
+      "old_peer_rtp_after_restore": 0,
+      "new_session_decoded_frames": 30,
+      "jpeg_bytes": 17484,
+      "recovery_and_teardown_seconds": 5.792,
+      "bridge_restarted": false
+    },
+    "ipv4_ipv6_address_change": {
+      "startup_with_stale_address_rejected": true,
+      "new_session_decoded_frames": 30,
+      "jpeg_bytes": 17632,
+      "reconfiguration_recovery_and_teardown_seconds": 19.995
+    },
+    "same_matter_enrollment_and_camera_identity": true,
+    "same_rtsp_publication": true,
+    "sessions_remaining_after_each_test": 0,
+    "test_network_released": true,
+    "scope": "Generated H.264 in an isolated Linux veth network. A fresh controller process reused the original fabric after link restoration and after restarting the bridge on new IPv4 and IPv6 addresses. Both trials verified video, JPEG and teardown. Physical LAN transitions and iPhone reconnection remain open."
+  },
+  "linux_merged_release_systemd": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "platform": "Debian 13 ARM64 in QEMU, systemd 257.13",
+    "running_bridge_executable_sha256": "b8409138163cd6aa7f2739e22ec1350397b164094f1e24e05a44d4c3a0e74aaf",
+    "source_unit_sha256": "d7bd53869410ba0dc858becaf2b6d394222feff919e2c5ec87f1c9de58f5023f",
+    "sandbox": {"unprivileged": true, "effective_capabilities": 0, "no_new_privileges": true, "config_read_only": true, "state_writable": true},
+    "rejected_startup": ["missing_state", "development_attestation_default", "initial_setup_without_catalogue"],
+    "initial_enrollment_playback_frames": 30,
+    "jpeg_dimensions": [640, 360],
+    "mediamtx_failure_end_reason": 5,
+    "mediamtx_recovery_frames_on_same_process": 30,
+    "systemd_stop_seconds": 2.045,
+    "systemd_stop_end_reason": 2,
+    "publisher_survived_bridge_stop": true,
+    "restarted_playback_frames": 30,
+    "enrolled_fabric_and_camera_identity_available_without_upstreams": true,
+    "partial_start_recovery_frames_on_same_process": 30,
+    "partial_start_to_decoded_frames_seconds": 5.296,
+    "test_unit_paths_and_listener_removed": true,
+    "scope": "Disposable unit derived from the checked-in deployment unit with private test paths. Commissioning used an explicit development-attestation override. Playback used generated video. Recovery time includes launching the upstream services and decoding 30 frames."
+  },
+  "macos_merged_release_h264_admission": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "platform": "macOS 27.0.1 ARM64",
+    "compatible_negotiation": [
+      {"offer": "receiver", "dimensions": [640, 360], "sdp_profile_level": "42e01f", "rtp_sps_profile_level": "42c016", "decoded_frames": 30},
+      {"offer": "camera", "dimensions": [640, 360], "sdp_profile_level": "42e01f", "rtp_sps_profile_level": "42c016", "decoded_frames": 30},
+      {"offer": "receiver", "dimensions": [1920, 1080], "sdp_profile_level": "42e028", "rtp_sps_profile_level": "42c028", "decoded_frames": 30},
+      {"offer": "camera", "dimensions": [1920, 1080], "sdp_profile_level": "42c028", "rtp_sps_profile_level": "42c028", "decoded_frames": 30}
+    ],
+    "incompatible_1080p": {
+      "receiver_offer_matter_status": 207,
+      "camera_offer_downgraded_answer_matter_status": 207,
+      "receiver_sps_packets_observed": 0,
+      "sessions_after_each_rejection": 0
+    },
+    "mid_gop_join": {
+      "source_fps": 15,
+      "source_gop_frames": 30,
+      "first_coded_nal_types": [5, 5],
+      "decoded_frames": [6, 24],
+      "consecutive_idr_seconds": 1.999,
+      "second_viewer_wait_seconds": 1.606,
+      "existing_viewer_new_rtp_packets": 489,
+      "upstream_readers": 1,
+      "sessions_after_teardown": 0
+    },
+    "scope": "Isolated strict macOS gateway, generated H.264, development attestation and independent Matter controllers. The late viewer joined on the next IDR while the existing viewer kept receiving the original publication. Physical iPhone rendering and production recovery remain open."
+  },
+  "macos_merged_release_interface_scope": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "commissioning_advertised_only_on_wifi": true,
+    "mismatched_interface_rejected": true,
+    "selected_tcp_addresses_reachable": 11,
+    "tcp_excluded": ["loopback_ipv4", "loopback_ipv6", "tailscale_ipv4"],
+    "enrollment_and_camera_identity_retained_with_interface_inference": true,
+    "same_publication_retained": true,
+    "receiver_offer_decoded_frames": 30,
+    "camera_offer_decoded_frames_after_restart": 30,
+    "jpeg_bytes": 7044,
+    "scope": "Native macOS, same-host TCP probe, generated H.264 and development attestation. Tailscale IPv6 failed the wildcard reachability control. Connection attempts from a second physical LAN and remote iPhone access remain open."
+  },
+  "macos_merged_release_esp32_snapshot": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "production_viewer_stamped_access_units": 105,
+    "real_frames_forwarded": 77,
+    "source_dimensions": [320, 240],
+    "decoded_matter_webrtc_frames": 30,
+    "matter_webrtc_dimensions": [320, 240],
+    "jpeg_bytes": 3706,
+    "jpeg_dimensions": [320, 180],
+    "shared_bridge_reader": true,
+    "matter_session_released": true,
+    "media_persisted": false,
+    "home_assistant_camera_proxy": {
+      "home_assistant": "2026.11.2",
+      "patch_sha256": "0b77e009da4affa535f3571b25c7881fc17c55a5b81ff3841ffac7f6f1494e0c",
+      "width_only_request": [1024, 0],
+      "stock_width_only_status": 500,
+      "patched_width_only_status": 200,
+      "patched_width_only_jpeg_dimensions": [640, 360],
+      "stock_positive_dimensions_status": 200,
+      "stock_positive_jpeg_dimensions": [320, 180],
+      "decoded_matter_frames": 30,
+      "live_session_remained_active_and_released": true
+    },
+    "original_h264_relay": {
+      "upstream_access_units_forwarded": 123,
+      "matching_coded_pictures_at_matter_receiver": 60,
+      "decoded_matter_frames": 30,
+      "jpeg_dimensions": [320, 180],
+      "relay_attempts": 3,
+      "matter_session_released": true,
+      "video_reencoded": false
+    },
+    "scope": "An existing encrypted viewer received the real ESP32 feed. The exact merged bridge commissioned with development attestation. An independent controller and two isolated Home Assistant instances exercised JPEG requests on the re-encoded relay. A later relay reassembled original access units and re-muxed them with RTP timestamps. Its witness compared hashes of H.264 coded slices at publication and at the Matter receiver. Direct production ingest into the merged bridge, iPhone snapshot presentation and long-run physical playback remain open."
+  },
+  "macos_merged_release_home_assistant_live_browser": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "home_assistant_version": "2026.11.2",
+    "dimensions": [
+      320,
+      240
+    ],
+    "webkit": {
+      "browser": "27.2",
+      "presented_frames": 60,
+      "presented_fps": 14.88,
+      "distinct_sampled_images": 60,
+      "decoded_frames": 69,
+      "advancing_rtp_clock": true,
+      "advancing_compositor": true,
+      "session_closed": true,
+      "relayed_access_units": 198,
+      "advancing_media_time": false
+    },
+    "chrome": {
+      "browser": "157.0.8103.80",
+      "presented_frames": 60,
+      "presented_fps": 10.38,
+      "distinct_sampled_images": 60,
+      "decoded_frames": 62,
+      "advancing_rtp_clock": true,
+      "advancing_compositor": true,
+      "session_closed": true,
+      "relayed_access_units": 158,
+      "advancing_media_time": true
+    },
+    "earlier_concurrent_chrome_media_time_assertion_failed": true,
+    "video_reencoded": false,
+    "media_persisted": false,
+    "sessions_after_each_run": 0,
+    "scope": "Stock Home Assistant in an isolated macOS lab, with one browser per successful run. The existing authenticated viewer supplied original ESP32 H.264 through an in-memory remux. Browser FPS reflects separate live intervals. Physical iPhone playback, sustained streaming and the stock thumbnail issue remain open."
+  },
+  "macos_merged_release_concurrent_browser_playback": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "platform": "macOS ARM64",
+    "home_assistant": "2026.11.2",
+    "browser": "Headless WebKit 27.2",
+    "dimensions": [320, 240],
+    "original_esp32_h264_access_units_relayed": 200,
+    "same_publication_witnessed": true,
+    "video_reencoded": false,
+    "media_persisted": false,
+    "common_measurement_window_ms": 6003,
+    "matter": {"presented_frames": 99, "distinct_sampled_images": 99, "presented_fps": 16.492, "max_presentation_gap_ms": 155},
+    "nxrs_whep": {"presented_frames": 98, "distinct_sampled_images": 98, "presented_fps": 16.325, "max_presentation_gap_ms": 152},
+    "matter_session_released": true,
+    "test_listeners_released": true,
+    "scope": "The original real camera H.264 was remuxed in memory into one isolated strict publication. Stock Home Assistant and a separate video element admitted through the existing Nxrs viewer credential were observed in the same browser using requestVideoFrameCallback. Earlier trials saw paused Home Assistant playback. The successful trial waited for the Matter image to advance before opening WHEP. Native iPhone rendering and sustained playback remain open."
+  },
+  "macos_merged_release_physical_occupancy": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "physical_detector_probe": {
+      "samples": 170,
+      "source_generations": 4,
+      "natural_unavailable_and_recovery_cycles": 3
+    },
+    "home_assistant": {
+      "forwarded_reports": 54,
+      "automation_transitions": ["on", "unavailable", "on", "unavailable", "on"],
+      "freshness_withdrawal_observed_ms_after_relay_loss": 1364,
+      "natural_upstream_outage_and_recovery_reached_automation": true
+    },
+    "deployed_gateway_detector_site_header_present": false,
+    "scope": "The isolated relay forwarded the enrolled physical detector's reports and supplied the site identity from the authenticated catalogue. The merged bridge used development attestation. Independent Matter reads confirmed a reachable Occupied sensor, and a loopback-only Home Assistant automation logged loss and recovery. Controlled clear and occupied conditions, direct production deployment and iPhone presentation remain open."
+  },
+  "macos_merged_release_existing_catalogue_preflight": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "gateway_executable_sha256": "b23d73c526ae05285475b9ea8fc3db700259d90b3358fe233528d4546f2419ca",
+    "deployed_gateway_strict_mode": false,
+    "existing_viewer_authenticated": true,
+    "original_viewer_and_publisher_records_preserved": true,
+    "scoped_detection_credential_and_site_header_verified": true,
+    "scoped_media_mapping_matched_existing_camera": true,
+    "absent_detector_source_reported_unavailable": true,
+    "rollback_rehearsal": {
+      "archived_configurations_and_executables_verified": true,
+      "decoded_real_frames_original_strict_restored": [24, 24, 24],
+      "seconds_from_service_start_to_frame_check_original_strict_restored": [5.392, 17.478, 5.582],
+      "strict_phase_relay_attempts": 2,
+      "same_existing_viewer_credential": true
+    },
+    "scope": "The merged controller used a private copy of the active catalogue, a new fixture-only revocation store and a separate loopback MediaMTX. A second fixture switched from the saved gateway binaries and configuration to strict mode and back. All three phases decoded the live ESP32 feed through an in-memory relay with the same enrolled viewer. Timing covers fixture startup, relay negotiation and decoding. Live configuration, persistence and media cutover remain open."
+  },
+  "macos_merged_release_shared_physical_publication": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "real_frames_forwarded": 101,
+    "original_stamped_access_units": 116,
+    "dimensions": [320, 240],
+    "concurrent_nxrs_whep_decoded_frames": 24,
+    "concurrent_matter_webrtc_decoded_frames": 24,
+    "publication_readers": 2,
+    "existing_viewer_admitted_over_test_https": true,
+    "original_catalogue_principals_preserved": true,
+    "media_persisted": false,
+    "original_bitstream_selective_revocation": {
+      "relayed_access_units": 171,
+      "relay_attempts": 3,
+      "concurrent_decoded_frames_per_viewer": [24, 24],
+      "matter_reader_and_session_retired_ms_after_ack": 319,
+      "matter_packets_after_retirement": 0,
+      "surviving_nxrs_new_rtp_packets": 106,
+      "surviving_nxrs_decoded_frames": 24,
+      "original_publication_retained": true,
+      "revocation_persisted": true
+    },
+    "scope": "The existing encrypted viewer supplied live ESP32 video. The first in-memory relay re-encoded it at its original dimensions. The revocation trial re-muxed the existing H.264 with RTP timestamps into isolated MediaMTX. The exact strict controller withdrew the fixture's Matter credential while the existing Nxrs viewer stayed on that publication. Client receivers ran on macOS. Production cutover, direct ingest, physical iPhone rendering and performance remain open."
+  },
+  "macos_merged_release_publication_recovery": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "platform": "macOS ARM64",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "original_frames": 45,
+    "original_dimensions": [640, 360],
+    "unanswered_end_reason": 5,
+    "no_ice_end_reason": 5,
+    "replacement_frames": 45,
+    "replacement_dimensions": [320, 240],
+    "active_end_reason": 5,
+    "offline_solicit_status": 203,
+    "offline_provide_status": 203,
+    "media_server_recovery_seconds": 5.882,
+    "restored_frames": 45,
+    "retained_camera_identity": true,
+    "final_sessions": 0,
+    "scope": "Isolated LAN fixture with development attestation and generated H.264. The same enrollment reopened after MediaMTX process loss."
+  },
+  "macos_merged_release_capture_and_attestation": {
+    "nxrs_revision": "fd89e5c7e400c11e8af64ce0bad2ae1937e0b5a8",
+    "platform": "macOS ARM64",
+    "bridge_executable_sha256": "ca49465845c65080b0aeee375b97adb0e4e2f3ba7bd16305c9a517e380886ad2",
+    "capture": {
+      "authenticated_camera_connections": 1,
+      "decoded_rtsp_video_frames": 219,
+      "exact_pixel_annotation_matches": 219,
+      "decoded_rtsp_opus_frames": 714,
+      "rtsp_timing_steps_outside_1ms": 0,
+      "decoded_webrtc_video_frames": 30,
+      "webrtc_decoded_fps": 16.67,
+      "rendered_fps": null,
+      "decoded_audio_phases": ["silent", "tone", "silent", "tone"],
+      "camera_ack_to_matter_success_ms": [145.0, 151.0, 148.7],
+      "permit_expired_after_bridge_stop": true,
+      "publication_retired_on_stop": true
+    },
+    "attestation": {
+      "inadmissible_bundles": ["missing", "development_on_default_path", "exposed_key", "wrong_key", "altered_declaration", "wrong_product"],
+      "new_state_untouched_on_rejection": true,
+      "changed_identity_preserved_durable_state": true,
+      "binding_fabric_isolation": true,
+      "binding_restart_persistence": true,
+      "binding_interrupted_removal_repaired": true,
+      "time_zone_and_dst_survived_restart": true,
+      "decoded_video_frames_per_offer_direction": [45, 45],
+      "original_enrollment_restored": true
+    },
+    "scope": "Isolated gateway fixture with a generated mTLS camera source, independent decoder and explicit development attestation."
   }
 }

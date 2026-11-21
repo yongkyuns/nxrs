@@ -3,6 +3,12 @@
 The Matter gateway exposes one existing Nxrs camera and its occupancy sensor.
 It uses the gateway's durable identity store, detection subscription and
 shared encoded video input. [Host qualification](../tests/matter/README.md).
+[Architecture and application integration guide](integration.md).
+
+The current ESP32 camera uses a video-only media stream. Its Matter Camera
+configuration is for development testing. Production use requires qualified
+microphone capture, product-issued attestation and device conformance.
+[Camera qualification requirements](../tests/matter/conformance.md).
 
 ## iPhone compatibility on the LAN
 
@@ -84,6 +90,11 @@ interface must own the address. DNS-SD, IPv4 and IPv6 Matter transport, and
 WebRTC sockets all use the resolved interface. Keep the controller reachable
 through the selected LAN. [Isolation test](../tests/matter/README.md#lan-interface-isolation).
 
+For direct playback through a VPN, the viewer needs a route to Home Assistant
+for signaling and UDP access to the bridge's advertised ICE address for media.
+Keep Matter commissioning and control on the selected LAN.
+[Routed playback test](../tests/matter/README.md#playback-across-a-routed-vpn).
+
 On macOS, Matter TCP binds the configured IPv4 address and the selected
 interface's IPv6 addresses at startup. Restart the bridge after those addresses
 change. UDP checks the incoming interface, including for multicast traffic.
@@ -129,10 +140,11 @@ for directories and `0600` for files. Set `state_directory` to
 `/var/lib/nxrs-matter/state`. The unit mounts the configuration read-only and
 gives the service write access to `/var/lib/nxrs-matter`.
 
-For a new enrollment, create the private parent directory and run the initial
-commissioning with the service stopped. After pairing, stop the foreground
-command and enable the service. Preserve the existing state directory on
-subsequent installations or restarts.
+For a new enrollment, start gateway control and MediaMTX so the bridge can
+validate the configured camera mapping before creating state. Create the private
+parent directory and commission with the service stopped. After pairing, stop
+the foreground command and enable the service. Preserve the existing state
+directory on subsequent installations or restarts.
 
 ```sh
 sudo install -d -m 0700 -o nxrs-matter -g nxrs-matter /var/lib/nxrs-matter
@@ -141,12 +153,18 @@ sudo -u nxrs-matter /usr/local/libexec/nxrs-matter-camera \
 sudo systemctl enable --now nxrs-matter.service
 ```
 
-The bridge reconnects to its authorized source after a gateway or media
-restart. Investigate an exited bridge before restarting `nxrs-matter.service`.
-The unit preserves its fabric across restart and the gateway control and media
+An enrolled bridge can start with gateway control and MediaMTX offline. It
+keeps its fabric and camera identity and accepts new streams when its
+authorized source returns. A LAN outage can end an active WebRTC session.
+Open a fresh stream with the existing enrollment once the link returns.
+After the selected LAN IPv4 address changes, update `ice_address` and restart
+the bridge with its existing state directory.
+
+Investigate an exited bridge before restarting `nxrs-matter.service`. The
+unit preserves its fabric across restart and the gateway control and media
 services manage their own processes. The release unit uses the default device
 attestation policy. [Service file](../deploy/nxrs-matter.service) ·
-[Debian service and cold-boot results](../tests/matter/evidence.json).
+[Debian deployment and network recovery results](../tests/matter/evidence.json).
 
 ### Run in a macOS login session
 
@@ -275,8 +293,9 @@ socket can still deliver video. Revoking the shared source ends every Matter
 peer using it. At the Matter layer, removing one commissioned fabric stopped
 its active stream while a viewer on the surviving fabric kept receiving frames
 from the same reader. With two viewers on one fabric, withdrawing a viewer’s
-endpoint grant also ended its pending and active offers. Joining all retired
-session resources under load still needs qualification.
+endpoint grant also ended its pending and active offers. The 24-hour Linux
+fixture verified generated-video session teardown under four-viewer load.
+[Soak qualification](../tests/matter/README.md#four-viewer-linux-soak).
 
 `occupancy::Feed::open` takes a loopback control address, a camera ID and
 a private credential file. Run the subscription on the owning executor. Its
