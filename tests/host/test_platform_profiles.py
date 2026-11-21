@@ -156,10 +156,12 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "esp32s3-mpsc": {},
                             "pico2w-mpsc": {},
                             "pico2w-std-qualification": {},
-                            "esp32s3-qemu-led-mock": {"imu": "mock", "gnss": "mock", "led": "mock"},
-                            "pico2w-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
+                            "esp32s3-qemu-pulse-mock": {"imu": "mock", "gnss": "mock", "pulse": "mock"},
+                            "pico2w-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx", "pulse": "nuttx"},
+                            "pico2w-pulse": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx", "pulse": "nuttx"},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
-                            "esp32s3-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
+                            "esp32s3-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx", "pulse": "nuttx"},
+                            "wroom-pulse": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx", "pulse": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
@@ -197,6 +199,44 @@ class FirmwareFrontendTests(unittest.TestCase):
                 text = platform.read_text()
                 for name in APP_OWNED:
                     self.assertNotIn(name, text, f"{platform} owns app policy {name}")
+
+    def test_controller_uses_the_existing_same_pad_peripheral_profiles(self):
+        cases = (
+            ("wroom-pulse", "/dev/pwm0", "/dev/gpio2", 16384,
+             ("ESP32S3_DEVKIT_GPIO_IRQ_PIN=14", "ESPRESSIF_LEDC_CHANNEL0_PIN=14",
+              "ESPRESSIF_LEDC_GPIO_READBACK=y")),
+            ("pico2w-pulse", "/dev/pwm7", "/dev/gpio14", 8192,
+             ("RP23XX_PWM7A_GPIO=14", "RASPBERRYPI_PICO_2_GPIO_IRQ_RISING=y")),
+        )
+        for name, pwm, pin, stack, native in cases:
+            with self.subTest(profile=name):
+                data = PLATFORM_CONFIG.resolve(name)
+                self.assertEqual(data["hal"]["pulse"], "nuttx")
+                self.assertEqual(data["pulse"], {"pwm-device": pwm, "input-device": pin,
+                                                  "stack-bytes": stack})
+                required = set(data["kconfig"]["require"])
+                self.assertTrue({"CONFIG_" + setting for setting in native} <= required)
+                self.assertIn("CONFIG_DEV_GPIO_NPOLLWAITERS=1", required)
+                output = PLATFORM_CONFIG.cargo_output(data, "pulse", "nuttx")
+                self.assertIn(f"cargo:rustc-env=NXRS_PULSE_PWM_DEVICE={pwm}", output)
+                self.assertIn(f"cargo:rustc-env=NXRS_PULSE_INPUT_DEVICE={pin}", output)
+                self.assertIn(f"cargo:rustc-env=NXRS_PULSE_STACK_BYTES={stack}", output)
+
+    def test_controller_uses_hardware_profiles_without_weakening_qualification_admission(self):
+        manifest = "website/examples/controller/Cargo.toml"
+        for profile in ("wroom-pulse", "pico2w-pulse", "esp32s3-qemu-pulse-mock"):
+            with self.subTest(profile=profile):
+                output = self.cargo_firmware("build", "--manifest-path", manifest,
+                                             "--profile", profile, "--dry-run")
+                self.assertEqual(json.loads(output.stdout)["command"], "controller")
+        for profile in ("esp32s3-peripherals", "pico2w-peripherals"):
+            with self.subTest(profile=profile):
+                result = subprocess.run(
+                    ["cargo", "+1.90.0", "firmware", "build", "--manifest-path", manifest,
+                     "--profile", profile, "--dry-run"], cwd=ROOT, text=True,
+                    capture_output=True, timeout=60)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("qualification composition requires", result.stderr)
 
     def test_cores3_sensor_resources_and_invalid_bindings(self):
         data = PLATFORM_CONFIG.resolve("m5stack-cores3-gnss")
@@ -405,7 +445,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for name, _ in firmware_profiles():
             config = PLATFORM_CONFIG.resolve(name)["kconfig"]
             enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc",
-                               "pico2w-std-qualification", "pico2w-peripherals")
+                               "pico2w-std-qualification", "pico2w-peripherals", "pico2w-pulse")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):

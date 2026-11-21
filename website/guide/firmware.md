@@ -109,7 +109,7 @@ This QEMU profile disables networking and uses qualification bindings. It does n
 
 [Services and concurrency](services.md#run-the-worker-in-your-application) supplies a bounded worker for the same source project. Replace `src/main.rs` with that code, then use the same host, target-build, and QEMU commands. The shell command remains `hello`; its output becomes `Processed total: 6` after the worker has been joined.
 
-Then [Build a controller](controller.md) uses a separate source package with the existing LED capability. Reuse the tool setup from this chapter; its explicit LED mock profile supplies the additional binding, and its NuttX command is `controller`.
+Then [Build a controller](controller.md) develops one portable pulse application with commands, task-context observations and joined acquisition shutdown. Reuse the tool setup from this chapter; its explicit pulse mock profile supplies the QEMU binding, and its NuttX command is `controller`. The same package also has WROOM and Pico 2 W hardware profiles.
 
 ## Common setup problems
 
@@ -126,6 +126,6 @@ Then [Build a controller](controller.md) uses a separate source package with the
 
 ## Automated execution
 
-The repository's `First firmware tutorial` workflow creates a fresh Cargo package from the guide's source and manifest blocks. It runs the host program, builds and boots it on NuttX/QEMU, then repeats after the greeting edit and worker extension. It also runs the separate [controller tutorial](controller.md) package with its LED mock profile. Each target run checks `uname`, exact application output, the shell exit status, and a second invocation in the same boot.
+The repository's `First firmware tutorial` workflow creates a fresh Cargo package from the guide's source and manifest blocks. It runs the host program, builds and boots it on NuttX/QEMU, then repeats after the greeting edit and worker extension. It also runs the canonical [controller tutorial](controller.md) package with its pulse mock profile. Each target run checks `uname`, application output, the shell exit status, and another invocation in the same boot. Controller observation checks parse variable counters and receipt timings without treating them as physical measurements.
 
 [The runner](../tests/first_firmware.py) records build logs, source and image hashes, and console transcripts. It tests source builds; it does not fetch a firmware artifact. [Testing and debugging](testing.md) covers broader test suites, and [Profiles and overlays](profiles.md) covers selecting other configurations.

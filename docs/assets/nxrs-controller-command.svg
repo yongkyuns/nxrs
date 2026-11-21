@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="944" viewBox="0 0 800 944" role="img" aria-labelledby="title description">
   <title id="title">Controller command completion and joined shutdown</title>
-  <desc id="description">The application owns the only command sender. try_command attempts admission to an inbox with two waiting slots and returns a completion ticket when accepted. A single controller thread owns the LED and software-tracked state, handles each command synchronously, and sends one result to its ticket. Ticket.wait observes handling completion, not electrical readback. stop consumes the controller, drops its sole sender, drains accepted commands, requests the output off, and joins the worker. The returned Stopped object retains the output and final state even when the final off request fails. Synchronous Led.set has no cancellation or elapsed-time guarantee.</desc>
+  <desc id="description">The application owns the persistent command sender. try_command attempts admission to an inbox with sixteen waiting slots and returns a completion ticket when accepted. Task-context pulse observations enter the same inbox through a weak callback sender. One controller thread owns the pulse session and command state, handles each command, and sends one result to its ticket. Ticket.wait observes handling completion, not electrical readback. Receipt and dispatch times describe task execution, not physical edge timestamps. stop drops persistent admission, drains accepted work, shuts down output and acquisition, and joins the owner. Cleanup failures remain visible in Stopped; native operations have no hard shutdown deadline.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
       <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8A9CAF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -28,14 +28,14 @@
     <rect x="44" y="88" width="304" height="112" rx="15" class="card" filter="url(#shadow)"/>
 
     <text x="196" y="120" text-anchor="middle" class="label" font-size="22">Application caller</text>
-    <text x="196" y="147" text-anchor="middle" class="subtitle">Owns the sole sender</text>
+    <text x="196" y="147" text-anchor="middle" class="subtitle">Owns persistent sender</text>
     <text x="196" y="172" text-anchor="middle" class="subtitle">try_command(command)</text>
   </g>
   <g id="node-inbox" data-panel="true">
     <rect x="452" y="88" width="304" height="112" rx="15" class="card" filter="url(#shadow)"/>
     <rect x="467" y="108" width="4" height="72" rx="2" fill="#73B9E2"/>
     <text x="604" y="120" text-anchor="middle" class="label" font-size="22">Bounded inbox</text>
-    <text x="604" y="147" text-anchor="middle" class="subtitle">2 waiting commands</text>
+    <text x="604" y="147" text-anchor="middle" class="subtitle">16 commands / observations</text>
     <text x="604" y="172" text-anchor="middle" class="subtitle">Reject when full</text>
   </g>
   <g id="node-ticket" data-panel="true">
@@ -43,31 +43,31 @@
     <rect x="59" y="308" width="4" height="72" rx="2" fill="#73B9E2"/>
     <text x="196" y="320" text-anchor="middle" class="label" font-size="22">Completion ticket</text>
     <text x="196" y="347" text-anchor="middle" class="subtitle">Ticket::wait()</text>
-    <text x="196" y="372" text-anchor="middle" class="subtitle">State or device error</text>
+    <text x="196" y="372" text-anchor="middle" class="subtitle">Status or device error</text>
   </g>
   <g id="node-owner" data-panel="true">
     <rect x="452" y="288" width="304" height="112" rx="15" class="card" filter="url(#shadow)"/>
     <rect x="467" y="308" width="4" height="72" rx="2" fill="#F08A4B"/>
     <text x="604" y="320" text-anchor="middle" class="label" font-size="22">Controller owner</text>
-    <text x="604" y="347" text-anchor="middle" class="subtitle">One thread · state + LED</text>
-    <text x="604" y="372" text-anchor="middle" class="subtitle">Led::set(...) or Status</text>
+    <text x="604" y="347" text-anchor="middle" class="subtitle">State + pulse session</text>
+    <text x="604" y="372" text-anchor="middle" class="subtitle">Commands + receipt statistics</text>
   </g>
   <path id="edge-caller-inbox" data-from="caller" data-to="inbox" d="M348 144 H450" class="edge"/>
   <text x="400" y="126" text-anchor="middle" class="edge-label">try_send</text>
   <path id="edge-inbox-owner" data-from="inbox" data-to="owner" d="M604 200 V286" class="edge"/>
-  <text x="620" y="248" text-anchor="start" class="edge-label">recv()</text>
+  <text x="620" y="248" text-anchor="start" class="edge-label">receive</text>
   <path id="edge-owner-ticket" data-from="owner" data-to="ticket" d="M452 344 H350" class="edge"/>
   <text x="400" y="326" text-anchor="middle" class="edge-label">reply</text>
   <path id="edge-ticket-caller" data-from="ticket" data-to="caller" d="M196 288 V202" class="edge"/>
   <text x="212" y="248" text-anchor="start" class="edge-label">wait returns</text>
-  <text x="400" y="444" text-anchor="middle" class="edge-label">Status is software-tracked; it does not read the pin.</text>
+  <text x="400" y="444" text-anchor="middle" class="edge-label">Task-context observations use weak, nonblocking admission.</text>
 
   <g id="group-shutdown"><rect x="24" y="508" width="752" height="376" rx="21" fill="#F4F7FB" stroke="#CCD9E6" stroke-width="1.2"/><text x="48" y="543" class="label" font-size="21">stop() consumes the controller</text></g>
   <g id="node-close" data-panel="true">
     <rect x="44" y="568" width="218" height="112" rx="15" class="card" filter="url(#shadow)"/>
     <rect x="59" y="588" width="4" height="72" rx="2" fill="#F08A4B"/>
     <text x="153" y="600" text-anchor="middle" class="label" font-size="22">Close admission</text>
-    <text x="153" y="627" text-anchor="middle" class="subtitle">Drop the sole sender</text>
+    <text x="153" y="627" text-anchor="middle" class="subtitle">Drop owned sender</text>
     <text x="153" y="652" text-anchor="middle" class="subtitle">No stop message</text>
   </g>
   <g id="node-drain" data-panel="true">
@@ -75,25 +75,25 @@
 
     <text x="399" y="600" text-anchor="middle" class="label" font-size="22">Drain the inbox</text>
     <text x="399" y="627" text-anchor="middle" class="subtitle">Finish admitted work</text>
-    <text x="399" y="652" text-anchor="middle" class="subtitle">Then recv() disconnects</text>
+    <text x="399" y="652" text-anchor="middle" class="subtitle">Observe disconnect</text>
   </g>
   <g id="node-off" data-panel="true">
     <rect x="536" y="568" width="218" height="112" rx="15" class="card" filter="url(#shadow)"/>
 
-    <text x="645" y="600" text-anchor="middle" class="label" font-size="22">Request output off</text>
-    <text x="645" y="627" text-anchor="middle" class="subtitle">One final Led::set</text>
-    <text x="645" y="652" text-anchor="middle" class="subtitle">Track its result</text>
+    <text x="645" y="600" text-anchor="middle" class="label" font-size="22">Stop acquisition</text>
+    <text x="645" y="627" text-anchor="middle" class="subtitle">Output off · cancel</text>
+    <text x="645" y="652" text-anchor="middle" class="subtitle">Join source worker</text>
   </g>
   <path id="edge-close-drain" data-from="close" data-to="drain" d="M262 624 H288" class="edge"/>
   <path id="edge-drain-off" data-from="drain" data-to="off" d="M508 624 H534" class="edge"/>
   <g id="node-joined" data-panel="true">
     <rect x="132" y="744" width="536" height="112" rx="15" class="card" filter="url(#shadow)"/>
     <rect x="147" y="764" width="4" height="72" rx="2" fill="#73B9E2"/>
-    <text x="400" y="776" text-anchor="middle" class="label" font-size="22">join() returns Stopped&lt;L&gt;</text>
-    <text x="400" y="803" text-anchor="middle" class="subtitle">Output ownership returns after the worker ends</text>
-    <text x="400" y="828" text-anchor="middle" class="subtitle">An off failure keeps the output and its error</text>
+    <text x="400" y="776" text-anchor="middle" class="label" font-size="22">join() returns Stopped</text>
+    <text x="400" y="803" text-anchor="middle" class="subtitle">Owner ends after source shutdown is attempted</text>
+    <text x="400" y="828" text-anchor="middle" class="subtitle">Retain final state, statistics and cleanup errors</text>
   </g>
   <path id="edge-off-joined" data-from="off" data-to="joined" d="M645 680 V710 H400 V742" class="edge"/>
-  <text x="400" y="920" text-anchor="middle" class="edge-label">A synchronous Led::set call has no shutdown deadline.</text>
+  <text x="400" y="920" text-anchor="middle" class="edge-label">Native operations must return for joined shutdown to finish.</text>
 
 </svg>

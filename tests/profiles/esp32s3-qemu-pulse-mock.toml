@@ -1,0 +1,5 @@
+# Exercise the controller's Rust and NuttX path with explicit synthetic pulses.
+extends = "esp32s3-qemu-mock"
+
+[hal]
+pulse = "mock"
