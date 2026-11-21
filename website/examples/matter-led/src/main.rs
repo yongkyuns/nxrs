@@ -7,6 +7,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use async_signal::{Signal, Signals};
+use embassy_time::{Instant, Timer};
 use futures_lite::{StreamExt, future};
 use led::Led;
 use nxrs_controller_demo::{Command, Controller, State, SubmitError};
@@ -22,11 +23,13 @@ use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_DET};
 use rs_matter::dm::endpoints::ROOT_ENDPOINT_ID;
 use rs_matter::dm::networks::{SysNetifs, eth::EthNetwork};
 use rs_matter::dm::{
-    Async, Cluster, DataModel, Dataver, EmptyHandler, Endpoint, InvokeContext, Node, ReadContext,
+    Async, Cluster, DataModel, Dataver, EmptyHandler, Endpoint, HandlerContext, ImStats,
+    InvokeContext, Node, ReadContext,
 };
 use rs_matter::error::{Error, ErrorCode};
 use rs_matter::pairing::{
-    DiscoveryCapabilities, Spake2pVerifierPassword, Spake2pVerifierPasswordRef, qr::QrTextType,
+    DiscoveryCapabilities, Spake2pVerifierPassword, Spake2pVerifierPasswordRef,
+    qr::{CommFlowType, Qr, QrPayload, QrTextType, no_optional_data},
 };
 use rs_matter::persist::DirKvBlobStore;
 use rs_matter::stack::MatterStack;
@@ -122,6 +125,20 @@ impl<L: Led + Send + 'static> on_off::ClusterHandler for Light<'_, L> {
         self.command(Command::Status)
     }
 
+    async fn run(&self, ctx: impl HandlerContext) -> Result<(), Error> {
+        let stats = ctx.im_stats();
+        // The SDK schedules the next keep-alive after the subscriber receives the
+        // initial report. A restored subscription is immediately due until then.
+        while !stats
+            .next_keep_alive_at()
+            .is_some_and(|deadline| deadline > Instant::now())
+        {
+            Timer::after_millis(100).await;
+        }
+        println!("Ready to switch the light.");
+        future::pending().await
+    }
+
     fn handle_on(&self, ctx: impl InvokeContext) -> Result<(), Error> {
         self.set(true, ctx)
     }
@@ -213,6 +230,30 @@ fn state_lock(path: &Path) -> io::Result<File> {
     Ok(lock)
 }
 
+fn print_pairing_codes(pairing: BasicCommData) -> Result<(), Error> {
+    let manual_code = pairing.compute_pretty_pairing_code();
+    let payload = QrPayload::new(
+        DiscoveryCapabilities::IP,
+        CommFlowType::Standard,
+        pairing,
+        DEVICE.vid,
+        DEVICE.pid,
+        DEVICE.serial_no,
+        no_optional_data,
+    );
+    let text = payload.emit_chars().collect::<Result<String, Error>>()?;
+    let mut scratch = [0; 512];
+    let mut matrix = [0; 512];
+    let qr = Qr::compute(&text, &mut scratch, &mut matrix)?;
+    let image = qr
+        .emit_chars(QrTextType::Unicode, 4, false)
+        .collect::<String>();
+    println!("SetupQRCode: [{text}]");
+    println!("PairingCode: [{manual_code}]");
+    print!("{image}");
+    Ok(())
+}
+
 async fn serve<L: Led + Send + 'static>(
     controller: &Controller<L>,
     path: PathBuf,
@@ -220,15 +261,17 @@ async fn serve<L: Led + Send + 'static>(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // These eight-digit values avoid Matter's reserved repeated and sequential codes.
     let passcode = rand::random_range(80_000_000..87_000_000_u32);
-    let pairing = DevCommData::Passcode(BasicCommData {
+    let pairing = BasicCommData {
         password: Spake2pVerifierPassword::new_from_ref(Spake2pVerifierPasswordRef::new(
             &passcode.to_le_bytes(),
         )),
         discriminator: rand::random_range(0..4096),
-    });
-    let stack = STACK
-        .uninit()
-        .init_with(MatterStack::init(&DEVICE, pairing, &TEST_DEV_ATT));
+    };
+    let stack = STACK.uninit().init_with(MatterStack::init(
+        &DEVICE,
+        DevCommData::Passcode(pairing.clone()),
+        &TEST_DEV_ATT,
+    ));
     let crypto = default_crypto(rand::make_rng::<StdRng>(), DAC_PRIVKEY);
     let kv = stack.kv(DirKvBlobStore::new(path));
     stack.matter().startup(&kv)?;
@@ -238,10 +281,10 @@ async fn serve<L: Led + Send + 'static>(
         }
         let matter = stack.matter();
         matter.open_basic_comm_window(PAIRING_SECONDS, &crypto, &())?;
-        matter.print_standard_qr_text(DiscoveryCapabilities::IP)?;
-        matter.print_standard_qr_code(QrTextType::Unicode, DiscoveryCapabilities::IP)?;
+        print_pairing_codes(pairing)?;
     }
     println!("LED off");
+    println!("Waiting for the Matter controller.");
     let mut signals = Signals::new([Signal::Int, Signal::Term])?;
     future::race(
         async {

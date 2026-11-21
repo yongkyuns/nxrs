@@ -31,15 +31,10 @@ NXRS_PLATFORM=mock cargo +1.98.1 run --release --locked \
   --manifest-path website/examples/matter-led/Cargo.toml -- "$led_state" --pair
 ```
 
-The first run builds the pinned Matter SDK. Leave the terminal open after it
-prints the pairing information and `LED off`. The pairing window lasts three
-minutes. If it expires before pairing, stop with Ctrl+C and repeat the
-command to get a fresh code.
-
-If you see `LED off` during setup but the pairing code is missing, your
-`RUST_LOG` filter may be hiding it. Press Ctrl+C and rerun the command with
-`RUST_LOG=info` before `NXRS_PLATFORM=mock` to show the QR code and manual
-code for that run.
+The first run builds the pinned Matter SDK. The example prints the QR and
+manual codes in the terminal even when Rust logging is off. Leave the
+terminal open while you pair. The pairing window lasts three minutes. If it
+expires, stop with Ctrl+C and rerun with `--pair` to get a fresh code.
 
 ## Pair and switch the light
 
@@ -48,10 +43,11 @@ code for that run.
 2. Scan the terminal's QR code or enter the manual code shown beside it. Use
    the test-device option if the app prompts about an uncertified accessory.
    Keep the setup code and state directory private.
-3. Open **NXRS Simulated LED** on its device page. Toggle the light on,
-   then off. The entity should follow the switch, and the terminal should
-   show `LED on` and `LED off`. You can also add the light to a dashboard
-   or call `light.turn_on` and `light.turn_off` in an automation.
+3. Once the terminal shows `Ready to switch the light.`, open
+   **NXRS Simulated LED** and toggle it on, then off. The entity should
+   follow the switch, and the terminal should show `LED on` and `LED off`.
+   You can also add the light to a dashboard or call `light.turn_on` and
+   `light.turn_off` in an automation.
    [Home Assistant pairing steps](https://www.home-assistant.io/integrations/matter/#adding-a-matter-device-to-home-assistant).
 
 If the light doesn’t appear, check for an active pairing window and make
@@ -64,13 +60,10 @@ development attestation to pair this light.
 
 Press Ctrl+C to close the Matter service, switch the simulated LED off,
 and join the worker. To reuse the pairing, run the same command with the
-same state directory and omit `--pair`. The terminal prints `LED off` before
-the Matter connection is ready.
-
-With `RUST_LOG=info`, wait for `CASE session established` before switching the
-light in Home Assistant. If the switch fails or the light shows
-**Unavailable**, give it a few seconds to reconnect, then retry on the same
-device page using the existing pairing.
+same state directory and omit `--pair`. The light starts off and waits
+for Home Assistant to receive its first Matter state report. When the
+terminal prints `Ready to switch the light.`, use the same device page
+to switch it again.
 
 To pair again with a fresh identity, remove the old light from Home
 Assistant and choose a new state-directory path.
