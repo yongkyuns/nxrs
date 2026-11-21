@@ -591,14 +591,9 @@ fn join_device(device: device::Device<Bmi270Sensor>) {
     })
     .unwrap();
     let wake = cancel.reader.clone();
-    let mut worker = acquisition::Worker::start(
-        "imu-test",
-        16384,
-        cancel,
-        |_| Ok(()),
-        crate::Event::Failed,
-        move |stop, emit| run(device, stop, &wake, emit),
-    )
+    let mut worker = crate::session::start(16384, cancel, (|_| Ok(()), ()), move |stop, emit| {
+        run(device, stop, &wake, emit)
+    })
     .unwrap();
     crate::Session::join(&mut worker).unwrap();
     assert!(worker.is_finished());

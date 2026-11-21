@@ -64,7 +64,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
              nxrs-peripheral = {{ path = {:?} }}\n\
              bmi270 = {{ package = \"nxrs-bmi270\", path = {:?} }}\nlsm6dso = {{ package = \"nxrs-lsm6dso\", path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
-            source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
+            source.join("shared/messaging"), source.join("shared/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
             source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("tools/build-support")
         ),
     )

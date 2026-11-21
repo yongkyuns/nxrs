@@ -20,7 +20,7 @@ probe = ["imu", "dep:nxrs-messaging", "nxrs-imu/probe"]
 
 [dependencies]
 cfg-if = "=1.0.5"
-nxrs-acquisition = { path = "../hal/acquisition", optional = true }
+nxrs-acquisition = { path = "../shared/acquisition", optional = true }
 nxrs-gnss = { path = "../hal/gnss", optional = true }
 nxrs-imu = { path = "../hal/imu", optional = true }
 nxrs-messaging = { path = "../shared/messaging", optional = true }

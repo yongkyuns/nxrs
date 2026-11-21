@@ -19,6 +19,7 @@ Device configuration, ioctls, cancellable readiness, and radio-control operation
 | Operation | Appropriate boundary | What stays below the application |
 | --- | --- | --- |
 | Read or write an ordinary file | `std::fs` and `std::io` | Filesystem mount and native device setup |
+| Save small named settings records | `config::Store` | NuttX named record controls and descriptor ownership |
 | Exchange IP packets | `std::net` or an intentional packet-output contract | Interface and radio configuration |
 | Configure a peripheral bus transaction | Resource adapter using a Rust bus trait | Native request layout and bus descriptor |
 | Read or configure a particular chip | Chip driver | Register protocol and device-specific conversion |
@@ -70,6 +71,7 @@ Keep callbacks, buffers and descriptors alive until the producer has stopped. Fo
 | `hal/<capability>/` | Public capability API and implementations |
 | `hal/<capability>/src/platform/` | OS-specific implementation selection |
 | Provider-local `ffi/` directories | Native ABI bindings |
+| `shared/acquisition/` | Internal worker lifetimes, cancellation and readiness |
 | `platform/src/` or a product-owned composition package | Named devices and typed constructors |
 | `platform/<family>/profile.toml` and `platform/nuttx/` | Product and target configuration |
 | `service/` | Reusable application behavior |

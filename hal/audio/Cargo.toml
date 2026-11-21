@@ -13,8 +13,7 @@ platforms = ["nuttx"]
 
 [dependencies]
 cfg-if = "=1.0.5"
-nxrs-acquisition = { path = "../acquisition" }
-nxrs-messaging = { path = "../../shared/messaging", default-features = false }
+nxrs-acquisition = { path = "../../shared/acquisition" }
 
 [build-dependencies]
 nxrs-build-support = { path = "../../tools/build-support" }

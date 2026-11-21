@@ -4,8 +4,9 @@ use crate::device_state;
 
 use peripheral::imu::select_rate;
 
-type MockSession = acquisition::mock::Session<DeviceError>;
+use crate::session;
 use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
+use acquisition::mock::Timer;
 
 const INTERVAL_US: u32 = 10_000;
 
@@ -25,21 +26,6 @@ impl SyntheticImu {
             accel_mps2: [0.10, 0.0, 9.81],
             gyro_rps: [0.0, 0.0, gyro_z],
         }
-    }
-}
-
-impl Session for MockSession {
-    fn request_stop(&mut self) -> Result<(), DeviceError> {
-        MockSession::request_stop(self)
-    }
-    fn join(&mut self) -> Result<(), DeviceError> {
-        MockSession::join(self)
-    }
-    fn is_finished(&self) -> bool {
-        MockSession::is_finished(self)
-    }
-    fn dropped(&self) -> u32 {
-        MockSession::dropped(self)
     }
 }
 
@@ -86,19 +72,20 @@ impl crate::Device for SelectedDevice {
         sink: S,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
         let applied = self.resolve(config)?;
-        let mut retained = (sink, self.state.begin_use()?);
+        let delivery = (sink, self.state.begin_use()?);
         let mut model = SyntheticImu::default();
-        MockSession::start(
-            move |event| {
-                let retained = &mut retained; // The sink is destroyed before the device becomes available.
-                (retained.0)(event)
-            },
-            std::time::Duration::from_micros(u64::from(INTERVAL_US)),
-            DeviceError::Io,
-            Event::Failed,
-            move |now| Event::Sample(model.sample(now)),
-        )
+        let timer = Timer::default();
+        session::start(16_384, timer.clone(), delivery, move |stop, emit| {
+            timer
+                .run(
+                    stop,
+                    std::time::Duration::from_micros(u64::from(INTERVAL_US)),
+                    |now| emit(Event::Sample(model.sample(now))),
+                )
+                .map_err(|_| DeviceError::Io)
+        })
         .map(|session| (session, applied))
+        .map_err(|_| DeviceError::Io)
     }
 }
 pub mod devices {

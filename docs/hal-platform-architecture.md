@@ -15,7 +15,8 @@ may use their native OS or SDK. Native code does not all belong in `driver/`.
 | Ordinary files, sockets, threads, synchronization and time | Rust `std`, used directly |
 | Reusable chip protocols and hardware-resource adapters | `driver/<device-or-resource>` |
 | Managed capability behavior and private OS/SDK adapters | Owning `hal/<capability>` |
-| Shared acquisition worker, cancellation and readiness mechanisms | `hal/acquisition`, an implementation helper with no profile binding |
+| Task lifetimes, cancellation and native readiness | `shared/acquisition`, an internal dependency of the acquiring HALs |
+| Small persistent settings records | `hal/config` supplies storage; the application owns the record formats |
 | Device selection, resource bindings and execution budgets | Product profiles and build wiring |
 
 Use a capability-specific contract with explicit supported configuration,
@@ -26,10 +27,12 @@ and `gnss::Session` describe active acquisition lifetimes.
 
 A component does not automatically require a thread or queue. A driver may own
 execution when hardware or blocking operations require it; current IMU chip
-contracts create none. `nxrs-acquisition` shares implementation code and starts
-one worker per explicit call, not a shared executor. Shared scheduling requires
-bounded device work, fairness and cancellation/deadline qualification. Application
-and service execution are unchanged by this foundation cleanup.
+contracts create none. Each `Worker::start` in `shared/acquisition` starts one
+Rust thread. IMU and GNSS count lost measurements under backpressure and retain
+a terminal failure independently in the joined result. Audio owns a single
+latest-block slot and reports terminal faults through the stream. The shared
+worker receives a task body and caller state; the HAL defines what it delivers
+and when it releases the resource.
 
 The implemented [peripheral composition design](peripheral-composition.md)
 defines reusable sensor-specific drivers, embedded-hal resource adapters and
@@ -81,8 +84,8 @@ Resource adapters belong in `driver/<bus>`. `driver/i2c` implements
 resolved configuration and keeps acquisition and stream metadata policy.
 `driver/gpio` similarly owns NuttX interrupt registration and embedded-hal pin
 reads. Its task-context cleanup-failure hook lets the HAL retain quarantine even
-when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/pipe
-binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
+when setup or Drop fails. IMU, GNSS and audio reuse the NuttX poll/pipe binding
+in `shared/acquisition` and own their own sampling and delivery decisions.
 `driver/spi` provides bounded, single-CS `SpiDevice` transactions through the
 NuttX SPI character ABI. Chip drivers depend on bus traits, not these concrete adapters. There are no
 host bus backends, unavailable stubs or additional logical profile aliases.
@@ -105,6 +108,12 @@ recovery, deadlines, and error policy. Each capability owns its errors; shared
 delivery contracts do not imply a shared device-error enum. Generic channels and
 owned delivery results live in `shared/messaging`, below HAL and services. A
 producer accepts a typed callback; it never depends on a service inbox type.
+
+`config::Store` is the settings storage API. Home-cam uses it for Wi-Fi settings
+and gateway enrollment. NuttX provides named records through `/dev/config`;
+the Rust provider owns the descriptor and validates keys and buffer lengths.
+The application controls record encoding and when to read or commit a record.
+Use `std::fs` for ordinary files and product profiles for build configuration.
 
 Use ordinary qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and
 `std::sync` operations directly wherever available. One standard-library
@@ -325,9 +334,9 @@ Provider code should contain those native protocols, with generic behavior in
 shared Rust controllers/workers. The Linux providers intentionally share the
 same GIO/D-Bus resource/call protocol through the normal `nxrs-linux-gio` Cargo
 package under `driver/linux/gio/`. That package owns its one native ABI bridge;
-each HAL retains its schemas and device policy. IMU and GNSS similarly depend
-on `nxrs-acquisition` for shared session/mock/readiness machinery. Neither
-consumer source-includes Rust from a sibling package; capability errors stay local.
+each HAL retains its schemas and device policy. IMU, GNSS and audio depend on
+`nxrs-acquisition` for worker lifetimes and readiness. These are ordinary Cargo
+dependencies. Capability errors and delivery decisions stay local.
 
 Private FFI is owned by the provider that consumes it and lives beside that
 provider's Rust implementation. There is no parallel capability-level FFI tree.

@@ -64,7 +64,8 @@ class HalBoundariesTests(unittest.TestCase):
             device::Device::open(config, self.irq_path, trace, &self.state, open, initialize);
             state: DeviceState,
             storage: Mutex<Option<device::Device<S>>>,
-            Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
+            let delivery = (sink, Retained(self));
+            session::start(self.stack_bytes, cancel, delivery, run)
         """)
         self.write('tools/build-support/cargo/composition.rs', '''
             fn main() {
@@ -137,7 +138,7 @@ class HalBoundariesTests(unittest.TestCase):
         instance = self.root / 'hal/imu/src/platform/nuttx/instance.rs'
         original = instance.read_text()
         for removed in ['storage: Mutex<Option<device::Device<S>>>', 'state: DeviceState',
-                        'Worker::start_guarded', 'device::Device::open']:
+                        'session::start', 'Retained(self)', 'device::Device::open']:
             instance.write_text(original.replace(removed, 'missing'))
             self.assertTrue(any('guarded worker retirement' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
         instance.write_text(original)
@@ -172,7 +173,7 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
         runtime = self.root / "hal/gnss/src/platform/nuttx/mod.rs"
         original = runtime.read_text()
-        runtime.write_text(original.replace("Worker::start_guarded", "Worker::start"))
+        runtime.write_text(original.replace("Retained(self)", "()"))
         self.assertTrue(any("canonical state" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
         runtime.write_text(original)
         manifest = self.root / "hal/gnss/Cargo.toml"
@@ -235,6 +236,7 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_driver_and_sdk_build_packages_retain_native_inventory_and_behavior_checks(self):
         for name in ('driver/linux/gio/src/platform/linux/ffi/gio.c',
+                     'shared/acquisition/src/platform/nuttx/ffi/events.c',
                      'tools/detector-build-support/src/ffi/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
@@ -248,7 +250,8 @@ class HalBoundariesTests(unittest.TestCase):
                 self.write('hal/ffi-boundaries.toml', '')
 
     def test_driver_and_sdk_glue_cannot_move_outside_the_owning_source_module(self):
-        for name in ('driver/linux/gio/ffi/gio.c', 'tools/detector-build-support/compat.hpp'):
+        for name in ('driver/linux/gio/ffi/gio.c', 'shared/acquisition/ffi/nuttx/events.c',
+                     'tools/detector-build-support/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')

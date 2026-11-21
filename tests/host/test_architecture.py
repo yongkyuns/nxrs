@@ -24,6 +24,7 @@ class ArchitectureTests(unittest.TestCase):
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
                                ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
+                               ('acquisition', 'shared/acquisition'),
                                ('driver', 'driver/demo'), ('platform', 'tools/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
                                ('devices', 'platform'),
@@ -53,6 +54,16 @@ class ArchitectureTests(unittest.TestCase):
 
     def violations(self):
         return CHECK.inspect(self.metadata, self.root) + CHECK.inspect_sources(self.metadata, self.root)
+
+    def test_acquisition_is_internal_support(self):
+        self.add('imu', 'acquisition')
+        self.add('devices', 'acquisition')
+        self.add('acquisition', 'build-support', kind='build')
+        self.assertEqual(self.violations(), [])
+        for source in ('app', 'service'):
+            self.add(source, 'acquisition')
+            self.assertTrue(any(f'forbidden {source} -> support edge' in error
+                                for error in self.violations()))
 
     def test_catalogue_wires_drivers_but_only_apps_select_devices(self):
         for source, target in [('app', 'devices'), ('devices', 'imu'), ('devices', 'bmi270')]:

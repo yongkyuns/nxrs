@@ -451,7 +451,9 @@ for the declaration and normal build command. Catalogue sources remain local
 path packages; remote driver sources need a future resolved-package integration,
 not a second Cargo resolver.
 
-Shared acquisition/session code is the normal `nxrs-acquisition` dependency.
+Worker lifetimes and readiness come from the internal `nxrs-acquisition`
+dependency in `shared/acquisition`. Native preparation follows the consuming
+HAL's Cargo graph.
 Linux Wi-Fi and BLE share the `nxrs-linux-gio` package and one private GIO native
 archive; radio schemas and device policy stay in their HALs. Unbound and mock
 builds do not compile the GLib helper. `tests/host/test_external_consumers.py`
