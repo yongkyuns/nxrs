@@ -10,7 +10,9 @@ Give readers two ways through the material: a continuous learning path and a tas
 
 Domain-specific applications belong under Examples or application-specific reference notes. They may illustrate a general concept, but a reader should not need to understand sensor fusion, a camera pipeline, or any other product to learn the framework.
 
-Give each tutorial a task, prerequisites, commands, expected output, an explanation of the relevant files, and a next step. Distinguish a runnable example from a design illustration by naming it accordingly. Keep real configuration requirements near the operation they affect.
+Open a tutorial with what the reader will accomplish and what they need. Put prerequisites before the commands, then show the expected output and explain the files the reader will change. End with one practical next step. Label design examples so readers can tell which code they can run. Keep configuration requirements next to the step that uses them.
+
+Keep one main explanation for a concept. Link to it from the task that needs it, with enough context for the current step. Make link text and table headings describe the reader’s task. Use the same name for an interface across the guide, the examples, and the API reference.
 
 Use generated SVGs for topology, ownership, lifecycle, and build flow. Match the approved overall architecture; replace text sketches, including diagrams in tilde-fenced blocks. A directory inventory or a simple dependency mapping is usually clearer as a table. Preserve real code and terminal output. Explain a diagram's scope in its caption and keep small-screen reading possible through descriptive prose and a link to the full SVG.
 

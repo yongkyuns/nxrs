@@ -34,11 +34,9 @@
 <main id="main" class="project-home" tabindex="-1">
   <section class="project-intro" aria-labelledby="project-title">
     <div>
-      <p class="eyebrow">Firmware development with Rust and NuttX</p>
       <h1 id="project-title">NXRS</h1>
       <p class="lead">An experimental, general-purpose Rust firmware development environment built on NuttX.</p>
-      <p>Applications use ordinary Rust standard-library APIs, threads and event-driven components. NuttX supplies the RTOS and board support; NXRS provides the Rust integration, peripheral interfaces, reusable components and platform profiles.</p>
-      <p>Start with a small program on your computer, run it on NuttX, then add the interfaces and components your application needs. The guides explain the design choices, show working commands, and link to the code behind them.</p>
+      <p>Write firmware with Rust’s standard library and use NuttX for scheduling, drivers, and board support. Start with a small program on your computer, then run the same source on NuttX.</p>
       <p><a href="{{ url('guide/getting-started/') }}">Getting started →</a> · <a href="{{ url('guide/motivation/') }}">Why NXRS?</a></p>
     </div>
     <aside class="project-note" aria-labelledby="validation-title">
@@ -54,7 +52,7 @@
       <a href="{{ url('guide/' + key + '/') }}"><h3>{{ heading }}</h3><p>{{ description }}</p></a>
       {% endfor %}
     </nav>
-    <p><a href="{{ url('guide/start-here/') }}">Full guide index</a> · <a href="{{ url('guide/examples/') }}">Examples</a>{% if has_api %} · <a href="{{ url('api/') }}">Rust API reference</a>{% endif %} · <a href="{{ url('reference/') }}">Engineering reference</a></p>
+    <p><a href="{{ url('guide/start-here/') }}">Guide index</a>{% if has_api %} · <a href="{{ url('api/') }}">Rust API reference</a>{% endif %} · <a href="{{ url('reference/') }}">Engineering reference</a></p>
   </section>
   <section class="project-section" aria-labelledby="architecture-title">
     <h2 id="architecture-title">Architecture at a glance</h2>
@@ -64,12 +62,6 @@
       <img class="theme-dark" src="{{ url('assets/docs/assets/nxrs-architecture-dark.svg') }}" alt="Platform profiles configure reusable Rust applications, services, HALs and chip drivers. Parallel std and peripheral-wrapper paths lead to NuttX and the MCU." width="1200" height="810" loading="lazy">
     </div>
     <p class="section-link"><a href="{{ url('guide/overview/') }}">Architecture overview</a> · <a href="{{ url('guide/motivation/') }}">Design reasoning</a></p>
-  </section>
-  <section class="project-section" aria-labelledby="development-title">
-    <h2 id="development-title">From components to an application</h2>
-    <p>For a connected device, hardware access, command processing, recording and network communication can be separate components. The application decides how they interact; platform configuration supplies the device and resource bindings.</p>
-    <p>The documentation explains those responsibilities independently of the use case. Optional examples show both small API patterns and larger applications.</p>
-    <p><a href="{{ url('guide/designing-applications/') }}">Designing an application</a> · <a href="{{ url('guide/interfaces/') }}">Interfaces and APIs</a> · <a href="{{ url('guide/examples/') }}">Examples</a></p>
   </section>
 </main>
 {% elif kind == 'not-found' %}

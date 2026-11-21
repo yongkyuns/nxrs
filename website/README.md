@@ -11,7 +11,8 @@ The website is static HTML, CSS, and JavaScript generated from the guide and rep
 - `layout.html`: shared homepage and documentation layouts.
 - `static/`: local styles, search, theme, and navigation behavior.
 - `examples/basic-firmware/`: a dependency-free Cargo workspace used by the introductory guides.
-- `examples/controller/`: the runnable command/output controller, with bounded admission, completion tickets, and explicit shutdown.
+- `examples/controller/`: a runnable controller that switches an output and reports completed commands.
+- `examples/matter-led/`: the same controller and simulated LED, exposed as a Matter light to Home Assistant.
 - `../docs/`: maintained engineering references, rendered from their original Markdown sources.
 
 See [EDITORIAL.md](EDITORIAL.md) for the documentation structure and the external projects reviewed when organizing it. Retain a plain technical tone, concrete instructions, and links to implementation and tests.

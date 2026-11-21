@@ -1,8 +1,9 @@
 # Use an Nxrs camera in your application
 
-Start with one device on your home network and one app that uses it. The
-camera below is a working Nxrs example. You can follow the same development
-steps for a sensor or a device that controls something.
+Connect an NXRS camera to Home Assistant, a Matter controller, or your own
+viewer. If you’re new to Matter, start with the
+[simulated LED](../../website/examples/matter-led/README.md). It lets you try
+pairing and sending commands from Home Assistant without a camera or gateway.
 
 ## From a room to an app
 
@@ -28,30 +29,25 @@ controller is called *commissioning*.
 
 ## Build your first connected project
 
-1. **Run a program on your computer.** Follow [Your first application](../../website/guide/first-application.md#build-and-run-on-the-host)
-   to see `Hello from NXRS`. The [controller tutorial](../../website/guide/controller.md#run-the-controller-on-your-host)
-   then lets you turn a simulated LED on and off and read its state. Use the
-   [Matter LED example](../../website/examples/matter-led/README.md) to
-   switch the same kind of LED from Home Assistant and adapt it to your
-   own project.
-2. **Try the camera integration.** With a working camera and gateway, follow
-   [Connect Home Assistant](#connect-home-assistant). Without a camera board,
-   use the [phone pairing fixture](../tests/matter/README.md#pair-from-a-phone-on-the-lan),
-   which supplies generated video. Pair on the same home network, open and close
-   the live view, and find the occupancy sensor on the camera’s device page.
-3. **Add one behavior.** Set a Home Assistant automation to notify you when
-   the room changes from clear to occupied. In the fixture terminal, enter
-   `clear` and then `occupied` to test the rule. Enter `unavailable` to
-   check that Home Assistant reports missing updates separately from a
-   clear room.
-4. **Adapt the pattern.** For your own board, use a
-   [hardware profile](../../website/guide/profiles.md) to select its resources.
-   Give the application a small, testable job and report its state through the
-   interface your users need. A custom viewer can use the
-   [Nxrs gateway API](#use-the-nxrs-gateway-api). To expose a different kind of
-   device through Matter, implement its device type and the groups of states
-   and commands it requires, called *clusters*. Pair it and check each
-   advertised operation with the controller you plan to support.
+1. **Try pairing and control.** Run the
+   [simulated LED](../../website/examples/matter-led/README.md) and switch it
+   from Home Assistant. Read [Build a controller](../../website/guide/controller.md)
+   to see how the application confirms commands.
+2. **Try camera playback and occupancy.** If your camera and gateway are
+   running, follow [Connect Home Assistant](#connect-home-assistant).
+   To try it without a camera board, use the
+   [phone pairing fixture](../tests/matter/README.md#pair-from-a-phone-on-the-lan),
+   which supplies generated video. Open and close the live view, then find
+   the occupancy sensor on the device page.
+3. **Test an automation.** In Home Assistant, trigger a notification when the
+   sensor changes from clear to occupied. With the fixture, enter `clear`
+   and then `occupied` in its terminal. Enter `unavailable` to verify how
+   the automation handles missing updates.
+4. **Adapt the pattern.** A [hardware profile](../../website/guide/profiles.md)
+   selects the resources for your board. To expose another device over
+   Matter, implement its device type and required *clusters*, the groups of
+   states and commands a controller can use. Test each advertised operation
+   with your intended controller.
 
 ## Choose an integration path
 
@@ -124,10 +120,10 @@ app. The camera and occupancy results cover the endpoints shown below.
    for test attestation and onboarding.
 3. Add the Matter integration and a camera-capable Matter Server in Home
    Assistant. Put your phone, Matter Server and bridge on the selected LAN.
-   Start the bridge with its first-install commissioning window and scan its
-   QR code using **Add Matter device** in the Home Assistant mobile app. Keep
-   the state directory across restarts. [Home Assistant Matter setup and
-   camera requirements](https://www.home-assistant.io/integrations/matter/#matter-cameras).
+   Start the bridge with its first-install commissioning window. On your
+   phone, go to **Settings → Connectivity → Matter**, add a new device, and
+   scan the bridge’s QR code. Keep the bridge’s state directory across
+   restarts. [Home Assistant Matter setup and camera requirements](https://www.home-assistant.io/integrations/matter/#matter-cameras).
 4. Open the bridged camera from **Settings → Devices & services → Matter**.
    Play the live view, verify that the real image moves and close the view
    when finished. Find the occupancy entity on the device page and copy its

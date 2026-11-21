@@ -1,8 +1,6 @@
 # Testing and debugging
 
-Use host tests for application and component behavior, target builds for integration, and device runs for hardware behavior and resource measurements.
-
-Choose the smallest test that answers the question you are working on. A parsing change should be reproducible on the host. A change to native device control needs the matching target integration and device test as well.
+Choose the smallest test that answers your question. A host test can reproduce a parser error. A change to native device control also needs the matching NuttX build and a test on the board.
 
 ## Choose a test level
 

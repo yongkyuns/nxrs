@@ -1,10 +1,8 @@
 # Networking and storage
 
-Many firmware applications combine device control with communication and persistent data. Use standard Rust APIs for ordinary file and IP operations, then add an explicit ownership or delivery boundary where the workload needs one.
+Use standard Rust APIs for files and IP sockets. Add a worker when the application needs to keep making progress while I/O waits. The examples run from the NXRS checkout on your computer. On a device, enable the required network and filesystem resources in its profile.
 
-This chapter assumes you can run the [first application](first-application.md). The exercises below run on the host from the NXRS checkout. Target use additionally needs the selected profile's network and filesystem resources.
-
-The [Rust API reference](../api.md) includes `transport::udp`, `storage::recording`, and the related capability and service contracts. Use it to look up exact methods while working through these examples.
+See the [Rust API reference](../api.md) for `transport::udp`, `storage::recording`, and the related service contracts.
 
 ## Networking
 

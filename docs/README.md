@@ -47,6 +47,14 @@ These reports preserve the original investigation and evidence. Read the summari
 
 ## Application-specific notes
 
-The [examples guide](../website/guide/examples.md) separates introductory programs from application-specific code. The [event-driven application](event-driven-demo.md), [camera delivery](camera-detection-delivery.md), and [native camera clients](client-camera-architecture.md) references describe particular applications rather than requirements of the framework.
+Find runnable projects in the [examples guide](../website/guide/examples.md). These references explain the integrations in more detail.
+
+| If you want to… | Read |
+| --- | --- |
+| See how a sensor application connects its components | [Event-driven application](event-driven-demo.md) |
+| Follow camera frames and detection events to a viewer | [Camera delivery](camera-detection-delivery.md) and [Native camera clients](client-camera-architecture.md) |
+| Try Matter with no board | [Switch a simulated light from Home Assistant](../website/examples/matter-led/README.md) |
+| Connect a camera to Matter | [Camera integration](../gateway/matter/integration.md) and [Bridge configuration](../gateway/matter/README.md) |
+| Check controller compatibility and production requirements | [Matter validation](../gateway/tests/matter/README.md) and [Camera conformance](../gateway/tests/matter/conformance.md) |
 
 Implementation plans and historical reports remain in this directory. For current work on peripheral composition, see the [implementation plan](peripheral-composition-plan.md) and its linked issues.

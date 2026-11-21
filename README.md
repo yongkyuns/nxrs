@@ -43,14 +43,7 @@ cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --
 
 The program prints `Hello from NXRS`. It is an ordinary, self-contained Cargo application with no hardware dependencies. [Your first application](website/guide/first-application.md) explains its manifest and how to use it as a starting point.
 
-The standard-library application provides short examples of collections, channels, synchronization, and deadlines:
-
-```sh
-cargo run --locked -p nxrs-std-demo -- --list
-cargo run --locked -p nxrs-std-demo -- --case channels
-```
-
-Neither example requires a platform profile. Follow the [getting-started guide](website/guide/getting-started.md) for setup and the [firmware guide](website/guide/firmware.md) for NuttX builds.
+Follow [Getting started](website/guide/getting-started.md) for host setup and [Building for NuttX](website/guide/firmware.md) to boot your own application in QEMU. The [examples index](website/guide/examples.md) links runnable Rust recipes, a controller tutorial, and the simulated Matter light.
 
 ## Architecture
 

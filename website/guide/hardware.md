@@ -1,8 +1,6 @@
 # Drivers and HALs
 
-Hardware access is split between NuttX board support, Rust resource adapters, device drivers, and capability interfaces. This chapter helps you choose the right integration point, add a peripheral, and understand which behavior still needs a board test.
-
-Start with a working [NuttX build](firmware.md) and the [architecture overview](overview.md). You need the board schematic and the selected BSP's resource configuration before changing physical wiring.
+Use this guide to pick an API for a device or add support for a peripheral. Before changing physical wiring, check the board schematic, the NuttX board support package (BSP), and the [profile](profiles.md) used by your build.
 
 ## NuttX owns board support
 

@@ -1,14 +1,8 @@
 # Current status
 
-NXRS combines Rust standard-library integration for NuttX, reusable firmware components, platform profiles, and application build tooling.
-
-Use this page to decide which part of the repository to evaluate for your application. Support has three separate questions: does a configuration exist, is the needed provider implemented, and has the required behavior been exercised in that environment? A platform name alone answers none of the latter two.
+Check which targets and components NXRS supports, then follow the validation links for the behavior your project needs.
 
 ## Available components
-
-The repository includes Rust resource adapters and drivers, capability HALs, reusable services, and ordinary Cargo applications. The build frontend selects the application and profile, prepares the target integration, and records the resulting configuration and image.
-
-Applications can use standard-library facilities directly. [Standard-library APIs](standard-library.md), [Drivers and HALs](hardware.md), and [Profiles and overlays](profiles.md) describe the main interfaces and responsibilities.
 
 | Area | What is available | Where to begin |
 | --- | --- | --- |
